@@ -101,11 +101,13 @@ export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOC
 const SENTENCE = /(?<=[.!?])\s+/;
 const EXCEPTION = /(?<![A-Za-z])(?:except|but|other than|apart from|aside from|besides|unless|save for)(?![A-Za-z])/i;
 const PATH_LOCUS = /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/;
-/** A verb rating its subject against a severity (GST-1628: "rises to CRITICAL", "reaches the CRITICAL floor", "would meet", "qualifies as"), denying like "is" does; the severity it names closes the clause. */
-const RATE_VERB = `(?:(?:would|could|will|can|does|do|did)\\s+)?(?:ris(?:e|es|en)|rose|reach(?:es|ed)?|hits?|meets?|met|cross(?:es|ed)?|clear(?:s|ed)?|climb(?:s|ed)?|escalat(?:e|es|ed)|qualif(?:y|ies|ied)|count(?:s|ed)?|amount(?:s|ed)?)`
-  + `(?:\\s+(?:up\\s+)?(?:to|as|at))?\\s+(?:the\\s+(?:level\\s+of\\s+)?)?`;
+/** A verb rating its subject against a severity (GST-1628: "rises to CRITICAL", "reaches the CRITICAL floor", "would meet", "qualifies as"), denying like "is" does; the severity it names closes the clause.
+ * "the <label>" rates only with a floor noun after it: without one the verb may take the finding as its object ("Neither fix hits the P0"). */
+const RATE_VERB = `(?:(?:would|could|will|can|does|do|did)\\s+)?(?:ris(?:e|es|en)|rose|reach(?:es|ed)?|hits?|meets?|met|cross(?:es|ed)?|climb(?:s|ed)?|escalat(?:e|es|ed)|qualif(?:y|ies|ied)|count(?:s|ed)?|amount(?:s|ed)?)`
+  + `(?:\\s+(?:up\\s+)?(?:to|as|at))?\\s+`;
+const rates = (labels: string, nouns: string) => `${RATE_VERB}(?:(?:the\\s+level\\s+of\\s+)?${labels}(?:\\s+${nouns}(?![A-Za-z]))?|the\\s+${labels}\\s+${nouns}(?![A-Za-z]))`;
 const LABEL_LIST = `[*\`]*(?:${LABELS})[*\`]*(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*[*\`]*(?:${LABELS})[*\`]*)*(?![A-Za-z0-9])`;
-const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:is|are|was|were|would\\s+be|at)\\s+|${RATE_VERB})?${LABEL_LIST}(?=\\s*(?:issues?|findings?|problems?|regressions?|bugs?|defects?|blockers?|concerns?|items?|severity|impact|floor|bar|threshold|level|remains?|to\\s+report|here|found|introduced|[.;:,!?)—–-]|$))|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+${LABEL_LIST}\\s+(?:fix|finding|issue|bug|defect|blocker)(?:e?s)?(?![A-Za-z]))`, 'gi');
+const DENIED_OR_FIXED = new RegExp(`(?:(?<![A-Za-z])(?:nothing|none|no|neither|zero)(?:\\s+(?:of\\s+)?(?:these|them|this|it|other|else|further|new|remaining|the\\s+\\w+|\\w+\\s+findings?|findings?|issues?))?\\s+(?:else\\s+)?(?:(?:(?:is|are|was|were|would\\s+be|at)\\s+)?${LABEL_LIST}|${rates(LABEL_LIST, '(?:floor|bar|threshold|level)')})(?=\\s*(?:issues?|findings?|problems?|regressions?|bugs?|defects?|blockers?|concerns?|items?|severity|impact|remains?|to\\s+report|here|found|introduced|[.;:,!?)—–-]|$))|(?<![A-Za-z])(?:cover(?:s|ed)?|fix(?:es|ed)?|address(?:es|ed)?|resolve[sd]?|close[sd]?)\\s+(?:the|that|this)\\s+${LABEL_LIST}\\s+(?:fix|finding|issue|bug|defect|blocker)(?:e?s)?(?![A-Za-z]))`, 'gi');
 export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.test(t.replace(DENIED_OR_FIXED, ' ')) && !t.startsWith('{') && !t.startsWith('**') && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
   && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => !!rank(m[1]))
   && t.split(SENTENCE).filter(s => ANY_LABEL.test(s)).every(s => !PATH_LOCUS.test(s) && !EXCEPTION.test(s));
@@ -124,7 +126,7 @@ export const summaryCandidate = (t: string) => ANY_LABEL.test(t) && !ANY_LABEL.t
 const SEV = `[*\`]*(?:CRITICAL|INFORMATIONAL|Critical|Informational|High|HIGH|Medium|MEDIUM|Low|LOW|P[0-3])[*\`]*`;
 const SEV_LIST = `${SEV}(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*${SEV})*(?![A-Za-z0-9])`;
 const NOUN = '(?:issues?|findings?|defects?|bugs?|problems?|regressions?|blockers?|concerns?|items?|notes?|ones?)';
-const RATES = `${RATE_VERB}${SEV_LIST}(?:\\s+(?:severity|level|floor|bar|threshold))?`;
+const RATES = rates(SEV_LIST, '(?:severity|level|floor|bar|threshold)');
 const DENY = `(?<![A-Za-z])(?:(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|(?:(?:that|which)\\s+)?${RATES})`
   + `|nothing\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|there(?:'s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+(?:still\\s+)?(?:no|zero|nothing(?:\\s+at)?)\\s+${SEV_LIST}(?:\\s+${NOUN})?`
   + `|(?:nothing|none\\s+of\\s+(?:them|these|those|the\\s+(?:findings|fixes|notes|issues|changes))|neither(?:\\s+(?:finding|fix|note|issue|change|one)|\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))))`

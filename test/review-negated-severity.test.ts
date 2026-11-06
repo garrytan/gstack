@@ -87,4 +87,17 @@ describe('a sentence that denies a severity never collects at it (GST-1628)', ()
       'Unauthenticated input reaches the CRITICAL write path.', 'I found nothing CRITICAL. The retry loop rises to CRITICAL.', '- Nothing reaches CRITICAL.', 'Nothing reaches CRITICAL. Blocks: yes'])
       expect([line, labels(line)]).toEqual([line, ['CRITICAL']]);
   });
+  // Value: protects=a verb that takes the severity as its object ("Neither fix clears the P0.", a fix-check reader's surviving blocker)
+  //   and a label followed by a word that only starts like a floor noun ("no CRITICAL barrier") keep their label and are no summary
+  //   candidate; fails_when=either collects nothing or becomes dismissible, or the floor nouns widen the pre-GST-1628 denial ("No CRITICAL
+  //   level."); why_new=#4075's Step 11 voices showed both dropping a blocker at 049c0fb; seam=parseFindings and summaryCandidate;
+  //   no_claim=that each control is a real finding
+  test('an object-taking verb and a look-alike floor noun keep their label', () => {
+    for (const [line, want] of [['Neither fix clears the P0.', ['P0']], ['None of the changes clears the CRITICAL.', ['CRITICAL']], ['Neither fix hits the P0.', ['P0']],
+      ['Nothing reaches the CRITICAL.', ['CRITICAL']], ['There is no CRITICAL barrier between tenants, so one tenant can overwrite another tenant\u2019s records.', ['CRITICAL']]] as const)
+      expect([line, labels(line)]).toEqual([line, [...want]]);
+    for (const line of ['Neither fix clears the P0.', 'None of the patches clears the CRITICAL.', 'Nothing hits the CRITICAL.', 'No CRITICAL level.',
+      'There is no CRITICAL barrier between tenants, so one tenant can overwrite another tenant\u2019s records.'])
+      expect([line, summaryCandidate(line)]).toEqual([line, false]);
+  });
 });
