@@ -36,6 +36,7 @@ import { runScriptSync } from './script-invocation';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides } from './stamp-only';
 import { classifyFiles } from './tree-receipt';
+import { mergeChangelogs } from './changelog-check';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
 import { carriedAudits, docsExceptionLine, parseReceiptDocs, type CarriedAudit } from './ship-receipt-docs';
 
@@ -650,22 +651,52 @@ export const plainDocsSince = (root: string, from: string, head: string, base: s
 function productChangeSince(root: string, base: string, from: string, head: string): { since: string; stamps: string[] } | null {
   const own = ownChangeSince(root, base, from, head);
   if (!own) return null;
-  const stamps = stampPathsSince(root, base, from, own);
+  const stamps = stampPathsSince(root, base, from, own, head);
   if (!stamps.length) return { since: own, stamps };
   const since = ownChangeSince(root, base, from, head, stamps);
   return since ? { since, stamps } : null;
 }
 
-/** The paths whose change from `from` to `since` is a release stamp under the base policy (classifyFiles); none when the policy, either version or the diff cannot be read. */
-function stampPathsSince(root: string, base: string, from: string, since: string): string[] {
+/**
+ * The paths whose change from `from` to `since` is a release stamp under the base policy (classifyFiles); none when the policy,
+ * either version or the diff cannot be read. When origin/<base> changed the CHANGELOG between `from`'s merge base and `head`'s,
+ * the CHANGELOG is read against `from`'s merged with the base's (mergeChangelogs, as a base merge resolves it), so the released
+ * sections a base merge brings are not counted as the PR's own change; an unmergeable pair keeps `from`'s and fails closed.
+ */
+function stampPathsSince(root: string, base: string, from: string, since: string, head: string): string[] {
   const { ref, sha } = writeBase(root, base);
   const load = sha ? loadPolicyAt(root, sha, ref) : null;
-  if (!load || isUnavailable(load) || load.errors.length) return [];
+  if (!sha || !load || isUnavailable(load) || load.errors.length) return [];
   const was = versionAtRef(root, from), now = versionAtRef(root, since);
   if (!('version' in was) || !('version' in now)) return [];
-  const d = spawnSync('git', ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', from, since], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  const gated = (load.policy.changelog && baseMergedChangelogCommit(root, load.policy.changelog, sha, from, head)) || from;
+  const d = spawnSync('git', ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', gated, since], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   if (d.status !== 0) return [];
-  return classifyFiles(root, parseUnifiedDiff(d.stdout.replace(/\n$/, '')), from, since, load.policy, now.rel, was.version, now.version, branchSides(root, ref, from, was.version)).filter(f => f.verdict === 'stamp').map(f => f.path);
+  return classifyFiles(root, parseUnifiedDiff(d.stdout.replace(/\n$/, '')), gated, since, load.policy, now.rel, was.version, now.version, branchSides(root, ref, from, was.version)).filter(f => f.verdict === 'stamp').map(f => f.path);
+}
+
+/** A commit on `from` whose CHANGELOG is `from`'s merged with the base's at `head`'s merge base; null when the base did not change it since `from`'s merge base or the pair does not merge. */
+function baseMergedChangelogCommit(root: string, rel: string, baseSha: string, from: string, head: string): string | null {
+  const run = (args: string[], env?: NodeJS.ProcessEnv, input?: string) => {
+    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const mbFrom = git(root, ['merge-base', baseSha, from]), mbHead = git(root, ['merge-base', baseSha, head]);
+  if (!mbFrom.ok || !mbHead.ok || mbFrom.out === mbHead.out) return null;
+  const ours = run(['show', `${from}:${rel}`]), theirs = run(['show', `${mbHead.out}:${rel}`]);
+  if (ours === null || theirs === null || theirs === run(['show', `${mbFrom.out}:${rel}`])) return null;
+  const merged = mergeChangelogs(ours, theirs);
+  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
+  if (merged === null || !gitDir.ok) return null;
+  const index = path.join(gitDir.out, `gstack-changelog-${process.pid}-${randomBytes(4).toString('hex')}.index`);
+  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
+  try {
+    const mode = run(['--literal-pathspecs', 'ls-tree', from, '--', rel])?.split(' ')[0];
+    const blob = run(['hash-object', '-w', '--stdin'], undefined, merged)?.trim();
+    if (!mode || !blob || run(['read-tree', from], env) === null || run(['update-index', '--cacheinfo', `${mode},${blob},${rel}`], env) === null) return null;
+    const tree = run(['write-tree'], env)?.trim();
+    return (tree && run(['commit-tree', '--no-gpg-sign', tree, '-p', from, '-m', 'gstack-ship-receipt: the CHANGELOG with the base merged'], env)?.trim()) || null;
+  } finally { fs.rmSync(index, { force: true }); }
 }
 /** Words that make a docs line a money, security, secret or auth claim for plainDocsSince: deliberately broad, since a false hit only reruns the reader. */
 const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'cap', 'caps', 'capped', 'usd', 'dollar', 'dollars', 'paid', 'pay', 'payment', 'payments', 'refund', 'refunds',

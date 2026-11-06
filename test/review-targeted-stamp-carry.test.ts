@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { checkoutTree } from '../lib/review-brief';
-import { BASE_POLICY, cleanup, makeFixtureRepo, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { BASE_POLICY, cleanup, makeFixtureRepo, mergeMain, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 setDefaultTimeout(180_000);
 const repos: FixtureRepo[] = [];
@@ -49,11 +49,11 @@ function readBranch(): { repo: FixtureRepo; read: string; record: string; ran: s
 }
 
 /** /ship Step 12's restamp to 1.2.5.0, committed: VERSION, manifests, the CHANGELOG re-heading and the stamp_patterns line. */
-function restampTo(repo: FixtureRepo): void {
-  const r = restamp(repo, ['--version', '1.2.5.0']);
+function restampTo(repo: FixtureRepo, version = '1.2.5.0'): void {
+  const r = restamp(repo, ['--version', version]);
   expect(r.status, r.err).toBe(EXIT.ok);
-  repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'restamp 1.2.5.0');
-  expect(fs.readFileSync(path.join(repo.work, 'src', 'meta.ts'), 'utf8')).toBe("export const CHARGE_SINCE = '1.2.5.0';\n");
+  repo.git('add', '-A'); repo.git('commit', '-q', '-m', `restamp ${version}`);
+  expect(fs.readFileSync(path.join(repo.work, 'src', 'meta.ts'), 'utf8')).toBe(`export const CHARGE_SINCE = '${version}';\n`);
 }
 
 const write = (repo: FixtureRepo, record: string) => runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', `@${record}`, '--json']);
@@ -79,6 +79,41 @@ describe('GST-1689: the receipt and the review plan agree on what carries a targ
     expect(p.out).toContain('NEXT: done');
     expect(dispatches(p.out)).toEqual([]);
     expect(p.out).toContain('is plain docs and release stamps, which the targeted record carries');
+  });
+
+  // Value: protects=a restamp alone after the read is release stamps, which carry the record, with the plan's stamps-only reason;
+  //   fails_when=an empty docs remainder stops counting as plain; seam=gstack-ship-receipt write and the plan's skip reason
+  test('restamp alone: write binds the record and the plan is done', () => {
+    const { repo, read, record, ran } = readBranch();
+    restampTo(repo);
+    const w = write(repo, record);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(JSON.parse(w.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+    const p = planAfter(repo, read, ran);
+    expect(p.out).toContain('NEXT: done');
+    expect(dispatches(p.out)).toEqual([]);
+    expect(p.out).toContain('is release stamps, which the targeted record carries');
+  });
+
+  // Value: protects=a slot restamp after a base merge brought a sibling release whose CHANGELOG entry has a numeric line still
+  //   carries the record: main's released section is not the PR's docs change; fails_when=the CHANGELOG is classified against the
+  //   pre-merge read, so write refuses and the plan dispatches the reader; seam=gstack-ship-receipt write and gstack-review-plan
+  test('base merge with a sibling release, then restamp: write binds the record and the plan is done', () => {
+    const { repo, read, record, ran } = readBranch();
+    repo.git('checkout', '-q', 'main');
+    const cl = fs.readFileSync(path.join(repo.work, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', '# Changelog\n\n## [1.2.5.0] - 2026-10-20\n\n- Cuts startup time by 40%.\n');
+    commit(repo, { 'CHANGELOG.md': cl, VERSION: '1.2.5.0\n' }, 'sibling release');
+    repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feat');
+    mergeMain(repo);
+    restampTo(repo, '1.2.6.0');
+    const w = write(repo, record);
+    expect(w.status, w.err).toBe(EXIT.ok);
+    expect(JSON.parse(w.out).review_targeted).toMatchObject({ classes: ['money'], status: 'done' });
+    const p = planAfter(repo, read, ran);
+    expect(p.out).toContain('NEXT: done');
+    expect(dispatches(p.out)).toEqual([]);
+    expect(p.out).toContain('is release stamps, which the targeted record carries');
   });
 
   // Value: protects=a one-line code change after the read still drops the record, release stamps beside it or not; fails_when=the
