@@ -197,6 +197,29 @@ describe('error text is scrubbed of the typed values', () => {
     write('goto', ['https://example.com'], 'net::ERR_NAME_NOT_RESOLVED at https://example.com');
     expect(line().error).toBe('net::ERR_NAME_NOT_RESOLVED at https://example.com');
   });
+
+  it('pipe-form chain tokenizes quoted values like chain does, so an unquoted echo is scrubbed', () => {
+    write('chain', ['goto https://example.com | fill #pw "correct horse"'], 'fill failed: value correct horse rejected');
+    expect(raw()).not.toMatch(/correct|horse/);
+    expect(line().args).toBe('goto https://example.com | fill #pw [REDACTED]');
+  });
+
+  it('pipe-form js with a quoted inner --out keeps nothing of the expression', () => {
+    write('chain', ['goto https://x | js "a --out b"']);
+    expect(line().args).toBe('goto https://x | js [REDACTED]');
+  });
+
+  it('scrubs a token a js error echoes without its surrounding punctuation', () => {
+    write('js', ["localStorage.setItem('t', sk_live_abcdef123)"], 'ReferenceError: sk_live_abcdef123 is not defined');
+    expect(raw()).not.toContain('sk_live_abcdef123');
+  });
+
+  it('matches a short value only as a whole token', () => {
+    write('type', ['a'], 'type a: failed at a step');
+    expect(line().error).toBe('type [REDACTED]: failed at [REDACTED] step');
+    write('fill', ['#otp', '5000'], 'locator.fill: Timeout 5000ms exceeded; value 5000 rejected');
+    expect(line().error).toBe('locator.fill: Timeout 5000ms exceeded; value [REDACTED] rejected');
+  });
 });
 
 describe('dialog log line (browse-dialog.log)', () => {

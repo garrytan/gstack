@@ -224,6 +224,25 @@ export function canonicalizeCommand(cmd: string): string {
   return COMMAND_ALIASES[cmd] ?? cmd;
 }
 
+/** Tokenize a chain pipe segment respecting double-quoted strings. Shared by chain and its audit redaction. */
+export function tokenizePipeSegment(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuote = false;
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+    } else if (ch === ' ' && !inQuote) {
+      if (current) { tokens.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
 /**
  * Commands added in specific versions — enables future "this command was added in vX"
  * upgrade hints in unknown-command errors. Only helps agents on *newer* browse builds

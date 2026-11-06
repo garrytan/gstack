@@ -19,7 +19,7 @@
  * All writes are best-effort — audit failures never cause command failures.
  */
 
-import { canonicalizeCommand } from './commands';
+import { canonicalizeCommand, tokenizePipeSegment } from './commands';
 import { appendSecureFile } from './file-permissions';
 
 export interface AuditEntry {
@@ -68,7 +68,9 @@ function redactChain(flow: string): RedactedArgs {
   try {
     steps = JSON.parse(flow);
   } catch {
-    const segments = flow.split(' | ').map(seg => redactStep(seg.trim().split(/\s+/)).join(' '));
+    const segments = flow.split(' | ')
+      .filter(seg => seg.trim().length > 0)
+      .map(seg => redactStep(tokenizePipeSegment(seg.trim())).join(' '));
     return { args: [segments.join(' | ')], secrets };
   }
   const isCommandList = Array.isArray(steps)
@@ -137,23 +139,31 @@ export function redactCommandArgs(rawCmd: string, args: string[]): RedactedArgs 
   }
 }
 
-/** Remove every redacted value, its JSON-escaped form and each 4+ char word of it from text. */
+/**
+ * Remove every redacted value, its JSON-escaped form and each 4+ char piece of it
+ * (split on whitespace and on punctuation, since a js error echoes a bare
+ * identifier) from text. Needles under 6 chars match only as whole tokens, so a
+ * short value neither shreds the error nor shows through the text around it.
+ */
 export function scrubSecrets(text: string, secrets: string[]): string {
   const needles = new Set<string>();
   for (const secret of secrets) {
     if (!secret) continue;
     needles.add(secret);
     needles.add(JSON.stringify(secret).slice(1, -1));
-    for (const word of secret.split(/\s+/)) {
-      if (word.length >= 4) {
-        needles.add(word);
-        needles.add(JSON.stringify(word).slice(1, -1));
+    for (const piece of [...secret.split(/\s+/), ...secret.split(/[^A-Za-z0-9_$.-]+/)]) {
+      if (piece.length >= 4) {
+        needles.add(piece);
+        needles.add(JSON.stringify(piece).slice(1, -1));
       }
     }
   }
   let out = text;
   for (const needle of [...needles].sort((a, b) => b.length - a.length)) {
-    if (needle) out = out.split(needle).join(REDACTED);
+    if (!needle) continue;
+    if (needle.length >= 6) { out = out.split(needle).join(REDACTED); continue; }
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'g'), REDACTED);
   }
   return out;
 }

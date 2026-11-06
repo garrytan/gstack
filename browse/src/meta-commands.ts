@@ -5,7 +5,7 @@
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
-import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
+import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand, tokenizePipeSegment } from './commands';
 import { handleDomainSkillCommand } from './domain-skill-commands';
 import { handleSkillCommand } from './browser-skill-commands';
 import { validateNavigationUrl } from './url-validation';
@@ -21,25 +21,6 @@ import { reassertDevice, refuseWhileDevice, screenshotTab } from './device-emula
 import { resolveConfig } from './config';
 import { filterSessionCookies } from './session-persist';
 import type { Frame } from 'playwright';
-
-/** Tokenize a pipe segment respecting double-quoted strings. */
-function tokenizePipeSegment(segment: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let inQuote = false;
-  for (let i = 0; i < segment.length; i++) {
-    const ch = segment[i];
-    if (ch === '"') {
-      inQuote = !inQuote;
-    } else if (ch === ' ' && !inQuote) {
-      if (current) { tokens.push(current); current = ''; }
-    } else {
-      current += ch;
-    }
-  }
-  if (current) tokens.push(current);
-  return tokens;
-}
 
 // ─── PDF flag parsing (make-pdf contract) ─────────────────────────────
 //
