@@ -1821,8 +1821,11 @@ STOP tells the lane to plan the inserted Step 9 with `gstack-review-plan
 them). Edits after the review bound plan as a fix to a gate-class path, never
 as a note. Below the round cap that's a pass on the range (a fix-check under
 the lean panel). At the cap it stops for the owner, whose recorded grant
-(`--grant`) adds one scoped fix-check, never `done`. So `finish` never asks for
-a step the planner refuses.
+(`--grant`) adds one scoped fix-check, never `done`. When the last step was a
+fix-check, pass `--range-base` at that fix-check's commit: a new grant at a
+stop head after it plans the next link of the chain below (GST-1676), and the
+last link's own grant is refused. So `finish` never asks for a step the
+planner refuses.
 
 <a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
 fix-check after the first one (a merge resolution, say) logs its row with
@@ -1834,10 +1837,13 @@ newest row: while a row's `range_base` doesn't hold the reviewed tree, the link
 before it is the newest earlier row whose commit is that `range_base`. The chain
 counts only when it reaches a row whose `range_base` holds the reviewed tree and
 every link is a clean, committed read with its own approved
-`review_loop_grant`. An earlier link's grant must name a stop head before its
-commit, since that commit is where the next link starts, and a grant counts for
-one link only (the newest link that names it), so one grant never covers two
-fix-checks. A path counts as `fix_checked` when some link's range
+`review_loop_grant`. A link's grant may name any stop head inside its
+`range_base..commit`, its own commit included: the post-review flow grants
+each fix-check at the commit it reads, so link 1's stop head is link 2's
+`range_base` (founderstar#634, GST-1676). Grants are assigned newest link
+first and a grant counts for one link only, so one grant never covers two
+fix-checks: a lone grant naming that boundary goes to the newer link and leaves
+the older one ungranted. A path counts as `fix_checked` when some link's range
 touched it and it is unchanged since that link (or its patch against the base is
 still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
 (fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A

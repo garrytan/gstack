@@ -302,6 +302,54 @@ describe('finish chains contiguous fix-check rows (GST-1627)', () => {
   });
 });
 
+/**
+ * GST-1676 (founderstar#634, FOUN-117): the post-review flow grants each fix-check at its own stop head, which is the
+ * commit that fix-check reads. Link 1's grant names link 1's commit (05a0db1c) and link 2's names link 2's (9ab970db),
+ * so the boundary is both link 1's stop head and link 2's range_base.
+ */
+function postReviewShape() {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
+  ships.push(f);
+  const passHead = headOf(f);
+  const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+  const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
+  f.write({ 'src/x.ts': 'export const x = 3;\n' }); f.commit('edit after the review bound');
+  const link1 = headOf(f);
+  return { f, passHead, reviewed, reviewedBase, link1 };
+}
+
+describe('finish counts a post-review fix-check chain whose grants name each link\'s own commit (GST-1676)', () => {
+  // Value: protects=the #634 shape binds: link 1's grant names its own commit, which is also link 2's range_base, and link 2's
+  //   grant names link 2's commit, so each link has its own grant and the chain counts; fails_when=finish refuses an earlier
+  //   link's grant at its own commit (FIX_CHECK: not counted ... link 1 of 2) and src/x.ts routes as behavior;
+  //   seam=finish's per-link grant assignment
+  test('#634: two post-review links, each granted at its own commit, and finish counts the chain', () => {
+    const { f, passHead, reviewed, reviewedBase, link1 } = postReviewShape();
+    const g1 = grantLink(f, link1, 'fc1');
+    logLink(f, passHead);
+    f.write({ 'test/x.test.ts': TEST_V2 }); f.commit('a second edit after the review bound');
+    const link2 = headOf(f);
+    const g2 = grantLink(f, link2, 'fc2');
+    logLink(f, link1);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check chain of 2 from ${passHead.slice(0, 12)}: at ${link1.slice(0, 12)} grant ${g1}; at ${link2.slice(0, 12)} grant ${g2})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* fix_checked=2$/)]);
+  });
+
+  // Value: protects=a grant at the boundary still counts once: with only link 1's grant (at link 1's commit) recorded, the newer
+  //   link takes it and link 1 stays ungranted; fails_when=one grant row counts for both links once an earlier link may use its
+  //   own commit; seam=finish's newest-first, one-grant-per-link assignment
+  test('only link 1\'s grant: it goes to the newer link, and link 1 is ungranted', () => {
+    const { f, passHead, reviewed, reviewedBase, link1 } = postReviewShape();
+    grantLink(f, link1, 'fc1');
+    logLink(f, passHead);
+    f.write({ 'test/x.test.ts': TEST_V2 }); f.commit('a second edit after the review bound');
+    logLink(f, link1);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, `FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit; fix-check at ${link1.slice(0, 12)}, link 1 of 2)`]);
+  });
+});
+
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
   const HEAD = '0123456789abcdef0123456789abcdef01234567';
   const row = (finding: string, o: Partial<{ ask: string; scope: string; by: string; outcome: string }> = {}) => {

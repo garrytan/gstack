@@ -113,6 +113,12 @@ incomplete coverage, which blocks until the reviewer is rerun.
    including a grant for a stop head before `--range-base` (an earlier /ship).
    A fix-check never earns another, so the grant cannot repeat, and a stop after
    the granted fix-check still goes to the owner. The cap approves nothing.
+   Edits that /ship Step 16 later finds after the review bound are a new stop: a
+   new grant at a stop head after the last fix-check's commit, passed as
+   `gstack-review-plan --post-review --last fix-check --range-base <that commit>
+   --grant <id>`, plans one more fix-check, the next link of the
+   [fix-check chain](ship-policy.md#fix-check-chain) (GST-1676). The last link's
+   own grant is refused there, so each link still needs the owner's word.
 
 <a id="transitions"></a>
 ### Transitions
@@ -137,6 +143,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
 | a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
+| `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
