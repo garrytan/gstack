@@ -21,7 +21,8 @@
 # is not a gstack checkout, HEAD is detached or not on the remote default
 # branch (a pin), any tracked byte is dirty, a local commit diverged, the
 # incoming release's Bun floor holds, or another updater holds the setup
-# lock; never stashes, never resets. Before any fetch it also refuses when
+# lock, unless the caller holds it and names its pid in GSTACK_SETUP_LOCK_OWNER;
+# never stashes, never resets. Before any fetch it also refuses when
 # bin/gstack-ff-update --preflight does: an enclosing project tracks the
 # install's files, or VERSION was put back behind HEAD (#1022). An unreachable remote is
 # UPGRADE_FETCH_FAILED (exit 3). While another live session holds a workflow
@@ -52,7 +53,7 @@ case "${1:-}" in
   --check) CHECK=1 ;;
   --ff-only-no-reinstall) REINSTALL=0 ;;
   '') ;;
-  -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-upgrade: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
@@ -240,17 +241,25 @@ fi
 
 # The same lock directory the session-start auto-updater (bin/gstack-session-update)
 # holds while it pulls and runs setup; a live holder means refuse, never wait.
+# A caller that took it first (bin/gstack-capy-session, before it switches a
+# pin to the default branch) hands it over with GSTACK_SETUP_LOCK_OWNER=<the
+# pid in the lock>; the lock stays the caller's to release.
 GSTACK_STATE_ROOT=$("$ROOT/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 LOCK_DIR="$GSTACK_STATE_ROOT/.setup-lock"
-mkdir -p "$GSTACK_STATE_ROOT" 2>/dev/null
-mkdir "$LOCK_DIR" 2>/dev/null || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
-echo "$$" > "$LOCK_DIR/pid"
-trap '[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
+LOCK_HANDED=0
+if [ -n "${GSTACK_SETUP_LOCK_OWNER:-}" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$GSTACK_SETUP_LOCK_OWNER" ]; then
+  LOCK_HANDED=1
+else
+  mkdir -p "$GSTACK_STATE_ROOT" 2>/dev/null
+  mkdir "$LOCK_DIR" 2>/dev/null || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
+  echo "$$" > "$LOCK_DIR/pid"
+  trap '[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
+fi
 
 git -C "$ROOT" merge --ff-only -q FETCH_HEAD 2>/dev/null || refuse "git merge --ff-only FETCH_HEAD failed" "git -C $ROOT status, then re-run"
 NEW=$(head -1 "$ROOT/VERSION")
 echo "gstack-upgrade: upgraded $INSTALLED -> $NEW"
-rm -rf "$LOCK_DIR"; trap - EXIT
+[ "$LOCK_HANDED" -eq 1 ] || { rm -rf "$LOCK_DIR"; trap - EXIT; }
 
 [ "$REINSTALL" -eq 1 ] || exit 0
 reinstall "$INSTALLED"

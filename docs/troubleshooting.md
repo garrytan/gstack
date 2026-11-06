@@ -1746,7 +1746,8 @@ yourself; or change the pin in the project.
 **Meaning.** An install-mode session start above the supported minimum found
 the checkout behind origin and could not fast-forward it: the checkout is
 dirty, diverged or pinned (`UPGRADE_REFUSED`), another live session holds a
-lease (`UPGRADE_BUSY`), `bin/gstack-upgrade` is missing, or the session is a
+lease or a /ship or review run is open on the state root (`UPGRADE_BUSY`,
+[deferred](#upgrade-busy)), `bin/gstack-upgrade` is missing, or the session is a
 `--for review-voice` reviewer, which never moves a checkout a lane may share
 (`UPGRADE_SKIPPED`). Nothing was changed, the doctor certified the installed
 revision, and the trailer stays `gstack: ok` with the notes above: a gap
@@ -1769,7 +1770,8 @@ of the oldest commit it lacks, and pinned by `GSTACK_CAPY_SELF_UPGRADE=off`,
 `GSTACK_CAPY_AUTO_UPGRADE=0`, a detached HEAD (`--revision`) or another branch,
 with no recorded reason. It checked out the default branch where needed and
 fast-forwarded. A dirty or diverged checkout is still never moved, and a live
-workflow lease or eval run still defers the upgrade (`UPGRADE_BUSY`). On
+workflow lease, eval run or open /ship or review run still defers the upgrade
+(`UPGRADE_BUSY`). On
 `--check` the trailer carries `stale=<h>h` with the install as its fix; unlike a
 bare `behind=`, run that fix before the first workflow.
 
@@ -1826,6 +1828,14 @@ this checkout (UPGRADE_BUSY))` and leaves the
 checkout where the run started. Each `gstack-skill-start` renews the lease
 and opens a run that its `gstack-skill-end` closes; a lease whose runs are all
 closed is idle and never counts (GST-1205).
+A run open on the state root defers the Capy install-mode upgrade whatever
+its lease's age (GST-1677): `SELF_UPGRADE: deferred (/ship run <id>
+(<ledger>) is open on this machine, so gstack stays at <version> until it
+ends (R75: upgrades wait for the workflow boundary); fix: <install> once the
+run ends (UPGRADE_BUSY))`, for a ship-budget ledger with no `closed_at`
+written in the last 6 hours, or `review run <token> (<file>)` for a review
+start under 120 minutes old that `gstack-review-log --finish` has not
+consumed.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
 every lease with its age and `alive|idle|dead|stale`; a holder is named as

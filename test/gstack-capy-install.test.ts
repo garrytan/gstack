@@ -318,6 +318,14 @@ describe('gstack-capy-install', () => {
     expect(lastLine(nofetch.stdout)).toBe('gstack: ok 1.2.3 for=autoplan (stale=no fetch from origin in 26h; fix: check network access to origin, then bash /s/install.sh --for autoplan)');
   });
 
+  // Value: protects=the no-fetch fix note names a command even when the installer runs without the bootstrapper's GSTACK_CAPY_WRAPPER_PATH
+  // (GST-1658: it ended in "then" with nothing after it); fails_when=the fix is truncated; why_new=GST-1658; seam=env; no_claim=none
+  test('trailer grammar: the no-fetch fix note is complete without GSTACK_CAPY_WRAPPER_PATH', () => {
+    const f = fixture();
+    const bare = run(f, ['--for', 'autoplan'], { GSTACK_CAPY_STALE: 'no fetch from origin in 26h' });
+    expect(lastLine(bare.stdout)).toBe('gstack: ok 1.2.3 for=autoplan (stale=no fetch from origin in 26h; fix: check network access to origin, then bash <skill>/scripts/install.sh --for autoplan)');
+  });
+
   test('a skipped session-start upgrade above the minimum is a WARN, never a fail: the trailer stays ok with behind=, the skip reason and the fix, exit 0, and a WARN behind row names the code', () => {
     const f = fixture();
     const busy = { GSTACK_CAPY_BEHIND: '3', GSTACK_CAPY_BEHIND_TO: '1.2.6', GSTACK_CAPY_BEHIND_FIX: `${f.root}/bin/gstack-upgrade`, GSTACK_CAPY_BEHIND_BLOCKED: 'live gstack sessions hold this installation: pid 379 (124m dbus-daemon); fix: wait for those sessions to finish, or re-run with GSTACK_UPGRADE_FORCE=1 when you know they are idle (UPGRADE_BUSY)' };

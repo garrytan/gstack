@@ -46,8 +46,13 @@
 # its fix at the install. Either way GSTACK_CAPY_STALE=<note> hands the
 # installer the trailer's `stale=` note, which also covers a failed fetch
 # with no successful one in 24 hours. Workflow boundary only: a live workflow
-# lease (above) or a live eval run (gstack-detach's ~/.gstack/locks/gstack-evals.lock)
-# skips every self-upgrade (UPGRADE_BUSY).
+# lease (above), a live eval run (gstack-detach's ~/.gstack/locks/gstack-evals.lock),
+# or a /ship or review run open on the state root (an unclosed ship-budget
+# ledger written in the last 6 hours, an unconsumed review start under 120
+# minutes old: open_run) skips every self-upgrade (UPGRADE_BUSY); an open run
+# prints `SELF_UPGRADE: deferred (<run> is open ...)` and --check says the same.
+# Below the supported minimum none of this applies: the bootstrapper's floor
+# rules run before this script.
 # --check never moves the checkout; behind origin it prints
 # `gstack-capy-session: behind origin/<branch>: <installed> -> <remote> (<n> commits); fix: ...`.
 # Whenever the session ends behind origin (--check, or a self-upgrade that was
@@ -129,11 +134,14 @@ fi
 RERUN="bash ${GSTACK_CAPY_WRAPPER_PATH:-<skill>/scripts/install.sh}${SKILL:+ --for $SKILL}"
 unset GSTACK_CAPY_STALE
 NOW=$(date +%s) STALE_H="" PIN_WHAT="" UNREASONED="" SWITCH=""
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; } # GNU, then BSD/macOS
 GIT_DIR_ABS=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)
 PIN_REASON="${GSTACK_PIN_REASON:-$(git -C "$ROOT" config --local --get gstack.pinReason 2>/dev/null)}"
 [ -n "$PIN_REASON" ] || [ -z "$REVISION_ARG" ] || PIN_REASON="--revision $REVISION_ARG"
-[ -n "$PIN_REASON" ] || [ "$(git -C "$ROOT" config --local --bool --get gstack.contributor 2>/dev/null)" != true ] || PIN_REASON="contributor checkout (gstack.contributor)"
-PIN_REASON=$(printf '%s' "$PIN_REASON" | tr ';\r\n' '   ' | tr -s ' ' | cut -c1-80)
+[ -n "$PIN_REASON" ] || [ "$(git -C "$ROOT" config --local --bool --get gstack.contributor 2>/dev/null)" != true ] || PIN_REASON="contributor checkout, gstack.contributor"
+# The reason rides the trailer inside `(pinned: ...)`: a note separator, a
+# colon (`fix:`) or a parenthesis would let it end that note and add its own.
+PIN_REASON=$(printf '%s' "$PIN_REASON" | tr -c 'A-Za-z0-9 ._/@#+=,-' ' ' | tr -s ' ' | sed 's/^ //; s/ $//' | cut -c1-80)
 DEFAULT_BRANCH=$(sed -n "1s/.*branch '\([^']*\)' of .*/\1/p" "$GIT_DIR_ABS/FETCH_HEAD" 2>/dev/null)
 # A failed fetch empties FETCH_HEAD and resets its mtime, so a successful one leaves its own stamp.
 if [ -n "${GSTACK_CAPY_REMOTE_MIN:-}" ] && [ "$GSTACK_CAPY_REMOTE_MIN" != unknown ] && [ -n "$GIT_DIR_ABS" ]; then
@@ -145,8 +153,8 @@ elif behind; then
   case "$_t" in ''|*[!0-9]*) ;; *) [ $((NOW - _t)) -gt 86400 ] && STALE_H=$(((NOW - _t) / 3600)) ;; esac
 elif [ "${GSTACK_CAPY_REMOTE_MIN:-}" = unknown ] && [ "$SKILL" != none ]; then
   _ft=""
-  if [ -f "$GIT_DIR_ABS/gstack-last-fetch" ]; then _ft=$(date -r "$GIT_DIR_ABS/gstack-last-fetch" +%s 2>/dev/null)
-  elif [ -s "$GIT_DIR_ABS/FETCH_HEAD" ]; then _ft=$(date -r "$GIT_DIR_ABS/FETCH_HEAD" +%s 2>/dev/null)
+  if [ -f "$GIT_DIR_ABS/gstack-last-fetch" ]; then _ft=$(mtime "$GIT_DIR_ABS/gstack-last-fetch")
+  elif [ -s "$GIT_DIR_ABS/FETCH_HEAD" ]; then _ft=$(mtime "$GIT_DIR_ABS/FETCH_HEAD")
   fi
   if [ -z "$_ft" ]; then export GSTACK_CAPY_STALE="no fetch from origin recorded"
   elif [ $((NOW - _ft)) -gt 86400 ]; then export GSTACK_CAPY_STALE="no fetch from origin in $(((NOW - _ft) / 3600))h"
@@ -159,6 +167,8 @@ if [ -n "$STALE_H" ]; then
   if [ -z "$_branch" ]; then PIN_WHAT="${PIN_WHAT:+$PIN_WHAT, }HEAD detached at $(git -C "$ROOT" rev-parse --short HEAD)"
   elif [ -n "$DEFAULT_BRANCH" ] && [ "$_branch" != "$DEFAULT_BRANCH" ]; then PIN_WHAT="${PIN_WHAT:+$PIN_WHAT, }on branch $_branch"
   fi
+  # A reason explains a pin; with nothing pinned there is nothing to explain.
+  [ -n "$PIN_WHAT" ] || PIN_REASON=""
   if gstack_doctor_install_profile "$SKILL"; then export GSTACK_CAPY_STALE="${STALE_H}h (shared checkout: the lane's install moves it)"
   elif [ -n "$PIN_REASON" ]; then export GSTACK_CAPY_STALE="${STALE_H}h (pinned: $PIN_REASON)"
   else
@@ -182,11 +192,40 @@ foreign_busy() {
   [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && [ -x "$ROOT/bin/gstack-lease" ] \
     && "$ROOT/bin/gstack-lease" live --root "$ROOT" --exclude-ancestry-of $$ --count-shared-harness >/dev/null 2>&1
 }
-# eval_live — a live eval run holds gstack-detach's machine-wide eval lock.
+# eval_live — a live eval run holds gstack-detach's machine-wide eval lock
+# (fcntl flock). Probed with flock(1), else python3 or perl (macOS has no
+# flock); with no probe at all a lock file counts as held.
 eval_live() {
   local lock="$HOME/.gstack/locks/gstack-evals.lock"
-  [ -f "$lock" ] && command -v flock >/dev/null 2>&1 && ! flock -n "$lock" true 2>/dev/null
+  [ -f "$lock" ] || return 1
+  if command -v flock >/dev/null 2>&1; then ! flock -n "$lock" true 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    ! python3 -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1], "a"), fcntl.LOCK_EX | fcntl.LOCK_NB)' "$lock" 2>/dev/null
+  elif command -v perl >/dev/null 2>&1; then
+    ! perl -e 'use Fcntl ":flock"; open(my $f, ">>", $ARGV[0]) or exit 1; flock($f, LOCK_EX | LOCK_NB) or exit 1' "$lock" 2>/dev/null
+  fi
 }
+# open_run — a /ship or review run open on this state root, printed as
+# "<kind> run <id> (<file>)": a ship-budget ledger with no closed_at that was
+# written in the last 6 hours (every /ship program ends with a note that
+# rewrites it, and Step 22's close stamps closed_at), or a review start capture
+# under 120 minutes old that gstack-review-log --finish has not consumed. The
+# age bounds keep an abandoned run from holding the upgrade back for good.
+open_run() {
+  local sr f
+  sr=$("$ROOT/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null) && [ -n "$sr" ] || return 1
+  while IFS= read -r f; do
+    grep -q '"kind": *"gstack-ship-budget"' "$f" 2>/dev/null && ! grep -q '"closed_at"' "$f" 2>/dev/null || continue
+    echo "/ship run $(basename "$(dirname "$f")") ($f)"
+    return 0
+  done < <(find "$sr/ship-runs" -mindepth 2 -maxdepth 2 -name budget.json -mmin -360 2>/dev/null)
+  f=$(find "$sr/projects" -mindepth 3 -maxdepth 3 -path '*/.review-starts/*.json' -mmin -120 2>/dev/null | head -1)
+  [ -n "$f" ] || return 1
+  echo "review run $(basename "$f" .json) ($f)"
+}
+RUN_OPEN=""
+behind && [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && RUN_OPEN=$(open_run)
+DEFERRED="${RUN_OPEN:+$RUN_OPEN is open on this machine, so gstack stays at $(head -1 "$ROOT/VERSION" 2>/dev/null) until it ends (R75: upgrades wait for the workflow boundary); fix: $RERUN once the run ends (UPGRADE_BUSY)}"
 if [ "$CHECK" -eq 1 ]; then
   if behind; then
     # The rerun fast-forwards only what gstack-upgrade would move; otherwise
@@ -203,6 +242,7 @@ if [ "$CHECK" -eq 1 ]; then
     BRANCH=$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null || echo HEAD)
     echo "gstack-capy-session: behind origin/$BRANCH: $(head -1 "$ROOT/VERSION" 2>/dev/null) -> $GSTACK_CAPY_BEHIND_TO ($GSTACK_CAPY_BEHIND commits); fix: $GSTACK_CAPY_BEHIND_FIX$([ "$GSTACK_CAPY_BEHIND_FIX" = "$RERUN" ] && echo ' (fast-forwards)')"
     [ -n "$STALE_H" ] && [ -z "$PIN_REASON" ] && ! gstack_doctor_install_profile "$SKILL" && echo "gstack-capy-session: stale: the oldest commit this checkout lacks is ${STALE_H}h old (over 24h); run the fix before the first workflow"
+    [ -n "$DEFERRED" ] && echo "gstack-capy-session: upgrade deferred ($DEFERRED)"
   fi
 elif [ "${GSTACK_CAPY_SELF_UPGRADED:-}" != 1 ]; then
   if [ "${GSTACK_CAPY_SELF_UPGRADE:-}" = off ] && [ -z "$UNREASONED" ]; then disabled GSTACK_CAPY_SELF_UPGRADE
@@ -233,28 +273,55 @@ EOF_OWN
     echo "SELF_UPGRADE: skipped ($REASON)"
     report_behind "$RERUN"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
+  elif [ -n "$DEFERRED" ]; then
+    echo "SELF_UPGRADE: deferred ($DEFERRED)"
+    report_behind "$RERUN"
+    export GSTACK_CAPY_BEHIND_BLOCKED="$DEFERRED"
   elif [ -n "$SWITCH" ] && foreign_busy; then
     REASON="live gstack sessions hold this installation, so the unreasoned pin ($PIN_WHAT) is not switched under them; fix: $RERUN once they finish (UPGRADE_BUSY)"
     echo "SELF_UPGRADE: skipped ($REASON)"
     report_behind "$RERUN"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
+  elif [ -n "$SWITCH" ] && ! { SETUP_LOCK="$("$ROOT/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null)/.setup-lock"; [ "$SETUP_LOCK" != /.setup-lock ] \
+    && mkdir -p "$(dirname "$SETUP_LOCK")" 2>/dev/null && mkdir "$SETUP_LOCK" 2>/dev/null && echo "$$" > "$SETUP_LOCK/pid"; }; then
+    # The switch and the fast-forward happen under gstack-upgrade's setup lock,
+    # taken here and handed over in GSTACK_SETUP_LOCK_OWNER, so a concurrent
+    # updater never sees the checkout between the two.
+    REASON="another gstack updater holds $SETUP_LOCK (pid $(cat "$SETUP_LOCK/pid" 2>/dev/null || echo unknown)), so the unreasoned pin ($PIN_WHAT) is not switched; fix: $RERUN once it finishes (UPGRADE_BUSY)"
+    echo "SELF_UPGRADE: skipped ($REASON)"
+    report_behind "$RERUN"
+    export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
   else
-    PRE_HEAD="" PRE_BRANCH="" NEW_BRANCH=""
+    PRE_HEAD="" PRE_BRANCH="" NEW_BRANCH="" RESTORE_FAILED=""
     if [ -n "$SWITCH" ]; then
+      trap '[ "$(cat "$SETUP_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$SETUP_LOCK"' EXIT
       PRE_HEAD=$(git -C "$ROOT" rev-parse HEAD) PRE_BRANCH=$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null)
       if git -C "$ROOT" show-ref --verify -q "refs/heads/$DEFAULT_BRANCH"; then git -C "$ROOT" checkout -q "$DEFAULT_BRANCH" 2>/dev/null || PRE_HEAD=""
-      elif git -C "$ROOT" checkout -q -b "$DEFAULT_BRANCH" 2>/dev/null; then NEW_BRANCH=1
+      elif git -C "$ROOT" checkout -q -b "$DEFAULT_BRANCH" 2>/dev/null; then
+        NEW_BRANCH=1
+        git -C "$ROOT" config "branch.$DEFAULT_BRANCH.remote" origin
+        git -C "$ROOT" config "branch.$DEFAULT_BRANCH.merge" "refs/heads/$DEFAULT_BRANCH"
       else PRE_HEAD=""
       fi
     fi
     OLD=$(head -1 "$ROOT/VERSION" 2>/dev/null)
-    UP_OUT=$("$ROOT/bin/gstack-upgrade" --ff-only-no-reinstall 2>&1); UP_RC=$?
+    LOCK_OWNER="${SWITCH:+$$}"
+    if [ -n "$LOCK_OWNER" ] && ! grep -q GSTACK_SETUP_LOCK_OWNER "$ROOT/bin/gstack-upgrade" 2>/dev/null; then rm -rf "$SETUP_LOCK"; trap - EXIT; LOCK_OWNER=""; fi
+    UP_OUT=$(GSTACK_SETUP_LOCK_OWNER="$LOCK_OWNER" "$ROOT/bin/gstack-upgrade" --ff-only-no-reinstall 2>&1); UP_RC=$?
     [ -n "$UP_OUT" ] && printf '%s\n' "$UP_OUT"
     if [ "$UP_RC" -ne 0 ] && [ -n "$PRE_HEAD" ]; then
-      if [ -n "$PRE_BRANCH" ]; then git -C "$ROOT" checkout -q "$PRE_BRANCH"; else git -C "$ROOT" checkout -q --detach "$PRE_HEAD"; fi
-      [ -n "$NEW_BRANCH" ] && git -C "$ROOT" branch -q -D "$DEFAULT_BRANCH"
-      echo "SELF_UPGRADE: pin kept (the fast-forward was refused, so HEAD is back at ${PRE_BRANCH:-$(git -C "$ROOT" rev-parse --short HEAD)})"
+      if [ -n "$PRE_BRANCH" ]; then git -C "$ROOT" checkout -q "$PRE_BRANCH" 2>/dev/null; else git -C "$ROOT" checkout -q --detach "$PRE_HEAD" 2>/dev/null; fi \
+        && [ "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" = "$PRE_HEAD" ] \
+        && [ "$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null)" = "$PRE_BRANCH" ] || RESTORE_FAILED=1
+      if [ -z "$RESTORE_FAILED" ]; then
+        [ -n "$NEW_BRANCH" ] && git -C "$ROOT" branch -q -D "$DEFAULT_BRANCH"
+        echo "SELF_UPGRADE: pin kept (the fast-forward was refused, so HEAD is back at ${PRE_BRANCH:-$(git -C "$ROOT" rev-parse --short HEAD)})"
+      else
+        RESTORE_FAILED="the fast-forward was refused and the pin could not be restored: HEAD is at $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null) on $(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null || echo 'a detached HEAD'), not ${PRE_BRANCH:-$PRE_HEAD}; fix: git -C $ROOT checkout -q ${PRE_BRANCH:---detach $PRE_HEAD}, then $RERUN (UPGRADE_REFUSED)"
+        echo "SELF_UPGRADE: pin not restored ($RESTORE_FAILED)"
+      fi
     fi
+    if [ -n "$LOCK_OWNER" ]; then rm -rf "$SETUP_LOCK"; trap - EXIT; fi
     if [ "$UP_RC" -eq 0 ]; then
       [ -n "$UNREASONED" ] && echo "SELF_UPGRADE: pin overridden ($PIN_WHAT, with no recorded reason, and the oldest commit this checkout lacks is ${STALE_H}h old; keep a pin with GSTACK_PIN_REASON=<why> or git -C $ROOT config gstack.pinReason <why>) (PIN_UNREASONED)"
       echo "SELF_UPGRADE: done $OLD -> $(head -1 "$ROOT/VERSION" 2>/dev/null)"
@@ -263,6 +330,7 @@ EOF_OWN
     fi
     REASON=$(printf '%s\n' "$UP_OUT" | sed -n 's/^gstack-upgrade: \(.*\); nothing was changed; fix: /\1; fix: /p' | tail -1)
     [ -n "$REASON" ] || REASON=$(printf '%s\n' "$UP_OUT" | sed -n 's/^gstack-upgrade: //p' | tail -1)
+    [ -z "$RESTORE_FAILED" ] || REASON="$RESTORE_FAILED"
     echo "SELF_UPGRADE: skipped (${REASON:-gstack-upgrade exit $UP_RC})"
     report_behind "$ROOT/bin/gstack-upgrade"
     export GSTACK_CAPY_BEHIND_BLOCKED="${REASON:-gstack-upgrade exit $UP_RC; fix: $ROOT/bin/gstack-upgrade (UPGRADE_REFUSED)}"
