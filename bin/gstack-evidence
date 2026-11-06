@@ -4,7 +4,7 @@
  * IRON LAW ("no completion claims without fresh verification evidence").
  *
  *   gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>
- *   gstack-evidence record-ci --label <L> --base <base> -- <cmd>
+ *   gstack-evidence record-ci --label <L> --base <base> [--remote-gate-stands-in] -- <cmd>
  *   gstack-evidence passed -- <cmd>
  *   gstack-evidence carried [--base <branch>] [--json]
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
@@ -72,7 +72,11 @@
  * mapped it (`origin/<base>@<sha>:…`); `carried` lists those rows at the
  * current tree for the ship receipt, only when that policy is origin/<the
  * receipt's base> (GST-1190: a row a run against another base wrote never
- * counts).
+ * counts). With --remote-gate-stands-in (gstack-ship-release's lanes), a lane
+ * whose inventory command refuses HEAD's tree (inventory_failed) is recorded
+ * as source "remote_gate" when the cleared pregate.json/remote_gate verifies
+ * for that exact tree (lib/remote-gate-stand-in.ts, GST-1688); `carried`
+ * never lists it, since no CI run carried it.
  *
  * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
  * A synced record citing an unsynced log would grade FRESH on a machine where
@@ -125,8 +129,10 @@ interface EvidenceRecord {
   identity?: string;
   /** The original ts of the row a `run --reuse` copied. */
   reused_from?: string;
-  /** "ci" for a lane CI carried (record-ci); absent for a local run. */
-  source?: "ci";
+  /** "ci" for a lane CI carried (record-ci); "remote_gate" for a lane whose inventory refused HEAD's tree and the cleared remote gate for that tree stood in (record-ci --remote-gate-stands-in, GST-1688); absent for a local run. */
+  source?: "ci" | "remote_gate";
+  /** The pregate.json/remote_gate receipt that stood in for the lane (source "remote_gate"). */
+  remote_gate?: string;
   runs?: string[];
   profiles?: string[];
   /** The CI jobs a jobs-mapped lane carried from (record-ci, GST-1189); tests_ran is then "n/a". */
@@ -720,7 +726,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const label = raw === undefined ? undefined : ledgerLabel(raw);
   const base = get("--base");
   const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
-  if (!label || !base || !command || opts.length !== 4) {
+  const standIn = opts.includes("--remote-gate-stands-in");
+  if (!label || !base || !command || opts.length !== (standIn ? 5 : 4)) {
     console.error("usage: gstack-evidence record-ci --label <L> --base <base> -- <command>");
     return 2;
   }
@@ -746,6 +753,24 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const atHead = grants.filter((g) => g.head === head);
   const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd), ...(atHead.length ? { excepted: atHead } : {}) });
   const elsewhere = grants.filter((g) => g.head !== head).map((g) => `${g.approval} at ${g.head.slice(0, 12)}`);
+  if (!v.ok && v.reason === "inventory_failed" && standIn) {
+    const { remoteGateStandIn } = await import("../lib/remote-gate-stand-in");
+    const gate = remoteGateStandIn(git(["rev-parse", "--show-toplevel"]) ?? cwd, tree, base);
+    if (!gate.ok) return none(v.reason, v.detail, [`no cleared pregate.json/remote_gate stands in: ${gate.why}`]);
+    let gatePaths: ReturnType<typeof ledgerPath>;
+    try {
+      gatePaths = ledgerPath();
+      mkdirpSync(gatePaths.dir);
+    } catch (e: any) {
+      console.error(`gstack-evidence record-ci: ledger setup failed (${e?.message ?? e}); nothing recorded`);
+      return 1;
+    }
+    const row: EvidenceRecord = { ts: gate.clearedAt, label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0, commit: head, tree, dirty: false, wtree: tree, tests_ran: gate.tests, source: "remote_gate", remote_gate: gate.receipt, policy: loaded.label };
+    appendJsonl(gatePaths.file, row, { mode: 0o600 });
+    console.error(`CARRY_STANDIN: ${v.reason}: ${v.detail}`);
+    console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${gate.tests} log=- source=remote_gate receipt=${gate.receipt}`);
+    return 0;
+  }
   if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !atHead.length && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
   let exception: BoundLaneException | undefined;
   const grant = atHead.find((g) => g.approval === v.exceptedBy);
@@ -959,7 +984,7 @@ function cmdCheck(argv: string[]): number {
       continue;
     }
     const testsRan = typeof latest.tests_ran === "number" || latest.tests_ran === "n/a" ? latest.tests_ran : "unknown";
-    const ci = latest.source === "ci" && Array.isArray(latest.runs) ? ` source=ci runs=${latest.runs.filter((s) => /^\d+\/\d+$/.test(s)).join(",")}` : "";
+    const ci = latest.source === "ci" && Array.isArray(latest.runs) ? ` source=ci runs=${latest.runs.filter((s) => /^\d+\/\d+$/.test(s)).join(",")}` : latest.source === "remote_gate" ? " source=remote_gate" : "";
     const detail = `label=${label} exit=${latest.exit} tests_ran=${testsRan}${latest.tests_unit === "files" ? " unit=files" : ""} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}${ci}`;
     const { verdict, reason } = gradeRecord(latest, { maxAgeHours, expectCmd, allowPaths, wtreeNow });
     console.log(`EVIDENCE: ${verdict} ${detail}${reason ? ` reason=${reason}` : ""}`);
