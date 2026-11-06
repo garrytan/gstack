@@ -1365,6 +1365,57 @@ on the head (a branch dispatch) or runs every job. The usual case is a branch
 that already holds main's tip. Dispatch Free Tests on the branch, and the
 pull request run that follows reuses it instead of running the suite again.
 
+<a id="ci-reuse-integration"></a>
+#### Integration branches reuse the original task execution
+
+Repositories that release `task → staging → main` can opt in with:
+
+```sh
+bun --no-env-file --config=/dev/null run scripts/ci-tree-reuse.ts find \
+  --workflow tests.yml --profile full-suite --integration-branch staging
+```
+
+The branch name must be a literal simple name (letters, digits, underscores or
+hyphens), other than `main`. Defaults without this flag are unchanged. The opt-in
+consumer accepts only first-attempt pushes to that branch or main, and a
+same-repository pull request from that branch into main. Other events, consumer
+reruns and lookup/setup failures execute the suite.
+
+On a staging push it resolves the same-repository task PR whose server-recorded
+merged target is staging and whose merge commit is exactly the pushed commit.
+On promotion/main it first proves the promotion is a two-parent merge of main
+and staging with an unchanged staging tree, then resolves that same original
+task PR. Each hop independently verifies the original task run through
+`verifyRun`: exact tested merge/head/integrated trees, current successful attempt,
+every required profile job, original artifact, freshness, OS and newer failed,
+canceled or pending evidence. Consumer heads are included in vetoes; only the
+current consuming run is excluded from self-veto. Discovery stays bounded by
+`MAX_PULLS` and `MAX_CANDIDATES`. Missing/ambiguous associations or changed trees
+fall back to the full suite. A staging head that is not a merged task PR is
+ineligible; it never searches arbitrary ancestor or matching-tree runs.
+
+Promotion and main require the workflow and `.gstack/pregate.json` to match the
+main parent byte for byte. By default the in-repo consumer and verifier paths
+are guarded too. For an external **immutable pinned** gstack checkout, pass
+`--guard scripts/record-tests.ts` (repeat for each producer/config dependency)
+instead of the local verifier paths. The workflow is always guarded, including
+its pin and these flags; the profile is always guarded. A changed/missing guard
+refuses reuse. Run only the trusted/pinned consumer with Bun environment/config
+autoload disabled, never import PR-controlled verifier code. New pin, workflow,
+profile or producer adoption therefore runs the full suite on promotion/main.
+
+Run the lookup on eligible events and guard only the source-test suite and its
+artifact producer/upload with **successful lookup outcome AND `reused=true`**.
+Every other outcome runs the original suite. Keep required check names and their
+strict final AND; current environment builds and deployed verification are not
+reused. Reused hops upload no tested-tree artifact. Staging, promotion and main
+read the original task artifact directly, so enabling promotion reuse does not
+force main to repeat tests and no reused result becomes reusable evidence.
+
+No dispatch is needed. An eligible identical release tree executes the suite
+once; changed trees, rules or failed evidence execute it again. Measure actual
+workflow wall separately from cumulative test/runner time and deployment waits.
+
 <a id="flaky-exception"></a>
 ## Owner-granted flaky exception
 
