@@ -8,13 +8,14 @@
  * follows the same ref, and bin/gstack-update-check compares with the channel
  * so a stable install is not told that main moved.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { runBin } from './helpers/run-bin';
+import { isolatedEnv } from './helpers/state-root-isolation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HELPER = path.join(ROOT, 'bin', 'gstack-update-channel.sh');
@@ -22,10 +23,14 @@ const CONFIG_BIN = path.join(ROOT, 'bin', 'gstack-config');
 const SESSION_UPDATE = path.join(ROOT, 'bin', 'gstack-session-update');
 const bases: string[] = [];
 afterEach(() => { for (const b of bases.splice(0)) fs.rmSync(b, { recursive: true, force: true }); });
+/** Every spawn here starts from ENV: no state-root variable from the parent shell and HOME in a temp dir, so nothing reaches the user's real config (GST-1659; test/state-root-isolation.test.ts). */
+const SAFE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-channel-home-'));
+afterAll(() => fs.rmSync(SAFE_HOME, { recursive: true, force: true }));
+const ENV = isolatedEnv(SAFE_HOME);
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x', GIT_CONFIG_NOSYSTEM: '1' };
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...GIT_ENV } }).trim();
+  return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, env: { ...ENV, ...GIT_ENV } }).trim();
 }
 const write = (file: string, text: string, mode = 0o644) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text, { mode }); };
 
@@ -40,7 +45,7 @@ describe.skipIf(process.platform === 'win32')('gstack-update-channel.sh: resolut
     const resolve = (team: string, channel: string, extra: Record<string, string> = {}) => {
       fs.writeFileSync(path.join(base, 'team'), team);
       fs.writeFileSync(path.join(base, 'channel'), channel);
-      const r = spawnSync('bash', ['-c', '. "$1" && gstack_update_channel "$2"', '_', HELPER, base], { encoding: 'utf8', env: { ...process.env, TEAM_MODE_FILE: path.join(base, 'team'), CHANNEL_FILE: path.join(base, 'channel'), GSTACK_UPDATE_CHANNEL: '', ...extra }, timeout: 10_000 });
+      const r = spawnSync('bash', ['-c', '. "$1" && gstack_update_channel "$2"', '_', HELPER, base], { encoding: 'utf8', env: { ...ENV, TEAM_MODE_FILE: path.join(base, 'team'), CHANNEL_FILE: path.join(base, 'channel'), GSTACK_UPDATE_CHANNEL: '', ...extra }, timeout: 10_000 });
       return r.stdout.trim() + (r.status === 0 ? '' : ' exit=' + r.status);
     };
     return { base, resolve };
@@ -60,9 +65,9 @@ describe.skipIf(process.platform === 'win32')('gstack-update-channel.sh: resolut
   });
 
   test('the refspec names stable only; a missing gstack-config means main', () => {
-    const r = spawnSync('bash', ['-c', '. "$1" && gstack_update_channel_refspec stable && gstack_update_channel_refspec main | wc -c && gstack_update_channel /nonexistent', '_', HELPER], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, GSTACK_UPDATE_CHANNEL: '' } });
+    const r = spawnSync('bash', ['-c', '. "$1" && gstack_update_channel_refspec stable && gstack_update_channel_refspec main | wc -c && gstack_update_channel /nonexistent', '_', HELPER], { encoding: 'utf8', timeout: 10_000, env: { ...ENV, GSTACK_UPDATE_CHANNEL: '' } });
     expect(r.stdout.split('\n').map(l => l.trim())).toEqual(['+refs/heads/stable:refs/remotes/origin/stable', '1', 'main', '']);
-    expect(spawnSync('bash', ['-c', '. "$1" && gstack_update_channel_missing "fatal: couldn\'t find remote ref refs/heads/stable" && ! gstack_update_channel_missing "fatal: unable to access"', '_', HELPER], { encoding: 'utf8', timeout: 10_000 }).status).toBe(0);
+    expect(spawnSync('bash', ['-c', '. "$1" && gstack_update_channel_missing "fatal: couldn\'t find remote ref refs/heads/stable" && ! gstack_update_channel_missing "fatal: unable to access"', '_', HELPER], { encoding: 'utf8', timeout: 10_000, env: ENV }).status).toBe(0);
   });
 });
 
@@ -74,7 +79,7 @@ describe('gstack-config update_channel', () => {
   test('defaults to auto, accepts auto|stable|main, and refuses anything else without changing the stored value', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-channel-config-'));
     bases.push(home);
-    const run = (args: string[]) => runBin(CONFIG_BIN, args, { gstackHome: home, cwd: ROOT, trim: true });
+    const run = (args: string[]) => runBin(CONFIG_BIN, args, { gstackHome: home, home: SAFE_HOME, cwd: ROOT, trim: true });
     expect(run(['get', 'update_channel']).stdout).toBe('auto');
     expect(run(['defaults']).stdout).toMatch(/update_channel:\s+auto$/m);
     expect(run(['list']).stdout).toMatch(/update_channel:\s+auto \(default\)$/m);
@@ -102,7 +107,7 @@ function world(opts: { installAt?: 'A' | 'C'; stable?: boolean } = {}) {
   const state = path.join(base, 'state');
   const home = path.join(base, 'home');
   fs.mkdirSync(state); fs.mkdirSync(home);
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000, env: ENV });
   fs.mkdirSync(seed);
   git(seed, 'init', '-q', '-b', 'main');
   git(seed, 'remote', 'add', 'origin', origin);
@@ -124,14 +129,14 @@ function world(opts: { installAt?: 'A' | 'C'; stable?: boolean } = {}) {
     shas[name] = git(seed, 'rev-parse', 'HEAD');
   };
   release('A', '1.0.0');
-  if (opts.installAt !== 'C') execFileSync('git', ['clone', '-q', '--single-branch', '--depth', '1', 'file://' + origin, install], { timeout: 30_000 });
+  if (opts.installAt !== 'C') execFileSync('git', ['clone', '-q', '--single-branch', '--depth', '1', 'file://' + origin, install], { timeout: 30_000, env: ENV });
   release('B', '1.0.1');
   release('C', '1.0.2');
-  if (opts.installAt === 'C') execFileSync('git', ['clone', '-q', '--single-branch', '--depth', '1', 'file://' + origin, install], { timeout: 30_000 });
+  if (opts.installAt === 'C') execFileSync('git', ['clone', '-q', '--single-branch', '--depth', '1', 'file://' + origin, install], { timeout: 30_000, env: ENV });
   if (opts.stable !== false) git(seed, 'push', '-q', 'origin', shas.B + ':refs/heads/stable');
   const team = path.join(base, 'team'), channel = path.join(base, 'channel'), calls = path.join(base, 'setup-calls');
   fs.writeFileSync(team, 'true'); fs.writeFileSync(channel, '');
-  const env = { ...process.env, ...GIT_ENV, HOME: home, GSTACK_DIR: install, GSTACK_STATE_ROOT: state, TEAM_MODE_FILE: team, CHANNEL_FILE: channel, SETUP_CALLS: calls, TMPDIR: base, GSTACK_UPDATE_CHANNEL: '' };
+  const env = { ...ENV, ...GIT_ENV, HOME: home, GSTACK_DIR: install, GSTACK_STATE_ROOT: state, TEAM_MODE_FILE: team, CHANNEL_FILE: channel, SETUP_CALLS: calls, TMPDIR: base, GSTACK_UPDATE_CHANNEL: '' };
   return { base, origin, seed, install, state, shas, team, channel, env, head: () => git(install, 'rev-parse', 'HEAD') };
 }
 type World = ReturnType<typeof world>;
@@ -263,7 +268,7 @@ describe.skipIf(process.platform === 'win32')('the /gstack-upgrade Step 4 fence 
     expect(ahead.head()).toBe(ahead.shas.C);
     expect(git(ahead.install, 'rev-parse', 'refs/remotes/origin/stable')).toBe(ahead.shas.B);
     // The depth-1 histories never connect, so ancestry said nothing and the VERSION order decided.
-    expect(spawnSync('git', ['-C', ahead.install, 'merge-base', '--is-ancestor', 'origin/stable', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).status).toBe(1);
+    expect(spawnSync('git', ['-C', ahead.install, 'merge-base', '--is-ancestor', 'origin/stable', 'HEAD'], { encoding: 'utf8', timeout: 10_000, env: ENV }).status).toBe(1);
     expect(fs.existsSync(path.join(ahead.base, 'setup-calls'))).toBe(false);
 
     const behind = world({ installAt: 'A' });
@@ -320,23 +325,23 @@ describe.skipIf(process.platform === 'win32')('gstack-update-check on the stable
     bases.push(base);
     const gstack = path.join(base, 'gstack'), origin = path.join(base, 'origin.git'), state = path.join(base, 'state'), raw = path.join(base, 'raw'), shim = path.join(base, 'shim');
     for (const d of [path.join(gstack, 'bin'), state, raw, shim]) fs.mkdirSync(d, { recursive: true });
-    const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000 }).trim();
+    const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000, env: ENV }).trim();
     const gitLog = path.join(base, 'git.log');
     fs.writeFileSync(path.join(shim, 'git'), '#!/usr/bin/env bash\ncase "$1" in ls-remote) echo "git $*" >> "' + gitLog + '" ;; esac\nexec "' + realGit + '" "$@"\n', { mode: 0o755 });
     for (const name of ['gstack-config', 'gstack-egress-lib.sh', 'gstack-state-root.sh', 'gstack-egress-receipt', 'gstack-update-channel.sh']) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(gstack, 'bin', name));
     fs.writeFileSync(path.join(gstack, 'VERSION'), '1.0.0\n');
     fs.writeFileSync(path.join(gstack, '.gitignore'), 'bin/\n');
-    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000, env: ENV });
     git(gstack, 'init', '-q', '-b', 'main'); git(gstack, 'add', '-A'); git(gstack, 'commit', '-q', '-m', 'base');
     git(gstack, 'remote', 'add', 'origin', origin); git(gstack, 'push', '-q', 'origin', 'main'); git(gstack, 'push', '-q', 'origin', 'main:stable');
     const local = git(gstack, 'rev-parse', 'HEAD');
     const clone = path.join(base, 'upstream');
-    execFileSync('git', ['clone', '-q', origin, clone], { timeout: 30_000 });
+    execFileSync('git', ['clone', '-q', origin, clone], { timeout: 30_000, env: ENV });
     fs.writeFileSync(path.join(clone, 'VERSION'), '1.0.1\n');
     git(clone, 'commit', '-qam', 'main moved'); git(clone, 'push', '-q', 'origin', 'HEAD:main');
     const main = git(clone, 'rev-parse', 'HEAD');
     for (const [sha, v] of [[local, '1.0.0'], [main, '1.0.1']]) { fs.mkdirSync(path.join(raw, sha!)); fs.writeFileSync(path.join(raw, sha!, 'VERSION'), v + '\n'); }
-    const env = { ...process.env, ...GIT_ENV, HOME: base, GSTACK_DIR: gstack, GSTACK_STATE_ROOT: state, GSTACK_REMOTE_REPO: origin, GSTACK_REMOTE_RAW_BASE: 'file://' + raw, GSTACK_COMPARE_API: 'file://' + path.join(base, 'compare'), PATH: shim + ':' + process.env.PATH };
+    const env = { ...ENV, ...GIT_ENV, HOME: base, GSTACK_DIR: gstack, GSTACK_STATE_ROOT: state, GSTACK_REMOTE_REPO: origin, GSTACK_REMOTE_RAW_BASE: 'file://' + raw, GSTACK_COMPARE_API: 'file://' + path.join(base, 'compare'), PATH: shim + ':' + process.env.PATH };
     delete (env as Record<string, string | undefined>).GSTACK_REMOTE_URL;
     const run = (extra: Record<string, string>) => spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-update-check')], { encoding: 'utf8', timeout: 30_000, env: { ...env, ...extra } });
     const stable = run({ GSTACK_UPDATE_CHANNEL: 'stable' });
@@ -383,7 +388,7 @@ describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: th
     bases.push(base);
     const origin = path.join(base, 'origin.git'), seed = path.join(base, 'seed'), home = path.join(base, 'home'), state = path.join(base, 'state');
     fs.mkdirSync(home);
-    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000, env: ENV });
     fs.mkdirSync(seed);
     git(seed, 'init', '-q', '-b', 'main');
     write(path.join(seed, 'VERSION'), '1.0.0\n');
@@ -392,12 +397,12 @@ describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: th
     git(seed, 'push', '-q', origin, 'main');
     const clone = (name: string, ...flags: string[]) => {
       const dir = path.join(base, name);
-      execFileSync('git', ['clone', '-q', ...flags, 'file://' + origin, dir], { timeout: 30_000, env: { ...process.env, ...GIT_ENV, HOME: home } });
+      execFileSync('git', ['clone', '-q', ...flags, 'file://' + origin, dir], { timeout: 30_000, env: { ...ENV, ...GIT_ENV, HOME: home } });
       return dir;
     };
     const initial = (dir: string, extra: Record<string, string> = {}) => spawnSync('bash', [HELPER, '--initial', state, dir], {
       encoding: 'utf8', timeout: 10_000,
-      env: { ...process.env, ...GIT_ENV, HOME: home, GSTACK_UPDATE_CHANNEL: '', GSTACK_CONTRIBUTOR: '', CI: '', CAPY_MACHINE_CONFIG: '', ...extra },
+      env: { ...ENV, ...GIT_ENV, HOME: home, GSTACK_UPDATE_CHANNEL: '', GSTACK_CONTRIBUTOR: '', CI: '', CAPY_MACHINE_CONFIG: '', ...extra },
     }).stdout.trim();
     return { base, home, state, clone, initial };
   }
@@ -414,7 +419,7 @@ describe.skipIf(process.platform === 'win32')('gstack_update_channel_initial: th
     fs.mkdirSync(path.join(c.home, '.capy', 'system'), { recursive: true });
     expect(c.initial(shallow)).toBe('main Capy machine: crews follow every merge');
     fs.rmSync(path.join(c.home, '.capy'), { recursive: true });
-    const usage = spawnSync('bash', [HELPER, '--initial'], { encoding: 'utf8', timeout: 10_000 });
+    const usage = spawnSync('bash', [HELPER, '--initial'], { encoding: 'utf8', timeout: 10_000, env: ENV });
     expect([usage.status, usage.stderr.trim()]).toEqual([2, 'usage: gstack-update-channel.sh --initial <state root> [<install dir>]']);
   });
 
