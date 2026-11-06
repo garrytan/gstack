@@ -12,11 +12,12 @@ Do not touch: <files other live lanes own, each with its lane>
 Plan: required | approved: <autoplan run dir, or its checkpoint dir> | exempt: <reason from the exemption list>
 Spend cap: <focused paid runs per PR, from SPEND>
 Read: <the files and sections this lane needs, by path; the brief names them, never pastes them>
-Context: after the install check, read the gstack skill's lane-card.md, not its whole SKILL.md.
+Context: after the install check, read the gstack skill's lane-card.md (the checkout's
+   capy/skill/gstack/lane-card.md when the skill copy lacks it), not its whole SKILL.md.
    Batch independent reads in one parallel program; return 4k characters or less per call and
    send long output to files under ~/.capy/work. A wait under about 30 minutes checks in every
-   240 s (wait with duration_seconds 240, then a silent re-wait); longer waits sleep, and so does
-   the lane while /ship runs. Past twice the median lane spend, write handoffs/<code>/next.md and
+   240 s (wait on the operation with duration_seconds 240, then a silent re-wait, for about 30
+   minutes at most); longer waits sleep on their operations, and so does the lane while /ship runs. Past twice the median lane spend, write handoffs/<code>/next.md and
    tell me in one line (docs/captain.md, Lane context).
 
 1. Plan (when Plan: required). After the session-start install check, install for autoplan

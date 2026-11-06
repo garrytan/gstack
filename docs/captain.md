@@ -150,7 +150,9 @@ cheap:
 - **Warm waits.** When a lane expects a wait under about 30 minutes (a CI run, a test
   tier, a background build), it checks in every 240 seconds: on Capy, `wait` on the
   operation with `duration_seconds: 240`, and on a timer wake that brings nothing new it
-  re-issues the same wait silently, with no message. A wait expected to run longer sleeps
+  re-issues the same wait silently, with no message. Once a warm wait has run about 30
+  minutes, or past the end the lane expected, the lane stops re-issuing the timer and
+  sleeps on the operation or pull request watch alone. A wait expected to run longer sleeps
   on its operations alone. For short lane waits this overrides "waits go on operations,
   never on polling wakes" ([unattended.md](unattended.md#report-length)). The controller
   never warm-waits, and a lane still sleeps while /ship runs
@@ -166,8 +168,9 @@ cheap:
   PR (about $50 at today's prices), it writes `handoffs/<code>/next.md` in the controller's
   drive (what is done, what is left and what finishing costs) and tells the controller in
   one line. The controller decides whether the lane continues, rotates to a fresh lane
-  that starts from that file, or parks. This sits below the hard stop at three times the
-  median, where the lane stops and asks whether the PR is still worth it. Spend is the
+  that starts from that file, or parks. This sits below the crew's hard spend stop (a
+  per-PR figure in the controller's rules), where the lane stops and asks whether the PR
+  is still worth it. Spend is the
   thread's credit meter, never a token count.
 
 ## New threads join the crew

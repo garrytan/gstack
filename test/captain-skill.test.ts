@@ -146,7 +146,7 @@ describe('/captain skill', () => {
     expect(capySkill).toMatch(/## Session start[^#]*?read \[lane-card\.md\]\(lane-card\.md\), not the rest of this file/);
     expect(Buffer.byteLength(card)).toBeLessThanOrEqual(6800);
     const doc = read('docs/captain.md').replace(/\s+/g, ' ');
-    for (const s of ['`duration_seconds: 240`', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
+    for (const s of ['`duration_seconds: 240`', 'stops re-issuing the timer', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
     expect(read('captain/templates/brief.md')).toMatch(/^Read: <[^>]+>$/m);
   });
 

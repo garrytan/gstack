@@ -1,6 +1,6 @@
 # Lane start card
 
-For a crew lane (a thread working for a Captain). Read this once `gstack: ok <revision> for=<skill>` is in hand from this machine's install check, instead of the rest of [SKILL.md](SKILL.md). It keeps what a lane needs between the check and /ship. Before you run /ship, read SKILL.md § "Unattended runs for a parent agent" and § "Plan, approve, ship". For anything else (an upgrade that fails, driving /autoplan, maintenance), read the matching SKILL.md section.
+For a crew lane (a thread working for a Captain). Read this once `gstack: ok <revision> for=<skill>` is in hand from this machine's install check, instead of the rest of [SKILL.md](SKILL.md). It keeps what a lane needs between the check and /ship. Before you run /ship, read SKILL.md § "Unattended runs for a parent agent" and § "Plan, approve, ship". For anything else (an upgrade that fails, driving /autoplan, loading another workflow, maintenance), read the matching SKILL.md section.
 
 ## After the check
 
@@ -13,7 +13,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 
 ## Plan, approve, ship
 
-- New functionality gets a lean `/autoplan` (`--kind feature`) right after the check. Other bug fixes skip plan review (`--kind fix`) but carry a repro on current main or a failing test written first. Exempt: read-only work, S1 emergencies and fixes from an already-diagnosed, audited problem list.
+- New functionality gets a lean `/autoplan` (`--kind feature`) right after the check. Bug fixes skip plan review (`--kind fix`) but carry a repro on current main or a failing test written first. Exempt: read-only work, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves, cap re-pins under a written grant, S1 emergencies and fixes from an already-diagnosed, audited problem list.
 - Send the gate to the Captain as `gstack-owner-brief render --captain --out <run dir>`, whole. Build only after the owner's word is answered into the run and it reports `APPROVED`, then `gstack-approvals import --autoplan <run dir> --by "<owner>"`.
 - /ship runs at the final pushed head before any READY; `SHIP_RECEIPT: pr=<n> head=<head>` names that head, and a later push needs a new /ship.
 - After dispatching /ship, end your turn and hold no PR watch until it completes. Then subscribe to the PR, read its checks and comments once, stop the /ship subagent and run `gstack-ship-queue ready`.
@@ -28,7 +28,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 ## Keep context cheap
 
 - Batch independent reads in one parallel program. Return 4k characters or less per call; write long output to a file under `~/.capy/work` and read the part you need.
-- A wait you expect to last under about 30 minutes checks in every 240 s: `wait` on the operation with `duration_seconds: 240`, then re-issue it silently on a wake that brings nothing new. A longer wait sleeps on its operations. While /ship runs, sleep.
+- A wait you expect to last under about 30 minutes checks in every 240 s: `wait` on the operation with `duration_seconds: 240`, then re-issue it silently on a wake that brings nothing new. After about 30 minutes, or past the expected end, stop re-issuing and sleep on the operation or pull request watch. A longer wait sleeps on its operations. While /ship runs, sleep.
 - Past twice the crew's median lane spend, write `handoffs/<code>/next.md` and tell the Captain in one line; it decides whether you continue, rotate or park.
 
 ## Before a push
