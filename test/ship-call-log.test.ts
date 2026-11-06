@@ -77,10 +77,15 @@ describe('countLoggedCalls', () => {
     const c = countLoggedCalls([row('11:00:00.000', 'gstack-ship-preflight', '', 1000), row('11:02:30.000', 'gstack-ship-budget', 'note', 200, { step: '5' })]);
     expect(c).toMatchObject({ calls: 1, phase: 1, other: 0 });
   });
+
+  test('a background row longer than a program does not absorb the calls made while it runs', () => {
+    const c = countLoggedCalls([row('10:00:00.000', 'gstack-ship-preflight', '', 1_200_000), row('10:00:02.000', 'gstack-ship-budget', 'note', 300), row('10:04:00.000', 'gstack-ship-parts', 'next', 300), row('10:08:00.000', 'gstack-ship-budget', 'note', 300)]);
+    expect(c).toMatchObject({ calls: 3, phase: 2, section: 1, keepaliveEst: 2 });
+  });
 });
 
 describe('gstack-ship-budget calls --record', () => {
-  // Value: protects=a helper gets its CALLS line from its own record: the window is the run's start to close, rows outside it are not counted, and --log reads another file; fails_when=calls still demands --events, counts a sibling run's rows, or prints a line in another shape;
+  // Value: protects=a helper gets its CALLS line from its own record: the window is the run's start to close, rows outside it are not counted, and --log reads another file; fails_when=calls still demands --events, counts rows outside the run's window, drops the rotated log's rows, prints zero counts for an empty window, or prints a line in another shape;
   //   why_new=Step 22 asked for a CALLS line no Capy helper could produce; seam=none; no_claim=a run whose commands write to another state root
   test('counts the run window from the call log', () => {
     const state = fs.mkdtempSync(path.join(tmp, 'state-'));
@@ -100,6 +105,12 @@ describe('gstack-ship-budget calls --record', () => {
     fs.writeFileSync(day, DAY.map(r => JSON.stringify(r)).join('\n') + '\n');
     const d = run('gstack-ship-budget', ['calls', '--log', day, '--since', at('09:00:00.000'), '--until', at('11:00:00.000')], state);
     expect(d.stdout.trim(), d.stderr).toBe(DAY_LINE);
+    const rotated = path.join(tmp, 'rotated.jsonl');
+    fs.writeFileSync(`${rotated}.1`, DAY.slice(0, 8).map(r => JSON.stringify(r)).join('\n') + '\n');
+    fs.writeFileSync(rotated, DAY.slice(8).map(r => JSON.stringify(r)).join('\n') + '\n');
+    expect(run('gstack-ship-budget', ['calls', '--log', rotated, '--since', at('09:00:00.000'), '--until', at('11:00:00.000')], state).stdout.trim()).toBe(DAY_LINE);
+    const none = path.join(tmp, 'none.jsonl');
+    expect(run('gstack-ship-budget', ['calls', '--record', rec, '--log', none], state).stdout.trim()).toBe(`CALLS: unavailable source=log reason=no rows in the run window log=${none}`);
     expect(run('gstack-ship-budget', ['calls'], state).status).toBe(2);
   });
 });

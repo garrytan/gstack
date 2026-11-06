@@ -419,9 +419,9 @@ export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
   if (!raw) {
     if (!str(o, 'run') && !str(o, 'record') && !str(o, 'log')) throw usageError('calls needs --events <file of the host\'s transcript items>, or --run <id>|--record <path> to read the call log');
     const l = str(o, 'run') || str(o, 'record') ? readLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env)) : undefined;
-    const rows = readCallLog(str(o, 'log') ?? callLogFile(ctx.env));
-    const c = countLoggedCalls(rows, { since: str(o, 'since') ?? l?.created_at, until: str(o, 'until') ?? l?.closed_at });
-    return { stdout: [loggedCallsLine(c)], exit: 0 };
+    const log = str(o, 'log') ?? callLogFile(ctx.env);
+    const c = countLoggedCalls(readCallLog(log), { since: str(o, 'since') ?? l?.created_at, until: str(o, 'until') ?? l?.closed_at });
+    return { stdout: [c.calls ? loggedCallsLine(c) : `CALLS: unavailable source=log reason=no rows in the run window log=${log}`], exit: 0 };
   }
   const file = raw === '~' || raw.startsWith('~/') ? path.join(ctx.env.HOME || os.homedir(), raw.slice(1)) : raw;
   let doc: unknown;

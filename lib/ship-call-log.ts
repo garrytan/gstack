@@ -4,7 +4,8 @@
  * bin and the pass loader (`gstack-review-dispatch`) append one row to <state root>/ship-calls.jsonl when they exit, and
  * `gstack-ship-budget calls --run|--record` rebuilds the helper's calls from those rows: no added call.
  *
- * Rows join one call while they run back to back (each starts within 5 s of the last one's end). A pass
+ * Rows join one call while they run back to back (each starts within 5 s of the last one's end); a row longer
+ * than a program (a background lane or finish) ends where it starts, so it never absorbs the calls made while it runs. A pass
  * loader (`gstack-review-dispatch program`) opens a call that polls up to 200 s after its first line, so
  * review rows and notes join it until it notes; a program's closing `note` joins it up to 230 s after its
  * first row. A call with a loader is a pass poll, one with a note a phase program, one with only
@@ -55,8 +56,7 @@ export function logShipCall(bin: string, argv: string[] = process.argv.slice(2))
 }
 
 export function readCallLog(file: string): CallRow[] {
-  if (!fs.existsSync(file)) return [];
-  return fs.readFileSync(file, 'utf8').split('\n').flatMap(line => {
+  return [`${file}.1`, file].filter(f => fs.existsSync(f)).flatMap(f => fs.readFileSync(f, 'utf8').split('\n')).flatMap(line => {
     try { const r = JSON.parse(line); return r?.v === 1 && typeof r.start === 'string' && !Number.isNaN(Date.parse(r.start)) ? [r as CallRow] : []; } catch { return []; }
   });
 }
@@ -67,10 +67,11 @@ const isNote = (r: CallRow) => r.bin === 'gstack-ship-budget' && r.sub === 'note
 
 export function countLoggedCalls(rows: readonly CallRow[], window: { since?: string; until?: string } = {}): LoggedCalls {
   const since = window.since ? Date.parse(window.since) : -Infinity, until = window.until ? Date.parse(window.until) : Infinity;
-  const inWindow = rows.map(r => ({ r, s: Date.parse(r.start), e: Date.parse(r.start) + Math.max(0, r.ms) }))
-    .filter(x => x.s <= until && x.e >= since).sort((a, b) => a.s - b.s);
+  const inWindow = rows.map(r => ({ r, s: Date.parse(r.start), ms: Math.max(0, r.ms) }))
+    .filter(x => x.s <= until && x.s + x.ms >= since).sort((a, b) => a.s - b.s);
   const calls: Call[] = [];
-  for (const { r, s, e } of inWindow) {
+  for (const { r, s, ms } of inWindow) {
+    const e = ms > PROGRAM_MS ? s : s + ms;
     const cur = calls[calls.length - 1];
     const joins = cur && !isLoader(r) && (s <= cur.end + JOIN_MS
       || (cur.loader && s <= cur.start + PROGRAM_MS && (!cur.note || r.bin === 'gstack-review-dispatch' || isNote(r)))
