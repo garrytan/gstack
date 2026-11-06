@@ -16,7 +16,9 @@ const fixtures: ShipFx[] = [];
 afterEach(() => { while (fixtures.length) fixtures.pop()!.cleanup(); });
 
 const FREE = "printf ' 3 pass\\n 0 fail\\nRan 3 tests across 1 file. [1.00ms]\\n' >&2";
-const PROFILE = { workflow: 'free.yml', events: ['pull_request', 'workflow_dispatch'], jobs: ['suite'], artifact: 'tested-tree', os: 'Linux' };
+const HOST_OS = ({ darwin: 'macOS', win32: 'Windows' } as Record<string, string>)[process.platform] ?? 'Linux';
+const RUNNER = ({ darwin: 'macos-latest', win32: 'windows-latest' } as Record<string, string>)[process.platform] ?? 'ubuntu-latest';
+const PROFILE = { workflow: 'free.yml', events: ['pull_request', 'workflow_dispatch'], jobs: ['suite'], artifact: 'tested-tree', os: HOST_OS };
 const TESTS = ['test/a.test.ts'];
 const pregate = (profile: Record<string, unknown>) => JSON.stringify({
   run_profiles: { 'ci/free': profile }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: `printf '${TESTS.join('\\n')}\\n'` } }, dependencies: { 'src/a.ts': ['test/a.test.ts'], 'src/b.ts': ['test/a.test.ts'], 'test/**': [], '.gstack/ship-policy.json': [] },
@@ -24,7 +26,7 @@ const pregate = (profile: Record<string, unknown>) => JSON.stringify({
 const ship = (timeout: number) => JSON.stringify({ ci_record_timeout_s: timeout, min_gstack_version: CI_RECORD_TIMEOUT_KEY_VERSION }, null, 2) + '\n';
 const BASE = {
   '.gstack/pregate.json': pregate(PROFILE),
-  '.github/workflows/free.yml': 'name: Free\non: [pull_request, workflow_dispatch]\njobs:\n  suite:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n',
+  '.github/workflows/free.yml': `name: Free\non: [pull_request, workflow_dispatch]\njobs:\n  suite:\n    runs-on: ${RUNNER}\n    steps:\n      - run: bun test\n`,
   'test/a.test.ts': "import { expect, test } from 'bun:test';\ntest('ok', () => expect(1).toBe(1));\n",
 };
 
@@ -35,7 +37,7 @@ function fx(base: Record<string, string>, head: Record<string, string> = {}): Sh
   const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
   const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
   const run = { id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: sha, path: '.github/workflows/free.yml', created_at: at(20), run_started_at: at(20), updated_at: at(5), repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
-  const w: FakeWorld = { runs: [run] as FakeWorld['runs'], jobs: { 7: [{ name: 'suite', conclusion: 'success', completed_at: at(5) }] }, trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha, tree, files: TESTS, tests: 1, os: 'Linux' } } };
+  const w: FakeWorld = { runs: [run] as FakeWorld['runs'], jobs: { 7: [{ name: 'suite', conclusion: 'success', completed_at: at(5) }] }, trees: { 7: { run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha, tree, files: TESTS, tests: 1, os: HOST_OS } } };
   fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify(w));
   f.gh(fakeGhScript(path.join(f.root, 'world.json')));
   expect(f.run(RELEASE, ['push', '--branch', 'feat', '--early', '--base', 'main'], { GSTACK_SESSION_KIND: 'unattended' }).status).toBe(0);
