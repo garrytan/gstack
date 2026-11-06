@@ -1933,11 +1933,38 @@ until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
 A `RECEIPT_CARRY_PRODUCT_CHANGED` on linear history against the reviewed base
 whose range-diff, plus the diff of the changed product paths, is at most 400
-lines and 64 KB, with no binary path, no moved base context and a receipt that
+lines and 64 KB, with no binary path and a receipt that
 records its review depth, also prints `RECHECK: eligible … packet=<file>`: one reader on that
 packet and `carry --recheck <record.json>` rebind the receipt instead of a
 full second /ship, unless HEAD needs a deeper review depth or another risk
 class ([scoped re-check](troubleshooting.md#receipt-carry-recheck), J1).
+
+**Changed and context paths together (GST-1561).** When the base also moved
+context next to reviewed hunks in other paths, the scoped review and J1 compose
+into one bounded re-check instead of refusing each other (founderstar#563 hit
+this on every rules-number PR). The one packet holds the range-diff and the
+changed paths' diff, then the scoped-review sections of the context paths. The
+400-line and 64 KB caps count the whole packet, and `range_diff_sha256` binds
+all of it. The record also names `range_base`, the commit the reviewed range
+starts from (the fork point, or a landed stack parent), and the carry reason
+logs the context paths and that `range_base`. A context section over 200 lines,
+or a packet over the caps, prints `RECHECK: not eligible (<why>)` and stays
+`RECEIPT_CARRY_PRODUCT_CHANGED`. A changed path alone, or context paths alone,
+keep the routes above, and their output is unchanged.
+
+The same scoped review also covers a hunk whose only difference from the
+reviewed one is the base's edit of the lines the branch replaces. The base took
+`SAVE_VERSION := 83` while the branch's `:= 84` line, reviewed against `82`,
+stays byte-identical. The branch's added lines must match byte for byte, and
+the lines just outside the reviewed hunk's removed range must be lines the base
+kept, landing just outside the current hunk's range (`lib/ship-patch.ts`
+`comparePath`). The path then counts as a context path. Carry and finish put it
+in the scoped-review packet, and the reader checks that the branch's value
+still holds next to the base's. It never carries without a reader. A hunk whose
+added lines changed, that now also removes a line the base never touched, or
+whose range holds a line the base added (a base hunk at or next to the replaced
+lines that adds more lines than it removes) stays a changed path. A [mechanical retake](#mechanical-retake) does not apply
+here, since the branch retook nothing.
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
 and `product_patch_id` (its product patch against the base), and every carry

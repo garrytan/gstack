@@ -6464,7 +6464,9 @@ the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 **Meaning.** Every product path the branch touches has the reviewed +/- lines
 in the same places, but the base edited context lines next to some of them, so
 the 3-line patches differ (GST-384: main reworded the line above the PR's
-hunk). The merge may have spliced the two, as in a JSON entry where the branch
+hunk). A hunk whose added lines are unchanged and whose removed lines differ only
+by the base's edit of the lines the branch replaces counts too (GST-1561: the base
+took `SAVE_VERSION := 83` under the branch's `:= 84`). The merge may have spliced the two, as in a JSON entry where the branch
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
@@ -6506,15 +6508,21 @@ against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
 range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
 range-diff can clear it instead of a full second /ship. A rebased branch
 (`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
-`review_depth`, more than 20 changed product paths, a binary path, base
-context moved next to reviewed hunks, an empty or unreadable range-diff and a
+`review_depth`, more than 20 changed product paths, a binary path, a moved
+base context section over 200 lines, an empty or unreadable range-diff and a
 packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
+When base context also moved next to reviewed hunks in other paths, their
+scoped-review sections join the same packet (GST-1561): the caps count the
+whole packet, `range_diff_sha256` binds all of it, and the RECHECK line's record
+adds `"range_base"`.
 
 **Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
 `--dry-run` writes none). When it comes back clean, write
 `{"from":"<reviewed head>","head":"<HEAD>","range_diff_sha256":"<from the RECHECK line>","reader":"<model>","verdict":"clean"}`
-and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
-reason records the reader and the range-diff size. Carry still refuses when
+(plus `"range_base"` when the line's record names one; a record without it then
+refuses) and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
+reason records the reader and the range-diff size, and with moved context the
+context paths and `range_base`. Carry still refuses when
 HEAD needs a deeper review depth or a different risk class than the receipt
 recorded; that, or a blocking finding, means /ship on the new head. In /ship
 Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
