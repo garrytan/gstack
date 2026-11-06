@@ -5297,12 +5297,13 @@ stays on the trusted-branch path.
 
 **Meaning.** A CHANGELOG fragment under the policy's `changelog_fragments`
 directory is not one regular `.md` file directly in that directory with entry
-text, optional `bump:` front matter and no release heading, or it is over
+text, optional `bump:` and `important:` front matter and no release heading, or it is over
 64 KiB, or a fragment of that name already landed with other text. Nothing was
 allocated or written. See [changelog fragments](ship-policy.md#changelog-fragments).
 
 **Fix.** Rewrite the named fragment as a flat `<dir>/<slug>.md` holding only
-the entry text (and optional `bump: minor|major` front matter); rename it if
+the entry text (and optional `bump: minor|major` and
+`important: security|regression|data-loss|blocker` front matter); rename it if
 the name already landed. Then rerun.
 
 <a id="queue-land-locked"></a>
