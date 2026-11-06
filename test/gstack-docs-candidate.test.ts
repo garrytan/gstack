@@ -171,11 +171,35 @@ describe('gstack-docs-candidate', () => {
     }
   });
 
+  // Value: protects=a post snapshot records the files its audit edited (before and after) and carries only this run's earlier
+  //   audits, so receipt write can reset every file one /ship run's audits edited (GST-1616); fails_when=--pre records untouched
+  //   files or misses an added one, or --carry accepts a snapshot without --pre/--run or without edited; why_new=GST-1616;
+  //   seam=gstack-docs-candidate snapshot; no_claim=the receipt binding (test/review-exclude.test.ts)
+  test('--pre records the audit\'s edits; --carry needs --pre, --run and an earlier post snapshot that recorded them', () => {
+    const { dir, root } = repo();
+    const args = (id: string, out: string, ...extra: string[]) => ['snapshot', '--out', path.join(root, out), '--audit-id', id, '--mode', 'edit', '--base', 'main', '--docs', 'handbook', '--run', 'r1', ...extra];
+    expect(run(dir, ...args('a1', 'a1.json')).status).toBe(0);
+    fs.writeFileSync(path.join(dir, 'handbook', 'new.md'), '# New\n');
+    expect(run(dir, ...args('a1', 'a1-plain.json')).status).toBe(0);
+    const post = run(dir, ...args('a1', 'a1-post.json', '--pre', path.join(root, 'a1.json')));
+    expect(post.status, post.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'a1-post.json'), 'utf8'))).toMatchObject({ run_id: 'r1', edited: { 'handbook/new.md': { before: null, after: git(dir, 'hash-object', 'handbook/new.md') } } });
+    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'a1-post.json'), 'utf8')).edited)).toEqual(['handbook/new.md']);
+    const refused = (extra: string[], why: string) => {
+      const r = run(dir, ...args('a2', 'a2-post.json', ...extra));
+      expect({ status: r.status, written: fs.existsSync(path.join(root, 'a2-post.json')) }).toEqual({ status: 1, written: false });
+      expect(r.stderr).toContain(why);
+    };
+    expect(run(dir, ...args('a2', 'a2.json')).status).toBe(0);
+    refused(['--carry', path.join(root, 'a1-post.json')], '--carry needs --pre and --run');
+    refused(['--pre', path.join(root, 'a2.json'), '--carry', path.join(root, 'a1-plain.json')], 'names no edited files');
+  });
+
   test('/ship records post-child hashes with the helper, so Step 16 compares instead of retyping', () => {
     // ci-37198445662 gate-census-2: ship-docsync-completion/-store parents spent 45-78 s of model time
     // retyping hash maps, child output and records into several artifacts after the child returned.
     const gate = fs.readFileSync(path.resolve(import.meta.dir, '..', 'ship/sections/documentation.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
-    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed; Step 16 `compare`s it; never type hashes)');
+    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added, plus `--carry <this run\'s earlier audit\'s -post.json>` on a re-audit so receipt write resets both audits\' files; Step 16 `compare`s it; never type hashes)');
     expect(gate).toContain('Save records once; cite files by path, never copying their content.');
     const { dir, root, record } = repo();
     const args = ['--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'handbook'];

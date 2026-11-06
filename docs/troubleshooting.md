@@ -3540,7 +3540,9 @@ run `gstack-review-dispatch verify --ledger <ledger>`, which prints
 `verify` printed. When the only change since the review is Step 14.5's docs audit editing, adding or
 removing files under a pattern, pass that run's `--docs-post <audit-id>-post.json` and its Prepare snapshot as
 `--docs-pre` as well instead of rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
-([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429).
+([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429). When the run audited twice (a re-audit after a base merge),
+pass the last audit's pair; its post snapshot must carry the earlier audit (`--carry <earlier -post.json>`, GST-1616), or the
+earlier audit's files stay in the selection and write refuses as before.
 
 Write, carry and the queue bind a digest that differs (`recorded=none`, written before the base
 gained `review_exclude_paths`, or a digest from an older policy) when the recorded selection and
