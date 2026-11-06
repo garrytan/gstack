@@ -27,7 +27,7 @@ export const BUDGET_RESULT_CODES = {
   BUDGET_READING_REJECTED: {
     anchor: 'budget-reading-rejected',
     summary: 'the reading does not fit the run\'s meter contract: it is lower than the last reading of the same epoch, it was passed to a meter that reads its own source, or --prior-reading is above --reading',
-    fix: 'pass the counter the run started with (the BUDGET line names meter, unit and epoch); a different meter starts a new epoch through gstack-ship-budget resume --meter <m>',
+    fix: 'pass the counter the run started with (the BUDGET line names meter, unit and epoch); a successor thread\'s counter starts a new epoch through gstack-ship-budget resume --meter-source <its jam id> --reading <n> --credits <c>, a different meter through resume --meter <m>',
   },
   BUDGET_METER_UNAVAILABLE: {
     anchor: 'budget-meter-unavailable',
@@ -37,7 +37,7 @@ export const BUDGET_RESULT_CODES = {
   BUDGET_LEDGER_INVALID: {
     anchor: 'budget-ledger-invalid',
     summary: 'the budget ledger or the record\'s gstack-budget block is missing, unparseable, or from another schema version',
-    fix: 'restore it from the Drive checkpoint (gstack-ship-budget resume --run <id>) or rebuild it from the record with resume --record <path> --rebuild-from-record --reading <n>; open reservations are then charged as unknown',
+    fix: 'restore it from the Drive checkpoint (gstack-ship-budget resume --run <id>) or rebuild it from the record with resume --record <path> --rebuild-from-record --reading <n> (plus --credits <c> when the run metered credits); open reservations are then charged as unknown',
   },
   BUDGET_CHECK_SKIPPED: {
     anchor: 'budget-check-skipped',

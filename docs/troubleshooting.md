@@ -2114,7 +2114,9 @@ of the same epoch, `--prior-reading` or `--dispatched-at` is above `--reading`, 
 reads its own source (Claude Code journals, the estimate). Exit 2; nothing changed.
 
 **Fix.** Pass the counter the run started with (the BUDGET line names meter, unit and epoch).
-A different meter opens a new epoch that keeps prior usage:
+A successor thread's counter opens a new epoch that keeps prior usage:
+`gstack-ship-budget resume --run <id> --meter-source <its jam id> --reading <n> --credits <c>`
+([Successor handoff](ship-budget.md#successor-handoff)). A different meter opens one too:
 `gstack-ship-budget resume --run <id> --meter <m>`.
 
 <a id="budget-meter-unavailable"></a>
@@ -2137,7 +2139,8 @@ the path, the schema version and the parse location. Exit 2.
 
 **Fix.** After a machine change, `gstack-ship-budget resume --run <id>` restores the ledger and
 record from the Drive checkpoint. Otherwise rebuild:
-`resume --record <path> --rebuild-from-record --reading <n>`; open reservations are charged as unknown.
+`resume --record <path> --rebuild-from-record --reading <n>`, plus `--credits <c>` when the run
+metered credits (every `ship/DRIVER.md` run does); open reservations are charged as unknown.
 
 <a id="budget-check-skipped"></a>
 ### `gstack-review-log: ... (BUDGET_CHECK_SKIPPED)` / `gstack-ship-budget: ... role=<r> step=<s> started=<t> spend=unknown (BUDGET_CHECK_SKIPPED)`

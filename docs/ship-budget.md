@@ -72,6 +72,8 @@ costs, including the full-context re-bill after a gap over five minutes (about 4
 handoffs/GSTA-167/cache-probe.md). The first credits reading is the baseline; the `BUDGET:`,
 `BUDGET_FINAL:` and record-block lines print `credits=<used>` once one exists, and a reading below
 the last is refused like a token reading ([BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected)).
+A successor thread's readings open a new epoch for credits as well as tokens
+([Successor handoff](#successor-handoff)).
 
 ## Quickstart
 
@@ -261,6 +263,39 @@ project-user Drive folder on Capy) bound to the run id and their hashes, so afte
 change `resume --run <id>` restores both. A corrupt ledger
 ([BUDGET_LEDGER_INVALID](troubleshooting.md#budget-ledger-invalid)) is rebuilt from the
 record's block with `--rebuild-from-record`; open reservations are then charged as unknown.
+
+### Successor handoff
+
+When another thread takes over a /ship run (a successor handoff, routine under the 75%-of-hard-stop
+rule), its `cost.tokens` and `cost.credits` are a different counter: they start near zero, or at an
+unrelated cumulative value, so the run's last readings mean nothing to them. The successor resumes
+the same run and names the thread its readings come from:
+
+```bash
+gstack-ship-budget resume --record <record> --meter-source <successor's jam id> --reading <its cost.tokens> --credits <its cost.credits>
+```
+
+A `--meter-source` that differs from the run's (`start --meter-source <jam id>` records one; a run
+started without it has none, so any named source counts as a successor) closes the current epoch and
+opens the next at the successor's readings:
+
+    EPOCH: <n> meter=capy unit=capy-tokens carried_used=<tokens> carried_credits=<credits> source=<new> previous_source=<old|unrecorded>
+
+Spend already metered carries, so `used`, `credits`, the observe hard stop and admission all count
+every epoch; `epochs[]` in the ledger keeps each closed epoch's baseline, last reading, usage and
+source. Spend between the previous thread's last reading and the handoff, and the successor's spend
+before its first reading, is not metered. Both readings are required (`BUDGET_READING_MISSING`
+otherwise). A handoff child still open is refused (`BUDGET_READING_REJECTED`): its spend lands on
+the previous thread's counter, which the new epoch cannot see. Wait for the child's `RETURN:`, then
+`reconcile --return <its return file>` with a reading of that counter (`tools.thread.get` on the
+previous jam id), then resume. A reconcile without `--return` writes the child off as interrupted:
+its later spend is never charged. A dispatch reservation still open or consumed is refused the same way: its readers
+spend on the previous counter, so settle it with `settle --reservation <id> --dispatched-at <n> --reading <n>`
+on that counter once they finish, then resume. `resume --rebuild-from-record` takes the same flags: with the ledger intact it opens the
+epoch as above, and a rebuilt ledger starts at the successor's readings with the record's `used` and
+`credits` carried. Within one epoch nothing changes: a reading below the last is still refused
+([BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected)), and the same thread resumes
+without `--meter-source` (or with the source the run recorded).
 
 ## Calibration
 

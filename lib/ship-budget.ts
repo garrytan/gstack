@@ -11,7 +11,8 @@
  * lib/spend-ledger.ts's withFileLock, so lib/autoplan-budget.ts's USD ledger is
  * untouched. Meters are versioned contracts (unit, host field, scope,
  * descendants, epoch); a reading lower than the last one of its epoch is
- * rejected and a meter change opens a new epoch that keeps prior usage. Under a
+ * rejected; a meter change, or a successor thread's counter (resume --meter-source,
+ * GST-1655), opens a new epoch that keeps prior usage. Under a
  * cap, start writes a per-branch marker next to the review log so
  * gstack-review-log --start refuses a dispatch without an unspent reservation;
  * without a cap no marker exists and review-log behaves as before. Commands:
@@ -81,8 +82,9 @@ export interface Ledger {
   schema_version: 1; kind: 'gstack-ship-budget'; run: string; dir: string; file: string; record?: string; created_at: string;
   cap: number | null; tail: number; stop_overhead: number; delegate: 'auto' | 'never'; role: 'parent' | 'child';
   parent?: { run: string; ledger: string; handoff_sha: string; from: string; to: string; return_file: string };
-  meter: { contract: MeterContract; epoch: number; baseline: number; last: number | null; last_at?: string; sessions?: string[]; config_dir?: string };
-  epochs: Array<{ epoch: number; contract: MeterContract; baseline: number; last: number | null; used: number }>;
+  /** source: the thread whose counter the readings come from (--meter-source); a different one on resume is a successor. */
+  meter: { contract: MeterContract; epoch: number; baseline: number; last: number | null; last_at?: string; sessions?: string[]; config_dir?: string; source?: string };
+  epochs: Array<{ epoch: number; contract: MeterContract; baseline: number; last: number | null; used: number; source?: string; credits?: number }>;
   carried_used: number; estimate_used: number; unknown: number; next_id: number;
   reservations: Reservation[]; handoffs: Handoff[];
   cap_raises: Array<{ from: number | null; to: number | null; by: string; words: string; at: string }>;
@@ -94,8 +96,8 @@ export interface Ledger {
   parent_metered?: boolean;
   /** observe (ship/DRIVER.md): readings are recorded by note and the cap is one hard stop; no reservation, admission or delegation. */
   mode?: 'admit' | 'observe';
-  /** Capy cost.credits readings beside the token meter: baseline is the first reading, last the newest. */
-  credits?: { baseline: number; last: number };
+  /** Capy cost.credits readings beside the token meter: baseline is the first reading of its epoch, last the newest, carried what earlier sources spent. */
+  credits?: { baseline: number; last: number; carried?: number };
   notes?: Note[];
   /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
   meter_scope?: 'tree';
@@ -415,10 +417,10 @@ export function parseCredits(raw: string | undefined, flag: string): number {
 export function applyCredits(l: Ledger, value: number | undefined): void {
   if (value === undefined) return;
   if (l.credits && value < l.credits.last) throw budgetError('BUDGET_READING_REJECTED', `--credits ${value} is below the last credits reading ${l.credits.last}`);
-  l.credits = { baseline: l.credits?.baseline ?? value, last: value };
+  l.credits = { ...l.credits, baseline: l.credits?.baseline ?? value, last: value };
 }
 
-export const creditsUsed = (l: Ledger): number | null => (l.credits ? Math.round((l.credits.last - l.credits.baseline) * 100) / 100 : null);
+export const creditsUsed = (l: Ledger): number | null => (l.credits ? Math.round(((l.credits.carried ?? 0) + l.credits.last - l.credits.baseline) * 100) / 100 : null);
 
 export function budgetLine(l: Ledger, f: { call: number | null; next: string; projected: number; verdict: string }): string {
   const t = tally(l);
@@ -469,13 +471,21 @@ export function applyReading(l: Ledger, value: number | null, source: 'flag' | '
   l.meter.last_at = new Date().toISOString();
 }
 
-/** A meter change: close the epoch (its usage carries) and start the next at the new baseline. */
-export function newEpoch(l: Ledger, contract: MeterContract, baseline: number): void {
+/**
+ * A meter change: close the epoch (its usage carries) and start the next at the new baseline.
+ * A successor (another thread's counter) also closes the credits epoch: what they used carries
+ * and its credits reading is the new baseline.
+ */
+export function newEpoch(l: Ledger, contract: MeterContract, baseline: number, successor?: { source: string; credits?: number }): void {
   const metered = l.meter.contract.meter === 'estimate' ? l.estimate_used : Math.max(0, (l.meter.last ?? l.meter.baseline) - l.meter.baseline);
-  l.epochs.push({ epoch: l.meter.epoch, contract: l.meter.contract, baseline: l.meter.baseline, last: l.meter.last, used: metered });
+  const credits = successor ? creditsUsed(l) : null;
+  l.epochs.push({ epoch: l.meter.epoch, contract: l.meter.contract, baseline: l.meter.baseline, last: l.meter.last, used: metered,
+    ...(l.meter.source ? { source: l.meter.source } : {}), ...(credits === null ? {} : { credits }) });
   l.carried_used += metered;
   l.estimate_used = 0;
-  l.meter = { contract, epoch: l.meter.epoch + 1, baseline, last: baseline };
+  const source = successor?.source ?? l.meter.source;
+  l.meter = { contract, epoch: l.meter.epoch + 1, baseline, last: baseline, ...(source ? { source } : {}) };
+  if (credits !== null && successor?.credits !== undefined) l.credits = { baseline: successor.credits, last: successor.credits, carried: credits };
 }
 
 const BLOCK = /```gstack-budget\n[\s\S]*?\n```\n?/;

@@ -238,7 +238,7 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from'], ['subagent']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from', 'meter-source'], ['subagent']);
   const mode = str(o, 'mode') ?? 'admit';
   if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
   const scope = str(o, 'meter-scope');
@@ -277,7 +277,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     schema_version: 1, kind: 'gstack-ship-budget', run, dir, file: str(o, 'ledger') ?? path.join(dir, 'budget.json'), record: path.resolve(record),
     created_at: new Date().toISOString(), cap, tail: tokensOpt(o, 'reserve') ?? DEFAULT_TAIL, ...(tokensOpt(o, 'reserve') !== undefined ? { tail_explicit: true } : {}),
     stop_overhead: unitConstants(cal, contract.unit).stop_overhead,
-    delegate, role: 'parent', meter: { contract, epoch: 1, baseline: 0, last: null, ...(sessions ? { sessions, config_dir: claudeConfigDir(ctx.env) } : {}) },
+    delegate, role: 'parent', meter: { contract, epoch: 1, baseline: 0, last: null, ...(sessions ? { sessions, config_dir: claudeConfigDir(ctx.env) } : {}), ...(str(o, 'meter-source') ? { source: str(o, 'meter-source') } : {}) },
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
     ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
@@ -435,7 +435,8 @@ export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
 
 /** resume: re-attach after a stop or a machine change; rebuild or restore a lost ledger; journal a cap raise. */
 export function cmdResume(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['record', 'run', 'reading', 'credits', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words'], ['rebuild-from-record']);
+  const o = parseArgs(argv, ['record', 'run', 'reading', 'credits', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words', 'meter-source'], ['rebuild-from-record']);
+  const source = str(o, 'meter-source');
   const cap = str(o, 'token-cap');
   if (cap !== undefined && (!str(o, 'approved-by') || !str(o, 'words'))) throw usageError('resume --token-cap needs --approved-by <who> --words <the owner\'s words>; raising the cap is the owner\'s call');
   const lines: string[] = [];
@@ -453,14 +454,24 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
   }
   const out = mutateLedger(file, ctx.env, l => {
     const meter = pickMeter(o) ?? l.meter.contract.meter;
-    if (meter !== l.meter.contract.meter) {
+    const successor = source !== undefined && source !== l.meter.source;
+    if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);
+    if (successor && l.credits && str(o, 'credits') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: run ${l.run} meters credits; pass --credits <its cost.credits>, the new epoch's baseline`);
+    const open = successor ? l.handoffs.filter(h => !h.reconciled_at) : [];
+    if (open.length) throw budgetError('BUDGET_READING_REJECTED', `resume --meter-source ${source}: handoff ${open.map(h => `${h.sha} (steps ${h.from}-${h.to})`).join(', ')} still runs on ${l.meter.source ?? 'the previous'} counter, which the new epoch cannot see; wait for its RETURN, reconcile it with a reading of that counter (${open.map(h => `gstack-ship-budget reconcile --run ${l.run} --return ${h.return_file} --reading <its cost.tokens>`).join('; ')}), then resume. A reconcile without --return writes the child off as interrupted, and its later spend is never charged`);
+    const inFlight = successor ? l.reservations.filter(r => r.kind === 'dispatch' && (r.state === 'open' || r.state === 'consumed')) : [];
+    if (inFlight.length) throw budgetError('BUDGET_READING_REJECTED', `resume --meter-source ${source}: dispatch reservation ${inFlight.map(r => `${r.id} (step ${r.step}, ${r.state})`).join(', ')} still has readers on ${l.meter.source ?? 'the previous'} counter, which the new epoch cannot see; wait for them to settle, settle each with a reading of that counter (${inFlight.map(r => `gstack-ship-budget settle --run ${l.run} --reservation ${r.id} --dispatched-at <its reading when the readers started> --reading <its cost.tokens>`).join('; ')}), then resume`);
+    if (meter !== l.meter.contract.meter || successor) {
+      const previous = l.meter.source ?? 'unrecorded';
       const sessions = meter === 'claude' ? bindClaude(o, ctx.env) : undefined;
-      newEpoch(l, METER_CONTRACTS[meter], meter === 'capy' ? tokensOpt(o, 'reading') ?? 0 : 0);
+      newEpoch(l, METER_CONTRACTS[meter], meter === 'capy' ? tokensOpt(o, 'reading') ?? 0 : 0,
+        successor ? { source, ...(str(o, 'credits') === undefined ? {} : { credits: parseCredits(str(o, 'credits'), '--credits') }) } : undefined);
       if (sessions) { l.meter.sessions = sessions; l.meter.config_dir = claudeConfigDir(ctx.env); try { fs.unlinkSync(path.join(l.dir, 'claude-meter.json')); } catch {} }
       const call = readMeter(l, { ...o, ...(meter === 'capy' ? {} : { reading: undefined as any }) }, false);
       if (meter === 'claude') { l.meter.baseline = l.meter.last ?? 0; }
       void call;
-      lines.push(`EPOCH: ${l.meter.epoch} meter=${meter} unit=${l.meter.contract.unit} carried_used=${l.carried_used}`);
+      lines.push(`EPOCH: ${l.meter.epoch} meter=${meter} unit=${l.meter.contract.unit} carried_used=${l.carried_used}`
+        + (successor ? `${l.credits?.carried === undefined ? '' : ` carried_credits=${l.credits.carried}`} source=${source} previous_source=${previous}` : ''));
     } else readMeter(l, o, false);
     if (cap !== undefined) {
       const to = cap === 'none' ? null : parseTokens(cap, '--token-cap');
@@ -482,12 +493,15 @@ function rebuildLedger(file: string, record: string | undefined, ctx: Ctx, o: Op
   const meter = b.meter as MeterKind;
   const reading = tokensOpt(o, 'reading');
   if (meter === 'capy' && reading === undefined) throw budgetError('BUDGET_READING_MISSING', 'resume --rebuild-from-record on meter=capy');
+  const credits = str(o, 'credits') === undefined ? undefined : parseCredits(str(o, 'credits'), '--credits');
+  if (b.credits !== undefined && credits === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --rebuild-from-record: run ${b.run} metered credits (credits=${b.credits}); pass --credits <cost.credits>, the new epoch's baseline`);
   const num = (k: string) => Number(b[k] ?? 0) || 0;
   const l: Ledger = {
     schema_version: 1, kind: 'gstack-ship-budget', run: b.run, dir: path.dirname(file), file, record: path.resolve(record!),
     created_at: new Date().toISOString(), cap: b.cap === 'none' ? null : num('cap'), tail: num('tail') || DEFAULT_TAIL,
     stop_overhead: unitConstants(loadCalibration(), METER_CONTRACTS[meter].unit).stop_overhead, delegate: 'auto', role: b.role === 'child' ? 'child' : 'parent',
-    meter: { contract: METER_CONTRACTS[meter], epoch: num('epoch') + 1, baseline: meter === 'capy' ? reading! : 0, last: meter === 'capy' ? reading! : null },
+    meter: { contract: METER_CONTRACTS[meter], epoch: num('epoch') + 1, baseline: meter === 'capy' ? reading! : 0, last: meter === 'capy' ? reading! : null, ...(str(o, 'meter-source') ? { source: str(o, 'meter-source') } : {}) },
+    ...(credits === undefined ? {} : { credits: { baseline: credits, last: credits, ...(b.credits === undefined ? {} : { carried: num('credits') }) } }),
     epochs: [], carried_used: num('used'), estimate_used: 0, unknown: num('unknown') + num('reserved'), next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     ...(() => { try { return { marker: reviewPaths(ctx.cwd, ctx.env).marker, review_log: reviewPaths(ctx.cwd, ctx.env).reviewLog }; } catch { return {}; } })(),
     ...(b.mode === 'observe' ? { mode: 'observe' as const } : {}), ...(b.meter_scope === 'tree' ? { meter_scope: 'tree' as const } : {}),
