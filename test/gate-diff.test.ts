@@ -78,6 +78,31 @@ describe('gate-diff tags: one planted case per id', () => {
     expect(r.summary.unmatched).toBe(0);
   });
 
+  test.each([
+    '/* oxlint-disable no-console */',
+    '// oxlint-disable-next-line no-console',
+    'console.log(value); // oxlint-disable-line no-console',
+    '/* eslint-disable no-console */',
+  ])('RH-13: %s admits a product-code hunk', (text) => {
+    const r = scan('rh13-pragma', { files: [{
+      oldPath: 'src/parse.ts', newPath: 'src/parse.ts', status: 'modified',
+      hunks: [{ header: '@@ -0,0 +1 @@', lines: [{ kind: 'add', text }] }],
+    }] });
+    expect(pathsOf(r)).toEqual(['src/parse.ts']);
+    expect(tagsOf(r)).toEqual(['RH-13']);
+    expect(r.hunks[0].level).toBe('read');
+    expect(r.summary.unmatched).toBe(0);
+  });
+
+  test('RH-13: re-enabling oxlint does not admit a product-code hunk', () => {
+    const r = scan('rh13-pragma', { files: [{
+      oldPath: 'src/parse.ts', newPath: 'src/parse.ts', status: 'modified',
+      hunks: [{ header: '@@ -0,0 +1 @@', lines: [{ kind: 'add', text: '/* oxlint-enable no-console */' }] }],
+    }] });
+    expect(r.hunks).toHaveLength(0);
+    expect(r.unmatchedPaths).toEqual(['src/parse.ts']);
+  });
+
   test('RH-14: continue-on-error added to a workflow; [skip ci] commits are listed by message', () => {
     const r = scan('rh14-bypass', { commits: [{ sha: 'a'.repeat(40), message: 'fix: tweak [skip ci]\n\nbody' }, { sha: 'b'.repeat(40), message: 'feat: real' }] });
     expect(tagsOf(r)).toEqual(['RH-14', 'RH-14']);

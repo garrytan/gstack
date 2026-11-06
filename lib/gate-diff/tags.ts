@@ -61,7 +61,7 @@ const ENV_SNIFF_IDIOMS: RegExp[] = [
 ];
 
 const SUPPRESSION_IDIOMS: RegExp[] = [
-  /eslint-disable/, /@ts-ignore\b/, /@ts-expect-error\b/, /#\s*type:\s*ignore\b/, /#\s*noqa\b/,
+  /(?:eslint|oxlint)-disable/, /@ts-ignore\b/, /@ts-expect-error\b/, /#\s*type:\s*ignore\b/, /#\s*noqa\b/,
   /#\[allow\(/, /\/\/\s*nolint\b/, /rubocop:disable\b/, /@SuppressWarnings\b/,
 ];
 
