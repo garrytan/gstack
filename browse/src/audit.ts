@@ -153,7 +153,7 @@ export function redactUrl(raw: string): string {
   }
   const query = url.search.slice(1).split('&').filter(Boolean).map(piece => {
     const eq = piece.indexOf('=');
-    return eq > 0 ? piece.slice(0, eq + 1) + REDACTED : REDACTED;
+    return eq > 0 && /[^=]/.test(piece.slice(eq + 1)) ? piece.slice(0, eq + 1) + REDACTED : REDACTED;
   });
   url.username = '';
   url.password = '';

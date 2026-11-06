@@ -264,6 +264,13 @@ describe('audit origin keeps scheme, host and path (GST-1635)', () => {
     expect(line().origin).toBe('https://example.com/cb?[REDACTED]');
   });
 
+  it('redacts a whole piece whose value is empty or only "=", so a padded bare token keeps nothing', () => {
+    write('click', ['@e3'], undefined, 'https://example.com/cb?c2VjcmV0==&flag=&q=x');
+    expect(raw()).not.toContain('c2VjcmV0');
+    expect(line().origin).toBe('https://example.com/cb?[REDACTED]&[REDACTED]&q=[REDACTED]');
+    expect(formatNetworkLogLine({ timestamp: 0, method: 'GET', url: 'https://api.example.com/v1?dG9rZW4=' })).not.toContain('dG9rZW4');
+  });
+
   it('keeps a URL without a query as it was', () => {
     write('click', ['@e3'], undefined, 'https://example.com/a/b');
     expect(line().origin).toBe('https://example.com/a/b');
