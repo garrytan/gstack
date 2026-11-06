@@ -3197,6 +3197,26 @@ files (or ship it through Steps 5–11.5), write the constant's new value into
 every changed field, and rerun the regen entry's command and commit its output.
 A behavior STOP that remains is planned with `gstack-review-plan --post-review`.
 
+<a id="route-sidecar-refused"></a>
+### `ROUTE_SIDECAR_REFUSED: <path> <reason>`
+
+**Meaning.** `gstack-ship-release finish` found a `.uid` file changed after
+review that failed a Godot UID sidecar proof, so it keeps its old route,
+usually behavior ([ship-policy.md#uid-sidecar](ship-policy.md#uid-sidecar)).
+The reason names the failed proof: `needs --reviewed-base`, `could not be
+compared with the reviewed range`, `has no sibling <path> that the reviewed
+range added or modified or the review-loop exception accepted`, `has no
+sibling <path> at the current tree`, `existed at the reviewed tree or the
+current base`, `is not a regular non-executable file (mode <mode>)`, `is not
+exactly one Godot uid://<id> line`, `shares its UID with <paths>`, `could not
+be searched for its UID in the current tree`, or `or its sibling matches the base
+policy's review_exclude_paths or readers.forbid_paths`.
+
+**Fix.** Commit the sidecar exactly as Godot wrote it, beside a script this PR
+added or changed: one `uid://<id>` line, a regular file, no symlink. Keep a
+script's existing UID instead of regenerating it. Otherwise take Steps 5–11.5
+for the file.
+
 <a id="policy-source-unavailable"></a>
 ### `policy source unavailable — fix: git fetch origin <base> --depth=1 (POLICY_SOURCE_UNAVAILABLE)`
 

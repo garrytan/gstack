@@ -70,6 +70,7 @@ refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 | `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
 | `bookkeeping` | glob list | `[]` | <a id="bookkeeping"></a>Root-anchored globs of bookkeeping tables a verify or ratchet step rewrites (size baselines, serial lists, limits), each ending in `.tsv`, `.csv` or `.txt` and never under `.gstack/` or `.github/` (`["scripts/*-baseline.tsv"]`). A matching file changed at most 20 lines after review binds, first touched or not, takes finish's [one scoped reader](review-policy.md#bounded-post-review-edits) instead of Steps 5–11.5; the reader still reads every changed row. Read from the base revision only. Needs `min_gstack_version`. |
 | `mechanical_retake` | `[{ path, template, fields, regen }]` | `[]` | A version or rules constant a branch may have to retake after a base merge, next to `bookkeeping`'s bounded kind: `path` is one literal file, `template` the whole line with one `{n}` (`const RULE_NUMBERS := {n}`), `fields` the `{ glob, field }` fixture fields that carry the same value, and `regen` the [`.gstack/generated.json`](pregate.md#generated) entry ids whose command regenerates its goldens. A post-review edit finish proves to be only that retake routes as `mechanical=`, with no reader and no review round; see [mechanical retakes](#mechanical-retake). At most 8 constants and 16 fields or ids each; no glob, `..`, `.gstack/` or `.github/` path. Read from the base revision only. Needs `min_gstack_version`. |
+| `test_code` | glob list | `[]` | Root-anchored globs of test code the built-in test names miss, never under `.gstack/` or `.github/`, and never matching a file there (`["tests/**/*.gd"]` for GDScript checks). A matching file changed after review routes as test code, one scoped reader of its test hunks, instead of behavior, beside the built-in globs; shared `helpers/` and `fixtures/` files stay behavior. See [test code and Godot UID sidecars](#test-code). Read from the base revision only. Needs `min_gstack_version`. |
 | `ci_record_timeout_s` | integer seconds, at least 60 | `600` | <a id="ci-record-timeout"></a>How long `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane. A value over 3600 is clamped to 3600. accept prints the bound it used as `CI_RECORD_TIMEOUT: <n>s (default)`, `(origin/<base> ci_record_timeout_s)` or `(… <value> is over the 3600s ceiling)`. Raise it when record-ci runs long, for example when it reruns a per_file remainder of CI-skipped files here (harness-evals #271 needed about 745 s). Read from the base revision only, so a branch can't raise its own bound. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
@@ -1812,6 +1813,71 @@ as a note. Below the round cap that's a pass on the range (a fix-check under
 the lean panel). At the cap it stops for the owner, whose recorded grant
 (`--grant`) adds one scoped fix-check, never `done`. So `finish` never asks for
 a step the planner refuses.
+
+<a id="test-code"></a>
+<a id="uid-sidecar"></a>
+## `test_code` and Godot UID sidecars after review
+
+founderstar#611 (GST-1604) hit two gaps after the owner's granted fix-check.
+CI forced one more `scripts/ui/cutscene.gd` edit, which the owner accepted
+under the review-loop exception. Lint then wanted
+`tests/cutscene_check.gd.uid`, the UID sidecar of a test script the PR added
+before review. `finish` routed the sidecar as behavior, so a one-line random
+id cost another fix-check or a fresh /ship. GDScript tests also match none of
+the built-in test globs, so an edit to `tests/*_check.gd` after review routed
+as behavior too.
+
+**`test_code`.** A base policy can declare its own test files:
+
+```json
+"test_code": ["tests/**/*.gd"]
+```
+
+`finish` then routes a matching file changed after review like a built-in
+test file. It takes the scoped reader of its test hunks, and a removed or
+gate-tagged line still routes as behavior. The globs are read from the base
+only, so a branch that declares them changes nothing until the declaration
+lands.
+
+**Godot UID sidecars.** Godot 4.4 and later write `<file>.uid` beside each
+script or shader they give a UID. The file is one line,
+`uid://<id>`, where `<id>` is a random non-negative 63-bit number in base 34
+over `a`–`y` and `0`–`8` (Godot's alphabet skips `z` and `9`, GH-83843),
+followed by a newline. A reader has nothing to read in it, and no generator
+reproduces it. So `finish`, with `--reviewed-base`, proves each `.uid` that
+would route as behavior and routes it as `sidecar=<n>` on `ROUTE:`, with no
+reader, when all of these hold:
+
+- the branch adds it after review: the path is absent at the reviewed tree
+  and at the current base, since a changed UID re-identifies the script for
+  every `uid://` reference to it;
+- its sibling (the path without `.uid`) is a regular file now, and one the
+  reviewed range added or modified (present at the reviewed tree), or one the
+  review-loop exception (`finish --review-loop-exception`) accepted; a sibling that is declared `test_code` follows the same rule;
+- it is a regular, non-executable file (mode `100644`, never a symlink) whose
+  whole content is `uid://<id>` with an optional trailing `\n`: the id
+  canonical (no leading `a` digit unless it is `a`), at most 13 digits and at
+  most 2^63−1 (`d4n4ub6itg400`);
+- no other file in the current tree declares the same `uid://<id>`: another
+  `.uid` holding it, a `[gd_scene]` or `[gd_resource]` header, or an
+  `.import` file's `uid=` line. A copied sidecar would give two resources one
+  UID; a scene that only references the script by it (`[ext_resource … uid=]`)
+  doesn't count;
+- neither it nor its sibling matches the base policy's
+  [`review_exclude_paths`](#review-exclude-paths) or `readers.forbid_paths`,
+  since no reader saw an excluded script.
+
+Each proven sidecar prints `UID_SIDECAR: <path> (beside <sibling>)`. Any other
+`.uid` keeps its old route, usually behavior, and `finish` prints
+`ROUTE_SIDECAR_REFUSED: <path> <reason>`
+([troubleshooting](troubleshooting.md#route-sidecar-refused)). A `.import` file
+is never a candidate: its `[remap]` and `[params]` sections vary by importer,
+so nothing pins its content as tightly. A `.uid` a landed stack parent ships
+isn't a candidate either. `finish` records the proven sidecars with the
+mechanical retakes, and `gstack-ship-receipt write` copies them into the
+receipt's `mechanical` list as `Godot UID sidecar: <path> (beside <sibling>)`.
+With `--body` it refuses a PR body that doesn't carry each of those lines
+word for word.
 
 ## Carrying a receipt across a base merge or a test-only fix
 

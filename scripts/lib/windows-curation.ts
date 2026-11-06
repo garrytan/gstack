@@ -427,6 +427,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/ship-receipt-carry-mixed.test.ts',
     reason: 'drives bin/gstack-ship-receipt, gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-mechanical-retake.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42167292675)',
   },
+  {
+    file: 'test/ship-uid-sidecar.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-ship-receipt, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-mechanical-retake.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42205201312)',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for

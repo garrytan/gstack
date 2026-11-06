@@ -97,6 +97,7 @@ export interface ShipPolicy {
   release_gate: ReleaseGatePolicy | null;
   /** Bookkeeping tables (`.tsv`, `.csv`, `.txt` globs) whose small post-review edits take /ship finish's scoped reader (docs/ship-policy.md#bookkeeping); read from the base only. */ bookkeeping: string[];
   /** Constants a branch may retake after a base merge, with their fixture fields and golden regen ids (docs/ship-policy.md#mechanical-retake); read from the base only. */ mechanical_retake: MechanicalConstant[];
+  /** Globs of test code the built-in test names miss (GDScript checks), which /ship finish routes as test code (docs/ship-policy.md#test-code); read from the base only. */ test_code: string[];
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
   /** Seconds accept gives each `gstack-evidence record-ci` (docs/ship-policy.md#ci-record-timeout), clamped to 3600; read from the base only. */ ci_record_timeout_s: number;
@@ -190,7 +191,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [],
+  base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
   release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
 };
 
@@ -230,6 +231,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   land: LAND_EXPLANATION,
   bookkeeping: 'Root-anchored globs of bookkeeping tables, each ending in .tsv, .csv or .txt and never under .gstack/ or .github/, for example ["scripts/*-baseline.tsv"]. An edit of at most 20 lines to a matching file after review binds, first touched or not, takes /ship finish\'s scoped reader instead of Steps 5–11.5; the reader still reads every changed row. Read from the base branch only. Empty (default) declares none.',
   mechanical_retake: MECHANICAL_EXPLANATION,
+  test_code: 'Root-anchored globs of test code the built-in test names miss, never under .gstack/ or .github/, for example ["tests/**/*.gd"] for GDScript checks. /ship finish routes a matching file changed after review as test code (one scoped reader of its test hunks) instead of behavior, beside the built-in globs; shared helpers and fixtures stay behavior. Read from the base branch only. Empty (default) declares none.',
   ci_record_timeout_s: 'Seconds `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane, an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
@@ -472,6 +474,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
   if ('bookkeeping' in obj) listErrors('bookkeeping', obj.bookkeeping, errors, g => globError(g) ?? bookkeepingGlobError(g));
   if ('mechanical_retake' in obj) mechanicalErrors(obj.mechanical_retake, errors, globError);
+  if ('test_code' in obj) listErrors('test_code', obj.test_code, errors, g => globError(g) ?? (/^\.(gstack|github)\//.test(g) ? 'must not name a path under .gstack/ or .github/' : null));
   if ('ci_record_timeout_s' in obj && !(Number.isInteger(obj.ci_record_timeout_s) && (obj.ci_record_timeout_s as number) >= 60)) errors.push({ code: 'POLICY_INVALID', path: 'ci_record_timeout_s', message: 'must be an integer of at least 60 seconds (accept clamps a value over 3600 to 3600)' });
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
