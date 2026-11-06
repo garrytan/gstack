@@ -29,7 +29,7 @@ describe('pregate invalidation', () => {
     const ok = receipt(repo);
     expect(ok.status).toBe(EXIT.ok);
     const parsed = JSON.parse(ok.out);
-    expect(parsed.pregate).toMatch(/^pass @[0-9a-f]{12} \(7 checks, current for [0-9a-f]{12}\)$/);
+    expect(parsed.pregate).toMatch(/^pass @[0-9a-f]{12} \(8 checks, current for [0-9a-f]{12}\)$/);
     expect(parsed.requires_remote).toBeUndefined();
     expect(Object.keys(parsed).indexOf('pregate')).toBeGreaterThan(Object.keys(parsed).indexOf('history') < 0 ? Object.keys(parsed).indexOf('session_kind') : Object.keys(parsed).indexOf('history'));
     // The stamp (or any edit) after the run moves the tree: the record is no longer evidence.

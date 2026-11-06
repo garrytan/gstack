@@ -36,6 +36,15 @@ than 1.91.98.0 set to a non-default value requires `min_gstack_version` at
 least at its introducing version, and a gstack older than `min_gstack_version`
 refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 `MIN_READER: gstack <version>`, the floor every lane reading the policy needs.
+`validate` also refuses a `min_gstack_version` above the newest stable gstack
+release (`POLICY_FLOOR_ABOVE_STABLE`, naming both versions): every
+stable-channel lane would refuse that policy until a later release is cut. The
+release is the highest `v<version>` tag at the commit gstack's origin `stable`
+branch points to (a tag a half-way cut left above stable does not count), else
+the VERSION at the local stable ref, else the highest local release tag
+(`GSTACK_STABLE_REPO` names another gstack checkout); when none resolves it warns (`STABLE_RELEASE_UNKNOWN`) and says the
+floor was not compared. The pregate `policy-floor` check does the same on a
+branch that changes the policy.
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|

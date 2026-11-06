@@ -22,6 +22,7 @@ import {
   minimumReader, policyUnavailableLine, renderEffective, resolveBaseBranch, type LoadedPolicy,
 } from '../lib/ship-policy';
 import { logShipCall } from '../lib/ship-call-log';
+import { floorAgainstStable, newestStableRelease } from '../lib/stable-release';
 
 logShipCall('gstack-ship-policy');
 
@@ -89,14 +90,17 @@ function main(argv: string[]): number {
   if (cmd === 'validate' || cmd === 'show-effective') {
     const loaded = load(root, rest, cmd === 'validate' ? 'head' : 'base');
     if (typeof loaded === 'number') return loaded;
+    const floor: ReturnType<typeof floorAgainstStable> = cmd === 'validate' && loaded.present ? floorAgainstStable(loaded.policy.min_gstack_version, newestStableRelease()) : {};
+    if (floor.error) loaded.errors.push(floor.error);
     const set = POLICY_KEYS.filter(k => loaded.values[k] && loaded.values[k] !== 'default');
     const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k]]));
     const minReader = set.length ? minimumReader(Object.fromEntries(set.map(k => [k, loaded.policy[k]]))) : null;
     if (json) {
-      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, errors: loaded.errors }) + '\n');
+      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, ...(cmd === 'validate' ? { stable: floor.stable ?? null, warnings: floor.warning ? [floor.warning] : [] } : {}), errors: loaded.errors }) + '\n');
       return loaded.errors.length ? EXIT.fail : EXIT.ok;
     }
     printErrors(loaded);
+    if (floor.warning) process.stderr.write(`gstack-ship-policy: WARN ${floor.warning}\n`);
     if (cmd === 'validate') {
       process.stdout.write(loaded.errors.length ? `POLICY_INVALID: ${loaded.errors.length} error(s) in ${loaded.source.label}\n` : `POLICY_VALID: ${loaded.present ? loaded.source.label : `no ${SHIP_POLICY_PATH} (defaults apply)`}\n`);
       for (const k of set) process.stdout.write(`KEY: ${k} introduced=${introduced[k]}\n`);

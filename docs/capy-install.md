@@ -148,9 +148,15 @@ there is refused with the usual `--for <skill>` fix.
    floor <f> that <file> declares (min_gstack_version); fix: bash
    <skill>/scripts/install.sh --for <skill> (fast-forwards ...), or
    bin/gstack-upgrade (PROJECT_FLOOR_UNMET)`. The trailer stays ok and carries
-   `floor=<f> (<file>)` and `fix: <command>`; the lane runs the fix before its
-   first workflow. Raising the floor is one commit in the project instead of a
+   `floor=<f> (<file>)` and `fix: <command>`; the lane runs the fix once before
+   its first workflow. Raising the floor is one commit in the project instead of a
    message to every thread ([PROJECT_FLOOR_UNMET](troubleshooting.md#project-floor-unmet)).
+   The row compares the version the checkout reads policies as (VERSION, or the
+   newest policy key it knows when later; `validatePolicy`'s
+   `runningGstackVersion`). When the floor is above the newest stable gstack
+   release too, the row says `no release meets this floor yet` and offers no
+   fast-forward, and the note is `floor=<f> (<file>; no release meets this floor
+   yet)` with no `fix:`; the lane runs nothing and reports it.
 6. The project's Node pin. When only the Node pin is unmet (the image's Node
    behind the repo's pin while every Bun pin is met), `pins` is `WARN pins —
    ... (node pin only; bun pins pass); fix: ... (PROJECT_NODE_PIN_UNMET)`, not a
@@ -419,8 +425,10 @@ with every bootstrapper revision), optionally followed by `upgrade skipped:
 <reason> (<CODE>)` when an install-mode fast-forward was refused, or `latest:
 <ver> available` (origin's default branch has a newer VERSION; the bootstrapper
 exports it as `GSTACK_CAPY_REMOTE_VERSION` only after a fetch that succeeded
-in this run); then `floor=<f> (<file>)` when the project's floor is unmet; and
-last exactly one `fix: <command>` whenever `behind=` or `floor=` is present.
+in this run); then `floor=<f> (<file>)` when the project's floor is unmet
+(`floor=<f> (<file>; no release meets this floor yet)` when no stable release
+meets it either, with no fix of its own); and last exactly one `fix: <command>`
+whenever `behind=` or a fixable `floor=` is present.
 A fail trailer never carries notes. `gstack: ok not-needed for=none (...)` is
 the `--for none` outcome: no revision, nothing certified, no workflow admitted. Match `^gstack: ok ` or
 `^gstack: fail `; never parse past the first space after the version.
