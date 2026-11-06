@@ -489,7 +489,10 @@ renders its brief; `verify --targeted-out .gstack/tmp/targeted.json` writes the 
 the reader got its brief verbatim and its reply was collected on a committed diff, whatever
 happened to HEAD after, and it names the commit it read (`head`). `write` binds it only while
 that commit is an ancestor of HEAD, its product patch is the receipt's, and nothing changed
-after it carries a targeted class, with the gate scan run over that range: any other product change
+after it carries a targeted class, with the gate scan run over that change. What changed after the
+read is the PR's own change, on `product_patch_id`'s basis: the paths whose part of the PR's diff
+against its merge base differs between the read and HEAD, so files only a base merge brought in never
+count, while a branch edit or a merge resolution that changes the PR's own hunks does (GST-1593). Any other product change
 after the read refuses with `RECEIPT_INVALID`, and so does a test edit the gate scan tags (a
 skipped case). A docs-only change after the read (TODOS.md included) carries the record only
 when it changes no binary file, adds no numeric claim, touches no results, prereg or eval path,

@@ -479,16 +479,87 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
 }
 
 /**
- * The targeted classes of what changed from `from` to the checked-out `head`, with gstack-gate-diff run over that range whenever
- * a non-docs path changed (a test edit that skips a case is gate class); null when `from` is not an ancestor of `head`, the gate
- * scan did not run, or a class input is unreadable.
+ * A commit on `from` that holds what the PR's own change did after `from`: every path whose part of the PR's diff against its
+ * merge base with origin/<base> (product_patch_id's basis, with tests and metadata kept) differs between `from` and `head`, at
+ * `head`'s content. A main merge moves the merge base with the files it brings, so a file only main changed keeps `from`'s
+ * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path: a path whose base
+ * content main also changed moves unless replaying main's change onto `from`'s content (git merge-file) gives `head`'s exactly,
+ * so a hunk relocated to an identical context counts. With no resolvable merge base every path that changed from `from` to
+ * `head` moves, and so does a path whose mode at `head` is not the replayed one. The commit carries the messages of every
+ * commit since `from` that origin/<base> does not hold, side-branch merges included (a CI skip marker is gate class). Null when
+ * git cannot build it.
  */
-export function targetedClassesSince(root: string, from: string, head: string): readonly TargetedClass[] | null {
+function ownChangeSince(root: string, base: string, from: string, head: string): string | null {
+  const run = (args: string[], env?: NodeJS.ProcessEnv, input?: string) => {
+    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const raw = (a: string, b: string) => {
+    const out = run(['diff', '--raw', '-z', '--no-renames', '--full-index', a, b]);
+    if (out === null) return null;
+    const t = out.split('\0');
+    const entries = new Map<string, string>();
+    for (let i = 0; i + 1 < t.length; i += 2) entries.set(t[i + 1]!, t[i]!);
+    return entries;
+  };
+  const blob = (sha: string) => {
+    const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
+  if (!gitDir.ok) return null;
+  const tmp = path.join(gitDir.out, `gstack-since-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const index = `${tmp}.index`;
+  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
+  const baseSha = baseCommit(root, `origin/${base.replace(/^origin\//, '')}`);
+  const mbFrom = baseSha.ok ? git(root, ['merge-base', baseSha.out, from]) : baseSha;
+  const mbHead = baseSha.ok ? git(root, ['merge-base', baseSha.out, head]) : baseSha;
+  try {
+    let moved: string[];
+    if (mbFrom.ok && mbHead.ok) {
+      const was = raw(mbFrom.out, from), now = raw(mbHead.out, head);
+      if (!was || !now) return null;
+      moved = [...new Set([...was.keys(), ...now.keys()])].filter(p => {
+        const w = was.get(p), n = now.get(p);
+        if (w === n) return false;
+        const [wOld, wMode, wBase, wNew] = w?.split(' ') ?? [], [nOld, nMode, nBase, nNew] = n?.split(' ') ?? [];
+        const shas = [wNew, wBase, nBase, nNew];
+        if (wBase === nBase || nMode !== (wOld === `:${wMode}` ? nOld?.slice(1) : wMode) || shas.some(s => !s || /^0+$/.test(s))) return true;
+        const blobs = shas.map(s => blob(s!));
+        if (blobs.some(b => !b)) return true;
+        const files = blobs.slice(0, 3).map((b, i) => { fs.writeFileSync(`${tmp}.${i}`, b!); return `${tmp}.${i}`; });
+        const merged = spawnSync('git', ['merge-file', '-p', '-q', ...files], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+        return merged.status !== 0 || !merged.stdout.equals(blobs[3]!);
+      });
+    } else {
+      const all = raw(from, head);
+      if (!all) return null;
+      moved = [...all.keys()];
+    }
+    const listed = moved.length ? run(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', ...moved]) : '';
+    const messages = run(['log', '--format=%B', `${from}..${head}`, ...(baseSha.ok ? [`^${baseSha.out}`] : [])]);
+    if (listed === null || messages === null) return null;
+    const atHead = new Map(listed.split('\0').filter(Boolean).map(l => [l.slice(l.indexOf('\t') + 1), l] as const));
+    const entries = moved.map(p => `${atHead.get(p) ?? `0 ${'0'.repeat(from.length)}\t${p}`}\0`).join('');
+    if (run(['read-tree', from], env) === null || run(['update-index', '-z', '--index-info'], env, entries) === null) return null;
+    const tree = run(['write-tree'], env)?.trim();
+    return (tree && run(['commit-tree', '--no-gpg-sign', tree, '-p', from, '-m', 'gstack-ship-receipt: the PR\'s own change since the targeted read', '-m', messages.trim() || '(no messages)'], env)?.trim()) || null;
+  } finally { for (const s of ['index', '0', '1', '2']) fs.rmSync(`${tmp}.${s}`, { force: true }); }
+}
+
+/**
+ * The targeted classes of what the PR's own change did from `from` to `head` against origin/<base> (ownChangeSince), with
+ * gstack-gate-diff run over that change whenever a non-docs path moved (a test edit that skips a case is gate class); null when
+ * `from` is not an ancestor of `head`, the change cannot be built, the gate scan did not run, or a class input is unreadable.
+ */
+export function targetedClassesSince(root: string, from: string, head: string, base: string): readonly TargetedClass[] | null {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
-  const at = headInputs(root, from, head, undefined, true);
+  const since = ownChangeSince(root, base, from, head);
+  if (!since) return null;
+  const at = headInputs(root, from, since, undefined, true);
   let gateTagged: number | null = 0;
   if (gateScanNeeded(at.c.paths, at.c.root)) {
-    const g = runScriptSync(path.join(BIN_DIR, 'gstack-gate-diff'), [from], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    const g = runScriptSync(path.join(BIN_DIR, 'gstack-gate-diff'), ['--commit', since], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
     const m = /GATE_SUMMARY: .*?tagged=\{([^}]*)\}/.exec(g.stdout ?? '');
     if (g.status !== 0 || !m) return null;
     gateTagged = m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0);
@@ -498,14 +569,16 @@ export function targetedClassesSince(root: string, from: string, head: string): 
 }
 
 /**
- * Whether what changed from `from` to the checked-out `head` is plain docs, which a targeted record carries across (GST-1195):
- * every path docs class, R65's claim rule (platformFits: no numeric claim, no results, prereg or eval path), and no money,
- * security, secret or auth wording in the changed lines (the risk matchers plus DOCS_CLAIM_WORDS, since the matchers spare prose).
- * False when `from` is not an ancestor or the diff is unreadable.
+ * Whether what the PR's own change did from `from` to `head` against origin/<base> (ownChangeSince) is plain docs, which a
+ * targeted record carries across (GST-1195): every path docs class, R65's claim rule (platformFits: no numeric claim, no results,
+ * prereg or eval path), and no money, security, secret or auth wording in the changed lines (the risk matchers plus
+ * DOCS_CLAIM_WORDS, since the matchers spare prose). False when `from` is not an ancestor or the change is unreadable.
  */
-export function plainDocsSince(root: string, from: string, head: string): boolean {
+export function plainDocsSince(root: string, from: string, head: string, base: string): boolean {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return false;
-  const c = collectCommit(root, from, head);
+  const since = ownChangeSince(root, base, from, head);
+  if (!since) return false;
+  const c = collectCommit(root, from, since);
   if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary)) return false;
   const lines = c.paths.flatMap(p => [...(c.added?.[p] ?? []), ...(c.removed?.[p] ?? [])]);
   if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return false;
