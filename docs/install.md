@@ -18,7 +18,7 @@ When qualified CSO runtime images are published, setup gives each automatic prel
 
 From inside your repo, `(cd ~/.claude/skills/gstack && ./setup --team) && ~/.claude/skills/gstack/bin/gstack-team-init required` switches you to team mode and bootstraps the repo so teammates get gstack automatically (the README has the full paste, which also commits the change).
 
-No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent). Team mode follows the `stable` channel: the tagged release cut Monday and Thursday mornings, never more than once every 72 hours except for a security or regression fix, not every merge to main. `gstack-config set update_channel main` follows every merge instead; see [releases.md](releases.md).
+No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent). Team mode follows the `stable` channel: the tagged release cut Monday and Thursday mornings, never more than once every 72 hours except for an important change (within about a day) or a security or regression fix, and never more than a week stale, not every merge to main. `gstack-config set update_channel main` follows every merge instead; see [releases.md](releases.md).
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 

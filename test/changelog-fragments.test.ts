@@ -39,6 +39,16 @@ describe('parseFragment', () => {
     expect(parseFragment('a.md', '## [1.2.4.0] - 2026-10-29\n- x\n')).toMatchObject({ code: 'CHANGELOG_FRAGMENT_INVALID' });
     expect(parseFragment('a.md', '## [Unreleased]\n- x\n')).toMatchObject({ code: 'CHANGELOG_FRAGMENT_INVALID' });
   });
+  // Value: protects=R74's crew-readable marker: a fragment's important: field (security, regression, data-loss, blocker) parses beside bump: and the daily
+  // stable check reads it; fails_when=the field is refused, an unknown class passes, or the marker leaks into the CHANGELOG body; why_new=fragments held only
+  // bump:; seam=none; no_claim=that the change is really important (attested in review)
+  test('important: security|regression|data-loss|blocker parses beside bump and stays out of the body; any other class is refused', () => {
+    expect(parseFragment('changelog.d/a.md', '---\nimportant: security\n---\n- x\n')).toEqual({ path: 'changelog.d/a.md', body: '- x', bump: null, important: 'security' });
+    expect(parseFragment('changelog.d/a.md', "---\nbump: minor\nimportant: 'data-loss'\n---\n- x\n")).toEqual({ path: 'changelog.d/a.md', body: '- x', bump: 'minor', important: 'data-loss' });
+    for (const kind of ['regression', 'blocker']) expect(parseFragment('a.md', '---\nimportant: ' + kind + '\n---\n- x\n')).toMatchObject({ important: kind });
+    expect(parseFragment('a.md', '---\nimportant: urgent\n---\n- x\n')).toMatchObject({ code: 'CHANGELOG_FRAGMENT_INVALID', message: expect.stringContaining('important: security|regression|data-loss|blocker') });
+    expect(parseFragment('a.md', '---\nbump: huge\n---\n- x\n')).toMatchObject({ code: 'CHANGELOG_FRAGMENT_INVALID' });
+  });
   test('slug is one flat path segment', () => {
     expect(fragmentSlug('gsta154/changelog-fragments')).toBe('gsta154-changelog-fragments');
     expect(fragmentSlug('../..')).toBe('change');

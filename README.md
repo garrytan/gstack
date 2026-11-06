@@ -38,7 +38,7 @@ From inside your repo, paste this. Switches you to team mode, bootstraps the rep
 (cd ~/.claude/skills/gstack && ./setup --team) && ~/.claude/skills/gstack/bin/gstack-team-init required && git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
 ```
 
-No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent). Team mode follows the `stable` channel: the twice-weekly tagged release (Monday and Thursday, at most once every 72 hours, plus verified security and regression fixes), not every merge to main. `gstack-config set update_channel main` follows every merge instead; see [docs/releases.md](docs/releases.md).
+No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent). Team mode follows the `stable` channel: the tagged release (Monday and Thursday at most once every 72 hours, an important fix within about a day, never more than a week stale, plus verified security and regression fixes), not every merge to main. `gstack-config set update_channel main` follows every merge instead; see [docs/releases.md](docs/releases.md).
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
