@@ -4,7 +4,7 @@
  *
  * Usage:
  *   gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]
- *   gstack-skill-route --default <skill_routing|skill_contracts|investigate_gate|ceo_review_gate>
+ *   gstack-skill-route --default <skill_routing|skill_contracts|investigate_gate|ceo_review_gate|autoplan_gate>
  *
  * Prints the switch state, the threshold, every candidate skill with its
  * score and best trigger, the route the hook would take and the exact line it
@@ -16,13 +16,13 @@ import {
   ROUTE_THRESHOLD, SWITCH_DEFAULT, hintLine, installedSkillsDir, readSkillSwitch, routePrompt, scanInstalledSkills,
 } from '../lib/skill-route';
 
-const USAGE = 'Usage: gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]\n       gstack-skill-route --default <skill_routing|skill_contracts|investigate_gate|ceo_review_gate>';
+const USAGE = 'Usage: gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]\n       gstack-skill-route --default <skill_routing|skill_contracts|investigate_gate|ceo_review_gate|autoplan_gate>';
 const args = process.argv.slice(2);
 if (args[0] === '--help' || args[0] === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
 if (args[0] === '--default') {
   const name = args[1] ?? '';
   if (!Object.hasOwn(SWITCH_DEFAULT, name)) {
-    process.stderr.write(`SKILL_ROUTE_USAGE: --default needs skill_routing, skill_contracts, investigate_gate or ceo_review_gate\n${USAGE}\n`);
+    process.stderr.write(`SKILL_ROUTE_USAGE: --default needs skill_routing, skill_contracts, investigate_gate, ceo_review_gate or autoplan_gate\n${USAGE}\n`);
     process.exit(2);
   }
   process.stdout.write(`${SWITCH_DEFAULT[name as keyof typeof SWITCH_DEFAULT]}\n`);

@@ -135,7 +135,8 @@ var KNOWN_HOOKS = {
   "investigate-gate-post-failure": { source: "gstack-investigate-gate", event: "PostToolUseFailure", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post-failure" },
   "investigate-gate-stop":    { source: "gstack-investigate-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/investigate-gate-stop" },
   "ceo-review-gate-stop":     { source: "gstack-ceo-review-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/ceo-review-gate-stop" },
-  "ceo-review-gate-subagent-stop": { source: "gstack-ceo-review-gate", event: "SubagentStop", matcher: "", relpath: "hosts/claude/hooks/ceo-review-gate-subagent-stop" }
+  "ceo-review-gate-subagent-stop": { source: "gstack-ceo-review-gate", event: "SubagentStop", matcher: "", relpath: "hosts/claude/hooks/ceo-review-gate-subagent-stop" },
+  "autoplan-stop-gate-stop":  { source: "gstack-autoplan-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/autoplan-stop-gate-stop" }
 };
 function gsHadBashPrefix(c) { return String(c == null ? "" : c).trim().indexOf("bash ") === 0; }
 function gsStripWrap(c) {

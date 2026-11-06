@@ -6,9 +6,11 @@
  * stand-in for the Anthropic Messages API that plays a scripted session, so
  * no model is called and nothing is spent. Then it checks the GSTACK_GATE
  * markers in the session record, the hook log and the transcript JSONL.
- * Two scenarios share the server: the /investigate gate (Edit and sed -i
- * blocked until a root cause) and the /plan-ceo-review gate (Stop blocked
- * until the output file ranks the top risks, written through Bash).
+ * Three scenarios share the server: the /investigate gate (Edit and sed -i
+ * blocked until a root cause), the /plan-ceo-review gate (Stop blocked
+ * until the output file ranks the top risks, written through Bash) and the
+ * /autoplan gate (Stop blocked after Phase 1 until Eng publishes and the
+ * Final Approval Gate is written).
  *
  *   bun scripts/skill-gates-smoke.ts [--claude <path to claude>] [--keep]
  *
@@ -30,6 +32,7 @@ const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gates
 const SRC = 'export const total = (a: number, b: number) => a - b;\n';
 const FIXED = 'export const total = (a: number, b: number) => a + b;\n';
 const PLAN = '# Plan: one-click checkout\n\nShip one-click checkout behind a flag.\n';
+const AP_PLAN = '# Plan: retry the fetch helper\n\n## Implementation plan\n\nAdd one retry with backoff to src/fetch.ts.\n\n## Review record\n\nNone yet.\n';
 const FINDINGS = '\n## Findings\n\n1. Payment retries can double-charge when the provider times out.\n2. No rollback path for the new orders schema.\n';
 
 function run(cmd: string, argv: string[], cwd: string, timeout = 120_000): string {
@@ -108,6 +111,35 @@ const SCENARIOS: Scenario[] = [
         ['requests: fired/released systemMessage markers never reach the model', !/ceo-review-gate (fired|released)/.test(s.requests)],
         ['requests: the model saw the block reason and where to write', /ceo-review-gate blocked [^"]*via=stop/.test(s.requests) && s.requests.includes("a '## Findings' section ranking the top risks")],
         ['repo: plan.md ends with the ranked Findings', fs.readFileSync(path.join(s.repo, 'plan.md'), 'utf8') === PLAN + FINDINGS],
+      ];
+    },
+  },
+  {
+    name: 'autoplan', hook: 'autoplan-gate', flag: '--autoplan', skill: 'autoplan', prompt: 'run /autoplan on PLAN.md',
+    seed: repo => fs.writeFileSync(path.join(repo, 'PLAN.md'), AP_PLAN),
+    script: repo => [
+      [{ type: 'text', text: 'Loading /autoplan.' }, { type: 'tool_use', id: 'toolu_a1', name: 'Skill', input: { skill: 'autoplan' } }],
+      [{ type: 'tool_use', id: 'toolu_a2', name: 'Bash', input: { command: `bun --no-env-file --config=/dev/null "${path.join(ROOT, 'bin', 'gstack-autoplan-snapshot.ts')}" scope PLAN.md`, description: 'Phase 0 scope' } }],
+      [{ type: 'text', text: '**Phase 1 complete.**\nOutside review: unavailable. Native subagent: completed: 2 issues.\nPassing to Phase 3.' }, { type: 'tool_use', id: 'toolu_a3', name: 'Bash', input: { command: 'true autoplan-published ceo', description: 'Publish Phase 1' } }],
+      [{ type: 'text', text: 'Review complete.' }],
+      [{ type: 'text', text: '**Phase 3 complete.**\nOutside review: unavailable. Native subagent: completed: 1 issue.\nPassing to the Final Approval Gate.' }, { type: 'tool_use', id: 'toolu_a4', name: 'Bash', input: { command: 'true autoplan-published eng', description: 'Publish Phase 3' } }],
+      [{ type: 'tool_use', id: 'toolu_a5', name: 'Write', input: { file_path: path.join(repo, '.gstack', 'tmp', 'autoplan', 'gate.json'), content: '{"items":[]}\n' } }],
+      [{ type: 'text', text: 'The Final Approval Gate is ready.' }],
+    ],
+    checks: s => {
+      const h = s.record?.hooks['autoplan-gate'];
+      const run0 = h ? Object.values(h.runs ?? {})[0] as Record<string, unknown> | undefined : undefined;
+      return [
+        ['claude -p exited 0', s.code === 0],
+        ['record: one run, fired', !!run0 && typeof run0.fired_at === 'string'],
+        ['record: blocked once (Stop after Phase 1)', run0?.blocked === 1],
+        ['record: released with phases ceo,eng published', typeof run0?.released_at === 'string' && JSON.stringify(run0?.published) === '["ceo","eng"]' && JSON.stringify(run0?.phases) === '["ceo","eng"]'],
+        ['record: no hook errors', (h?.errors ?? []).length === 0],
+        ['log: fired, blocked missing=eng published=ceo, released phases=ceo,eng', /event=fired/.test(s.log) && /event=blocked .*via=stop missing=eng published=ceo n=1/.test(s.log) && /event=released .*phases=ceo,eng/.test(s.log)],
+        ['transcript: the Stop block carries the blocked via=stop marker (hook_blocking_error)', /hook_blocking_error[^\n]*GSTACK_GATE autoplan-gate blocked [^"]*via=stop/.test(s.transcript)],
+        ['transcript: fired and released ride hook_system_message', /hook_system_message[^\n]*GSTACK_GATE autoplan-gate fired/.test(s.transcript) && /hook_system_message[^\n]*GSTACK_GATE autoplan-gate released/.test(s.transcript)],
+        ['requests: fired/released systemMessage markers never reach the model', !/autoplan-gate (fired|released)/.test(s.requests)],
+        ['requests: the model saw the block reason naming Phase 3', /autoplan-gate blocked [^"]*missing=eng/.test(s.requests) && s.requests.includes('Phase 3 (Eng) has not run')],
       ];
     },
   },

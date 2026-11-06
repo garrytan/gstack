@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { checkRun } from '../lib/autoplan-stop-gate';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { parseTranscript, skillLoads } from '../lib/skill-contract';
 import { ROOT, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user } from './helpers/skill-contract-fixture';
 
@@ -83,6 +84,12 @@ describe('checkRun reads what the run did', () => {
     const c = check([...LOADED, ...init({ uiRequired: true, dxRequired: true }), ...phase('ceo'), ...phase('eng'), ...GATE, DONE]);
     expect(c.phases).toEqual(['ceo', 'design', 'dx', 'eng']);
     expect(c.missing).toBe('design');
+  });
+
+  test('"Phase 2.5 complete" publishes DX, never Design', () => {
+    const lines = [...LOADED, ...init({ uiRequired: true, dxRequired: true }), ...phase('ceo'), report('dx'), ...noop('design'), ...noop('dx'), DONE];
+    expect(check(lines).published).toEqual(['ceo']);
+    expect(check([...LOADED, ...init({ dxRequired: true }), ...phase('ceo'), ...phase('dx'), DONE]).published).toEqual(['ceo', 'dx']);
   });
 
   test('a scope command result counts as scope too', () => {
@@ -168,6 +175,17 @@ describe('Stop is held until the run has published every applicable phase and wr
     expect(out.decision).toBeUndefined();
     expect(out.systemMessage).toBe('GSTACK_GATE autoplan-gate exhausted session=sess-1 skill=autoplan missing=eng blocked=3');
     expect(stop(partial).stdout.trim()).toBe('');
+  });
+  test('a Stop that fires before the CLI flushes the turn waits for the final message instead of judging a stale transcript', async () => {
+    const file = transcript(LOADED);
+    const payload = { session_id: 'sess-1', transcript_path: file, cwd: work, hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'The plan is reviewed and ready for your approval.' };
+    const proc = Bun.spawn([process.execPath, ...bunIsolationArgs(), HOOK], { stdin: new Blob([JSON.stringify(payload)]), env: baseEnv(), stdout: 'pipe', timeout: 20_000 });
+    await Bun.sleep(300);
+    fs.appendFileSync(file, `${[...init(), ...phase('ceo'), ...phase('eng'), ...GATE, DONE].join('\n')}\n`);
+    const out = json(await new Response(proc.stdout).text());
+    expect(await proc.exited).toBe(0);
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage).toMatch(/^GSTACK_GATE autoplan-gate released session=sess-1 skill=autoplan phases=ceo,eng blocked=0$/m);
   });
 });
 

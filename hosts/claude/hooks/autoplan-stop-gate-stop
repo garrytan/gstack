@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Bash shim for the /autoplan gate's Stop hook (GST-1666): Claude Code runs
+# hook commands through /bin/sh, so this wrapper runs
+# hosts/claude/hooks/autoplan-stop-gate.ts with bun. Registered by
+# ./setup --autoplan-gate for Stop.
+#
+# FAIL-OPEN: every failure path (bun missing, script crash) still exits 0.
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/autoplan-stop-gate.ts" || true
+exit 0
