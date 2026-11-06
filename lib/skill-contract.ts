@@ -18,6 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { atomicWriteSync } from './fs-atomic';
+import { lastBashWrite } from './shell-writes';
 import { readFrontmatter, scanInstalledSkills } from './skill-route';
 import { resolveStateRoot } from './state-root';
 
@@ -157,9 +158,10 @@ export function itemSummary(item: ContractItem): string {
 
 export type TranscriptEvent =
   | { kind: 'prompt' | 'meta' | 'text'; line: number; text: string }
-  | { kind: 'tool_use'; line: number; id: string; name: string; input: Record<string, any> }
+  | { kind: 'tool_use'; line: number; id: string; name: string; input: Record<string, any>; cwd?: string }
   | { kind: 'tool_result'; line: number; id: string; text: string; isError: boolean };
-export interface Transcript { events: TranscriptEvent[]; sessionId: string | null }
+/** cwd is the session directory: the first record's working directory, when the transcript names one. */
+export interface Transcript { events: TranscriptEvent[]; sessionId: string | null; cwd?: string | null }
 
 const META_PREFIX = /^\s*<(?:local-command-stdout|local-command-stderr|system-reminder|task-notification|user-prompt-submit-hook|bash-input|bash-stdout|bash-stderr)\b/;
 
@@ -177,6 +179,7 @@ function blockText(content: unknown): string {
 export function parseTranscript(text: string, opts: { includeSidechain?: boolean } = {}): Transcript {
   const events: TranscriptEvent[] = [];
   let sessionId: string | null = null;
+  let cwd: string | null = null;
   let lines = 0;
   let objects = 0;
   let messages = 0;
@@ -195,13 +198,14 @@ export function parseTranscript(text: string, opts: { includeSidechain?: boolean
     messages++;
     if (rec.isSidechain === true && !opts.includeSidechain) continue;
     if (typeof rec.sessionId === 'string') sessionId = rec.sessionId;
+    if (cwd === null && typeof rec.cwd === 'string') cwd = rec.cwd;
     const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
     for (const block of blocks) {
       if (!isObject(block)) continue;
       if (rec.type === 'assistant') {
         if (block.type === 'text' && typeof block.text === 'string') events.push({ kind: 'text', line, text: block.text });
         if (block.type === 'tool_use' && typeof block.name === 'string') {
-          events.push({ kind: 'tool_use', line, id: String(block.id ?? ''), name: block.name, input: isObject(block.input) ? block.input : {} });
+          events.push({ kind: 'tool_use', line, id: String(block.id ?? ''), name: block.name, input: isObject(block.input) ? block.input : {}, ...(typeof rec.cwd === 'string' ? { cwd: rec.cwd } : {}) });
         }
       } else if (block.type === 'tool_result') {
         events.push({ kind: 'tool_result', line, id: String(block.tool_use_id ?? ''), text: blockText(block.content), isError: block.is_error === true });
@@ -212,7 +216,7 @@ export function parseTranscript(text: string, opts: { includeSidechain?: boolean
   }
   if (lines > 0 && objects === 0) throw new UnknownShape('no line is a JSON object');
   if (objects > 0 && messages === 0) throw new UnknownShape('no user or assistant message records');
-  return { events, sessionId };
+  return { events, sessionId, cwd };
 }
 
 /**
@@ -359,7 +363,7 @@ function parseNames(raw: string): string[] {
 
 interface ItemCheck { met: boolean; detail: string; fix: string }
 
-function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
+function checkItem(item: ContractItem, run: TranscriptEvent[], root: string | null): ItemCheck {
   const texts = run.filter(e => e.kind === 'text').map(e => (e as { text: string }).text);
   const agents = run.filter((e): e is ToolUse => isToolUse(e) && AGENT_TOOLS.test(e.name));
   switch (item.kind) {
@@ -377,17 +381,25 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
     }
     case 'check_after_last_edit': {
       let lastEdit = -1;
-      run.forEach((e, i) => { if (isToolUse(e) && EDIT_TOOLS.test(e.name)) lastEdit = i; });
+      let edit = '';
+      let sameCall = '';
+      run.forEach((e, i) => {
+        if (!isToolUse(e)) return;
+        const cmd = bashCommand(e);
+        const write = cmd === null ? null : lastBashWrite(cmd, e.cwd ?? root, root);
+        if (write) [lastEdit, edit, sameCall] = [i, `Bash write (${cut(write.files.join(', '), 60)})`, write.after];
+        else if (EDIT_TOOLS.test(e.name)) [lastEdit, edit, sameCall] = [i, e.name, ''];
+      });
       if (lastEdit < 0) return { met: true, detail: 'no edits since the skill loaded', fix: '' };
       const re = item.match ? new RegExp(item.match, 'i') : null;
-      const check = run.slice(lastEdit + 1).map(bashCommand).find(cmd => {
-        if (cmd === null || /gstack-skill-contract/.test(cmd)) return false;
+      const check = [sameCall || null, ...run.slice(lastEdit + 1).map(bashCommand)].find(cmd => {
+        if (!cmd || /gstack-skill-contract/.test(cmd)) return false;
         const bare = cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
         return re ? re.test(bare) : isCheckCommand(bare);
       });
       return check
         ? { met: true, detail: `ran "${cut(check)}" after the last edit`, fix: '' }
-        : { met: false, detail: `no test or repro command after the last ${(run[lastEdit] as ToolUse).name}`, fix: item.fix ?? 'run the test or repro again after your last edit and show its result' };
+        : { met: false, detail: `no test or repro command after the last ${edit}`, fix: item.fix ?? 'run the test or repro again after your last edit and show its result' };
     }
     case 'selected_specialists_dispatched': {
       const marker = markerPattern(item.marker ?? DEFAULT_MATCHERS.specialistSelection);
@@ -473,7 +485,7 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
   const items: ItemResult[] = load ? contract.items.map(item => {
     if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
-    const r = checkItem(item, run);
+    const r = checkItem(item, run, t.cwd ?? null);
     if (r.met) return { id: item.id, kind: item.kind, status: 'met', detail: r.detail, fix: '' };
     const reason = waived.get(item.id);
     return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };
