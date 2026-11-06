@@ -1373,6 +1373,7 @@
     "test/stamp-templates.test.ts": 457,
     "test/state-matrix.test.ts": 1040,
     "test/state-root-config-merge.test.ts": 1014,
+    "test/state-root-isolation.test.ts": 43000,
     "test/state-root-one-variable.test.ts": 4040,
     "test/state-root-parity.test.ts": 136,
     "test/state-root-ratchet.test.ts": 290,

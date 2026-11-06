@@ -11,6 +11,8 @@
  */
 import { spawnSync } from 'node:child_process';
 
+import { STATE_ROOT_VARS } from '../../lib/state-root';
+
 export interface RunBinResult {
   status: number;
   stdout: string;
@@ -22,9 +24,10 @@ export interface RunBinOptions {
   /** Merged over process.env (an `undefined` value deletes the key). */
   env?: Record<string, string | undefined>;
   /**
-   * Isolation shorthand: sets GSTACK_HOME + GSTACK_STATE_DIR (gstack-config
-   * precedence is GSTACK_HOME > GSTACK_STATE_DIR > $HOME/.gstack, so both
-   * must move to isolate from the operator's real ~/.gstack).
+   * Isolation shorthand: points every state-root variable (GSTACK_STATE_ROOT,
+   * GSTACK_HOME, GSTACK_STATE_DIR; lib/state-root.ts) here. GSTACK_STATE_ROOT
+   * outranks the others, so an exported one would otherwise send the bin's
+   * writes to that root instead (GST-1659).
    */
   gstackHome?: string;
   /** Also move $HOME (bins that write $HOME-anchored files, e.g. artifacts-remote pointers). */
@@ -40,8 +43,7 @@ export interface RunBinOptions {
 export function runBin(command: string, args: string[] = [], opts: RunBinOptions = {}): RunBinResult {
   const env: Record<string, string | undefined> = { ...process.env, ...opts.env };
   if (opts.gstackHome !== undefined) {
-    env.GSTACK_HOME = opts.gstackHome;
-    env.GSTACK_STATE_DIR = opts.gstackHome;
+    for (const name of STATE_ROOT_VARS) env[name] = opts.gstackHome;
   }
   if (opts.home !== undefined) env.HOME = opts.home;
   for (const key of Object.keys(env)) {
