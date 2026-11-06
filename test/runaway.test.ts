@@ -136,6 +136,9 @@ describe('gstack-runaway scan', () => {
     const reads: unknown[] = [];
     for (let k = 0; k < 20; k++) { reads.push(work(k * 2000)); reads.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); reads.push({ source: 'tool', tool: 'execute', calls: [{ tool: 'subagent_list' }], createdAt: at(k * 2000 + 241) }); reads.push(wait(k * 2000 + 242, { operation_ids: ['op' + k] })); }
     expect(scan(reads, 'reads')).toContain('empty_wake=50%/40');
+    const chain: unknown[] = [work(0), wait(1, { operation_ids: ['op'], duration_seconds: 240 })];
+    for (let c = 1; c <= 60; c++) chain.push(wait(1 + c * 240, { operation_ids: ['op'], duration_seconds: 240 }));
+    expect(scan(chain, 'chain')).toContain('FLAG: WARN empty_wake 100% of 40 turns > 25%');
   });
 
   test('a subagent.list file replaces thread.get tasks: own sums top-level paths only, truncation makes it an upper bound', () => {

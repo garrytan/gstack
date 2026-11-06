@@ -78,11 +78,12 @@ export function emptyWakes(items: readonly Item[]): { turns: number; empty: numb
     if (!open) return;
     const w = calls.length === 1 && calls[0]!.tool === 'wait' ? waitArgs(calls[0]!) : null;
     const at = Date.parse(calls.at(-1)?.createdAt ?? '');
-    const warm = !!w && !!last && at - last.since <= LIMITS.warmWindowS * 1000 && ((!!w.ops && w.ops === last.ops) || w.seconds === LIMITS.warmWaitS);
+    const chained = !!w && !!last && ((!!w.ops && w.ops === last.ops) || w.seconds === LIMITS.warmWaitS);
+    const warm = chained && at - last!.since <= LIMITS.warmWindowS * 1000;
     if (!warm) turns.push(!acted);
     const closing = calls.at(-1);
     const args = closing?.tool === 'wait' ? waitArgs(closing) : null;
-    last = args ? (warm && last ? { ops: args.ops || last.ops, since: last.since } : { ops: args.ops, since: at }) : null;
+    last = args ? (chained && last ? { ops: args.ops || last.ops, since: last.since } : { ops: args.ops, since: at }) : null;
     acted = false; open = false; calls = [];
   };
   for (const i of sorted) {
