@@ -2102,7 +2102,9 @@ of the same epoch, `--prior-reading` or `--dispatched-at` is above `--reading`, 
 reads its own source (Claude Code journals, the estimate). Exit 2; nothing changed.
 
 **Fix.** Pass the counter the run started with (the BUDGET line names meter, unit and epoch).
-A different meter opens a new epoch that keeps prior usage:
+A successor thread's counter opens a new epoch that keeps prior usage:
+`gstack-ship-budget resume --run <id> --meter-source <its jam id> --reading <n> --credits <c>`
+([Successor handoff](ship-budget.md#successor-handoff)). A different meter opens one too:
 `gstack-ship-budget resume --run <id> --meter <m>`.
 
 <a id="budget-meter-unavailable"></a>
