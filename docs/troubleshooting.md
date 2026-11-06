@@ -2127,7 +2127,8 @@ the path, the schema version and the parse location. Exit 2.
 
 **Fix.** After a machine change, `gstack-ship-budget resume --run <id>` restores the ledger and
 record from the Drive checkpoint. Otherwise rebuild:
-`resume --record <path> --rebuild-from-record --reading <n>`; open reservations are charged as unknown.
+`resume --record <path> --rebuild-from-record --reading <n>`, plus `--credits <c>` when the run
+metered credits (every `ship/DRIVER.md` run does); open reservations are charged as unknown.
 
 <a id="budget-check-skipped"></a>
 ### `gstack-review-log: ... (BUDGET_CHECK_SKIPPED)` / `gstack-ship-budget: ... role=<r> step=<s> started=<t> spend=unknown (BUDGET_CHECK_SKIPPED)`

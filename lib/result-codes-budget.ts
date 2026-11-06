@@ -37,7 +37,7 @@ export const BUDGET_RESULT_CODES = {
   BUDGET_LEDGER_INVALID: {
     anchor: 'budget-ledger-invalid',
     summary: 'the budget ledger or the record\'s gstack-budget block is missing, unparseable, or from another schema version',
-    fix: 'restore it from the Drive checkpoint (gstack-ship-budget resume --run <id>) or rebuild it from the record with resume --record <path> --rebuild-from-record --reading <n>; open reservations are then charged as unknown',
+    fix: 'restore it from the Drive checkpoint (gstack-ship-budget resume --run <id>) or rebuild it from the record with resume --record <path> --rebuild-from-record --reading <n> (plus --credits <c> when the run metered credits); open reservations are then charged as unknown',
   },
   BUDGET_CHECK_SKIPPED: {
     anchor: 'budget-check-skipped',
