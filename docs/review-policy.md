@@ -694,7 +694,9 @@ holding the reviewed tree, and for which an approved `review_loop_grant` in
 that is unchanged since, or whose change against the base is still the one the
 fix-check read after a base merge also edited it (GST-1195), routes as
 `fix_checked=` in `ROUTE:` and is listed on a
-`FIX_CHECK: reviewed` line, a gate-edited test included. Authored docs keep the
+`FIX_CHECK: reviewed` line, a gate-edited test included. The line names the
+grant whose stop head is newest in that range, the fix-check's own when several
+grants fall inside it (GST-1610). Authored docs keep the
 stage 2.2 recheck, and a path the branch edited after the fix-check still routes by the
 rules above. Any other row prints
 `FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`

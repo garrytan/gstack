@@ -295,8 +295,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${fixRow && !n.applied ? ' (outside this fix-check\'s range; not applied)' : ''}`);
   const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree, new Set(rulings.filter(n => n.applied).map(n => n.finding)));
   const grants = fixRow ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })) : [];
-  const grant = grants.find(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')
-    && (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).some(s => { const c = commitOf(s); return !!c && inFixRange(c); }));
+  const covering = grants.filter(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant'))
+    .flatMap(g => (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inFixRange(c)).map(stop => ({ g, stop })));
+  const grant = covering.reduce<typeof covering[number] | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
   const notCounted = !fixRow ? '' : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
     : fixRow.tree !== fixRow.wtree || !onBranch(fixCommit) ? 'the row was logged on content no branch commit holds'
     : !onBranch(fixFrom) ? 'the row names no range_base commit on this branch'
