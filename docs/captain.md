@@ -154,7 +154,8 @@ cheap:
   minutes, or past the end the lane expected, the lane stops re-issuing the timer and
   sleeps on the operation or pull request watch alone. `gstack-runaway scan` leaves these
   check-ins out of its empty-wake rate: a turn whose only call re-waits on the same
-  operation, or a 240-second timer, within 30 minutes of the first wait. A wait expected to run
+  operation, or a 240-second timer on it or on nothing, within 30 minutes of the first wait.
+  A status read in between counts and does not restart the 30 minutes. A wait expected to run
   longer sleeps on its operations alone. For short lane waits this overrides "waits go on
   operations, never on polling wakes" ([unattended.md](unattended.md#report-length)). The
   controller never warm-waits, and a lane still sleeps while /ship runs

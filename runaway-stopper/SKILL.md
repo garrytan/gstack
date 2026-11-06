@@ -172,7 +172,8 @@ const fetch = async code => {
     const { transcript, recent, ...rest } = await tools.thread.get({ thread_id: code, transcript: { limit: 100, tools: true, before } });
     doc ??= rest;
     events.push(...transcript.items.map(i => ({ source: i.source, tool: i.tool, createdAt: i.createdAt,
-      calls: i.calls?.map(c => ({ tool: c.tool })), state: String(i.input?.text ?? "").match(/"state\\?"\s*:\s*\\?"(\w+)/)?.[1] })));
+      calls: i.calls?.map(c => ({ tool: c.tool })), state: String(i.input?.text ?? "").match(/"state\\?"\s*:\s*\\?"(\w+)/)?.[1],
+      ...(i.tool === "wait" ? { input: i.input } : {}) })));
     if (!(before = transcript.beforeCursor)) break;
   }
   await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events }) });
@@ -189,7 +190,7 @@ it lists the whole tree, where thread.get lists 200 rows at most (`own` is then 
 
 Limits (org rule R70): own tokens (total minus subagents) past 500M, or active (working, waiting, or a turn in the
 last 24 hours) past 3 days: rotate, warn at 400M. A subagent past 100M: stop and look. Empty wakes past 25% of the
-last 40 turns. Review rounds past 2 per PR. Act on each line:
+last 40 turns (warm-wait check-ins left out). Review rounds past 2 per PR. Act on each line:
 
 | Line | Do |
 |---|---|

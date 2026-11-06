@@ -66,7 +66,9 @@ function waitArgs(item: Item): { ops: string; seconds: number | null } | null {
  * Turns from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
  * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports. A warm-wait
  * check-in (docs/captain.md, Warm waits; GST-1597) is not a turn: one whose only call re-issues a wait on the
- * operations the previous turn waited on, or a 240-second timer, within 30 minutes of the wait that started the run.
+ * operations the previous turn waited on, or a 240-second timer naming those operations or none, within 30 minutes
+ * of the wait that started the run. Any turn that closes on such a wait keeps the run's start, so a status read
+ * between check-ins counts but never restarts the 30 minutes.
  */
 export function emptyWakes(items: readonly Item[]): { turns: number; empty: number } {
   const sorted = items.filter(i => i.createdAt && i.source !== 'assistant').sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
@@ -76,14 +78,12 @@ export function emptyWakes(items: readonly Item[]): { turns: number; empty: numb
   let last: { ops: string; since: number } | null = null;
   const close = () => {
     if (!open) return;
-    const w = calls.length === 1 && calls[0]!.tool === 'wait' ? waitArgs(calls[0]!) : null;
-    const at = Date.parse(calls.at(-1)?.createdAt ?? '');
-    const chained = !!w && !!last && ((!!w.ops && w.ops === last.ops) || w.seconds === LIMITS.warmWaitS);
-    const warm = chained && at - last!.since <= LIMITS.warmWindowS * 1000;
-    if (!warm) turns.push(!acted);
     const closing = calls.at(-1);
     const args = closing?.tool === 'wait' ? waitArgs(closing) : null;
-    last = args ? (chained && last ? { ops: args.ops || last.ops, since: last.since } : { ops: args.ops, since: at }) : null;
+    const at = Date.parse(closing?.createdAt ?? '');
+    const same = !!args && !!last && (args.ops ? args.ops === last.ops : args.seconds === LIMITS.warmWaitS);
+    if (!(same && calls.length === 1 && at - last!.since <= LIMITS.warmWindowS * 1000)) turns.push(!acted);
+    last = args ? (same ? last : { ops: args.ops, since: at }) : null;
     acted = false; open = false; calls = [];
   };
   for (const i of sorted) {
