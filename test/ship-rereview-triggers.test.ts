@@ -805,6 +805,39 @@ describe('finish with an owner-accepted edit after a fix-check (GST-965, GBRA-27
       expect([r.status, lineOf(r.stdout, 'ROUTE'), r.stdout.includes('STOP: behavior, tests or build inputs changed since review (test/x.test.ts)')]).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
     }
   });
+
+  // Value: protects=an owner's exception that names a test path routes a hunk lib/gate-diff leaves untagged with no assertion,
+  //   matcher, test-name or skip/only change (GBRA-336: a cast widened to add sources), with or without --reviewed-base, and
+  //   nothing else: the same path unnamed, or a hunk that changes an assertion, still routes as behavior; fails_when=finish
+  //   forces the type-only cast (STOP: ... changed since review (test/serve-http-access.test.ts)) or accepts the assertion
+  //   change; seam=finish's route under --review-loop-exception (GST-1682)
+  test('a named test path whose only change is an untagged cast widening routes as accepted; an assertion change stays forced', () => {
+    const SPEC = 'test/serve-http-access.test.ts';
+    const spec = (cast: string, check = 'expect(body.attest).toBeNull();') => `import { expect, test } from 'bun:test';\ntest('attest is null when unset', async () => {\n  const body = (await Promise.resolve({ attest: null })) as unknown as { attest?: ${cast} | null };\n  ${check}\n});\n`;
+    const NARROW = '{ system: string; ops: string[] }';
+    const afterEdit = (edit: Record<string, string>) => {
+      const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', [SPEC]: spec(NARROW) });
+      const fixHead = f.git('rev-parse', 'HEAD').stdout.trim();
+      const reviewed = wtree(f);
+      const reviewedBase = mergeBase(f);
+      const post = snapshot(f);
+      f.write(edit); f.commit('after the fix-check');
+      const named = exceptionFile(f, fixHead, { fix_check: { head: fixHead, findings: 1, files: [SPEC] } });
+      return { f, fixHead, reviewed, reviewedBase, post, named };
+    };
+    const cast = afterEdit({ [SPEC]: spec('{ system: string; ops: string[]; sources: string[] | null }') });
+    for (const extra of [[], ['--reviewed-base', cast.reviewedBase]]) {
+      const r = finish(cast.f, cast.reviewed, cast.post, ['--review-loop-exception', `@${cast.named}`, ...extra]);
+      expect([extra, r.status, lineOf(r.stdout, 'ROUTE'), lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')], r.stdout).toEqual([extra, 0, expect.stringMatching(/ behavior=0 .* accepted=1$/), `REVIEW_LOOP_EXCEPTION: accepted ${SPEC} (changed since fix-check ${cast.fixHead.slice(0, 12)}; accepted by GStack Minder (rule 23 grant) 2026-11-02 via GSTA-36)`]);
+    }
+    const unnamed = finish(cast.f, cast.reviewed, cast.post, ['--review-loop-exception', `@${exceptionFile(cast.f, cast.fixHead)}`, '--reviewed-base', cast.reviewedBase]);
+    expect([unnamed.status, lineOf(unnamed.stdout, 'ROUTE'), unnamed.stdout.includes(`STOP: behavior, tests or build inputs changed since review (${SPEC})`)]).toEqual([3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
+    const check = afterEdit({ [SPEC]: spec(NARROW, 'expect(body.attest ?? null).toBeNull();') });
+    for (const extra of [[], ['--reviewed-base', check.reviewedBase]]) {
+      const r = finish(check.f, check.reviewed, check.post, ['--review-loop-exception', `@${check.named}`, ...extra]);
+      expect([extra, r.status, lineOf(r.stdout, 'ROUTE'), r.stdout.includes(`STOP: behavior, tests or build inputs changed since review (${SPEC})`)], r.stdout).toEqual([extra, 3, expect.stringMatching(/ behavior=1 .* accepted=0$/), true]);
+    }
+  });
 });
 
 

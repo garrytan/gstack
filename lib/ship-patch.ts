@@ -264,6 +264,34 @@ const CHECK_CALL = /\b(expect|assert\w*|should|skip|only|todo|each|test|it|descr
 const QUOTED = /(['"])(?:\\.|(?!\1)[^\\\n])*\1/g;
 const CODE_IN_STRING = /#\{|\$\{|\b[fFrRbB]{1,2}['"]/;
 const STATEMENT_END = /(;|\}|=>\s*\{|\)\s*\{)\s*$/;
+/** Line n of text (1-based) and the lines above it back to the previous statement's end, blank lines included. */
+function statementAt(text: readonly string[], n: number): string[] {
+  const out = [text[n - 1] ?? ''];
+  for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!);
+  return out;
+}
+
+/**
+ * Test paths an owner's review-loop exception that names them may route (GST-1682): every hunk from..to is one lib/gate-diff
+ * leaves untagged, and no removed or added line, nor the statement around it, holds an assertion, matcher, test name or
+ * skip/only call (a type-only cast widened, GBRA-336). A diff the scan or git cannot read, a binary or a deleted file stays out.
+ */
+export function checkFreePaths(repoRoot: string, from: string, to: string, paths: readonly string[]): Set<string> {
+  const tagged = gateTaggedPaths(repoRoot, from, to, paths);
+  if (!tagged) return new Set();
+  const free = (text: string, start: number, count: number) => {
+    const lines = text.split('\n');
+    for (let n = start; n < start + count; n++) if (statementAt(lines, n).some(l => CHECK_CALL.test(l.replace(QUOTED, '$1$1')))) return false;
+    return true;
+  };
+  return new Set(paths.filter(p => {
+    const d = tagged.has(p) ? null : pathDiff(repoRoot, from, to, p, 0);
+    const hunks = d === null || /^(Binary files |GIT binary patch)/m.test(d) ? null : zeroHunks(d);
+    const before = git(repoRoot, ['show', `${from}:${p}`]), after = git(repoRoot, ['show', `${to}:${p}`]);
+    return !!hunks?.length && before !== null && after !== null && hunks.every(h => free(before, h.oldStart, h.oldCount) && free(after, h.newStart, h.newCount));
+  }));
+}
+
 /**
  * A zero-context diff whose every hunk swaps lines one for one, each pair the same once quoted strings are emptied, in
  * statements with no assertion or test call (the changed line and the lines above it back to the previous statement's end in
@@ -274,7 +302,7 @@ function literalOnly(diff: string, after: string | null): boolean {
   const hunks = zeroHunks(diff);
   if (!hunks?.length || after === null) return false;
   const text = after.split('\n');
-  const statement = (n: number) => { const out = [text[n - 1] ?? '']; for (let k = n - 2; k >= 0 && !STATEMENT_END.test(text[k]!); k--) out.push(text[k]!); return out; };
+  const statement = (n: number) => statementAt(text, n);
   const inTemplate = (n: number) => (text.slice(0, n - 1).join('\n').match(/`/g)?.length ?? 0) % 2 === 1;
   return hunks.every(h => {
     const lines = h.body.split('\n');

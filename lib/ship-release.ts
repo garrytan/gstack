@@ -15,7 +15,7 @@ import { mergeChangelogs, normalizeChangelog } from './changelog-check';
 import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { matchesAny } from './ship-policy';
-import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
+import { baseHolds, boundedPaths, checkFreePaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
 import { heldBy } from './ship-receipt';
 import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
@@ -373,7 +373,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
     const listed = loop.fix_check.files;
     const unscanned = [...by.behavior, ...by.docs].filter(p => isTestCode(p, opts.testCode));
-    const forced = new Set([...gated, ...(packetBody?.over ?? []), ...(gateEditedPaths(cwd, reviewed, now, unscanned) ?? unscanned)]);
+    const named = (ps: string[]) => listed ? ps.filter(p => listed.includes(p)) : [];
+    const routable = new Set([...checkFreePaths(cwd, reviewed, now, named([...gated, ...unscanned].filter(p => !onlyShipped.has(p)))), ...checkFreePaths(cwd, sides?.currentBase ?? reviewed, now, named(shippedTests))]);
+    const forced = new Set([...[...gated, ...(gateEditedPaths(cwd, reviewed, now, unscanned) ?? unscanned)].filter(p => !routable.has(p)), ...(packetBody?.over ?? [])]);
     by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && atHead.has(p) && (!listed || listed.includes(p)) && !forced.has(p)).sort();
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
