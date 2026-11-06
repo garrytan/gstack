@@ -231,7 +231,12 @@
         }
       ],
       "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)",
-      "note": "Only Opus 5.5 (claude-opus-5-5) was measured; GPT-6.1 Sol was not, so this verdict covers one of the two frontier models ETHOS.md 9 names."
+      "note": "Only Opus 5.5 (claude-opus-5-5) was measured; GPT-6.1 Sol was not, so this verdict covers one of the two frontier models ETHOS.md 9 names. L1 (gstack-evals#247, wiki/board/2026-11-06-geva-350-l1-overhaul-results) measured the after pin's untold routing package and told record completeness, not this row's procedure follow rate, so the no-effect status and its CUT-CANDIDATE stand; its three verdicts are this row's caveats. GPT-6.1 Sol has not run L1.",
+      "caveats": [
+        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), untold: the routing package (route hook, contracts and the description rewrite) helps, untold /investigate opens 17/80 vs 0/80, B1 +21.3 [+12.5, +30.0], R48 KEEP; it needs routing or contracts on, and hook vs contracts aren't split; the description rewrite alone had no effect (off-u 0/80)",
+        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), told: /investigate record completeness with the contract Stop hook is untested, B3 +10.0 [0, +20]; probe I failed its blind audit, R48 FIX-METHOD; the weak item is 'Fix names an edited file', and 5 of 7 misses were fixes written by an inline Python heredoc",
+        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), pass rate: O5 +5.0 at a 65% control, MDD 18.7, descriptive only"
+      ]
     },
     "ios-clean": {
       "status": "untested",
@@ -597,7 +602,8 @@
       "seed": "GEVA-2, 2026-11-02: always-on skill catalog (descriptions): measurement under way (Run D)",
       "aliases": [
         "always-on skill catalog (descriptions)"
-      ]
+      ],
+      "note": "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, pins 82db89ab → 699a41cb): the description rewrite alone had no effect (off-u, routing and contracts off with the rewritten descriptions kept: 0/80 untold /investigate opens). The rewrite helps only inside the untold routing package; see the investigate row's caveats and this ledger's unmapped rows."
     },
     "capy-skill": {
       "status": "untested",
@@ -678,6 +684,10 @@
     {
       "row": "gstack as a whole (installed, any skill)",
       "why": "not a single text part; GEVA-2's real-world outcome lane measures it (gstack-evals plan #111), not a measurement plan for any one part"
+    },
+    {
+      "row": "untold routing package (route hook, contracts and the description rewrite)",
+      "why": "two Claude Code hooks and four description lines, not one text part with a key. L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb): helps, untold /investigate opens 17/80 vs 0/80, B1 +21.3 [+12.5, +30.0], R48 KEEP; it needs routing or contracts on, and hook vs contracts aren't split; the description rewrite alone had no effect (off-u 0/80). The investigate row carries it as a caveat"
     }
   ]
 }
