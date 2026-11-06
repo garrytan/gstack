@@ -33,9 +33,10 @@ Spend cap: <focused paid runs per PR, from SPEND>
    head; one unstamped READY block (captain/templates/READY.md) to me; the PR body carries
    gstack-approvals render. Never merge; stamp only on my slot call.
    After dispatching /ship, end your turn; wake only on /ship's completion, holding no PR
-   watch meanwhile (a red check during /ship waits for it to finish). /ship owns the receipt
-   and the PREGATE line. On that wake you subscribe to the PR, stop the /ship subagent, run
-   gstack-ship-queue ready --pr <n> --screen|--no-screen at the pin (its notes on origin),
+   watch meanwhile (cancel one you hold; a red check during /ship waits for it to finish).
+   /ship owns the receipt and the PREGATE line. On that wake you subscribe to the PR, read
+   its checks and comments once, stop the /ship subagent, run gstack-ship-queue ready
+   --pr <n> --pregate <pregate.json> --screen|--no-screen at the pin (its notes on origin),
    audit your decision trail, write Attention and send READY; after READY, handle PR events
    as usual (docs/captain.md, the lane's /ship sequence).
 

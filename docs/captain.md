@@ -310,8 +310,8 @@ a push included. The sequence that works unattended on Capy (steps 3 to 8 run in
     receipt, no second /ship.
 
 When /ship runs in a subagent, the lane sleeps while it runs. After dispatching /ship, the
-lane ends its turn and wakes only on /ship's completion: one wake to relay READY, because a
-subagent can't message the controller. So the lane holds no pull request watch of its own
+lane ends its turn and wakes only on /ship's completion: one wake to relay READY, because the
+controller hears READY from the lane, never from its subagent. So the lane holds no pull request watch of its own
 while /ship runs: /ship opens the pull request, and on a re-READY the lane cancels the watch
 it already holds before it dispatches. Every READY duty has one owner, so `train build`
 never refuses the pin with `QUEUE_NOT_READY` for a step nobody ran:
@@ -319,13 +319,14 @@ never refuses the pin with `QUEUE_NOT_READY` for a step nobody ran:
 | READY duty | Owner |
 |---|---|
 | The ship receipt (`SHIP_RECEIPT:`) and the pregate record behind the `PREGATE:` line (steps 4, 7 and 8) | /ship |
-| `gstack-ship-queue ready --pr <n> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9) | the lane |
+| `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9; /ship runs on the lane's machine, or the lane copies its `pregate.json` over first) | the lane |
 | The decision-trail audit and the READY's `Attention` section, when the crew keeps a trail ([unattended.md](unattended.md#the-decision-trail)) | the lane |
 
 On the completion wake the lane subscribes to the pull request's check and review notices,
 reads its checks and comments once (a notice that landed while /ship ran went to /ship, or to nobody on a re-READY),
 stops the /ship subagent, runs `ready`, audits its trail, writes `Attention` and sends the
-READY. From then on the lane handles the pull request's events as before: red checks, human
+READY. A completion that ends `SHIP_PAUSED: base-red` follows step 8 instead: the lane
+registers the base-red wait, tells the controller, and sends no READY. From then on the lane handles the pull request's events as before: red checks, human
 review, the slot stamp and re-READY of step 10, and any receipt carry. It does that work
 itself or sends it to the subagent as an explicit instruction. The tradeoff: a red check
 that lands while /ship runs waits for /ship to finish instead of being fixed in parallel.
