@@ -512,6 +512,41 @@ Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 which hit 43 of 100; those paths already get full depth, so the gate class was
 narrowed to the gate scan's tagged hunks.
 
+### Targeted-only read after the loop (GST-1598)
+
+A docs claim added after the review loop finished, such as a changelog
+fragment with dollar figures, used to have no way through. The targeted record
+names the commit its reader read, and `write` carries it across a later docs
+change only when that change is plain docs, so the receipt asked for the
+targeted reader on HEAD. But the plan printed `done`, so nothing could
+dispatch it (harness-evals #225). Now, when the loop is done, pass
+`--range-base <the commit the reader read>` and `--targeted-ran <the
+targeted_patch_id it read>`. If every path whose branch patch changed since
+then is docs class and not binary, and the change is not plain docs, the plan
+prints `NEXT: targeted`, one `DISPATCH: targeted` for the head's classes and
+`TARGETED_DELTA: range_base=<sha> paths=<paths> classes=<classes>`
+(`targeted_delta` in `--json`). The patch-id check proves that range_base
+is what the reader read. The branch patch is compared on each side's own
+merge base, so a base merge alone adds no path.
+
+The reader reads the whole merge-base diff at HEAD, like every targeted
+reader. It isn't scoped to the docs change, because `render` reads no other
+base and a record that names HEAD is the one `write` binds. It is read-only
+and applies no fix, so it isn't a review round under R51 and needs no grant.
+A `--grant` is still checked against the approval record first, and a row
+that isn't there refuses (exit 3). `gstack-review-dispatch pass` builds the
+manifest: the one reader in the voices stage, with the `TARGETED_DELTA` line
+among its plan lines. After `verify --targeted-out`, pass the new
+`targeted_patch_id` and the plan is `done`.
+
+Every other case stays `done` and prints `SKIP: targeted-only read
+(<reason>)`. That covers a code or binary change, which takes the review loop
+as before; plain docs, which the record carries; a range_base the
+`--targeted-ran` patch doesn't match; and uncommitted edits. `--force
+targeted` refuses (exit 2) and names these flags, because the targeted reader
+is no specialist (`lib/review-targeted-delta.ts`,
+`test/review-plan-targeted-delta.test.ts`).
+
 <a id="review-exclude-paths"></a>
 ## What readers read under `review_exclude_paths`
 
@@ -690,7 +725,8 @@ and finish prints `ROUTE_BOUNDED_REFUSED: <path> <reason> (fix: …)`
 ([troubleshooting](troubleshooting.md#route-bounded-refused)). A lane
 change whose other top-level keys differ from the reviewed copy stops too. A
 targeted record read before the edits does not carry to the new head:
-receipt write still asks for the targeted reader on HEAD. A test file whose only removed lines are swapped
+receipt write still asks for the targeted reader on HEAD (a docs-only change
+plans it on its own: [targeted-only read](#targeted-only-read-after-the-loop)). A test file whose only removed lines are swapped
 one for one with lines that differ inside plain quoted strings, in
 statements with no assertion or test call, takes the plain test route (the
 scoped reader) instead of behavior. A changed expected value in the
@@ -938,6 +974,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 - `scripts/resolvers/review-army.ts`: the floor and `NO FINDINGS` in every specialist and Red Team prompt (rendered into `review/sections/review-army.md` and `ship/sections/review-army.md`), and the lead judgment's "On record" line that turns a [ruled class](#rulings-below-the-floor) into a note; in `/ship` every specialist and Red Team prompt it renders carries its diff base as a literal sha the parent writes in (`DIFF_BASE=<diff-base>`: the merge base on pass 1, `RANGE_BASE` from pass 2 on) beside its plan's `DIFF_CMD` excludes, because a reviewer is its own process and never sees the parent's shell variables; the fan-out batches above.
 - `ship/sections/review-army.md` Step 9: the plan's `REVIEW_DEPTH`, `GATE_SCAN` and `--depth-floor` on every run, the depth fields of the review-log row, passes, `RANGE_BASE`, classify, defer, render, the cap check before any edit, the Step 11 late-defer row, scratch files under `.gstack/tmp/`, the cap decisions; `ship/sections/adversarial.md` Step 11: the outside voice reads the same range and scopes queued fixes the same way.
 - `lib/review-exclude.ts`: the base policy's `review_exclude_paths` (matched set, kept reasons, the kept-file argument bound, the digest the receipt, carry and the queue compare) and the 2,000,000-byte reader ceiling (`test/review-exclude.test.ts`).
+- `lib/review-targeted-delta.ts`: the [targeted-only read after the loop](#targeted-only-read-after-the-loop) (`test/review-plan-targeted-delta.test.ts`).
 - `lib/review-depth.ts`, `bin/gstack-review-plan`: the diff class, the depth (`depthFor`, `DEPTH_RULES`, `depthOfCommitInput`), each dispatch's `exclude` pathspecs and `DIFF_CMD`, the transition table, the numeric-claim scan and each role's effort tier (`test/review-depth.test.ts`, `test/review-plan-cli.test.ts`).
 - `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
 - `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`, `unrecorded`, `ledgers_read`); refusals are `REVIEW_SCOPE_INPUT`, `REVIEW_SCOPE_RANGE` and `REVIEW_SCOPE_LEDGER` ([troubleshooting.md](troubleshooting.md#review-scope-input)).

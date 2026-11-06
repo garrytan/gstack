@@ -81,7 +81,7 @@ function newShip(f: Fixture, sc: Scenario): { calls: Call[]; ending: string } {
   let adversarialRan = false;
   for (let i = 0; i < 6; i++) {
     const plan = planReview({ ...base(f), history: h, criticalFound: sc === 'blocker' && i === 0, adversarialRan });
-    if (plan.next.step === 'done' || plan.next.step === 'stop' || plan.next.step === 'platform') { ending = plan.next.step; break; }
+    if (plan.next.step === 'done' || plan.next.step === 'stop' || plan.next.step === 'platform' || plan.next.step === 'targeted') { ending = plan.next.step; break; }
     const diffBytes = plan.next.step === 'fix-check' ? f.diff_bytes * FIX_CHECK_FRACTION : h.fullPasses === 0 ? f.diff_bytes : f.diff_bytes * RANGE_FRACTION;
     for (const d of plan.dispatches) calls.push({ role: d.role, name: d.name, effort: d.effort, diffBytes: d.role === 'outside-voice' ? f.diff_bytes : diffBytes });
     adversarialRan ||= plan.dispatches.some(d => d.role === 'adversarial-native');
