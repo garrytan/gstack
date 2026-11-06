@@ -11,7 +11,8 @@ week stale while main has gated changes ([the daily check](#the-daily-check)).
 
 Land a release PR before each cut. The cut tags the VERSION it finds, and a
 version is tagged once: if no release PR landed since the last cut, the next
-cut finds that version's tag on an older commit and refuses. A release PR
+cut finds that version's tag on an older commit and refuses with
+`NO_RELEASE_PR` (a dry run reports it and exits 0). A release PR
 lands only on the main it was stamped on, so open it again if main moved. The
 cut tags the newest green commit, so a PR that lands between the release PR
 and the cut ships in that tag, and its CHANGELOG entry appears in the next
@@ -484,7 +485,7 @@ reset --hard 'v<good version>'`. Its next update check fast-forwards it to
 | `REFUSED: non-fast-forward: ...` | the candidate is behind stable; stable only moves forward |
 | `REFUSED: queue frozen since train ...` | the main backstop froze the queue; clear it first (docs/ship-policy.md) |
 | `REFUSED: release gate red on <sha> (<cases>) and no gate on a later commit is green; ...` | the release gate's hold: land the revert or fix-forward, then `gstack-release-gate run --ignore-cadence` ([docs/ship-policy.md#release-gate](ship-policy.md#release-gate)) |
-| `REFUSED: tag v<X> already names <other sha>` | a version was stamped twice; needs a look before anything is cut |
+| `REFUSED: tag v<X> already names <other sha>` | a version was stamped twice (the tag is on a commit that is not an ancestor of the candidate); needs a look before anything is cut |
 | `REFUSED_FLOOR: stable moved to v<X> at <time>, <h> h ago; ...` | inside the 72-hour floor; nothing changed. Exit 1 by hand, 0 on the schedule or a dry run |
 | `NEXT_ALLOWED: <time> for a hand-run cut; <time> for a scheduled run` | follows every `REFUSED_FLOOR` (and `FLOOR_UNKNOWN`, where it says why there is no time) |
 | `FLOOR_UNKNOWN: ...` | stable's last move cannot be dated (no annotated `v<VERSION>` tag, an unreadable release, or an unpublished release under a `ref` cut); exit 1 on every trigger |
@@ -496,5 +497,5 @@ reset --hard 'v<good version>'`. Its next update check fast-forwards it to
 | `DAILY: cut (important|forced|regular: ...)` | the daily check's trigger and floor; the plan and the cut follow |
 | `DAILY: no-op: ...`, `DAILY: wait: ...` | the daily check found no trigger, or an important change still under its 24-hour floor (`NEXT_ALLOWED:` follows); exit 0 with a notice |
 | `IMPORTANT_UNGATED: ...` | an important change landed but no green, gated commit holds it yet; informational |
-| `NO_RELEASE_PR: ...` | a daily trigger is due but the candidate's VERSION is already released: the Captain stamps a release PR; exit 1 (0 on a dry run) |
+| `NO_RELEASE_PR: ...` | the candidate's VERSION is already released on an earlier commit (no release PR landed since that cut): the Captain stamps a release PR. A plain cut always reports it; the daily check reports it only when a trigger is due. Exit 1 (0, with a warning, on a dry run) |
 | `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated; exit 1 (0 on a dry run) |

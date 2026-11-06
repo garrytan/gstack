@@ -413,8 +413,8 @@ export interface Plan {
   tagExists: 'no' | 'same' | 'other'; stableAt: boolean; notes: string; skipped: string[];
   exception: Exception | null; floor: Floor; ridingAlong: number;
 }
-export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
-/** `sha` names the candidate when a refusal comes after it was picked but before a plan exists (a VERSION already tagged on an older commit: no release PR landed). */
+export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'NO_RELEASE_PR' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
+/** `sha` names the candidate on NO_RELEASE_PR, which comes after the candidate was picked but before a plan exists. */
 export type PlanResult = { ok: true; plan: Plan } | { ok: false; code: RefusalCode; message: string; skipped?: string[]; next?: string; plan?: Plan; sha?: string };
 
 export interface PlanOptions {
@@ -491,7 +491,10 @@ export function planRelease(o: PlanOptions): PlanResult {
   const tag = 'v' + version;
   const existing = git(['rev-parse', '--verify', '-q', 'refs/tags/' + tag + '^{commit}']);
   const tagExists: Plan['tagExists'] = !existing.ok ? 'no' : existing.out === sha ? 'same' : 'other';
-  if (tagExists === 'other') return { ok: false, code: 'REFUSED', sha, message: 'tag ' + tag + ' already names ' + existing.out.slice(0, 12) + ', not ' + sha.slice(0, 12) + '; a version is stamped once per merge, so this needs a look' };
+  // The tag on an earlier commit of the same line means VERSION has not moved since that release: no
+  // release PR landed (docs/ship-policy.md#release-stamp). Anywhere else, a version was stamped twice.
+  if (tagExists === 'other' && git(['merge-base', '--is-ancestor', existing.out, sha]).ok) return { ok: false, code: 'NO_RELEASE_PR', sha, message: 'tag ' + tag + ' already names ' + existing.out.slice(0, 12) + ', an earlier commit, not ' + sha.slice(0, 12) + ': VERSION has not moved since that release, so no release PR landed; the Captain runs gstack-release-stamp open and lands it, then the cut runs' };
+  if (tagExists === 'other') return { ok: false, code: 'REFUSED', message: 'tag ' + tag + ' already names ' + existing.out.slice(0, 12) + ', not ' + sha.slice(0, 12) + '; a version is stamped once per merge, so this needs a look' };
   if (prevStable === sha && tagExists === 'same' && gh(['release', 'view', tag, '--repo', repo, '--json', 'tagName']).status === 0) {
     return { ok: false, code: 'NOTHING_NEW', message: 'origin/main ' + sha.slice(0, 12) + ' is already released as ' + tag + '; nothing newer is green' };
   }
@@ -599,9 +602,10 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
 
 /**
  * The daily check (--daily, scripts/release-cadence.ts): plan at the 24-hour important floor, then let
- * decideDaily pick the trigger, if any. decision is null when the plan's refusal stands on its own
- * (a freeze, nothing green, FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated
- * commit); lines then say which important changes are still waiting on the gate.
+ * decideDaily pick the trigger, if any; NO_RELEASE_PR becomes a blocked decision only when a trigger
+ * is due. decision is null when the plan's refusal stands on its own (a freeze, nothing green,
+ * FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated commit); lines then say which
+ * important changes are still waiting on the gate.
  */
 export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned: PlanResult; decision: DailyDecision | null; lines: string[] } {
   const { git, gh, repo } = o;
@@ -609,8 +613,7 @@ export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned
   const stable = git(['rev-parse', '--verify', '-q', 'refs/remotes/origin/stable^{commit}']);
   const prev = stable.ok ? stable.out : null;
   const main = git(['rev-parse', '--verify', '-q', 'refs/remotes/origin/main^{commit}']);
-  const tagged = !planned.ok && planned.code === 'REFUSED' && planned.sha ? git(['rev-parse', '--verify', '-q', 'refs/tags/v' + git(['show', planned.sha + ':VERSION']).out.trim() + '^{commit}']) : null;
-  const noReleasePr = Boolean(tagged?.ok && !planned.ok && git(['merge-base', '--is-ancestor', tagged.out, planned.sha!]).ok);
+  const noReleasePr = !planned.ok && planned.code === 'NO_RELEASE_PR';
   const sha = planned.ok ? planned.plan.sha
     : planned.code === 'REFUSED_FLOOR' ? planned.plan?.sha
     : noReleasePr ? planned.sha
@@ -679,11 +682,11 @@ if (import.meta.main) {
   }
   if (!planned.ok) {
     emit([planned.code + ': ' + planned.message, ...(planned.next ? ['NEXT_ALLOWED: ' + planned.next] : []), ...(planned.skipped ?? []).map(s => 'SKIPPED: ' + s), ...(planned.plan ? describePlan(planned.plan, false) : [])]);
-    // A dry run that finds nothing green has done its job (the skips say why),
+    // A dry run that finds nothing green or no release PR has done its job,
     // and so has a floor hold on a dry run or on the schedule: the policy
     // working, not a fault. Every other refusal goes red so someone looks.
-    const hold = planned.code === 'REFUSED_FLOOR' && (dryRun || scheduled);
-    if (planned.code !== 'NOTHING_NEW' && planned.code !== 'NO_GREEN_COMMIT') annotate(hold ? 'notice' : 'error', planned.code, planned.code + ': ' + planned.message + (planned.next ? ' NEXT_ALLOWED: ' + planned.next : ''));
+    const hold = (planned.code === 'REFUSED_FLOOR' && (dryRun || scheduled)) || (planned.code === 'NO_RELEASE_PR' && dryRun);
+    if (planned.code !== 'NOTHING_NEW' && planned.code !== 'NO_GREEN_COMMIT') annotate(hold ? (planned.code === 'NO_RELEASE_PR' ? 'warning' : 'notice') : 'error', planned.code, planned.code + ': ' + planned.message + (planned.next ? ' NEXT_ALLOWED: ' + planned.next : ''));
     process.exit(planned.code === 'NOTHING_NEW' || (dryRun && planned.code === 'NO_GREEN_COMMIT') || hold ? 0 : 1);
   }
   emit(describePlan(planned.plan, dryRun));

@@ -178,6 +178,7 @@ describe('planDaily', () => {
     const day = (hours: number, gh = fakeGh()) => planDaily({ repo: 'o/r', git: g, gh, now: () => Date.now() + hours * H });
 
     const blocked = day(25);
+    expect(blocked.planned).toMatchObject({ ok: false, code: 'NO_RELEASE_PR' });
     expect(blocked.decision?.action).toBe('blocked');
     expect(blocked.decision?.lines[0]).toStartWith('NO_RELEASE_PR: important change waiting, no release PR');
     expect(blocked.planned.ok).toBe(false);
@@ -196,6 +197,17 @@ describe('planDaily', () => {
     expect(pending.decision?.action).toBe('cut');
     expect(pending.decision?.lines[1]).toStartWith('IMPORTANT_UNGATED: data-loss in #4102');
     if (pending.planned.ok) expect(pending.planned.plan.sha).toBe(stamped);
+
+    // A tag on a commit off the candidate's line is a version stamped twice: REFUSED, which the daily check does not absorb.
+    git(r.seed, 'checkout', '-q', '-b', 'side', r.base);
+    fs.writeFileSync(path.join(r.seed, 'side.txt'), 'x\n');
+    git(r.seed, 'add', '-A'); git(r.seed, 'commit', '-q', '-m', 'side');
+    git(r.seed, 'tag', 'v1.0.1');
+    git(r.seed, 'push', '-q', 'origin', 'refs/tags/v1.0.1');
+    r.refresh();
+    const clash = day(25);
+    expect(clash.planned).toMatchObject({ ok: false, code: 'REFUSED' });
+    expect(clash.decision).toBeNull();
   });
 });
 
@@ -230,6 +242,14 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     const blockedDry = run('--daily', '--dry-run');
     expect(blockedDry.status, blockedDry.stdout + blockedDry.stderr).toBe(0);
     expect(blockedDry.stdout).toContain('::warning title=release-cut NO_RELEASE_PR::');
+    // The plain cut reports the same state as NO_RELEASE_PR: red for a real run, a warning and exit 0 for a dry run (the pull-request dry run against main).
+    const plainDry = run('--dry-run');
+    expect(plainDry.status, plainDry.stdout + plainDry.stderr).toBe(0);
+    expect(plainDry.stdout.split('\n')[0]).toStartWith('NO_RELEASE_PR: tag v1.0.0 already names ' + r.base.slice(0, 12) + ', an earlier commit');
+    expect(plainDry.stdout).toContain('::warning title=release-cut NO_RELEASE_PR::');
+    const plainCut = run();
+    expect(plainCut.status).toBe(1);
+    expect(plainCut.stdout).toContain('::error title=release-cut NO_RELEASE_PR::');
 
     const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'changelog.d/fix.md': null, 'changelog.d/docs.md': null });
     r.refresh();
