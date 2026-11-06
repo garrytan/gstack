@@ -136,14 +136,14 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
  * lines are the reviewed ones byte for byte, and the lines just outside the reviewed hunk's removed range are lines the
  * base kept, landing just outside the current hunk's range, so the current removed lines are the base's version of the
  * reviewed ones. A hunk that now removes another line, or adds anything else, is not, and neither is one whose range
- * holds a line the base inserted before, inside or after the reviewed lines without replacing any: dropping it deletes
- * base code rather than taking the base's edit.
+ * holds a line the base added before, inside or after the reviewed lines (a base hunk there that adds more lines than
+ * it removes): dropping it deletes base code rather than taking the base's edit.
  */
 function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null, base: ZeroHunk[]): boolean {
   const added = (h: ZeroHunk) => h.body.split('\n').filter((l, i, all) => l.startsWith('+') || (l.startsWith('\\') && all[i - 1]?.startsWith('+'))).join('\n');
   const start = (h: ZeroHunk) => (h.oldCount > 0 ? h.oldStart : h.oldStart + 1);
   const end = start(r) + r.oldCount;
-  if (base.some(b => b.oldCount === 0 && b.oldStart >= start(r) - 1 && b.oldStart < end)) return false;
+  if (base.some(b => b.newCount > b.oldCount && b.oldStart >= start(r) - 1 && b.oldStart < end)) return false;
   return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(end) === start(c) + c.oldCount;
 }
 

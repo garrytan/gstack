@@ -87,7 +87,7 @@ describe('a base-side removed line next to byte-identical added lines (GST-1561 
     expect(comparePath(x.f.work, sides, GAME)).toBe('changed');
   });
 
-  for (const [where, inserted] of [['before', game(82).replace('const SAVE', 'const BASE_ADD := 1\nconst SAVE')], ['after', game(82).replace(':= 82\n', ':= 82\nconst BASE_ADD := 1\n')]] as const) {
+  for (const [where, inserted] of [['before', game(82).replace('const SAVE', 'const BASE_ADD := 1\nconst SAVE')], ['after', game(82).replace(':= 82\n', ':= 82\nconst BASE_ADD := 1\n')], ['beside its own edit of', game(83).replace(':= 83\n', ':= 83\nconst BASE_ADD := 1\n')]] as const) {
     test(`a merge that drops a line the base inserted ${where} the replaced line stays changed`, () => {
       const x = reviewedBranch({ [GAME]: game(82) }, { [GAME]: game(84) });
       x.f.advanceBase({ [GAME]: inserted });
