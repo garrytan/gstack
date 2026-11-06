@@ -1375,17 +1375,17 @@ Playwright's `--disable-component-update`, so it never receives the CRLSet
 revocation updates Chrome pushes to running browsers. Aside uses your own
 browser's trust store and updates.
 
-**Known gap: the compromised eMudhra intermediates
+**The compromised eMudhra intermediates
 ([#3338](https://github.com/garrytan/gstack/issues/3338)).** Chrome blocked
 eight eMudhra intermediate CAs by CRLSet on 2026-10-17, the day their key
-compromise was reported, and scheduled the removal of their root, emSign ECC
-Root CA - G3, from the Chrome Root Store for 2026-10-27. The root store built
-into gstack's pinned Playwright 1.64.1 (Chromium 156) still trusts that root, so
-the headless browser accepts certificates those intermediates issued. That lasts
-until gstack moves to the first Playwright release whose Chromium is
-158.0.8115.0 or later, the first Chrome for Testing build measured to refuse
-them. Until then, don't do signed-in work in this engine on a network you do not
-trust, and prefer Aside for signed-in work where you have it.
+compromise was reported, and removed their root, emSign ECC Root CA - G3, from
+the Chrome Root Store. Playwright 1.64.1 (Chromium 156) still trusted that root,
+so gstack's headless browser accepted certificates those intermediates issued.
+gstack now pins Playwright 1.65.0, whose Chromium 158.0.8127.18 no longer
+carries the root, so the headless shell and the full Chromium both refuse those
+certificates. `./setup` downloads that Chromium on an upgraded install. A
+`GSTACK_CHROMIUM_PATH` build older than 158.0.8115.0, the first Chrome for
+Testing build measured to refuse them, still trusts the root.
 
 To check a build, run it on a network that does not inspect TLS, because a
 captive portal or an intercepting proxy can fail some or all sites with the

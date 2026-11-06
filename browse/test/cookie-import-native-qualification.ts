@@ -66,7 +66,7 @@ const nodeInfo = JSON.parse(nodeProbe.stdout);
 if (nodeInfo.architecture !== process.arch || !['x64', 'arm64'].includes(process.arch)) incomplete('runtime_architecture_mismatch');
 const require = createRequire(import.meta.url);
 const playwrightVersion = require('playwright/package.json').version;
-if (playwrightVersion !== '1.64.1') incomplete('playwright_1_64_1_required');
+if (playwrightVersion !== '1.65.0') incomplete('playwright_1_65_0_required');
 const versionProbe = spawnSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
   '-NoProfile', '-NonInteractive', '-Command', NATIVE_BROWSER_VERSION_COMMAND,
 ], { env: { ...environment, GSTACK_QUALIFY_BROWSER_EXE: executable }, encoding: 'utf8', timeout: 10_000, windowsHide: true });
