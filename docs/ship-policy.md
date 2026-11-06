@@ -36,6 +36,15 @@ than 1.91.98.0 set to a non-default value requires `min_gstack_version` at
 least at its introducing version, and a gstack older than `min_gstack_version`
 refuses the file (`POLICY_GSTACK_TOO_OLD`). `validate` ends with
 `MIN_READER: gstack <version>`, the floor every lane reading the policy needs.
+`validate` also refuses a `min_gstack_version` above the newest stable gstack
+release (`POLICY_FLOOR_ABOVE_STABLE`, naming both versions): every
+stable-channel lane would refuse that policy until a later release is cut. The
+release is the highest `v<version>` tag at the commit gstack's origin `stable`
+branch points to (a tag a half-way cut left above stable does not count), else
+the VERSION at the local stable ref, else the highest local release tag
+(`GSTACK_STABLE_REPO` names another gstack checkout); when none resolves it warns (`STABLE_RELEASE_UNKNOWN`) and says the
+floor was not compared. The pregate `policy-floor` check does the same on a
+branch that changes the policy.
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
@@ -1138,8 +1147,8 @@ Trains gate each batch of PRs, and the main backstop gates every push. The
 release gate replaces the backstop with one full paid gate on main's head at
 most every `cadence_hours`, and only when main moved since the last gate. It
 feeds the stable release (docs/releases.md) and never writes `stable` itself:
-`scripts/release-cut.ts` stays the only writer, with its 72-hour floor and its
-security and regression exceptions unchanged.
+`scripts/release-cut.ts` stays the only writer, with its floors (72 hours, 24
+for an important change) and its security and regression exceptions unchanged.
 
 The surface is off unless main's `.gstack/ship-policy.json` declares the
 block, with `min_gstack_version` at least the release that introduced the key
@@ -1635,7 +1644,8 @@ ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`) and prints each as `RULED_NOTE: <fingerprint> at <head12>
 ruled by <who> at <time>: <reason> (approval <id>)`. A ruling closes a finding on
-the newest `review-fix-check` row (action `skipped`, `noted` or `deferred`, not a
+a `review-fix-check` row finish counts (the newest, or an earlier link of its
+[chain](#fix-check-chain); action `skipped`, `noted` or `deferred`, not a
 gate finding) when its head lies inside that row's `range_base..commit`, the same
 test a `review_loop_grant` passes. So the order of ruling and fix-check doesn't
 matter, and a ruling made at an earlier /ship's head closes nothing: its
@@ -1813,6 +1823,28 @@ as a note. Below the round cap that's a pass on the range (a fix-check under
 the lean panel). At the cap it stops for the owner, whose recorded grant
 (`--grant`) adds one scoped fix-check, never `done`. So `finish` never asks for
 a step the planner refuses.
+
+<a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
+fix-check after the first one (a merge resolution, say) logs its row with
+`range_base` at the first fix-check's commit. finish used to read only the newest
+row and refuse any range that didn't start at the reviewed tree, so the later
+fix-check unbound the earlier one and lanes logged a synthetic combined row
+(#4063: fc3 at 265d868, then fc4 over the merge). finish now walks back from the
+newest row: while a row's `range_base` doesn't hold the reviewed tree, the link
+before it is the newest earlier row whose commit is that `range_base`. The chain
+counts only when it reaches a row whose `range_base` holds the reviewed tree and
+every link is a clean, committed read with its own approved
+`review_loop_grant`. An earlier link's grant must name a stop head before its
+commit, since that commit is where the next link starts, and a grant counts for
+one link only (the newest link that names it), so one grant never covers two
+fix-checks. A path counts as `fix_checked` when some link's range
+touched it and it is unchanged since that link (or its patch against the base is
+still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
+(fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A
+`range_base` no earlier row ends at is a gap and refuses with the single-row
+reason (`range_base <sha12> does not hold the reviewed tree`); a link that is
+stale or ungranted refuses with its reason and `; fix-check at <sha12>, link <k>
+of <n>`. Either way nothing in the chain counts.
 
 <a id="test-code"></a>
 <a id="uid-sidecar"></a>
@@ -2238,6 +2270,17 @@ bump: minor
 - ...
 ```
 
+The front matter may also mark the change important for the stable release:
+`important: security|regression|data-loss|blocker` (one value, beside any
+`bump:`; any other key or value is `CHANGELOG_FRAGMENT_INVALID`). A gated change
+with that field reaches `stable` through [the daily
+check](releases.md#the-daily-check) once `stable` is 24 hours old, instead of
+waiting for Monday or Thursday. Mark only what the table there allows; the
+reviewer checks the claim with the diff. A READY whose fragment carries the
+field says `rides the daily cut` and names the value, and the Captain stamps a
+release PR in the same turn it lands the PR. The field does not change the
+CHANGELOG text: the fold drops front matter.
+
 The effective bump of a stamp is the highest of the policy bump and every
 folded fragment's `bump:` (`micro` < `patch` < `minor` < `major`). Fragments
 are read as Git blobs at the commit being stamped (`git ls-tree` and
@@ -2499,7 +2542,9 @@ cleared by that train's verify.
 
 Under `merge: direct`, VERSION, the `package.json` version, CHANGELOG.md, the
 release outputs and the `stamp_paths` constants move only in a release PR.
-Before each stable cut, the Captain runs:
+Before each regular stable cut (Monday and Thursday), and in the same turn it
+lands a PR whose fragment carries `important:` ([the daily
+check](releases.md#the-daily-check)), the Captain runs:
 
 ```bash
 gstack-release-stamp open            # --dry-run prints the stamp and creates nothing

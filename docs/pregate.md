@@ -264,6 +264,13 @@ Two stages with separate clocks, both printed:
   this branch` when the merge-base file lacks the marker. The policy has no
   waiver key, so neither a base nor a pushed `pregate.json` can widen it.
 
+- `policy-floor`: on a branch that changes `.gstack/ship-policy.json`, a
+  `min_gstack_version` above the newest stable gstack release fails
+  (`POLICY_FLOOR_ABOVE_STABLE`, naming the floor and the release), since every
+  stable-channel lane would refuse that policy; when the release cannot be
+  resolved (no release tag on gstack's origin, no local stable ref or tag) it
+  warns (`STABLE_RELEASE_UNKNOWN`). The same rule as `gstack-ship-policy
+  validate` ([ship-policy.md](ship-policy.md)).
 - `timing`: added or changed test lines that compare an elapsed wall-clock or
   CPU time against a bound, or sleep and then assert, print
   `TIMING_ASSERTION: <file>:<line> <pattern>` and a
@@ -1232,6 +1239,25 @@ tests <verdict> in <n>s`. The run is correct, only slower. Adding `"os":
 "Linux"` (or this machine's OS) to the profile on the base branch lets the
 next accept carry the tests stage too, when the run's `tree.json` covers the
 selection.
+
+<a id="same-tree-clears"></a>**A rerun at the same tree keeps its clears (GST-1627).** accept's final
+pregate reran `gstack-pregate` on the tree the lane had already cleared
+`macos-named-regressions` and `windows-smoke` on from CI runs, and the fresh
+record dropped both receipts, so accept stopped on `requires-remote (2
+uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
+writes over a record for the same head, tree, policy and base branch, each uncleared
+obligation takes the earlier receipt for the same lane, platform, workflow and
+job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
+as the earlier obligation listed every test the new one needs. Each kept
+receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
+tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
+before its `PREGATE:` line. A record for another head or tree keeps nothing,
+so any commit after the clear, even an amend that keeps the tree, needs a new
+clear at the new head: a receipt and its flaky exception were vetted against
+the head they name. A rerun with a
+failed, incomplete or not-installed check also keeps nothing, so a remote gate
+that ran again and timed out stays uncleared. `gstack-pregate verify` checks a
+kept receipt as it checks any other one.
 
 <a id="carry-imported-tests"></a>**An inventory file CI's JUnit tree never lists (GST-1595).** bun registers
 the tests of a test file another test file imports under the importer, so the

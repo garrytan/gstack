@@ -258,6 +258,8 @@ gstack_result_anchor() {
     DX_CAPTURE_REDACTION_FAILED) printf '%s' 'dx-capture-redaction-failed' ;;
     DX_CAPTURE_INTERNAL) printf '%s' 'dx-capture-internal' ;;
     POLICY_GSTACK_TOO_OLD) printf '%s' 'policy-gstack-too-old' ;;
+    POLICY_FLOOR_ABOVE_STABLE) printf '%s' 'policy-floor-above-stable' ;;
+    STABLE_RELEASE_UNKNOWN) printf '%s' 'stable-release-unknown' ;;
     PREGATE_GSTACK_TOO_OLD) printf '%s' 'pregate-gstack-too-old' ;;
     QUEUE_NOT_READY) printf '%s' 'queue-not-ready' ;;
     QUEUE_PROOF_MISSING) printf '%s' 'queue-proof-missing' ;;

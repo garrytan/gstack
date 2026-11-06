@@ -608,7 +608,7 @@ function generateHelpText(): string {
 }
 
 // ─── Buffer (from buffers.ts) ────────────────────────────────────
-import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
+import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, formatDialogLogLine, formatNetworkLogLine, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
 
 export { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry };
 
@@ -664,10 +664,7 @@ async function flushBuffers() {
     const newNetworkCount = networkBuffer.totalAdded - lastNetworkFlushed;
     if (newNetworkCount > 0) {
       const entries = networkBuffer.last(Math.min(newNetworkCount, networkBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
-      ).join('\n') + '\n';
-      appendSecureFile(NETWORK_LOG_PATH, lines);
+      appendSecureFile(NETWORK_LOG_PATH, entries.map(formatNetworkLogLine).join('\n') + '\n');
       lastNetworkFlushed = networkBuffer.totalAdded;
     }
 
@@ -675,10 +672,7 @@ async function flushBuffers() {
     const newDialogCount = dialogBuffer.totalAdded - lastDialogFlushed;
     if (newDialogCount > 0) {
       const entries = dialogBuffer.last(Math.min(newDialogCount, dialogBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] [${e.type}] "${e.message}" → ${e.action}${e.response ? ` "${e.response}"` : ''}`
-      ).join('\n') + '\n';
-      appendSecureFile(DIALOG_LOG_PATH, lines);
+      appendSecureFile(DIALOG_LOG_PATH, entries.map(formatDialogLogLine).join('\n') + '\n');
       lastDialogFlushed = dialogBuffer.totalAdded;
     }
   } catch (err: any) {
@@ -1259,7 +1253,7 @@ async function handleCommandInternalImpl(
       ts: new Date().toISOString(),
       cmd: command,
       aliasOf: isAliased ? rawCommand : undefined,
-      args: args.join(' '),
+      args,
       origin: browserManager.getCurrentUrl(),
       durationMs: successDuration,
       status: 'ok',
@@ -1291,7 +1285,7 @@ async function handleCommandInternalImpl(
       ts: new Date().toISOString(),
       cmd: command,
       aliasOf: isAliased ? rawCommand : undefined,
-      args: args.join(' '),
+      args,
       origin: browserManager.getCurrentUrl(),
       durationMs: errorDuration,
       status: 'error',

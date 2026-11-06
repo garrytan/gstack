@@ -54,6 +54,12 @@ process.env.GSTACK_TEST_LEGACY_ROOT = path.join(os.tmpdir(), `gstack-test-legacy
 // runner's lease would make `bin/gstack-upgrade` here refuse UPGRADE_BUSY.
 // Every spawned bin inherits a per-process scratch lease directory instead.
 process.env.GSTACK_LEASE_DIR ??= path.join(os.tmpdir(), `gstack-test-leases-${process.pid}`);
+// The newest stable gstack release (lib/stable-release.ts) is read from this
+// checkout's origin, so a fixture policy's floor would be judged against
+// whatever gstack last released (GST-1637). Point every spawned bin at a path
+// that is never created: the release is unknown and the policy-floor check
+// warns. Tests of that check name their own fixture repo.
+process.env.GSTACK_STABLE_REPO ??= path.join(os.tmpdir(), `gstack-test-no-stable-repo-${process.pid}-unused`);
 
 // Narrowly restore PATH after every test. Defends against the recurring
 // pollution class where one test sets `process.env.PATH = '/test/bin:/usr/bin'`

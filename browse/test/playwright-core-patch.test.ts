@@ -63,11 +63,10 @@ describe('playwright-core windowsHide patch (#2160, #1989)', () => {
 });
 
 // Windows Free Tests 40656299153 and 41056150287 (cookie-picker-ui, serial retry passed): goto failed with
-// net::ERR_NO_BUFFER_SPACE on 127.0.0.1. Chromium's TcpPortRandomizationWin raises WSAENOBUFS with ports free;
-// microsoft/playwright#43605 disables it in 1.65, and the 1.64.1 patch backports it; drop this block at 1.65.
-describe('playwright-core TcpPortRandomizationWin backport (microsoft/playwright#43605)', () => {
-  test('the patch and the installed tree disable the feature in the --disable-features list', () => {
-    expect(fs.readFileSync(path.join(ROOT, 'patches', 'playwright-core@1.64.1.patch'), 'utf-8')).toContain('+      "TcpPortRandomizationWin"');
+// net::ERR_NO_BUFFER_SPACE on 127.0.0.1. Chromium's TcpPortRandomizationWin raises WSAENOBUFS with ports free.
+// The 1.64.1 patch backported microsoft/playwright#43605; 1.65.0 ships it upstream, so the patch no longer carries it.
+describe('playwright-core disables TcpPortRandomizationWin (microsoft/playwright#43605)', () => {
+  test('the installed tree disables the feature in the --disable-features list', () => {
     const bundle = fs.readFileSync(path.join(ROOT, 'node_modules', 'playwright-core', 'lib', 'coreBundle.js'), 'utf-8');
     const list = bundle.slice(bundle.indexOf('disabledFeatures = ['), bundle.indexOf('].filter(Boolean);', bundle.indexOf('disabledFeatures = [')));
     expect(list).toContain('"TcpPortRandomizationWin"');
@@ -87,5 +86,23 @@ describe('bundled Chromium carries the CVE-2026-106378 fix (#3907)', () => {
     const floor = [155, 0, 8059, 12];
     const cmp = version.map((part, i) => part - floor[i]).find((d) => d !== 0) ?? 0;
     expect(cmp).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// #3338: Chrome removed emSign ECC Root CA - G3, the root over the eight eMudhra intermediates whose keys were
+// compromised, from the Chrome Root Store. The headless shell gets no CRLSet, so only the compiled root store
+// protects it. Chrome for Testing 158.0.8115.0 is the first build measured to refuse the root
+// (ERR_CERT_AUTHORITY_INVALID on dv-g3b-emudhra.we-have-a-problem.com); Playwright 1.64.1's 156.0.8078.4 loads it.
+describe('bundled Chromium no longer trusts the eMudhra root (#3338)', () => {
+  test('playwright-core pins Chromium and the headless shell at 158.0.8115.0 or later', () => {
+    const browsers = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'node_modules', 'playwright-core', 'browsers.json'), 'utf-8',
+    )) as { browsers: Array<{ name: string; browserVersion: string }> };
+    const floor = [158, 0, 8115, 0];
+    for (const name of ['chromium', 'chromium-headless-shell']) {
+      const version = browsers.browsers.find((b) => b.name === name)!.browserVersion.split('.').map(Number);
+      const cmp = version.map((part, i) => part - floor[i]).find((d) => d !== 0) ?? 0;
+      expect({ name, atOrAboveFloor: cmp >= 0 }).toEqual({ name, atOrAboveFloor: true });
+    }
   });
 });

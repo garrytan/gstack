@@ -134,6 +134,15 @@ describe('free lane CI warnings', () => {
     expect(overrunWarning([])).toBeNull();
   });
 
+  test('a shard split across parallel jobs is measured against its prediction divided by its job count', () => {
+    const timing = (shard: number, jobs: number, elapsedMs: number) => ({ shard, predictedMs: 400_000, elapsedMs, jobs });
+    expect(shardOverruns([timing(1, 1, 610_000), timing(2, 1, 590_000)]).map(overrun => overrun.shard)).toEqual([1]);
+    const overruns = shardOverruns([timing(1, 4, 160_000), timing(2, 4, 140_000)]);
+    expect(overruns.map(overrun => overrun.shard)).toEqual([1]);
+    expect(overrunWarning(overruns)).toContain('shard 1 took 160s vs 100s predicted across 4 parallel jobs');
+    expect(overrunWarning([timing(1, 1, 610_000)])).toContain('shard 1 took 610s vs 400s predicted)');
+  });
+
   test('the --ci-verify summary lists shards that outran the seed, counting the first attempt only', () => {
     const outcome = (shard: number, files: string[], failingFiles: string[], elapsedMs: number): FreeShardOutcome =>
       ({ shard, files, failingFiles, elapsedMs, status: failingFiles.length ? 'failed' : 'passed' }) as FreeShardOutcome;
@@ -150,5 +159,22 @@ describe('free lane CI warnings', () => {
     expect(summary[0]).toContain('shard 2 took 200s vs 100s predicted');
     expect(summary[0]).not.toContain('shard 1');
     expect(ciHealthSummary(plan, [results[0]].map(r => ({ ...r, outcome: { ...r.outcome, elapsedMs: 100_000 } })))).toEqual([]);
+  });
+
+  test('the --ci-verify summary divides each shard\'s prediction by the plan shard\'s jobs', () => {
+    const outcome = (shard: number, elapsedMs: number): FreeShardOutcome =>
+      ({ shard, files: [], status: 'passed', exitCode: 0, elapsedMs, groupPid: null, failingFiles: [], unattributedFailures: 0 });
+    const plan = { version: 1, revision: 'r', id: 'p', shards: [
+      { shard: 1, files: ['test/a.test.ts'], predictedMs: 400_000, jobs: 4 },
+      { shard: 2, files: ['test/b.test.ts'], predictedMs: 400_000, jobs: 4 },
+    ] } satisfies FreeCiPlan;
+    const results: FreeCiResult[] = [
+      { planId: 'p', revision: 'r', outcome: outcome(1, 160_000), retry: null },
+      { planId: 'p', revision: 'r', outcome: outcome(2, 120_000), retry: null },
+    ];
+    const summary = ciHealthSummary(plan, results);
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toContain('shard 1 took 160s vs 100s predicted across 4 parallel jobs');
+    expect(summary[0]).not.toContain('shard 2');
   });
 });

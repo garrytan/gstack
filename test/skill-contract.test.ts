@@ -12,6 +12,7 @@ import {
   type CheckResult,
   type Contract,
 } from '../lib/skill-contract';
+import { lastBashWrite } from '../lib/shell-writes';
 import { readFrontmatter } from '../lib/skill-route';
 import {
   CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, SKILLS, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
@@ -204,6 +205,73 @@ describe('checkContract is a pure function of the transcript', () => {
     for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh',
       'bun install', 'npm install lodash', 'bun add zod', 'go build ./...', 'go mod tidy', 'node --version', 'make clean', 'make', 'npm run build', 'curl --version'])
       expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
+  });
+
+  test('check_after_last_edit: a Bash write to a repo file is an edit, so a fix written through the shell needs a check after it (GST-1633)', () => {
+    const loaded = J1_TRANSCRIPT.slice(0, 4);
+    const bash = (id: string, command: string) => [tool(id, 'Bash', { command }), result(id, 'ok')];
+    const after = (...commands: string[]) => check([...loaded, ...bash('t0', 'bun test'), ...commands.flatMap((c, i) => bash(`b${i}`, c))]).items[1];
+    const writes = [
+      "python3 - <<'EOF'\np = 'src/auth.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('a', 'b'))\nEOF",
+      "sed -i 's/session.user/session?.user/' src/auth.ts",
+      "echo 'export const x = 1' | tee src/auth.ts",
+      "printf 'fixed\\n' >> src/auth.ts",
+      "cat > src/auth.ts <<'EOF'\nexport function login() {}\nEOF",
+      "git apply <<'EOF'\n--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1 +1 @@\n-a\n+b\nEOF",
+      'patch -p1 < fix.diff',
+      "cd src && perl -pi -e 's/a/b/' auth.ts",
+      'python3 -c "from pathlib import Path; Path(\'src/auth.ts\').write_text(\'x\')"',
+      'node -e "require(\'fs\').writeFileSync(\'/repo/src/auth.ts\', \'x\')"',
+      "cat > /tmp/fix.py <<'EOF'\nwith open('src/auth.ts', 'w') as f:\n    f.write('x')\nEOF\npython3 /tmp/fix.py",
+      'grep -rl session.user src | xargs sed -i s/session.user/session?.user/',
+    ];
+    for (const w of writes) {
+      expect([w, after(w).status]).toEqual([w, 'missing']);
+      expect([w, after(w, 'bun test test/auth.test.ts').status]).toEqual([w, 'met']);
+      expect([w, after(`${w}\nbun test`).status]).toEqual([w, 'met']);
+      expect([w, after(`bun test\n${w}`).status]).toEqual([w, 'missing']);
+    }
+    expect(after(writes[1]).detail).toBe('no test or repro command after the last Bash write (src/auth.ts)');
+    expect(after(writes[0], 'git diff src/auth.ts').status).toBe('missing');
+  });
+
+  test('check_after_last_edit: reads, stdout, writes outside the repo and fd redirects are not edits (GST-1633)', () => {
+    const edited = [...J1_TRANSCRIPT.slice(0, -1), tool('t0', 'Bash', { command: 'bun test' }), result('t0', 'ok')];
+    const after = (command: string) => check([...edited, tool('b', 'Bash', { command }), result('b', 'ok')]).items[1].status;
+    const controls = [
+      'cat src/auth.ts', 'grep -n user src/auth.ts', 'sed -n 1,20p src/auth.ts', 'echo done', 'echo "a > src/auth.ts"', "grep '>' src/auth.ts",
+      "python3 - <<'EOF'\nprint(open('src/auth.ts').read())\nEOF", 'python3 -c "open(\'/tmp/x\', \'w\').write(\'y\')"',
+      'echo x > /tmp/out.txt', "cat > /tmp/fix.py <<'EOF'\nx = 1\nEOF", 'cd /tmp && echo x > notes.txt', 'echo x | tee /tmp/log', 'sed -i s/a/b/ /tmp/a.txt',
+      'echo x > ../elsewhere/a.txt', 'echo x > /home/u/notes.txt', 'echo x > ~/notes.txt', 'echo x > "$OUT"',
+      'bun test 2>&1 | tail -5', 'ls >/dev/null 2>&1', 'git status 2>&1', '[[ 2 > 1 ]] && echo ok', '(( 2 > 1 )) && echo ok',
+      'git apply --check fix.diff', 'patch --dry-run -p1 < fix.diff', "cat <<'EOF'\necho x > src/auth.ts\nEOF",
+    ];
+    for (const c of controls) expect([c, after(c)]).toEqual([c, 'met']);
+    expect(after('bun test > test-output.log')).toBe('met');
+    expect(after('bun test 2>&1 | tee test-output.log')).toBe('met');
+    const noCwd = (lines: string[]) => lines.map(l => { const o = JSON.parse(l); delete o.cwd; return JSON.stringify(o); });
+    const bare = (command: string) => check(noCwd([...edited, tool('b', 'Bash', { command }), result('b', 'ok')])).items[1].status;
+    expect(bare('sed -i s/a/b/ src/auth.ts')).toBe('missing');
+    expect(bare('echo x > /repo/src/auth.ts')).toBe('met');
+    expect(bare('cd /tmp && sed -i s/a/b/ a.txt')).toBe('met');
+  });
+
+  test('lastBashWrite: the files a Bash line writes and the commands that ran after the last one (GST-1633)', () => {
+    const w = (line: string, cwd = '/repo') => lastBashWrite(line, cwd, '/repo');
+    expect(w('bash -c "sed -i s/a/b/ src/a.py && bun test"')).toEqual({ files: ['src/a.py'], after: 'bun test' });
+    expect(w('(cd /tmp && echo x > a) && echo y > b.txt')).toEqual({ files: ['b.txt'], after: 'echo y >b.txt' });
+    expect(w("sed -i '' 's/a/b/' src/a.py")).toEqual({ files: ['src/a.py'], after: '' });
+    expect(w('echo x1>src/a.py')?.files).toEqual(['src/a.py']);
+    expect(w("cat <<A > x.txt; cat <<B > /tmp/y\na\nA\nb\nB\npytest")).toEqual({ files: ['x.txt'], after: 'cat >x.txt\ncat >/tmp/y\npytest' });
+    expect(w("python3 - <<'PY'\nimport pathlib\np = pathlib.Path('src/a.py')\np.write_text('x')\nPY")?.files).toEqual(['src/a.py']);
+    expect(w('git apply fix.diff')?.files).toEqual(['.']);
+    expect(w('git -C /tmp/other apply fix.diff')).toBeNull();
+    expect(w('sed -i s/a/b/ a.py', '/repo/src')?.files).toEqual(['src/a.py']);
+    expect(w("for f in src/*.py; do sed -i 's/a/b/' \"$f\"; done")).toBeNull();
+    expect(w("node -e \"fs.writeFileSync(path.join('src', 'a'), 'x')\"")).toBeNull();
+    for (const read of ['perl -Ilib t/basic.t', "perl -MList::Util=sum -le 'print sum(1, 2)'", 'sed -fscript.sed src/a.py', "sed -es/i/j/ src/a.py"]) expect([read, w(read)]).toEqual([read, null]);
+    expect(w("perl -Ilib -pi -e 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
+    expect(w("perl -i.bak -pe 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
   });
 
   test('check_after_last_edit: an option value is never the verb, and a long chain of wrapper words stays fast', () => {

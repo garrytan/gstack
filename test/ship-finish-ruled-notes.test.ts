@@ -207,6 +207,101 @@ describe('finish names the grant that covers the counted fix-check (GST-1610)', 
   });
 });
 
+// GST-1627: finish chains contiguous review-fix-check rows back to the reviewed tree. #4063 (GSTA-343): fc3 read the fix
+// after round 2 (range from the stop head to 265d868), then the owner granted fc4 on the base-merge resolution (range from
+// 265d868 to the merge). finish read only the newest row and required its range to start at the reviewed tree, so fc4
+// unbound fc3 and the lane logged a synthetic combined row.
+const TEST_V3 = "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); }, 2_000);\n";
+const CLEAN_ROW = { completed: true, converged: true, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: [] };
+const headOf = (f: ShipFx) => f.git('rev-parse', 'HEAD').stdout.trim();
+const logLink = (f: ShipFx, rangeBase: string) => logFixCheck(f, { range_base: rangeBase, ...CLEAN_ROW });
+const grantLink = (f: ShipFx, stop: string, n: string) => {
+  const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: scoped fix-check ${n} (review_loop_grant ${stop.slice(0, 12)})`, '--words', `fix-check ${n}`, '--by', 'gstack minder (GSTA-36)', '--scope', 'this /ship invocation', '--json']);
+  expect(g.status, g.stderr).toBe(0);
+  return JSON.parse(g.stdout).added[0] as string;
+};
+
+/**
+ * Round 2 stopped at passHead (the reviewed tree), the owner granted fc3, and fc3 read the fix to src/x.ts and its test.
+ * Then the base moved src/x.ts, the merge conflicted, and the resolution is the merge commit fc4 reads.
+ */
+function mergeShape(o: { grantFc3?: boolean } = {}) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
+  ships.push(f);
+  const passHead = headOf(f);
+  const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+  const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
+  const g3 = o.grantFc3 === false ? null : grantLink(f, passHead, 'fc3');
+  f.write({ 'src/x.ts': 'export const x = 3;\n', 'test/x.test.ts': TEST_V2 }); f.commit('fix the round-2 blocker');
+  const fc3 = headOf(f);
+  logLink(f, passHead);
+  f.advanceBase({ 'src/x.ts': 'export const x = 10;\n' });
+  expect(f.git('fetch', '-q', 'origin').status).toBe(0);
+  expect(f.git('merge', '-q', '--no-edit', 'origin/main').status).not.toBe(0);
+  f.write({ 'src/x.ts': 'export const x = 13;\n' }); f.commit('merge origin/main: resolve src/x.ts');
+  const fc4 = headOf(f);
+  return { f, passHead, reviewed, reviewedBase, g3, fc3, fc4 };
+}
+/** Step 14.5's docs audit runs on the final head, then finish. */
+function finishAfterAudit(f: ShipFx, reviewed: string, reviewedBase: string) {
+  const post = path.join(f.root, 'post.json');
+  expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+  return f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--reviewed-base', reviewedBase, '--lane', LANE]);
+}
+
+describe('finish chains contiguous fix-check rows (GST-1627)', () => {
+  // Value: protects=the #4063 shape binds without a synthetic row: fc3 (range from the reviewed tree) and fc4 (range from fc3's
+  //   commit over the merge resolution) both count, each under its own grant; fails_when=finish reads only the newest row and refuses
+  //   fc4's range_base as not the reviewed tree, so src/x.ts and the test route as behavior; seam=finish's route reading the review log
+  test('#4063: fc3 at its fix, then fc4 over the merge resolution, and finish counts both', () => {
+    const { f, passHead, reviewed, reviewedBase, g3, fc3, fc4 } = mergeShape();
+    const g4 = grantLink(f, fc3, 'fc4');
+    logLink(f, fc3);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check chain of 2 from ${passHead.slice(0, 12)}: at ${fc3.slice(0, 12)} grant ${g3}; at ${fc4.slice(0, 12)} grant ${g4})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* fix_checked=2$/)]);
+  });
+
+  // Value: protects=a chain links only through each earlier fix-check's own commit: a commit between fc3 and fc4 that no fix-check
+  //   read breaks it and finish refuses; fails_when=finish links rows by order alone or counts fc4 from any earlier branch commit;
+  //   seam=finish's chain walk
+  test('a gap in the chain refuses: fc4\'s range starts at a commit no fix-check ends at', () => {
+    const { f, reviewed, reviewedBase, fc4 } = mergeShape();
+    f.write({ 'src/x.ts': 'export const x = 14;\n' }); f.commit('an unread edit');
+    const gap = headOf(f);
+    f.write({ 'test/x.test.ts': TEST_V3 }); f.commit('the fc4 fix');
+    grantLink(f, gap, 'fc4');
+    logLink(f, gap);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect(fc4).not.toBe(gap);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: not counted (range_base ${gap.slice(0, 12)} does not hold the reviewed tree)`);
+    expect([r.status, r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/x.ts,test/x.test.ts)')], r.stdout).toEqual([3, true]);
+  });
+
+  // Value: protects=every link is a granted fix-check: an earlier row the owner never granted does not ride on the later grant whose
+  //   stop head is its commit; fails_when=a grant at fc3's commit counts for both fc3 and fc4; seam=finish's per-row grant match
+  test('a link without its own grant refuses the chain', () => {
+    const { f, reviewed, reviewedBase, fc3 } = mergeShape({ grantFc3: false });
+    grantLink(f, fc3, 'fc4');
+    logLink(f, fc3);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit; fix-check at ${fc3.slice(0, 12)}, link 1 of 2)`);
+    expect(r.status).toBe(3);
+  });
+
+  // Value: protects=one owner grant covers one fix-check: a grant whose text names a stop head in each link's range counts for the
+  //   newest link only; fails_when=finish matches every sha in a grant row against every link and counts one grant twice;
+  //   seam=finish's per-row grant match
+  test('one grant naming both links\' stop heads counts for one link, and the chain refuses', () => {
+    const { f, passHead, reviewed, reviewedBase, fc3 } = mergeShape({ grantFc3: false });
+    const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after ${passHead.slice(0, 12)} (review_loop_grant ${fc3.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'gstack minder (GSTA-36)', '--scope', 'this /ship invocation', '--json']);
+    expect(g.status, g.stderr).toBe(0);
+    logLink(f, fc3);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, `FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit; fix-check at ${fc3.slice(0, 12)}, link 1 of 2)`]);
+  });
+});
+
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
   const HEAD = '0123456789abcdef0123456789abcdef01234567';
   const row = (finding: string, o: Partial<{ ask: string; scope: string; by: string; outcome: string }> = {}) => {

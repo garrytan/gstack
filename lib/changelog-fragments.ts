@@ -16,7 +16,11 @@ export const FRAGMENT_README = 'README.md';
 export const MAX_FRAGMENT_BYTES = 64 * 1024;
 const BUMP_RANK: Record<Bump, number> = { micro: 0, patch: 1, minor: 2, major: 3 };
 
-export interface Fragment { path: string; body: string; bump: Bump | null }
+/** Why a change must reach stable within a day (docs/releases.md#the-daily-check): the fragment's `important:` field. */
+export const IMPORTANCE = ['security', 'regression', 'data-loss', 'blocker'] as const;
+export type Importance = (typeof IMPORTANCE)[number];
+
+export interface Fragment { path: string; body: string; bump: Bump | null; important?: Importance }
 export interface FragmentError { code: 'CHANGELOG_FRAGMENT_INVALID'; path: string; message: string }
 export interface FragmentSet { fragments: Fragment[]; errors: FragmentError[] }
 
@@ -31,19 +35,21 @@ export function fragmentSlug(branch: string): string {
   return slug || 'change';
 }
 
-/** One fragment's text: optional `---` front matter holding only `bump:`, then a non-empty body with no release heading. */
+/** One fragment's text: optional `---` front matter holding only `bump:` and `important:`, then a non-empty body with no release heading. */
 export function parseFragment(rel: string, text: string): Fragment | FragmentError {
   const bad = (message: string): FragmentError => ({ code: 'CHANGELOG_FRAGMENT_INVALID', path: rel, message });
   const normalized = text.replace(/\r\n/g, '\n');
   let body = normalized;
   let bump: Bump | null = null;
+  let important: Importance | null = null;
   const fm = /^---\n([\s\S]*?)\n---\n?/.exec(normalized);
   if (fm) {
     body = normalized.slice(fm[0].length);
     for (const line of fm[1]!.split('\n').filter(l => l.trim())) {
-      const kv = /^\s*bump\s*:\s*['"]?(micro|patch|minor|major)['"]?\s*$/.exec(line);
-      if (!kv) return bad(`front matter may hold only "bump: micro|patch|minor|major", found ${JSON.stringify(line.trim().slice(0, 60))}`);
-      bump = kv[1] as Bump;
+      const kv = /^\s*(bump|important)\s*:\s*['"]?([a-z-]+)['"]?\s*$/.exec(line);
+      if (kv?.[1] === 'bump' && /^(micro|patch|minor|major)$/.test(kv[2]!)) { bump = kv[2] as Bump; continue; }
+      if (kv?.[1] === 'important' && (IMPORTANCE as readonly string[]).includes(kv[2]!)) { important = kv[2] as Importance; continue; }
+      return bad(`front matter may hold only "bump: micro|patch|minor|major" and "important: ${IMPORTANCE.join('|')}", found ${JSON.stringify(line.trim().slice(0, 60))}`);
     }
   }
   const lines = body.split('\n');
@@ -52,7 +58,7 @@ export function parseFragment(rel: string, text: string): Fragment | FragmentErr
   if (!lines.length) return bad('the fragment has no entry text');
   const heading = lines.find(l => /^##\s/.test(l) && headingVersion(l));
   if (heading) return bad(`a fragment carries no release heading (the merge step writes it), found ${JSON.stringify(heading.trim())}`);
-  return { path: rel, body: lines.join('\n'), bump };
+  return { path: rel, body: lines.join('\n'), bump, ...(important ? { important } : {}) };
 }
 
 /**
