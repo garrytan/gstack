@@ -539,21 +539,26 @@ _dc_check_floor() {
 }
 
 # _dc_newest_stable — the newest stable gstack release, as lib/stable-release.ts
-# resolves it: the highest v<version> release tag origin lists (one bounded
-# ls-remote), else the higher of VERSION at the stable ref (origin/stable, then
-# stable) and the highest local release tag. Prints nothing when none resolves,
-# or when the root is not the top of its own git checkout (a vendored copy).
+# resolves it: the highest v<version> release tag at origin's stable commit (one
+# ls-remote bounded by timeout, skipped where timeout is missing, as on stock
+# macOS; any tag when origin has no stable branch), else VERSION at the stable
+# ref (origin/stable, then stable), else the highest local release tag. Prints
+# nothing when none resolves, or when the root is not the top of its own git
+# checkout (a vendored copy).
 _dc_newest_stable() {
-  local repo="${GSTACK_STABLE_REPO:-$ROOT_REAL}" best="" v ref listed top
+  local repo="${GSTACK_STABLE_REPO:-$ROOT_REAL}" best="" v ref listed="" top stable_sha
   top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || return 0
   [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$(cd "$repo" 2>/dev/null && pwd -P)" ] || return 0
   _dc_higher() { [ -z "$best" ] || _dc_version_below "$best" "$1" && best="$1"; }
   if command -v timeout >/dev/null 2>&1; then
-    listed=$(GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$repo" ls-remote --tags --refs origin 'v[0-9]*' 2>/dev/null)
-  else
-    listed=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote --tags --refs origin 'v[0-9]*' 2>/dev/null)
+    listed=$(GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$repo" ls-remote origin refs/heads/stable 'refs/tags/v[0-9]*' 2>/dev/null)
   fi
-  for v in $(printf '%s\n' "$listed" | sed -n 's|.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$|\1|p'); do _dc_higher "$v"; done
+  stable_sha=$(printf '%s\n' "$listed" | awk -F'\t' '$2 == "refs/heads/stable" { print $1; exit }')
+  for v in $(printf '%s\n' "$listed" | awk -F'\t' -v s="$stable_sha" '
+      index($2, "refs/tags/v") == 1 { n = substr($2, 11); p = 0
+        if (substr(n, length(n) - 2) == "^{}") { n = substr(n, 1, length(n) - 3); p = 1 }
+        if (p || !(n in at)) at[n] = $1 }
+      END { for (n in at) if (s == "" || at[n] == s) print n }' | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$/\1/p'); do _dc_higher "$v"; done
   if [ -z "$best" ]; then
     for ref in refs/remotes/origin/stable refs/heads/stable; do
       git -C "$repo" rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 || continue
@@ -561,6 +566,8 @@ _dc_newest_stable() {
       case "$v" in [0-9]*.[0-9]*.[0-9]*) _dc_higher "$v" ;; esac
       break
     done
+  fi
+  if [ -z "$best" ]; then
     for v in $(git -C "$repo" tag --list 'v[0-9]*' 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$/\1/p'); do _dc_higher "$v"; done
   fi
   printf '%s' "$best"

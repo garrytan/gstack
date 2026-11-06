@@ -3,9 +3,11 @@
  * not above it (GST-1637). A floor above every stable release breaks every stable-channel lane: each one refuses the
  * policy (POLICY_GSTACK_TOO_OLD) and no upgrade can clear it until a later release is cut.
  *
- * A release is an annotated v<VERSION> tag (docs/releases.md), and stable only moves to a tagged release, so the
- * newest one is the highest release tag origin lists (one bounded ls-remote), or, when origin cannot be reached, the
- * higher of the VERSION at the stable ref (origin/stable, then stable) and the highest local release tag. The repo is
+ * A release is an annotated v<VERSION> tag (docs/releases.md), and stable only moves to a tagged release, but a tag
+ * can exist before stable reaches it (a cut that stopped half-way), so the newest one is the highest release tag at
+ * origin's stable commit (one bounded ls-remote; the highest tag origin lists when it has no stable branch), or, when
+ * origin cannot be reached, the VERSION at the stable ref (origin/stable, then stable), else the highest local release
+ * tag. The repo is
  * this gstack's own checkout; GSTACK_STABLE_REPO names another one (a fixture, or a checkout with fresher refs). A root
  * that is not the top of its own git checkout (a vendored copy with no .git inside a project) resolves nothing, so the
  * project's own release tags never stand in for gstack's.
@@ -31,16 +33,23 @@ export function newestStableRelease(env: NodeJS.ProcessEnv = process.env): Stabl
   const real = (p: string) => { try { return fs.realpathSync(p); } catch { return null; } };
   const top = git(['rev-parse', '--show-toplevel'])?.trim();
   if (!top || real(top) !== real(repo)) return { version: null, why: `${repo} is not a gstack checkout of its own (${top ? `git resolves it to ${top}` : 'no git repository'})` };
-  const listed = git(['ls-remote', '--tags', '--refs', 'origin', 'v[0-9]*']);
-  const remote = listed === null ? null : highestTag(listed.split('\n').filter(Boolean));
-  if (remote) return { version: remote, source: `release tag v${remote} on origin` };
+  const listed = git(['ls-remote', 'origin', 'refs/heads/stable', 'refs/tags/v[0-9]*']);
+  const rows = (listed ?? '').split('\n').filter(Boolean).map(l => l.split('\t'));
+  const stableSha = rows.find(([, r]) => r === 'refs/heads/stable')?.[0];
+  const tagAt = new Map<string, string>();
+  for (const [sha, r] of rows) {
+    const m = /^refs\/tags\/(v.+?)(\^\{\})?$/.exec(r ?? '');
+    if (m && (m[2] || !tagAt.has(m[1]))) tagAt.set(m[1], sha);
+  }
+  const remote = highestTag([...tagAt].filter(([, sha]) => !stableSha || sha === stableSha).map(([name]) => name));
+  if (remote) return { version: remote, source: stableSha ? `release tag v${remote} at origin's stable` : `release tag v${remote} on origin` };
+  const origin = listed === null ? 'unreachable' : stableSha ? 'lists no release tag at its stable' : 'lists no release tag';
   const ref = ['refs/remotes/origin/stable', 'refs/heads/stable'].find(r => git(['rev-parse', '--verify', '--quiet', `${r}^{commit}`]) !== null);
   const atRef = ref ? (git(['show', `${ref}:VERSION`]) ?? '').trim() : '';
-  const stable = parseVersion(atRef) ? atRef : null;
+  if (parseVersion(atRef)) return { version: atRef, source: `${ref!.replace(/^refs\/(remotes\/|heads\/)/, '')} VERSION (local; origin ${origin})` };
   const tag = highestTag((git(['tag', '--list', 'v[0-9]*']) ?? '').split('\n').filter(Boolean));
-  const version = higher(stable, tag);
-  if (!version) return { version: null, why: `${repo} has no release tag on origin (${listed === null ? 'unreachable' : 'none listed'}), no stable ref and no local v<version> tag` };
-  return { version, source: version === stable ? `${ref!.replace(/^refs\/(remotes\/|heads\/)/, '')} VERSION (local; origin ${listed === null ? 'unreachable' : 'lists no release tag'})` : `release tag v${version} (local; origin ${listed === null ? 'unreachable' : 'lists no release tag'})` };
+  if (!tag) return { version: null, why: `${repo} has no release tag on origin (${listed === null ? 'unreachable' : 'none listed'}), no stable ref and no local v<version> tag` };
+  return { version: tag, source: `release tag v${tag} (local; origin ${origin})` };
 }
 
 /**

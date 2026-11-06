@@ -51,6 +51,25 @@ function stableRepo(version: string, how: 'remote' | 'local'): string {
   return work;
 }
 
+/** A cut that stopped half-way: stable at v<stable>, and a v<tagged> release tag on a later commit stable never reached. */
+function halfCutRepo(stable: string, tagged: string, how: 'remote' | 'local'): string {
+  const base = tmp(), work = path.join(base, 'gstack');
+  fs.mkdirSync(work);
+  git(work, 'init', '-q', '-b', 'main');
+  for (const v of [stable, tagged]) {
+    fs.writeFileSync(path.join(work, 'VERSION'), `${v}\n`);
+    git(work, 'add', 'VERSION');
+    git(work, 'commit', '-q', '-m', `v${v}`);
+    git(work, 'tag', '-a', `v${v}`, '-m', `v${v}`);
+    if (v === stable) git(work, 'branch', 'stable');
+  }
+  if (how === 'local') return work;
+  git(base, 'init', '-q', '--bare', 'origin.git');
+  git(work, 'remote', 'add', 'origin', path.join(base, 'origin.git'));
+  git(work, 'push', '-q', 'origin', 'main', 'stable', '--tags');
+  return work;
+}
+
 /** A vendored gstack copy: a directory with no .git inside a project repo whose own release tag is v1.2.0.0. */
 function vendoredRoot(): string {
   const app = tmp();
@@ -105,6 +124,18 @@ describe('gstack-ship-policy validate: min_gstack_version against the newest sta
     expect(r.err).toContain(`gstack-ship-policy: WARN could not resolve the newest stable gstack release`);
     expect(r.err).toContain(`so min_gstack_version ${FLOOR} was not compared with it`);
     expect(r.err).toContain('(STABLE_RELEASE_UNKNOWN)');
+  });
+
+  // Value: protects=stable-channel lanes during a cut that tagged a release but never moved stable; fails_when=the highest tag wins over the tag at stable and a floor no stable lane can read passes;
+  //   why_new=GST-1637 /ship outside voice; seam=lib/stable-release.ts newestStableRelease; no_claim=-
+  test('a release tag stable never reached does not count: the floor is judged against the tag at stable', () => {
+    const repo = policyRepo(FLOOR);
+    const remote = runBin(repo, 'gstack-ship-policy', ['validate'], { GSTACK_STABLE_REPO: halfCutRepo(BELOW, FLOOR, 'remote') });
+    expect(remote.status, remote.out + remote.err).toBe(EXIT.fail);
+    expect(remote.err).toContain(`min_gstack_version ${FLOOR} is above the newest stable gstack release ${BELOW} (release tag v${BELOW} at origin's stable)`);
+    const local = runBin(repo, 'gstack-ship-policy', ['validate'], { GSTACK_STABLE_REPO: halfCutRepo(BELOW, FLOOR, 'local') });
+    expect(local.status, local.out + local.err).toBe(EXIT.fail);
+    expect(local.err).toContain(`the newest stable gstack release ${BELOW} (stable VERSION (local; origin unreachable))`);
   });
 
   // Value: protects=vendored installs (a .git-less copy inside a project) from comparing the floor with the project's own release tags; fails_when=git -C walks up to the project repo and its v<version> tags stand in for gstack's;
@@ -188,6 +219,10 @@ describe('gstack-doctor --check floor row', () => {
     expect(met.status).toBe('WARN');
     expect(met.line).toContain(`fix: bash ${wrapper} --for health (fast-forwards a clean checkout to origin and reinstalls)`);
     expect(met.line).not.toContain('no release meets this floor yet');
+    for (const how of ['remote', 'local'] as const) {
+      const halfCut = floorRow(f, dir, { GSTACK_CAPY_WRAPPER_PATH: wrapper, GSTACK_STABLE_REPO: halfCutRepo('1.2.0.0', '999.0.0.0', how) });
+      expect(halfCut.line).toContain('no release meets this floor yet: the newest stable gstack is 1.2.0.0');
+    }
     const vendored = floorRow(f, dir, { GSTACK_CAPY_WRAPPER_PATH: wrapper, GSTACK_STABLE_REPO: vendoredRoot() });
     expect(vendored.line).toContain(`fix: bash ${wrapper} --for health (fast-forwards a clean checkout to origin and reinstalls)`);
     expect(vendored.line).not.toContain('no release meets this floor yet');
