@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initAuditLog, writeAuditEntry } from '../src/audit';
 import { formatDialogLogLine } from '../src/buffers';
+import { handleMetaCommand } from '../src/meta-commands';
 
 // GST-1631: the audit log is plain JSONL in the state dir, so every value a
 // command types (fill, type, js, dialog-accept, cookie, header, storage set,
@@ -126,13 +127,13 @@ describe('audit args redaction (on-disk line)', () => {
     expect(line().args).toBe('goto https://example.com/a');
   });
 
-  it('chain redacts every subcommand, in JSON and pipe form', () => {
+  it('chain logs only its step names, in JSON and pipe form', () => {
     write('chain', [JSON.stringify([['goto', 'https://example.com/login'], ['fill', '#pw', 'hunter2'], ['cookie', 'sid=zz9plural'], ['click', '@e3']])]);
     expect(raw()).not.toMatch(/hunter2|zz9plural/);
-    expect(JSON.parse(line().args)).toEqual([['goto', 'https://example.com/login'], ['fill', '#pw', '[REDACTED]'], ['cookie', 'sid=[REDACTED]'], ['click', '@e3']]);
+    expect(line().args).toBe('goto | fill | cookie | click');
     write('chain', ['goto https://example.com | fill #pw "two words" | click @e3']);
     expect(raw()).not.toMatch(/two words|"two|words"/);
-    expect(line().args).toBe('goto https://example.com | fill #pw [REDACTED] | click @e3');
+    expect(line().args).toBe('goto | fill | click');
   });
 
   it('a chain that is not a command list is hidden whole', () => {
@@ -201,12 +202,12 @@ describe('error text is scrubbed of the typed values', () => {
   it('pipe-form chain tokenizes quoted values like chain does, so an unquoted echo is scrubbed', () => {
     write('chain', ['goto https://example.com | fill #pw "correct horse"'], 'fill failed: value correct horse rejected');
     expect(raw()).not.toMatch(/correct|horse/);
-    expect(line().args).toBe('goto https://example.com | fill #pw [REDACTED]');
+    expect(line().args).toBe('goto | fill');
   });
 
   it('pipe-form js with a quoted inner --out keeps nothing of the expression', () => {
     write('chain', ['goto https://x | js "a --out b"']);
-    expect(line().args).toBe('goto https://x | js [REDACTED]');
+    expect(line().args).toBe('goto | js');
   });
 
   it('scrubs a token a js error echoes without its surrounding punctuation', () => {
@@ -229,6 +230,77 @@ describe('error text is scrubbed of the typed values', () => {
     expect(line().error).toBe('type [REDACTED]: failed at [REDACTED] step');
     write('fill', ['#otp', '5000'], 'locator.fill: Timeout 5000ms exceeded; value 5000 rejected');
     expect(line().error).toBe('locator.fill: Timeout 5000ms exceeded; value [REDACTED] rejected');
+  });
+});
+
+describe('chain line keeps only real command names (fix-check shapes)', () => {
+  it('an empty quoted selector before an unquoted multi-word value leaves nothing', () => {
+    write('chain', ['fill "" correct horse battery']);
+    expect(line().args).toBe('fill');
+    write('chain', ['type --selector "" correct horse']);
+    expect(line().args).toBe('type');
+    write('chain', ['storage set "" a b']);
+    expect(line().args).toBe('storage');
+    expect(raw()).not.toMatch(/correct|horse|battery/);
+  });
+
+  it('a separator other than " | " leaves nothing of the following step', () => {
+    write('chain', ['goto https://x |\nfill #pw hunter2secret']);
+    expect(line().args).toBe('goto');
+    write('chain', ['click @e1 |fill #pw hunter2secret']);
+    expect(line().args).toBe('click');
+    expect(raw()).not.toContain('hunter2secret');
+  });
+
+  it('a tab inside a step leaves nothing of its args', () => {
+    write('chain', ['goto https://x | storage set\tauthToken hunter2secret']);
+    expect(line().args).toBe('goto | storage');
+    write('chain', ['goto https://x | skill run\tlogin password=hunter2secret']);
+    expect(line().args).toBe('goto | skill');
+    write('chain', ['goto https://x | skill run login --timeout=30\tpassword=hunter2secret']);
+    expect(line().args).toBe('goto | skill');
+    expect(raw()).not.toMatch(/hunter2secret|authToken/);
+  });
+
+  it('a step name that is not a command is redacted', () => {
+    write('chain', ['hunter2secret | goto https://x']);
+    expect(line().args).toBe('[REDACTED] | goto');
+    write('chain', [JSON.stringify([['hunter2secret', 'x']])]);
+    expect(line().args).toBe('[REDACTED]');
+    expect(raw()).not.toContain('hunter2secret');
+  });
+
+  it('each step still writes its own audit line with its args redacted per command', async () => {
+    const bm = { getPage: () => ({ waitForLoadState: async () => {} }) } as any;
+    const executeCommand = async (body: { command: string; args?: string[] }) => {
+      write(body.command, body.args ?? []);
+      return { status: 200, result: 'ok' };
+    };
+    const flows = [
+      'goto https://example.com/login | fill #pw "correct horse" | cookie sid=zz9plural | click @e3',
+      JSON.stringify([['goto', 'https://example.com/login'], ['fill', '#pw', 'correct horse'], ['cookie', 'sid=zz9plural'], ['click', '@e3']]),
+    ];
+    for (const flow of flows) {
+      fs.rmSync(logPath, { force: true });
+      await handleMetaCommand('chain', [flow], bm, async () => {}, null, { executeCommand });
+      write('chain', [flow]);
+      const lines = raw().trim().split('\n').map(l => JSON.parse(l));
+      expect(lines.map(l => [l.cmd, l.args])).toEqual([
+        ['goto', 'https://example.com/login'],
+        ['fill', '#pw [REDACTED]'],
+        ['cookie', 'sid=[REDACTED]'],
+        ['click', '@e3'],
+        ['chain', 'goto | fill | cookie | click'],
+      ]);
+      expect(raw()).not.toMatch(/correct|horse|zz9plural/);
+    }
+  });
+
+  it('the server hands each command its args unjoined', () => {
+    const src = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf8');
+    const calls = src.split('writeAuditEntry({').slice(1).map(c => c.slice(0, c.indexOf('});')));
+    expect(calls.length).toBe(2);
+    for (const call of calls) expect(call).toMatch(/\n\s+args,\n/);
   });
 });
 

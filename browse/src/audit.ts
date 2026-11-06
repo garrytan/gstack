@@ -19,7 +19,7 @@
  * All writes are best-effort — audit failures never cause command failures.
  */
 
-import { ALL_COMMANDS, canonicalizeCommand, tokenizePipeSegment } from './commands';
+import { ALL_COMMANDS, canonicalizeCommand } from './commands';
 import { appendSecureFile } from './file-permissions';
 
 export interface AuditEntry {
@@ -56,28 +56,23 @@ function redactAfterSeparator(args: string[], sep: string): RedactedArgs {
   return { args: [joined.slice(0, at + 1) + REDACTED], secrets: [joined.slice(at + 1).trim()] };
 }
 
+/**
+ * A chain line keeps only the step names that are real commands, never their
+ * args: every step writes its own audit line with its exact args redacted per
+ * command, and a second parse of the flow text here could differ from chain's.
+ */
 function redactChain(flow: string): RedactedArgs {
-  const secrets: string[] = [];
-  const redactStep = (step: string[]) => {
-    const [name, ...rest] = step;
-    if (!ALL_COMMANDS.has(canonicalizeCommand(name))) { secrets.push(step.join(' ')); return [REDACTED]; }
-    const r = redactCommandArgs(name, rest);
-    secrets.push(...r.secrets);
-    return [name, ...r.args];
-  };
-  let steps: unknown;
+  let steps: string[][];
   try {
-    steps = JSON.parse(flow);
+    const parsed = JSON.parse(flow);
+    if (!Array.isArray(parsed) || !parsed.every(step => Array.isArray(step))) return { args: [REDACTED], secrets: [flow] };
+    steps = parsed.map(step => step.map(String));
   } catch {
-    const segments = flow.split(' | ')
-      .filter(seg => seg.trim().length > 0)
-      .map(seg => redactStep(tokenizePipeSegment(seg.trim())).join(' '));
-    return { args: [segments.join(' | ')], secrets };
+    steps = flow.split(' | ').map(seg => seg.trim().split(/\s+/));
   }
-  const isCommandList = Array.isArray(steps)
-    && steps.every(step => Array.isArray(step) && step.length > 0 && step.every(a => typeof a === 'string'));
-  if (!isCommandList) return { args: [REDACTED], secrets: [flow] };
-  return { args: [JSON.stringify((steps as string[][]).map(redactStep))], secrets };
+  const names = steps.map(([name = '']) => (ALL_COMMANDS.has(canonicalizeCommand(name)) ? name : REDACTED));
+  const secrets = steps.map((step, i) => (names[i] === REDACTED ? step : step.slice(1)).join(' '));
+  return { args: [names.join(' | ')], secrets };
 }
 
 /** Replace the typed value of every value-carrying command with [REDACTED]. */
