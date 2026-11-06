@@ -112,6 +112,32 @@ describe('gstack-runaway scan', () => {
     expect(r.out).toContain('FLAG: WARN empty_wake 65% of 31 turns > 25%');
   });
 
+  // Value: protects=warm-wait check-ins (docs/captain.md Warm waits, #4060) are not empty wakes: a turn whose only call re-issues the
+  //   wait on the same operation, or a 240 s timer, inside 30 minutes of the wait that began the run is left out; a re-wait past 30
+  //   minutes, a different wait, or a turn that also reads status still counts; fails_when=/runaway-stopper flags a lane that follows the
+  //   rule (GST-1597); seam=emptyWakes; no_claim=whether the lane should have warm-waited at all
+  test('warm-wait check-ins inside 30 minutes are not empty wakes; past the window they count again', () => {
+    const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
+    const wait = (s: number, input: Record<string, unknown>) => ({ source: 'tool', tool: 'wait', input: { text: JSON.stringify({ description: 'w', ...input }) }, createdAt: at(s) });
+    const work = (s: number) => ({ source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }, { tool: 'edit' }], createdAt: at(s) });
+    const scan = (items: unknown[], name: string) => {
+      const doc = { code: 'GSTA-999', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [] };
+      return run('scan', '--thread', write(name + '.json', doc), '--events', write(name + '.events.json', { items, cursor: null }), '--now', NOW).out;
+    };
+    const lane: unknown[] = [];
+    for (let k = 0; k < 20; k++) { lane.push(work(k * 2000)); lane.push(wait(k * 2000 + 1, { operation_ids: ['op' + k], duration_seconds: 240 })); for (let c = 1; c <= 7; c++) lane.push(wait(k * 2000 + 1 + c * 240, c % 2 ? { duration_seconds: 240 } : { operation_ids: ['op' + k] })); }
+    expect(scan(lane, 'warm')).toContain('empty_wake=0%/20');
+    const late: unknown[] = [];
+    for (let k = 0; k < 20; k++) { late.push(work(k * 4000)); late.push(wait(k * 4000 + 1, { operation_ids: ['op' + k] })); late.push(wait(k * 4000 + 1 + 1900, { operation_ids: ['op' + k] })); }
+    expect(scan(late, 'late')).toContain('empty_wake=50%/40');
+    const other: unknown[] = [];
+    for (let k = 0; k < 20; k++) { other.push(work(k * 2000)); other.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); other.push(wait(k * 2000 + 241, { operation_ids: ['other' + k], duration_seconds: 600 })); }
+    expect(scan(other, 'other')).toContain('empty_wake=50%/40');
+    const reads: unknown[] = [];
+    for (let k = 0; k < 20; k++) { reads.push(work(k * 2000)); reads.push(wait(k * 2000 + 1, { operation_ids: ['op' + k] })); reads.push({ source: 'tool', tool: 'execute', calls: [{ tool: 'subagent_list' }], createdAt: at(k * 2000 + 241) }); reads.push(wait(k * 2000 + 242, { operation_ids: ['op' + k] })); }
+    expect(scan(reads, 'reads')).toContain('empty_wake=50%/40');
+  });
+
   test('a subagent.list file replaces thread.get tasks: own sums top-level paths only, truncation makes it an upper bound', () => {
     const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 700e6 }, tasks: [] };
     const subs = { total: 3, tasks: [
