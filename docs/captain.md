@@ -139,6 +139,40 @@ such decision with a plain-language explanation of every option: what it is, why
 matters, what each answer does, and what it costs. A gate code or a tool's result line
 alone is not an ask.
 
+## Lane context
+
+Every step a lane takes re-reads its whole conversation. A step within about five minutes
+of the previous one reads it from the prompt cache; after five idle minutes the cache is
+gone and the next step costs about eight times as much. Fixed instruction text and idle
+restarts, not checks, are now most of a lane's own spend, so a lane keeps its context
+cheap:
+
+- **Warm waits.** When a lane expects a wait under about 30 minutes (a CI run, a test
+  tier, a background build), it checks in every 240 seconds: on Capy, `wait` on the
+  operation with `duration_seconds: 240`, and on a timer wake that brings nothing new it
+  re-issues the same wait silently, with no message. Once a warm wait has run about 30
+  minutes, or past the end the lane expected, the lane stops re-issuing the timer and
+  sleeps on the operation or pull request watch alone. A wait expected to run longer sleeps
+  on its operations alone. For short lane waits this overrides "waits go on operations,
+  never on polling wakes" ([unattended.md](unattended.md#report-length)). The controller
+  never warm-waits, and a lane still sleeps while /ship runs
+  ([the lane's /ship sequence](#the-lanes-ship-sequence-before-ready)).
+- **Batched reads.** Independent reads (files, greps, pull request and thread state) go in
+  one parallel program, not one call each. Each call returns 4k characters or less; long
+  output (logs, test output, diffs) goes to a file under `~/.capy/work`, and the lane reads
+  the part it needs with `grep` or a paged read.
+- **Start card.** Once the install check passes, a lane reads
+  [lane-card.md](../capy/skill/gstack/lane-card.md) instead of the rest of the gstack
+  skill's SKILL.md. It still reads the SKILL.md sections on /ship before it ships.
+- **Tail check.** When a lane's spend passes twice the crew's median lane spend per merged
+  PR (about $50 at today's prices), it writes `handoffs/<code>/next.md` in the controller's
+  drive (what is done, what is left and what finishing costs) and tells the controller in
+  one line. The controller decides whether the lane continues, rotates to a fresh lane
+  that starts from that file, or parks. This sits below the crew's hard spend stop (a
+  per-PR figure in the controller's rules), where the lane stops and asks whether the PR
+  is still worth it. Spend is the
+  thread's credit meter, never a token count.
+
 ## New threads join the crew
 
 A crew thread never creates a thread itself. It asks its Captain, and the Captain creates

@@ -135,6 +135,21 @@ describe('/captain skill', () => {
     }
   });
 
+  test('the lane start card cites real SKILL.md sections, stays short, and docs/captain.md carries the lane context rules', () => {
+    const capySkill = read('capy/skill/gstack/SKILL.md');
+    const card = read('capy/skill/gstack/lane-card.md');
+    const headings = new Set([...capySkill.matchAll(/^## (.+)$/gm)].map(m => m[1]));
+    const cited = [...card.matchAll(/§ "([^"]+)"/g)].map(m => m[1]);
+    expect(cited).toContain('Unattended runs for a parent agent');
+    expect(cited).toContain('Plan, approve, ship');
+    expect(cited.filter(h => !headings.has(h!))).toEqual([]);
+    expect(capySkill).toMatch(/## Session start[^#]*?read \[lane-card\.md\]\(lane-card\.md\), not the rest of this file/);
+    expect(Buffer.byteLength(card)).toBeLessThanOrEqual(6800);
+    const doc = read('docs/captain.md').replace(/\s+/g, ' ');
+    for (const s of ['`duration_seconds: 240`', 'stops re-issuing the timer', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
+    expect(read('captain/templates/brief.md')).toMatch(/^Read: <[^>]+>$/m);
+  });
+
   test('docs/captain.md links resolve and the skill is registered where skills are listed', () => {
     const doc = read('docs/captain.md');
     const links = [...doc.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)].map(m => m[1]).filter(l => !/^https?:/.test(l));
