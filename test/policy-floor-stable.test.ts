@@ -51,6 +51,17 @@ function stableRepo(version: string, how: 'remote' | 'local'): string {
   return work;
 }
 
+/** A vendored gstack copy: a directory with no .git inside a project repo whose own release tag is v1.2.0.0. */
+function vendoredRoot(): string {
+  const app = tmp();
+  git(app, 'init', '-q', '-b', 'main');
+  git(app, 'commit', '-q', '--allow-empty', '-m', 'app');
+  git(app, 'tag', '-a', 'v1.2.0.0', '-m', 'v1.2.0.0');
+  const vendored = path.join(app, '.claude', 'skills', 'gstack');
+  fs.mkdirSync(vendored, { recursive: true });
+  return vendored;
+}
+
 const FLOOR = runningGstackVersion();
 const BELOW = '1.0.0.0';
 const policyRepo = (floor: string) => {
@@ -93,6 +104,16 @@ describe('gstack-ship-policy validate: min_gstack_version against the newest sta
     expect(r.out).toMatch(/^POLICY_VALID: /);
     expect(r.err).toContain(`gstack-ship-policy: WARN could not resolve the newest stable gstack release`);
     expect(r.err).toContain(`so min_gstack_version ${FLOOR} was not compared with it`);
+    expect(r.err).toContain('(STABLE_RELEASE_UNKNOWN)');
+  });
+
+  // Value: protects=vendored installs (a .git-less copy inside a project) from comparing the floor with the project's own release tags; fails_when=git -C walks up to the project repo and its v<version> tags stand in for gstack's;
+  //   why_new=GST-1637 /ship red-team; seam=lib/stable-release.ts newestStableRelease; no_claim=-
+  test('a gstack root with no .git of its own never reads the enclosing project repo: the floor is not compared', () => {
+    const repo = policyRepo(FLOOR);
+    const r = runBin(repo, 'gstack-ship-policy', ['validate'], { GSTACK_STABLE_REPO: vendoredRoot() });
+    expect(r.status, r.out + r.err).toBe(EXIT.ok);
+    expect(r.err).toContain('is not a gstack checkout of its own');
     expect(r.err).toContain('(STABLE_RELEASE_UNKNOWN)');
   });
 });
@@ -167,5 +188,8 @@ describe('gstack-doctor --check floor row', () => {
     expect(met.status).toBe('WARN');
     expect(met.line).toContain(`fix: bash ${wrapper} --for health (fast-forwards a clean checkout to origin and reinstalls)`);
     expect(met.line).not.toContain('no release meets this floor yet');
+    const vendored = floorRow(f, dir, { GSTACK_CAPY_WRAPPER_PATH: wrapper, GSTACK_STABLE_REPO: vendoredRoot() });
+    expect(vendored.line).toContain(`fix: bash ${wrapper} --for health (fast-forwards a clean checkout to origin and reinstalls)`);
+    expect(vendored.line).not.toContain('no release meets this floor yet');
   });
 });

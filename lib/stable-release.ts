@@ -6,10 +6,13 @@
  * A release is an annotated v<VERSION> tag (docs/releases.md), and stable only moves to a tagged release, so the
  * newest one is the highest release tag origin lists (one bounded ls-remote), or, when origin cannot be reached, the
  * higher of the VERSION at the stable ref (origin/stable, then stable) and the highest local release tag. The repo is
- * this gstack's own checkout; GSTACK_STABLE_REPO names another one (a fixture, or a checkout with fresher refs).
+ * this gstack's own checkout; GSTACK_STABLE_REPO names another one (a fixture, or a checkout with fresher refs). A root
+ * that is not the top of its own git checkout (a vendored copy with no .git inside a project) resolves nothing, so the
+ * project's own release tags never stand in for gstack's.
  * bin/gstack-doctor-check.sh resolves it the same way in Bash for its floor row.
  */
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { cmpVersion, parseVersion } from './version-source';
 import type { PolicyError } from './ship-policy';
@@ -25,6 +28,9 @@ export function newestStableRelease(env: NodeJS.ProcessEnv = process.env): Stabl
     const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout, env: { ...env, GIT_TERMINAL_PROMPT: '0' } });
     return r.status === 0 && !r.error ? (r.stdout ?? '') : null;
   };
+  const real = (p: string) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const top = git(['rev-parse', '--show-toplevel'])?.trim();
+  if (!top || real(top) !== real(repo)) return { version: null, why: `${repo} is not a gstack checkout of its own (${top ? `git resolves it to ${top}` : 'no git repository'})` };
   const listed = git(['ls-remote', '--tags', '--refs', 'origin', 'v[0-9]*']);
   const remote = listed === null ? null : highestTag(listed.split('\n').filter(Boolean));
   if (remote) return { version: remote, source: `release tag v${remote} on origin` };

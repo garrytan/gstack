@@ -541,9 +541,12 @@ _dc_check_floor() {
 # _dc_newest_stable — the newest stable gstack release, as lib/stable-release.ts
 # resolves it: the highest v<version> release tag origin lists (one bounded
 # ls-remote), else the higher of VERSION at the stable ref (origin/stable, then
-# stable) and the highest local release tag. Prints nothing when none resolves.
+# stable) and the highest local release tag. Prints nothing when none resolves,
+# or when the root is not the top of its own git checkout (a vendored copy).
 _dc_newest_stable() {
-  local repo="${GSTACK_STABLE_REPO:-$ROOT_REAL}" best="" v ref listed
+  local repo="${GSTACK_STABLE_REPO:-$ROOT_REAL}" best="" v ref listed top
+  top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$(cd "$repo" 2>/dev/null && pwd -P)" ] || return 0
   _dc_higher() { [ -z "$best" ] || _dc_version_below "$best" "$1" && best="$1"; }
   if command -v timeout >/dev/null 2>&1; then
     listed=$(GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$repo" ls-remote --tags --refs origin 'v[0-9]*' 2>/dev/null)
