@@ -142,6 +142,29 @@ describe('successor thread resume (GST-1655)', () => {
     expect(h.field(later.out, 'BUDGET', 'used')).toBe('7000000');
   });
 
+  test('a successor cannot open an epoch while a dispatch reservation still has readers on the predecessor\'s counter', () => {
+    const h = fresh();
+    const record = h.record();
+    const s = h.sb(['start', '--record', record, '--token-cap', '200M', '--reading', '40M', '--meter-source', 'jam_A']);
+    expect(s.code).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const c = h.sb(['check', '--run', run, '--step', '9', '--next', 'dispatch:specialist', '--reading', '41M']);
+    expect(c.code, c.out + c.err).toBe(0);
+    const id = h.field(c.out, 'RESERVATION', 'id');
+    const ledger = h.field(s.out, 'BUDGET_RUN', 'ledger');
+    const before = fs.readFileSync(ledger, 'utf8');
+    const r = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('(BUDGET_READING_REJECTED)');
+    expect(r.err).toContain(`settle --run ${run} --reservation ${id} --dispatched-at <its reading when the readers started> --reading`);
+    expect(fs.readFileSync(ledger, 'utf8')).toBe(before);
+    expect(h.sb(['settle', '--run', run, '--reservation', id, '--dispatched-at', '41M', '--reading', '46M']).code).toBe(0);
+    const after = h.sb(['resume', '--record', record, '--meter-source', 'jam_B', '--reading', '3M']);
+    expect(after.code, after.out + after.err).toBe(0);
+    expect(h.field(after.out, 'BUDGET', 'used')).toBe('6000000');
+    expect(h.field(after.out, 'BUDGET', 'epoch')).toBe('2');
+  });
+
   test('the total across epochs trips the hard stop', () => {
     const h = fresh();
     const a = threadA(h, '50M');
