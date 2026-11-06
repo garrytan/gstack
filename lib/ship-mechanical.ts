@@ -70,7 +70,7 @@ function maskedChange(cwd: string, s: PatchSides, rel: string, mask: (text: stri
  * and each declared candidate that failed its proof with the reason. Paths no declaration names are neither.
  */
 export function mechanicalPaths(cwd: string, i: MechanicalInput): { proven: Record<string, string>; refused: MechanicalRefusal[] } {
-  const proven: Record<string, string> = {};
+  const proven: Record<string, string> = Object.create(null);
   const refused: MechanicalRefusal[] = [];
   const retaken = new Map<MechanicalConstant, { from: number; to: number }>();
   const s = i.sides;

@@ -272,7 +272,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   by.tests = by.tests.filter(p => !gated.has(p));
   const mech = mechanicalPaths(cwd, { sides, base, candidates: parent ? [] : [...by.behavior, ...by.tests, ...by.docs], declared: opts.mechanical });
   by.mechanical = Object.keys(mech.proven).sort();
-  for (const k of ['behavior', 'tests', 'docs'] as const) by[k] = by[k].filter(p => !(p in mech.proven));
+  for (const k of ['behavior', 'tests', 'docs'] as const) by[k] = by[k].filter(p => !Object.hasOwn(mech.proven, p));
   const bounded = boundedPaths(cwd, { sides, reviewed, now, base: baseRef, candidates: parent ? [] : by.behavior, audited: opts.audited, bookkeeping: opts.bookkeeping });
   by.bounded = Object.keys(bounded.kinds).sort();
   by.behavior = by.behavior.filter(p => !by.bounded.includes(p));

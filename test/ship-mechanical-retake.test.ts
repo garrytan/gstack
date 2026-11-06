@@ -100,6 +100,13 @@ describe('a declared mechanical retake after a base merge (GST-1560: founderstar
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('fixtures/saves/s3.json')]);
   });
 
+  test('an undeclared file named like an Object.prototype key still routes as behavior beside a proven retake', () => {
+    const { run } = founderstar({ saves: { constructor: '#!/bin/sh\necho changed after review\n' } });
+    const r = run();
+    expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=1 .* base=7 context=0 mechanical=10$/);
+    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('constructor')]);
+  });
+
   test('a golden its declared command does not regenerate byte-identically routes as behavior', () => {
     const { run } = founderstar({ golden: 'rules=81 (edited by hand)\n' });
     const r = run();
