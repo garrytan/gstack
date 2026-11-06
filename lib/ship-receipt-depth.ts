@@ -33,6 +33,10 @@ import { platformReviewAt } from './review-platform';
 import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
 import { runScriptSync } from './script-invocation';
+import { parseUnifiedDiff, versionAtRef } from './restamp';
+import { branchSides } from './stamp-only';
+import { classifyFiles } from './tree-receipt';
+import { mergeChangelogs } from './changelog-check';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
 import { carriedAudits, docsExceptionLine, parseReceiptDocs, type CarriedAudit } from './ship-receipt-docs';
 
@@ -245,7 +249,7 @@ export function parseReviewTargeted(value: unknown, productPatchId: string, prod
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
   if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
   const read = productPatchOf(v.head);
-  if ((read !== productPatchId && !plainDocs?.(v.head)) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only a docs change with no numeric, results, prereg, eval, money or security claim carries the record), so run the targeted reader on HEAD and verify again`);
+  if ((read !== productPatchId && !plainDocs?.(v.head)) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(`the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only release stamps and a docs change with no numeric, results, prereg, eval, money or security claim carry the record), so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
   return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
 }
@@ -516,16 +520,17 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
 
 /**
  * A commit on `from` that holds what the PR's own change did after `from`: every path whose part of the PR's diff against its
- * merge base with origin/<base> (product_patch_id's basis, with tests and metadata kept) differs between `from` and `head`, at
+ * merge base with origin/<base> (the local <base> when origin's does not resolve, as write reads it; product_patch_id's
+ * basis, with tests and metadata kept) differs between `from` and `head`, at
  * `head`'s content. A main merge moves the merge base with the files it brings, so a file only main changed keeps `from`'s
  * content (GST-1593); a branch edit, or a merge resolution that changes the PR's own hunks, moves the path: a path whose base
  * content main also changed moves unless replaying main's change onto `from`'s content (git merge-file) gives `head`'s exactly,
  * so a hunk relocated to an identical context counts. With no resolvable merge base every path that changed from `from` to
  * `head` moves, and so does a path whose mode at `head` is not the replayed one. The commit carries the messages of every
- * commit since `from` that origin/<base> does not hold, side-branch merges included (a CI skip marker is gate class). Null when
- * git cannot build it.
+ * commit since `from` that origin/<base> does not hold, side-branch merges included (a CI skip marker is gate class). A path in
+ * `keep` keeps `from`'s content. Null when git cannot build it.
  */
-function ownChangeSince(root: string, base: string, from: string, head: string): string | null {
+function ownChangeSince(root: string, base: string, from: string, head: string, keep: readonly string[] = []): string | null {
   const run = (args: string[], env?: NodeJS.ProcessEnv, input?: string) => {
     const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
     return r.status === 0 ? r.stdout : null;
@@ -547,7 +552,8 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
   const tmp = path.join(gitDir.out, `gstack-since-${process.pid}-${randomBytes(4).toString('hex')}`);
   const index = `${tmp}.index`;
   const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
-  const baseSha = baseCommit(root, `origin/${base.replace(/^origin\//, '')}`);
+  const baseAt = writeBase(root, base).sha;
+  const baseSha = baseAt ? { ok: true, out: baseAt } : { ok: false, out: '' };
   const mbFrom = baseSha.ok ? git(root, ['merge-base', baseSha.out, from]) : baseSha;
   const mbHead = baseSha.ok ? git(root, ['merge-base', baseSha.out, head]) : baseSha;
   try {
@@ -572,6 +578,7 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
       if (!all) return null;
       moved = [...all.keys()];
     }
+    moved = moved.filter(p => !keep.includes(p));
     const listed = moved.length ? run(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', ...moved]) : '';
     const messages = run(['log', '--format=%B', `${from}..${head}`, ...(baseSha.ok ? [`^${baseSha.out}`] : [])]);
     if (listed === null || messages === null) return null;
@@ -590,7 +597,7 @@ function ownChangeSince(root: string, base: string, from: string, head: string):
  */
 export function targetedClassesSince(root: string, from: string, head: string, base: string): readonly TargetedClass[] | null {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
-  const since = ownChangeSince(root, base, from, head);
+  const since = productChangeSince(root, base, from, head)?.since;
   if (!since) return null;
   const at = headInputs(root, from, since, undefined, true);
   let gateTagged: number | null = 0;
@@ -605,20 +612,91 @@ export function targetedClassesSince(root: string, from: string, head: string, b
 }
 
 /**
- * Whether what the PR's own change did from `from` to `head` against origin/<base> (ownChangeSince) is plain docs, which a
- * targeted record carries across (GST-1195): every path docs class, R65's claim rule (platformFits: no numeric claim, no results,
- * prereg or eval path), and no money, security, secret or auth wording in the changed lines (the risk matchers plus
- * DOCS_CLAIM_WORDS, since the matchers spare prose). False when `from` is not an ancestor or the change is unreadable.
+ * What the PR's own change from `from` to `head` against origin/<base> (ownChangeSince) is to a targeted record: the one
+ * classifier gstack-ship-receipt write (plainDocsSince) and gstack-review-plan's targeted-only read (lib/review-targeted-delta.ts)
+ * share, so the receipt never refuses a change the plan calls done (GST-1689). `stamps` are the paths whose change is a release
+ * stamp under the base policy's stamp rule (lib/tree-receipt.ts classifyFiles: stamp_files, stamp_paths and stamp_patterns, the
+ * version file, manifests, lockfiles and the CHANGELOG re-heading or fragment fold), which always carry; `paths` are the rest.
+ * The rest is `plain` when it is plain docs (GST-1195): every path docs class, R65's claim rule (platformFits: no numeric
+ * claim, no results, prereg or eval path), and no money, security, secret or auth wording in the changed lines (the risk
+ * matchers plus DOCS_CLAIM_WORDS, since the matchers spare prose); `claim` when it is docs that fail that rule; `code` when
+ * any path is not docs class or is binary. Null when `from` is not an ancestor or the change is unreadable.
  */
-export function plainDocsSince(root: string, from: string, head: string, base: string): boolean {
-  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return false;
-  const since = ownChangeSince(root, base, from, head);
-  if (!since) return false;
+export interface DocsChange { verdict: 'plain' | 'claim' | 'code'; stamps: readonly string[]; paths: readonly string[] }
+export function docsChangeSince(root: string, from: string, head: string, base: string): DocsChange | null {
+  if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
+  const change = productChangeSince(root, base, from, head);
+  if (!change) return null;
+  const { since, stamps } = change;
   const c = collectCommit(root, from, since);
-  if (c.errors.length || !c.paths.length || !c.paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary)) return false;
-  const lines = c.paths.flatMap(p => [...(c.added?.[p] ?? []), ...(c.removed?.[p] ?? [])]);
-  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return false;
-  return platformFits('docs', c.paths, 0, scanNumbers(c.added ?? {})) && matchRisk({ codePaths: c.paths, added: c.added, removed: c.removed, scopeAuth: true }).size === 0;
+  if (c.errors.length || !(c.paths.length || stamps.length)) return null;
+  const paths = c.paths;
+  const verdict = (v: DocsChange['verdict']): DocsChange => ({ verdict: v, stamps, paths });
+  if (!paths.length) return verdict('plain');
+  if (!paths.every(p => classifyPath(p, c.root) === 'docs') || c.perPath.some(p => p.binary && paths.includes(p.path))) return verdict('code');
+  const added = Object.fromEntries(paths.map(p => [p, c.added?.[p] ?? []]));
+  const removed = Object.fromEntries(paths.map(p => [p, c.removed?.[p] ?? []]));
+  const lines = paths.flatMap(p => [...added[p]!, ...removed[p]!]);
+  if (lines.some(l => l.toLowerCase().split(/[^a-z0-9]+/).some(t => DOCS_CLAIM_WORDS.has(t) || AUTH_PATH_PREFIXES.some(a => t.startsWith(a))))) return verdict('claim');
+  return verdict(platformFits('docs', paths, 0, scanNumbers(added)) && matchRisk({ codePaths: paths, added, removed, scopeAuth: true }).size === 0 ? 'plain' : 'claim');
+}
+/** Whether the PR's own change since `from` carries a targeted record: release stamps and plain docs only (docsChangeSince). */
+export const plainDocsSince = (root: string, from: string, head: string, base: string): boolean => docsChangeSince(root, from, head, base)?.verdict === 'plain';
+
+/**
+ * ownChangeSince less its release stamps: `since` holds the PR's own change after `from` with every path whose change is a
+ * release stamp under the base policy (`stamps`, stampPathsSince) kept at `from`, the change the targeted classes and the docs
+ * rule read, since a stamp moves only versions and always carries a targeted record (GST-1689). Null when git cannot build it.
+ */
+function productChangeSince(root: string, base: string, from: string, head: string): { since: string; stamps: string[] } | null {
+  const own = ownChangeSince(root, base, from, head);
+  if (!own) return null;
+  const stamps = stampPathsSince(root, base, from, own, head);
+  if (!stamps.length) return { since: own, stamps };
+  const since = ownChangeSince(root, base, from, head, stamps);
+  return since ? { since, stamps } : null;
+}
+
+/**
+ * The paths whose change from `from` to `since` is a release stamp under the base policy (classifyFiles); none when the policy,
+ * either version or the diff cannot be read. When origin/<base> changed the CHANGELOG between `from`'s merge base and `head`'s,
+ * the CHANGELOG is read against `from`'s merged with the base's (mergeChangelogs, as a base merge resolves it), so the released
+ * sections a base merge brings are not counted as the PR's own change; an unmergeable pair keeps `from`'s and fails closed.
+ */
+function stampPathsSince(root: string, base: string, from: string, since: string, head: string): string[] {
+  const { ref, sha } = writeBase(root, base);
+  const load = sha ? loadPolicyAt(root, sha, ref) : null;
+  if (!sha || !load || isUnavailable(load) || load.errors.length) return [];
+  const was = versionAtRef(root, from), now = versionAtRef(root, since);
+  if (!('version' in was) || !('version' in now)) return [];
+  const gated = (load.policy.changelog && baseMergedChangelogCommit(root, load.policy.changelog, sha, from, head)) || from;
+  const d = spawnSync('git', ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--no-renames', gated, since], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  if (d.status !== 0) return [];
+  return classifyFiles(root, parseUnifiedDiff(d.stdout.replace(/\n$/, '')), gated, since, load.policy, now.rel, was.version, now.version, branchSides(root, ref, from, was.version)).filter(f => f.verdict === 'stamp').map(f => f.path);
+}
+
+/** A commit on `from` whose CHANGELOG is `from`'s merged with the base's at `head`'s merge base; null when the base did not change it since `from`'s merge base or the pair does not merge. */
+function baseMergedChangelogCommit(root: string, rel: string, baseSha: string, from: string, head: string): string | null {
+  const run = (args: string[], env?: NodeJS.ProcessEnv, input?: string) => {
+    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const mbFrom = git(root, ['merge-base', baseSha, from]), mbHead = git(root, ['merge-base', baseSha, head]);
+  if (!mbFrom.ok || !mbHead.ok || mbFrom.out === mbHead.out) return null;
+  const ours = run(['show', `${from}:${rel}`]), theirs = run(['show', `${mbHead.out}:${rel}`]);
+  if (ours === null || theirs === null || theirs === run(['show', `${mbFrom.out}:${rel}`])) return null;
+  const merged = mergeChangelogs(ours, theirs);
+  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']);
+  if (merged === null || !gitDir.ok) return null;
+  const index = path.join(gitDir.out, `gstack-changelog-${process.pid}-${randomBytes(4).toString('hex')}.index`);
+  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
+  try {
+    const mode = run(['--literal-pathspecs', 'ls-tree', from, '--', rel])?.split(' ')[0];
+    const blob = run(['hash-object', '-w', '--stdin'], undefined, merged)?.trim();
+    if (!mode || !blob || run(['read-tree', from], env) === null || run(['update-index', '--cacheinfo', `${mode},${blob},${rel}`], env) === null) return null;
+    const tree = run(['write-tree'], env)?.trim();
+    return (tree && run(['commit-tree', '--no-gpg-sign', tree, '-p', from, '-m', 'gstack-ship-receipt: the CHANGELOG with the base merged'], env)?.trim()) || null;
+  } finally { fs.rmSync(index, { force: true }); }
 }
 /** Words that make a docs line a money, security, secret or auth claim for plainDocsSince: deliberately broad, since a false hit only reruns the reader. */
 const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'cap', 'caps', 'capped', 'usd', 'dollar', 'dollars', 'paid', 'pay', 'payment', 'payments', 'refund', 'refunds',

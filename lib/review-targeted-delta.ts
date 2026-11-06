@@ -1,20 +1,20 @@
 /**
  * review-targeted-delta — the targeted-only read after a finished review loop (GST-1598,
  * docs/review-policy.md#targeted-only-read-after-the-loop). A targeted record names the commit its reader read, and
- * gstack-ship-receipt write carries it across a later docs change only when that change is plain docs (plainDocsSince,
- * GST-1195). A docs claim added after the loop finished (a changelog fragment with dollar figures, harness-evals #225)
+ * gstack-ship-receipt write carries it across a later change only when that change is release stamps and plain docs
+ * (plainDocsSince, GST-1195); this module classifies the change with the same docsChangeSince, so the two agree
+ * (GST-1689). A docs claim added after the loop finished (a changelog fragment with dollar figures, harness-evals #225)
  * left no exit: the plan printed `done`, so nothing dispatched the reader the receipt asks for. bin/gstack-review-plan
  * asks this module when the loop is done and the head has targeted classes the passed --targeted-ran no longer covers.
  * It dispatches one targeted reader on HEAD only when range_base is the commit that read happened on (its targeted
- * patch-id is --targeted-ran), every path whose branch patch changed since is docs class and not binary, and the change
- * is not plain docs. With the owner's review_loop_grant for a stop head inside range_base..HEAD (`granted`, checked by the
- * plan before it gets here), a code change since the read takes the same one reader (GST-1607, harness-evals #271: the
+ * patch-id is --targeted-ran), every path the PR's own change moved since, release stamps aside, is docs class and not
+ * binary, and that change is not plain docs. With the owner's review_loop_grant for a stop head inside range_base..HEAD
+ * (`granted`, checked by the plan before it gets here), a code change since the read takes the same one reader (GST-1607, harness-evals #271: the
  * granted fix round moved the product patch the record names). Anything else keeps `done` with the reason.
  */
 import { spawnSync } from 'node:child_process';
-import { classifyPath } from './review-depth';
 import { comparePath, touchedPaths } from './ship-patch';
-import { plainDocsSince } from './ship-receipt-depth';
+import { docsChangeSince } from './ship-receipt-depth';
 
 export type TargetedDelta = { state: 'dispatch'; range_base: string; paths: string[] } | { state: 'skip'; reason: string };
 
@@ -41,9 +41,9 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   const sides = { reviewedBase: readBase, reviewed: read, currentBase: headBase, current: head };
   const paths = [...new Set([...before, ...now])].filter(p => !['same', 'context'].includes(comparePath(root, sides, p))).sort();
   if (!paths.length) return skip(`the branch patch is unchanged since range_base ${read.slice(0, 12)}`);
-  const binary = new Set((git(['diff', '--numstat', '-z', '--no-renames', headBase, head]) ?? '').split('\0').filter(l => l.startsWith('-\t-\t')).map(l => l.slice(4)));
-  const other = paths.filter(p => classifyPath(p, root) !== 'docs' || binary.has(p));
-  if (other.length && !granted) return skip(`the change since range_base ${read.slice(0, 12)} is not docs-only (${other.join(', ')}), so it takes the review loop`);
-  if (plainDocsSince(root, read, head, base)) return skip(`the change since range_base ${read.slice(0, 12)} is plain docs, which the targeted record carries (GST-1195)`);
-  return { state: 'dispatch', range_base: read, paths };
+  const change = docsChangeSince(root, read, head, base);
+  if (!change) return skip(`git could not build the PR's own change since range_base ${read.slice(0, 12)}`);
+  if (change.verdict === 'code' && !granted) return skip(`the change since range_base ${read.slice(0, 12)} is not docs-only (${change.paths.join(', ')}), so it takes the review loop`);
+  if (change.verdict === 'plain') return skip(`the change since range_base ${read.slice(0, 12)} is ${change.paths.length ? 'plain docs' : 'release stamps'}${change.paths.length && change.stamps.length ? ' and release stamps' : ''}, which the targeted record carries (GST-1195, GST-1689)`);
+  return { state: 'dispatch', range_base: read, paths: [...change.paths] };
 }

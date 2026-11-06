@@ -505,7 +505,11 @@ read is the PR's own change, on `product_patch_id`'s basis: the paths whose part
 against its merge base differs between the read and HEAD, so files only a base merge brought in never
 count, while a branch edit or a merge resolution that changes the PR's own hunks does (GST-1593). Any other product change
 after the read refuses with `RECEIPT_INVALID`, and so does a test edit the gate scan tags (a
-skipped case). A docs-only change after the read (TODOS.md included) carries the record only
+skipped case). A release stamp after the read always carries the record: a path whose change
+is a stamp under the base policy's stamp rule (`stamp_files`, `stamp_paths`, `stamp_patterns`,
+the version file, manifests, lockfiles and the CHANGELOG re-heading or fragment fold, the rule
+the tree receipt uses) is left out of that change (GST-1689). A docs-only change after the read
+(TODOS.md included) carries the record only
 when it changes no binary file, adds no numeric claim, touches no results, prereg or eval path,
 and names no money, security, secret or auth topic (GST-1195). Every verify
 removes `--targeted-out` before it writes a record, so an earlier run's record never reaches
@@ -532,13 +536,18 @@ change only when that change is plain docs, so the receipt asked for the
 targeted reader on HEAD. But the plan printed `done`, so nothing could
 dispatch it (harness-evals #225). Now, when the loop is done, pass
 `--range-base <the commit the reader read>` and `--targeted-ran <the
-targeted_patch_id it read>`. If every path whose branch patch changed since
-then is docs class and not binary, and the change is not plain docs, the plan
+targeted_patch_id it read>`. If every path the PR's own change moved since
+then, release stamps aside, is docs class and not binary, and the change is
+not plain docs, the plan
 prints `NEXT: targeted`, one `DISPATCH: targeted` for the head's classes and
 `TARGETED_DELTA: range_base=<sha> paths=<paths> classes=<classes>`
 (`targeted_delta` in `--json`). The patch-id check proves that range_base
 is what the reader read. The branch patch is compared on each side's own
-merge base, so a base merge alone adds no path.
+merge base, so a base merge alone adds no path. The plan classifies the
+change with the same function `write` uses (`docsChangeSince` in
+`lib/ship-receipt-depth.ts`), so a restamp plus a plain docs-audit edit is
+`done` in the plan and carried by the receipt, and a docs claim beside a
+restamp gets the one reader (GST-1689).
 
 The reader reads the whole merge-base diff at HEAD, like every targeted
 reader. It isn't scoped to the docs change, because `render` reads no other
@@ -552,7 +561,7 @@ among its plan lines. After `verify --targeted-out`, pass the new
 
 Every other case stays `done` and prints `SKIP: targeted-only read
 (<reason>)`. That covers a code or binary change with no `--grant` (the granted
-case is below), which takes the review loop as before; plain docs, which the record carries; a range_base the
+case is below), which takes the review loop as before; plain docs and release stamps, which the record carries; a range_base the
 `--targeted-ran` patch doesn't match; and uncommitted edits. `--force
 targeted` refuses (exit 2) and names these flags, because the targeted reader
 is no specialist (`lib/review-targeted-delta.ts`,
@@ -667,7 +676,7 @@ Findings bind by id first (GST-1168). A row finding that came from a dispatched 
 | `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
-| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than plain docs (no binary file and no numeric, results, prereg, eval, money, security, secret or auth claim; GST-1195), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
+| `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than release stamps and plain docs (no binary file and no numeric, results, prereg, eval, money, security, secret or auth claim; GST-1195, GST-1689), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
 
 Each review row may carry `dispatches: [{role, effort, prompt_bytes,
 diff_bytes, status}]`, and each finding `raised_by` (the reviewer that raised it,
