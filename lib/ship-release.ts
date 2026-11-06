@@ -249,8 +249,9 @@ type FixLink = { row: Record<string, any>; commit: string; from: string };
  * The granted fix-checks finish counts (GST-1130, GST-1627): the newest review-fix-check row and, while its range_base does
  * not hold the reviewed tree, the newest earlier row whose commit is that range_base, back to a row whose range_base holds
  * it. Every link must be a completed clean read on committed branch content with its own approved review_loop_grant, a stop
- * head inside its range_base..commit (before the commit for an earlier link, since that commit is the next link's start);
- * a grant counts for one link only, the newest link that names it, so one grant naming two links' commits covers one.
+ * head inside its range_base..commit, its own commit included (the post-review flow grants each fix-check at the commit it
+ * reads, GST-1676); a grant counts for one link only, assigned newest link first, so one grant naming the boundary or two
+ * links' commits covers one, and the older link needs a grant of its own.
  * A range_base no earlier row ends at is a gap, and the chain does not count. A path counts as fix_checked when a link's
  * range touched it and it is unchanged since that link, or its patch against the base is still the one the link read.
  */
@@ -279,7 +280,7 @@ function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: st
   for (let k = chain.length - 1; k >= 0; k--) {
     const l = chain[k]!;
     const g = grants.filter(g => !used.has(g.id))
-      .flatMap(g => (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c) && (k === chain.length - 1 || c !== l.commit)).map(stop => ({ g, stop })))
+      .flatMap(g => (`${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })))
       .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
     if (g) used.add(g.id);
     granted[k] = g;
