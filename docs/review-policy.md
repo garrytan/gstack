@@ -540,12 +540,23 @@ among its plan lines. After `verify --targeted-out`, pass the new
 `targeted_patch_id` and the plan is `done`.
 
 Every other case stays `done` and prints `SKIP: targeted-only read
-(<reason>)`. That covers a code or binary change, which takes the review loop
-as before; plain docs, which the record carries; a range_base the
+(<reason>)`. That covers a code or binary change with no `--grant` (the granted
+case is below), which takes the review loop as before; plain docs, which the record carries; a range_base the
 `--targeted-ran` patch doesn't match; and uncommitted edits. `--force
 targeted` refuses (exit 2) and names these flags, because the targeted reader
 is no specialist (`lib/review-targeted-delta.ts`,
 `test/review-plan-targeted-delta.test.ts`).
+
+A fix round the owner granted past the cap has the same problem in code
+(harness-evals #271, GST-1607). The granted round's fix moves the product
+patch the targeted record names, so the receipt asks for a fresh read once
+the loop is done. With that grant passed as `--grant` (checked as above:
+an approved `review_loop_grant` row naming a stop head inside
+range_base..HEAD), any change since the read except plain docs plans the
+same `NEXT: targeted`, and the reason names the grant. A head with no
+targeted class adds no reader, and the same change with no grant keeps
+`done` (`test/review-plan-granted-targeted.test.ts`). The Capy pass program
+runs a targeted manifest's voices stage, so this one reader runs there too.
 
 <a id="review-exclude-paths"></a>
 ## What readers read under `review_exclude_paths`

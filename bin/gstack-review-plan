@@ -73,7 +73,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again.
                             With --range-base naming the commit that read happened on, a loop that is done plans NEXT: targeted
                             (one targeted reader on HEAD, TARGETED_DELTA: names the range) when the only change since is docs the
-                            receipt cannot carry the record across (a money, security or numeric claim; GST-1598)
+                            receipt cannot carry the record across (a money, security or numeric claim; GST-1598), or, with a
+                            --grant this invocation checks, any change but plain docs (the granted fix round; GST-1607)
   --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved,
                             its ask or scope naming review_loop_grant and the stop head's sha, at or after --range-base and at or
                             before HEAD; needs --range-base): the stop after a round-2 full pass with a fixed blocking finding or a
@@ -234,9 +235,10 @@ function main(): number {
   });
   if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
   const ranArg = flag('--targeted-ran');
-  const delta = plan.next.step === 'done' && rangeBase && ranArg && targeted.classes.length && !ran ? targetedDelta(root, ref, rangeBase, ranArg) : null;
+  const delta = plan.next.step === 'done' && rangeBase && ranArg && targeted.classes.length && !ran ? targetedDelta(root, ref, rangeBase, ranArg, !!grant) : null;
   if (delta?.state === 'dispatch') {
-    plan.next = { step: 'targeted', reason: `the loop is done and the only change since the targeted read at ${delta.range_base.slice(0, 12)} is docs whose claim the record cannot carry (${delta.paths.join(', ')}): one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
+    const why = grant ? `the owner's grant ${grant} covers the fix round that changed ${delta.paths.join(', ')}` : `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
+    plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
   const targetedDeltaOut = delta?.state === 'dispatch' ? { range_base: delta.range_base, paths: delta.paths, classes: targeted.classes } : null;

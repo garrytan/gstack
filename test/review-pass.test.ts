@@ -239,6 +239,27 @@ describe('the targeted reader in a pass (GST-257 on main)', () => {
   }, 180_000);
 });
 
+describe('the targeted-only read in the Capy pass program (GST-1598, GST-1607)', () => {
+  // Value: protects=a NEXT: targeted manifest driven through the checked-in pass program runs its one targeted reader (voices stage)
+  //   and ends on NEXT: judge; fails_when=the program runs only first, specialists and red-team for a targeted manifest, so it creates
+  //   no reader (lib/capy-review-pass.js activated voices only for fix-check); seam=lib/capy-review-pass.js stage selection;
+  //   no_claim=what the reader finds
+  test('a targeted-only manifest creates the one targeted reader', async () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout; };
+    sh("printf 'export const spendCapUsd = 25;\\n' > src/billing.ts && git add -A && git commit -qm money");
+    const read = sh('git rev-parse HEAD').trim();
+    const plan = spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--gate-tagged', '0', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+    const ran = JSON.parse(plan.stdout).targeted.targeted_patch_id as string;
+    sh("mkdir -p changelog.d && echo '- Each PR eval run now costs about $4.20.' > changelog.d/cost.md && git add -A && git commit -qm claim");
+    const h = host(dir, env);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'td1p1', planFlags: ['--gate-tagged', '0', '--pass', '1', '--last', 'fix-check', '--fixed-below', '--range-base', read, '--targeted-ran', ran] });
+    expect(res).toContain('NEXT: targeted');
+    expect(h.creates.map(c => c.title)).toEqual(['ship td1p1 targeted']);
+    expect(res).toContain('NEXT: judge');
+  }, 180_000);
+});
+
 describe('a large diff (GST-507)', () => {
   // Value: protects=a pass on a results PR with thousands of files reads gstack-review-plan's whole JSON plan through the pipe and stages its readers; fails_when=either bin exits before its stdout drains, so the plan JSON arrives cut short and pass dies on JSON.parse;
   //   why_new=HARN-1 hit it on a 4,000-file receipt tree (a 1.39 MB plan); seam=none; no_claim=what reviewers read on a large diff (GST-508)
