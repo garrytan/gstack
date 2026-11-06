@@ -626,7 +626,10 @@ EOF_SHIM
 #   behind=<n> (latest: <ver>); upgrade skipped: <reason> (<CODE>); fix: <command>
 # (below the minimum the bootstrapper fails revision before anything runs).
 # A project floor the doctor could not meet (`WARN floor`, PROJECT_FLOOR_UNMET)
-# adds `floor=<ver> (<file>)` and a `fix:` note the same way. A passing run
+# adds `floor=<ver> (<file>)` and a `fix:` note the same way; when no release
+# meets the floor (the row says `no release meets this floor yet`), the note is
+# `floor=<ver> (<file>; no release meets this floor yet)` and no fix rides it,
+# because no install or upgrade can clear it. A passing run
 # whose launch file cannot be written becomes
 #   gstack: fail launch-file — could not write the launch file <path>; fix: <command> (LAUNCH_FILE_UNWRITABLE)
 INSTALLED=$(head -1 "$ROOT/VERSION")
@@ -668,9 +671,13 @@ FLOOR_ROW=$(printf '%s\n' "$OUT" | grep '^WARN floor — ' | head -1)
 if [ -n "$FLOOR_ROW" ]; then
   FLOOR_VER=$(printf '%s' "$FLOOR_ROW" | sed -n 's/.* is below the floor \([0-9][0-9.]*\) that \(.*\) declares (.*/\1/p')
   FLOOR_FILE=$(printf '%s' "$FLOOR_ROW" | sed -n 's/.* is below the floor [0-9][0-9.]* that \(.*\) declares (.*/\1/p')
-  note "floor=${FLOOR_VER:-unknown} (${FLOOR_FILE:-$GSTACK_PROJECT_FLOOR_FILE})"
-  [ -n "$FIX_NOTE" ] || FIX_NOTE="${GSTACK_CAPY_BEHIND_FIX:-${GSTACK_CAPY_WRAPPER_PATH:+bash $GSTACK_CAPY_WRAPPER_PATH${FOR:+ --for $FOR} (fast-forwards)}}"
-  [ -n "$FIX_NOTE" ] || FIX_NOTE="$ROOT/bin/gstack-upgrade"
+  case "$FLOOR_ROW" in
+    *"no release meets this floor yet"*) note "floor=${FLOOR_VER:-unknown} (${FLOOR_FILE:-$GSTACK_PROJECT_FLOOR_FILE}; no release meets this floor yet)" ;;
+    *)
+      note "floor=${FLOOR_VER:-unknown} (${FLOOR_FILE:-$GSTACK_PROJECT_FLOOR_FILE})"
+      [ -n "$FIX_NOTE" ] || FIX_NOTE="${GSTACK_CAPY_BEHIND_FIX:-${GSTACK_CAPY_WRAPPER_PATH:+bash $GSTACK_CAPY_WRAPPER_PATH${FOR:+ --for $FOR} (fast-forwards)}}"
+      [ -n "$FIX_NOTE" ] || FIX_NOTE="$ROOT/bin/gstack-upgrade" ;;
+  esac
 fi
 [ -n "$FIX_NOTE" ] && note "fix: $FIX_NOTE"
 case "$TRAILER" in "gstack: ok "*)

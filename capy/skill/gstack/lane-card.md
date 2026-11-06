@@ -4,7 +4,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 
 ## After the check
 
-- Report the trailer verbatim in your first report, `floor=` and `behind=` notes included. A `floor=` note or a `fix:` command runs before the first workflow (§ "Session start: check, then install only when needed", step 2).
+- Report the trailer verbatim in your first report, `floor=` and `behind=` notes included. A `floor=` note or a `fix:` command runs once before the first workflow (§ "Session start: check, then install only when needed", step 2); a `floor=` note that says `no release meets this floor yet` runs nothing and goes to your Captain.
 - Read `capy/skill/gstack/factory.md` in the checkout once per session.
 - Start every shell that runs a gstack command with `. <GSTACK_LAUNCH_FILE>`. Never re-type the assignments as `export $(...)`, and never run `env`, `printenv`, a bare `set` or a bare `export`: they print API keys into the transcript. Hand a child agent the file path, never the values.
 - Every subagent runs its own `--check` and puts its trailer in its first report; a read-only reviewer uses `--for review-voice`. One machine's install never covers another.

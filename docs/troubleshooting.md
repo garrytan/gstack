@@ -1706,11 +1706,23 @@ the row is a WARN and the trailer stays `gstack: ok` with a `floor=<f>
 (<file>)` note and a `fix:` note; only the supported minimum
 (`REVISION_BELOW_MINIMUM`) fails a session for being old.
 
-**Fix.** Run the fix before the first workflow: on Capy, `bash
+The row compares the version this checkout reads policies as, the same one
+`validatePolicy` uses: VERSION, or the newest policy key the checkout knows
+when that is later, so an unstamped main checkout that already reads the
+floor's keys passes (`installed <v>, reads policies as <r>`).
+
+When the floor is also above the newest stable gstack release, the row says
+`and no release meets this floor yet: the newest stable gstack is <s>` and
+offers no fast-forward, and the trailer note is `floor=<f> (<file>; no release
+meets this floor yet)` with no `fix:`: upgrading cannot clear it.
+
+**Fix.** Run the fix once before the first workflow: on Capy, `bash
 <skill>/scripts/install.sh --for <skill>` fast-forwards a clean checkout to
 origin and reinstalls in one step (`SELF_UPGRADE: done`); elsewhere
-`bin/gstack-upgrade`. If the floor is above gstack's latest release, lower it
-in the project.
+`bin/gstack-upgrade`. If the row says no release meets the floor, run nothing:
+the project lowers `min_gstack_version` to the stable release named
+(`gstack-ship-policy validate` refuses a floor above stable,
+[POLICY_FLOOR_ABOVE_STABLE](#policy-floor-above-stable)).
 
 <a id="project-node-pin-unmet"></a>
 ### `WARN pins — node <v> outside <pin> (<file>); node read from <path> (node pin only; bun pins pass); fix: ... (PROJECT_NODE_PIN_UNMET)`
@@ -5159,6 +5171,34 @@ gstack would read differently or not at all, so every ship-policy reader
 (`bin/gstack-upgrade`, or rerun the session install), then rerun. A crew lead
 raising `min_gstack_version` raises the crew's install floor at the same
 time; `gstack-ship-policy validate` prints `MIN_READER:` for exactly that.
+
+<a id="policy-floor-above-stable"></a>
+### `POLICY_FLOOR_ABOVE_STABLE`
+
+**Meaning.** `.gstack/ship-policy.json` sets `min_gstack_version` above the
+newest stable gstack release (the highest `v<version>` release tag at
+origin's `stable` commit, or the VERSION at the stable ref). Every lane on the stable update channel runs that
+release, so each one refuses the policy (`POLICY_GSTACK_TOO_OLD`), and
+upgrading cannot help until a release at or above the floor is cut; the
+doctor's floor row says `no release meets this floor yet`.
+`gstack-ship-policy validate` and the pregate `policy-floor` check (on a
+branch that changes the policy) refuse it, naming the floor and the release.
+
+**Fix.** Set `min_gstack_version` to the stable release the message names, or
+lower, and leave out the keys that need a newer gstack until a stable release
+carries them. Then rerun `gstack-ship-policy validate`.
+
+<a id="stable-release-unknown"></a>
+### `STABLE_RELEASE_UNKNOWN`
+
+**Meaning.** A warning, never a refusal: `gstack-ship-policy validate` or the
+pregate `policy-floor` check could not resolve the newest stable gstack
+release, so the policy's `min_gstack_version` was not compared with it. The
+release comes from the gstack checkout's origin (its release tags), or, when
+origin cannot be reached, from its local stable ref and release tags.
+
+**Fix.** Run `git fetch origin --tags` in the gstack checkout, or point
+`GSTACK_STABLE_REPO` at a gstack checkout that has the tags, then rerun.
 
 <a id="queue-not-ready"></a>
 ### `QUEUE_NOT_READY`

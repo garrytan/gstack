@@ -21,6 +21,7 @@ import { guardsCheck } from './checks/guards';
 import { findCarry, importedTestLines } from '../ci-carry';
 import { clearHint, fromRunProfiles, lanesCheck, parseRemoteReport, REMOTE_GATE_LANE, remoteReportProblem, treeMismatch } from './checks/lanes';
 import { literalsCheck } from './checks/literals';
+import { policyFloorCheck } from './checks/policy-floor';
 import { regenCheck } from './checks/regen';
 import { secretsCheck } from './checks/secrets';
 import { straysCheck } from './checks/strays';
@@ -35,7 +36,7 @@ import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFi
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 import { displayNamePattern, workflowCallers } from './workflows';
 
-export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, timingCheck, guardsCheck, lanesCheck];
+export const CHECKS: readonly CheckDef[] = [regenCheck, secretsCheck, straysCheck, literalsCheck, policyFloorCheck, timingCheck, guardsCheck, lanesCheck];
 export const CHECK_IDS = CHECKS.map(c => c.id);
 export const PREGATE_OUT_REL = '.gstack/tmp/pregate.json';
 /** Where `--stage guards` (the pre-push housekeeping guards) writes by default, so it never replaces the full run's file. */

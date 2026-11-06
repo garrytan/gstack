@@ -16,6 +16,16 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the ship policy sets min_gstack_version above this gstack, so this gstack refuses to read it',
     fix: 'upgrade gstack (bin/gstack-upgrade, or the session install with --for <skill>) to the version named, then rerun',
   },
+  POLICY_FLOOR_ABOVE_STABLE: {
+    anchor: 'policy-floor-above-stable',
+    summary: 'the ship policy sets min_gstack_version above the newest stable gstack release, so every stable-channel lane refuses it and no upgrade can clear that until a later release is cut',
+    fix: 'set min_gstack_version to the stable release named (or lower) and drop the keys that need more, then rerun gstack-ship-policy validate',
+  },
+  STABLE_RELEASE_UNKNOWN: {
+    anchor: 'stable-release-unknown',
+    summary: 'the newest stable gstack release could not be resolved (no release tag on origin, no stable ref, no local release tag), so min_gstack_version was not compared with it; a warning, not a refusal',
+    fix: 'git fetch origin --tags in the gstack checkout (or set GSTACK_STABLE_REPO to one that has them), then rerun',
+  },
   PREGATE_GSTACK_TOO_OLD: {
     anchor: 'pregate-gstack-too-old',
     summary: 'the pregate policy uses a key this gstack does not know, and the project floor (min_gstack_version in .gstack/ship-policy.json) is above this gstack, so the key belongs to a newer gstack; the policy stays refused',
