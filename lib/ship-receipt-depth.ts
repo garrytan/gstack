@@ -331,8 +331,9 @@ const treatment = (x: ActiveExclusion, p: string) => (x.excluded.has(p) ? 'exclu
  * (`earlier`, all of its run_id; GST-1616) also resets each file one of them edited that changed since its HEAD or that this audit edited again, to its content
  * before the first of them, when HEAD (or the latest audit's Prepare snapshot, for a file it edited again) holds what the last of
  * them left. When the whole carried list does not rebuild the reviewed selection, write retries without the oldest carried audits,
- * one at a time down to none (a review that ran between two audits already read the earlier one's edits); the refusal names the
- * whole list's reason. Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
+ * one at a time down to none (a review that ran between two audits already read the earlier one's edits); only that digest
+ * mismatch retries, so an integrity refusal (an edit after an audit, a file changed between audits, a foreign HEAD) ends it, and
+ * the refusal names the whole list's reason. Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
  * snapshot included, refuses with `why`.
  */
 export function writeExcludeBinds(root: string, base: string, head: string, review: { exclude: Exclusion; tagged: ReadonlySet<string> | null }, flagged: string | undefined, docsPost: string | undefined, docsPre?: string): { ok: true; line?: string } | { ok: false; why?: string } {
@@ -379,7 +380,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     if (!holds(head, p, post.hashes[p] ?? null)) return no(`${p} at HEAD is not the content the snapshot recorded (an edit after the audit)`);
   }
   const auditFiles = pre ? changed.filter(p => !(p in pre.hashes) || pre.hashes[p] !== post.hashes[p]) : changed;
-  const bindAudits = (carried: CarriedAudit[]): { ok: true; line: string } | { ok: false; why: string } => {
+  const bindAudits = (carried: CarriedAudit[]): { ok: true; line: string } | { ok: false; why: string; retry?: true } => {
     const resets = new Map<string, { rev: string; want: unknown; from: string }>(auditFiles.map(p => [p, { rev: at, want: pre ? pre.hashes[p] : undefined, from: `--docs-pre ${docsPre}` }]));
     const left = new Map<string, { after: string | null; audit: string }>();
     for (const e of carried) {
@@ -422,7 +423,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     const { ref, sha } = writeBase(root, base);
     const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? ref, reset), review.tagged, 'gstack-ship-receipt');
     if (before.state !== 'active') return no(`the selection with ${files.join(',')} reset to before the audit cannot be read`);
-    if (before.record.digest !== given) return no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`);
+    if (before.record.digest !== given) return { retry: true, ...no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`) };
     for (const p of files) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
       const t = treatment(s, p);
       if (!['absent', 'excluded', 'named-by-code'].includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides or keeps because code names them`);
@@ -438,6 +439,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     const r = bindAudits(earlier.slice(k));
     if (r.ok) return r;
     first ??= r;
+    if (!r.retry) return first;
   }
   return first!;
 }

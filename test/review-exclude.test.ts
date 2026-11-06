@@ -730,7 +730,8 @@ describe('the receipt binds the selection the reviewers read', () => {
   //   (GST-1616: gbrain #8678 refused RECEIPT_INVALID field=review_exclude because the first audit's committed file stayed in the
   //   selection, and the only way out was HEAD's digest, which skips review of the delta), while a non-audit edit to an excluded
   //   file and another run's audit list still refuse; fails_when=write resets only the latest audit's files, takes a carried list
-  //   from another run, or resets an earlier audit's file that something else edited later; why_new=GST-1616;
+  //   from another run, resets an earlier audit's file that something else edited later, or drops that audit on a retry so an
+  //   unreviewed edit to a file code names binds (the #4071 outside voice); why_new=GST-1616;
   //   seam=gstack-docs-candidate snapshot --run --pre --carry, then gstack-ship-receipt write --review-exclude --docs-post --docs-pre;
   //   no_claim=how many audits one run may launch (ship/sections/documentation.md)
   describe('two docs audits in one /ship run (GST-1616)', () => {
@@ -786,7 +787,9 @@ describe('the receipt binds the selection the reviewers read', () => {
       refusedWith(writeWith(stray), stray, 'is not the selection HEAD has with the files under review_exclude_paths');
       const later = twoAudits({ between: { 'docs/guide.md': '# guide\n\nEdited after the docs audit.\n' } });
       refusedWith(writeWith(later), later, 'docs/guide.md at HEAD is not the content audit a1 recorded');
-    }, 240_000);
+      const kept = twoAudits({ a1: { 'docs/parity.md': '# parity\naudited\n' }, between: { 'docs/parity.md': '# parity\nan unreviewed edit\n' } });
+      refusedWith(writeWith(kept), kept, 'docs/parity.md at HEAD is not the content audit a1 recorded');
+    }, 360_000);
 
     test('another run\'s audit list is refused, at the snapshot and at write', () => {
       const a = twoAudits();
