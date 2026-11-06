@@ -673,7 +673,7 @@ elif [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "$INSTALLED" ] \
 fi
 if [ -n "${GSTACK_CAPY_STALE:-}" ] && [ -z "${GSTACK_CAPY_BEHIND:-}" ]; then
   note "stale=$GSTACK_CAPY_STALE"
-  FIX_NOTE="check network access to origin, then ${GSTACK_CAPY_WRAPPER_PATH:+bash $GSTACK_CAPY_WRAPPER_PATH${FOR:+ --for $FOR}}"
+  FIX_NOTE="check network access to origin, then bash ${GSTACK_CAPY_WRAPPER_PATH:-<skill>/scripts/install.sh}${FOR:+ --for $FOR}"
 fi
 # The project floor (the doctor's WARN floor row): the floor and its file ride
 # the trailer, and the fix is the install when it fast-forwards, else the row's.

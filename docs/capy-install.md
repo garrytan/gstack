@@ -147,10 +147,23 @@ there is refused with the usual `--for <skill>` fix.
    undiverged checkout overrides it (`SELF_UPGRADE: pin overridden (...)
    (PIN_UNREASONED)`), switching to the default branch only when that local
    branch is absent or fast-forwardable and no other session holds a lease,
-   and switching back if `bin/gstack-upgrade` refuses. A workflow lease of the
+   and switching back if `bin/gstack-upgrade` refuses; the switch and the
+   fast-forward run under the setup lock, which the session takes first and
+   hands to `bin/gstack-upgrade`. A workflow lease of the
    current run or a live eval run (gstack-detach's
-   `~/.gstack/locks/gstack-evals.lock`) defers every self-upgrade
-   (`UPGRADE_BUSY`). A `--for review-voice` reader gets
+   `~/.gstack/locks/gstack-evals.lock`, probed with `flock`, else python3 or
+   perl) defers every self-upgrade (`UPGRADE_BUSY`). So does a /ship or review
+   run open on the state root, whatever the lease's age (GST-1677): a
+   ship-budget ledger (`<state root>/ship-runs/<run>/budget.json`) with no
+   `closed_at` that was written in the last 6 hours, or a review start
+   (`<state root>/projects/<slug>/.review-starts/<token>.json`) under 120
+   minutes old that `gstack-review-log --finish` has not consumed. The session
+   prints `SELF_UPGRADE: deferred (<kind> run <id> (<file>) is open on this
+   machine, so gstack stays at <version> until it ends ...; fix: <install>
+   once the run ends (UPGRADE_BUSY))`, keeps the installed revision and stays
+   ok; `--check` prints `gstack-capy-session: upgrade deferred (...)`.
+   Below the supported minimum an open run changes nothing: `--check` fails
+   `revision` and install mode applies the floor as above. A `--for review-voice` reader gets
    `stale=<h>h (shared checkout: the lane's install moves it)` and only reports
    it. With `GSTACK_UPDATE_CHANNEL=stable` nothing is measured against main.
 4. When the fetch fails (offline), the bootstrapper says `remote minimum
