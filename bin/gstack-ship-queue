@@ -38,6 +38,9 @@ import { RESULT_CODES } from '../lib/result-codes';
 import { resolveBaseBranch } from '../lib/ship-policy';
 import { loadBasePolicy, ready, stamp, verify, type QueueContext, type StepOutput } from '../lib/ship-queue';
 import { attemptFile, listAttempts, prepareGateAhead, recordGateAhead, type QueueFailure } from '../lib/ship-queue-gate';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-ship-queue');
 
 const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (docs/ship-policy.md#run-a-shared-merge-queue)
 

@@ -4,6 +4,9 @@
  * returned once per run inside the phase program before it (GSTA-167 C5). Logic: lib/ship-parts.ts.
  */
 import { shipParts } from '../lib/ship-parts';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-ship-parts');
 
 const out = shipParts(process.argv.slice(2));
 (out.exit === 2 ? process.stderr : process.stdout).write(out.text);
