@@ -46,8 +46,8 @@ export const MERGE_KEY_VERSION = '1.95.0.0';
 export const LAND_KEY_VERSION = '1.96.0.0';
 export const READERS_KEY_VERSION = '1.96.0.0';
 export const BOOKKEEPING_KEY_VERSION = '1.96.0.0';
-export const MECHANICAL_RETAKE_KEY_VERSION = '1.96.1.0';
-export const TEST_CODE_KEY_VERSION = '1.96.1.0';
+export const MECHANICAL_RETAKE_KEY_VERSION = '1.97.0.0';
+export const TEST_CODE_KEY_VERSION = '1.97.0.0';
 export const CI_RECORD_TIMEOUT_KEY_VERSION = '1.97.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
