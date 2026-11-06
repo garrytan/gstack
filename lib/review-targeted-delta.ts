@@ -37,7 +37,7 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   const now = touchedPaths(root, headBase, head);
   if (!before || !now) return skip('git could not list the branch patch at range_base or at HEAD');
   const sides = { reviewedBase: readBase, reviewed: read, currentBase: headBase, current: head };
-  const paths = [...new Set([...before, ...now])].filter(p => comparePath(root, sides, p) !== 'same').sort();
+  const paths = [...new Set([...before, ...now])].filter(p => !['same', 'context'].includes(comparePath(root, sides, p))).sort();
   if (!paths.length) return skip(`the branch patch is unchanged since range_base ${read.slice(0, 12)}`);
   const binary = new Set((git(['diff', '--numstat', '-z', '--no-renames', headBase, head]) ?? '').split('\0').filter(l => l.startsWith('-\t-\t')).map(l => l.slice(4)));
   const other = paths.filter(p => classifyPath(p, root) !== 'docs' || binary.has(p));

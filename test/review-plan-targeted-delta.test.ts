@@ -12,7 +12,7 @@ afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, 
 const MONEY_CODE = 'export const spendCapUsd = 25;\nexport function charge(amountUsd: number) { if (amountUsd > spendCapUsd) throw new Error("over cap"); return amountUsd; }\n';
 
 /** A branch whose reviewed head adds money code (the targeted reader read it), as on harness-evals #225 at 563f858. */
-function reviewed(): { dir: string; env: NodeJS.ProcessEnv; git: (...a: string[]) => string; commit: (files: Record<string, string>, msg: string) => string } {
+function reviewed(baseFiles: Record<string, string> = {}, branchFiles: Record<string, string> = { 'src/billing.ts': MONEY_CODE }): { dir: string; env: NodeJS.ProcessEnv; git: (...a: string[]) => string; commit: (files: Record<string, string>, msg: string) => string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'targeted-delta-'));
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'targeted-delta-state-'));
   dirs.push(dir, state);
@@ -25,9 +25,9 @@ function reviewed(): { dir: string; env: NodeJS.ProcessEnv; git: (...a: string[]
     return git('rev-parse', 'HEAD');
   };
   git('init', '-q', '-b', 'main'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't'); git('config', 'commit.gpgsign', 'false');
-  commit({ 'README.md': '# x\n' }, 'base');
+  commit({ 'README.md': '# x\n', ...baseFiles }, 'base');
   git('checkout', '-qb', 'feat');
-  commit({ 'src/billing.ts': MONEY_CODE }, 'money');
+  commit(branchFiles, 'money');
   return { dir, env, git, commit };
 }
 const plan = (r: { dir: string; env: NodeJS.ProcessEnv }, args: string[]) => spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--gate-tagged', '0', ...args], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: r.env });
@@ -95,6 +95,26 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     const wrong = plan(r, done(plainHead, readPatch));
     expect(dispatches(wrong.stdout)).toEqual([]);
     expect(wrong.stdout).toContain('SKIP: targeted-only read (--targeted-ran');
+  });
+
+  // Value: protects=a main merge that only edits lines next to a reviewed branch hunk (comparePath's `context`) is no branch change,
+  //   so the docs claim after it still plans the targeted-only read; fails_when=the delta counts a context-only path as changed and
+  //   keeps NEXT: done with a not-docs-only skip (the GST-1598 dead end after a base merge); seam=bin/gstack-review-plan;
+  //   no_claim=a base merge that edits the reviewed lines themselves
+  test('a base merge that only moves context next to a branch hunk still plans the targeted-only read', () => {
+    const billing = (cap: string, note: string) => ['// billing', '// rates', `// ${note}`, '', `export const spendCapUsd = ${cap};`, 'export function charge(amountUsd: number) { if (amountUsd > spendCapUsd) throw new Error("over cap"); return amountUsd; }', ''].join('\n');
+    const r = reviewed({ 'src/billing.ts': billing('25', 'old note') }, { 'src/billing.ts': billing('30', 'old note') });
+    const read = r.git('rev-parse', 'HEAD');
+    const readPatch = patchOf(r);
+    r.git('checkout', '-q', 'main');
+    r.commit({ 'src/billing.ts': billing('25', 'new note') }, 'base comment');
+    r.git('checkout', '-q', 'feat');
+    r.git('merge', '-q', '--no-edit', 'main');
+    r.commit({ 'changelog.d/eval-cost.md': '- The spend cap is now $30.\n' }, 'claim');
+    const p = plan(r, done(read, readPatch));
+    expect(p.status, p.stderr).toBe(0);
+    expect(p.stdout).toContain('NEXT: targeted');
+    expect(p.stdout).toContain(`TARGETED_DELTA: range_base=${read} paths=changelog.d/eval-cost.md classes=money`);
   });
 
   // Value: protects=a grant is not what opens this read, and a grant the approval record does not hold still refuses before any plan;
