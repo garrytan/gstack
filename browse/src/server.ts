@@ -608,7 +608,7 @@ function generateHelpText(): string {
 }
 
 // ─── Buffer (from buffers.ts) ────────────────────────────────────
-import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, formatDialogLogLine, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
+import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, formatDialogLogLine, formatNetworkLogLine, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
 
 export { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry };
 
@@ -664,10 +664,7 @@ async function flushBuffers() {
     const newNetworkCount = networkBuffer.totalAdded - lastNetworkFlushed;
     if (newNetworkCount > 0) {
       const entries = networkBuffer.last(Math.min(newNetworkCount, networkBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
-      ).join('\n') + '\n';
-      appendSecureFile(NETWORK_LOG_PATH, lines);
+      appendSecureFile(NETWORK_LOG_PATH, entries.map(formatNetworkLogLine).join('\n') + '\n');
       lastNetworkFlushed = networkBuffer.totalAdded;
     }
 
