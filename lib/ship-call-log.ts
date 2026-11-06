@@ -1,7 +1,7 @@
 /**
  * ship-call-log — the /ship helper's calls, counted from the commands it already runs (GST-1585,
- * GSTA-330 H1). A Capy helper cannot read its own transcript, so every gstack-ship-* bin and the pass
- * loader (`gstack-review-dispatch`) append one row to <state root>/ship-calls.jsonl when they exit, and
+ * GSTA-330 H1). A Capy helper cannot read its own transcript, so on Capy (GSTACK_CAPY=1) every gstack-ship-*
+ * bin and the pass loader (`gstack-review-dispatch`) append one row to <state root>/ship-calls.jsonl when they exit, and
  * `gstack-ship-budget calls --run|--record` rebuilds the helper's calls from those rows: no added call.
  *
  * Rows join one call while they run back to back (each starts within 5 s of the last one's end). A pass
@@ -32,9 +32,9 @@ const CACHE_TTL_S = 300;
 
 export const callLogFile = (env: NodeJS.ProcessEnv) => path.join(resolveStateRoot(env), 'ship-calls.jsonl');
 
-/** Register this bin's row, written at exit; a bin another gstack-ship-* bin spawned writes none. A failed write never changes the command. */
+/** Register this bin's row, written at exit, on Capy only (GSTACK_CAPY=1 from the launch file); a bin another gstack-ship-* bin spawned writes none. A failed write never changes the command. */
 export function logShipCall(bin: string, argv: string[] = process.argv.slice(2)): void {
-  if (process.env[NESTED] === '1') return;
+  if (process.env.GSTACK_CAPY !== '1' || process.env[NESTED] === '1') return;
   process.env[NESTED] = '1';
   const started = Date.now();
   const flag = (name: string) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };

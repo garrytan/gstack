@@ -15,7 +15,7 @@ const BIN_DIR = path.resolve(import.meta.dir, '..', 'bin');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-call-log-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const run = (bin: string, args: string[], state: string) =>
-  spawnSync(path.join(BIN_DIR, bin), args, { encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_SHIP_CALL_NESTED: '' } });
+  spawnSync(path.join(BIN_DIR, bin), args, { encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_CAPY: '1', GSTACK_SHIP_CALL_NESTED: '' } });
 const rows = (state: string): CallRow[] => fs.readFileSync(path.join(state, 'ship-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
 const at = (s: string) => `2026-11-06T${s}Z`;
 const row = (t: string, bin: string, sub: string, ms = 200, extra: Partial<CallRow> = {}): CallRow => ({ v: 1, bin, sub, start: at(t), ms, exit: 0, ...extra });
@@ -42,7 +42,7 @@ const DAY: CallRow[] = [
 const DAY_LINE = `CALLS: source=log calls=9 phase=3 pass=4 section=1 other=1 keepalive_est=7 total_est=16 pass_overhead_s=p50:20,max:40 gaps_over_300s=2 max_gap_s=870 first=${at('10:00:00.000')} last=${at('10:40:00.000')}`;
 
 describe('the call log', () => {
-  // Value: protects=a helper's calls are counted from the commands it already runs, so each gstack-ship-* bin and the pass loader must leave one row with its subcommand, step, readings, exit and duration, and a bin a gstack-ship-* bin spawns must not add a second row; fails_when=a bin writes no row, drops --step/--reading/--credits, logs a nested child, or a log write failure changes the command's output or exit;
+  // Value: protects=a helper's calls are counted from the commands it already runs, so each gstack-ship-* bin and the pass loader must leave one row with its subcommand, step, readings, exit and duration, and a bin a gstack-ship-* bin spawns must not add a second row; fails_when=a bin writes no row on Capy, writes one off Capy (a test's real home), drops --step/--reading/--credits, logs a nested child, or a log write failure changes the command's output or exit;
   //   why_new=every helper reported CALLS: unavailable (GSTA-326 step0.tsv); seam=none; no_claim=which calls a helper makes without running a gstack command (the keep-alive estimate covers those)
   test('each bin appends one row; a failed log write changes nothing', () => {
     const state = fs.mkdtempSync(path.join(tmp, 'state-'));
@@ -58,8 +58,10 @@ describe('the call log', () => {
     fs.writeFileSync(blocked, '');
     const again = run('gstack-ship-parts', [], blocked);
     expect([again.status, again.stdout, again.stderr]).toEqual([parts.status, parts.stdout, parts.stderr]);
-    const nested = spawnSync(path.join(BIN_DIR, 'gstack-ship-parts'), [], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_SHIP_CALL_NESTED: '1' } });
+    const nested = spawnSync(path.join(BIN_DIR, 'gstack-ship-parts'), [], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_CAPY: '1', GSTACK_SHIP_CALL_NESTED: '1' } });
     expect(nested.status).toBe(parts.status);
+    const offCapy = spawnSync(path.join(BIN_DIR, 'gstack-ship-parts'), [], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_CAPY: '', GSTACK_SHIP_CALL_NESTED: '' } });
+    expect(offCapy.status).toBe(parts.status);
     expect(rows(state)).toHaveLength(3);
   });
 });
