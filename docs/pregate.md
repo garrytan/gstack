@@ -1238,14 +1238,16 @@ pregate reran `gstack-pregate` on the tree the lane had already cleared
 `macos-named-regressions` and `windows-smoke` on from CI runs, and the fresh
 record dropped both receipts, so accept stopped on `requires-remote (2
 uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
-writes over a record for the same tree, policy and base branch, each uncleared
+writes over a record for the same head, tree, policy and base branch, each uncleared
 obligation takes the earlier receipt for the same lane, platform, workflow and
 job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
 as the earlier obligation listed every test the new one needs. Each kept
 receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
 tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
-before its `PREGATE:` line. A record for another tree keeps nothing, so a
-commit after the clear still needs a new run at the new tree. A rerun with a
+before its `PREGATE:` line. A record for another head or tree keeps nothing,
+so any commit after the clear, even an amend that keeps the tree, needs a new
+clear at the new head: a receipt and its flaky exception were vetted against
+the head they name. A rerun with a
 failed, incomplete or not-installed check also keeps nothing, so a remote gate
 that ran again and timed out stays uncleared. `gstack-pregate verify` checks a
 kept receipt as it checks any other one.

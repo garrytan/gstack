@@ -288,6 +288,18 @@ describe('finish chains contiguous fix-check rows (GST-1627)', () => {
     expect(lineOf(r.stdout, 'FIX_CHECK')).toBe(`FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit; fix-check at ${fc3.slice(0, 12)}, link 1 of 2)`);
     expect(r.status).toBe(3);
   });
+
+  // Value: protects=one owner grant covers one fix-check: a grant whose text names a stop head in each link's range counts for the
+  //   newest link only; fails_when=finish matches every sha in a grant row against every link and counts one grant twice;
+  //   seam=finish's per-row grant match
+  test('one grant naming both links\' stop heads counts for one link, and the chain refuses', () => {
+    const { f, passHead, reviewed, reviewedBase, fc3 } = mergeShape({ grantFc3: false });
+    const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after ${passHead.slice(0, 12)} (review_loop_grant ${fc3.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'gstack minder (GSTA-36)', '--scope', 'this /ship invocation', '--json']);
+    expect(g.status, g.stderr).toBe(0);
+    logLink(f, fc3);
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, `FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit; fix-check at ${fc3.slice(0, 12)}, link 1 of 2)`]);
+  });
 });
 
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {

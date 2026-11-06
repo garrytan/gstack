@@ -1826,8 +1826,9 @@ before it is the newest earlier row whose commit is that `range_base`. The chain
 counts only when it reaches a row whose `range_base` holds the reviewed tree and
 every link is a clean, committed read with its own approved
 `review_loop_grant`. An earlier link's grant must name a stop head before its
-commit, since that commit is where the next link starts, so one grant never
-covers two fix-checks. A path counts as `fix_checked` when some link's range
+commit, since that commit is where the next link starts, and a grant counts for
+one link only (the newest link that names it), so one grant never covers two
+fix-checks. A path counts as `fix_checked` when some link's range
 touched it and it is unchanged since that link (or its patch against the base is
 still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
 (fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A

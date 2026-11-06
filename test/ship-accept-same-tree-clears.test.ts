@@ -90,16 +90,16 @@ describe('keepSameTreeClears (GST-1627)', () => {
   const file = (remote: PregateRemote[], o: Partial<PregateFile> = {}): PregateFile => ({ schema_version: 1, tree: 'a'.repeat(40), head: 'b'.repeat(40), base: 'origin/main@cccccccccccc', policy: 'base origin/main', checks: [{ id: 'lanes', status: 'requires-remote' }], requires_remote: remote, ...o });
   const prev = () => file([obligation({ receipt: RUN_URL, cleared_by: 'gstack-pregate clear 2026-11-06T00:00:00Z' })]);
 
-  // Value: protects=a kept receipt is the same evidence for the same obligation; fails_when=it carries across a policy, base branch
-  //   or tree change, onto an obligation that now needs tests the earlier run never covered, or into a rerun whose own check failed
+  // Value: protects=a kept receipt is the same evidence for the same obligation; fails_when=it carries across a head, policy, base
+  //   branch or tree change (a same-tree amend whose receipt and flaky exception were vetted against the old head), onto an obligation that now needs tests the earlier run never covered, or into a rerun whose own check failed
   //   or did not finish; seam=keepSameTreeClears
-  test('keeps a receipt only for the same tree, policy, base branch and lane with covered tests, in a rerun that finished', () => {
+  test('keeps a receipt only for the same head, tree, policy, base branch and lane with covered tests, in a rerun that finished', () => {
     const now = file([obligation()]);
     expect(keepSameTreeClears(prev(), now)).toEqual([expect.stringMatching(/^PREGATE_CLEAR_KEPT: /)]);
     expect([now.requires_remote![0]!.receipt, now.requires_remote![0]!.cleared_by, now.verdict]).toEqual([RUN_URL, 'gstack-pregate clear 2026-11-06T00:00:00Z', 'requires-remote cleared']);
     const kept = (next: PregateFile) => { keepSameTreeClears(prev(), next); return next.requires_remote![0]!.receipt; };
     expect(kept(file([obligation()], { base: 'origin/main@dddddddddddd' }))).toBe(RUN_URL);
-    for (const next of [file([obligation()], { tree: 'e'.repeat(40) }), file([obligation()], { policy: 'head' }), file([obligation()], { base: 'origin/release@cccccccccccc' }),
+    for (const next of [file([obligation()], { head: 'f'.repeat(40) }), file([obligation()], { tree: 'e'.repeat(40) }), file([obligation()], { policy: 'head' }), file([obligation()], { base: 'origin/release@cccccccccccc' }),
       file([obligation({ tests: ['test/a.test.ts', 'test/b.test.ts'] })]), file([obligation({ job: 'smoke', lane: LANE })]), file([obligation({ platform: 'windows' })])]) {
       expect(kept(next)).toBeNull();
     }
