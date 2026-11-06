@@ -278,8 +278,9 @@ export function writeTargets(c: ShellCommand, root: string, scripts: Map<string,
       else if (a.startsWith('--in-place')) inPlace = true;
       else if (/^-[A-Za-z0-9]/.test(a)) {
         const letters = a.slice(1);
-        const at = letters.indexOf('i');
-        if (at >= 0 && (name !== 'perl' || !letters.slice(0, at).includes('e'))) inPlace = true;
+        const flags = letters.slice(0, letters.search(name === 'perl' ? /[CdDFImMx]|$/ : /[ef]|$/));
+        const at = flags.indexOf('i');
+        if (at >= 0 && (name !== 'perl' || !flags.slice(0, at).includes('e'))) inPlace = true;
         if (name === 'perl' && letters.endsWith('e')) { script = true; k++; }
       } else rest.push(a);
     }

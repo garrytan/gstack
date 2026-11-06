@@ -269,6 +269,9 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(w('sed -i s/a/b/ a.py', '/repo/src')?.files).toEqual(['src/a.py']);
     expect(w("for f in src/*.py; do sed -i 's/a/b/' \"$f\"; done")).toBeNull();
     expect(w("node -e \"fs.writeFileSync(path.join('src', 'a'), 'x')\"")).toBeNull();
+    for (const read of ['perl -Ilib t/basic.t', "perl -MList::Util=sum -le 'print sum(1, 2)'", 'sed -fscript.sed src/a.py', "sed -es/i/j/ src/a.py"]) expect([read, w(read)]).toEqual([read, null]);
+    expect(w("perl -Ilib -pi -e 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
+    expect(w("perl -i.bak -pe 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
   });
 
   test('check_after_last_edit: an option value is never the verb, and a long chain of wrapper words stays fast', () => {
