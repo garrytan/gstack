@@ -20,6 +20,7 @@ import { isRegistryUnavailable, loadRegistryFromBase, runRegen } from './regen';
 import { comparePath, type PatchSides } from './ship-patch';
 import { matchesAny } from './ship-policy';
 import { constantValue, fieldValue, VALUE_SLOT, type MechanicalConstant } from './ship-policy-mechanical';
+import { sidecarLine } from './ship-sidecar';
 
 export interface MechanicalRefusal { path: string; reason: string }
 export interface MechanicalInput { sides?: PatchSides; base: string; candidates: readonly string[]; declared: readonly MechanicalConstant[] }
@@ -137,24 +138,25 @@ function recordFile(cwd: string, tree: string): string {
   return path.resolve(cwd, rel || `.git/gstack/mechanical-${tree.slice(0, 12)}.json`);
 }
 
-/** Saves finish's mechanical paths for the tree it routed, for gstack-ship-receipt write; the error message when it cannot. */
-export function writeMechanicalRecord(cwd: string, tree: string, proven: Readonly<Record<string, string>>): string | null {
+/** Saves finish's mechanical paths and Godot UID sidecars (path -> sibling) for the tree it routed, for gstack-ship-receipt write; the error message when it cannot. */
+export function writeMechanicalRecord(cwd: string, tree: string, proven: Readonly<Record<string, string>>, sidecars: Readonly<Record<string, string>> = {}): string | null {
   const file = recordFile(cwd, tree);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ tree, paths: proven }) + '\n');
+    fs.writeFileSync(file, JSON.stringify({ tree, paths: proven, sidecars }) + '\n');
     return null;
   } catch (e) {
     return `${file}: ${(e as Error).message.split('\n')[0]}`;
   }
 }
 
-/** The mechanical lines finish recorded for exactly this tree; none when it recorded none. */
+/** The mechanical and sidecar lines finish recorded for exactly this tree, which the receipt's `mechanical` lists; none when it recorded none. */
 export function readMechanicalLines(cwd: string, tree: string): string[] {
   try {
     const v = JSON.parse(fs.readFileSync(recordFile(cwd, tree), 'utf8'));
     if (v?.tree !== tree || !v.paths || typeof v.paths !== 'object') return [];
-    return Object.entries(v.paths).filter(([, w]) => typeof w === 'string').map(([p, w]) => mechanicalLine(p, w as string)).sort();
+    const lines = (o: unknown, line: (p: string, w: string) => string) => Object.entries(o && typeof o === 'object' ? o : {}).filter(([, w]) => typeof w === 'string').map(([p, w]) => line(p, w as string));
+    return [...lines(v.paths, mechanicalLine), ...lines(v.sidecars, sidecarLine)].sort();
   } catch {
     return [];
   }

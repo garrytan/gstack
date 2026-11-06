@@ -19,6 +19,7 @@ import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, i
 import { heldBy } from './ship-receipt';
 import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
+import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { reviewFreshness } from './review-evidence';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
@@ -206,9 +207,9 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * prints as RULED_NOTE (GST-1537). Authored docs keep the stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'accepted' | 'fix_checked', string[]>;
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'accepted' | 'fix_checked' | 'sidecar', string[]>;
 type ReviewedBase = { commit: string; parent: boolean };
-type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException; audited: Record<string, string | null> | null; bookkeeping: readonly string[]; mechanical: readonly MechanicalConstant[]; baseRelease?: string[] };
+type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException; audited: Record<string, string | null> | null; bookkeeping: readonly string[]; mechanical: readonly MechanicalConstant[]; testCode: readonly string[]; excluded: readonly string[]; baseRelease?: string[] };
 
 /**
  * The --reviewed-base commit: one on the base, or a landed stack parent (GST-1399). A child reviewed against its parent
@@ -260,12 +261,12 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     touched = new Set([...a, ...b]);
     shipped = b;
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], accepted: [], fix_checked: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], accepted: [], fix_checked: [], sidecar: [] };
   const onlyShipped = new Set(parent ? [...shipped].filter(p => !changedSet.has(p)) : []);
   for (const p of [...changedSet, ...onlyShipped].sort()) {
     const verdict = sides ? (!touched.has(p) || (parent && !shipped.has(p) && baseHolds(cwd, sides, p)) ? 'same' : comparePath(cwd, sides, p)) : 'changed';
     const metadata = parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
-    by[verdict === 'same' ? 'base' : metadata ? 'metadata' : sides && isTestCode(p) ? 'tests' : classifyPath(p, cwd) === 'docs' && !matchesAny(opts.bookkeeping, p) ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
+    by[verdict === 'same' ? 'base' : metadata ? 'metadata' : sides && isTestCode(p, opts.testCode) ? 'tests' : classifyPath(p, cwd) === 'docs' && !matchesAny(opts.bookkeeping, p) ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const shippedTests = by.tests.filter(p => onlyShipped.has(p));
   const gated = new Set([...(gateEditedPaths(cwd, reviewed, now, by.tests.filter(p => !onlyShipped.has(p))) ?? by.tests), ...(gateEditedPaths(cwd, sides?.currentBase ?? reviewed, now, shippedTests) ?? shippedTests)]);
@@ -323,20 +324,25 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     const atHead = own && fromParent ? new Set([...own].filter(p => fromParent.has(p))) : null;
     if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
     const listed = loop.fix_check.files;
-    const unscanned = [...by.behavior, ...by.docs].filter(isTestCode);
+    const unscanned = [...by.behavior, ...by.docs].filter(p => isTestCode(p, opts.testCode));
     const forced = new Set([...gated, ...(packetBody?.over ?? []), ...(gateEditedPaths(cwd, reviewed, now, unscanned) ?? unscanned)]);
     by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && atHead.has(p) && (!listed || listed.includes(p)) && !forced.has(p)).sort();
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}`);
+  const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
+  by.sidecar = Object.keys(uid.proven).sort();
+  by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
   if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
   for (const x of bounded.refused) if (by.behavior.includes(x.path)) r.add(`ROUTE_BOUNDED_REFUSED: ${x.path} ${x.reason} (fix: ${x.fix}; docs/troubleshooting.md#route-bounded-refused)`);
   for (const p of by.mechanical) r.add(`MECHANICAL: ${p} (${mech.proven[p]})`);
   for (const x of mech.refused) r.add(`ROUTE_MECHANICAL_REFUSED: ${x.path} ${x.reason} (docs/troubleshooting.md#route-mechanical-refused)`);
+  for (const p of by.sidecar) r.add(`UID_SIDECAR: ${p} (beside ${uid.proven[p]})`);
+  for (const x of uid.refused) r.add(`ROUTE_SIDECAR_REFUSED: ${x.path} ${x.reason} (docs/troubleshooting.md#route-sidecar-refused)`);
   if (by.behavior.length) { r.stop(`behavior, tests or build inputs changed since review (${short(by.behavior.sort())}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner's grant of one scoped fix-check (stage 2.1)`); return null; }
-  const kept = by.mechanical.length ? writeMechanicalRecord(cwd, now, mech.proven) : null;
-  if (kept) { r.stop(`the mechanical paths cannot be recorded for gstack-ship-receipt write (${kept}): make that directory writable, then rerun finish (stage 2.1)`); return null; }
+  const kept = by.mechanical.length || by.sidecar.length ? writeMechanicalRecord(cwd, now, mech.proven, uid.proven) : null;
+  if (kept) { r.stop(`the mechanical and sidecar paths cannot be recorded for gstack-ship-receipt write (${kept}): make that directory writable, then rerun finish (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests, ...by.bounded].sort();
   if (scoped.length && sides) {
     const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
@@ -422,7 +428,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
-  const carried = { tests: stale.filter(isTestCode), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
+  const carried = { tests: stale.filter(p => isTestCode(p)), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
     || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[] };
   carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
   let audit: any = null;
@@ -487,14 +493,15 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   const release = releasePaths(policy, cwd, flag('--reviewed-tree')!, base);
   let audited: Record<string, string | null> | null = null;
   try { const h = JSON.parse(fs.readFileSync(flag('--docs-post')!, 'utf8')).hashes; audited = h && typeof h === 'object' && !Array.isArray(h) ? h : null; } catch { audited = null; }
-  const bookkeeping = Array.isArray(policy?.bookkeeping) ? policy!.bookkeeping.filter((g: unknown): g is string => typeof g === 'string') : [];
+  const globs = (key: string): string[] => Array.isArray(policy?.[key]) ? policy![key].filter((g: unknown): g is string => typeof g === 'string') : [];
+  const bookkeeping = globs('bookkeeping');
   const mechanical: MechanicalConstant[] = Array.isArray(policy?.mechanical_retake) ? policy!.mechanical_retake : [];
   const reviewedBaseArg = flag('--reviewed-base');
   const fragments = typeof policy?.changelog_fragments?.dir === 'string' ? [`:(top,exclude,glob)${policy.changelog_fragments.dir.replace(/\/+$/, '')}/*.md`] : [];
   const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...releasePaths(policy, cwd, flag('--reviewed-tree')!, base, true).map(p => `:(top,exclude,literal)${p}`), ...fragments], r);
   if (reviewedBase === null) return r;
   const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base, true) : undefined;
-  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping, mechanical, baseRelease }, r);
+  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: globs('review_exclude_paths'), baseRelease }, r);
   if (!routed) return r;
   if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, reviewedBase?.parent ? reviewedBase.commit : undefined, r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');

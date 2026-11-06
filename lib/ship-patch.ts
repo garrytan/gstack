@@ -222,10 +222,13 @@ export function packetBrief(): string {
 /**
  * A test code file outside shared helpers and fixtures: `*.test.*`, `*.spec.*` and `*_test.go` anywhere, and the
  * name-only conventions (`test_*.py`, `*Test.java`, `*Tests.swift`, …) only under a test directory, since product
- * files can carry those names (`src/main/java/ABTest.java`). A change to one gets the scoped review, not the full loop.
+ * files can carry those names (`src/main/java/ABTest.java`). A path the base policy's `test_code` globs declare counts too
+ * (GDScript's `tests/*_check.gd`, GST-1604). A change to one gets the scoped review, not the full loop.
  */
-export function isTestCode(rel: string): boolean {
-  if (!matchesAny(CARRY_TEST_CODE_GLOBS, rel) || /(^|\/)(helpers|fixtures|__fixtures__|__snapshots__)\//.test(rel)) return false;
+export function isTestCode(rel: string, declared: readonly string[] = []): boolean {
+  if (/(^|\/)(helpers|fixtures|__fixtures__|__snapshots__)\//.test(rel)) return false;
+  if (matchesAny(declared, rel)) return true;
+  if (!matchesAny(CARRY_TEST_CODE_GLOBS, rel)) return false;
   return /\.(test|spec)\.[^/]+$|_test\.go$/.test(rel) || /(^|\/)(test|tests|spec|__tests__|src\/test|[^/]+Tests)\//.test(rel);
 }
 
