@@ -96,7 +96,7 @@ function withoutApprovalsBlocks(body: string): string {
 
 /**
  * The body without the exception lines the receipt's own exceptions require: the `Review-loop exception: …` line
- * (GST-977), the `Documentation exception: …` line (GST-983) and each `Ruled note: …` line (GST-1537). write and the receipt check want each word for word,
+ * (GST-977), the `Documentation exception: …` line (GST-983) and each `Ruled note: …` and `Mechanical retake: …` line (GST-1537, GST-1560). write and the receipt check want each word for word,
  * and each quotes the owner's reason (`outside 1 and 2 skip detector`), not this PR's counters. Only a line whose
  * trimmed text is a rendered line, the test write applies, is left out; the same words inside a longer line stay
  * prose. A marker line takes its place so the text on either side never joins into a claim.
@@ -109,6 +109,7 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
   const docsLine = docs?.ok ? docsExceptionLine(docs.docs) : null;
   if (docsLine) lines.add(docsLine);
   if (Array.isArray(receipt.ruled_notes)) for (const n of receipt.ruled_notes) lines.add(`Ruled note: ${ruledNoteText(n as RuledNote)}`);
+  if (Array.isArray(receipt.mechanical)) for (const l of receipt.mechanical) if (typeof l === 'string') lines.add(l);
   if (!lines.size) return body;
   return body.split(/(?<=\n)/).map(l => (lines.has(l.trim()) ? '(exception line)\n' : l)).join('');
 }

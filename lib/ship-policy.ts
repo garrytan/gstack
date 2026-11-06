@@ -25,6 +25,7 @@ import { cmpVersion, parseVersion } from './version-source';
 import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED } from './ship-policy-keys';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
 import { bookkeepingGlobError, globError } from './ship-policy-bookkeeping';
+import { MECHANICAL_EXPLANATION, mechanicalErrors, type MechanicalConstant } from './ship-policy-mechanical';
 export { VERSION_SLOT } from './ship-policy-stamps';
 
 export const SHIP_POLICY_PATH = '.gstack/ship-policy.json';
@@ -95,6 +96,7 @@ export interface ShipPolicy {
   /** The release gate on the base branch (docs/ship-policy.md#release-gate); null keeps the per-push main backstop. */
   release_gate: ReleaseGatePolicy | null;
   /** Bookkeeping tables (`.tsv`, `.csv`, `.txt` globs) whose small post-review edits take /ship finish's scoped reader (docs/ship-policy.md#bookkeeping); read from the base only. */ bookkeeping: string[];
+  /** Constants a branch may retake after a base merge, with their fixture fields and golden regen ids (docs/ship-policy.md#mechanical-retake); read from the base only. */ mechanical_retake: MechanicalConstant[];
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
 }
@@ -187,7 +189,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null, merge: 'train', land: null, bookkeeping: [],
+  base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [],
   release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null },
 };
 
@@ -226,6 +228,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   release_gate: RELEASE_GATE_EXPLANATION,
   land: LAND_EXPLANATION,
   bookkeeping: 'Root-anchored globs of bookkeeping tables, each ending in .tsv, .csv or .txt and never under .gstack/ or .github/, for example ["scripts/*-baseline.tsv"]. An edit of at most 20 lines to a matching file after review binds, first touched or not, takes /ship finish\'s scoped reader instead of Steps 5–11.5; the reader still reads every changed row. Read from the base branch only. Empty (default) declares none.',
+  mechanical_retake: MECHANICAL_EXPLANATION,
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
@@ -466,6 +469,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('stamp_patterns' in obj) templateErrors(obj.stamp_patterns, errors);
   if ('stamp_placeholders' in obj) placeholderErrors(obj.stamp_placeholders, errors);
   if ('bookkeeping' in obj) listErrors('bookkeeping', obj.bookkeeping, errors, g => globError(g) ?? bookkeepingGlobError(g));
+  if ('mechanical_retake' in obj) mechanicalErrors(obj.mechanical_retake, errors, globError);
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'restamp_command', message: 'must be a non-empty string or null' });
