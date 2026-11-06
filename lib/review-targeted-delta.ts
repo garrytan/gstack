@@ -42,6 +42,6 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   const binary = new Set((git(['diff', '--numstat', '-z', '--no-renames', headBase, head]) ?? '').split('\0').filter(l => l.startsWith('-\t-\t')).map(l => l.slice(4)));
   const other = paths.filter(p => classifyPath(p, root) !== 'docs' || binary.has(p));
   if (other.length) return skip(`the change since range_base ${read.slice(0, 12)} is not docs-only (${other.join(', ')}), so it takes the review loop`);
-  if (plainDocsSince(root, read, head)) return skip(`the change since range_base ${read.slice(0, 12)} is plain docs, which the targeted record carries (GST-1195)`);
+  if (plainDocsSince(root, read, head, base)) return skip(`the change since range_base ${read.slice(0, 12)} is plain docs, which the targeted record carries (GST-1195)`);
   return { state: 'dispatch', range_base: read, paths };
 }

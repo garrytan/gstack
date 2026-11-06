@@ -62,7 +62,7 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     expect(dispatches(after.stdout)).toEqual([]);
     const record = (at: string) => ({ classes: ['money'], rules: 'r', brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted', head: at });
     const productOf = (c: string) => spawnSync('git', ['patch-id', '--verbatim'], { input: spawnSync('git', ['diff', 'main', c], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout, cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.split(' ')[0];
-    const bind = (at: string) => parseReviewTargeted(record(at), productOf(head)!, productOf, from => targetedClassesSince(r.dir, from, head), from => plainDocsSince(r.dir, from, head));
+    const bind = (at: string) => parseReviewTargeted(record(at), productOf(head)!, productOf, from => targetedClassesSince(r.dir, from, head, 'main'), from => plainDocsSince(r.dir, from, head, 'main'));
     expect(bind(read).ok).toBe(false);
     expect(bind(head)).toMatchObject({ ok: true, targeted: { classes: ['money'], status: 'done' } });
   });
