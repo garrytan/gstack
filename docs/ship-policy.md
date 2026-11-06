@@ -1857,9 +1857,11 @@ reader, when all of these hold:
   whole content is `uid://<id>` with an optional trailing `\n`: the id
   canonical (no leading `a` digit unless it is `a`), at most 13 digits and at
   most 2^63−1 (`d4n4ub6itg400`);
-- no other file in the current tree names the same `uid://<id>`: a copied
-  sidecar would give two resources one UID, and a scene that already refers
-  to the id leaves the `.uid` to a reader;
+- no other file in the current tree declares the same `uid://<id>`: another
+  `.uid` holding it, a `[gd_scene]` or `[gd_resource]` header, or an
+  `.import` file's `uid=` line. A copied sidecar would give two resources one
+  UID; a scene that only references the script by it (`[ext_resource … uid=]`)
+  doesn't count;
 - neither it nor its sibling matches the base policy's
   [`review_exclude_paths`](#review-exclude-paths) or `readers.forbid_paths`,
   since no reader saw an excluded script.
