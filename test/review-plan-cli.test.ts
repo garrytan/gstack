@@ -156,6 +156,46 @@ describe('gstack-review-plan', () => {
     expect([reused.status, reused.stdout]).toEqual([3, '']);
     expect(reused.stderr).toContain(`--grant ${g1}: no approved row ${g1} naming review_loop_grant and this invocation's stop head (a commit after --range-base ${link1}, the last fix-check's commit`);
   }, 30_000);
+  // Value: protects=a Captain's grant for a third fix round past a fix-check is planned, not hand-rendered: GEVA-363 (gstack-evals#254)
+  //   ran pass 1 full, fc1 (round 2), fc2 under a grant at fc1's stop, then the owner granted a third round at fc2's stop head (its
+  //   commit, the new --range-base); the in-loop Step 9 plans that one fix-check; the previous link's grant, a grant at another
+  //   commit, no grant or an open blocker do not; GBRA-336's --post-review --last fix-check --fix-checks 2 --grant invocation plans
+  //   with a grant after --range-base (GST-1676); fails_when=the planner prints stop despite the new grant (GEVA-363: the lane
+  //   hand-ran fc3 on a fix-range token finish could not count) or lets fc2's grant buy fc3; seam=bin/gstack-review-plan, nextStep;
+  //   no_claim=finish's chain count (test/ship-finish-ruled-notes.test.ts)
+  test('GST-1681: in the loop, a new grant at the last fix-check\'s stop head plans one more fix-check, never for the previous grant', () => {
+    const r = repo({ 'src/a.ts': 'export const a = 1;\n' });
+    const env: NodeJS.ProcessEnv = { ...process.env, GSTACK_STATE_ROOT: r.state, GSTACK_APPROVALS_MIRROR: '0' };
+    delete env.GSTACK_APPROVALS_DIR;
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const commit = (n: number) => { fs.appendFileSync(path.join(r.dir, 'src/a.ts'), `export const v${n} = ${n};\n`); git('commit', '-qam', `c${n}`); return git('rev-parse', 'HEAD'); };
+    const add = (stop: string, n: string) => {
+      const a = spawnSync(path.join(path.dirname(BIN), 'gstack-approvals'), ['add', '--ask', `Owner grant: scoped fix-check ${n} (review_loop_grant ${stop.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
+      expect(a.status, a.stderr).toBe(0);
+      return JSON.parse(a.stdout).added[0] as string;
+    };
+    const fc1 = commit(1);
+    const g1 = add(fc1, 'fc2');
+    const fc2 = commit(2);
+    const g2 = add(fc2, 'fc3');
+    const later = commit(3);
+    const g3 = add(later, 'at the fix');
+    const plan = (a: string[]) => spawnSync(BIN, ['--base', 'main', '--gate-tagged', '0', '--pass', '1', '--last', 'fix-check', '--fix-checks', '2', '--range-base', fc2, ...a], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env });
+    const third = plan(['--fixed-blocking', '--grant', g2]);
+    expect(third.status, third.stderr).toBe(0);
+    expect(third.stdout).toContain(`NEXT: fix-check (the owner's grant ${g2} adds one scoped fix-check at the last fix-check's stop, a new link of the fix-check chain`);
+    expect(third.stdout).toContain('DISPATCH: fix-check fix-check effort=full');
+    expect(plan(['--fixed-blocking']).stdout).toContain('NEXT: stop');
+    expect(plan(['--fixed-blocking', '--grant', g2, '--blocking-open']).stdout).toContain('NEXT: stop');
+    expect(plan(['--fixed-blocking', '--grant', g3]).stdout).toContain('NEXT: stop');
+    const reused = plan(['--fixed-blocking', '--grant', g1]);
+    expect([reused.status, reused.stdout]).toEqual([3, '']);
+    expect(reused.stderr).toContain(`--grant ${g1}: no approved row ${g1} naming review_loop_grant and this invocation's stop head (a commit at or after --range-base ${fc2}`);
+    const gbra336 = plan(['--post-review', '--grant', g3]);
+    expect(gbra336.status, gbra336.stderr).toBe(0);
+    expect(gbra336.stdout).toContain(`NEXT: fix-check (edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: the owner's grant ${g3} adds one scoped fix-check for the edits after the last fix-check`);
+    expect(plan(['--post-review', '--grant', g2]).status).toBe(3);
+  }, 30_000);
   test('--fix-check-prompt renders the fix-check reviewer prompt from the parent\'s files and refuses a missing one', () => {
     const r = repo({ 'docs/howto.md': '# x\n' });
     const w = (n: string, t: string) => { const f = path.join(r.state, n); fs.writeFileSync(f, t); return f; };
