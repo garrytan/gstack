@@ -73,7 +73,7 @@ describe('isGodotUidText pins what Godot 4 writes for one UID', () => {
 
 describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#611)', () => {
   test('the #611 shape binds with no reader, and the receipt and the PR body list the sidecar', () => {
-    const { f, run } = founderstar611();
+    const { f, run } = founderstar611({ feat: { 'scenes/cutscene_check.tscn': `[gd_scene load_steps=2 format=3 uid="uid://b4w2kq0ly8s5n"]\n\n[ext_resource type="Script" uid="${UID.trim()}" path="res://tests/cutscene_check.gd" id="1"]\n` } });
     const r = run();
     expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=\d+ context=0 accepted=1 sidecar=1$/);
     expect(lineOf(r.stdout, 'UID_SIDECAR')).toBe(`UID_SIDECAR: ${SIDECAR} (beside tests/cutscene_check.gd)`);
@@ -106,6 +106,8 @@ describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#6
       [SIDECAR, 'is not a regular non-executable file (mode 100755)', f => { f.write({ [SIDECAR]: UID }); fs.chmodSync(path.join(f.work, SIDECAR), 0o755); }],
       ['scripts/ui/cutscene.gd.uid', 'existed at the reviewed tree or the current base', f => f.write({ 'scripts/ui/cutscene.gd.uid': 'uid://b4w2kq0ly8s5n\n' }), { 'scripts/ui/cutscene.gd.uid': UID }],
       [SIDECAR, 'shares its UID with scripts/old.gd.uid', f => f.write({ [SIDECAR]: UID }), { 'scripts/old.gd': 'extends Node\n', 'scripts/old.gd.uid': UID }],
+      [SIDECAR, 'shares its UID with scenes/menu.tscn', f => f.write({ [SIDECAR]: UID }), { 'scenes/menu.tscn': `[gd_scene load_steps=1 format=3 uid="${UID.trim()}"]\n` }],
+      [SIDECAR, 'shares its UID with assets/icon.png.import', f => f.write({ [SIDECAR]: UID }), { 'assets/icon.png.import': `[remap]\n\nimporter="texture"\ntype="CompressedTexture2D"\nuid="${UID.trim()}"\n` }],
     ];
     for (const [p, why, after, base, feat] of cases) {
       const r = founderstar611({ after, base, feat }).run();

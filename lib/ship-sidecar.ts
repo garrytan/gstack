@@ -10,7 +10,8 @@
  *   - its sibling (the path without `.uid`) is a regular file now, and one the reviewed range added or modified, or one
  *     the review-loop exception accepted;
  *   - it is a regular, non-executable file whose whole content is exactly what Godot writes for one id, and no other file
- *     in the current tree names that uid:// (a copied sidecar gives two resources one UID);
+ *     in the current tree declares that uid:// as its own (a copied sidecar gives two resources one UID; a scene that
+ *     references the script by it is fine);
  *   - neither it nor its sibling matches the base policy's review_exclude_paths or readers.forbid_paths (a sibling no reader
  *     saw is not reviewed).
  * Any other `.uid` is refused with the reason and stays behavior; a `.import` file is never a candidate.
@@ -49,9 +50,13 @@ function git(cwd: string, args: string[]): string | null {
   return r.status === 0 ? r.stdout : null;
 }
 
-/** The other files in `tree` that name `uid` as a whole word; null when git cannot search it. */
+/**
+ * The other files in `tree` that declare `uid` as their own: another sidecar holding it as its line, a scene or resource
+ * header (`[gd_scene … uid="…"]`) or an import file's `uid="…"` line. A reference (`[ext_resource … uid="…"]`) is not one.
+ * Null when git cannot search the tree.
+ */
 function holders(cwd: string, tree: string, uid: string, self: string): string[] | null {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', 'grep', '-z', '-l', '-w', '-F', '-e', uid, tree], { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', 'grep', '-z', '-l', '-E', '-e', `^${uid}$`, '-e', `^\\[gd_(scene|resource)[^]]* uid="${uid}"`, '-e', `^uid="${uid}"$`, tree], { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0 && r.status !== 1) return null;
   return r.stdout.split('\0').filter(Boolean).map(l => l.slice(tree.length + 1)).filter(p => p !== self);
 }
