@@ -736,25 +736,28 @@ describe('the receipt binds the selection the reviewers read', () => {
   describe('two docs audits in one /ship run (GST-1616)', () => {
     const RUN = '/records/ship-8678.md';
     const BRANCH = { 'lib/reader.js': "exports.p = 'docs/parity.md';\n", 'docs/parity.md': '# parity\n' };
-    /** The #8678 shape: reviewed; audit a1 edits docs/guide.md (excluded, untouched by the branch) and is committed; main moves and is merged; the release is restamped with `between`; audit a3 adds docs/new.md, its post snapshot carries a1's unless `carry` is false, and it is committed. */
-    const twoAudits = (opts: { between?: Record<string, string | null>; carry?: boolean } = {}) => {
+    /** The #8678 shape: reviewed; audit a1 edits docs/guide.md (excluded, untouched by the branch) and is committed; main moves and is merged; the release is restamped with `between`; audit a3 adds docs/new.md, its post snapshot carries a1's unless `carry` is false, and it is committed. `a1`/`a3` replace the audits' edits (null deletes) and `rereview` re-takes the reviewed digest after the restamp. */
+    const twoAudits = (opts: { between?: Record<string, string | null>; carry?: boolean; a1?: Record<string, string | null>; a3?: Record<string, string | null>; rereview?: boolean } = {}) => {
       const repo = makeFixtureRepo({ prefix: 'gstack-exclude-audits-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/**', 'test/fixtures/goldens/**']), 'docs/guide.md': '# guide\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
       repos.push(repo);
       commit(repo, BRANCH);
-      const reviewed = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest as string;
+      const digest = () => JSON.parse(plan(repo, ['--json']).out).review_exclude.digest as string;
+      let reviewed = digest();
+      const apply = (files: Record<string, string | null>) => { for (const [p, c] of Object.entries(files)) if (c === null) fs.rmSync(path.join(repo.work, p)); else write(repo.work, p, c); };
       const snapshot = (id: string, out: string, extra: string[] = [], run = RUN) => {
         const file = path.join(repo.root, out);
         return { file, ...runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', file, '--audit-id', id, '--mode', 'edit', '--base', repo.git('rev-parse', 'origin/main'), '--docs', 'docs', '--run', run, ...extra]) };
       };
       const saved = (s: ReturnType<typeof snapshot>) => { expect({ status: s.status, err: s.err }).toMatchObject({ status: 0 }); return s.file; };
       const pre1 = saved(snapshot('a1', 'a1.json'));
-      write(repo.work, 'docs/guide.md', '# guide\n\nUpdated by the docs audit.\n');
+      apply(opts.a1 ?? { 'docs/guide.md': '# guide\n\nUpdated by the docs audit.\n' });
       const post1 = saved(snapshot('a1', 'a1-post.json', ['--pre', pre1]));
       commit(repo, {}, 'docs audit a1');
       onBase(repo, { 'notes/base.md': '# base\n' });
       commit(repo, { VERSION: '1.0.1\n', ...opts.between }, 'restamp');
+      if (opts.rereview) reviewed = digest();
       const pre = saved(snapshot('a3', 'a3.json'));
-      write(repo.work, 'docs/new.md', '# new\n');
+      apply(opts.a3 ?? { 'docs/new.md': '# new\n' });
       const post = saved(snapshot('a3', 'a3-post.json', ['--pre', pre, ...(opts.carry === false ? [] : ['--carry', post1])]));
       commit(repo, {}, 'docs audit a3');
       return { repo, reviewed, pre, post, post1, snapshot, body: path.join(repo.root, 'body.md') };
@@ -798,6 +801,53 @@ describe('the receipt binds the selection the reviewers read', () => {
       fs.writeFileSync(forged, JSON.stringify(post));
       refusedWith(writeWith(a, forged), a, 'audit a1 of another /ship run');
     }, 240_000);
+
+    // Value: protects=write refuses a carried list it cannot trust: no --docs-pre, a --docs-pre of another run, a malformed, duplicated
+    //   or run-less earlier, a carried HEAD off the snapshot's history, or a file changed between two audits outside both;
+    //   fails_when=a guard in writeExcludeBinds or carriedAudits is dropped and write binds the reviewed digest anyway;
+    //   why_new=only the success path, stray/later edits and another run's entry were covered; seam=none; no_claim=snapshot-side refusals
+    test('write refuses a carried audit list it cannot trust', () => {
+      const a = twoAudits();
+      refusedWith(writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, '--docs-post', a.post, ...targetedAtHead(a.repo)]), a, 'carries audit a1, so write needs --docs-pre');
+      const forge = (name: string, edit: (j: any) => void) => { const j = JSON.parse(fs.readFileSync(name === 'pre' ? a.pre : a.post, 'utf8')); edit(j); const f = path.join(a.repo.root, `forged-${name}-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(j)); return f; };
+      const otherPre = forge('pre', j => { j.run_id = '/records/another-run.md'; });
+      refusedWith(writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, '--docs-post', a.post, '--docs-pre', otherPre, ...targetedAtHead(a.repo)]), a, 'its HEAD, audit_id or run_id differs');
+      const orphan = a.repo.git('commit-tree', '-m', 'orphan', a.repo.git('hash-object', '-t', 'tree', '-w', '/dev/null'));
+      const rows: Array<[(j: any) => void, string]> = [
+        [j => { j.earlier = j.earlier[0]; }, 'its earlier field is not a list of audits'],
+        [j => { j.earlier[0].edited = []; }, 'is not { run_id, audit_id, head, edited }'],
+        [j => { j.earlier.push(j.earlier[0]); }, 'carries audit a1 twice'],
+        [j => { j.earlier[0].head = orphan; }, `carried audit a1's HEAD ${orphan.slice(0, 12)} is not an ancestor`],
+        [j => { j.earlier.push({ ...j.earlier[0], audit_id: 'a2', edited: { 'docs/guide.md': { before: null, after: null } } }); }, 'docs/guide.md changed between audit a1 and audit a2, outside both'],
+      ];
+      for (const [edit, why] of rows) refusedWith(writeWith(a, forge('post', edit)), a, why);
+      const runless = (j: any) => { delete j.run_id; };
+      refusedWith(writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, '--docs-post', forge('post', runless), '--docs-pre', forge('pre', runless), ...targetedAtHead(a.repo)]), a, 'names no run_id');
+    }, 240_000);
+
+    // Value: protects=write binds an honest re-audit that undid, or re-edited, the carried audit's file, and one whose review ran
+    //   after the carried audit; fails_when=the moved skip drops a file the re-audit reverted, the reset target or the Prepare-side
+    //   check for a twice-edited file regresses, or write insists on the carried audit when the review already read it;
+    //   why_new=the other GST-1616 rows edit disjoint files and review before both audits; seam=none; no_claim=a live /ship run
+    test('write binds a re-audit that reverts or re-edits the carried audit\'s file, and a review between the two audits', () => {
+      const binds = (a: ReturnType<typeof twoAudits>, files: string, audits: string) => {
+        const w = writeWith(a);
+        expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+        expect(w.err + w.out).toContain(`files=${files}${audits} (`);
+      };
+      binds(twoAudits({ a1: { 'docs/x.md': '# x\n' }, a3: { 'docs/x.md': null, 'docs/new.md': '# new\n' } }), 'docs/new.md,docs/x.md', ' audits=a1,a3');
+      binds(twoAudits({ a1: { 'docs/guide.md': null }, a3: { 'docs/guide.md': '# guide\n', 'docs/new.md': '# new\n' } }), 'docs/guide.md,docs/new.md', ' audits=a1,a3');
+      const again = twoAudits({ a3: { 'docs/guide.md': '# guide\n\nEdited again by the re-audit.\n', 'docs/new.md': '# new\n' } });
+      binds(again, 'docs/guide.md,docs/new.md', ' audits=a1,a3');
+      const between = path.join(again.repo.root, 'between.md');
+      fs.writeFileSync(between, '# guide\n\nEdited between the audits.\n');
+      const pre = JSON.parse(fs.readFileSync(again.pre, 'utf8'));
+      pre.hashes['docs/guide.md'] = again.repo.git('hash-object', '-w', between);
+      fs.writeFileSync(again.pre, JSON.stringify(pre));
+      fs.rmSync(again.body, { force: true });
+      refusedWith(writeWith(again), again, "docs/guide.md at this audit's Prepare snapshot is not the content audit a1 recorded");
+      binds(twoAudits({ a1: { 'docs/x.md': '# x\n' }, rereview: true }), 'docs/new.md', '');
+    }, 480_000);
   });
 });
 

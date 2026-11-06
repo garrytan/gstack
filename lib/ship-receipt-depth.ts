@@ -34,7 +34,7 @@ import { reviewPolicy, type ReviewPolicy } from './ship-policy-review';
 import { TARGETED_CLASSES, classList, targetedClasses, type TargetedClass } from './review-targeted';
 import { runScriptSync } from './script-invocation';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
-import { carriedAudits, docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
+import { carriedAudits, docsExceptionLine, parseReceiptDocs, type CarriedAudit } from './ship-receipt-docs';
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 export type ReviewLoopException = NonNullable<ShipReceipt['review_loop_exception']>;
@@ -328,10 +328,12 @@ const treatment = (x: ActiveExclusion, p: string) => (x.excluded.has(p) ? 'exclu
  * and every other file is selected alike on both sides. The audit's files are those whose content differs between `docsPre`
  * (the Prepare snapshot) and the post snapshot, reset to the Prepare content, so uncommitted docs the reviewers read stay; without
  * it every such file is an audit file, reset to the snapshot's HEAD. A post snapshot that carries this /ship run's earlier audits
- * (`earlier`, all of its run_id; GST-1616) also resets each file one of them edited that changed since its HEAD, to its content
+ * (`earlier`, all of its run_id; GST-1616) also resets each file one of them edited that changed since its HEAD or that this audit edited again, to its content
  * before the first of them, when HEAD (or the latest audit's Prepare snapshot, for a file it edited again) holds what the last of
- * them left. Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable snapshot
- * included, refuses with `why`.
+ * them left. When the whole carried list does not rebuild the reviewed selection, write retries without the oldest carried audits,
+ * one at a time down to none (a review that ran between two audits already read the earlier one's edits); the refusal names the
+ * whole list's reason. Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
+ * snapshot included, refuses with `why`.
  */
 export function writeExcludeBinds(root: string, base: string, head: string, review: { exclude: Exclusion; tagged: ReadonlySet<string> | null }, flagged: string | undefined, docsPost: string | undefined, docsPre?: string): { ok: true; line?: string } | { ok: false; why?: string } {
   const x = review.exclude;
@@ -377,58 +379,67 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     if (!holds(head, p, post.hashes[p] ?? null)) return no(`${p} at HEAD is not the content the snapshot recorded (an edit after the audit)`);
   }
   const auditFiles = pre ? changed.filter(p => !(p in pre.hashes) || pre.hashes[p] !== post.hashes[p]) : changed;
-  const resets = new Map<string, { rev: string; want: unknown; from: string }>(auditFiles.map(p => [p, { rev: at, want: pre ? pre.hashes[p] : undefined, from: `--docs-pre ${docsPre}` }]));
-  const left = new Map<string, { after: string | null; audit: string }>();
-  for (const e of earlier) {
-    const moved = git(root, ['merge-base', '--is-ancestor', e.head, at]).ok ? since(e.head) : null;
-    if (!moved) return no(`carried audit ${e.audit_id}'s HEAD ${short(e.head)} is not an ancestor of ${short(at)}, or git could not diff it`);
-    for (const [p, { before, after }] of Object.entries(e.edited)) {
-      if (!moved.includes(p)) continue;
-      const prior = left.get(p);
-      if (prior && prior.after !== before) return no(`${p} changed between audit ${prior.audit} and audit ${e.audit_id}, outside both`);
-      if (!prior) resets.set(p, { rev: e.head, want: before, from: `audit ${e.audit_id}'s post snapshot` });
-      left.set(p, { after, audit: e.audit_id });
+  const bindAudits = (carried: CarriedAudit[]): { ok: true; line: string } | { ok: false; why: string } => {
+    const resets = new Map<string, { rev: string; want: unknown; from: string }>(auditFiles.map(p => [p, { rev: at, want: pre ? pre.hashes[p] : undefined, from: `--docs-pre ${docsPre}` }]));
+    const left = new Map<string, { after: string | null; audit: string }>();
+    for (const e of carried) {
+      const moved = git(root, ['merge-base', '--is-ancestor', e.head, at]).ok ? since(e.head) : null;
+      if (!moved) return no(`carried audit ${e.audit_id}'s HEAD ${short(e.head)} is not an ancestor of ${short(at)}, or git could not diff it`);
+      for (const [p, { before, after }] of Object.entries(e.edited)) {
+        if (!moved.includes(p) && !auditFiles.includes(p)) continue;
+        const prior = left.get(p);
+        if (prior && prior.after !== before) return no(`${p} changed between audit ${prior.audit} and audit ${e.audit_id}, outside both`);
+        if (!prior) resets.set(p, { rev: e.head, want: before, from: `audit ${e.audit_id}'s post snapshot` });
+        left.set(p, { after, audit: e.audit_id });
+      }
     }
-  }
-  for (const [p, { after, audit }] of left) {
-    const kept = auditFiles.includes(p) ? (p in pre!.hashes ? pre!.hashes[p] === after : holds(at, p, after)) : holds(head, p, after);
-    if (!kept) return no(`${p} at ${auditFiles.includes(p) ? `this audit's Prepare snapshot` : 'HEAD'} is not the content audit ${audit} recorded (an edit after that audit)`);
-  }
-  const files = [...resets.keys()].sort();
-  if (!files.length) return no(`--docs-pre ${docsPre}: the audit changed none of ${changed.join(',')}, so it did not change the selection`);
-  const gitDir = git(root, ['rev-parse', '--absolute-git-dir']).out;
-  const index = path.join(gitDir, `gstack-receipt-${process.pid}-${randomBytes(4).toString('hex')}.index`);
-  const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
-  const run = (args: string[], input?: string) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000 }); return { ok: r.status === 0, out: (r.stdout ?? '').trim() }; };
-  const treeEntry = (rev: string, p: string) => run(['ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
-  let reset: string;
-  try {
-    const entries: string[] = [];
-    for (const [p, { rev, want, from }] of resets) {
-      const atEntry = treeEntry(rev, p);
-      if (want === undefined || (atEntry && holds(rev, p, want))) entries.push(atEntry ? `${atEntry}\0` : `0 ${'0'.repeat(rev.length)}\t${p}\0`);
-      else if (want === null) entries.push(`0 ${'0'.repeat(rev.length)}\t${p}\0`);
-      else if (typeof want === 'string' && run(['cat-file', '-e', `${want}^{blob}`]).ok) entries.push(`${(treeEntry(head, p) ?? atEntry ?? '100644').split(' ')[0]} blob ${want}\t${p}\0`);
-      else return no(`${p}'s content before the audit (${short(String(want))} in ${from}) is not in git's object store, so the selection the reviewers read cannot be rebuilt`);
+    for (const [p, { after, audit }] of left) {
+      const kept = auditFiles.includes(p) ? (p in pre!.hashes ? pre!.hashes[p] === after : holds(at, p, after)) : holds(head, p, after);
+      if (!kept) return no(`${p} at ${auditFiles.includes(p) ? `this audit's Prepare snapshot` : 'HEAD'} is not the content audit ${audit} recorded (an edit after that audit)`);
     }
-    const tree = run(['read-tree', head]).ok && run(['update-index', '-z', '--index-info'], entries.join('')).ok ? run(['write-tree']) : { ok: false, out: '' };
-    const c = tree.ok ? run(['commit-tree', '--no-gpg-sign', tree.out, '-p', head, '-m', 'gstack-ship-receipt: HEAD before the docs audit']) : tree;
-    if (!c.ok) return no(`git could not build HEAD with ${files.join(',')} reset to before the audit`);
-    reset = c.out;
-  } finally { fs.rmSync(index, { force: true }); }
-  const { ref, sha } = writeBase(root, base);
-  const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? ref, reset), review.tagged, 'gstack-ship-receipt');
-  if (before.state !== 'active') return no(`the selection with ${files.join(',')} reset to before the audit cannot be read`);
-  if (before.record.digest !== given) return no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${earlier.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`);
-  for (const p of files) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
-    const t = treatment(s, p);
-    if (!['absent', 'excluded', 'named-by-code'].includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides or keeps because code names them`);
+    const files = [...resets.keys()].sort();
+    if (!files.length) return no(`--docs-pre ${docsPre}: the audit changed none of ${changed.join(',')}, so it did not change the selection`);
+    const gitDir = git(root, ['rev-parse', '--absolute-git-dir']).out;
+    const index = path.join(gitDir, `gstack-receipt-${process.pid}-${randomBytes(4).toString('hex')}.index`);
+    const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
+    const run = (args: string[], input?: string) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000 }); return { ok: r.status === 0, out: (r.stdout ?? '').trim() }; };
+    const treeEntry = (rev: string, p: string) => run(['ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
+    let reset: string;
+    try {
+      const entries: string[] = [];
+      for (const [p, { rev, want, from }] of resets) {
+        const atEntry = treeEntry(rev, p);
+        if (want === undefined || (atEntry && holds(rev, p, want))) entries.push(atEntry ? `${atEntry}\0` : `0 ${'0'.repeat(rev.length)}\t${p}\0`);
+        else if (want === null) entries.push(`0 ${'0'.repeat(rev.length)}\t${p}\0`);
+        else if (typeof want === 'string' && run(['cat-file', '-e', `${want}^{blob}`]).ok) entries.push(`${(treeEntry(head, p) ?? atEntry ?? '100644').split(' ')[0]} blob ${want}\t${p}\0`);
+        else return no(`${p}'s content before the audit (${short(String(want))} in ${from}) is not in git's object store, so the selection the reviewers read cannot be rebuilt`);
+      }
+      const tree = run(['read-tree', head]).ok && run(['update-index', '-z', '--index-info'], entries.join('')).ok ? run(['write-tree']) : { ok: false, out: '' };
+      const c = tree.ok ? run(['commit-tree', '--no-gpg-sign', tree.out, '-p', head, '-m', 'gstack-ship-receipt: HEAD before the docs audit']) : tree;
+      if (!c.ok) return no(`git could not build HEAD with ${files.join(',')} reset to before the audit`);
+      reset = c.out;
+    } finally { fs.rmSync(index, { force: true }); }
+    const { ref, sha } = writeBase(root, base);
+    const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? ref, reset), review.tagged, 'gstack-ship-receipt');
+    if (before.state !== 'active') return no(`the selection with ${files.join(',')} reset to before the audit cannot be read`);
+    if (before.record.digest !== given) return no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`);
+    for (const p of files) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
+      const t = treatment(s, p);
+      if (!['absent', 'excluded', 'named-by-code'].includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides or keeps because code names them`);
+    }
+    const audit = new Set(files);
+    for (const p of new Set([...before.excluded, ...x.excluded, ...before.kept.map(k => k.path), ...x.kept.map(k => k.path)])) {
+      if (!audit.has(p) && treatment(before, p) !== treatment(x, p)) return no(`${p} is ${treatment(before, p)} at the review and ${treatment(x, p)} at HEAD`);
+    }
+    return { ok: true, line: `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${files.join(',')}${carried.length ? ` audits=${[...carried.map(e => e.audit_id), post.audit_id].join(',')}` : ''} (the selection changed only by this /ship run's Step 14.5 docs audits' files under review_exclude_paths; the receipt records HEAD's)` };
+  };
+  let first: { ok: false; why: string } | undefined;
+  for (let k = 0; k <= earlier.length; k++) {
+    const r = bindAudits(earlier.slice(k));
+    if (r.ok) return r;
+    first ??= r;
   }
-  const audit = new Set(files);
-  for (const p of new Set([...before.excluded, ...x.excluded, ...before.kept.map(k => k.path), ...x.kept.map(k => k.path)])) {
-    if (!audit.has(p) && treatment(before, p) !== treatment(x, p)) return no(`${p} is ${treatment(before, p)} at the review and ${treatment(x, p)} at HEAD`);
-  }
-  return { ok: true, line: `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${files.join(',')}${earlier.length ? ` audits=${[...earlier.map(e => e.audit_id), post.audit_id].join(',')}` : ''} (the selection changed only by this /ship run's Step 14.5 docs audits' files under review_exclude_paths; the receipt records HEAD's)` };
+  return first!;
 }
 /** The queue's refusal when carryExcludeBinds does not bind the receipt at `head`; null when it does. */
 export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base: string): string | null {
