@@ -58,16 +58,17 @@ describe('accept: a lanes-only head policy gates the final tree (GST-1595)', () 
     expect(ok.stdout).toContain('NEXT: Step 18');
   });
 
-  // Value: protects=a lanes-only PR still gates under its own lanes after main regenerates .gstack/generated.json past the fork;
-  //   fails_when=lanesOnlyHeadPolicy compares the branch's generated.json with the base tip instead of the fork copy; seam=lanesOnlyHeadPolicy
-  test('main changes .gstack/generated.json after the fork: accept still passes under the head policy', () => {
+  // Value: protects=accept never gates under a stale branch registry: --policy-from head loads .gstack/generated.json from the branch
+  //   (lib/pregate/context.ts loadRegistryFromHead), so a branch whose copy differs from main's tip keeps the base policy;
+  //   fails_when=lanesOnlyHeadPolicy compares generated.json with the fork copy and picks the head policy; seam=lanesOnlyHeadPolicy
+  test('main changes .gstack/generated.json after the fork: accept keeps the base policy', () => {
     const f = fx(policy(ADDS));
     for (const step of [['checkout', '-q', 'main'], ['pull', '-q', 'origin', 'main']]) expect(f.git(...step).status).toBe(0);
     fs.mkdirSync(path.join(f.work, '.gstack'), { recursive: true });
     fs.writeFileSync(path.join(f.work, '.gstack/generated.json'), JSON.stringify({ $schema: 'https://github.com/garrytan/gstack/docs/pregate.md#generated-v1', entries: [] }, null, 2) + '\n');
     for (const step of [['add', '-A'], ['commit', '-qm', 'main: generated registry'], ['push', '-q', 'origin', 'main'], ['checkout', '-q', 'feat'], ['fetch', '-q', 'origin']]) expect(f.git(...step).status).toBe(0);
-    const ok = accept(f);
-    expect([ok.status, lineOf(ok.stdout, 'POLICY')], ok.stdout).toEqual([0, 'POLICY: head (unreviewed) .gstack/pregate.json: adds 1 test lane over origin/main and changes nothing else, so the gate is only stricter']);
+    const out = accept(f);
+    expect(lineOf(out.stdout, 'POLICY'), out.stdout).toBe("POLICY: base origin/main:.gstack/pregate.json (the branch's copy comes with a changed .gstack/generated.json, so it does not count here; land it on main first)");
   });
 
   // Value: protects=the trust boundary: a head policy that drops, shrinks or loosens anything stays unread, and accept refuses as before;

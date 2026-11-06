@@ -77,8 +77,8 @@ export function headPolicy(repoRoot: string, trusted: Loaded, mergeBase: string,
 /**
  * Whether a /ship run on the final tree (gstack-ship-release accept, and finish's full pregate rerun) gates under the
  * branch's own policy (GST-1595): only when the base branch carries a policy and the branch's file differs from the copy
- * it forked from (else the base tip's) in nothing but added test lanes, with GENERATED_PATH unchanged, so the gate only
- * gets stricter. Any other difference keeps the base policy, as before. `line` names the policy and why; it is absent
+ * it forked from (else the base tip's) in nothing but added test lanes, with GENERATED_PATH equal to the base tip's (a
+ * head-policy run loads the regen registry from the branch, context.ts), so the gate only gets stricter. Any other difference keeps the base policy, as before. `line` names the policy and why; it is absent
  * when the branch leaves the policy alone.
  */
 export function lanesOnlyHeadPolicy(repoRoot: string, base: string): { head: boolean; line?: string } {
@@ -100,7 +100,7 @@ export function lanesOnlyHeadPolicy(repoRoot: string, base: string): { head: boo
   if (!lists(refDeps) || !lists(headDeps)) return keep('has a dependencies entry that is not a list of test files');
   const { loosens, adds } = headPolicyDiff({ dependencies: refDeps } as PregateConfig, { dependencies: headDeps } as PregateConfig, ref.slice(7));
   if (loosens.length) return keep(loosens.join('; '));
-  if ((fork ? show(fork, GENERATED_PATH) : show(ref, GENERATED_PATH)) !== read(GENERATED_PATH)) return keep(`comes with a changed ${GENERATED_PATH}`);
+  if (show(ref, GENERATED_PATH) !== read(GENERATED_PATH)) return keep(`comes with a changed ${GENERATED_PATH}`);
   const n = Object.keys(adds).length;
   return { head: true, line: `POLICY: head (unreviewed) ${PREGATE_CONFIG_PATH}: adds ${n} test lane${n === 1 ? '' : 's'} over ${ref} and changes nothing else, so the gate is only stricter` };
 }

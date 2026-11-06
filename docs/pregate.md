@@ -44,7 +44,9 @@ says so when the branch edits the file
 when it reruns the whole pregate on the stamped tree) choose the policy themselves
 (GST-1595). When the branch's `pregate.json` differs from the copy it forked from
 (the base tip's when the fork has none) in nothing but added test lanes, and
-`.gstack/generated.json` is unchanged, they pass `--policy-from head` and print
+`.gstack/generated.json` matches the base tip's copy (a head-policy run loads the
+regen registry from the branch, so a copy that main changed after the fork keeps
+the base policy), they pass `--policy-from head` and print
 `POLICY: head (unreviewed) .gstack/pregate.json: adds <n> test lane(s) over
 origin/<base> and changes nothing else, so the gate is only stricter`. So a PR
 that adds a runtime file and its own lane line passes `accept` without a
