@@ -118,7 +118,10 @@ incomplete coverage, which blocks until the reviewer is rerun.
    `gstack-review-plan --post-review --last fix-check --range-base <that commit>
    --grant <id>`, plans one more fix-check, the next link of the
    [fix-check chain](ship-policy.md#fix-check-chain) (GST-1676). The last link's
-   own grant is refused there, so each link still needs the owner's word.
+   own grant is refused there, so each link still needs the owner's word. In the
+   loop, a new grant naming the last fix-check's commit (`--range-base`) plans
+   the next link the same way; a grant recorded before a later logged fix-check
+   already bought a link and is refused (GST-1681).
 
 <a id="transitions"></a>
 ### Transitions

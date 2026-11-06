@@ -1829,8 +1829,9 @@ planner refuses. In the loop, a fix-check that stops is answered the same way:
 a new grant naming that fix-check's commit (`--range-base`, the stop it
 answers) plans one more fix-check, the next link of the chain, however many
 fix-checks ran before (GST-1681, GEVA-363's third round). The previous link's
-grant names an earlier stop head, so it is refused, and a grant at any other
-commit plans nothing: one grant, one link.
+grant is refused: it names an earlier stop head, or it was recorded before a
+later logged fix-check (a post-review link's grant names the commit its
+fix-check read). A grant at any other commit plans nothing: one grant, one link.
 
 <a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
 fix-check after the first one (a merge resolution, say) logs its row with
