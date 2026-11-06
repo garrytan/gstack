@@ -83,5 +83,8 @@ describe("a native finding's own Severity and Blocks lines stay on that finding 
     const located = ['**Finding 1 (FIXABLE): A in x.ts:3**', 'Second, y.ts:9 drops writes. Severity: High; Blocks: no'].join('\n');
     expect(native(located, true).map(f => f.label)).toEqual(['CRITICAL', 'High']);
     expect(judged(located, { 'adversarial-native#1': ['High', 'the next line says Blocks: no'] }).ok).toBe(false);
+    const stated = parseFindings('outside-voice', ['### 1. CRITICAL: webhook accepts requests without authentication',
+      'Separately, the help text names an obsolete flag. Severity: Low. Blocks: no.'].join('\n'));
+    expect(stated.map(f => [f.label, statesNoBlocks(f.raw)])).toEqual([['CRITICAL', false], ['Low', true]]);
   });
 });

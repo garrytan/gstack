@@ -178,7 +178,8 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * A numbered finding heading ("**1. …**", or a lead naming its number, "**Finding 1 (FIXABLE): …**", GST-1657) keeps every unlabeled line
  * under it, located or listed or bold, until its fields come (GST-1031), so its Severity and Blocks never split off as a second record;
  * the line right under it that carries those fields, no other label and no file:line joins it at the stronger label, as a paragraph after
- * a blank line does (a located line there is another finding). A prose line that only names a severity in passing is a summary (summaryLine).
+ * a blank line does (a located line there is another finding), unless the heading itself names CRITICAL or P0, whose blocker another
+ * subject's Blocks: no must not lift. A prose line that only names a severity in passing is a summary (summaryLine).
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
@@ -239,7 +240,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
     const field = fieldOf(t);
     if (!afterGap && current?.heading && !current.fields.size && (field !== undefined || t.match(BLOCKS_FIELD)) && !ANY_LABEL.test(t.replace(SEVERITY_FIELD, ' '))
-      && !LIST_ITEM.test(t) && !LOCUS.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) {
+      && !LIST_ITEM.test(t) && !LOCUS.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')
+      && ![...current.raw.split(' | ')[0]!.matchAll(ALL_LABELS)].some(m => rank(m[1]) === 4)) {
       current.raw += ` | ${t}`;
       current.label = blocks ? 'CRITICAL' : stronger(current.label, label ?? current.label);
       if (field !== undefined) current.fields.add('severity');
