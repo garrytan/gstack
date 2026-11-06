@@ -471,7 +471,10 @@ describe.skipIf(process.platform !== 'linux')('daemon-owned display lifecycle', 
           if (!response.ok) throw new Error(`${name}: ${response.status}: ${await response.text()}`);
           return response.text();
         };
-        if (mode === 'welcome') expect(await command('url')).toContain('/welcome');
+        if (mode === 'welcome') {
+          const url = await command('url');
+          expect(url, `daemon log tail: ${fs.readFileSync(path.join(root, 'daemon.log'), 'utf8').slice(-800)}`).toContain('/welcome');
+        }
         if (mode === 'welcome failure') {
           expect(fs.readFileSync(path.join(root, 'daemon.log'), 'utf8')).toContain('Welcome test navigation failure');
           expect(await command('url')).toContain('about:blank');
