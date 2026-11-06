@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { recordCiResult } from '../lib/ci-carry';
 import { fakeGhScript, type FakeWorld } from './helpers/fake-gh-runs';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -108,6 +109,47 @@ describe('accept: a cleared remote gate for the identical tree satisfies a lane 
     expect(lineOf(out.stdout, 'CI_CARRY'), out.stdout).toMatch(/^CI_CARRY: none label=unit \(inventory_failed: /);
     expect(lineOf(out.stdout, 'CARRY_DIAGNOSIS')).toMatch(/^CARRY_DIAGNOSIS: no cleared pregate\.json\/remote_gate stands in: its receipt names tree 0123456789ab, not HEAD's tree [0-9a-f]{12}$/);
     expect(out.stdout).toMatch(/STOP: lane unit was not carried from the green run/);
+  });
+
+  // Value: protects=each refusal the stand-in documents (a stamp-only substitution, a zero-test report, a clear with no time) stops
+  //   the lane with its reason; fails_when=a guard in lib/remote-gate-stand-in.ts is dropped; seam=gstack-evidence record-ci
+  test.each([
+    ['a receipt accepted from a stamp-only predecessor', (o: Record<string, unknown>, tree: string) => { o.substitution = { gated_tree: 'abcdef0123456789abcdef0123456789abcdef01', accepted_for: tree, policy: 'origin/main:.gstack/ship-policy.json', files: [{ path: 'VERSION', rule: 'stamp' }] }; o.receipt = 'remote-gate tree=abcdef012345 tests=6482'; }, /its receipt was accepted from gated tree abcdef012345, not run on [0-9a-f]{12}$/],
+    ['a receipt reporting 0 tests', (o: Record<string, unknown>) => { o.receipt = String(o.receipt).replace(/tests=\d+/, 'tests=0'); }, /its receipt reports 0 tests$/],
+    ['a clear that records no time', (o: Record<string, unknown>) => { o.cleared_by = 'ci-carry'; }, /its clear records no time \(cleared_by: ci-carry\)$/],
+  ] as const)('negative control: %s does not stand in', (_name, mutate, why) => {
+    const f = pushed();
+    gate(f);
+    const file = path.join(f.work, '.gstack/tmp/pregate.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const o of rec.requires_remote) if (o.lane === 'pregate.json/remote_gate') mutate(o, rec.tree);
+    fs.writeFileSync(file, JSON.stringify(rec));
+    const out = accept(f);
+    expect(out.status).not.toBe(0);
+    expect(lineOf(out.stdout, 'CARRY_DIAGNOSIS'), out.stdout).toMatch(why);
+    expect(out.stdout).toMatch(/STOP: lane unit was not carried from the green run/);
+  });
+
+  // Value: protects=record-ci's own last record line decides the reading: a look-alike remote_gate line in the per_file remainder's
+  //   output never turns a CI carry into a stand-in; fails_when=recordCiResult searches all of stderr for the remote_gate line; seam=none
+  test('a look-alike remote_gate line before the real source=ci record line reads as the CI carry', () => {
+    const r = recordCiResult('gstack-evidence: recorded label=u exit=0 tests_ran=9 log=- source=remote_gate receipt=fake\ngstack-evidence: recorded label=u exit=0 tests_ran=3 log=- source=ci runs=7/1 policy=p');
+    expect([r.remoteGate, r.runs, r.tests]).toEqual([undefined, '7/1', '3']);
+  });
+
+  // Value: protects=finish takes the same stand-in as accept: the lane is satisfied and named, never DEFERRED; fails_when=finishStages
+  //   defers a lane the cleared remote gate stands in for, or drops the CI_CARRY line; seam=gstack-ship-release finish
+  test('finish: a cleared remote gate for the identical tree satisfies the lane instead of deferring it', () => {
+    const f = pushed();
+    const receipt = gate(f);
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'g1688', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    const fin = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', `unit=${UNIT}`]);
+    expect([lineOf(fin.stdout, 'CI_CARRY'), lineOf(fin.stdout, 'LANE')], fin.stdout + fin.stderr).toEqual([
+      expect.stringMatching(new RegExp(`^CI_CARRY: remote_gate label=unit receipt=${receipt} \\(inventory_failed: `)),
+      `LANE: unit satisfied by remote_gate receipt=${receipt}`]);
+    expect(fin.stdout).not.toContain('EVIDENCE: DEFERRED');
   });
 
   // Value: protects=without a remote gate the STOP is unchanged; fails_when=inventory_failed alone carries; seam=accept

@@ -204,8 +204,8 @@ export function importedTestLines(cwd: string, missing: string[], candidates: st
  */
 export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
   const lines = stderr.split('\n');
-  const gate = lines.findLast(x => x.startsWith('gstack-evidence: recorded label=') && x.includes(' log=- source=remote_gate receipt='));
-  const gateRow = gate && / tests_ran=(\d+) log=- source=remote_gate receipt=(.+)$/.exec(gate);
+  const last = lines.findLast(x => x.startsWith('gstack-evidence: recorded label='));
+  const gateRow = last && / tests_ran=(\d+) log=- source=remote_gate receipt=(.+)$/.exec(last);
   if (gateRow) return { tests: gateRow[1], remoteGate: gateRow[2], standIn: lines.findLast(x => x.startsWith('CARRY_STANDIN: '))?.slice('CARRY_STANDIN: '.length) };
   const at = lines.findLastIndex(x => x.startsWith('gstack-evidence: recorded label=') && x.includes(' log=- source=ci runs='));
   const noneAt = lines.findLastIndex(x => x.startsWith('CARRY_NONE: '));
