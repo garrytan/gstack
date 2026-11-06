@@ -1620,7 +1620,8 @@ gstack-approvals rule --finding '<the finding's fingerprint>' --reason '<why it 
 ```
 
 The row is an approved `gstack-approvals` row with scope `ruled_note <fingerprint>`
-and ask `ruled_note: <reason>`. Its `by` is the ruler and its `recorded_at` the
+and ask `ruled_note <fingerprint>: <reason>`, so two findings ruled with the same
+reason in one reply get two rows. Its `by` is the ruler and its `recorded_at` the
 time. `rule` refuses while this checkout holds an open /ship run's marker (the
 lane's own runner), and refuses a `--by` naming gstack. `add` refuses a
 `ruled_note` scope, so `rule` is the only path. A review-log field never makes a
@@ -1629,8 +1630,10 @@ row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`), prints each as `RULED_NOTE: <fingerprint> ruled by <who> at
 <time>: <reason> (approval <id>)`, and treats a ruled finding on the newest
 `review-fix-check` row (action `skipped`, `noted` or `deferred`, not a gate finding)
-as closed. A granted fix-check whose other findings are all below the floor then
-reads CURRENT and counts. A skipped CRITICAL with no ruling stays open. Nothing
+as closed when the ruling was recorded after that row, so it closes only what the
+owner saw: a later row with the same fingerprint needs a new ruling. A granted
+fix-check whose other findings are all below the floor then reads CURRENT and
+counts. A skipped CRITICAL with no ruling stays open. Nothing
 ruled is hidden: `gstack-approvals rulings` prints one `Ruled note: …` line per
 ruling for the Pre-Landing Review and the PR body, `gstack-ship-receipt write`
 records them as `ruled_notes` and refuses a `--body` that does not carry each

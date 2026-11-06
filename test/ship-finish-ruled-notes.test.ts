@@ -110,6 +110,27 @@ describe('finish with owner-ruled notes (GST-1537)', () => {
     expect(lineOf(finish(f, reviewed, post).stdout, 'FIX_CHECK')).toBe(NOT_CLEAN);
   });
 
+  // Value: protects=a ruling closes only findings the owner saw: a fix-check row logged after the ruling, carrying the same
+  //   fingerprints, stays open until the owner rules again; fails_when=an old ruling closes a later finding at that fingerprint;
+  //   seam=finish's route matching rulings to the fix-check row
+  test('a ruling recorded before the fix-check row does not close that row\'s findings', () => {
+    const { f, reviewed, post } = grantedFixCheck({ ...QM3122, timestamp: '2099-01-01T00:00:00Z' });
+    for (const finding of [RACE, AMBIENT]) expect(rule(f, finding).status).toBe(0);
+    const r = finish(f, reviewed, post);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')]).toEqual([3, NOT_CLEAN]);
+    expect(r.stdout.split('\n').filter(l => l.startsWith('RULED_NOTE: ')).length).toBe(2);
+  });
+
+  // Value: protects=one owner reply ruling two findings with the same reason records both; fails_when=the second ruling
+  //   hashes to the first row's id and is skipped as already present, leaving its finding open; seam=gstack-approvals rule
+  test('two rulings with the same reason, words and ruler both record', () => {
+    const { f } = grantedFixCheck(QM3122);
+    const same = (finding: string) => run(f, 'gstack-approvals', ['rule', '--finding', finding, '--reason', 'both ship as disclosed notes', '--words', 'both are notes, not fixes', '--by', 'qm minder (CAPY-1)', '--json']);
+    const [a, b] = [same(RACE), same(AMBIENT)];
+    expect([a.status, b.status, JSON.parse(b.stdout).skipped]).toEqual([0, 0, 0]);
+    expect(run(f, 'gstack-approvals', ['rulings']).stdout.trim().split('\n')).toEqual([expect.stringMatching(new RegExp(`^Ruled note: ${RACE} ruled by `)), expect.stringMatching(new RegExp(`^Ruled note: ${AMBIENT} ruled by `))]);
+  });
+
   // Value: protects=nothing ruled is hidden (R73): the receipt records every ruling and write refuses a PR body that does not
   //   list each one word for word; fails_when=write drops the rulings or accepts a body without them; seam=gstack-ship-receipt write
   test('the receipt records every ruling, and write refuses a body that does not list each one', () => {
@@ -136,7 +157,7 @@ describe('finish with owner-ruled notes (GST-1537)', () => {
 
 describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
   const row = (o: Partial<{ ask: string; scope: string; by: string; outcome: string }>) => {
-    const r = buildRow({ ask: 'ruled_note: the lock already allows it', words: 'a note', by: 'qm minder (CAPY-1)', scope: `ruled_note ${RACE}`, ...o }, 'feat', new Date('2026-11-05T01:02:03Z'));
+    const r = buildRow({ ask: `ruled_note ${RACE}: the lock already allows it`, words: 'a note', by: 'qm minder (CAPY-1)', scope: `ruled_note ${RACE}`, ...o }, 'feat', new Date('2026-11-05T01:02:03Z'));
     if ('code' in r) throw new Error(r.message);
     return r;
   };

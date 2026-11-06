@@ -199,7 +199,7 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * A code or test path the newest completed clean review-fix-check row read (inside its range_base..commit range, where
  * range_base holds the reviewed tree, and unchanged since) counts as fix_checked when an approved review_loop_grant names a stop
  * head inside range_base..commit: the owner's granted fix-check after Step 11 is a review (GST-1130). A finding on that row the
- * owner ruled a disclosed note (an approved gstack-approvals rule row, never the row's own claim) is closed, and every ruling
+ * owner ruled a disclosed note (an approved gstack-approvals rule row recorded after that row, never the row's own claim) is closed, and every ruling
  * prints as RULED_NOTE (GST-1537). Authored docs keep the stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
@@ -285,7 +285,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   const fixCommit = commitOf(fixRow?.commit_full), fixFrom = commitOf(fixRow?.range_base);
   const rulings = readRuledNotes(cwd);
   for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}`);
-  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree, new Set(rulings.map(n => n.finding)));
+  const fresh = fixRow && reviewFreshness(fixRow, fixRow.wtree, new Set(rulings.filter(n => Date.parse(n.at) >= Date.parse(fixRow.timestamp)).map(n => n.finding)));
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   const grants = fixRow ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })) : [];
   const grant = grants.find(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')
