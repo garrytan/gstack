@@ -605,7 +605,8 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
  * decideDaily pick the trigger, if any; NO_RELEASE_PR becomes a blocked decision only when a trigger
  * is due. decision is null when the plan's refusal stands on its own (a freeze, nothing green,
  * FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated commit); lines then say which
- * important changes are still waiting on the gate.
+ * important changes are still waiting on the gate. A plan that cleared while the daily check itself
+ * cannot date stable is held as FLOOR_UNKNOWN, so a null decision never reaches a cut.
  */
 export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned: PlanResult; decision: DailyDecision | null; lines: string[] } {
   const { git, gh, repo } = o;
@@ -622,7 +623,9 @@ export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned
   const moved = prev ? stableMovedAt(git, gh, repo, prev) : null;
   if (!sha || !main.ok || (moved && moved.at === null)) {
     const waiting = main.ok ? importantChanges(git, prev, main.out, o.fragmentsDir) : [];
-    return { planned, decision: null, lines: waiting.length ? ['IMPORTANT_UNGATED: ' + waiting.map(c => c.kind + ' in ' + (c.pr ? '#' + c.pr : c.commit.slice(0, 12))).join(', ') + ' is on main but no cut can run (below)'] : [] };
+    const why = moved && moved.at === null ? moved.why : 'origin/main does not resolve';
+    const held: PlanResult = planned.ok ? { ok: false, code: 'FLOOR_UNKNOWN', message: why + '; the daily check cannot pick a trigger, so nothing is cut', next: 'none until the next daily run can date stable', plan: planned.plan } : planned;
+    return { planned: held, decision: null, lines: waiting.length ? ['IMPORTANT_UNGATED: ' + waiting.map(c => c.kind + ' in ' + (c.pr ? '#' + c.pr : c.commit.slice(0, 12))).join(', ') + ' is on main but no cut can run (below)'] : [] };
   }
   if (planned.ok && planned.plan.stableAt) return { planned, decision: { action: 'cut', trigger: null, lines: ['DAILY: cut (finishing the cut that already moved stable)'] }, lines: [] };
   const decision = decideDaily({

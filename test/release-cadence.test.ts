@@ -209,6 +209,31 @@ describe('planDaily', () => {
     expect(clash.planned).toMatchObject({ ok: false, code: 'REFUSED' });
     expect(clash.decision).toBeNull();
   });
+
+  // Value: protects=the daily check failing closed when its own read of stable's move fails after planRelease cleared the 24 h floor; fails_when=a cleared
+  // plan comes back with a null decision, which the CLI would cut on any day with no trigger; why_new=planDaily dates stable separately from planRelease;
+  // seam=gh faked (only the last release view fails), git real; no_claim=which gh errors are transient
+  test('a plan that clears while the daily check cannot date stable is FLOOR_UNKNOWN, never a cuttable plan with no decision', () => {
+    const r = repo();
+    r.commit('release 1.0.1', { VERSION: '1.0.1\n' });
+    r.refresh();
+    const g = gitIn(r.work);
+    const green = fakeGh();
+    let views = 0, failAt = 0;
+    const gh: Gh = (args) => {
+      if (args[0] === 'release' && args[1] === 'view' && args[2] === 'v1.0.0' && ++views === failAt) return { status: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway' };
+      return green(args);
+    };
+    const day = () => planDaily({ repo: 'o/r', git: g, gh, now: () => Date.now() + 30 * H });
+    const control = day();
+    expect(control.planned.ok).toBe(true);
+    expect(control.decision).not.toBeNull();
+    [failAt, views] = [views, 0];
+    const held = day();
+    expect(held.planned).toMatchObject({ ok: false, code: 'FLOOR_UNKNOWN' });
+    if (!held.planned.ok) expect(held.planned.message).toStartWith('cannot read the release for v1.0.0 (HTTP 502: Bad Gateway)');
+    expect(held.decision).toBeNull();
+  });
 });
 
 describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow entry point)', () => {
