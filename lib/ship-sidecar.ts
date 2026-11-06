@@ -10,7 +10,8 @@
  *   - its sibling (the path without `.uid`) is a regular file now, and one the reviewed range added or modified, or one
  *     the review-loop exception accepted;
  *   - it is a regular, non-executable file whose whole content is exactly what Godot writes for one id;
- *   - neither it nor its sibling matches the base policy's review_exclude_paths (a sibling no reader saw is not reviewed).
+ *   - neither it nor its sibling matches the base policy's review_exclude_paths or readers.forbid_paths (a sibling no reader
+ *     saw is not reviewed).
  * Any other `.uid` is refused with the reason and stays behavior; a `.import` file is never a candidate.
  */
 import { spawnSync } from 'node:child_process';
@@ -22,7 +23,7 @@ export interface SidecarInput {
   candidates: readonly string[];
   /** Paths the review-loop exception accepted. */
   accepted: readonly string[];
-  /** The base policy's review_exclude_paths (git glob pathspecs). */
+  /** The git glob pathspecs no reader saw: the base policy's review_exclude_paths and readers.forbid_paths. */
   excluded: readonly string[];
 }
 export interface SidecarRefusal { path: string; reason: string }
@@ -43,7 +44,7 @@ export function isGodotUidText(text: string): boolean {
 export const sidecarLine = (p: string, sibling: string) => `Godot UID sidecar: ${p} (beside ${sibling})`;
 
 function git(cwd: string, args: string[]): string | null {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd, encoding: 'latin1', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   return r.status === 0 ? r.stdout : null;
 }
 
@@ -78,7 +79,7 @@ export function uidSidecars(cwd: string, i: SidecarInput): { proven: Record<stri
     if (e?.mode !== '100644') { refuse(`is not a regular non-executable file (mode ${e?.mode ?? 'unreadable'})`); continue; }
     const text = git(cwd, ['cat-file', 'blob', e.blob]);
     if (text === null || !isGodotUidText(text)) { refuse('is not exactly one Godot uid://<id> line'); continue; }
-    if (excluded.has(p) || excluded.has(sibling)) { refuse('or its sibling matches the base policy\'s review_exclude_paths, so no reader saw the script'); continue; }
+    if (excluded.has(p) || excluded.has(sibling)) { refuse('or its sibling matches the base policy\'s review_exclude_paths or readers.forbid_paths, so no reader saw the script'); continue; }
     proven[p] = sibling;
   }
   return { proven, refused };

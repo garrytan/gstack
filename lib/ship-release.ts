@@ -22,6 +22,7 @@ import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { reviewFreshness } from './review-evidence';
+import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
@@ -375,7 +376,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
  * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
  * stale the audit (GST-391).
  */
-function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, loopAccepted: readonly string[] | undefined, parent: string | undefined, r: Report): boolean {
+function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, loopAccepted: readonly string[] | undefined, parent: string | undefined, testCode: readonly string[], r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
   let stale: string[] | null = null;
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
@@ -428,7 +429,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     const merged = mergeChangelogs(audited.stdout, atNowBase.stdout, atAuditBase.stdout);
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
-  const carried = { tests: stale.filter(p => isTestCode(p)), base: stale.filter(p => !isTestCode(p) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
+  const carried = { tests: stale.filter(p => isTestCode(p, testCode)), base: stale.filter(p => !isTestCode(p, testCode) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
     || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[] };
   carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
   let audit: any = null;
@@ -495,15 +496,16 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   try { const h = JSON.parse(fs.readFileSync(flag('--docs-post')!, 'utf8')).hashes; audited = h && typeof h === 'object' && !Array.isArray(h) ? h : null; } catch { audited = null; }
   const globs = (key: string): string[] => Array.isArray(policy?.[key]) ? policy![key].filter((g: unknown): g is string => typeof g === 'string') : [];
   const bookkeeping = globs('bookkeeping');
+  const forbidden = forbidSpecs({ forbid_paths: Array.isArray(policy?.readers?.forbid_paths) ? policy!.readers.forbid_paths.filter((g: unknown): g is string => typeof g === 'string') : [] }).map(s => s.slice(':(top,exclude,glob)'.length));
   const mechanical: MechanicalConstant[] = Array.isArray(policy?.mechanical_retake) ? policy!.mechanical_retake : [];
   const reviewedBaseArg = flag('--reviewed-base');
   const fragments = typeof policy?.changelog_fragments?.dir === 'string' ? [`:(top,exclude,glob)${policy.changelog_fragments.dir.replace(/\/+$/, '')}/*.md`] : [];
   const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...releasePaths(policy, cwd, flag('--reviewed-tree')!, base, true).map(p => `:(top,exclude,literal)${p}`), ...fragments], r);
   if (reviewedBase === null) return r;
   const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base, true) : undefined;
-  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: globs('review_exclude_paths'), baseRelease }, r);
+  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: [...globs('review_exclude_paths'), ...forbidden], baseRelease }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, reviewedBase?.parent ? reviewedBase.commit : undefined, r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, reviewedBase?.parent ? reviewedBase.commit : undefined, globs('test_code'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;

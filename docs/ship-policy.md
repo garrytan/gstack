@@ -1858,8 +1858,8 @@ reader, when all of these hold:
   canonical (no leading `a` digit unless it is `a`), at most 13 digits and at
   most 2^63−1 (`d4n4ub6itg400`);
 - neither it nor its sibling matches the base policy's
-  [`review_exclude_paths`](#review-exclude-paths), since no reader saw an
-  excluded script.
+  [`review_exclude_paths`](#review-exclude-paths) or `readers.forbid_paths`,
+  since no reader saw an excluded script.
 
 Each proven sidecar prints `UID_SIDECAR: <path> (beside <sibling>)`. Any other
 `.uid` keeps its old route, usually behavior, and `finish` prints

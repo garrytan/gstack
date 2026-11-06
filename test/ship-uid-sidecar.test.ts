@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isTestCode } from '../lib/ship-patch';
 import { REVIEW_EXCLUDE_KEY_VERSION, TEST_CODE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { READERS_KEY_VERSION } from '../lib/ship-policy-keys';
 import { isGodotUidText } from '../lib/ship-sidecar';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -119,6 +120,14 @@ describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#6
     const imported = founderstar611({ after: f => f.write({ 'tests/icon.png.import': '[remap]\n\nimporter="texture"\nuid="uid://cecaux1sm7mo"\n' }) }).run();
     expect([imported.status, lineOf(imported.stdout, 'STOP')]).toEqual([3, behaviorStop('tests/icon.png.import')]);
     expect(imported.stdout).not.toMatch(/UID_SIDECAR|ROUTE_SIDECAR_REFUSED/);
+  });
+
+  test('a sidecar beside a readers.forbid_paths script, or beside an excluded script with a non-ASCII name, refuses too', () => {
+    const forbidden = founderstar611({ base: { '.gstack/ship-policy.json': JSON.stringify({ readers: { forbid_paths: ['tests'] }, min_gstack_version: READERS_KEY_VERSION }) + '\n' } }).run();
+    expect([forbidden.status, lineOf(forbidden.stdout, 'ROUTE_SIDECAR_REFUSED')]).toEqual([3, expect.stringContaining(`ROUTE_SIDECAR_REFUSED: ${SIDECAR} or its sibling matches`)]);
+    const accented = founderstar611({ base: { '.gstack/ship-policy.json': JSON.stringify({ review_exclude_paths: ['tests/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n' }, feat: { 'tests/menü_check.gd': CHECK }, after: f => f.write({ 'tests/menü_check.gd.uid': UID }) }).run();
+    expect([accented.status, lineOf(accented.stdout, 'ROUTE_SIDECAR_REFUSED')]).toEqual([3, expect.stringContaining('ROUTE_SIDECAR_REFUSED: tests/menü_check.gd.uid or its sibling matches')]);
+    expect(accented.stdout).not.toContain('UID_SIDECAR:');
   });
 });
 
