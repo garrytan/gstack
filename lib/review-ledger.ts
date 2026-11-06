@@ -56,7 +56,8 @@ const ANY_LABEL = new RegExp(`(?<![A-Za-z0-9])(${LABELS})(?![A-Za-z0-9])`);
 const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
-const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)\d+[.)]\s/;
+/** A numbered finding heading ("**1. …**", "### 2) …", GST-1031) or a finding lead that names its number ("**Finding 1 (FIXABLE): …**", GST-1657). */
+const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)(?:\d+[.)]\s|Finding\s+\d+\b)/;
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
@@ -174,8 +175,11 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * starts the next finding, except an unlabeled, unnumbered bullet with no file:line under a paragraph finding whose fields have not
  * come yet, which is its detail and joins its text (GSTA-196: 4 findings with detail bullets collected as 8). An inline
  * `Blocks: yes` is CRITICAL too. The native voice's FIXABLE collects as CRITICAL; other labels stay as written for lead judgment. When in doubt the parser merges rather than drops: a lost blocker costs the gate.
- * A numbered finding heading keeps every unlabeled line under it, located or listed or bold, until its fields come (GST-1031), so its
- * Severity and Blocks never split off as a second record; a prose line that only names a severity in passing is a summary (summaryLine).
+ * A numbered finding heading ("**1. …**", or a lead naming its number, "**Finding 1 (FIXABLE): …**", GST-1657) keeps every unlabeled line
+ * under it, located or listed or bold, until its fields come (GST-1031), so its Severity and Blocks never split off as a second record;
+ * the line right under it that carries those fields, no other label and no file:line joins it at the stronger label, as a paragraph after
+ * a blank line does (a located line there is another finding), unless the heading itself names CRITICAL or P0, whose blocker another
+ * subject's Blocks: no must not lift. A prose line that only names a severity in passing is a summary (summaryLine).
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
@@ -234,6 +238,16 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     }
     const heading = LABEL_HEADING.exec(t);
     if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
+    const field = fieldOf(t);
+    if (!afterGap && current?.heading && !current.fields.size && (field !== undefined || t.match(BLOCKS_FIELD)) && !ANY_LABEL.test(t.replace(SEVERITY_FIELD, ' '))
+      && !LIST_ITEM.test(t) && !LOCUS.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')
+      && ![...current.raw.split(' | ')[0]!.matchAll(ALL_LABELS)].some(m => rank(m[1]) === 4)) {
+      current.raw += ` | ${t}`;
+      current.label = blocks ? 'CRITICAL' : stronger(current.label, label ?? current.label);
+      if (field !== undefined) current.fields.add('severity');
+      if (t.match(BLOCKS_FIELD)) current.fields.add('blocks');
+      continue;
+    }
     if (current?.heading && !current.fields.size && !label && !blocks && !/^#{1,6}\s/.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) { current.raw += ` | ${t}`; continue; }
     if (!indented && HEADING.test(t)) { section = null; current = null; }
     if (t.startsWith('{')) {

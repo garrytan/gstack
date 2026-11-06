@@ -1,0 +1,27 @@
+REVIEWED_TREE: 45c8748f0c330a4959d4cbdda7ecce5b3fa0d79f /workspace/gstack
+
+**Scope.** The range 4eff47c5..HEAD changes three files across commits e0220c0, eb75309 and 0854fea. I read `lib/ship-preflight.ts` (one added line at :71) and `changelog.d/gst-691-preflight-merge-noop.md` in full, plus the `git()` helper in `lib/ship-bin-common.ts:18`. I reviewed `test/ship-preflight-base-ancestor.test.ts` (+59 lines) in summary mode only, so this coverage is reduced and that is deliberate. It has three cases: base already in HEAD runs no `git merge` and prints `MERGE: up to date`; a moved base still runs `git merge`; an unfinished merge with conflicts still stops on those conflicts.
+
+**What I checked and found clean.** All of these fall through to the old `git merge` path, so they behave exactly as before:
+- `merge-base --is-ancestor` exits 1 (not an ancestor) or 128 (missing ref, broken repo).
+- The spawn times out, which makes the status null.
+- A shallow clone, where the check can only give a false "not an ancestor", never a false "ancestor".
+- `ls-files -u` output that overflows the buffer, which leaves the output non-empty and so takes the merge path.
+
+The `MERGE: up to date` string is the same one the old path printed when HEAD did not move, so nothing downstream sees a new format. Fetch staleness, a narrowed refspec and argument injection through `base` were already present at the base revision; this range does not change them.
+
+**Finding 1: an in-progress merge whose conflicts are resolved and staged gets past the guard (FIXABLE).** In `lib/ship-preflight.ts:71`, the `ls-files -u` guard only sees conflicts that are still unresolved. If someone resolves and `git add`s the files but has not committed, the unmerged list is empty while MERGE_HEAD still exists. If origin/main is already in HEAD, the new branch then prints `MERGE: up to date` and continues into pregate and the test lanes.
+
+Before this change, `git merge origin/main` refused here and preflight stopped. I reproduced it in a scratch repo:
+- unmerged entries: 3 before `git add`, 0 after
+- `MERGE_HEAD present`
+- `is-ancestor exit=0`
+- the old path fails with `fatal: You have not concluded your merge (MERGE_HEAD exists).`
+
+The same gap applies to CHERRY_PICK_HEAD and REVERT_HEAD after resolution. The consequence is that `/ship` goes on carrying a merge nobody concluded. A later path-limited commit (the version or CHANGELOG stamp) would then fail with "cannot do a partial commit during a merge", far from the cause; otherwise the unrelated merge is swept into the ship commit. Commit 0854fea set out to leave unfinished merges to Step 3's stop, and it only covers the conflicted case. Its test has no resolved-but-uncommitted case.
+
+The fix is to also require that no operation is in progress before taking the shortcut, for example `!git(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).stdout.trim()`, with CHERRY_PICK_HEAD and REVERT_HEAD checked the same way. Then add a test case that resolves and stages the conflict without committing. No test fails today, nothing is lost and the failure is loud, so this sits below the blocking floor. Severity: Low. Blocks: no
+
+No other findings.
+
+Recommendation: Ship as-is because the strongest finding, a staged but uncommitted merge slipping past the shortcut at ship-preflight.ts:71, needs a half-finished manual merge and fails loudly later instead of losing data. It's a cheap MERGE_HEAD check to add in a follow-up.
