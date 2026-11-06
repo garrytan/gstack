@@ -14,7 +14,7 @@ import { laneMapping, recordCiResult, type ShipLaneMapping } from './ci-carry';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
-import { matchesAny } from './ship-policy';
+import { DEFAULT_POLICY, matchesAny } from './ship-policy';
 import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
@@ -198,11 +198,19 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
  * A mapped lane carried from CI at HEAD's clean tree: gstack-evidence record-ci finds and verifies the run (lib/ci-carry.ts)
  * and records the CI-sourced ledger row; or why it was not (`carryNone`), so the caller runs it.
  */
-export function carryLane(cwd: string, base: string, l: { label: string; command: string }): LaneResult {
-  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], 600_000);
+export function carryLane(cwd: string, base: string, l: { label: string; command: string }, timeoutS = DEFAULT_POLICY.ci_record_timeout_s): LaneResult {
+  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--', l.command], timeoutS * 1000);
   const got = recordCiResult(rec.stderr);
   if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}) };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}`, ...(got.diagnosis ? { diagnosis: got.diagnosis } : {}) };
+}
+
+/** accept's bound on one record-ci (GST-1606): the base policy's `ci_record_timeout_s`, 600 s by default, clamped to 3600 s. */
+export function recordCiTimeout(policy: Record<string, any> | null, base: string): { seconds: number; line: string } {
+  const set = policy?.ci_record_timeout_s;
+  if (typeof set !== 'number' || set === DEFAULT_POLICY.ci_record_timeout_s) return { seconds: DEFAULT_POLICY.ci_record_timeout_s, line: `CI_RECORD_TIMEOUT: ${DEFAULT_POLICY.ci_record_timeout_s}s (default)` };
+  if (set > 3600) return { seconds: 3600, line: `CI_RECORD_TIMEOUT: 3600s (origin/${base} ci_record_timeout_s ${set} is over the 3600s ceiling)` };
+  return { seconds: set, line: `CI_RECORD_TIMEOUT: ${set}s (origin/${base} ci_record_timeout_s)` };
 }
 
 /**
