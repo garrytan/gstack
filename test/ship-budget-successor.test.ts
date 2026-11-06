@@ -7,6 +7,8 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import { BUDGET_RESULT_CODES } from '../lib/result-codes-budget';
+import { applyCredits, creditsUsed, METER_CONTRACTS, newEpoch, tally, type Ledger } from '../lib/ship-budget';
 import { budgetHarness, type Harness } from './helpers/ship-budget-harness';
 
 const harnesses: Harness[] = [];
@@ -24,6 +26,33 @@ function threadA(h: Harness, cap = '200M', source: string[] = ['--meter-source',
 }
 
 describe('successor thread resume (GST-1655)', () => {
+  const ledgerA = () => ({
+    meter: { contract: METER_CONTRACTS.capy, epoch: 1, baseline: 40_000_000, last: 80_000_000, source: 'jam_A' },
+    epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, reservations: [], credits: { baseline: 20000, last: 45000 },
+  } as unknown as Ledger);
+
+  test('newEpoch for a successor carries tokens and credits; its credits epoch refuses a backward reading', () => {
+    const l = ledgerA();
+    newEpoch(l, METER_CONTRACTS.capy, 3_000_000, { source: 'jam_B', credits: 1500 });
+    expect(l.meter).toMatchObject({ epoch: 2, baseline: 3_000_000, last: 3_000_000, source: 'jam_B' });
+    expect(l.epochs).toEqual([expect.objectContaining({ epoch: 1, used: 40_000_000, credits: 25000, source: 'jam_A' })]);
+    expect(l.credits).toEqual({ baseline: 1500, last: 1500, carried: 25000 });
+    expect(tally(l).used).toBe(40_000_000);
+    applyCredits(l, 6500);
+    expect(creditsUsed(l)).toBe(30000);
+    expect(() => applyCredits(l, 6400)).toThrow('below the last credits reading 6500');
+    expect(BUDGET_RESULT_CODES.BUDGET_READING_REJECTED.fix).toContain('resume --meter-source <its jam id>');
+  });
+
+  test('newEpoch for a meter change keeps the source and leaves the credits epoch alone', () => {
+    const l = ledgerA();
+    newEpoch(l, METER_CONTRACTS.estimate, 0);
+    expect(l.meter).toMatchObject({ epoch: 2, source: 'jam_A' });
+    expect(l.epochs[0]).not.toHaveProperty('credits');
+    expect(l.credits).toEqual({ baseline: 20000, last: 45000 });
+    expect(creditsUsed(l)).toBe(25000);
+  });
+
   test('the same thread: a reading below the last of its epoch is still refused, and nothing changes', () => {
     const h = fresh();
     const a = threadA(h);
