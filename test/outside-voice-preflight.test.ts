@@ -10,6 +10,7 @@ import { validateOutsideReview } from '../lib/outside-review-result';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import { isolatedEnv } from './helpers/state-root-isolation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-outside-preflight-'));
@@ -182,7 +183,7 @@ function fixture() {
   const capture = path.join(dir, 'capture.json');
   const fake = path.join(dir, 'fake-claude.ts');
   fs.writeFileSync(fake, `const prompt=await Bun.stdin.text(); await Bun.write(process.env.FIXTURE_CAPTURE!,JSON.stringify({prompt,args:process.argv.slice(2)})); console.log(JSON.stringify({result:'No issues found.\\nRecommendation: ship because the isolated fixture completed its review.'}));`);
-  const env = { ...process.env, HOME: home, CODEX_HOME: '', GSTACK_HOME: path.join(home, '.gstack'),
+  const env = { ...isolatedEnv(home), CODEX_HOME: '', GSTACK_HOME: path.join(home, '.gstack'),
     GSTACK_ROOT: '', GSTACK_BIN: '', GSTACK_ACTIVE_HOST: 'codex', CODEX_THREAD_ID: 'fixture', CODEX_SANDBOX: '', CLAUDECODE: '',
     GSTACK_CLAUDE_BIN: process.execPath, GSTACK_CLAUDE_BIN_ARGS: JSON.stringify([fake]), FIXTURE_CAPTURE: capture };
   const install = (destination: string) => {
