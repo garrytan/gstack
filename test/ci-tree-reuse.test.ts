@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import type { ApiJob, ApiRun, RunProfile, TreeRecord } from '../lib/run-evidence';
-import { MAX_CANDIDATES, findPrReuse, findReuse, reuseOutputs, treeRecord, type ApiPull, type PrReuseDeps, type ReuseDeps } from '../scripts/ci-tree-reuse';
+import { MAX_CANDIDATES, findIntegratedReuse, findPrReuse, findReuse, reuseOutputs, treeRecord, type ApiPull, type PrReuseDeps, type ReuseDeps, type IntegrationConsumer, type IntegrationDeps } from '../scripts/ci-tree-reuse';
 
 const REPO = 'garrytan/gstack';
 const PUSH = '1'.repeat(40);
@@ -201,6 +201,103 @@ describe('findPrReuse: a pull request reuses only a run it cannot control', () =
   });
 });
 
+describe('findIntegratedReuse: every integration hop verifies the original execution', () => {
+  // Value: protects=one original execution across squash/promotion/main without evidence chains;
+  // fails_when=consumer accepts an unrelated merge, relaxed rules, failed evidence or forwards reused evidence;
+  // why_new=default main/PR consumers do not cover integrated release branches; seam=none;
+  // no_claim=GitHub API responses are fixtures, not hosted workflow acceptance.
+  const BASE = '7'.repeat(40), RELEASE = '8'.repeat(40), SELF = 999;
+  const guards = ['scripts/record-tests.ts'];
+  const originals = world({ pulls: [pull({ base: { ref: 'staging' } })], runs: [{id:100,event:'pull_request'}] });
+  function integrated() {
+    const reads: number[] = [], artifacts: number[] = [];
+    const d = deps(structuredClone(originals), reads);
+    const promotion = pull({ number:43,merge_commit_sha:RELEASE,head:{sha:PUSH,ref:'staging',repo:{full_name:REPO}} });
+    const api: IntegrationDeps = { ...d,
+      pullsForCommit: sha => sha === RELEASE ? [promotion] : sha === PUSH ? originals.pulls as ApiPull[] : [],
+      commitTree: sha => sha === RELEASE ? TREE : d.commitTree(sha),
+      commit: sha => sha === RELEASE ? {tree:TREE,parents:[BASE,PUSH]} : null,
+      blob: (_sha, file) => [`.github/workflows/free-tests.yml`,'.gstack/pregate.json',...guards].includes(file) ? `blob-${file}` : null,
+      artifact: (id,name) => {artifacts.push(id);return d.artifact(id,name);},
+    };
+    return {api,reads,artifacts};
+  }
+  const consumers: IntegrationConsumer[] = [
+    {event:'push',ref:'refs/heads/staging',sha:PUSH,runId:SELF,runAttempt:1},
+    {event:'pull_request',ref:'refs/pull/43/merge',sha:RELEASE,runId:SELF,runAttempt:1,pr:{number:43,mergeSha:RELEASE,headSha:PUSH,headRef:'staging',headRepo:REPO,baseRef:'main',runId:SELF,runAttempt:1}},
+    {event:'push',ref:'refs/heads/main',sha:RELEASE,runId:SELF,runAttempt:1},
+  ];
+  const options = (consumer = consumers[2]!) => ({repo:REPO,integrationBranch:'staging',consumer,workflow:'free-tests.yml',profileName:'ci-reuse/free-tests',profile:PROFILE,now:NOW,guards});
+  test.each(consumers)('$event $ref resolves the same original task run, never the staging or promotion artifact', consumer => {
+    const w=integrated();
+    expect(findIntegratedReuse(w.api,options(consumer))).toEqual({reused:true,run_id:100,run_attempt:1,event:'pull_request',pr:42,head_sha:HEAD,tree:TREE});
+    expect(w.artifacts).toEqual([100]);
+  });
+  test('all required native source/attempt/job/artifact/tree/freshness controls still apply at the integration boundary', () => {
+    const controls: Array<[string,Partial<IntegrationDeps>]> = [
+      ['artifact_reused',{artifact:()=>({reused:true})}],
+      ['artifact_missing',{artifact:()=>{throw new Error('HTTP 404');}}],
+      ['artifact_mismatch',{artifact:()=>({})}],
+      ['job_missing',{jobs:()=>[]}],
+      ['job_skipped',{jobs:()=>[{name:'free-plan',conclusion:'skipped'},{name:'free-tests',conclusion:'success'}]}],
+      ['job_not_success',{jobs:()=>[{name:'free-plan',conclusion:'failure'},{name:'free-tests',conclusion:'success'}]}],
+      ['run_stale',{jobs:()=>[{name:'free-plan',conclusion:'success',completed_at:'2026-10-28T10:00:00Z'},{name:'free-tests',conclusion:'success',completed_at:'2026-10-28T10:00:00Z'}]}],
+    ];
+    for(const [reason,over] of controls){const w=integrated();expect(findIntegratedReuse({...w.api,...over},options())).toMatchObject({reused:false,reason:'no_verified_run',detail:expect.stringContaining(`reason=${reason}`)});}
+    const w=integrated();const run=w.api.run(100);
+    expect(findIntegratedReuse({...w.api,run:()=>({...run,run_attempt:2,conclusion:'failure'})},options())).toMatchObject({reused:false,detail:expect.stringContaining('run_not_success')});
+    let n=0;
+    expect(findIntegratedReuse({...w.api,run:()=>++n===1?run:{...run,run_attempt:2}},options())).toMatchObject({reused:false,detail:expect.stringContaining('run_changed')});
+  });
+  test('newer red/pending/cancelled evidence on original or consumer heads vetoes; current consuming run alone does not', () => {
+    for(const head of [HEAD,PUSH,RELEASE])for(const status of ['failure','cancelled','in_progress']){
+      const w=integrated(),run=w.api.run(100);
+      const newer={...run,id:101,head_sha:head,created_at:'2026-10-30T11:00:00Z',status:status==='in_progress'?'in_progress':'completed',conclusion:status==='in_progress'?null:status};
+      const api={...w.api,runsForHead:(_wf:string,sha:string)=>sha===head?[...(sha===HEAD?[run]:[]),newer]:w.api.runsForHead(_wf,sha)};
+      expect(findIntegratedReuse(api,options())).toMatchObject({reused:false,detail:expect.stringContaining('newer_run_vetoes')});
+      expect(findIntegratedReuse({...api,runsForHead:(_wf:string,sha:string)=>api.runsForHead(_wf,sha).map(r=>r.id===101?{...r,id:SELF}:r)},options()).reused).toBe(true);
+    }
+  });
+  test('promotion guards include workflow/pin, profile and external producer, without requiring in-repo verifier copies', () => {
+    for(const file of ['.github/workflows/free-tests.yml','.gstack/pregate.json',...guards]){
+      const w=integrated();
+      expect(findIntegratedReuse({...w.api,blob:(sha,f)=>sha===RELEASE&&f===file?'changed':w.api.blob(sha,f)},options())).toMatchObject({reused:false,reason:file.startsWith('.github/')?'workflow_changed':'script_changed'});
+      expect(findIntegratedReuse({...w.api,blob:(_sha,f)=>f===file?null:w.api.blob(_sha,f)},options())).toMatchObject({reused:false,reason:'api_error'});
+    }
+  });
+  test('the default integration route guards both in-repo verifier files', () => {
+    const w=integrated();
+    const o=options();delete (o as {guards?:string[]}).guards;
+    const api={...w.api,blob:(_sha:string,file:string)=>`blob-${file}`};
+    expect(findIntegratedReuse(api,o).reused).toBe(true);
+    for(const file of ['scripts/ci-tree-reuse.ts','lib/run-evidence.ts']){
+      expect(findIntegratedReuse({...api,blob:(sha,f)=>sha===RELEASE&&f===file?'changed':api.blob(sha,f)},o)).toMatchObject({reused:false,reason:'script_changed'});
+      expect(findIntegratedReuse({...api,blob:(sha,f)=>f===file?null:api.blob(sha,f)},o)).toMatchObject({reused:false,reason:'api_error'});
+    }
+  });
+  test('unmerged/wrong-target/ambiguous/fork task or promotion association never grants reuse', () => {
+    const w=integrated();
+    for(const target of [PUSH,RELEASE])for(const ps of [[],[pull({merge_commit_sha:target,base:{ref:'other'}})],[pull({merge_commit_sha:target,head:{sha:HEAD,ref:'staging',repo:{full_name:'fork/gstack'}}})]]){
+      expect(findIntegratedReuse({...w.api,pullsForCommit:sha=>sha===target?ps:w.api.pullsForCommit(sha)},options()).reused).toBe(false);
+    }
+    expect(findIntegratedReuse({...w.api,pullsForCommit:sha=>[...w.api.pullsForCommit(sha),...w.api.pullsForCommit(sha)]},options())).toMatchObject({reused:false,reason:'ambiguous_pr'});
+  });
+  test('promotion must preserve the integration tree and the two-parent main/head relationship', () => {
+    const w=integrated();
+    expect(findIntegratedReuse({...w.api,commit:()=>({tree:'5'.repeat(40),parents:[BASE,PUSH]})},options())).toMatchObject({reused:false,reason:'tree_mismatch'});
+    for(const parents of [[BASE],[BASE,HEAD],[BASE,PUSH,HEAD]])expect(findIntegratedReuse({...w.api,commit:()=>({tree:TREE,parents})},options())).toMatchObject({reused:false,reason:'merge_mismatch'});
+    expect(findIntegratedReuse({...w.api,commitTree:sha=>sha===HEAD?'5'.repeat(40):w.api.commitTree(sha)},options())).toMatchObject({reused:false,reason:'tree_mismatch'});
+  });
+  test('consumer reruns, unrelated events/PRs, invalid names and path traversal refuse', () => {
+    const w=integrated();
+    for(const c of consumers)expect(findIntegratedReuse(w.api,options({...c,runAttempt:2}))).toMatchObject({reused:false,reason:'rerun'});
+    for(const c of [{...consumers[0]!,event:'workflow_dispatch'},{...consumers[0]!,ref:'refs/heads/other'},{...consumers[1]!,pr:{...consumers[1]!.pr!,baseRef:'staging'}}])expect(findIntegratedReuse(w.api,options(c)).reused).toBe(false);
+    for(const branch of ['main','../staging','staging;true',''])expect(findIntegratedReuse(w.api,{...options(),integrationBranch:branch})).toMatchObject({reused:false,reason:'usage'});
+    expect(findIntegratedReuse(w.api,{...options(),guards:['../producer.ts']})).toMatchObject({reused:false,reason:'usage'});
+    expect(findIntegratedReuse({...w.api,pullsForCommit:()=>{throw new Error('HTTP 502');}},options())).toMatchObject({reused:false,reason:'api_error'});
+  });
+});
+
 describe('treeRecord: the tested-tree producer', () => {
   const plan = { shards: [{ files: ['test/b.test.ts', 'test/a.test.ts'] }, { files: ['test/c.test.ts'] }] };
   const results = [{ outcome: { summary: { testsRan: 7 } } }, { outcome: { summary: { testsRan: 5 } } }];
@@ -268,5 +365,42 @@ describe.skipIf(process.platform === 'win32')('the CLI', () => {
       expect([r.status, r.stderr]).toEqual([0, '']);
       expect(JSON.parse(fs.readFileSync(path.join(dir, 'tt', 'tree.json'), 'utf8'))).toMatchObject({ run_id: 9, event: 'push', sha, head_sha: sha, tree: git('rev-parse', 'HEAD^{tree}'), files: ['test/a.test.ts'], tests: 4, os: ['Linux'] });
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('integration CLI routes staging, promotion and main to the original artifact through the real gh adapter', () => {
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ci-integrated-'));
+    const base='7'.repeat(40), release='8'.repeat(40), stamp=new Date().toISOString();
+    const source:ApiRun={id:100,run_attempt:1,status:'completed',conclusion:'success',event:'pull_request',head_sha:HEAD,path:'.github/workflows/free-tests.yml',created_at:stamp,updated_at:stamp,repository:{full_name:REPO},head_repository:{full_name:REPO}};
+    const record={run_id:100,run_attempt:1,event:'pull_request',sha:MERGE,head_sha:HEAD,tree:TREE,files:['test/a.test.ts'],tests:9,os:['Linux']};
+    const json={repo:REPO,push:PUSH,head:HEAD,merge:MERGE,release,base,tree:TREE,source,record,profile:PROFILE};
+    try{
+      fs.mkdirSync(path.join(dir,'.gstack'));
+      fs.writeFileSync(path.join(dir,'.gstack/pregate.json'),JSON.stringify({run_profiles:{'ci-reuse/free-tests':PROFILE}}));
+      fs.writeFileSync(path.join(dir,'fixture.json'),JSON.stringify(json));
+      fs.writeFileSync(path.join(dir,'event.json'),JSON.stringify({pull_request:{number:43,base:{ref:'main'},head:{sha:PUSH,ref:'staging',repo:{full_name:REPO}}}}));
+      // This executable only answers declared fake API interactions and writes the one original artifact.
+      fs.writeFileSync(path.join(dir,'gh'),`#!${process.execPath} --no-env-file --config=/dev/null
+import * as fs from 'node:fs';import * as path from 'node:path';
+const x=JSON.parse(fs.readFileSync(${JSON.stringify(path.join(dir,'fixture.json'))},'utf8')),a=process.argv.slice(2);
+if(a[0]==='run'&&a[1]==='download'){if(a[2]!=='100')throw Error('forwarded artifact');fs.writeFileSync(path.join(a[a.indexOf('--dir')+1],'tree.json'),JSON.stringify(x.record));process.exit(0);}
+const p=a.find(v=>v.startsWith('repos/'))||'';let v;
+if(p.includes('/commits/')&&p.includes('/pulls?')){const main=p.includes(x.release);v=[{number:main?43:42,merged_at:x.source.created_at,merge_commit_sha:main?x.release:x.push,base:{ref:main?'main':'staging'},head:{sha:main?x.push:x.head,ref:main?'staging':'feature',repo:{full_name:x.repo}}}];}
+else if(p.includes('/git/commits/'))v={tree:{sha:x.tree},parents:p.endsWith(x.release)?[{sha:x.base},{sha:x.push}]:[]};
+else if(p.includes('/contents/'))v={sha:'same-guard',type:'file'};
+else if(p.includes('/artifacts?'))v=[{name:'tested-tree',expired:false,size_in_bytes:400}];
+else if(p.includes('/jobs?'))v=x.profile.jobs.map(name=>({name,conclusion:'success',completed_at:x.source.updated_at}));
+else if(p.includes('/workflows/')){const rs=p.includes('head_sha='+x.head)?[x.source]:[];v=a.includes('--paginate')?rs:{workflow_runs:rs};}
+else if(p.endsWith('/runs/100'))v=x.source;else throw Error('unexpected fake API '+p);
+if(a.includes('--paginate'))for(const r of v)console.log(JSON.stringify(r));else console.log(JSON.stringify(v));
+`,{mode:0o700});
+      for(const [event,ref,sha]of [['push','refs/heads/staging',PUSH],['pull_request','refs/pull/43/merge',release],['push','refs/heads/main',release]]){
+        const output=path.join(dir,'output');fs.writeFileSync(output,'');
+        const r=run(['find','--workflow','free-tests.yml','--profile','ci-reuse/free-tests','--integration-branch','staging','--guard','scripts/record-tests.ts'],{PATH:`${dir}:${process.env.PATH}`,GITHUB_REPOSITORY:REPO,GITHUB_EVENT_NAME:event!,GITHUB_REF:ref!,GITHUB_SHA:sha!,GITHUB_RUN_ID:'999',GITHUB_RUN_ATTEMPT:'1',GITHUB_EVENT_PATH:path.join(dir,'event.json'),GITHUB_OUTPUT:output,GSTACK_STATE_ROOT:path.join(dir,'state')},dir);
+        expect([event,ref,r.status,r.stderr]).toEqual([event,ref,0,'']);
+        expect(r.stdout).toContain('REUSE: accepted run 100 (pull_request, attempt 1)');
+        expect(fs.readFileSync(output,'utf8')).toContain('run_id=100\n');
+        expect(fs.readFileSync(output,'utf8')).toEndWith('reused=true\n');
+      }
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
   });
 });

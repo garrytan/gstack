@@ -1,0 +1,2 @@
+### Added
+- Staging-first releases can verify the original task's source-test execution on staging, promotion and main with `ci-tree-reuse.ts find --integration-branch staging`. Every consumer verifies the original artifact directly, keeps full fallback, and produces no reusable chain. External immutable gstack checkouts can guard their producer paths while retaining mandatory workflow/pin and profile checks.
