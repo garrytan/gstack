@@ -54,13 +54,13 @@ describe('severity words count as findings in label position', () => {
       ['- The retry loop never stops (high)', 'P1', 'findings'],
     ];
     for (const [text, highest, verdict] of cases) {
-      const r = classifyOutsideReview({ text: `${text}\n${REC}`, gate: 'review' });
+      const r = classifyOutsideReview({ text: `${text}\n${REC}\nVERDICT: FINDINGS`, gate: 'review' });
       expect({ text, highest: r.findings.highest as string | null, verdict: r.verdict as string }).toEqual({ text, highest, verdict });
     }
   });
 
   test('negative controls: severity words inside prose never count', () => {
-    const r = classifyOutsideReview({ text: read('prose-negative.txt'), gate: 'review' });
+    const r = classifyOutsideReview({ text: `${read('prose-negative.txt')}\nVERDICT: CLEAN`, gate: 'review' });
     expect([r.verdict, r.findings.highest]).toEqual(['clean', null]);
     for (const text of ['A high-level plan.', 'Highly consistent.', 'This is low-risk.', 'A medium-term follow-up.',
       'There are no critical findings.', 'High availability: kept.', 'The high number of retries is fine.', 'Lower the limit.',
@@ -70,29 +70,31 @@ describe('severity words count as findings in label position', () => {
     }
   });
 
-  test('a review with neither tags, severity labels nor a no-findings statement is unverified, never clean', () => {
+  test('a review with neither tags, severity labels nor the verdict line is unverified, never clean', () => {
     const r = classifyOutsideReview({ text: read('prose-unlabeled.txt'), gate: 'review' });
-    expect([r.verdict, r.reason]).toEqual(['unverified', 'untagged_review']);
+    expect([r.verdict, r.reason]).toEqual(['unverified', 'missing_verdict']);
     const cli = spawnSync(process.execPath, [LIB, '--verdict', 'review', fixture('prose-unlabeled.txt')], { encoding: 'utf8', timeout: 10000 });
     expect(cli.status).toBe(4);
     expect(cli.stdout).toContain('VERDICT: unverified\n');
-    expect(classifyOutsideReview({ text: `No issues found.\n${REC}`, gate: 'review' }).verdict).toBe('clean');
-    expect(classifyOutsideReview({ text: `I did not find any issues.\n${REC}`, gate: 'review' }).verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: `No issues found.\n${REC}`, gate: 'review' }).verdict).toBe('unverified');
+    expect(classifyOutsideReview({ text: `No issues found.\n${REC}\nVERDICT: CLEAN`, gate: 'review' }).verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: `I did not find any issues.\n${REC}`, gate: 'review' }).verdict).toBe('unverified');
+    expect(classifyOutsideReview({ text: `I did not find any issues.\n${REC}\nVERDICT: CLEAN`, gate: 'review' }).verdict).toBe('clean');
   });
 
   test('the structured gate reads severity labels too', () => {
     expect(classifyOutsideReview({ text: 'High: race in cleanup.', gate: 'structured' }).verdict).toBe('findings');
-    expect(classifyOutsideReview({ text: 'Medium: stale comment.', gate: 'structured' }).verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: 'Medium: stale comment.\nVERDICT: FINDINGS', gate: 'structured' }).verdict).toBe('clean');
   });
 
   test('a stored panel of real Codex outputs keeps its verdicts', () => {
     const panel = path.join(ROOT, 'test', 'fixtures', 'codex-review');
-    const verdict = (name: string, gate: OutsideGate) => {
-      const r = classifyOutsideReview({ text: fs.readFileSync(path.join(panel, name), 'utf8'), gate });
+    const verdict = (name: string, gate: OutsideGate, tail = '') => {
+      const r = classifyOutsideReview({ text: fs.readFileSync(path.join(panel, name), 'utf8') + tail, gate });
       return [r.verdict, r.findings.highest, r.reason ?? null];
     };
-    expect(verdict('clean-review.stdout.txt', 'structured')).toEqual(['unverified', null, 'untagged_review']);
-    expect(verdict('p2-review.stdout.txt', 'structured')).toEqual(['clean', 'P2', null]);
+    expect(verdict('clean-review.stdout.txt', 'structured')).toEqual(['unverified', null, 'missing_verdict']);
+    expect(verdict('p2-review.stdout.txt', 'structured', '\nVERDICT: FINDINGS')).toEqual(['clean', 'P2', null]);
     expect(verdict('clean-review.stdout.txt', 'review')).toEqual(['unavailable', null, 'missing_markers']);
     expect(verdict('p2-review.stdout.txt', 'review')).toEqual(['unavailable', 'P2', 'missing_markers']);
   });

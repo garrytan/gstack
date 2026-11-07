@@ -109,6 +109,12 @@ describe('findings and not-ready signals outrank the verdict line', () => {
     expect(result.reason).toBe('unverified_verdict');
   });
 
+  test('under VERDICT: CLEAN a numbered list of what was checked is not a finding', () => {
+    const result = check('I checked:\n1. the retry path\n2. every caller\nVerdict: ready\nVERDICT: CLEAN');
+    expect(result.verdict).toBe('clean');
+    expect(result.findings.unlabeled).toBeUndefined();
+  });
+
   test('an earlier ready verdict agrees with the line', () => {
     expect(check('Verdict: ready\nVERDICT: CLEAN').verdict).toBe('clean');
   });
