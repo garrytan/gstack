@@ -25,9 +25,11 @@ How the whole factory fits together: [capy/README.md](../capy/README.md).
 
 ## How it is loaded
 
-A Capy machine is one where `CAPY_MACHINE_CONFIG` is set or `~/.capy/system`
-exists, the same test the Capy installer (`bin/gstack-capy-install`) already
-uses. `gstack_on_capy` in `bin/gstack-install-registry.sh` is that test, and
+A Capy machine is one where `CAPY_MACHINE_CONFIG` is set (cloud machines) or
+`~/.capy` exists (cloud machines and paired devices, such as a Mac running
+Capy). Any `~/.capy` counts, so when it is unclear the crew skills install
+rather than a Capy user losing `/captain`. `gstack_on_capy` in
+`bin/gstack-install-registry.sh` is that test, and
 `GSTACK_CREW_SKILLS` there lists the crew skills. On a Capy machine setup and
 `gstack-relink` register them like any other skill; elsewhere they get no entry
 on any host, and an entry an earlier install made is removed.
