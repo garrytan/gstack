@@ -38,7 +38,8 @@ commit themes; do not repeat the captions.
    the one fact that makes that safe, with the evidence-ladder rung it reached (file:line read, walked failure path, script ran, repro).
 7. **`## Approvals`:** the output of `~/.claude/skills/gstack/bin/gstack-approvals render --plan "<the brief's Plan line>"`, verbatim. It
    escapes its cells, and the receipt never reads it as an approval citation. A public repo (or unknown
-   visibility) gets only `Approved: yes|no (record <id>)`; never pass `--full` for a PR body. On
+   visibility) gets only `Approved: yes|no (record <id>)` and `Plan: approved (record r-<id>)`; never pass `--full` for a PR body. If render
+   refuses with a `PLAN_*` code, it printed nothing: run the fix it names and render again. On
    `APPROVAL_RECORD_UNAVAILABLE` keep its text and say so in the READY report. Never type rows by hand.
 8. **READY report:** attach the key image's PNG to the report you send (Capy's message
    attachments) and give its uploaded URL, so the Captain can show it inline.

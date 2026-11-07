@@ -5,6 +5,9 @@
  *   Plan: approved: <token>    an owner-approved plan: `a-<12 hex>` is an approval row id; a path is an autoplan
  *                              run directory (its run.json names the run); anything else is a run id matched
  *                              against row sources `autoplan:<id>@gate_rev=<n>`
+ *   Plan: approved (record r-<12 hex>)
+ *                              the public-repo form render --plan writes (GST-1774): an opaque id of one approval row
+ *                              (planRecordId), so no run id or path reaches public PR text or the READY note
  *   Plan: exempt: <reason>     one of the exemptions docs/captain.md lists, or `crew:<rule>` for a crew's own
  *   Plan: required             the plan step has not finished
  *
@@ -23,6 +26,7 @@ import * as path from 'node:path';
 import { locate, type ApprovalRow, type Env } from './approval-record';
 import type { ResultCodeName } from './result-codes';
 import { isUnavailable, loadPolicyFromBase, type ShipPolicy } from './ship-policy';
+import { readConfigKeyWithRoot, resolveStateRoot } from './state-root';
 
 export const PLAN_MODES = ['off', 'warn', 'require'] as const;
 export type PlanMode = typeof PLAN_MODES[number];
@@ -39,15 +43,39 @@ export type PlanResolution = { ok: true; record: PlanRecord; summary: string } |
 
 const NOT_PLAN_ROW = /\b(ruled_note|review_loop_grant|review_loop_exception|test_lane_exception)\b/;
 const ROW_ID = /^a-[0-9a-f]{12}$/;
+const RECORD_ID = /^r-[0-9a-f]{12}$/;
+const LOCAL_SOURCE = 'state-root config';
 
-/** The mode in force: the base policy's plan_record, else a crew opt-in (GSTACK_PLAN_RECORD), else warn in a Capy session, else off. */
+/** The opaque id a public Plan line names instead of a run or row id: one approval row, stable as later rows are added. */
+export const planRecordId = (rowId: string) => 'r-' + createHash('sha256').update(`plan-record\0${rowId}`).digest('hex').slice(0, 12);
+
+/** `plan_record` in `<state root>/config.yaml` (gstack-config set plan_record …), read only when the state root is absolute. */
+function localPlanMode(env: Env): { mode: PlanMode; source: string } | { ignored: string } | null {
+  if (!path.isAbsolute(resolveStateRoot(env))) return null;
+  const { value, root } = readConfigKeyWithRoot('plan_record', env);
+  if (value === null) return null;
+  const where = `${LOCAL_SOURCE} ${root}/config.yaml`;
+  return (PLAN_MODES as readonly string[]).includes(value) ? { mode: value as PlanMode, source: where } : { ignored: `${where} plan_record "${value.slice(0, 20)}" ignored (off, warn or require)` };
+}
+
+/**
+ * The mode in force: the base policy's plan_record when it is warn or require, else a crew opt-in (GSTACK_PLAN_RECORD),
+ * else the machine's own plan_record (the untracked source for a repo that commits no .gstack/), else warn in a Capy
+ * session, else off. A machine's key never loosens a tracked warn or require.
+ */
 export function planMode(policyValue: PlanMode | undefined, env: Env): { mode: PlanMode; source: string } {
   if (policyValue && policyValue !== 'off') return { mode: policyValue, source: 'base policy plan_record' };
   const opt = env.GSTACK_PLAN_RECORD;
   if (opt === 'warn' || opt === 'require') return { mode: opt, source: 'GSTACK_PLAN_RECORD' };
-  if (env.GSTACK_CAPY === '1') return { mode: 'warn', source: 'Capy crew default' };
-  return { mode: 'off', source: 'default' };
+  const local = localPlanMode(env);
+  if (local && 'mode' in local) return local;
+  const ignored = local ? `; ${local.ignored}` : '';
+  if (env.GSTACK_CAPY === '1') return { mode: 'warn', source: `Capy crew default${ignored}` };
+  return { mode: 'off', source: `default${ignored}` };
 }
+
+/** Under off, the one PLAN: line ready, land and finish still print when the machine's key decided the mode or was ignored. */
+const offNote = (mode: { mode: PlanMode; source: string }) => (mode.source.includes(LOCAL_SOURCE) ? `PLAN: off [mode off from ${mode.source}]` : undefined);
 
 /** The first `Plan:` line at the start of a line, outside fenced blocks; null when the body has none. */
 export function parsePlanLine(body: string): PlanDecl | null {
@@ -59,7 +87,9 @@ export function parsePlanLine(body: string): PlanDecl | null {
     if (!m) continue;
     const line = `Plan: ${m[1]!.trim()}`;
     const rest = m[1]!.trim();
-    if (!/^(approved|exempt|required)(?=[\s:]|$)/i.test(rest)) continue;
+    if (!/^(approved|exempt|required)(?=[\s:(]|$)/i.test(rest)) continue;
+    const record = /^approved\s*\(\s*record\s+(r-[0-9a-f]{12})\s*\)/i.exec(rest);
+    if (record) return { kind: 'approved', line, token: record[1]!.toLowerCase() };
     const approved = /^approved\s*:?\s*(\S+)/i.exec(rest);
     if (approved) return { kind: 'approved', line, token: approved[1]!.replace(/[),.;]+$/, '') };
     const exempt = /^exempt\s*:?\s*(.+)$/i.exec(rest);
@@ -153,22 +183,44 @@ function resolveApproved(decl: Extract<PlanDecl, { kind: 'approved' }>, o: { cwd
   if (!store) return { ok: false, failure: { code: 'PLAN_STORE_UNAVAILABLE', message: `${decl.line}: no approval store on this machine (the state root's approvals and every mirror are missing)`, fix: 'run this where the plan was approved, or gstack-approvals sync on the lane machine, then rerun' } };
   let row: ApprovalRow | undefined;
   let ref = decl.token;
-  if (ROW_ID.test(decl.token)) {
-    row = store.rows.find(r => r.id === decl.token);
+  const byRecord = RECORD_ID.test(decl.token);
+  if (byRecord || ROW_ID.test(decl.token)) {
+    row = store.rows.find(r => (byRecord ? planRecordId(r.id) : r.id) === decl.token);
+    if (!row && byRecord) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row behind record ${decl.token} in ${store.dirs.join(', ')}${blockRecordIds(store.rows).has(decl.token) ? `; ${decl.token} is the Approvals block's id for a whole record, not a Plan line's` : ''}`, fix: 'paste the Plan line gstack-approvals render --plan printed, run ready where the plan was approved, or gstack-approvals sync, then rerun' } };
     if (!row) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row ${decl.token} in ${store.dirs.join(', ')}`, fix: 'record the owner\'s words with gstack-approvals add (or import --autoplan), then cite the row id it prints' } };
-    if (NOT_PLAN_ROW.test(row.ask) || NOT_PLAN_ROW.test(row.scope)) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: row ${row.id} is a ruling or grant, not a plan approval`, fix: 'cite the row that recorded the owner\'s plan approval' } };
+    if (NOT_PLAN_ROW.test(row.ask) || NOT_PLAN_ROW.test(row.scope)) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: row ${byRecord ? `behind ${decl.token}` : row.id} is a ruling or grant, not a plan approval`, fix: 'cite the row that recorded the owner\'s plan approval' } };
   }
   const run = row ? /^autoplan:(.+)@gate_rev=\d+$/.exec(row.source)?.[1] : runIdFor(decl.token, o.cwd);
   if (run) {
     const gate = gateState(store.rows, run);
-    if ('message' in gate) return { ok: false, failure: { code: gate.code, message: `${decl.line}: ${gate.message}`, fix: gate.code === 'PLAN_UNRESOLVED' ? `gstack-approvals import --autoplan <the run dir> --by "<owner>" after the owner's answer, then rerun` : 'finish the gate with the owner\'s answer and import it again' } };
+    const where = byRecord ? `record ${decl.token}` : `autoplan run ${run}`;
+    if ('message' in gate) return { ok: false, failure: { code: gate.code, message: `${decl.line}: ${byRecord ? gate.message.replace(`autoplan run ${run}`, where) : gate.message}`, fix: gate.code === 'PLAN_UNRESOLVED' ? `gstack-approvals import --autoplan <the run dir> --by "<owner>" after the owner's answer, then rerun` : 'finish the gate with the owner\'s answer and import it again' } };
     row = gate.row;
-    ref = run;
+    if (!byRecord) ref = run;
   }
   if (!row) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row in ${store.dirs.join(', ')}`, fix: 'cite an approval row id or an autoplan run id' } };
-  if (row.outcome !== 'approved') return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: row ${row.id} (${row.source}) is ${row.outcome}`, fix: 'finish the gate with the owner\'s answer and import it again' } };
-  if (agentWorded(row)) return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: row ${row.id} was answered in an agent's own words, not the owner's (${row.by})`, fix: 'relay the gate to the owner through the Captain and answer it with their exact words (--owner-reply), then import again' } };
+  const named = byRecord ? `the row behind ${decl.token}` : `row ${row.id}`;
+  if (row.outcome !== 'approved') return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: ${named}${byRecord ? '' : ` (${row.source})`} is ${row.outcome}`, fix: 'finish the gate with the owner\'s answer and import it again' } };
+  if (agentWorded(row)) return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: ${named} was answered in an agent's own words, not the owner's${byRecord ? '' : ` (${row.by})`}`, fix: 'relay the gate to the owner through the Captain and answer it with their exact words (--owner-reply), then import again' } };
+  if (byRecord) {
+    const rev = /@gate_rev=(\d+)$/.exec(row.source)?.[1];
+    return { ok: true, record: { line: decl.line, state: 'approved', ref, row_sha256: rowSha(row), resolver: PLAN_RESOLVER_VERSION }, summary: `approved ${ref} (${rev ? `gate_rev ${rev}, ` : ''}${row.date})` };
+  }
   return { ok: true, record: { line: decl.line, state: 'approved', ref, row_id: row.id, row_sha256: rowSha(row), resolver: PLAN_RESOLVER_VERSION }, summary: `approved ${ref} row=${row.id} (${row.ask.slice(0, 80)}; ${row.by.slice(0, 60)}, ${row.date})` };
+}
+
+/** The ids the redacted Approvals block prints for each branch's record (renderRecord), to name a pasted block id. */
+function blockRecordIds(rows: ApprovalRow[]): Set<string> {
+  const byBranch = new Map<string, string[]>();
+  for (const r of rows) byBranch.set(r.branch, [...(byBranch.get(r.branch) ?? []), r.id]);
+  return new Set([...byBranch.values()].map(ids => 'r-' + createHash('sha256').update(ids.sort().join('\n')).digest('hex').slice(0, 12)));
+}
+
+/** The Plan line render --plan prints on a public or unknown-visibility repo: a resolved approval by record id, any other line as is. */
+export function publicPlanLine(decl: PlanDecl, res: PlanResolution): string {
+  if (decl.kind !== 'approved' || !res.ok) return decl.line;
+  const ref = res.record.ref ?? '';
+  return `Plan: approved (record ${RECORD_ID.test(ref) ? ref : planRecordId(res.record.row_id!)})`;
 }
 
 /** The READY line for a resolution under a mode. */
@@ -182,8 +234,10 @@ export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?
   const mode = planMode(o.policyValue, o.env);
   const decl = parsePlanLine(o.body);
   if (mode.mode === 'off') {
-    if (!decl) return {};
-    try { const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir }); return res.ok ? { record: res.record } : {}; } catch { return {}; }
+    const note = offNote(mode);
+    const line = note ? { line: note } : {};
+    if (!decl) return line;
+    try { const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir }); return res.ok ? { ...line, record: res.record } : line; } catch { return line; }
   }
   const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir });
   const line = planLine(res, mode);
@@ -194,7 +248,7 @@ export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?
 /** land's plan step: the READY note's record must exist and carry the PR body's current Plan line; land never needs the store. */
 export function landPlan(o: { env: Env; policyValue?: PlanMode; record?: PlanRecord; body: string }): { line?: string; failure?: PlanFailure } {
   const mode = planMode(o.policyValue, o.env);
-  if (mode.mode === 'off') return {};
+  if (mode.mode === 'off') { const note = offNote(mode); return note ? { line: note } : {}; }
   const current = parsePlanLine(o.body)?.line ?? null;
   const why = !o.record ? 'the READY note carries no plan record'
     : (current ?? 'Plan: exempt: changelog-only') !== o.record.line && !(current === null && o.record.reason === 'changelog-only') ? `the READY note recorded "${o.record.line}" but the PR body now says "${current ?? 'no Plan: line'}"` : null;

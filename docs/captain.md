@@ -279,7 +279,12 @@ The lane copies that line into the PR body (`gstack-approvals render --plan "<li
 (docs/ship-policy.md#plan-record): an `approved:` run id or row id must resolve to the owner's
 words, never a gate the lane answered itself; an `exempt:` reason must be on this list or a
 crew's `crew:<rule>`. Crew sessions warn by default; `plan_record: require` or
-`GSTACK_PLAN_RECORD=require` makes ready and land refuse.
+`GSTACK_PLAN_RECORD=require` makes ready and land refuse. A repo that commits no
+`.gstack/` sets the mode per machine (`gstack-config set plan_record warn|require`), which
+gates ready and /ship finish only, since land needs the tracked policy; on Capy, where a fresh
+machine starts without it, put `GSTACK_PLAN_RECORD` in the project env. On a public repo
+render writes `Plan: approved (record r-<id>)` in place of the brief's run id, and ready
+resolves that id to the same approval row.
 
 The copy-paste brief is [`captain/templates/brief.md`](../captain/templates/brief.md): the
 plan and the ask as step 1, the build after the word as step 2, /ship to READY as step 3,

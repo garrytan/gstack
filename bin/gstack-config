@@ -255,6 +255,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   off = no probe, no scan, no hint, no /impeccable
 #                           #   handoff lines. An invalid value is REJECTED (existing
 #                           #   value preserved) so a typo cannot silently disable it.
+# plan_record:              # off | warn | require. The plan check on this machine
+#                           #   (docs/ship-policy.md#plan-record) for a repo that
+#                           #   commits no .gstack/ship-policy.json; a tracked
+#                           #   plan_record of warn or require wins, and
+#                           #   GSTACK_PLAN_RECORD wins over this. Unset: warn in
+#                           #   a Capy session, else off.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -351,6 +357,7 @@ lookup_default() {
     autoplan_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default autoplan_gate ;; # on | off — the /autoplan stop gate; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
+    plan_record) echo "" ;; # empty → warn in a Capy session, else off; a tracked plan_record of warn or require wins (lib/plan-record.ts)
     redact_prepush_hook) echo "false" ;;
     pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
     memorable_recall) echo "off" ;; # on | off — Memorable bridge gate, fail-closed until `gstack-memorable enable`
@@ -408,7 +415,7 @@ lookup_default() {
     # VAR empty and the written default unreachable.
     # Deliberately *only* the unknown-key path: the keys above whose default is
     # intentionally empty (cross_project_learnings, salience_allowlist,
-    # user_slug_at_*, redact_repo_visibility) keep exit 0, because "" is their
+    # user_slug_at_*, redact_repo_visibility, plan_record) keep exit 0, because "" is their
     # real answer and their callers rely on it.
     *) return 1 ;;
   esac
@@ -861,6 +868,12 @@ $_gstack_legacy_root"
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    # plan_record decides whether ship-queue ready and /ship finish refuse a PR with no approved plan: reject a
+    # typo instead of coercing it, so a misspelt require never silently turns the check off.
+    if [ "$KEY" = "plan_record" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "warn" ] && [ "$VALUE" != "require" ]; then
+      echo "Error: plan_record '$VALUE' not recognized. Valid values: off, warn, require. Existing value left unchanged." >&2
+      exit 1
+    fi
     # codex_effort feeds model_reasoning_effort on paid Codex calls: reject a
     # typo instead of coercing it (the probe refuses an invalid stored value too).
     if [ "$KEY" = "review_effort_tiers" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
@@ -1145,7 +1158,7 @@ $_gstack_legacy_root"
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts ceo_review_gate autoplan_gate; do
+               skill_routing skill_contracts ceo_review_gate autoplan_gate plan_record; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1171,7 +1184,7 @@ $_gstack_legacy_root"
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts ceo_review_gate autoplan_gate; do
+               skill_routing skill_contracts ceo_review_gate autoplan_gate plan_record; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
