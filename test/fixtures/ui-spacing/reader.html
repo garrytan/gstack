@@ -20,6 +20,7 @@ main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
 .x { flex: none; width: 32px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--muted); }
 .row .role { font-size: 14px; margin-left: 8px; }
 .row .mail { color: var(--muted); font-size: 13px; }
+.pick { height: 32px; font: inherit; }
 </style>
 </head>
 <body>
@@ -29,7 +30,7 @@ main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
   <div class="rows">
     <div class="row"><div class="text"><div><span class="name">Dana Whitfield</span><span class="role">Owner</span></div><div class="mail">dana@example.test</div></div><button class="x" aria-label="Remove Dana Whitfield">×</button></div>
     <div class="row"><div class="text"><div><span class="name">Omar Haddad</span><span class="role">Reader</span></div><div class="mail">omar@example.test</div></div><button class="x" aria-label="Remove Omar Haddad">×</button></div>
-    <div class="row"><div class="text"><div><span class="name">Lena Park</span><span class="role">Reader</span></div><div class="mail">lena@example.test</div></div><button class="x" aria-label="Remove Lena Park">×</button></div>
+    <div class="row"><div class="text"><div><span class="name">Lena Park</span><span class="role">Reader</span></div><div class="mail">lena@example.test</div></div><select class="pick" aria-label="Role for Lena Park"><option>Reader</option><option>Editor</option><option>Owner</option></select><button class="x" aria-label="Remove Lena Park">×</button></div>
   </div>
   <p class="help">Readers see deploys and logs.</p>
 </section>

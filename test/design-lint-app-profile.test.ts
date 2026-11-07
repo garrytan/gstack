@@ -131,6 +131,24 @@ describe.skipIf(!hasBrowser)('app profile: what must not fire', () => {
     expect([phone.findings, phone.app.verdict]).toEqual([[], 'clean']);
   }, 60_000);
 
+  test('a defect outside --within is not reported; the same section measured directly is', async () => {
+    const page = genPage('outside.html', '.list { border: 1px solid #dfe3ea } .row { padding: 3px 12px } .row + .row { border-top: 1px solid #dfe3ea } .row p { margin: 0 } .row p + p { color: #6b7385; font-size: 13px } .ok .row { padding: 10px 12px } .ok + .bad { margin-top: 24px }',
+      '<div class="ok"><div class="list"><div class="row"><p>Deploy key</p><p>Read-only access</p></div><div class="row"><p>Registry token</p><p>Pushes images</p></div></div></div>'
+      + '<div class="bad"><div class="list"><div class="row"><p>Deploy key</p><p>Read-only access</p></div><div class="row"><p>Registry token</p><p>Pushes images</p></div></div></div>');
+    const inside = await measure(page, '.ok');
+    expect([inside.findings, inside.app.verdict]).toEqual([[], 'clean']);
+    expect((await measure(page, '.bad')).ids).toEqual(['row-crowding']);
+  }, 60_000);
+
+  test('small-hit-area counts an input\'s label toward its box and skips a link inside a run of text; a bare 16px checkbox fires', async () => {
+    const page = genPage('targets.html', '.list { border: 1px solid #dfe3ea } .row { display: flex; gap: 8px; align-items: center; padding: 10px 12px } .row + .row { border-top: 1px solid #dfe3ea } .row p { margin: 0 } label.big { display: flex; align-items: center; gap: 8px; min-height: 40px } input { width: 16px; height: 16px; margin: 0 }',
+      '<div class="list"><div class="row"><label class="big"><input type="checkbox"> Notify me</label></div>'
+      + '<div class="row"><p>Read the <a href="#policy">sharing policy</a> before adding people.</p></div>'
+      + '<div class="row"><p>Mute</p><input type="checkbox" aria-label="Mute"></div></div>');
+    const r = await measure(page, '.probe');
+    expect(r.findings.map((f) => [f.rule, f.app!.viewport, f.app!.locator])).toEqual([['small-hit-area', '375x812', expect.stringMatching(/input "Mute"$/)]]);
+  }, 60_000);
+
   test('negative controls with trigger bait: a nav list, a table, a card grid and a list spaced right give zero app findings', async () => {
     const r = await measure('negatives.html', '.negatives');
     expect([r.findings, r.app.verdict, r.exitCode]).toEqual([[], 'clean', 0]);
