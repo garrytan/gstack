@@ -8,6 +8,8 @@
  *   Stop: payload transcript_path (+ last_assistant_message)
  *   SubagentStop: payload agent_transcript_path, sidechain records included,
  *     so only a subagent that itself loaded /plan-ceo-review is gated
+ *     -> re-read until it holds that final message (lib/skill-gates.ts
+ *        settledTranscript; Stop can beat the CLI's flush)
  *     -> the last /plan-ceo-review load (none: nothing)
  *     -> Stop only: a final turn? (lib/skill-contract.ts isFinalTurn; a
  *        question to a human in an interactive session is never blocked)
@@ -26,10 +28,10 @@
 import * as path from 'path';
 import { runBin, sessionKind } from './spawn-bin';
 import { SKILL, checkOutput } from '../../../lib/ceo-review-gate';
-import { StateError, UnknownShape, isFinalTurn, parseTranscript, readTranscriptFile, sameSkill, skillLoads, turnEnd, withFinalMessage } from '../../../lib/skill-contract';
+import { isFinalTurn, sameSkill, skillLoads, turnEnd } from '../../../lib/skill-contract';
 import { readSkillSwitch } from '../../../lib/skill-route';
 import {
-  GateError, blockWith, hookRecord, note, pruneSessionDirs, readGateRecord, recordPath, remainingMs, runGateHook, sessionDir, systemMessage,
+  GateError, blockWith, hookRecord, note, pruneSessionDirs, readGateRecord, recordPath, remainingMs, runGateHook, sessionDir, settledTranscript, systemMessage,
   withSessionLock, writeGateRecord, type GatePayload, type HookOutput,
 } from '../../../lib/skill-gates';
 
@@ -49,15 +51,7 @@ function handle(p: GatePayload): HookOutput | undefined {
   const sub = p.event === 'SubagentStop';
   const file = sub ? p.raw.agent_transcript_path : p.transcriptPath;
   if (typeof file !== 'string' || !file) return undefined;
-  let raw: string;
-  let t;
-  try {
-    raw = readTranscriptFile(file);
-    t = withFinalMessage(parseTranscript(raw, { includeSidechain: sub }), p.raw.last_assistant_message);
-  } catch (e) {
-    if (e instanceof StateError || e instanceof UnknownShape) throw new GateError('GATE_TRANSCRIPT', e.message);
-    throw e;
-  }
+  const { raw, t } = settledTranscript(file, p.raw.last_assistant_message, { includeSidechain: sub });
   const load = skillLoads(t).filter(l => sameSkill(l.skill, SKILL)).pop();
   if (!load) return undefined;
   if (!sub && !isFinalTurn(turnEnd(t), () => sessionKind(Math.min(SESSION_KIND_TIMEOUT_MS, remainingMs())))) return undefined;

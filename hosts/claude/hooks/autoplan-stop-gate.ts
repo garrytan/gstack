@@ -5,7 +5,7 @@
  * SWITCH_DEFAULT). Registered through one shim: autoplan-stop-gate-stop (Stop).
  *
  *   Stop: payload transcript_path (+ last_assistant_message), re-read until it
- *     holds that final message (at most 2 s; Stop can beat the CLI's flush)
+ *     holds that final message (lib/skill-gates.ts settledTranscript)
  *     -> the last /autoplan load (none: nothing)
  *     -> a final turn? (lib/skill-contract.ts isFinalTurn; a question to a
  *        human in an interactive session is never blocked)
@@ -25,45 +25,20 @@
  */
 import { sessionKind } from './spawn-bin';
 import { SKILL, checkRun, missingStep } from '../../../lib/autoplan-stop-gate';
-import { StateError, UnknownShape, isFinalTurn, parseTranscript, readTranscriptFile, sameSkill, skillLoads, turnEnd, withFinalMessage } from '../../../lib/skill-contract';
+import { isFinalTurn, sameSkill, skillLoads, turnEnd } from '../../../lib/skill-contract';
 import { readSkillSwitch } from '../../../lib/skill-route';
 import {
-  GateError, blockWith, hookRecord, note, pruneSessionDirs, readGateRecord, recordPath, remainingMs, runGateHook, sessionDir, systemMessage,
+  blockWith, hookRecord, note, pruneSessionDirs, readGateRecord, recordPath, remainingMs, runGateHook, sessionDir, settledTranscript, systemMessage,
   withSessionLock, writeGateRecord, type GatePayload, type HookOutput,
 } from '../../../lib/skill-gates';
 
 const HOOK = 'autoplan-gate';
 const MAX_BLOCKS = 3;
 const SESSION_KIND_TIMEOUT_MS = 1000;
-const SETTLE_MS = 2000;
-const SETTLE_POLL_MS = 50;
-
-/**
- * The transcript once it holds the turn's final message. Claude Code can run
- * Stop before it flushes the turn's last lines (the smoke run saw the scope
- * call and a phase publication land about 200 ms after Stop fired), so a
- * stale read would block a finished run. Re-read until the final text is
- * there, for at most SETTLE_MS or half the deadline, then judge what exists.
- */
-function settledTranscript(p: GatePayload) {
-  const until = Date.now() + Math.min(SETTLE_MS, remainingMs() / 2);
-  for (;;) {
-    const t = parseTranscript(readTranscriptFile(p.transcriptPath));
-    const settled = withFinalMessage(t, p.raw.last_assistant_message);
-    if (settled === t || Date.now() >= until) return settled;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
-  }
-}
 
 function handle(p: GatePayload): HookOutput | undefined {
   if (p.event && p.event !== 'Stop') return undefined;
-  let t;
-  try {
-    t = settledTranscript(p);
-  } catch (e) {
-    if (e instanceof StateError || e instanceof UnknownShape) throw new GateError('GATE_TRANSCRIPT', e.message);
-    throw e;
-  }
+  const { t } = settledTranscript(p.transcriptPath, p.raw.last_assistant_message);
   const load = skillLoads(t).filter(l => sameSkill(l.skill, SKILL)).pop();
   if (!load) return undefined;
   if (!isFinalTurn(turnEnd(t), () => sessionKind(Math.min(SESSION_KIND_TIMEOUT_MS, remainingMs())))) return undefined;

@@ -69,6 +69,8 @@ Once a session loads /plan-ceo-review (the Skill tool, a typed `/plan-ceo-review
 
 Bash commands are never parsed: a review written with a heredoc or `tee` is found by the repository and ceo-plans scans.
 
+Like the /autoplan gate, the hook first re-reads the transcript until it holds the stop's `last_assistant_message`, for at most 2 seconds or half its deadline (`settledTranscript` in `lib/skill-gates.ts`). Claude Code can fire Stop before it writes the turn's last lines, so a single read could miss the Write of a review kept outside the repository (a plan under `~/.claude/plans`) and hold a finished run, or miss the load itself and let an unfinished one through.
+
 **The block.** Its reason starts with the `blocked via=stop` marker and says exactly what to write and where: a `## Findings` section ranking the top risks as a numbered list, in `GSTACK_CEO_REVIEW_OUTPUT`, else the last markdown file the run wrote, else the last plan file it read (never a file in a `skills/` directory, judged from the repository root so a project that itself sits under a `skills/` folder still counts, such as the review's own methodology sections; such a file never releases the gate either), plus each file checked and why it fell short. It never names the off switch.
 
 **The cap.** A run is blocked at most 3 times. The next final stop without ranked risks goes through with an `exhausted` marker and `exhausted_at` in the record. `stop_hook_active` (Claude Code sets it once a Stop hook has blocked the turn) does not skip the check; the cap ends the repeats. After `released` or `exhausted` the gate does nothing for the rest of that run; a new load starts a new run.
