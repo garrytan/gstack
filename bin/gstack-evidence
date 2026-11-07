@@ -720,21 +720,23 @@ const recordedCiLine = (r: EvidenceRecord): string =>
  * record-ci's reuse (GST-1795): the label's newest ledger row stands only when it is the CI row this record-ci would write again
  * (every `want` field equal: commit, clean tree, command, verified runs, profiles, jobs, base policy, count, unit, not-owed reason),
  * it grades FRESH, it carries no test-lane exception, and its per_file remainder is the same files, each file's newest local run at
- * this tree a pass under this runtime. Anything else records afresh. The caller has already verified the run itself live.
+ * this tree written before that row (the run the row was validated from) and a pass under this runtime. Anything else records afresh.
+ * The caller has already verified the run itself live.
  */
 function reusableCiRow(label: string, want: Partial<EvidenceRecord>, remainder: string[], perFile: string | undefined): EvidenceRecord | null {
   let rows: EvidenceRecord[] = [];
   try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { return null; }
   const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-  const r = rows.findLast((x) => x.label === label);
+  const at = rows.findLastIndex((x) => x.label === label);
+  const r = rows[at];
   if (!r || r.source !== "ci" || r.exception || r.dirty !== false || r.tree !== want.wtree) return null;
   if (!Object.entries(want).every(([k, v]) => same(r[k as keyof EvidenceRecord], v))) return null;
   if (gradeRecord(r, { maxAgeHours: DEFAULT_MAX_AGE_HOURS, allowPaths: [], wtreeNow: want.wtree }).verdict !== "FRESH") return null;
   if (!same(r.skipped_here?.files ?? [], remainder)) return null;
   const identity = identityDigest();
   const passedHere = (file: string) => {
-    const row = rows.findLast((x) => x.label === `${label}.skipped` && x.source === undefined && x.cmd_sha256 === sha256(perFileCommand(perFile!, [file])) && x.wtree === want.wtree);
-    return row?.exit === 0 && row.identity === identity;
+    const i = rows.findLastIndex((x) => x.label === `${label}.skipped` && x.source === undefined && x.cmd_sha256 === sha256(perFileCommand(perFile!, [file])) && x.wtree === want.wtree);
+    return i >= 0 && i < at && rows[i]!.exit === 0 && rows[i]!.identity === identity;
   };
   return remainder.every(passedHere) ? r : null;
 }

@@ -1278,7 +1278,9 @@ that row is the CI row it would write again: the same commit, clean tree,
 command, verified runs (id and attempt), profiles, jobs, base policy, covered
 count, unit and not-owed reason, FRESH within 24 hours, with no test-lane
 exception, and the same remainder files, each file's newest `<lane>.skipped`
-run at this tree a pass under this runtime. It runs nothing here, prints
+run at this tree written before that row and a pass under this runtime (a
+remainder run after the CI row, such as a zero-test rerun record-ci refused,
+vetoes reuse). It runs nothing here, prints
 `CI_RECORD_REUSED: label=<lane> runs=<id>/<attempt> tree=<tree12> policy=<policy>`
 after its record line, and accept's lane line ends `(reused the CI record at
 tree <tree12>)`. Any difference, a newer row for the label, or a run that is no

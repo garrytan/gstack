@@ -119,6 +119,17 @@ describe('record-ci reuses its own CI row at the same tree (GST-1795)', () => {
     expect(again.stderr).toMatch(/^CARRY_NONE: /m);
   });
 
+  // Value: protects=reuse stands only on the remainder runs the CI row was written from, so a newer `.skipped` row (a zero-test rerun
+  //   after a runtime change, which record-ci refuses as skipped_zero_run) never reads as the remainder's pass; fails_when=the newest
+  //   exit-0 remainder row past the CI row satisfies reuse; seam=gstack-evidence record-ci against an appended ledger row
+  test('a remainder run newer than the CI row vetoes reuse', () => {
+    const f = fx();
+    expect(recordCi(f).status).toBe(0);
+    fs.appendFileSync(ledger(f), JSON.stringify({ ...rows(f).findLast(isHere)!, tests_ran: 0 }) + '\n');
+    const again = recordCi(f);
+    expect([again.status, perFileRuns(f), lineOf(again.stderr, 'CI_RECORD_REUSED')], again.stderr).toEqual([0, 2, '']);
+  });
+
   // Value: protects=a newer label row (a local run of the lane after the carry) is what the ledger reads, so it vetoes reuse;
   //   fails_when=an older CI row is reused past a newer local row; seam=gstack-evidence run, record-ci
   test('a newer row for the label vetoes reuse', () => {
