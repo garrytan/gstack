@@ -678,7 +678,9 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
 // ─── Engine choice ───────────────────────────────────────────────────────────
 
 export const NO_BROWSER = 'no browser available';
-export const NO_BROWSER_HELP = "open the Aside app (macOS 15+, aside.com), or run ./setup in the gstack repo to build gstack's own headless browser (or point GSTACK_BROWSE_BIN at a browse binary)";
+export const NO_BROWSER_HELP =
+  (process.platform === 'darwin' ? 'open the Aside app (macOS 15+, aside.com), or ' : '') +
+  "run ./setup in the gstack repo to build gstack's own headless browser (or point GSTACK_BROWSE_BIN at a browse binary)";
 
 export type EngineChoice =
   | { engine: 'aside'; version: string }
