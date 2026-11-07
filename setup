@@ -1000,14 +1000,15 @@ _backup_skill_md() {
 # when it is not empty afterwards.
 # _cleanup_weak_dir DIR GSTACK_DIR [SRC_SKILL_MD NAME] — remove only what weak
 # proof covers. A real SKILL.md that differs from our source (raw, or with its
-# name: line rewritten to NAME, which is how alias and prefixed copies differ)
-# is a customized file: it is moved to the backup root, never deleted, and if
-# the backup fails it stays. Our runtime-asset links go; the user's files stay.
+# name: line rewritten to NAME, which is how alias and prefixed copies differ),
+# or whose named source is gone, is a customized file: it is moved to the
+# backup root, never deleted, and if the backup fails it stays. Our
+# runtime-asset links go; the user's files stay.
 _cleanup_weak_dir() {
   local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest
-  if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] && [ -f "$src" ] \
-     && ! cmp -s "$d/SKILL.md" "$src" \
-     && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; then
+  if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] \
+     && { [ ! -f "$src" ] || { ! cmp -s "$d/SKILL.md" "$src" \
+     && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; }; }; then
     if ! _backup_skill_md "$d/SKILL.md" "$name"; then
       echo "  kept $name/SKILL.md: could not back up the customized file — left untouched" >&2
       return 0
@@ -1128,7 +1129,6 @@ _prune_stale_generated() {
     # The rename helper owns replacement-before-retirement, including failures.
     if [ "$n" = "gstack-claude" ] && [ "${GSTACK_DEFER_CLAUDE_RENAME_PRUNE:-0}" = "1" ]; then continue; fi
     _skill_source_exists "$gstack_dir" "$n" && continue
-    if [ -d "$gen_dir/$n" ] && [ ! -L "$gen_dir/$n" ]; then rm -rf "$gen_dir/$n"; fi
     for host in "$@"; do
       [ -n "$host" ] && { [ -e "$host/$n" ] || [ -L "$host/$n" ]; } || continue
       _owned_for_windows_refresh "$host/$n" || continue
@@ -1145,9 +1145,10 @@ _prune_stale_generated() {
       elif [ ! -d "$host/$n" ]; then
         rm -f "$host/$n"
       else
-        _cleanup_weak_dir "$host/$n" "$gstack_dir"
+        _cleanup_weak_dir "$host/$n" "$gstack_dir" "$gen_dir/$n/SKILL.md"
       fi
     done
+    if [ -d "$gen_dir/$n" ] && [ ! -L "$gen_dir/$n" ]; then rm -rf "$gen_dir/$n"; fi
     log "  pruned retired skill: $n"
   done
 }
@@ -5011,7 +5012,7 @@ SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev
 # /investigate and its gate are retired (GST-1717): an earlier setup's
 # registration is removed whatever investigate_gate says, and the KNOWN_HOOKS
 # rows stay so the old entries are still recognized as ours.
-[ -x "$SETTINGS_HOOK" ] && "$SETTINGS_HOOK" remove-source --source gstack-investigate-gate >/dev/null 2>&1 || true
+[ -x "$SETTINGS_HOOK" ] && { "$SETTINGS_HOOK" remove-source --source gstack-investigate-gate >/dev/null || echo "  warning: could not remove the retired /investigate gate hooks (exit $?); rerun: $SETTINGS_HOOK remove-source --source gstack-investigate-gate" >&2; } || true
 # The /plan-ceo-review gate (GST-1461) holds the final stop of a session or a
 # review subagent: Stop plus SubagentStop, one shim each.
 CEO_REVIEW_GATE_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-stop || true)"

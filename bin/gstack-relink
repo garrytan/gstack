@@ -255,12 +255,18 @@ _cleanup_skill_entry() {
     _report_foreign "$entry"
     return 0
   fi
+  if [ -n "$skill" ]; then
+    src="$INSTALL_DIR/$skill/SKILL.md"; [ -f "$RENDER_DIR/$skill/SKILL.md" ] && src="$RENDER_DIR/$skill/SKILL.md"
+  fi
   if [ -L "$entry" ]; then
     rm -f "$entry"
   elif [ -d "$entry" ]; then
     # Whole-directory removal needs proof that nothing of the user's is inside:
-    # the marker (we created the dir) or a directory holding nothing but links.
-    if [ -f "$entry/.gstack-owned" ] || { [ -L "$entry/SKILL.md" ] && _dir_only_links "$entry"; }; then
+    # the marker (we created the dir) while the skill's source still exists, or
+    # a directory holding nothing but links. A retired skill's marked entry
+    # takes the path below, so a real SKILL.md is backed up and the user's
+    # files stay.
+    if { [ -f "$entry/.gstack-owned" ] && { [ -z "$skill" ] || [ -f "$src" ]; }; } || { [ -L "$entry/SKILL.md" ] && _dir_only_links "$entry"; }; then
       rm -rf "$entry"
     else
       # Otherwise only what is ours goes: the SKILL.md, the marker, and our
@@ -270,7 +276,6 @@ _cleanup_skill_entry() {
       # whose source is gone (a retired skill), is treated as customized:
       # moved to the backup root, never deleted.
       if [ -f "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] && [ -n "$skill" ]; then
-        src="$INSTALL_DIR/$skill/SKILL.md"; [ -f "$RENDER_DIR/$skill/SKILL.md" ] && src="$RENDER_DIR/$skill/SKILL.md"
         if [ ! -f "$src" ] || { ! cmp -s "$entry/SKILL.md" "$src" \
            && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: ${entry##*/}/" "$src" | cmp -s - "$entry/SKILL.md"; }; then
           if ! _backup_skill_md "$entry/SKILL.md" "${entry##*/}"; then

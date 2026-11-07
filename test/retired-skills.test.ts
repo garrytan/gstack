@@ -87,6 +87,20 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
     expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual([edited]);
   });
+
+  test("a marked gstack-investigate directory keeps the user's files and backs up its real SKILL.md", () => {
+    fs.mkdirSync(path.join(skills, 'gstack-investigate'));
+    fs.writeFileSync(path.join(skills, 'gstack-investigate', '.gstack-owned'), '');
+    const edited = '---\nname: gstack-investigate\ndescription: test\n---\nMY LOCAL EDITS\n';
+    fs.writeFileSync(path.join(skills, 'gstack-investigate', 'SKILL.md'), edited);
+    fs.writeFileSync(path.join(skills, 'gstack-investigate', 'my-notes.md'), 'mine\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readdirSync(path.join(skills, 'gstack-investigate'))).toEqual(['my-notes.md']);
+    const root = path.join(tmp, 'state', 'backups', 'skills');
+    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'gstack-investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
+    expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual([edited]);
+  });
 });
 
 describe('gstack-relink on an install that still has /plan-eng-review', () => {
@@ -189,6 +203,37 @@ describe('setup prunes external-host entries for a retired skill whose source st
       expect(r.stdout).toContain('pruned retired skill: gstack-plan-eng-review');
       expect(fs.readdirSync(gen)).toEqual(['gstack-autoplan']);
       expect(fs.readdirSync(host)).toEqual(['gstack-autoplan']);
+    } finally {
+      fs.rmSync(t, { recursive: true, force: true });
+    }
+  });
+
+  test('a copied gstack-investigate whose source is gone: an edited SKILL.md is backed up, a pristine copy goes (GST-1717)', () => {
+    const t = fs.mkdtempSync(path.join(os.tmpdir(), 'retired-prune-gone-'));
+    try {
+      const src = path.join(t, 'src'), gen = path.join(t, 'gen'), edited = path.join(t, 'edited'), pristine = path.join(t, 'pristine'), backup = path.join(t, 'backup');
+      fs.mkdirSync(path.join(src, 'autoplan'), { recursive: true });
+      fs.writeFileSync(path.join(src, 'autoplan', 'SKILL.md.tmpl'), '---\nname: autoplan\n---\nx\n');
+      const ours = '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n# gstack-investigate\n';
+      fs.mkdirSync(path.join(gen, 'gstack-investigate'), { recursive: true });
+      fs.writeFileSync(path.join(gen, 'gstack-investigate', 'SKILL.md'), ours);
+      for (const host of [edited, pristine]) fs.mkdirSync(path.join(host, 'gstack-investigate'), { recursive: true });
+      fs.writeFileSync(path.join(edited, 'gstack-investigate', 'SKILL.md'), ours + 'MY LOCAL EDITS\n');
+      fs.writeFileSync(path.join(edited, 'gstack-investigate', 'notes.md'), 'mine\n');
+      fs.writeFileSync(path.join(pristine, 'gstack-investigate', 'SKILL.md'), ours);
+      const script = [
+        'set -e', 'log() { echo "$@"; }', `. "${REGISTRY}"`, `_SKILL_BACKUP_ROOT="${backup}"`, '_BACKED_UP_SKILL_MDS=()',
+        ...['_gstack_link_target_abs', '_gstack_target_is_ours', '_gstack_generated_header', '_backup_skill_md', '_cleanup_weak_dir',
+          '_owned_for_windows_refresh', '_skill_source_exists', '_prune_stale_generated'].map(extractFn),
+        `_prune_stale_generated "${src}" "${gen}" "${edited}" "${pristine}"`,
+      ].join('\n');
+      const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('pruned retired skill: gstack-investigate');
+      expect(fs.readdirSync(gen)).toEqual([]);
+      expect(fs.readdirSync(path.join(edited, 'gstack-investigate'))).toEqual(['notes.md']);
+      expect(fs.readFileSync(path.join(backup, 'gstack-investigate', 'SKILL.md'), 'utf8')).toBe(ours + 'MY LOCAL EDITS\n');
+      expect(fs.readdirSync(pristine)).toEqual([]);
     } finally {
       fs.rmSync(t, { recursive: true, force: true });
     }
