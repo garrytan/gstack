@@ -141,7 +141,9 @@ describe('next --kind feature: one merged reviewer over the plan and the draft c
     expect(first.status).toBe(0);
     expect(state.lean).toEqual({ kind: 'feature', source: 'flag', base: 'main' });
     expect(state.phase_order).toEqual(['eng']);
-    for (const p of ['ceo', 'design', 'dx']) expect(state.phases[p].skipped).toBe('lean run: merged into the one eng reviewer (R65)');
+    expect(state.phases.ceo.skipped).toBe('lean run: merged into the one eng reviewer (R65)');
+    expect(state.phases.design.skipped).toBe('no UI scope detected (lean)');
+    expect(state.phases.dx.skipped).toBe('no developer-facing scope detected (lean)');
     expect(state.outside_enabled).toBe(false);
     expect(ps.outside).toMatchObject({ status: 'disabled', outcome: 'not_run', reason: 'lean' });
     expect(state.max_rounds).toBe(1);
@@ -247,6 +249,7 @@ describe('draft: none and scope lenses', () => {
     const r = run(['next', '--kind', 'feature', '--base', 'main', '--out', out, '--plan', plan('ui'), '--ui'], cwd);
     expect(r.status).toBe(0);
     expect(readRun(out).phase_order).toEqual(['eng']);
+    expect(readRun(out).phases.design.skipped).toBe('lean run: merged into the one eng reviewer (R65)');
     expect(r.stdout).toContain('LEAN: one reviewer (ceo+eng+design lenses)');
     const prompt = fs.readFileSync(path.join(out, 'eng-native-prompt.md'), 'utf8');
     expect(prompt).toContain('### Design lens');
