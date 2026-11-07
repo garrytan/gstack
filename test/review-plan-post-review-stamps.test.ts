@@ -164,7 +164,7 @@ describe('GST-1702: release stamps and a docs-audit edit after the last fix-chec
     stamp(repo);
     fs.mkdirSync(path.join(repo.work, 'docs'), { recursive: true });
     fs.writeFileSync(path.join(repo.work, 'docs/task.md'), '#!/bin/sh\necho hi\n', { mode: 0o755 });
-    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'Step 14.5 docs audit');
+    repo.git('add', '-A'); repo.git('update-index', '--chmod=+x', 'docs/task.md'); repo.git('commit', '-q', '-m', 'Step 14.5 docs audit');
     const p = postReview(repo, fc);
     expect(p.status, p.err).toBe(0);
     expect(p.out).toContain('NEXT: stop (edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path');
