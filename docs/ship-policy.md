@@ -2207,9 +2207,10 @@ the moved base with `git merge-tree` first:
   `on-conflict` skips the check.
 
 The release commit can make a skipped base conflict (a claim-at-open VERSION or
-CHANGELOG write), so when `base_merge` would skip, `gstack-ship-release finish`
-rechecks a head that lacks `origin/<base>` against a fresh fetch of the base,
-without moving `origin/<base>`: `BASE_MERGE: … still merges clean`, or a STOP that names the
+CHANGELOG write), so unless `base_merge` is `always`, `gstack-ship-release finish`
+rechecks any head that lacks `origin/<base>` against a fresh fetch of the base,
+without moving `origin/<base>` or asking gh again: `BASE_MERGE: … still merges clean`,
+a STOP when merge-tree cannot answer, or a STOP that names the
 conflicted files and sends the run back to Step 3's conflict rules (fetch the
 base first) and Steps 5-16. A head that lacks its base cannot carry a
 `pull_request` CI run, whose merge-commit tree is not the head's

@@ -205,7 +205,8 @@ function cleanBaseSkip(cwd: string, base: string, mode: string): { skip?: string
   if (m.status === 1) return {};
   if (m.status !== 0) return { note: `merge-tree failed (${firstLine(m.stderr) || `exit ${m.status}`}): merging` };
   const [was, now] = [versionAtRef(cwd, git(cwd, ['merge-base', 'HEAD', `origin/${base}`]).stdout.trim()), versionAtRef(cwd, `origin/${base}`)];
-  if (JSON.stringify(was) !== JSON.stringify(now)) return { note: `origin/${base} moved the version Step 12 reads against it (${'error' in now ? now.error : `${now.rel} ${now.version}`}): merging` };
+  const version = (v: typeof was) => 'error' in v ? null : `${v.rel} ${v.version}`;
+  if (version(was) !== version(now)) return { note: `origin/${base} moved the version Step 12 reads against it (${'error' in now ? now.error : `${now.rel} ${now.version}`}): merging` };
   const behind = git(cwd, ['rev-list', '--count', `HEAD..origin/${base}`]).stdout.trim();
   return { skip: `origin/${base} is ${behind} commit(s) ahead and merges clean; ${via}, so Step 3 merges only on a conflict` };
 }

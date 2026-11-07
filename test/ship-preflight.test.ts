@@ -169,6 +169,7 @@ describe('gstack-ship-preflight', () => {
     expect(versioned({}, { VERSION: '1.0.1.0\n' })).toEqual([0, 'MERGE: merged origin/main at <sha>', 'BASE_MERGE: origin/main moved the version Step 12 reads against it (VERSION 1.0.1.0): merging']);
     expect(versioned({ '.gstack/version-path': 'src/version.txt\n', 'src/version.txt': '1.0.0.0\n' }, { 'src/version.txt': '1.0.1.0\n' })).toEqual([0, 'MERGE: merged origin/main at <sha>', 'BASE_MERGE: origin/main moved the version Step 12 reads against it (src/version.txt 1.0.1.0): merging']);
     expect(versioned({}, { 'package-lock.json': '{}\n' })).toEqual([0, 'MERGE: skipped', '']);
+    expect(versioned({ '.gstack/version-path': 'src/version.txt\n' }, { 'docs/new.md': '# new\n' })).toEqual([0, 'MERGE: skipped', '']);
   });
 
   // Value: protects=a local origin/HEAD naming neither the base nor the remote's default branch is named with its fix, without stopping (the GBrain machine whose ready read another PR's review_exclude policy);
