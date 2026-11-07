@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, STAMP_PLACEHOLDERS_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
+import { PLAN_RECORD_KEY_VERSION } from '../lib/ship-policy-keys';
 import { fillDue } from '../lib/ship-queue-train';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -40,6 +41,10 @@ describe('validatePolicy (schema + containment, pure)', () => {
     const earlier = REVIEW_SCOPE_KEY_VERSION.replace(/(\d+)\.0$/, (_, p) => `${Number(p) - 7}.0`);
     expect(codes({ review_scope: 'all', min_gstack_version: earlier })).toEqual(['POLICY_INVALID:review_scope']);
     expect(codes({ review_scope: 'frozen' })).toEqual([]);
+    // Value: protects=plan_record accepts only off|warn|require; fails_when=the enum guard is removed or loosened; why_new=no plan_record row; seam=none; no_claim=ready/land enforcement
+    expect(codes({ plan_record: 'strict' })).toContain('POLICY_INVALID:plan_record');
+    expect(codes({ plan_record: true })).toContain('POLICY_INVALID:plan_record');
+    for (const v of ['off', 'warn', 'require']) expect(codes({ plan_record: v, min_gstack_version: PLAN_RECORD_KEY_VERSION })).toEqual([]);
     expect(codes([])).toEqual(['POLICY_INVALID:']);
   });
 
