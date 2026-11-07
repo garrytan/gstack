@@ -16,7 +16,7 @@ const dirs: string[] = [];
 const tmp = (prefix: string) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); dirs.push(d); return d; };
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
-function fixture(files: Record<string, Array<Partial<ApprovalRow> & { ask: string; source?: string; outcome?: string }>> = {}) {
+function fixture(files: Record<string, Array<Partial<ApprovalRow> & { ask: string; source?: string; outcome?: string; at?: string }>> = {}) {
   const cwd = tmp('plan-repo-');
   spawnSync('git', ['init', '-q', '-b', 'capy/feature'], { cwd, timeout: 30_000 });
   const state = tmp('plan-state-');
@@ -28,7 +28,7 @@ function fixture(files: Record<string, Array<Partial<ApprovalRow> & { ask: strin
   const ids: Record<string, string> = {};
   for (const [file, rows] of Object.entries(files)) {
     const lines = rows.map(r => {
-      const built = buildRow({ ask: r.ask, words: r.words ?? 'do it', by: r.by ?? 'Garry (via GStack Minder)', scope: r.scope ?? 'the reviewed plan', outcome: r.outcome, source: r.source, date: '2026-11-07' }, file, new Date('2026-11-07T00:00:00Z'));
+      const built = buildRow({ ask: r.ask, words: r.words ?? 'do it', by: r.by ?? 'Garry (via GStack Minder)', scope: r.scope ?? 'the reviewed plan', outcome: r.outcome, source: r.source, pending: r.pending, date: '2026-11-07' }, file, new Date(r.at ?? '2026-11-07T00:00:00Z'));
       if ('code' in built) throw new Error(built.message);
       const row = r.words_by ? { ...built, words_by: r.words_by } : built;
       ids[r.ask] = row.id;
@@ -196,5 +196,61 @@ describe('/ship finish and the READY note', () => {
     } finally {
       if (prev === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prev;
     }
+  });
+});
+
+describe('the gate state a Plan line stands for (review blockers, GST-1751)', () => {
+  test('a row id from an older gate revision does not outlive a rejected newer revision', () => {
+    const f = fixture({ main: [{ ask: 'Approve the plan C rev1', source: 'autoplan:ap-3@gate_rev=1' }, { ask: 'Approve the plan C rev2', source: 'autoplan:ap-3@gate_rev=2', outcome: 'rejected', at: '2026-11-07T02:00:00Z' }] });
+    const r = resolvePlan(parsePlanLine(`Plan: approved: ${f.ids['Approve the plan C rev1']}`), f);
+    expect(!r.ok && r.failure.code).toBe('PLAN_NOT_APPROVED');
+    expect(!r.ok && r.failure.message).toContain('rejected');
+  });
+
+  test('a run id needs the plan approval answered and no decision left unanswered, whichever answer event came last', () => {
+    const half = fixture({ main: [{ ask: 'Approve the plan D', source: 'autoplan:ap-4@gate_rev=1', pending: '1 decision(s) unanswered: P2' }] });
+    const h = resolvePlan(parsePlanLine('Plan: approved: ap-4'), half);
+    expect(!h.ok && h.failure.code).toBe('PLAN_NOT_APPROVED');
+    expect(!h.ok && h.failure.message).toContain('unanswered');
+    const done = fixture({ main: [
+      { ask: 'Approve the plan D', source: 'autoplan:ap-4@gate_rev=1', pending: '1 decision(s) unanswered: P2' },
+      { ask: 'Approve the plan D (P2 only)', source: 'autoplan:ap-4@gate_rev=1', outcome: 'pending', pending: 'the plan approval itself', at: '2026-11-07T03:00:00Z' },
+    ] });
+    const d = resolvePlan(parsePlanLine('Plan: approved: ap-4'), done);
+    expect(d.ok && d.record).toMatchObject({ state: 'approved', ref: 'ap-4', row_id: done.ids['Approve the plan D'] });
+  });
+});
+
+describe('a broken approval store never throws, and changes nothing with the key off', () => {
+  function broken() {
+    const f = fixture({ main: [{ ask: 'Approve the plan A', source: 'autoplan:ap-1@gate_rev=1' }] });
+    const loc = locate({ cwd: f.cwd, env: f.env, branch: 'probe' });
+    if ('code' in loc) throw new Error(loc.message);
+    const dir = path.dirname(loc.file);
+    fs.appendFileSync(path.join(dir, 'main.jsonl'), JSON.stringify({ schema_version: 1, id: 'a-000000000000', ask: 'no source' }) + '\n{torn\n');
+    fs.mkdirSync(path.join(dir, 'unreadable.jsonl'));
+    return f;
+  }
+
+  test('key off: ready and finish give the same output as with no line at all, and nothing throws', () => {
+    const f = broken();
+    const body = 'Plan: approved: ap-1';
+    expect(readyPlan({ cwd: f.cwd, env: f.env, body: '', changed: ['lib/x.ts'] })).toEqual({});
+    const off = readyPlan({ cwd: f.cwd, env: f.env, body, changed: ['lib/x.ts'] });
+    expect(off.line).toBeUndefined();
+    expect(off.failure).toBeUndefined();
+    const fin = finishPlan(f.cwd, 'main', body, f.env);
+    expect(fin.line).toBeUndefined();
+    expect(fin.failure).toBeUndefined();
+    expect(landPlan({ env: f.env, body, record: undefined })).toEqual({});
+  });
+
+  test('warn and require read past the broken rows and still resolve; an unreadable store is a refusal, never a throw', () => {
+    const f = broken();
+    const warn = readyPlan({ cwd: f.cwd, env: { ...f.env, GSTACK_CAPY: '1' }, body: 'Plan: approved: ap-1', changed: ['lib/x.ts'] });
+    expect(warn.line).toContain('PLAN: approved ap-1');
+    const gone = fixture();
+    const req = readyPlan({ cwd: gone.cwd, env: { ...gone.env, GSTACK_PLAN_RECORD: 'require' }, body: 'Plan: approved: ap-1', changed: ['lib/x.ts'] });
+    expect(req.failure?.code).toBe('PLAN_STORE_UNAVAILABLE');
   });
 });

@@ -1,4 +1,4 @@
 {
-  "bytes": 89,
-  "why": "GST-1751: /ship finish takes --plan (the brief's Plan line) and prints PLAN:"
+  "bytes": 122,
+  "why": "GST-1751: /ship finish --plan and Step 19-C render --plan carry the brief's Plan line"
 }

@@ -238,6 +238,8 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
   if ('error' in head) return outPending({ code: 'QUEUE_PROOF_MISSING', message: head.error }, s.lines, s.rerun, s.run);
   if (head.headRefOid !== j.stamp_commit) return stopped(env, t, 'QUEUE_TRAIN_MOVED', `#${pr}'s head is not the ${what} commit ${j.stamp_commit.slice(0, 12)}`, base, s.lines, true);
   if (head.baseRefName && head.baseRefName !== ctx.base) return retargeted(s, head.baseRefName, ctx.base);
+  const plan = slotPlan(s, head);
+  if (plan) return plan;
   const ci = ciAtHead(ctx, j.stamp_commit);
   s.lines.push(`CI: ${ci.line}`);
   const missing = missingChecks(ci, landRequiredChecks(env));

@@ -12,8 +12,8 @@
  * machine can see), so a row imported under another branch or another lane still counts. A row answered in an
  * agent's own words, a newer gate revision that is not approved, and a ruling or grant row never count as the
  * owner's plan approval. gstack never infers the class from the diff, the title or the changelog: a PR with no line
- * reads as required. A run id resolves to the newest gate revision imported into the store, so a revised gate must be
- * imported again before it counts. Callers: gstack-ship-queue ready (writes the record into the READY note), land (checks
+ * reads as required. A run id, or a row id from an autoplan run, resolves to the newest gate revision imported into the
+ * store (gateState), so a revised gate must be imported again before it counts. Callers: gstack-ship-queue ready (writes the record into the READY note), land (checks
  * it), gstack-ship-release finish --plan (/ship) and gstack-approvals render --plan / plan-check.
  */
 import { spawnSync } from 'node:child_process';
@@ -22,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { locate, type ApprovalRow, type Env } from './approval-record';
 import type { ResultCodeName } from './result-codes';
-import { isUnavailable, loadPolicyFromBase } from './ship-policy';
+import { isUnavailable, loadPolicyFromBase, type ShipPolicy } from './ship-policy';
 
 export const PLAN_MODES = ['off', 'warn', 'require'] as const;
 export type PlanMode = typeof PLAN_MODES[number];
@@ -77,20 +77,27 @@ export function exemptReason(reason: string): string | null {
 }
 
 /** Every approval row this machine can read for the repository, across branches; null when no store directory exists. */
+const isRow = (r: any): r is ApprovalRow => r?.schema_version === 1 && ['id', 'ask', 'by', 'scope', 'pending', 'outcome', 'source', 'recorded_at', 'date'].every(k => typeof r[k] === 'string');
+
 export function readStore(cwd: string, env: Env): { rows: ApprovalRow[]; dirs: string[] } | null {
   const loc = locate({ cwd, env, branch: 'plan-record-probe' });
   if ('code' in loc) return null;
   const dirs = [...new Set([loc.file, loc.mirror, ...(loc.read_also ?? [])].filter((f): f is string => !!f).map(f => path.dirname(f)))].filter(d => fs.existsSync(d));
-  if (!dirs.length) return null;
   const byId = new Map<string, ApprovalRow>();
+  const read: string[] = [];
   for (const dir of dirs) {
-    for (const name of fs.readdirSync(dir).filter(n => n.endsWith('.jsonl'))) {
-      for (const l of fs.readFileSync(path.join(dir, name), 'utf8').split('\n')) {
-        try { const r = JSON.parse(l); if (r?.schema_version === 1 && typeof r.id === 'string') byId.set(r.id, r); } catch { /* a torn line is skipped */ }
+    let names: string[];
+    try { names = fs.readdirSync(dir).filter(n => n.endsWith('.jsonl')); } catch { continue; }
+    read.push(dir);
+    for (const name of names) {
+      let text = '';
+      try { text = fs.readFileSync(path.join(dir, name), 'utf8'); } catch { continue; }
+      for (const l of text.split('\n')) {
+        try { const r = JSON.parse(l); if (isRow(r)) byId.set(r.id, r); } catch { /* a torn line is skipped */ }
       }
     }
   }
-  return { rows: [...byId.values()], dirs };
+  return read.length ? { rows: [...byId.values()], dirs: read } : null;
 }
 
 const agentWorded = (r: ApprovalRow & { words_by?: string }) => !!r.words_by || /its own decision \(not the owner's words\)/.test(r.by);
@@ -115,6 +122,33 @@ export function resolvePlan(decl: PlanDecl | null, o: { cwd: string; env: Env; c
     if (!reason) return { ok: false, failure: { code: 'PLAN_EXEMPT_UNKNOWN', message: `${decl.line}: "${decl.reason}" is not an exemption docs/captain.md lists (${EXEMPT_REASONS.join(', ')}, or crew:<rule>)`, fix: 'name a listed exemption from the brief, or plan the change: Plan: required' } };
     return { ok: true, record: { line: decl.line, state: 'exempt', reason, resolver: PLAN_RESOLVER_VERSION }, summary: `exempt ${reason}` };
   }
+  try { return resolveApproved(decl, o); } catch (e: any) {
+    return { ok: false, failure: { code: 'PLAN_STORE_UNAVAILABLE', message: `${decl.line}: the approval store could not be read (${String(e?.message ?? e).slice(0, 120)})`, fix: 'gstack-approvals list shows what is readable; repair or remove the broken store file, then rerun' } };
+  }
+}
+
+const UNANSWERED = /^\d+ decision\(s\) unanswered/;
+
+/**
+ * An autoplan run's gate as the store records it: its newest imported gate revision, the newest answer to that
+ * revision's plan approval, and whether any import of that revision saw no decision left unanswered. A row id from a
+ * run stands for this state too, so an older revision's approval never outlives a newer revision.
+ */
+function gateState(rows: ApprovalRow[], run: string): { row: ApprovalRow } | { code: ResultCodeName; message: string } {
+  const prefix = `autoplan:${run}@gate_rev=`;
+  const rev = (r: ApprovalRow) => Number(/@gate_rev=(\d+)$/.exec(r.source)?.[1] ?? 0);
+  const runRows = rows.filter(r => r.source.startsWith(prefix));
+  if (!runRows.length) return { code: 'PLAN_UNRESOLVED', message: `no approval row from autoplan run ${run}` };
+  const newest = Math.max(...runRows.map(rev));
+  const revRows = runRows.filter(r => rev(r) === newest).sort((a, b) => b.recorded_at.localeCompare(a.recorded_at));
+  const decided = revRows.find(r => r.outcome !== 'pending');
+  if (!decided) return { code: 'PLAN_NOT_APPROVED', message: `autoplan run ${run} gate_rev ${newest} has no answer to its plan approval yet` };
+  if (!revRows.some(r => !UNANSWERED.test(r.pending))) return { code: 'PLAN_NOT_APPROVED', message: `autoplan run ${run} gate_rev ${newest} still has decisions unanswered (${decided.pending})` };
+  return { row: decided };
+}
+
+/** The approved branch of resolvePlan: a row id or a run id against the store. */
+function resolveApproved(decl: Extract<PlanDecl, { kind: 'approved' }>, o: { cwd: string; env: Env }): PlanResolution {
   const store = readStore(o.cwd, o.env);
   if (!store) return { ok: false, failure: { code: 'PLAN_STORE_UNAVAILABLE', message: `${decl.line}: no approval store on this machine (the state root's approvals and every mirror are missing)`, fix: 'run this where the plan was approved, or gstack-approvals sync on the lane machine, then rerun' } };
   let row: ApprovalRow | undefined;
@@ -123,14 +157,15 @@ export function resolvePlan(decl: PlanDecl | null, o: { cwd: string; env: Env; c
     row = store.rows.find(r => r.id === decl.token);
     if (!row) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row ${decl.token} in ${store.dirs.join(', ')}`, fix: 'record the owner\'s words with gstack-approvals add (or import --autoplan), then cite the row id it prints' } };
     if (NOT_PLAN_ROW.test(row.ask) || NOT_PLAN_ROW.test(row.scope)) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: row ${row.id} is a ruling or grant, not a plan approval`, fix: 'cite the row that recorded the owner\'s plan approval' } };
-  } else {
-    ref = runIdFor(decl.token, o.cwd);
-    const prefix = `autoplan:${ref}@gate_rev=`;
-    const rev = (r: ApprovalRow) => Number(/@gate_rev=(\d+)/.exec(r.source)?.[1] ?? 0);
-    const runRows = store.rows.filter(r => r.source.startsWith(prefix)).sort((a, b) => rev(b) - rev(a) || b.recorded_at.localeCompare(a.recorded_at));
-    if (!runRows.length) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row from autoplan run ${ref} in ${store.dirs.join(', ')}`, fix: `gstack-approvals import --autoplan <the run dir> --by "<owner>" after the owner's answer, then rerun` } };
-    row = runRows[0]!;
   }
+  const run = row ? /^autoplan:(.+)@gate_rev=\d+$/.exec(row.source)?.[1] : runIdFor(decl.token, o.cwd);
+  if (run) {
+    const gate = gateState(store.rows, run);
+    if ('message' in gate) return { ok: false, failure: { code: gate.code, message: `${decl.line}: ${gate.message}`, fix: gate.code === 'PLAN_UNRESOLVED' ? `gstack-approvals import --autoplan <the run dir> --by "<owner>" after the owner's answer, then rerun` : 'finish the gate with the owner\'s answer and import it again' } };
+    row = gate.row;
+    ref = run;
+  }
+  if (!row) return { ok: false, failure: { code: 'PLAN_UNRESOLVED', message: `${decl.line}: no approval row in ${store.dirs.join(', ')}`, fix: 'cite an approval row id or an autoplan run id' } };
   if (row.outcome !== 'approved') return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: row ${row.id} (${row.source}) is ${row.outcome}`, fix: 'finish the gate with the owner\'s answer and import it again' } };
   if (agentWorded(row)) return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: row ${row.id} was answered in an agent's own words, not the owner's (${row.by})`, fix: 'relay the gate to the owner through the Captain and answer it with their exact words (--owner-reply), then import again' } };
   return { ok: true, record: { line: decl.line, state: 'approved', ref, row_id: row.id, row_sha256: rowSha(row), resolver: PLAN_RESOLVER_VERSION }, summary: `approved ${ref} row=${row.id} (${row.ask.slice(0, 80)}; ${row.by.slice(0, 60)}, ${row.date})` };
@@ -146,9 +181,11 @@ export function planLine(res: PlanResolution, mode: { mode: PlanMode; source: st
 export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?: PlanMode; changed: string[]; fragmentsDir?: string }): { line?: string; record?: PlanRecord; failure?: PlanFailure } {
   const mode = planMode(o.policyValue, o.env);
   const decl = parsePlanLine(o.body);
-  if (mode.mode === 'off' && !decl) return {};
+  if (mode.mode === 'off') {
+    if (!decl) return {};
+    try { const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir }); return res.ok ? { record: res.record } : {}; } catch { return {}; }
+  }
   const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir });
-  if (mode.mode === 'off') return res.ok ? { record: res.record } : {};
   const line = planLine(res, mode);
   if (res.ok) return { line, record: res.record };
   return mode.mode === 'require' ? { line, failure: res.failure } : { line };
@@ -168,8 +205,8 @@ export function landPlan(o: { env: Env; policyValue?: PlanMode; record?: PlanRec
 
 /** /ship finish's plan step (gstack-ship-release finish --plan "<the brief's Plan line>"): the same resolution ready makes, run before the stages. */
 export function finishPlan(cwd: string, base: string, line: string | undefined, env: Env = process.env): { line?: string; failure?: PlanFailure } {
-  const loaded = loadPolicyFromBase(cwd, base);
-  const policy = isUnavailable(loaded) ? undefined : loaded.policy;
+  let policy: ShipPolicy | undefined;
+  try { const loaded = loadPolicyFromBase(cwd, base); policy = isUnavailable(loaded) ? undefined : loaded.policy; } catch { policy = undefined; }
   const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
   const ref = run(['rev-parse', '--verify', '-q', `origin/${base}`]).status === 0 ? `origin/${base}` : base;
   const changed = run(['diff', '--name-only', `${ref}...HEAD`]).stdout?.split('\n').filter(Boolean) ?? [];
