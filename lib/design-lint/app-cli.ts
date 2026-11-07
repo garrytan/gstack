@@ -51,9 +51,9 @@ export function planApp(a: AppCliArgs): { states: AppState[]; notes: string[]; w
   const viewports = a.viewports.map(parseViewport);
   const twice = a.urls.find((u, i) => a.urls.indexOf(u) !== i);
   if (twice) throw new AppUsageError('DUPLICATE_STATE', `--url ${redactUrl(twice)} is given twice`, 'measure each URL once');
-  const named = new Map<string, number>();
+  const used = new Set<string>();
   const parsed = a.stateFile ? parseStateFile(read('--state-file', a.stateFile, 'BAD_STATE_FILE')) : {
-    states: a.urls.map((url) => { const name = stateNameOf(url); const n = (named.get(name) ?? 0) + 1; named.set(name, n); return { name: n > 1 ? `${name}~${n}` : name, url }; }),
+    states: a.urls.map((url) => { const base = stateNameOf(url); let name = base; for (let n = 2; used.has(name); n++) name = `${base}~${n}`; used.add(name); return { name, url }; }),
     notes: [],
   };
   const waivers = a.waivers ? parseWaiverFile(read('--waivers', a.waivers, 'BAD_WAIVERS'), (id) => !!ruleMeta(id)?.app) : [];

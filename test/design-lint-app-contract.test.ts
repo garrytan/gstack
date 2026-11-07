@@ -314,6 +314,9 @@ describe('app profile contract: findings, redaction and traces (T22, T29, T34, T
     expect(seen).toEqual(['http://127.0.0.1:5300/p?session=owner', 'http://127.0.0.1:5300/p?session=viewer']);
     expect(two.out).toMatch(/^LINT_APP: verdict=clean code=OK states=2\/2 /m);
     expect(two.out).toContain('state=/p?session=REDACTED~2 viewport=1440x900');
+    const literal = await app({ urls: ['http://127.0.0.1:5300/p', 'http://127.0.0.1:5300/p#x', 'http://127.0.0.1:5300/p~2'] }, { run: fakeRun({}) });
+    expect(literal.out).toMatch(/^LINT_APP: verdict=clean code=OK states=3\/3 /m);
+    expect([...new Set(literal.out.split('\n').filter((l) => l.startsWith('LINT_APP_STATE:')).map((l) => l.split(' ')[1]))]).toEqual(['state=/p', 'state=/p~2', 'state=/p~2~2']);
     const dup = await app({ urls: [URL1, URL1] }, { run: neverRun });
     expect([dup.code, dup.err]).toEqual([3, 'gstack-design-lint: DUPLICATE_STATE: --url ' + URL1 + ' is given twice | fix: measure each URL once']);
   });
