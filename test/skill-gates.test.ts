@@ -58,6 +58,19 @@ describe('settings', () => {
     }
   });
 
+  test('--autoplan registers Stop on the autoplan-stop-gate shim with no matcher and turns its switch on (GST-1666)', () => {
+    const r = cli('settings', '--autoplan');
+    expect(r.status).toBe(0);
+    const s = JSON.parse(r.stdout);
+    expect(s.env).toEqual({ GSTACK_AUTOPLAN_GATE: 'on' });
+    expect(Object.keys(s.hooks)).toEqual(['Stop']);
+    expect(s.hooks.Stop).toHaveLength(1);
+    expect(s.hooks.Stop[0].matcher).toBeUndefined();
+    const cmd = s.hooks.Stop[0].hooks[0].command;
+    expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', 'autoplan-stop-gate-stop'));
+    expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+  });
+
   test('--investigate --ceo-review together: both switches on, Stop runs both gates', () => {
     const r = cli('settings', '--investigate', '--ceo-review');
     expect(r.status).toBe(0);

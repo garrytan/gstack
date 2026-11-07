@@ -38,6 +38,7 @@ const GATES = {
     + ' PostToolUse "$2/hosts/claude/hooks/investigate-gate-post" Bash PostToolUseFailure "$2/hosts/claude/hooks/investigate-gate-post-failure" Bash Stop "$2/hosts/claude/hooks/investigate-gate-stop" ""',
   ceo_review_gate: 'GSTACK_CEO_REVIEW_GATE Stop "$2/hosts/claude/hooks/ceo-review-gate-stop" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" "ceo review gate" ""'
     + ' SubagentStop "$2/hosts/claude/hooks/ceo-review-gate-subagent-stop" ""',
+  autoplan_gate: 'GSTACK_AUTOPLAN_GATE Stop "$2/hosts/claude/hooks/autoplan-stop-gate-stop" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" "autoplan gate" ""',
 };
 
 /** Run one gate once from the checkout at root: mode is the flag value ("" = none). */
@@ -197,13 +198,13 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect(config()).toBe('');
   }
 
-  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 41 and this pin)', () => {
-    expect(original.split('\n')[40]).toBe("  skill_routing: 'off',");
+  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 42 and this pin)', () => {
+    expect(original.split('\n')[41]).toBe("  skill_routing: 'off',");
     expect(SWITCH_DEFAULT.skill_routing).toBe('off');
   });
 
-  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 42 and this pin)', () => {
-    expect(original.split('\n')[41]).toBe("  skill_contracts: 'off',");
+  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 43 and this pin)', () => {
+    expect(original.split('\n')[42]).toBe("  skill_contracts: 'off',");
     expect(SWITCH_DEFAULT.skill_contracts).toBe('off');
   });
 
@@ -332,6 +333,48 @@ describe('setup: the ceo_review_gate switch (GST-1461) registers Stop and Subage
   test('gstack-config knows the key and its default', () => {
     const r = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['defaults'], { env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 30_000 });
     expect(r.stdout).toMatch(/^ {2}ceo_review_gate: +off$/m);
+  });
+});
+
+describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
+  const ours = () => registered('Stop').filter(e => e.hooks.some(h => h.command.includes('autoplan-stop-gate')));
+
+  test('flags parse, appear in --help and the typo list, and the shim has a KNOWN_HOOKS row with its event', () => {
+    for (const flag of ['--autoplan-gate)', '--no-autoplan-gate)', '--autoplan-gate=*)']) expect(setupSrc).toContain(`    ${flag}`);
+    expect(setupSrc).toContain('--autoplan-gate / --no-autoplan-gate');
+    expect(setupSrc).toContain('--autoplan-gate --no-autoplan-gate');
+    expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/autoplan-stop-gate-stop ||');
+    expect(setupSrc).toContain('"$AUTOPLAN_GATE_STOP" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" \\');
+    const row = settingsHookSrc.slice(settingsHookSrc.indexOf('"autoplan-stop-gate-stop":'), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf('"autoplan-stop-gate-stop":')));
+    expect(row).toContain('source: "gstack-autoplan-gate"');
+    expect(row).toContain('event: "Stop"');
+    expect(row).toContain('matcher: ""');
+  });
+
+  test('pin: autoplan_gate defaults to off, so with no flag, env or config nothing registers', () => {
+    expect(SWITCH_DEFAULT.autoplan_gate).toBe('off');
+    expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
+    expect(ours()).toEqual([]);
+  });
+
+  test('flag on: persists and registers Stop; a re-run is quiet; off removes it', () => {
+    const first = gate('on', {}, 0, ROOT, 'autoplan_gate');
+    expect(first.code).toBe(0);
+    expect(first.out).toContain('registered Stop hook: autoplan gate (on via flag; turn off: gstack-config set autoplan_gate off, or ./setup --no-autoplan-gate');
+    expect(config()).toMatch(/^autoplan_gate: on$/m);
+    const entries = ours() as Array<{ matcher?: string; hooks: Array<{ command: string; timeout?: number }> }>;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].matcher ?? undefined).toBeUndefined();
+    expect(entries[0].hooks[0].command).toEndWith('hosts/claude/hooks/autoplan-stop-gate-stop');
+    expect(entries[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
+    expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
+    gate('off', {}, 0, ROOT, 'autoplan_gate');
+    expect(ours()).toEqual([]);
+  });
+
+  test('gstack-config knows the key and its default', () => {
+    const r = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['defaults'], { env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 30_000 });
+    expect(r.stdout).toMatch(/^ {2}autoplan_gate: +off$/m);
   });
 });
 

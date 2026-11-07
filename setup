@@ -68,6 +68,10 @@ Claude Code hooks (docs/skill-routing-and-contracts.md):
                     After /plan-ceo-review loads, block its final stop (and a
                     review subagent's) until the output file ranks the top
                     risks (docs/skill-gates.md). Saved as ceo_review_gate.
+  --autoplan-gate / --no-autoplan-gate
+                    After /autoplan loads, block its final stop until every
+                    applicable phase published and the Final Approval Gate is
+                    written (docs/skill-gates.md). Saved as autoplan_gate.
 
 Model selection:
   --model <id>      Codex model profile override. Otherwise reads Codex config.
@@ -203,6 +207,7 @@ SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explici
 SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 INVESTIGATE_GATE_MODE=""    # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 CEO_REVIEW_GATE_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
+AUTOPLAN_GATE_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1666)
 MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 CLAUDE_MODEL_ARG=""
@@ -217,7 +222,7 @@ _setup_unknown_option() {
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
     --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
-    --investigate-gate --no-investigate-gate --ceo-review-gate --no-ceo-review-gate \
+    --investigate-gate --no-investigate-gate --ceo-review-gate --no-ceo-review-gate --autoplan-gate --no-autoplan-gate \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
@@ -272,6 +277,9 @@ while [ $# -gt 0 ]; do
     --ceo-review-gate)     CEO_REVIEW_GATE_MODE="on"; shift ;;
     --no-ceo-review-gate)  CEO_REVIEW_GATE_MODE="off"; shift ;;
     --ceo-review-gate=*)   CEO_REVIEW_GATE_MODE="${1#--ceo-review-gate=}"; shift ;;
+    --autoplan-gate)       AUTOPLAN_GATE_MODE="on"; shift ;;
+    --no-autoplan-gate)    AUTOPLAN_GATE_MODE="off"; shift ;;
+    --autoplan-gate=*)     AUTOPLAN_GATE_MODE="${1#--autoplan-gate=}"; shift ;;
     --refresh-registered) REFRESH_REGISTERED=1; shift ;;
     --no-browser) export GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_SKIP_FONTS=1; shift ;;
     --no-harness-auto) HARNESS_AUTO=0; shift ;;
@@ -5011,6 +5019,12 @@ _skill_hook_gate ceo_review_gate "$CEO_REVIEW_GATE_MODE" GSTACK_CEO_REVIEW_GATE 
   "$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" \
   "after /plan-ceo-review loads, its final stop waits for ranked top risks in the output file" "" \
   SubagentStop "$CEO_REVIEW_GATE_SUBAGENT_STOP" ""
+# The /autoplan gate (GST-1666) holds the final stop of the session that
+# loaded /autoplan: Stop only, one shim.
+AUTOPLAN_GATE_STOP="$(_hook_command_path hosts/claude/hooks/autoplan-stop-gate-stop || true)"
+_skill_hook_gate autoplan_gate "$AUTOPLAN_GATE_MODE" GSTACK_AUTOPLAN_GATE Stop \
+  "$AUTOPLAN_GATE_STOP" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" \
+  "after /autoplan loads, its final stop waits until every applicable phase published and the gate is written" ""
 
 # Also tear down plan-tune + timeline hooks on --no-team (matches the existing pattern).
 # Tag-only remove-source misses untagged entries (Claude Code strips
