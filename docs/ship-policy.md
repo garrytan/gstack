@@ -2199,8 +2199,9 @@ the moved base with `git merge-tree` first:
 - It merges cleanly: nothing is merged and the preflight prints
   `MERGE: skipped (origin/<base> is N commit(s) ahead and merges clean; …)`.
 - It conflicts: Step 3 merges and stops on the conflicted files, as before.
-- It changed `VERSION` or a versioned manifest: Step 3 merges, because Step 12
-  reads the branch's version against `origin/<base>`, and a `BASE_MERGE:` line says so.
+- It moved the version Step 12 reads (`VERSION`, or the file `.gstack/version-path`
+  names): Step 3 merges, because Step 12 reads the branch's version against
+  `origin/<base>`, and a `BASE_MERGE:` line says so.
 - `auto` cannot tell (a local origin, a failed or empty gh answer) or
   merge-tree fails: Step 3 merges, and a `BASE_MERGE:` line says why.
   `on-conflict` skips the check.
