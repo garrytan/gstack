@@ -88,8 +88,8 @@ stays unknown.
 Prepare a prompt asking Claude to review for bugs, production failure modes,
 security issues, missing tests, and maintainability problems, with file/code
 references. Include additional user instructions. Request severity-labelled
-findings (`[P1]`, `[P2]`, `[P3]`) or explicit `NO_FINDINGS` when review completes
-with no issues. The invocation appends the full branch plus working-tree diff
+findings (`[P1]`, `[P2]`, `[P3]`) and a last line that is exactly
+`VERDICT: CLEAN` (no findings) or `VERDICT: FINDINGS`. The invocation appends the full branch plus working-tree diff
 because tool-less Claude cannot execute git commands:
 
 ```bash
@@ -157,7 +157,7 @@ JS
 Prepare a prompt asking Claude to try to break the change: edge cases, races,
 security holes, resource leaks, silent data corruption, bad error handling, and
 operational failures. Include the user's focus, if any. Request severity-labelled
-findings or explicit `NO_FINDINGS`. This complete invocation captures and appends
+findings and the same last `VERDICT:` line. This complete invocation captures and appends
 the same branch plus working-tree diff as review mode:
 
 ```bash
