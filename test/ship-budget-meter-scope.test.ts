@@ -129,7 +129,7 @@ describe('meter scope (GST-467)', () => {
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), ...sub]);
     expect(s.code, s.err).toBe(0);
-    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 100M (a /ship subagent with --reading-from task or a task title; --token-cap <n> or none to change it)');
+    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 100M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)');
     expect(s.out).not.toContain(TREE);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     expect(h.sb(['note', '--run', run, '--step', '6', '--reading', '100000000', '--credits', '150']).code).toBe(0);

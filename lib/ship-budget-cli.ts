@@ -337,7 +337,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
-  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent with --reading-from task or a task title; --token-cap <n> or none to change it)`] : [];
+  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
   return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...(threadStart?.lines ?? []), ...out.stdout], exit: out.exit });
 }
 
