@@ -23,6 +23,10 @@ export const PERIODIC_CI_EXCLUDE: Record<string, { reason: string; tracking: str
     reason: 'needs OPENROUTER_API_KEY, which no CI workflow carries; a preregistered research instrument run on demand, not weekly coverage',
     tracking: 'TODOS.md "CI-unrunnable paid evals" (re-entry: OPENROUTER_API_KEY in the periodic slice env and a new preregistration; review by 2026-12-28)',
   },
+  'test/skill-e2e-plan-eng-multi-finding-batching.test.ts': {
+    reason: 'retired with standalone /plan-eng-review (GST-1698): it checks one interactive question per eng finding, and /autoplan Phase 3 auto-decides findings, so no shipped entry reaches the behavior; running it weekly is known waste',
+    tracking: 'TODOS.md "/plan-eng-review retirement follow-ups" (re-entry: none; delete the file with its batching counter helpers and fixtures)',
+  },
   'test/skill-e2e-ios-device.test.ts': {
     reason: 'needs a physical iPhone over USB/devicectl — manual hardware, not a CI runner capability',
     tracking: 'TODOS.md "CI-unrunnable paid evals" (re-entry: the CLI/device is available in the CI image; review by 2026-12-28)',

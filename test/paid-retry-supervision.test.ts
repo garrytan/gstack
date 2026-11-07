@@ -22,16 +22,14 @@ const expectedWalls = {
   'test/skill-e2e-shared-libs-paths.test.ts': 1_920_000,
   'test/skill-e2e-ship-docsync.test.ts': 4_920_000,
   'test/skill-e2e-auq-consistency.test.ts': 1_080_000,
-  'test/skill-e2e-auq-matrix.test.ts': 1_920_000,
-  'test/skill-e2e-plan-format.test.ts': 1_360_000,
+  'test/skill-e2e-auq-matrix.test.ts': 1_620_000,
+  'test/skill-e2e-plan-format.test.ts': 740_000,
   'test/skill-e2e-auto-decide-preserved.test.ts': 1_020_000,
   'test/skill-e2e-plan-ceo-finding-floor.test.ts': 1_020_000,
-  'test/skill-e2e-plan-eng-finding-floor.test.ts': 1_020_000,
   'test/skill-e2e-plan-design-finding-floor.test.ts': 1_020_000,
   'test/skill-e2e-plan-devex-finding-floor.test.ts': 1_020_000,
-  'test/skill-e2e-plan-mode-no-op.test.ts': 3_720_000,
+  'test/skill-e2e-plan-mode-no-op.test.ts': 2_520_000,
   'test/skill-e2e-plan-ceo-mode-routing.test.ts': 1_320_000,
-  'test/skill-e2e-plan-eng-plan-mode.test.ts': 1_320_000,
   'test/skill-e2e-plan-prosons.test.ts': 1_360_000,
   'test/skill-e2e-plan.test.ts': 3_120_000,
 };
@@ -50,9 +48,9 @@ test('paid evals never retry: every paid file and registered row runs once', () 
   }
 });
 
-test('registration covers exactly the sixteen demonstrated full-file retry gaps', () => {
+test('registration covers exactly the fourteen demonstrated full-file retry gaps', () => {
   expect(Object.fromEntries(newBudgets.map(row => [row.file, row.shardMs]))).toEqual(expectedWalls);
-  expect(new Set(FILE_RETRY_BUDGETS.map(row => row.file)).size).toBe(18);
+  expect(new Set(FILE_RETRY_BUDGETS.map(row => row.file)).size).toBe(16);
   expect(STRICT_RETRY_CASE_BUDGETS.map(row => row.file)).toEqual([
     ...FINDING_RETRY_BUDGETS.map(row => row.file), AUQ_CONSISTENCY_RETRY_BUDGET.file,
   ]);
@@ -82,20 +80,19 @@ test('source allowances retain all captures, cases, and finalization grace', () 
   expect(read('test/helpers/codex-eval.ts')).toContain('CODEX_EVAL_FINALIZE_MS = 2 * CODEX_DRAIN_GRACE_MS');
   expect(read('test/helpers/codex-session-runner.ts')).toMatch(/CODEX_DRAIN_GRACE_MS\s*=\s*5_000/);
   expect(read('test/helpers/office-hours-attempt.ts')).toContain('OFFICE_HOURS_BUN_GRACE_MS = 10_000');
-  for (const file of ['auto-decide-preserved', 'plan-ceo-finding-floor', 'plan-eng-finding-floor', 'plan-design-finding-floor', 'plan-devex-finding-floor']) {
+  for (const file of ['auto-decide-preserved', 'plan-ceo-finding-floor', 'plan-design-finding-floor', 'plan-devex-finding-floor']) {
     expect(timeoutExpressions(`test/skill-e2e-${file}.test.ts`)).toEqual(['PTY_MS']);
     if (file.endsWith('-finding-floor')) expect(read(`test/skill-e2e-${file}.test.ts`)).toContain('timeoutMs: CAPTURE_LONG_MS');
   }
   const noop = read('test/skill-e2e-plan-mode-no-op.test.ts');
-  expect(noop).toContain("['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'plan-devex-review'] as const");
-  expect(noop).toContain("['plan-eng-review', 'plan-design-review'] as const");
+  expect(noop).toContain("['plan-ceo-review', 'plan-design-review', 'plan-devex-review'] as const");
+  expect(noop).toContain("['plan-design-review'] as const");
   expect(timeoutExpressions('test/skill-e2e-plan-mode-no-op.test.ts')).toEqual(Array(2).fill('CAPTURE_LONG_MS'));
   expect(read('test/skill-e2e-plan-ceo-mode-routing.test.ts').match(/^\s*{ mode: '/gm)).toHaveLength(2);
   expect(timeoutExpressions('test/skill-e2e-plan-ceo-mode-routing.test.ts')).toEqual(['CAPTURE_LONG_MS']);
-  expect(timeoutExpressions('test/skill-e2e-plan-eng-plan-mode.test.ts')).toEqual(Array(2).fill('CAPTURE_LONG_MS'));
   expect(timeoutExpressions('test/skill-e2e-plan-prosons.test.ts')).toEqual(Array(4).fill('CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS'));
-  expect(timeoutExpressions('test/skill-e2e-plan-format.test.ts')).toEqual(Array(4).fill('CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS'));
-  expect(read('test/skill-e2e-auq-matrix.test.ts').match(/^    skill: '/gm)).toHaveLength(6);
+  expect(timeoutExpressions('test/skill-e2e-plan-format.test.ts')).toEqual(Array(2).fill('CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS'));
+  expect(read('test/skill-e2e-auq-matrix.test.ts').match(/^    skill: '/gm)).toHaveLength(5);
   expect(timeoutExpressions('test/skill-e2e-auq-matrix.test.ts')).toEqual(['CAPTURE_MS']);
   expect(timeoutExpressions('test/skill-e2e-plan.test.ts')).toEqual([
     'PTY_MS', 'PTY_MS', 'CAPTURE_LONG_MS', 'CAPTURE_LONG_MS',

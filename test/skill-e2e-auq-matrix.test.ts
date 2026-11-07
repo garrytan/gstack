@@ -71,11 +71,6 @@ interface MatrixSkill {
 
 const MATRIX: MatrixSkill[] = [
   {
-    skill: 'plan-eng-review',
-    fixtures: { 'plan.md': FLAWED_PLAN },
-    scenario: 'Read plan.md — that is the plan to review. It is a standalone plan document, not a codebase. Walk the review until the first AskUserQuestion (a per-issue finding or a scope decision).',
-  },
-  {
     skill: 'plan-design-review',
     fixtures: { 'plan.md': FLAWED_PLAN + '\n## UI\nA new pricing page with a comparison table, plan cards, and an upgrade modal.\n' },
     scenario: 'Read plan.md — that is the plan to review (it has UI scope). Walk the review until the first AskUserQuestion.',

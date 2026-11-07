@@ -147,8 +147,7 @@ describe('selectTests', () => {
     const actual = selectTests(['scripts/resolvers/testing.ts'], E2E_TOUCHFILES);
     expect(actual.reason).toBe('diff');
     expect(actual.selected.sort()).toEqual(expected);
-    for (const id of ['plan-eng-multi-finding-batching',
-      'plan-eng-review-format-coverage', 'ship-section-loading']) {
+    for (const id of ['plan-eng-multi-finding-batching', 'ship-section-loading']) {
       expect(actual.selected).toContain(id);
       expect(E2E_TIERS[id]).toBe('periodic');
     }
@@ -633,7 +632,10 @@ describe('derived touchfile closure', () => {
   };
   const maps = [['E2E_TOUCHFILES', E2E_TOUCHFILES], ['LLM_JUDGE_TOUCHFILES', LLM_JUDGE_TOUCHFILES]] as const;
   /** Paid files no key selects; they run only by tier or census. */
-  const KEYLESS_PAID: Record<string, string> = {};
+  const KEYLESS_PAID: Record<string, string> = {
+    // Template-literal ids (auq-matrix-${skill}) and no E2E map key; it runs on every periodic sweep. It only looked keyed while its plan-eng-review row quoted that SDK key (row retired with the skill, GST-1698).
+    'test/skill-e2e-auq-matrix.test.ts': 'periodic self-gated matrix with template-literal ids',
+  };
 
   test('no free test file is a touchfile', () => {
     const listed = maps.flatMap(([name, map]) => Object.entries(map).flatMap(([key, deps]) =>
