@@ -1440,9 +1440,10 @@ fi
 # membership inline with "${_DISABLED_SKILLS:- }", so a linker extracted on its
 # own (tests) behaves as "nothing disabled".
 _USER_DISABLED_SKILLS="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
-# Retired skills (GSTACK_RETIRED_SKILLS) take the same no-entry path on every
-# host; only the user's own list is reported and passed to the router.
-_DISABLED_SKILLS="$(gstack_disabled_normalize "$GSTACK_RETIRED_SKILLS $_USER_DISABLED_SKILLS")"
+# Retired skills, and the crew skills off a Capy machine
+# (GSTACK_UNREGISTERED_SKILLS), take the same no-entry path on every host; only
+# the user's own list is reported and passed to the router.
+_DISABLED_SKILLS="$(gstack_disabled_normalize "$GSTACK_UNREGISTERED_SKILLS $_USER_DISABLED_SKILLS")"
 # Every render of the router (committed-path renders of env-var hosts and the
 # per-install renders) omits disabled skills (C8); the default Claude router is
 # rendered in place by gstack-relink.

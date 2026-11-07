@@ -347,3 +347,19 @@ gstack_disabled_normalize() {
 # entries are still removed. Same list as RETIRED_SKILLS in
 # scripts/discover-skills.ts (test/retired-skills.test.ts).
 GSTACK_RETIRED_SKILLS="plan-eng-review investigate"
+
+# GSTACK_CREW_SKILLS — the gstack-on-Capy skills (crew/README.md). Only a Capy
+# machine registers them; anywhere else they get no entry on any host and an
+# existing gstack-owned entry is removed, like a retired skill. Same list as
+# CREW_SKILLS in scripts/discover-skills.ts (test/crew-skills-on-capy.test.ts).
+GSTACK_CREW_SKILLS="captain"
+
+# gstack_on_capy — true on a Capy machine: the test gstack-capy-install's bun
+# shim and gstack-update-channel.sh already use (CAPY_MACHINE_CONFIG set, or
+# ~/.capy/system present).
+gstack_on_capy() { [ -n "${CAPY_MACHINE_CONFIG:-}" ] || [ -d "${HOME:-/nonexistent}/.capy/system" ]; }
+
+# GSTACK_UNREGISTERED_SKILLS — what setup and gstack-relink keep off every host
+# on this machine: the retired skills, plus the crew skills off Capy.
+GSTACK_UNREGISTERED_SKILLS="$GSTACK_RETIRED_SKILLS"
+gstack_on_capy || GSTACK_UNREGISTERED_SKILLS="$GSTACK_RETIRED_SKILLS $GSTACK_CREW_SKILLS"
