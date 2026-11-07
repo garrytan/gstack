@@ -427,7 +427,7 @@ export const RELEASE_RESULT_CODES = {
   },
   DOCS_RESULT_INVALID: {
     anchor: 'docs-result-invalid',
-    summary: 'the documentation audit child\'s last line (/ship Step 14.5) does not meet the result contract: a key is missing, unknown or doubled, a field has the wrong type or value, or documentation_section is empty or a placeholder; the audit result cannot be used, and this is a malformed reply, not a blocked audit',
+    summary: 'the documentation audit child\'s last line (/ship Step 14.5) does not meet the result contract: a key is missing, unknown or repeated once whitespace around keys is trimmed, a field has the wrong type or value, or documentation_section is empty or a placeholder; the audit result cannot be used, and this is a malformed reply, not a blocked audit',
     fix: 'run the one remaining re-audit with the RETRY_NOTE: line appended to its prompt verbatim; with no attempt left, Step 14.5 stops with this code and the keys it names',
   },
   RECEIPT_PROSE_MISMATCH: {

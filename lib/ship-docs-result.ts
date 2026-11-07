@@ -16,7 +16,8 @@ export interface DocsResult {
 export type DocsResultCheck = { ok: true; result: DocsResult; trimmed: string[] } | { ok: false; problems: string[]; trimmed: string[] };
 
 const badPath = (p: string) => p.startsWith('/') || p.includes('\\') || /[*?[\]]/.test(p) || p.split('/').some(part => !part || part === '.' || part === '..');
-const isPlaceholder = (s: string) => !/\s/.test(s) || /^<[^<>]*>$/.test(s);
+const isPlaceholder = (s: string) => /^[!-~]+$/.test(s) || /^<[^<>]*>$/.test(s);
+const shown = (x: unknown) => { const s = JSON.stringify(x) ?? String(x); return s.length > 40 ? `${s.slice(0, 40)}…` : s; };
 
 export function checkDocsResult(output: string, auditId: string): DocsResultCheck {
   const last = output.replace(/\r\n/g, '\n').split('\n').map(l => l.trim()).filter(Boolean).at(-1) ?? '';
@@ -25,18 +26,20 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, problems: ['the last nonempty line is not one JSON object'], trimmed: [] };
   const problems: string[] = [];
   const trimmed: string[] = [];
-  const v: Record<string, unknown> = {};
+  const v: Record<string, unknown> = Object.create(null);
   for (const [raw, value] of Object.entries(parsed)) {
     const key = raw.trim();
     if (key !== raw) trimmed.push(raw);
     if (Object.hasOwn(v, key)) problems.push(`"${key}" appears twice once whitespace around keys is trimmed`);
     v[key] = value;
   }
-  for (const key of Object.keys(v)) if (!(DOCS_RESULT_KEYS as readonly string[]).includes(key)) problems.push(`unknown key ${JSON.stringify(key)}`);
+  const unknown = Object.keys(v).filter(key => !(DOCS_RESULT_KEYS as readonly string[]).includes(key));
+  for (const key of unknown.slice(0, 5)) problems.push(`unknown key ${shown(key)}`);
+  if (unknown.length > 5) problems.push(`${unknown.length - 5} more unknown keys`);
   for (const key of DOCS_RESULT_KEYS) if (!Object.hasOwn(v, key)) problems.push(`"${key}" is missing`);
-  if (Object.hasOwn(v, 'schema_version') && v.schema_version !== 1) problems.push(`"schema_version" is ${JSON.stringify(v.schema_version)}, not 1`);
-  if (Object.hasOwn(v, 'audit_id') && v.audit_id !== auditId) problems.push(`"audit_id" is ${JSON.stringify(v.audit_id)}, not ${JSON.stringify(auditId)}`);
-  if (Object.hasOwn(v, 'status') && !['updated', 'current', 'blocked'].includes(v.status as string)) problems.push(`"status" is ${JSON.stringify(v.status)}, not updated, current or blocked`);
+  if (Object.hasOwn(v, 'schema_version') && v.schema_version !== 1) problems.push(`"schema_version" is ${shown(v.schema_version)}, not 1`);
+  if (Object.hasOwn(v, 'audit_id') && v.audit_id !== auditId) problems.push(`"audit_id" is ${shown(v.audit_id)}, not the audit id this audit was given`);
+  if (Object.hasOwn(v, 'status') && !['updated', 'current', 'blocked'].includes(v.status as string)) problems.push(`"status" is ${shown(v.status)}, not updated, current or blocked`);
   for (const key of LISTS) {
     if (!Object.hasOwn(v, key)) continue;
     const list = v[key];
@@ -46,13 +49,13 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   const section = v.documentation_section;
   if (Object.hasOwn(v, 'documentation_section')) {
     if (typeof section !== 'string' || !section.trim()) problems.push('"documentation_section" is empty; it must be the complete Markdown section');
-    else if (isPlaceholder(section.trim())) problems.push(`"documentation_section" is a placeholder (${JSON.stringify(section.trim().slice(0, 40))}); it must be the complete Markdown section`);
+    else if (isPlaceholder(section.trim())) problems.push(`"documentation_section" is a placeholder (${shown(section.trim())}); it must be the complete Markdown section`);
     else if (/^\s*##\s+Documentation\s*$/m.test(section)) problems.push('"documentation_section" carries a ## Documentation heading');
   }
   const updated = Array.isArray(v.files_updated) ? v.files_updated.length : 0;
   const blockers = Array.isArray(v.blockers) ? v.blockers.length : 0;
   if (v.status === 'blocked' && !blockers) problems.push('status blocked needs at least one blocker');
-  if (v.status !== 'blocked' && typeof v.status === 'string' && blockers) problems.push(`status ${v.status} cannot carry blockers; a blocker means status blocked`);
+  if ((v.status === 'updated' || v.status === 'current') && blockers) problems.push(`status ${v.status} cannot carry blockers; a blocker means status blocked`);
   if (v.status === 'current' && updated) problems.push('status current cannot list files_updated; an edit means status updated');
   if (v.status === 'updated' && !updated) problems.push('status updated needs files_updated');
   if (problems.length) return { ok: false, problems, trimmed };

@@ -62,7 +62,8 @@ describe('gstack-docs-candidate result', () => {
     ['an empty section', { documentation_section: '  ' }, '"documentation_section" is empty'],
     ['a template placeholder', { documentation_section: '<Markdown with scope, result and debt>' }, '"documentation_section" is a placeholder'],
     ['a Documentation heading', { documentation_section: `## Documentation\n${SECTION}` }, '## Documentation'],
-    ['another audit id', { audit_id: 'other' }, '"audit_id" is "other", not "ship352b-docs-1"'],
+    ['another audit id', { audit_id: 'other' }, '"audit_id" is "other", not the audit id this audit was given'],
+    ['a __proto__ key', JSON.parse('{"__proto__":{"x":1}}'), 'unknown key "__proto__"'],
     ['current with an edit', { files_updated: ['README.md'] }, 'status current'],
     ['blocked without a blocker', { status: 'blocked' }, 'status blocked'],
     ['a glob path', { files_reviewed: ['docs/*.md'] }, '"files_reviewed"'],
@@ -79,6 +80,21 @@ describe('gstack-docs-candidate result', () => {
     const r = result(line({ documentation_section: SECTION }).replace(/}$/, ',"documentation_section ":"second"}'), 'ship352b-docs-1');
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('"documentation_section" appears twice');
+  });
+
+  test('the retry note names neither the abandoned audit id nor long child-supplied text', () => {
+    const r = result(line({ documentation_section: SECTION, audit_id: 'ship352b-docs-0', ['Z'.repeat(500)]: 1 }) + '\n', 'ship352b-docs-1');
+    expect(r.status).toBe(1);
+    const note = r.stdout.split('\n').find(l => l.startsWith('RETRY_NOTE: '))!;
+    expect(note).not.toContain('ship352b-docs-1');
+    expect(note).not.toContain('Z'.repeat(41));
+    expect(note.length).toBeLessThan(800);
+  });
+
+  test('a one-line section written without spaces is not taken for a placeholder', () => {
+    const r = result(line({ documentation_section: '文書の範囲は変更なし。結果は最新。' }) + '\n', 'ship352b-docs-1');
+    expect(r.stdout).toContain('DOCS_RESULT: ok');
+    expect(r.status).toBe(0);
   });
 
   test('a last line that is not one JSON object names the whole expected line', () => {
