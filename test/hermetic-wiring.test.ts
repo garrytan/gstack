@@ -102,9 +102,11 @@ describe('hermetic wiring tripwire', () => {
     expect(read('test/helpers/hermetic-env.ts')).toContain('DISABLE_AUTOUPDATER=1 (pinned in both branches');
   });
 
-  test('the hermetic branch pins GH_TELEMETRY=0, so gh writes no device-id into a fixture HOME', () => {
-    // gh 2.103 writes $HOME/.local/state/gh/device-id on any command with
-    // telemetry on; autoplan-ceo-only's HOME diff failed on it (run 42371706491).
+  test('the hermetic branch pins GH_TELEMETRY=0, and a gh spawn under it leaves the fixture HOME empty (smoke)', () => {
+    // autoplan-ceo-only's HOME diff failed on gh 2.103's telemetry device-id
+    // (run 42371706491). The pin assertions guard that fix. The gh spawn is a
+    // smoke check only: an offline `gh auth status` in a fresh HOME does not
+    // write device-id even without the pin, so it cannot fail on unfixed code.
     const base = { PATH: process.env.PATH ?? '/usr/bin', EVALS_HERMETIC: '1', GH_TELEMETRY: 'log' };
     expect(buildHermeticEnv(base, {}).GH_TELEMETRY).toBe('0');
     expect(buildHermeticEnv(base, {}, { GH_TELEMETRY: 'log' }).GH_TELEMETRY, 'per-test override stays last').toBe('log');
