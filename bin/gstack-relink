@@ -266,12 +266,13 @@ _cleanup_skill_entry() {
       # Otherwise only what is ours goes: the SKILL.md, the marker, and our
       # runtime-asset links. The user's files stay, and so does the directory
       # if it is not empty afterwards. A real SKILL.md that differs from our
-      # source (raw, or with its name: rewritten to the entry name) is a
-      # customized file: moved to the backup root, never deleted.
+      # source (raw, or with its name: rewritten to the entry name), or one
+      # whose source is gone (a retired skill), is treated as customized:
+      # moved to the backup root, never deleted.
       if [ -f "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] && [ -n "$skill" ]; then
         src="$INSTALL_DIR/$skill/SKILL.md"; [ -f "$RENDER_DIR/$skill/SKILL.md" ] && src="$RENDER_DIR/$skill/SKILL.md"
-        if [ -f "$src" ] && ! cmp -s "$entry/SKILL.md" "$src" \
-           && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: ${entry##*/}/" "$src" | cmp -s - "$entry/SKILL.md"; then
+        if [ ! -f "$src" ] || { ! cmp -s "$entry/SKILL.md" "$src" \
+           && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: ${entry##*/}/" "$src" | cmp -s - "$entry/SKILL.md"; }; then
           if ! _backup_skill_md "$entry/SKILL.md" "${entry##*/}"; then
             echo "  kept ${entry##*/}/SKILL.md: could not back up the customized file — left untouched" >&2
             return 0
