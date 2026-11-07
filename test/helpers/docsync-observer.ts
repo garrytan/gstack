@@ -414,8 +414,16 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
   if (commandName === candidate) {
     const privateJson = (file: string | undefined) => !!file && path.isAbsolute(file) && /\.json$/i.test(file) && docsPrivateArtifact(file, fixture, scripts);
     if (rest.length === 1 && rest[0] === '--help') return true;
-    if (rest.length === 2 && (rest[0] === 'snapshot' || rest[0] === 'compare') && rest[1] === '--help') return true;
+    if (rest.length === 2 && (rest[0] === 'snapshot' || rest[0] === 'compare' || rest[0] === 'result') && rest[1] === '--help') return true;
     if (rest[0] === 'compare') return rest.length === 2 && privateJson(rest[1]);
+    if (rest[0] === 'result') {
+      if (rest.length !== 6 || !path.isAbsolute(rest[1]) || !docsPrivateArtifact(rest[1], fixture, scripts)) return false;
+      const flags = [rest[2], rest[4]];
+      if (!flags.includes('--audit-id') || !flags.includes('--out-dir')) return false;
+      const auditId = rest[flags.indexOf('--audit-id') * 2 + 3];
+      const outDir = rest[flags.indexOf('--out-dir') * 2 + 3];
+      return /^[A-Za-z0-9._-]+$/.test(auditId) && !auditId.includes('..') && (outDir === fixture.home || docsPrivateDirectory(outDir, fixture));
+    }
     if (rest[0] !== 'snapshot' || rest.length % 2 !== 1) return false;
     const flags = rest.slice(1).filter((_, i) => i % 2 === 0);
     const values = rest.slice(1).filter((_, i) => i % 2 === 1);
