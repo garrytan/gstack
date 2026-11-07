@@ -8,7 +8,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildRow, locate, type ApprovalRow } from '../lib/approval-record';
-import { exemptReason, landPlan, parsePlanLine, planMode, readyPlan, resolvePlan } from '../lib/plan-record';
+import { exemptReason, finishPlan, landPlan, parsePlanLine, planMode, readyPlan, resolvePlan } from '../lib/plan-record';
+import { loadReady, persist, repoIdentity } from '../lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const dirs: string[] = [];
@@ -91,11 +92,13 @@ describe('resolvePlan', () => {
   });
 
   test('a row id resolves an approved plan row, never a ruling or grant row', () => {
-    const f = fixture({ y: [{ ask: 'R41 A1: cut a skill' }, { ask: 'review_loop_grant abc for #1', scope: 'one fix-check' }] });
+    const f = fixture({ y: [{ ask: 'R41 A1: cut a skill' }, { ask: 'review_loop_grant abc for #1', scope: 'one fix-check' }, { ask: 'Grant for #2', scope: 'one review_loop_exception at abc' }] });
     const ok = resolvePlan(parsePlanLine(`Plan: approved: ${f.ids['R41 A1: cut a skill']}`), f);
     expect(ok.ok).toBe(true);
     const grant = resolvePlan(parsePlanLine(`Plan: approved: ${f.ids['review_loop_grant abc for #1']}`), f);
     expect(!grant.ok && grant.failure.code).toBe('PLAN_UNRESOLVED');
+    const exception = resolvePlan(parsePlanLine(`Plan: approved: ${f.ids['Grant for #2']}`), f);
+    expect(!exception.ok && exception.failure.code).toBe('PLAN_UNRESOLVED');
     expect(resolvePlan(parsePlanLine('Plan: approved: a-000000000000'), f)).toMatchObject({ ok: false, failure: { code: 'PLAN_UNRESOLVED' } });
   });
 
@@ -116,6 +119,7 @@ describe('resolvePlan', () => {
     expect(resolvePlan(parsePlanLine('Plan: approved: ap-1'), fixture())).toMatchObject({ ok: false, failure: { code: 'PLAN_STORE_UNAVAILABLE' } });
     expect(resolvePlan(null, { ...f, changed: ['changelog.d/a.md', 'changelog.d/b.md'] })).toMatchObject({ ok: true, record: { reason: 'changelog-only' } });
     expect(resolvePlan(null, { ...f, changed: ['changelog.d/a.md', 'lib/x.ts'] })).toMatchObject({ ok: false, failure: { code: 'PLAN_RECORD_MISSING' } });
+    expect(resolvePlan(parsePlanLine('Plan: exempt: changelog-only'), { ...f, changed: ['lib/x.ts'] })).toMatchObject({ ok: false, failure: { code: 'PLAN_EXEMPT_UNKNOWN' } });
   });
 });
 
@@ -124,6 +128,8 @@ describe('ready and land', () => {
     const f = fixture({ main: [{ ask: 'Approve the plan A', source: 'autoplan:ap-1@gate_rev=1' }] });
     const base = { cwd: f.cwd, changed: ['lib/x.ts'] };
     expect(readyPlan({ ...base, env: f.env, body: '', policyValue: 'off' })).toEqual({});
+    expect(readyPlan({ ...base, env: f.env, body: 'Plan: approved: ap-1', policyValue: 'off' })).toMatchObject({ record: { ref: 'ap-1' } });
+    expect(readyPlan({ ...base, env: f.env, body: 'Plan: approved: ap-1', policyValue: 'off' }).line).toBeUndefined();
     const warn = readyPlan({ ...base, env: { ...f.env, GSTACK_CAPY: '1' }, body: '', policyValue: 'off' });
     expect(warn.failure).toBeUndefined();
     expect(warn.line).toContain('PLAN: warn');
@@ -163,6 +169,31 @@ describe('gstack-approvals plan-check and render --plan', () => {
     expect(bad.err).toContain('PLAN_EXEMPT_UNKNOWN');
     const body = run(['render', '--full', '--plan', 'Plan: approved: ap-1']).out;
     expect(parsePlanLine(body)).toMatchObject({ kind: 'approved', token: 'ap-1' });
-    expect(body).toContain('Plan check: approved ap-1');
+    expect(body).toContain('Plan check: approved ap-1 row=');
+    expect(body).not.toContain('Approve the plan A');
+  });
+});
+
+describe('/ship finish and the READY note', () => {
+  test('finish --plan refuses before any stage under require, and a READY note round-trips the record land reads', () => {
+    const f = fixture({ main: [{ ask: 'Approve the plan A', source: 'autoplan:ap-1@gate_rev=1' }] });
+    expect(finishPlan(f.cwd, 'main', undefined, f.env)).toEqual({});
+    expect(finishPlan(f.cwd, 'main', undefined, { ...f.env, GSTACK_PLAN_RECORD: 'require' }).failure?.code).toBe('PLAN_RECORD_MISSING');
+    const ok = finishPlan(f.cwd, 'main', 'approved: ap-1', { ...f.env, GSTACK_PLAN_RECORD: 'require' });
+    expect(ok.failure).toBeUndefined();
+    expect(ok.line).toContain('PLAN: approved ap-1');
+    const state = tmp('plan-notes-');
+    const prev = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = state;
+    try {
+      const keys = repoIdentity(f.cwd);
+      const record = readyPlan({ cwd: f.cwd, env: f.env, body: 'Plan: approved: ap-1', policyValue: 'require', changed: ['lib/x.ts'] }).record!;
+      persist(f.cwd, [{ schema: 1, kind: 'ready', repo_key: keys.key, pr: '7', head: 'a'.repeat(40), base_sha: 'b'.repeat(40), ready_at: 'now', screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: 'now', plan: record }], { push: false });
+      const note = loadReady(keys.keys, '7', 'a'.repeat(40));
+      expect(note?.plan).toEqual(record);
+      expect(landPlan({ env: {}, policyValue: 'require', record: note?.plan, body: 'Plan: approved: ap-1' }).failure).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prev;
+    }
   });
 });

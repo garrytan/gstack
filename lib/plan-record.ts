@@ -12,19 +12,22 @@
  * machine can see), so a row imported under another branch or another lane still counts. A row answered in an
  * agent's own words, a newer gate revision that is not approved, and a ruling or grant row never count as the
  * owner's plan approval. gstack never infers the class from the diff, the title or the changelog: a PR with no line
- * reads as required. Callers: gstack-ship-queue ready (writes the record into the READY note), land (checks it) and
- * gstack-approvals render --plan.
+ * reads as required. A run id resolves to the newest gate revision imported into the store, so a revised gate must be
+ * imported again before it counts. Callers: gstack-ship-queue ready (writes the record into the READY note), land (checks
+ * it), gstack-ship-release finish --plan (/ship) and gstack-approvals render --plan / plan-check.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { locate, type ApprovalRow, type Env } from './approval-record';
 import type { ResultCodeName } from './result-codes';
+import { isUnavailable, loadPolicyFromBase } from './ship-policy';
 
 export const PLAN_MODES = ['off', 'warn', 'require'] as const;
 export type PlanMode = typeof PLAN_MODES[number];
 export const PLAN_RESOLVER_VERSION = 1;
-export const EXEMPT_REASONS = ['bug fix', 's1', 'flaky', 'stamp', 'changelog-resolve', 'cap-repin', 'audited-list', 'read-only', 'changelog-only'] as const;
+export const EXEMPT_REASONS = ['bug fix', 's1', 'flaky', 'stamp', 'changelog-resolve', 'cap-repin', 'audited-list', 'read-only'] as const;
 
 export type PlanDecl =
   | { kind: 'required'; line: string }
@@ -34,7 +37,7 @@ export interface PlanRecord { line: string; state: 'approved' | 'exempt'; ref?: 
 export interface PlanFailure { code: ResultCodeName; message: string; fix: string }
 export type PlanResolution = { ok: true; record: PlanRecord; summary: string } | { ok: false; failure: PlanFailure };
 
-const NOT_PLAN_ROW = /^\s*(ruled_note|review_loop_grant|test_lane_exception)\b/;
+const NOT_PLAN_ROW = /\b(ruled_note|review_loop_grant|review_loop_exception|test_lane_exception)\b/;
 const ROW_ID = /^a-[0-9a-f]{12}$/;
 
 /** The mode in force: the base policy's plan_record, else a crew opt-in (GSTACK_PLAN_RECORD), else warn in a Capy session, else off. */
@@ -141,8 +144,10 @@ export function planLine(res: PlanResolution, mode: { mode: PlanMode; source: st
 /** ready's plan step: the PLAN: line, the record for the READY note when it resolved, and the refusal under require. */
 export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?: PlanMode; changed: string[]; fragmentsDir?: string }): { line?: string; record?: PlanRecord; failure?: PlanFailure } {
   const mode = planMode(o.policyValue, o.env);
-  if (mode.mode === 'off') return {};
-  const res = resolvePlan(parsePlanLine(o.body), { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir });
+  const decl = parsePlanLine(o.body);
+  if (mode.mode === 'off' && !decl) return {};
+  const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir });
+  if (mode.mode === 'off') return res.ok ? { record: res.record } : {};
   const line = planLine(res, mode);
   if (res.ok) return { line, record: res.record };
   return mode.mode === 'require' ? { line, failure: res.failure } : { line };
@@ -156,6 +161,17 @@ export function landPlan(o: { env: Env; policyValue?: PlanMode; record?: PlanRec
   const why = !o.record ? 'the READY note carries no plan record'
     : (current ?? 'Plan: exempt: changelog-only') !== o.record.line && !(current === null && o.record.reason === 'changelog-only') ? `the READY note recorded "${o.record.line}" but the PR body now says "${current ?? 'no Plan: line'}"` : null;
   if (!why) return { line: `PLAN: ${o.record!.state} ${o.record!.ref ?? o.record!.reason}${o.record!.row_id ? ` row=${o.record!.row_id}` : ''} (from the READY note)` };
-  const failure: PlanFailure = { code: 'QUEUE_PLAN_MISMATCH', message: why, fix: 'the lane fixes the PR body\'s Plan line if needed and reruns gstack-ship-queue ready --pr <n> at the pin' };
+  const failure: PlanFailure = { code: 'QUEUE_PLAN_MISMATCH', message: why, fix: 'the lane puts the brief\'s Plan line in the PR body (gstack-approvals render --plan) and reruns gstack-ship-queue ready --pr <n> at the pin, which records any line that resolves whatever its own mode' };
   return mode.mode === 'require' ? { line: `PLAN: refused ${why} (QUEUE_PLAN_MISMATCH)`, failure } : { line: `PLAN: warn ${why} (QUEUE_PLAN_MISMATCH) [mode ${mode.mode} from ${mode.source}]` };
+}
+
+/** /ship finish's plan step (gstack-ship-release finish --plan "<the brief's Plan line>"): the same resolution ready makes, run before the stages. */
+export function finishPlan(cwd: string, base: string, line: string | undefined, env: Env = process.env): { line?: string; failure?: PlanFailure } {
+  const loaded = loadPolicyFromBase(cwd, base);
+  const policy = isUnavailable(loaded) ? undefined : loaded.policy;
+  const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  const ref = run(['rev-parse', '--verify', '-q', `origin/${base}`]).status === 0 ? `origin/${base}` : base;
+  const changed = run(['diff', '--name-only', `${ref}...HEAD`]).stdout?.split('\n').filter(Boolean) ?? [];
+  const body = line ? (/^\s*(\*\*)?Plan:/i.test(line) ? line.trim() : `Plan: ${line.trim()}`) : '';
+  return readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
 }

@@ -203,7 +203,8 @@ function main(argv: string[]): number {
       if (flags['--plan']) {
         const decl = parsePlanLine(planText(flags['--plan']));
         const res = resolvePlan(decl, { cwd: process.cwd(), env: process.env });
-        process.stdout.write(`${decl?.line ?? 'Plan: required'}\nPlan check: ${res.ok ? res.summary : `${res.failure.code}: ${res.failure.message}`}\n\n`);
+        const short = res.ok ? `${res.record.state} ${res.record.ref ?? res.record.reason}${res.record.row_id && res.record.row_id !== res.record.ref ? ` row=${res.record.row_id}` : ''}` : `${res.failure.code} (gstack-approvals plan-check says why)`;
+        process.stdout.write(`${decl?.line ?? 'Plan: required'}\nPlan check: ${short}\n\n`);
       }
     }
     if (read.state === 'unavailable') return fail(cmd, { code: 'APPROVAL_RECORD_UNAVAILABLE', message: `no record at ${loc.file} and no mirror` });
