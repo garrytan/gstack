@@ -1206,7 +1206,7 @@ export const PATTERNS: RedactPattern[] = [
     tier: "HIGH",
     category: "secret",
     description: "GitHub App refresh token",
-    regex: /\b(ghr_[A-Za-z0-9]{36})\b/,
+    regex: /\b(ghr_[A-Za-z0-9]{36,})\b/,
   },
   {
     id: "github.fine_grained",

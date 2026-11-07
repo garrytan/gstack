@@ -20,7 +20,7 @@ const SAMPLES: Record<string, string> = {
   "github.oauth": j("gho_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"),
   "github.server": j("ghs_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"),
   "github.user_to_server": j("ghu_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"),
-  "github.refresh": j("ghr_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"),
+  "github.refresh": j("ghr_", "a1B2c3D4e5F6g7H8i9J0".repeat(3), "k1L2m3N4o5P6q7R8"),
   "github.fine_grained": j("github_pat_", "a1B2c3D4e5F6g7H8i9J0".repeat(4), "kL"),
   "gitlab.token": j("glpat-", "a1B2c3D4e5F6g7H8i9J0"),
   "groq.key": j("gsk_", "a1B2c3D4e5F6g7H8i9J0k1L2"),

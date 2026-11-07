@@ -64,7 +64,7 @@ describe("HIGH credential patterns", () => {
     ["telegram.bot_token", "TELEGRAM_TOKEN=8326208591:AA" + "HdqRy9Lm2ZpXvKb4NcQw8TuEr6YoP1sVg"],
     ["aws.access_key", "temporary key ASIA" + "ZQ3XN7P2LM4RT8WV"],
     ["github.user_to_server", "ghu_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
-    ["github.refresh", "ghr_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
+    ["github.refresh", "ghr_" + "a1B2c3D4e5F6g7H8i9J0".repeat(3) + "k1L2m3N4o5P6q7R8"],
     ["openrouter.key", "OPENROUTER sk-or-v1-" + "9f8e7d6c5b4a39281706f5e4d3c2b1a0".repeat(2)],
     ["stripe.restricted", "rk_live_" + "a1B2c3D4e5F6g7H8i9J0k1L2"],
     ["supabase.secret", "sb_secret_" + "tR4i6cyMIrYTE3s6OyHGHw_ppx2p6WK"],
@@ -768,6 +768,12 @@ describe("redactFindingSpans — machine-egress masking (#1947)", () => {
     const token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
     const out = redactFindingSpans(`auth ${token} rejected`, { repoVisibility: "private" });
     expect(out).toBe("auth <REDACTED-github.pat> rejected");
+  });
+
+  test("a 76-character GitHub refresh token is masked whole", () => {
+    const token = "ghr_" + "a1B2c3D4e5F6g7H8i9J0".repeat(3) + "k1L2m3N4o5P6q7R8";
+    const out = redactFindingSpans(`auth ${token} rejected`, { repoVisibility: "private" });
+    expect(out).toBe("auth <REDACTED-github.refresh> rejected");
   });
 
   test("multiple findings are all replaced (right-to-left splice keeps offsets valid)", () => {
