@@ -22,8 +22,7 @@ need most are `bun run test` (free acceptance) and `bun run eval:bg:pr` (paid,
 changed coverage). Retired names such as `test:evals` and `test:e2e` print their
 replacement and exit 1.
 
-Paid evals require `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`,
-`test/codex-e2e-sol-scope.test.ts`) use Codex's own auth — the hermetic runner copies
+Paid evals require `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts` and the other Codex files) use Codex's own auth — the hermetic runner copies
 only `auth.json` from `${CODEX_HOME:-~/.codex}` and pins `CODEX_HOME` in the child
 env — no `OPENAI_API_KEY` env var needed.
 
@@ -550,7 +549,7 @@ Key routing rules:
 - Architecture → invoke /autoplan
 - Design system/plan review → invoke /design-consultation or /plan-design-review
 - Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate, unless one read-only check confirms the cause and a narrow fix (then fix it and run the focused test)
+- Bugs/errors → fix them directly: one read-only check of the cause, or a focused failing test first when the cause is unclear; then fix it and run that test
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review

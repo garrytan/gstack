@@ -37,7 +37,7 @@ commit themes; do not repeat the captions.
    the failed run, or their request, quoted); the rest say what changes for them. No inventory: BAD "Adds
    a lint and a CI step." GOOD "'The review loop is too overzealous.' Pass 2 now reads only pass 1's range."
 6. **`## Blast radius`:** the body template's item, written once, here: what else the change touches and
-   the one fact that makes that safe, with the evidence-ladder rung it reached (the `/investigate` skill's Blast radius section, when present).
+   the one fact that makes that safe, with the evidence-ladder rung it reached (file:line read, walked failure path, script ran, repro).
 7. **`## Approvals`:** the output of `~/.claude/skills/gstack/bin/gstack-approvals render`, verbatim. It
    escapes its cells, and the receipt never reads it as an approval citation. A public repo (or unknown
    visibility) gets only `Approved: yes|no (record <id>)`; never pass `--full` for a PR body. On

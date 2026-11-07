@@ -41,7 +41,6 @@ interface SkillSaveMeta {
 
 const skillSaveMap: Record<string, SkillSaveMeta> = {
   'office-hours':         { slugPrefix: 'office-hours',    title: 'Office Hours',    tag: 'design-doc' },
-  'investigate':          { slugPrefix: 'investigations',  title: 'Investigation',   tag: 'investigation' },
   'plan-ceo-review':      { slugPrefix: 'ceo-plans',       title: 'CEO Plan',        tag: 'ceo-plan' },
   'plan-eng-review':      { slugPrefix: 'eng-reviews',     title: 'Eng Review',      tag: 'eng-review' },
   'plan-design-review':   { slugPrefix: 'design-reviews',  title: 'Design Review',   tag: 'design-review' },
@@ -52,8 +51,8 @@ const skillSaveMap: Record<string, SkillSaveMeta> = {
   'design-consultation':  { slugPrefix: 'design-systems',  title: 'Design System',   tag: 'design-system' },
 };
 
-export function generateGBrainContextLoad(ctx: TemplateContext): string {
-  let base = `## Brain Context Load
+export function generateGBrainContextLoad(_ctx: TemplateContext): string {
+  const base = `## Brain Context Load
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
@@ -64,10 +63,6 @@ Extract 2-4 keywords from the user's request. Search the brain:
 If \`gbrain search\` returns no results or any non-zero exit, proceed
 without brain context. Full search/read protocol + examples:
 see \`docs/gbrain-write-surfaces.md\` §Context Load.`;
-
-  if (ctx.skillName === 'investigate') {
-    base += `\n\nFor structured-data extraction requests ("track this", "extract from emails", "build a tracker"), route to GBrain's data-research skill instead: \`gbrain call data-research\`.`;
-  }
 
   return base;
 }

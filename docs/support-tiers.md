@@ -10,7 +10,7 @@ gstack has two support tiers. Full support gets the whole test suite, paid evals
 
 ## Minimal support
 
-- **Windows** (Git Bash or MSYS): with a default Git for Windows install, `./setup` installs, and the core skills start without errors. The core skills are `/ship`, `/review`, `/qa-only`, `/investigate` and `/browse` on gstack's own browser. One required CI job, `windows-smoke`, checks this on every pull request (see Windows CI below).
+- **Windows** (Git Bash or MSYS): with a default Git for Windows install, `./setup` installs, and the core skills start without errors. The core skills are `/ship`, `/review`, `/qa-only` and `/browse` on gstack's own browser. One required CI job, `windows-smoke`, checks this on every pull request (see Windows CI below).
 - **Gemini models:** the core workflows run to the end without errors when Gemini is the host agent or a reviewer. We check this by hand or with one cheap smoke run, not with an eval cell.
 
 That is the whole promise. Other skills, optional parts such as `/cso`'s native helper, non-default shell settings and speed are not covered.

@@ -454,6 +454,12 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   fi
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
+# A retired skill whose source is gone (investigate, GST-1717) never reaches
+# the loop above, so its old gstack-owned entries go here, plain and prefixed.
+for skill in ${GSTACK_RETIRED_SKILLS:-}; do
+  _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
+  _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill"
+done
 
 # Patch SKILL.md name: fields to match prefix setting. When a gbrain render
 # is active the loop above links SKILL.md from RENDER_DIR — the file the host

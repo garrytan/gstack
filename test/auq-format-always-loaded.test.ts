@@ -121,7 +121,6 @@ const EXPECTED_INTERACTIVE = [
   'autoplan',
   // CSO uses a private startup and intentionally omits the shared PREAMBLE,
   // including its generic AskUserQuestion formatting block.
-  'investigate',
   'retro',
   'design-review',
   'design-consultation',

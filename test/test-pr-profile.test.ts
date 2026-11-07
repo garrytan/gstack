@@ -151,6 +151,13 @@ describe('fast PR coverage policy', () => {
     expect(result.needsFullValidation).toBe(true);
   });
 
+  test('a prompt file the diff deletes needs no prompt validation; without the head tree it still does (GST-1717)', () => {
+    const deleted = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['retired-skill/SKILL.md'] });
+    expect([deleted.missingCoverage, deleted.needsFullValidation]).toEqual([[], false]);
+    const blind = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['retired-skill/SKILL.md'], derived: null });
+    expect([blind.missingCoverage, blind.needsFullValidation]).toEqual([['retired-skill/SKILL.md'], true]);
+  });
+
   test('a selected judge alone can cover a changed prompt with broad behavioral work deferred', () => {
     const result = select({ selectedE2E: ['ceo-periodic'], selectedJudges: ['plan-ceo-review/SKILL.md modes'] });
     expect(result.e2e).toEqual([]);

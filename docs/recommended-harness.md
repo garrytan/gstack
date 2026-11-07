@@ -66,7 +66,7 @@ Two things the first week taught every crew:
 
 - **Most threads never install.** The rule installs right before the first
   workflow, so a thread that does not plan one never gets `/review` or
-  `/investigate` either. If most threads in a project run a workflow, bake
+  `/qa` either. If most threads in a project run a workflow, bake
   gstack into the project's Capy Setup snapshot instead
   ([capy-install.md#bake-into-a-capy-snapshot](capy-install.md#bake-into-a-capy-snapshot)):
   each session then pays only the check.
@@ -369,7 +369,7 @@ harness on it as of that date, with the workaround the crews use.
   shard subagents per run pay it nine times. Workaround: bake gstack into the
   project Setup snapshot.
 - Threads that plan no workflow never install, so `/review` and
-  `/investigate` go unused. Workaround: a crew rule that names the workflow
+  `/qa` go unused. Workaround: a crew rule that names the workflow
   each thread will run, or the snapshot.
 - gstack versions drift between machines in one thread (`behind=1` on one,
   current on another); every minimum bump was a crew-wide broadcast (eight in

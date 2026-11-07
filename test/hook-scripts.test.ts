@@ -123,7 +123,7 @@ function withEmptyDir(fn: (dir: string) => void) {
 }
 
 describe('frontmatter hook command paths', () => {
-  test.each(['investigate/SKILL.md', 'careful/SKILL.md', 'freeze/SKILL.md', 'guard/SKILL.md'])(
+  test.each(['careful/SKILL.md', 'freeze/SKILL.md', 'guard/SKILL.md'])(
     '%s hook commands are $HOME-anchored, never CLAUDE_SKILL_DIR',
     (rel) => {
       const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
@@ -158,7 +158,7 @@ describe('generated hook matchers cover PowerShell and NotebookEdit (#3067)', ()
     }
   });
 
-  test.each(['freeze/SKILL.md', 'guard/SKILL.md', 'investigate/SKILL.md'])('%s routes Edit, Write and NotebookEdit to check-freeze.sh', (rel) => {
+  test.each(['freeze/SKILL.md', 'guard/SKILL.md'])('%s routes Edit, Write and NotebookEdit to check-freeze.sh', (rel) => {
     for (const matcher of ['Edit', 'Write', 'NotebookEdit']) {
       const commands = hookCommandsFor(rel, matcher);
       expect(commands.length).toBe(1);

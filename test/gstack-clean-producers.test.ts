@@ -45,7 +45,6 @@ const KEPT: Record<string, string> = {
   'tasks-*': 'gstack-tasks rows files (bin/gstack-tasks)',
   'qa-reports': 'caller QA report runs from gstack-qa-evidence report-dir (lib/qa-evidence.ts)',
   'autoplan': 'autoplan phase artifacts (autoplan/SKILL.md.tmpl)',
-  'eval-bisect': '/investigate eval bisect cache',
   'price-gate': 'gstack-eval-plan price receipts',
   'qt.txt': 'question-tuning summary file',
   'tune-words.txt': '/plan-tune free text',

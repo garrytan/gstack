@@ -71,7 +71,7 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 
 **Multi-AI second opinion.** In Codex, gstack sends outside reviews to Claude Code through `/claude-code`. In Claude Code, `/codex` sends them to OpenAI Codex. Other harnesses expose both skills and use Codex where automatic outside reviews are supported. Each skill supports code review, adversarial challenge, and consultation with session continuity. Routing follows the harness, so changing your configured model does not change the outside reviewer. Reports identify the provider that actually completed each review; unavailable outside coverage remains visible.
 
-**Safety guardrails on demand.** Say "be careful" and `/careful` warns before any destructive command — rm -rf, DROP TABLE, force-push, git reset --hard. `/freeze` locks edits to one directory while debugging so Claude can't accidentally "fix" unrelated code. `/guard` activates both. `/investigate` auto-freezes to the module being investigated.
+**Safety guardrails on demand.** Say "be careful" and `/careful` warns before any destructive command — rm -rf, DROP TABLE, force-push, git reset --hard. `/freeze` locks edits to one directory while debugging so Claude can't accidentally "fix" unrelated code. `/guard` activates both.
 
 **Proactive skill suggestions.** gstack notices what stage you're in and, by default, suggests only the four core skills: `/office-hours` for a new idea, `/review` for a diff, `/qa` for "does this work?", `/ship` to land it. `gstack-config set proactive all` suggests every matching skill, `off` suggests nothing, and "stop suggesting" in a session turns it off and remembers across sessions (see [docs/proactive.md](proactive.md)).
 

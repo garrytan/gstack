@@ -25,11 +25,11 @@ const contractOf = (name: string): Contract => {
   if (!parsed || !('contract' in parsed)) throw new Error(`fixture ${name} has no valid contract`);
   return parsed.contract;
 };
-const check = (lines: string[], skill = 'investigate') => checkContract(parseTranscript(lines.join('\n')), skill, contractOf(skill));
+const check = (lines: string[], skill = 'verify') => checkContract(parseTranscript(lines.join('\n')), skill, contractOf(skill));
 
 describe('schema v1', () => {
   test('block and flow style parse to the same items', () => {
-    expect(contractOf('investigate').items.map(i => [i.id, i.kind])).toEqual([['debug-report', 'report_labels'], ['repro-after-fix', 'check_after_last_edit']]);
+    expect(contractOf('verify').items.map(i => [i.id, i.kind])).toEqual([['debug-report', 'report_labels'], ['repro-after-fix', 'check_after_last_edit']]);
     expect(contractOf('review').items.map(i => i.kind)).toEqual(['selected_specialists_dispatched', 'agent_dispatch', 'report_labels']);
   });
 
@@ -57,11 +57,11 @@ describe('transcript parsing', () => {
   test('skill loads: Skill tool, typed /command, Read of a SKILL.md; sidechain records ignored', () => {
     const t = parseTranscript([
       tool('s', 'Skill', { skill: 'gstack:review' }),
-      slash('investigate'),
+      slash('verify'),
       tool('r', 'Read', { file_path: '/home/u/.claude/skills/qa/SKILL.md' }),
       JSON.stringify({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', id: 'x', name: 'Skill', input: { skill: 'ship' } }] } }),
     ].join('\n'));
-    expect(skillLoads(t).map(l => [l.skill, l.via])).toEqual([['review', 'skill-tool'], ['investigate', 'slash-command'], ['qa', 'read']]);
+    expect(skillLoads(t).map(l => [l.skill, l.via])).toEqual([['review', 'skill-tool'], ['verify', 'slash-command'], ['qa', 'read']]);
   });
 
   test('an unknown shape throws; a partial last line does not', () => {
@@ -97,7 +97,7 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(runAfter('cat src/auth.ts')).toBe('missing');
     const before = check([...J1_TRANSCRIPT.slice(0, 4), tool('b', 'Bash', { command: 'bun test' }), ...J1_TRANSCRIPT.slice(4)]);
     expect(before.items[1].status).toBe('missing');
-    expect(check([slash('investigate'), say('No code change was needed.')]).items[1]).toMatchObject({ status: 'met', detail: 'no edits since the skill loaded' });
+    expect(check([slash('verify'), say('No code change was needed.')]).items[1]).toMatchObject({ status: 'met', detail: 'no edits since the skill loaded' });
   });
 
   test('selected_specialists_dispatched (lane B marker), agent_dispatch and the /review report', () => {
@@ -163,7 +163,7 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(STATUS_RE.test('The status is DONE')).toBe(false);
     expect(check(INTERACTIVE_TURNS[0]).pendingQuestion).toBe(true);
     expect(check(INTERACTIVE_TURNS.flat()).statusLine).toBe('DONE');
-    expect(check([slash('investigate'), tool('q', 'AskUserQuestion', { questions: [] })]).pendingQuestion).toBe(true);
+    expect(check([slash('verify'), tool('q', 'AskUserQuestion', { questions: [] })]).pendingQuestion).toBe(true);
     const notified = [slash('review'), tool('a', 'Agent', { description: 'Testing', run_in_background: true }), result('a', 'launched'),
       meta('<task-notification>agent a completed</task-notification>')];
     expect(check(notified, 'review').pendingAgents).toEqual([]);
@@ -171,27 +171,27 @@ describe('checkContract is a pure function of the transcript', () => {
   });
 
   test('items are checked from the skill\'s LAST load: an earlier run\'s report does not satisfy a new one', () => {
-    const r = check([...INTERACTIVE_TURNS.flat(), user('another bug'), tool('s', 'Skill', { skill: 'investigate' }), tool('e', 'Edit', { file_path: 'x' })]);
+    const r = check([...INTERACTIVE_TURNS.flat(), user('another bug'), tool('s', 'Skill', { skill: 'verify' }), tool('e', 'Edit', { file_path: 'x' })]);
     expect(r.missing).toEqual(['debug-report', 'repro-after-fix']);
   });
 
-  test('an early exit counts as met: /review "Nothing to review" or STATUS: BLOCKED, /investigate Status: BLOCKED in its DEBUG REPORT', () => {
+  test('an early exit counts as met: /review "Nothing to review" or STATUS: BLOCKED, /verify Status: BLOCKED in its DEBUG REPORT', () => {
     const early = (lines: string[], skill: string) => check(lines, skill);
     const nothing = early([slash('review'), say('Nothing to review — no changes against the base branch.')], 'review');
     expect(nothing).toMatchObject({ met: true, follow: true, missing: [] });
     expect(nothing.items[0].detail).toBe('the skill ended the run early (Nothing to review)');
     expect(early([slash('review'), say('Base branch could not be found.\nSTATUS: BLOCKED')], 'review').met).toBe(true);
     const blockedReport = DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED');
-    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(blockedReport)], 'investigate')).toMatchObject({ met: true, statusLine: 'BLOCKED' });
-    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'investigate').missing).toEqual(['repro-after-fix']);
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(blockedReport)], 'verify')).toMatchObject({ met: true, statusLine: 'BLOCKED' });
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'verify').missing).toEqual(['repro-after-fix']);
     expect(early([slash('review'), say('I would print STATUS: BLOCKED if the base were missing, but it is here. Done.')], 'review').met).toBe(false);
     expect(early([slash('review'), say('Nothing to review under docs/; checking lib/ next.'), say('Done.')], 'review').met).toBe(false);
-    expect(early([...J1_TRANSCRIPT.slice(0, -1), say('There is nothing to review in the docs folder. Fixed it.')], 'investigate').met).toBe(false);
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say('There is nothing to review in the docs folder. Fixed it.')], 'verify').met).toBe(false);
   });
 
   test('a Read of a SKILL.md counts as a load only under a skills/ directory, not in a gstack checkout', () => {
     const loads = (file_path: string) => skillLoads(parseTranscript(tool('r', 'Read', { file_path }))).map(l => l.skill);
-    expect(loads('/home/u/.claude/skills/gstack/investigate/SKILL.md')).toEqual(['investigate']);
+    expect(loads('/home/u/.claude/skills/gstack/verify/SKILL.md')).toEqual(['verify']);
     expect(loads('C:\\Users\\u\\.claude\\skills\\review\\SKILL.md')).toEqual(['review']);
     expect(loads('/home/u/src/gstack/review/SKILL.md')).toEqual([]);
   });
@@ -316,12 +316,12 @@ describe('checkContract is a pure function of the transcript', () => {
   });
 
   test('loadLine checks one earlier run, bounded by the next load of the same skill', () => {
-    const lines = [...J1_TRANSCRIPT, tool('b', 'Bash', { command: 'bun test' }), result('b', 'ok'), say(DEBUG_REPORT), user('another bug'), tool('s2', 'Skill', { skill: 'investigate' }), tool('e9', 'Edit', { file_path: 'x' })];
+    const lines = [...J1_TRANSCRIPT, tool('b', 'Bash', { command: 'bun test' }), result('b', 'ok'), say(DEBUG_REPORT), user('another bug'), tool('s2', 'Skill', { skill: 'verify' }), tool('e9', 'Edit', { file_path: 'x' })];
     const t = parseTranscript(lines.join('\n'));
     const [first, second] = skillLoads(t);
-    expect(checkContract(t, 'investigate', contractOf('investigate'), { loadLine: first.line })).toMatchObject({ met: true, load: { line: first.line } });
-    expect(checkContract(t, 'investigate', contractOf('investigate'))).toMatchObject({ met: false, load: { line: second.line } });
-    expect(checkContract(t, 'investigate', contractOf('investigate'), { loadLine: 999 }).load).toBeNull();
+    expect(checkContract(t, 'verify', contractOf('verify'), { loadLine: first.line })).toMatchObject({ met: true, load: { line: first.line } });
+    expect(checkContract(t, 'verify', contractOf('verify'))).toMatchObject({ met: false, load: { line: second.line } });
+    expect(checkContract(t, 'verify', contractOf('verify'), { loadLine: 999 }).load).toBeNull();
   });
 });
 
@@ -336,19 +336,19 @@ describe('gstack-skill-contract CLI', () => {
   };
 
   test('check: exit 0 met, 1 unmet (with the block text), --json carries the items', () => {
-    const met = cli('check', '--transcript', write(INTERACTIVE_TURNS.flat()), '--skill', 'investigate');
+    const met = cli('check', '--transcript', write(INTERACTIVE_TURNS.flat()), '--skill', 'verify');
     expect(met.code).toBe(EXIT.MET);
-    expect(met.stdout).toStartWith('SKILL_CONTRACT_MET investigate (contract v1)');
-    const unmet = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'investigate', '--json');
+    expect(met.stdout).toStartWith('SKILL_CONTRACT_MET verify (contract v1)');
+    const unmet = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--json');
     expect(unmet.code).toBe(EXIT.UNMET);
-    expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'investigate', missing: ['debug-report', 'repro-after-fix'], follow: false });
+    expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'verify', missing: ['debug-report', 'repro-after-fix'], follow: false });
   });
 
   test('check: stable error exits 2, 3, 4, 5, 6', () => {
-    expect(cli('check', '--skill', 'investigate').code).toBe(EXIT.USAGE);
-    expect(cli('check', '--transcript', path.join(work, 'none.jsonl'), '--skill', 'investigate')).toMatchObject({ code: EXIT.STATE_ERROR });
-    expect(cli('check', '--transcript', write(['{"x":1}']), '--skill', 'investigate').stderr).toStartWith('SKILL_CONTRACT_UNKNOWN_SHAPE');
-    expect(cli('check', '--transcript', write(['{"x":1}']), '--skill', 'investigate').code).toBe(EXIT.UNKNOWN_SHAPE);
+    expect(cli('check', '--skill', 'verify').code).toBe(EXIT.USAGE);
+    expect(cli('check', '--transcript', path.join(work, 'none.jsonl'), '--skill', 'verify')).toMatchObject({ code: EXIT.STATE_ERROR });
+    expect(cli('check', '--transcript', write(['{"x":1}']), '--skill', 'verify').stderr).toStartWith('SKILL_CONTRACT_UNKNOWN_SHAPE');
+    expect(cli('check', '--transcript', write(['{"x":1}']), '--skill', 'verify').code).toBe(EXIT.UNKNOWN_SHAPE);
     expect(cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'qa').code).toBe(EXIT.NO_CONTRACT);
     expect(cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'review').code).toBe(EXIT.NOT_LOADED);
     const file = path.join(work, 'SKILL.md');
@@ -357,12 +357,12 @@ describe('gstack-skill-contract CLI', () => {
   });
 
   test('waive is stateless: validates and acknowledges, writes nothing', () => {
-    const ok = cli('waive', 'repro-after-fix', '--reason', 'docs-only change', '--skill', 'investigate');
-    expect(ok).toEqual({ code: 0, stdout: 'SKILL_CONTRACT_WAIVED repro-after-fix (investigate): docs-only change (this session only; counted as a miss for follow)\n', stderr: '' });
+    const ok = cli('waive', 'repro-after-fix', '--reason', 'docs-only change', '--skill', 'verify');
+    expect(ok).toEqual({ code: 0, stdout: 'SKILL_CONTRACT_WAIVED repro-after-fix (verify): docs-only change (this session only; counted as a miss for follow)\n', stderr: '' });
     expect(fs.readdirSync(state)).toEqual([]);
     expect(cli('waive', 'repro-after-fix').code).toBe(EXIT.USAGE);
     expect(cli('waive', 'Not An Id', '--reason', 'x').code).toBe(EXIT.USAGE);
-    expect(cli('waive', 'nope', '--reason', 'x', '--skill', 'investigate').code).toBe(EXIT.USAGE);
+    expect(cli('waive', 'nope', '--reason', 'x', '--skill', 'verify').code).toBe(EXIT.USAGE);
   });
 
   test('report lists misses from the records, re-checking a blocked run that was fixed afterwards', () => {
@@ -377,7 +377,7 @@ describe('gstack-skill-contract CLI', () => {
     const rep = JSON.parse(r.stdout);
     expect(rep.runs).toBe(2);
     expect(rep.misses.map((m: any) => [m.session, m.outcome])).toEqual([['s-missed', 'miss']]);
-    expect(rep.items).toEqual([{ skill: 'investigate', item: 'debug-report', misses: 1 }, { skill: 'investigate', item: 'repro-after-fix', misses: 1 }]);
+    expect(rep.items).toEqual([{ skill: 'verify', item: 'debug-report', misses: 1 }, { skill: 'verify', item: 'repro-after-fix', misses: 1 }]);
     expect(cli('report').stdout).toStartWith('SKILL_CONTRACT_REPORT runs=2 misses=1');
   });
 
@@ -386,11 +386,11 @@ describe('gstack-skill-contract CLI', () => {
     const file = write(J1_TRANSCRIPT, 'again.jsonl');
     expect(JSON.parse(runHook(CONTRACT_HOOK, JSON.stringify({ session_id: 's-again', transcript_path: file, stop_hook_active: false }), env).stdout).decision).toBe('block');
     fs.appendFileSync(file, [tool('b', 'Bash', { command: 'bun test' }), result('b', 'ok'), say(DEBUG_REPORT),
-      user('one more bug'), tool('s2', 'Skill', { skill: 'investigate' }), say(DEBUG_REPORT)].join('\n') + '\n');
+      user('one more bug'), tool('s2', 'Skill', { skill: 'verify' }), say(DEBUG_REPORT)].join('\n') + '\n');
     expect(JSON.parse(cli('report', '--json').stdout).misses).toEqual([]);
   });
 
   test('installed contracts are read from SKILL.md frontmatter', () => {
-    expect(readFrontmatter(path.join(skills, 'investigate', 'SKILL.md'))).toContain('contract:');
+    expect(readFrontmatter(path.join(skills, 'verify', 'SKILL.md'))).toContain('contract:');
   });
 });

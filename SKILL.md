@@ -178,8 +178,8 @@ Only run skills the user explicitly invokes. This preference persists across ses
 If `PROACTIVE` is `core` (default): **invoke the Skill tool** only for the four core
 skills when the user's request matches their rule below: `/office-hours`, `/review`,
 `/qa` and `/ship`. For every other rule, answer directly and do not suggest the skill;
-the user types it. The browser step above and the **Failures** branches below follow the
-same rule: under `core`, name `/browse` or `/investigate` for the user to type instead of
+the user types it. The browser step above follows the
+same rule: under `core`, name `/browse` for the user to type instead of
 invoking it. A skill the user names is always invoked, whatever this setting says,
 and a step inside a skill that is already running (a handoff, a review gate, a subagent it
 dispatches) is part of that skill, not a suggestion.
@@ -199,7 +199,7 @@ quality gates that produce better results than answering inline.
 - User asks to review design of a plan → invoke `/plan-design-review`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
 - User wants all reviews done automatically, "review everything" → invoke `/autoplan`
-- User reports a bug, error, failing test or broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → check the cause by **Failures** below, then fix it or invoke `/investigate`
+- User reports a bug, error, failing test or broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → check the cause by **Failures** below, then fix it test-first
 - User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
 - User asks to just report bugs without fixing → invoke `/qa-only`
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
@@ -259,10 +259,10 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - Voice trigger "quality check", "test the app", "run QA" → invoke `/qa`
 - Voice trigger "bug report", "just check for bugs" → invoke `/qa-only`
 
-**Failures: check the cause, then route.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
+**Failures: check the cause, then fix it test-first.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
 
-- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, invoke `/investigate` before any further tracing or edit.
-- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause, scope or intended behavior is still unclear, invoke `/investigate` before any broader diagnosis or edit.
+- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, leave the suggested fix alone: reproduce the failure with a focused failing test, trace it to the root cause, fix that and rerun the test.
+- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause or scope is still unclear, write or run a focused test that fails on the bug before any edit, trace the failure to its root cause, fix that and rerun the test. If the intended behavior is unclear, ask the user.
 
 **Route only to skills in your available-skills list.** A rule above whose skill is
 not listed there is turned off on this install; skip it, never try to invoke it.

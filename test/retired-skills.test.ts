@@ -23,7 +23,56 @@ test('setup and gstack-relink retire the same skills as the generator', () => {
   const r = spawnSync('bash', ['-c', '. "$1" && printf %s "$GSTACK_RETIRED_SKILLS"', '_', REGISTRY], { encoding: 'utf8', timeout: 10_000 });
   expect(r.status, r.stderr).toBe(0);
   expect(r.stdout.split(/\s+/).filter(Boolean)).toEqual(RETIRED_SKILLS);
-  expect(RETIRED_SKILLS).toEqual(['plan-eng-review']);
+  expect(RETIRED_SKILLS).toEqual(['plan-eng-review', 'investigate']);
+});
+
+describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () => {
+  let tmp: string;
+  let install: string;
+  let skills: string;
+  const relink = () => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: {
+      ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
+      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+    },
+  });
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-retired-gone-'));
+    install = path.join(tmp, 'gstack');
+    skills = path.join(tmp, 'skills');
+    fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    for (const b of BINS) {
+      fs.copyFileSync(path.join(ROOT, 'bin', b), path.join(install, 'bin', b));
+      fs.chmodSync(path.join(install, 'bin', b), 0o755);
+    }
+    fs.mkdirSync(path.join(install, 'ship'));
+    fs.writeFileSync(path.join(install, 'ship', 'SKILL.md'), '---\nname: ship\ndescription: test\n---\n# ship\n');
+    fs.mkdirSync(skills, { recursive: true });
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test('the dangling investigate and gstack-investigate entries are removed', () => {
+    fs.mkdirSync(path.join(skills, 'investigate'));
+    fs.symlinkSync(path.join(install, 'investigate', 'SKILL.md'), path.join(skills, 'investigate', 'SKILL.md'));
+    fs.symlinkSync(path.join(install, 'investigate'), path.join(skills, 'gstack-investigate'));
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.lstatSync(path.join(skills, 'gstack-investigate'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+  });
+
+  test("a user's own investigate skill is left alone", () => {
+    fs.mkdirSync(path.join(skills, 'investigate'));
+    const own = '---\nname: investigate\ndescription: mine\n---\nmy own debugger\n';
+    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), own);
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'investigate', 'SKILL.md'), 'utf8')).toBe(own);
+  });
 });
 
 describe('gstack-relink on an install that still has /plan-eng-review', () => {
@@ -150,6 +199,9 @@ test('no host renders a plan-eng-review skill; external hosts get the methodolog
     const router = fs.readFileSync(path.join(out, 'SKILL.md'), 'utf8');
     expect(router).not.toContain('/plan-eng-review');
     expect(fs.readFileSync(path.join(out, 'gstack', 'llms.txt'), 'utf8')).not.toContain('plan-eng-review');
+    expect(paths.filter(p => /(^|\/)(gstack-)?investigate\//.test(p))).toEqual([]);
+    expect(router).not.toContain('/investigate');
+    expect(fs.readFileSync(path.join(out, 'gstack', 'llms.txt'), 'utf8')).not.toContain('/investigate');
   } finally {
     fs.rmSync(out, { recursive: true, force: true });
   }

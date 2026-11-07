@@ -124,7 +124,7 @@ test('windows-smoke is the PR gate: every pull request and main push, one window
   const step = (name: string) => job.steps.find((s: any) => s.name === name);
   expect(step('./setup installs into an isolated HOME').run).toContain('./setup --host claude');
   const start = step('The core skills start').run;
-  expect(start).toContain('for skill in ship review qa-only investigate browse; do');
+  expect(start).toContain('for skill in ship review qa-only browse; do');
   expect(start).toContain("grep -q '^SKILL_START_PROTO: 1'");
   expect(step("/browse on gstack's own browser runs a piped chain flow from an unrelated directory").run).toContain('| "$BROWSE" chain');
   const tests = step('Fastest Windows-safe free tests for install and the core skills');

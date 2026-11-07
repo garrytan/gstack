@@ -141,7 +141,6 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   spec: PLANNING,
   review: PLANNING,
   ship: PLANNING,
-  investigate: PLANNING,
   codex: { requires: ['claude', 'codex', 'patch', 'codex-cli'], optional: [] },
   cso: { requires: ['claude', 'cso'], optional: [] },
   browse: BROWSER,

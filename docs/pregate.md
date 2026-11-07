@@ -1792,8 +1792,8 @@ reason.
 Blocking would stop about a fifth of gstack's and two fifths of gbrain's
 test-touching commits, including correct fixes, so the check warns. A repo
 that wants it stricter keeps the warning in its review rule (the /review
-checklist has the same rule) and /investigate's flake playbook says what to do
-with a timing flake: never raise the bound.
+checklist has the same rule and says what to do with a timing flake: find the
+timing cause and fix it, never raise the bound).
 
 <a id="sealed"></a>
 ## Sealed output: the pre-push hook and `gstack-pregate sealed`

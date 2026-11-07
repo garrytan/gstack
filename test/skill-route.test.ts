@@ -36,13 +36,13 @@ function expectHookSchema(stdout: string): string {
 }
 
 describe('scorer', () => {
-  const { skills: fixtureSkills } = scanInstalledSkills(skillsDir(['investigate', 'review', 'qa']));
+  const { skills: fixtureSkills } = scanInstalledSkills(skillsDir(['verify', 'review', 'qa']));
 
   test('deterministic, phrase match scores 1, stemming covers inflections', () => {
     const a = scorePrompt('this test fails, fix it', fixtureSkills);
     expect(a).toEqual(scorePrompt('this test fails, fix it', fixtureSkills));
-    expect(a[0]).toMatchObject({ skill: 'investigate', score: 1, trigger: 'this test fails' });
-    expect(routePrompt('the tests are failing', fixtureSkills).route?.skill).toBe('investigate');
+    expect(a[0]).toMatchObject({ skill: 'verify', score: 1, trigger: 'this test fails' });
+    expect(routePrompt('the tests are failing', fixtureSkills).route?.skill).toBe('verify');
     expect(['fixes', 'failing', 'debugging', 'passes'].map(stem)).toEqual(['fix', 'fail', 'debug', 'pass']);
   });
 
@@ -50,16 +50,16 @@ describe('scorer', () => {
     expect(ROUTE_THRESHOLD).toBe(0.66);
     expect(routePrompt('what is the weather', fixtureSkills).route).toBeNull();
     expect(routePrompt('please review my diff', fixtureSkills)).toMatchObject({ route: null, reason: 'below-threshold' });
-    expect(routePrompt('/investigate fix this bug', fixtureSkills)).toMatchObject({ route: null, reason: 'slash-command' });
+    expect(routePrompt('/verify fix this bug', fixtureSkills)).toMatchObject({ route: null, reason: 'slash-command' });
     expect(routePrompt(`fix this bug ${'x'.repeat(PROMPT_MAX_CHARS)}`, fixtureSkills)).toMatchObject({ route: null, reason: 'prompt-too-long' });
   });
 
-  test('only the four discovery targets route; another installed skill with a matching trigger does not', () => {
-    expect(ROUTED_SKILLS).toEqual(['investigate', 'review', 'qa', 'verify']);
+  test('only the three discovery targets route; another installed skill with a matching trigger does not', () => {
+    expect(ROUTED_SKILLS).toEqual(['review', 'qa', 'verify']);
     const ship = { name: 'ship', file: '', frontmatter: '', triggers: ['ship this branch'] };
     expect(scorePrompt('ship this branch', [ship])[0]).toMatchObject({ skill: 'ship', score: 1 });
     expect(routePrompt('ship this branch', [...fixtureSkills, ship])).toMatchObject({ route: null, reason: 'below-threshold' });
-    expect(routePrompt('this test fails, ship this branch', [ship, ...fixtureSkills]).route?.skill).toBe('investigate');
+    expect(routePrompt('this test fails, ship this branch', [ship, ...fixtureSkills]).route?.skill).toBe('verify');
   });
 
   test('malformed triggers are reported and skipped, never thrown', () => {
@@ -70,11 +70,11 @@ describe('scorer', () => {
   });
 
   test('the hint names its source and off switch, and asks for the one-sentence routing note', () => {
-    const line = hintLine({ skill: 'investigate', score: 1, matched: 2, trigger: 'fix this bug', file: '' });
+    const line = hintLine({ skill: 'verify', score: 1, matched: 2, trigger: 'fix this bug', file: '' });
     expect(line).toContain('gstack skill routing (UserPromptSubmit hook');
     expect(line).toContain('off: gstack-config set skill_routing off');
-    expect(line).toContain('tell the user in one sentence that gstack routed this to /investigate');
-    expect(firstStep(SKILLS.investigate)).toBe('Reproduce the failure before you change code, then fix it and prove the fix.');
+    expect(line).toContain('tell the user in one sentence that gstack routed this to /verify');
+    expect(firstStep(SKILLS.verify)).toBe('Reproduce the failure before you change code, then fix it and prove the fix.');
   });
 
   test('switch precedence: env over config over SWITCH_DEFAULT; a typo takes the default; an unreadable config is off', () => {
@@ -96,8 +96,8 @@ describe('skill-route hook', () => {
     const r = route(prompt('this test fails, fix it'));
     expect(r.code).toBe(0);
     expect(r.stderr).toBe('');
-    expect(expectHookSchema(r.stdout)).toContain('this request fits /investigate');
-    expect(traceLog()).toMatch(/session=sess-r event=routed skill=investigate score=1 variant=name\n$/);
+    expect(expectHookSchema(r.stdout)).toContain('this request fits /verify');
+    expect(traceLog()).toMatch(/session=sess-r event=routed skill=verify score=1 variant=name\n$/);
     expect(traceLog()).not.toContain('fix it');
   });
 
@@ -110,17 +110,17 @@ describe('skill-route hook', () => {
 
   test('with nothing set SWITCH_DEFAULT decides; off in config, and off in env over config on', () => {
     const unset = route(prompt('fix this bug'), {});
-    if (SWITCH_DEFAULT.skill_routing === 'on') expect(expectHookSchema(unset.stdout)).toContain('/investigate');
+    if (SWITCH_DEFAULT.skill_routing === 'on') expect(expectHookSchema(unset.stdout)).toContain('/verify');
     else expect(unset).toEqual(silent);
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_routing: off\n');
     expect(route(prompt('fix this bug'), {})).toEqual(silent);
     fs.writeFileSync(path.join(state, 'config.yaml'), 'skill_routing: on\n');
     expect(route(prompt('fix this bug'), { GSTACK_SKILL_ROUTING: 'off' })).toEqual(silent);
-    expect(expectHookSchema(route(prompt('fix this bug'), {}).stdout)).toContain('/investigate');
+    expect(expectHookSchema(route(prompt('fix this bug'), {}).stdout)).toContain('/verify');
   });
 
   test('slash commands and non-matching prompts: no output', () => {
-    expect(route(prompt('/investigate fix this bug'))).toEqual(silent);
+    expect(route(prompt('/verify fix this bug'))).toEqual(silent);
     expect(route(prompt('what time is it in Tokyo'))).toEqual(silent);
     expect(traceLog()).toContain('reason=slash-command');
     expect(traceLog()).toContain('reason=below-threshold');
@@ -140,8 +140,8 @@ describe('skill-route hook', () => {
 
   test('malformed triggers in one skill: logged, the others still route', () => {
     fs.rmSync(skills, { recursive: true, force: true });
-    skills = skillsDir(['broken', 'investigate']);
-    expect(expectHookSchema(route(prompt('fix this bug')).stdout)).toContain('/investigate');
+    skills = skillsDir(['broken', 'verify']);
+    expect(expectHookSchema(route(prompt('fix this bug')).stdout)).toContain('/verify');
     expect(traceLog()).toContain('event=skill-problems problems="broken: malformed triggers" failures=1');
   });
 
@@ -172,8 +172,8 @@ describe('gstack-skill-route --explain', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain(`switch: skill_routing ${SWITCH_DEFAULT.skill_routing} (default)`);
     expect(r.stdout).toContain('threshold: 0.66');
-    expect(r.stdout).toContain('1.00  /investigate  "this test fails"');
-    expect(r.stdout).toContain('route: /investigate');
+    expect(r.stdout).toContain('1.00  /verify  "this test fails"');
+    expect(r.stdout).toContain('route: /verify');
     expect(r.stdout).toContain('broken: malformed triggers');
     expect(JSON.parse(explain('--explain', 'what is this', '--json').stdout)).toMatchObject({ route: null, reason: 'below-threshold', threshold: 0.66 });
     expect(explain('--explain').status).toBe(2);

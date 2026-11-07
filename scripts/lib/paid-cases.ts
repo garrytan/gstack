@@ -272,7 +272,6 @@ export const CODEX_CI_ENV = { binDir: 'GSTACK_CI_CODEX_BIN_DIR', home: 'GSTACK_C
 /** Paid files whose every case exercises the real Codex CLI. */
 export const CODEX_CI_FILES: readonly string[] = [
   'test/codex-e2e.test.ts',
-  'test/codex-e2e-sol-scope.test.ts',
   'test/codex-e2e-shared-libs.test.ts',
   'test/codex-e2e-recommendation-substance.test.ts',
   'test/skill-e2e-outside-voice.test.ts',

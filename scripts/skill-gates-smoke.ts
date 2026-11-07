@@ -6,8 +6,7 @@
  * stand-in for the Anthropic Messages API that plays a scripted session, so
  * no model is called and nothing is spent. Then it checks the GSTACK_GATE
  * markers in the session record, the hook log and the transcript JSONL.
- * Three scenarios share the server: the /investigate gate (Edit and sed -i
- * blocked until a root cause), the /plan-ceo-review gate (Stop blocked
+ * Two scenarios share the server: the /plan-ceo-review gate (Stop blocked
  * until the output file ranks the top risks, written through Bash) and the
  * /autoplan gate (Stop blocked after Phase 1 until Eng publishes and the
  * Final Approval Gate is written).
@@ -29,8 +28,6 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const args = process.argv.slice(2);
 const keep = args.includes('--keep');
 const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-gates-smoke-')));
-const SRC = 'export const total = (a: number, b: number) => a - b;\n';
-const FIXED = 'export const total = (a: number, b: number) => a + b;\n';
 const PLAN = '# Plan: one-click checkout\n\nShip one-click checkout behind a flag.\n';
 const AP_PLAN = '# Plan: retry the fetch helper\n\n## Implementation plan\n\nAdd one retry with backoff to src/fetch.ts.\n\n## Review record\n\nNone yet.\n';
 const FINDINGS = '\n## Findings\n\n1. Payment retries can double-charge when the provider times out.\n2. No rollback path for the new orders schema.\n';
@@ -56,36 +53,6 @@ interface Seen { code: number; transcript: string; record: Record<string, any> |
 interface Scenario { name: string; hook: string; flag: string; skill: string; prompt: string; seed: (repo: string) => void; script: (repo: string) => Block[][]; checks: (s: Seen) => Array<[string, boolean]> }
 
 const SCENARIOS: Scenario[] = [
-  {
-    name: 'investigate', hook: 'investigate-gate', flag: '--investigate', skill: 'investigate', prompt: 'total() returns the wrong value; investigate and fix it',
-    seed: repo => { fs.mkdirSync(path.join(repo, 'src'), { recursive: true }); fs.writeFileSync(path.join(repo, 'src/total.ts'), SRC); },
-    script: repo => [
-      [{ type: 'text', text: 'Loading /investigate.' }, { type: 'tool_use', id: 'toolu_s1', name: 'Skill', input: { skill: 'investigate' } }],
-      [{ type: 'tool_use', id: 'toolu_r1', name: 'Read', input: { file_path: path.join(repo, 'src/total.ts') } }],
-      [{ type: 'tool_use', id: 'toolu_e1', name: 'Edit', input: { file_path: path.join(repo, 'src/total.ts'), old_string: 'a - b', new_string: 'a + b' } }],
-      [{ type: 'tool_use', id: 'toolu_b1', name: 'Bash', input: { command: "sed -i 's/a - b/a + b/' src/total.ts", description: 'Patch through the shell' } }],
-      [{ type: 'text', text: 'Root cause: total() subtracts b instead of adding it (src/total.ts:1).' }, { type: 'tool_use', id: 'toolu_r2', name: 'Read', input: { file_path: path.join(repo, 'src/total.ts') } }],
-      [{ type: 'tool_use', id: 'toolu_e2', name: 'Edit', input: { file_path: path.join(repo, 'src/total.ts'), old_string: 'a - b', new_string: 'a + b' } }],
-      [{ type: 'text', text: 'Fixed total().' }],
-    ],
-    checks: s => {
-      const run0 = s.record ? Object.values(s.record.hooks['investigate-gate']?.runs ?? {})[0] as Record<string, unknown> | undefined : undefined;
-      return [
-        ['claude -p exited 0', s.code === 0],
-        ['record: one run, fired', !!run0 && typeof run0.fired_at === 'string'],
-        ['record: blocked twice (Edit, then Bash sed -i)', run0?.blocked === 2],
-        ['record: released after the Root cause line', typeof run0?.released_at === 'string'],
-        ['record: no hook errors', (s.record?.hooks['investigate-gate']?.errors ?? []).length === 0],
-        ['log: fired, blocked via=edit, blocked via=bash, released', /event=fired/.test(s.log) && /event=blocked .*via=edit/.test(s.log) && /event=blocked .*via=bash/.test(s.log) && /event=released/.test(s.log)],
-        ['transcript: deny reason carries the blocked via=edit marker (tool_result)', /"tool_result"[^\n]*GSTACK_GATE investigate-gate blocked [^"]*via=edit/.test(s.transcript)],
-        ['transcript: PostToolUse block carries the blocked via=bash marker (hook_blocking_error)', /hook_blocking_error[^\n]*GSTACK_GATE investigate-gate blocked [^"]*via=bash/.test(s.transcript)],
-        ['transcript: fired and released ride hook_system_message', /hook_system_message[^\n]*GSTACK_GATE investigate-gate fired/.test(s.transcript) && /hook_system_message[^\n]*GSTACK_GATE investigate-gate released/.test(s.transcript)],
-        ['requests: fired/released systemMessage markers never reach the model', !/investigate-gate (fired|released)/.test(s.requests)],
-        ['requests: the model saw both block reasons', /investigate-gate blocked [^"]*via=edit/.test(s.requests) && /investigate-gate blocked [^"]*via=bash/.test(s.requests)],
-        ['repo: the sed -i write was put back, then the released Edit applied', fs.readFileSync(path.join(s.repo, 'src/total.ts'), 'utf8') === FIXED],
-      ];
-    },
-  },
   {
     name: 'plan-ceo-review', hook: 'ceo-review-gate', flag: '--ceo-review', skill: 'plan-ceo-review', prompt: 'review plan.md as a CEO and write the review into it',
     seed: repo => fs.writeFileSync(path.join(repo, 'README.md'), '# smoke\n'),

@@ -324,16 +324,15 @@ describe('wiring', () => {
     expect(summary).toContain('## Blast radius');
     expect(summary).toContain('the one fact that makes that safe');
     expect(summary).toContain('file:line read, walked failure path, script ran, repro');
-    expect(summary).toContain("the `/investigate` skill's Blast radius section, when present");
-    expect(summary).not.toMatch(/skills\/gstack\/investigate\/sections\/blast-radius\.md/);
+    expect(summary).not.toContain('/investigate');
     expect(prBody).toContain('names what the user gets, not the mechanism');
     const capy = read('ship/sections/capy-pr.md.tmpl');
     expect(capy).toContain('`## Why`, `## Blast radius` and `## Approvals`');
     expect(capy).toMatch(/\*\*`## Why`:\*\* two or three sentences\. The first states the problem in the person's words/);
     expect(capy).toMatch(/BAD "[\s\S]+" GOOD "/);
     expect(capy).toContain("**`## Blast radius`:** the body template's item, written once");
-    expect(capy).toContain("the `/investigate` skill's Blast radius section, when present");
-    expect(capy).not.toMatch(/skills\/gstack\/investigate\/sections\/blast-radius\.md/);
+    expect(capy).toContain('the evidence-ladder rung it reached (file:line read, walked failure path, script ran, repro)');
+    expect(capy).not.toContain('/investigate');
   });
 
   test('the quality gate runs the lint over the [Unreleased] block, and NOTICE.md credits unslop', () => {
