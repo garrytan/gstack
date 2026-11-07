@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: rows load late</title>
+<link rel="stylesheet" href="replica.css">
+<script src="sharing.js"></script>
+</head>
+<body>
+<main>
+<div id="mount"><section class="panel sharing"><h2>Sharing</h2><p>Loading…</p></section></div>
+<script>setTimeout(() => { document.getElementById('mount').innerHTML = window.SHARING_HTML; }, 800);</script>
+</main>
+</body>
+</html>

@@ -1,0 +1,95 @@
+{
+  "about": "The app profile's false-positive corpus (GST-1741 decision 6): gstack-owned pages unrelated to the qm#3186 shape, each measured under --scope app at 1440x900 and 375x812 with the --within and --wait-for given. Bar (test/design-lint-app-profile.test.ts): zero app findings on all but one page, and at most one on that page. The pages carry no lists of the replica's kind, so --wait-for stands in for the list readiness wait.",
+  "pages": [
+    {
+      "path": "browse/src/welcome.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "the browse welcome page"
+    },
+    {
+      "path": "extension/popup.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "the extension popup"
+    },
+    {
+      "path": "browse/test/fixtures/forms.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a login and profile form"
+    },
+    {
+      "path": "browse/test/fixtures/qa-eval-checkout.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a checkout form"
+    },
+    {
+      "path": "browse/test/fixtures/qa-eval-spa.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a single-page app shell"
+    },
+    {
+      "path": "browse/test/fixtures/states.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "controls in their states"
+    },
+    {
+      "path": "browse/test/fixtures/snapshot.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a mixed app page"
+    },
+    {
+      "path": "browse/test/fixtures/responsive.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a responsive layout"
+    },
+    {
+      "path": "browse/test/fixtures/basic.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a basic page"
+    },
+    {
+      "path": "test/fixtures/design-lint/clean/index.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "the design lint's clean render fixture"
+    },
+    {
+      "path": "test/fixtures/design-lint/tailwind-pass/index.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a Tailwind page with a bordered list"
+    },
+    {
+      "path": "test/fixtures/design-lint/eyebrow-pass/index.html",
+      "within": "body",
+      "waitFor": "body",
+      "what": "a docs page with a step list"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "browse/test/fixtures/qa-eval.html",
+      "why": "a QA fixture with planted defects; its stats line really overflows its box (section-overflow is a true positive)"
+    },
+    {
+      "path": "browse/test/fixtures/dropdown.html",
+      "why": "its search input is 320px inside a 300px container: a real overflow"
+    },
+    {
+      "path": "test/fixtures/design-motion-finalized.html",
+      "why": "absolutely positioned cards run 233px past a 375px screen: a real overflow"
+    },
+    {
+      "path": "extension/sidepanel.html",
+      "why": "links xterm.css, which ./setup builds and the repository does not hold, so it is incomplete (ASSET_MISSING), not measurable"
+    }
+  ]
+}

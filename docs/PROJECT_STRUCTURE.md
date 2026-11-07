@@ -75,7 +75,7 @@ gstack/
 ├── freeze/          # /freeze skill; bin/check-freeze.sh (PreToolUse edit-boundary hook; sources careful/bin/hook-extract.sh, fails closed)
 ├── guard/, unfreeze/  # /guard (careful + freeze in one), /unfreeze
 ├── gstack-upgrade/  # /gstack-upgrade skill + migrations/ (run after ./setup during an upgrade)
-├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-design-detect.ts = probe/scan through a user-installed impeccable engine; gstack-design-md.ts = open DESIGN.md check/convert/tokens/mark; gstack-design-lint = the free deterministic design lint over HTML/CSS/components, --render measures in the browser (docs/design-lint.md); gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, gstack-memorable, etc.)
+├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-design-detect.ts = probe/scan through a user-installed impeccable engine; gstack-design-md.ts = open DESIGN.md check/convert/tokens/mark; gstack-design-lint = the free deterministic design lint over HTML/CSS/components, --render measures in the browser, --scope app measures one app section's spacing (docs/design-lint.md); gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, gstack-memorable, etc.)
 ├── document-release/ # /document-release skill (every-ship pre-verification audit; standalone doc updates + Diataxis coverage map)
 ├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)

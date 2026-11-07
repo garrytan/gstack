@@ -1,0 +1,19 @@
+/* The qm#3186 shape (GST-1741): a Sharing panel whose rows crowd, whose help copy sits flush under its lists, whose status notes read at the name's weight, and whose remove controls are 18px. */
+:root, :host { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+:host { display: block; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.panel h3 { font-size: 15px; line-height: 20px; margin: 20px 0 8px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.row .desc { color: var(--muted); font-size: 13px; }
+.row .flag { color: var(--ink); font-size: 14px; }
+.row .role { color: var(--muted); font-size: 13px; margin-left: 8px; }
+.x { flex: none; width: 18px; height: 18px; border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 14px; line-height: 18px; cursor: pointer; }
+.help { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
