@@ -36,7 +36,7 @@ import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles
 import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, keepSameTreeClears, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
-import { describeSubstitution } from '../lib/pregate/remote-receipt';
+import { baseBranchOf, describeSubstitution } from '../lib/pregate/remote-receipt';
 import { approvalGrants, describeExceptions, type FlakyInput } from '../lib/pregate/flaky-exception';
 import { ensureTmpExcluded } from '../lib/restamp';
 import { RESULT_CODES, resultCodeSuffix, resultLine } from '../lib/result-codes';
@@ -177,7 +177,12 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     if (!Number.isFinite(cap) || cap <= 0) { process.stderr.write('gstack-pregate: --remote spends money; pass --spend-cap <usd> (or set GSTACK_SPEND_CAP_USD)\n'); return EXIT.usage; }
     remote = { spendCapUsd: cap };
   } else if (flag(rest, '--spend-cap') !== undefined) { process.stderr.write('gstack-pregate: --spend-cap applies only with --remote\n'); return EXIT.usage; }
-  const base = resolveBaseBranch(root, flag(rest, '--base'));
+  const out = stage === 'guards' && !flag(rest, '--out') ? path.join(root, PREGATE_GUARDS_OUT_REL) : outPath(root, rest);
+  const prev = fs.existsSync(out) ? readPregateFile(out).file : null;
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 15_000 }).stdout?.trim();
+  const recordedBase = flag(rest, '--base') === undefined && prev?.head && prev.head === head ? baseBranchOf(prev.base) : null;
+  const base = recordedBase ?? resolveBaseBranch(root, flag(rest, '--base'));
+  if (recordedBase) { const fallback = resolveBaseBranch(root); if (fallback !== recordedBase) process.stderr.write(`gstack-pregate: no --base; using ${recordedBase}, the base of the record at this head (${path.relative(root, out)}), not ${fallback}; pass --base to change it\n`); }
   const userConfigPath = defaultUserConfigPath(root);
   const loaded = buildContext({ repoRoot: root, base, policyFrom, allowRepoCommands: allow, timeoutMs, stallTimeoutMs, remote, knownChecks: [...CHECK_IDS, ...PREGATE_TIER2], userConfigPath, runId: flag(rest, '--run') });
   if ('refused' in loaded) {
@@ -199,7 +204,6 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     });
   }
   const file = await runPregate(ctx, { stage, only, run: flag(rest, '--run') });
-  const out = stage === 'guards' && !flag(rest, '--out') ? path.join(root, PREGATE_GUARDS_OUT_REL) : outPath(root, rest);
   const kept = keepSameTreeClears(fs.existsSync(out) ? readPregateFile(out).file : null, file);
   let written: string;
   try { written = writePregateFile(root, out, file); }
