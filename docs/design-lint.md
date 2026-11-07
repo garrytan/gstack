@@ -359,9 +359,9 @@ finding a waiver did not answer makes the section open.
 
 | Rule | Tier | The tell (measured px, threshold) | The fix |
 |---|---|---|---|
-| `row-crowding` | ask | in a bounded list, a row whose text spans two or more lines sits under 8px from a drawn row edge (its own border or surface, the neighbouring row's separator, or the list's edge), or under 16px from the next row's text | 8px or more inside the row, 16px or more between rows' text |
+| `row-crowding` | ask | in a list of rows, a row whose text spans two or more lines sits under 8px from a drawn row edge (its own border or surface, the neighbouring row's separator, or the list's edge), or under 16px from the next row's text | 8px or more inside the row, 16px or more between rows' text |
 | `copy-flush-under-list` | ask | the first text block after a list (later siblings of the list container inside the section, before the next heading) starts under 12px below it | 12px or more under the list |
-| `note-in-row-weight` | ask | in a bounded row, a note with no icon and no surface of its own, OKLCH lightness within 0.15 of the name's and size 0.9 or more of it; or, at 1200px and wider, a note of three lines or more | mute the note, or give it an icon or a callout |
+| `note-in-row-weight` | ask | in a list of rows, a note with no icon and no surface of its own, OKLCH lightness within 0.15 of the name's and size 0.9 or more of it; or, at 1200px and wider, a note of three lines or more | mute the note, or give it an icon or a callout |
 | `small-hit-area` | ask | at 480px and narrower, a control inside a list row under 32px in either dimension (an input's label counts toward its box; a link inside a run of text is exempt) | a 32px target that keeps the glyph its size |
 | `section-overflow` | ask | an element inside the section whose right edge passes the viewport (outside any scroller), or a non-scrolling element whose content is wider than its box | wrap or shrink it, or give it a scroller |
 
@@ -371,9 +371,13 @@ widths within 10%, stacked (each top at or below the previous bottom less
 1px), each holding visible text; tables, anything inside `nav` or a
 navigation, grid, table, menu, listbox, tablist or tree role, headings,
 paragraphs, sections and forms are never rows, and siblings side by side are a
-grid, not a list. A list is **bounded** when it or a row draws a border,
-background or shadow; `row-crowding` and `note-in-row-weight` read bounded
-lists only (an unboxed bullet list is prose). A row's **text runs** are its
+grid, not a list. A list is a **list of rows** when it or a row draws a
+border, background or shadow, or when every row is a flex or grid box that sets
+two or more boxes side by side (an avatar, the text, a control);
+`row-crowding` and `note-in-row-weight` read lists of rows only (an unboxed
+bullet list is prose). With no drawn edge, `row-crowding` measures only the
+gap to the next row's text. Measurements within 0.05px of a threshold count as
+meeting it, so layout's subpixel rounding never fires a rule. A row's **text runs** are its
 visible text nodes in rendered order through the composed tree, leaving out
 text inside controls; positions are line boxes, so a gap is the padding and
 margins the CSS set. The **name** is the run on the row's first line (the

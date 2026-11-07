@@ -156,7 +156,9 @@ export function glAppHelpers() {
     return [...hosts, path.join(' > ') || seg(el)].join(' >>> ') + (words ? ' "' + words + '"' : '');
   };
   const px = (n: number): number => Math.round(n * 100) / 100;
-  return { kids, ekids, boxKids, cparent, inside, desc, roots, qAll, shown, vis, isControl, runsOf, lineCount, rgb, surface, drawn, lightness, locOf, px };
+  /** m is under the threshold by more than layout's subpixel noise (0.05px). */
+  const under = (m: number, t: number): boolean => m < t - 0.05;
+  return { kids, ekids, boxKids, cparent, inside, desc, roots, qAll, shown, vis, isControl, runsOf, lineCount, rgb, surface, drawn, lightness, locOf, px, under };
 }
 
 export type AppHelpers = ReturnType<typeof glAppHelpers>;
@@ -210,15 +212,20 @@ export function glAppLists(P: AppProbes, root: Element): AppList[] {
   return out;
 }
 
-/** row-crowding and note-in-row-weight over a bounded list's rows (a row or the list draws an edge), small-hit-area over any list's. */
+/** row-crowding and note-in-row-weight over a list of rows (bounded: a row or the list draws an edge; or laid out: every row sets two or more boxes side by side), small-hit-area over any list's. */
 export function glAppRows(P: AppProbes, list: AppList, vw: number): AppProbeFinding[] {
-  const { runsOf, lineCount, surface, drawn, lightness, locOf, px, cparent, vis, desc } = P.H;
+  const { runsOf, lineCount, surface, drawn, lightness, locOf, px, under, cparent, vis, desc, boxKids } = P.H;
   const out: AppProbeFinding[] = [];
   const rows = list.rows;
   const texts = rows.map((r) => runsOf(r));
   const boxes = rows.map((r) => r.getBoundingClientRect());
   const cb = list.container.getBoundingClientRect();
-  const bounded = surface(list.container) || rows.some((r) => surface(r));
+  const sideBySide = (r: Element): boolean => {
+    if (!/flex|grid/.test(getComputedStyle(r).display)) return false;
+    const bs = boxKids(r).filter((k) => vis(k)).map((k) => k.getBoundingClientRect());
+    return bs.some((a, i) => bs.some((b, j) => j > i && a.top < b.bottom && b.top < a.bottom && (a.right <= b.left || b.right <= a.left)));
+  };
+  const bounded = surface(list.container) || rows.some((r) => surface(r)) || rows.every(sideBySide);
   const inner = (i: number, side: 'top' | 'bottom'): number | null => {
     const own = drawn(rows[i], side);
     if (own != null) return side === 'top' ? boxes[i].top + own : boxes[i].bottom - own;
@@ -236,9 +243,10 @@ export function glAppRows(P: AppProbes, list: AppList, vw: number): AppProbeFind
       const top = topEdge == null ? Infinity : Math.min(...runs.map((r) => r.lineTop)) - topEdge;
       const bottom = bottomEdge == null ? Infinity : bottomEdge - Math.max(...runs.map((r) => r.lineBottom));
       const next = texts[i + 1];
-      const gap = next && next.length ? Math.min(...next.map((r) => r.lineTop)) - Math.max(...runs.map((r) => r.lineBottom)) : Infinity;
-      if (Math.min(top, bottom) < 8) out.push({ rule: 'row-crowding', sentence: 'a ' + lines + '-line row leaves ' + px(Math.min(top, bottom)) + 'px between its text and its ' + (top <= bottom ? 'top' : 'bottom') + ' edge (under 8px)', locator: locOf(row), measured: px(Math.min(top, bottom)), threshold: 8 });
-      else if (gap < 16) out.push({ rule: 'row-crowding', sentence: 'a ' + lines + '-line row leaves ' + px(gap) + 'px between its last text line and the next row\'s text (under 16px)', locator: locOf(row), measured: px(gap), threshold: 16 });
+      const gap = px(next && next.length ? Math.min(...next.map((r) => r.lineTop)) - Math.max(...runs.map((r) => r.lineBottom)) : Infinity);
+      const edge = px(Math.min(top, bottom));
+      if (under(edge, 8)) out.push({ rule: 'row-crowding', sentence: 'a ' + lines + '-line row leaves ' + edge + 'px between its text and its ' + (top <= bottom ? 'top' : 'bottom') + ' edge (under 8px)', locator: locOf(row), measured: edge, threshold: 8 });
+      else if (under(gap, 16)) out.push({ rule: 'row-crowding', sentence: 'a ' + lines + '-line row leaves ' + gap + 'px between its last text line and the next row\'s text (under 16px)', locator: locOf(row), measured: gap, threshold: 16 });
     }
     if (bounded && runs.length) {
       const first = Math.min(...runs.map((r) => r.top));
@@ -255,8 +263,8 @@ export function glAppRows(P: AppProbes, list: AppList, vw: number): AppProbeFind
         const dl = Math.abs(lightness(own[0].el, row) - lightness(name.el, row));
         const ratio = parseFloat(getComputedStyle(own[0].el).fontSize) / parseFloat(getComputedStyle(name.el).fontSize);
         const noteLines = lineCount(own);
-        if (dl < 0.15 && ratio >= 0.9) out.push({ rule: 'note-in-row-weight', sentence: 'a note in a bounded row reads at the name\'s weight: lightness ' + dl.toFixed(3) + ' from the name\'s (under 0.15) at ' + ratio.toFixed(2) + ' of its size (0.9 or more)', locator: locOf(block), measured: Math.round(dl * 1000) / 1000, threshold: 0.15 });
-        else if (vw >= 1200 && noteLines >= 3) out.push({ rule: 'note-in-row-weight', sentence: 'a note in a bounded row runs ' + noteLines + ' lines at ' + vw + 'px (3 or more)', locator: locOf(block), measured: noteLines, threshold: 3 });
+        if (dl < 0.15 && ratio >= 0.9) out.push({ rule: 'note-in-row-weight', sentence: 'a note in a row reads at the name\'s weight: lightness ' + dl.toFixed(3) + ' from the name\'s (under 0.15) at ' + ratio.toFixed(2) + ' of its size (0.9 or more)', locator: locOf(block), measured: Math.round(dl * 1000) / 1000, threshold: 0.15 });
+        else if (vw >= 1200 && noteLines >= 3) out.push({ rule: 'note-in-row-weight', sentence: 'a note in a row runs ' + noteLines + ' lines at ' + vw + 'px (3 or more)', locator: locOf(block), measured: noteLines, threshold: 3 });
       }
     }
     if (vw <= 480) {
@@ -273,7 +281,7 @@ export function glAppRows(P: AppProbes, list: AppList, vw: number): AppProbeFind
           const l = Math.min(...all.map((q) => q.left)), t = Math.min(...all.map((q) => q.top));
           b = new DOMRect(l, t, Math.max(...all.map((q) => q.right)) - l, Math.max(...all.map((q) => q.bottom)) - t);
         }
-        if (b.width < 32 || b.height < 32) out.push({ rule: 'small-hit-area', sentence: 'a row control is ' + px(b.width) + 'x' + px(b.height) + 'px at ' + vw + 'px (under 32px)', locator: locOf(c), measured: px(Math.min(b.width, b.height)), threshold: 32 });
+        if (under(b.width, 32) || under(b.height, 32)) out.push({ rule: 'small-hit-area', sentence: 'a row control is ' + px(b.width) + 'x' + px(b.height) + 'px at ' + vw + 'px (under 32px)', locator: locOf(c), measured: px(Math.min(b.width, b.height)), threshold: 32 });
       }
     }
   });
@@ -282,7 +290,7 @@ export function glAppRows(P: AppProbes, list: AppList, vw: number): AppProbeFind
 
 /** copy-flush-under-list: the first text block after the list, before the next heading, inside the measured section. */
 export function glAppAfter(P: AppProbes, list: AppList, root: Element): AppProbeFinding[] {
-  const { boxKids, cparent, vis, runsOf, locOf, px } = P.H;
+  const { boxKids, cparent, vis, runsOf, locOf, px, under } = P.H;
   const HEADING = /^H[1-6]$/;
   const isHeading = (e: Element) => HEADING.test(e.tagName) || e.getAttribute('role') === 'heading';
   let from: Element = list.whole ? list.container : list.last;
@@ -298,8 +306,8 @@ export function glAppAfter(P: AppProbes, list: AppList, root: Element): AppProbe
       if (!runs.length) continue;
       const first = runs.slice().sort((a, b) => a.lineTop - b.lineTop)[0];
       for (let e: Element | null = first.el; e && e !== s; e = cparent(e)) if (isHeading(e)) return [];
-      const gap = first.lineTop - from.getBoundingClientRect().bottom;
-      return gap < 12 ? [{ rule: 'copy-flush-under-list', sentence: 'the text under the list starts ' + px(gap) + 'px below it (under 12px)', locator: locOf(first.block), measured: px(gap), threshold: 12 }] : [];
+      const gap = px(first.lineTop - from.getBoundingClientRect().bottom);
+      return under(gap, 12) ? [{ rule: 'copy-flush-under-list', sentence: 'the text under the list starts ' + gap + 'px below it (under 12px)', locator: locOf(first.block), measured: gap, threshold: 12 }] : [];
     }
     if (parent === root || isHeading(parent)) return [];
     from = parent;

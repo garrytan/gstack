@@ -166,6 +166,23 @@ describe.skipIf(!hasBrowser)('app profile: thresholds at +-0.5px', () => {
     expect(await at(rows('8.5px 12px'), 'row-crowding')).toEqual([]);
   }, 60_000);
 
+  test('row-crowding: layout subpixel noise never fires (7.97px does not), 7.9px does', async () => {
+    expect(await at(rows('7.97px 12px'), 'row-crowding')).toEqual([]);
+    expect((await at(rows('7.9px 12px'), 'row-crowding')).length).toBeGreaterThan(0);
+  }, 60_000);
+
+  test('row-crowding reads an unboxed list of laid-out rows (avatar, text and control side by side); an unboxed list of prose items stays prose', async () => {
+    const people = genPage('people-unboxed.html',
+      '.row { display: flex; align-items: center; gap: 10px; padding: 4px 0 } .av { width: 28px; height: 28px; border-radius: 14px; background: #dbe7f0; flex: none } .text { flex: 1 } .text div { margin: 0 } button { width: 80px; height: 32px; flex: none } .help { margin: 24px 0 0 }',
+      '<div class="list"><div class="row"><span class="av"></span><div class="text"><div>Dana Whitfield</div><div>Can\'t use personas until an admin turns them on</div></div><button>Can chat</button></div><div class="row"><span class="av"></span><div class="text"><div>Design team</div><div>Personas is off for the organization</div></div><button>Can chat</button></div></div><p class="help">Owners change who has access.</p>');
+    const crowded = await at(people, 'row-crowding');
+    expect(crowded.length).toBeGreaterThan(0);
+    expect(crowded.every((m) => m < 16)).toBe(true);
+    const prose = genPage('prose-unboxed.html', 'ul { margin: 0; padding-left: 20px } li { margin: 0 0 4px } .help { margin: 24px 0 0 }',
+      '<ul><li>Read the docs before you start, then run the setup script once on each machine you use</li><li>Keep the token out of the repository and rotate it when someone leaves the team</li></ul><p class="help">Questions go to the platform channel.</p>');
+    expect(await at(prose, 'row-crowding')).toEqual([]);
+  }, 60_000);
+
   test('row-crowding: 15.5px from a two-line row\'s text to the next row\'s fires, 16.5px does not', async () => {
     const pair = (next: number) => genPage('next-' + next + '.html',
       '.list { border: 1px solid #dfe3ea } .row { padding: 8px 12px } .row p { margin: 0 } .row + .row { padding-top: ' + next + 'px }',
