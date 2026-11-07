@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { AGENT_STALL_MS, STATE_ERROR_DOC, stateErrorLine } from '../lib/skill-contract';
 import { SWITCH_DEFAULT } from '../lib/skill-route';
 import {
@@ -106,6 +107,32 @@ describe('block once, with the pinned text', () => {
     const file = transcript([...J1_TRANSCRIPT.slice(0, -1), tool('b9', 'Bash', { command: 'bun test' }), result('b9', 'pass')]);
     expect(stop(file, {}, { last_assistant_message: DEBUG_REPORT }).stdout).toBe('');
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
+  });
+
+  test('a Stop that fires before the CLI flushes the turn waits for the final message: a run that reran its check is met, not blocked', async () => {
+    const file = transcript(J1_TRANSCRIPT.slice(0, -1));
+    const proc = Bun.spawn([process.execPath, ...bunIsolationArgs(), CONTRACT_HOOK], {
+      stdin: new Blob([payload(file, { last_assistant_message: DEBUG_REPORT })]), env: hookEnv(state, skills, { GSTACK_SKILL_CONTRACTS: 'on' }), stdout: 'pipe', timeout: 20_000,
+    });
+    await Bun.sleep(300);
+    fs.appendFileSync(file, `${[tool('b9', 'Bash', { command: 'bun test test/auth.test.ts' }), result('b9', 'pass'), say(DEBUG_REPORT)].join('\n')}\n`);
+    const out = await new Response(proc.stdout).text();
+    expect(await proc.exited).toBe(0);
+    expect(out).toBe('');
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
+  });
+
+  test('a Stop that fires before the CLI flushes the load itself still checks the run once the final message lands', async () => {
+    const file = transcript(J1_TRANSCRIPT.slice(0, 1));
+    const proc = Bun.spawn([process.execPath, ...bunIsolationArgs(), CONTRACT_HOOK], {
+      stdin: new Blob([payload(file, { last_assistant_message: 'Fixed: the null check was missing in src/auth.ts.' })]), env: hookEnv(state, skills, { GSTACK_SKILL_CONTRACTS: 'on' }), stdout: 'pipe', timeout: 20_000,
+    });
+    await Bun.sleep(300);
+    fs.appendFileSync(file, `${J1_TRANSCRIPT.slice(1).join('\n')}\n`);
+    const out = await new Response(proc.stdout).text();
+    expect(await proc.exited).toBe(0);
+    expect(JSON.parse(out || '{}').decision).toBe('block');
+    expect((Object.values(record().runs)[0] as any).outcome).toBe('blocked');
   });
 
   test('an /investigate run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
