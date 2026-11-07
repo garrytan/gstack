@@ -222,7 +222,7 @@ describe('setup prunes external-host entries for a retired skill whose source st
       fs.writeFileSync(path.join(edited, 'gstack-investigate', 'notes.md'), 'mine\n');
       fs.writeFileSync(path.join(pristine, 'gstack-investigate', 'SKILL.md'), ours);
       const script = [
-        'set -e', 'log() { echo "$@"; }', `. "${REGISTRY}"`, `_SKILL_BACKUP_ROOT="${backup}"`, '_BACKED_UP_SKILL_MDS=()',
+        'set -e', 'HOME=/nonexistent-home', 'log() { echo "$@"; }', `. "${REGISTRY}"`, `_SKILL_BACKUP_ROOT="${backup}"`, '_BACKED_UP_SKILL_MDS=()',
         ...['_gstack_link_target_abs', '_gstack_target_is_ours', '_gstack_generated_header', '_backup_skill_md', '_cleanup_weak_dir',
           '_owned_for_windows_refresh', '_skill_source_exists', '_prune_stale_generated'].map(extractFn),
         `_prune_stale_generated "${src}" "${gen}" "${edited}" "${pristine}"`,
@@ -232,8 +232,38 @@ describe('setup prunes external-host entries for a retired skill whose source st
       expect(r.stdout).toContain('pruned retired skill: gstack-investigate');
       expect(fs.readdirSync(gen)).toEqual([]);
       expect(fs.readdirSync(path.join(edited, 'gstack-investigate'))).toEqual(['notes.md']);
-      expect(fs.readFileSync(path.join(backup, 'gstack-investigate', 'SKILL.md'), 'utf8')).toBe(ours + 'MY LOCAL EDITS\n');
+      expect(fs.readFileSync(path.join(backup, edited.slice(1).split(path.sep).join('_'), 'gstack-investigate', 'SKILL.md'), 'utf8')).toBe(ours + 'MY LOCAL EDITS\n');
       expect(fs.readdirSync(pristine)).toEqual([]);
+    } finally {
+      fs.rmSync(t, { recursive: true, force: true });
+    }
+  });
+
+  test('two copy hosts whose render is already gone each keep their own backup (GST-1717)', () => {
+    const t = fs.mkdtempSync(path.join(os.tmpdir(), 'retired-prune-hosts-'));
+    try {
+      const src = path.join(t, 'src'), gen = path.join(t, 'gen'), backup = path.join(t, 'backup');
+      const hosts = [path.join(t, 'codex', 'skills'), path.join(t, 'factory', 'skills')];
+      fs.mkdirSync(path.join(src, 'autoplan'), { recursive: true });
+      fs.writeFileSync(path.join(src, 'autoplan', 'SKILL.md.tmpl'), '---\nname: autoplan\n---\nx\n');
+      fs.mkdirSync(gen, { recursive: true });
+      const ours = '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n# gstack-investigate\n';
+      const copies = [ours + 'MY CODEX EDITS\n', ours];
+      hosts.forEach((host, i) => {
+        fs.mkdirSync(path.join(host, 'gstack-investigate'), { recursive: true });
+        fs.writeFileSync(path.join(host, 'gstack-investigate', 'SKILL.md'), copies[i]!);
+      });
+      const script = [
+        'set -e', 'HOME=/nonexistent-home', 'log() { echo "$@"; }', `. "${REGISTRY}"`, `_SKILL_BACKUP_ROOT="${backup}"`, '_BACKED_UP_SKILL_MDS=()',
+        ...['_gstack_link_target_abs', '_gstack_target_is_ours', '_gstack_generated_header', '_backup_skill_md', '_cleanup_weak_dir',
+          '_owned_for_windows_refresh', '_skill_source_exists', '_prune_stale_generated'].map(extractFn),
+        ...hosts.map(host => `_prune_stale_generated "${src}" "${gen}" "${host}"`),
+      ].join('\n');
+      const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
+      expect(r.status, r.stderr).toBe(0);
+      for (const host of hosts) expect(fs.readdirSync(host)).toEqual([]);
+      const saved = hosts.map(host => fs.readFileSync(path.join(backup, host.slice(1).split(path.sep).join('_'), 'gstack-investigate', 'SKILL.md'), 'utf8'));
+      expect(saved).toEqual(copies);
     } finally {
       fs.rmSync(t, { recursive: true, force: true });
     }

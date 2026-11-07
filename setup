@@ -998,18 +998,20 @@ _backup_skill_md() {
 # _cleanup_weak_dir DIR — remove only what weak proof covers: the SKILL.md and
 # our marker. User files in the directory stay, and so does the directory
 # when it is not empty afterwards.
-# _cleanup_weak_dir DIR GSTACK_DIR [SRC_SKILL_MD NAME] — remove only what weak
+# _cleanup_weak_dir DIR GSTACK_DIR [SRC_SKILL_MD NAME [BACKUP_NAME]] — remove only what weak
 # proof covers. A real SKILL.md that differs from our source (raw, or with its
 # name: line rewritten to NAME, which is how alias and prefixed copies differ),
 # or whose named source is gone, is a customized file: it is moved to the
 # backup root, never deleted, and if the backup fails it stays. Our
-# runtime-asset links go; the user's files stay.
+# runtime-asset links go; the user's files stay. BACKUP_NAME (default NAME)
+# names the backup, so copies of one skill on several hosts never collide.
 _cleanup_weak_dir() {
   local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest
+  local bk="${5:-$name}"
   if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] \
      && { [ ! -f "$src" ] || { ! cmp -s "$d/SKILL.md" "$src" \
      && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; }; }; then
-    if ! _backup_skill_md "$d/SKILL.md" "$name"; then
+    if ! _backup_skill_md "$d/SKILL.md" "$bk"; then
       echo "  kept $name/SKILL.md: could not back up the customized file — left untouched" >&2
       return 0
     fi
@@ -1111,7 +1113,7 @@ _skill_source_exists() {
   return 1
 }
 _prune_stale_generated() {
-  local gstack_dir="$1" gen_dir="$2" d n names="" host dest gen_real
+  local gstack_dir="$1" gen_dir="$2" d n names="" host dest gen_real label
   shift 2
   for d in "$gen_dir"/gstack-*; do
     [ -d "$d" ] && [ ! -L "$d" ] || continue
@@ -1145,7 +1147,8 @@ _prune_stale_generated() {
       elif [ ! -d "$host/$n" ]; then
         rm -f "$host/$n"
       else
-        _cleanup_weak_dir "$host/$n" "$gstack_dir" "$gen_dir/$n/SKILL.md"
+        label="${host#"$HOME"/}"; label="${label#/}"
+        _cleanup_weak_dir "$host/$n" "$gstack_dir" "$gen_dir/$n/SKILL.md" "$n" "${label//\//_}/$n"
       fi
     done
     if [ -d "$gen_dir/$n" ] && [ ! -L "$gen_dir/$n" ]; then rm -rf "$gen_dir/$n"; fi
