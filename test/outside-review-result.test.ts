@@ -309,7 +309,11 @@ describe('the no-findings conclusion is a closed sentence (GST-1808)', () => {
   test('a scope that names only part of the change does not conclude, even as the only sentence', () => {
     for (const text of ['No issues in the parser.', 'I found no issues in the retry helper.', 'After reviewing the parser, I found no issues.',
       'I reviewed the parser.\nNo issues in the auth module of this change.', 'No issues in the diff against the auth module.',
-      'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.']) unverified(text, text.includes('Recommendation:') ? 'review' : 'structured');
+      // Former fixtures that read clean only through the lax scope and colon rules (RECOMMEND, GST-436's NO_ISSUES, prose-negative.txt,
+      // codex-3105/p1-in-code.txt and codex-3105/no-findings.txt).
+      'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.', 'No issues found in the changed helpers.',
+      'Reviewed the parser.\n\nNo issues found in the changed parser.',
+      'I read the diff and checked every caller.\nNo findings: the cap is enforced and the tests cover the boundary.']) unverified(text, text.includes('Recommendation:') ? 'review' : 'structured');
   });
 
   test('real clean conclusions stay clean (negative controls)', () => {
@@ -326,7 +330,7 @@ describe('the no-findings conclusion is a closed sentence (GST-1808)', () => {
       'Overall, no issues found.', 'After reviewing the patch, I found no issues.', 'Having reviewed the diff, I found no issues.',
       'No issues found while reviewing the diff.', 'I found no issues in this read-only change.', 'No issues to report in this PR.',
       'Reviewed the retry helper.\n\nNo issues found in this change.', 'No regressions were found in the change as a whole.',
-      'No issues found across the committed and uncommitted changes.', 'No issues found in the staged / unstaged changes.',
+      'No issues found across the committed and uncommitted changes.', 'No issues found in the staged / unstaged changes.', 'No issues found in the changed files.',
       'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
     ]) clean(text);
     for (const text of ['Recommendation: ship because I found no regressions in this change.', 'Recommendation: proceed because no findings remain.',

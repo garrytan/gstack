@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { classifyOutsideReview } from '../lib/outside-review-result';
 
-const NO_ISSUES = 'No issues found in changed.ts.';
+const NO_ISSUES = 'No issues found in this change.';
 const RECOMMEND = 'Recommendation: approve because changed.ts keeps its data.';
 
 describe('an unclosed fence does not hide what follows it (GST-436)', () => {
