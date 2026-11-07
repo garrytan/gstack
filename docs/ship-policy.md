@@ -1819,7 +1819,10 @@ that doesn't carry each of those lines word for word.
 STOP tells the lane to plan the inserted Step 9 with `gstack-review-plan
 --post-review` (plus `--pass`, `--last` and `--fix-checks` as the loop left
 them). Edits after the review bound plan as a fix to a gate-class path, never
-as a note. Below the round cap that's a pass on the range (a fix-check under
+as a note. The exception is a range after the last fix-check whose edits are
+only release stamps and docs (`docsChangeSince`): it plans `NEXT: done`, or
+`NEXT: targeted` for a docs claim on a targeted-class diff, with no grant
+([review-policy.md](review-policy.md#transitions), GST-1702). Below the round cap that's a pass on the range (a fix-check under
 the lean panel). At the cap it stops for the owner, whose recorded grant
 (`--grant`) adds one scoped fix-check, never `done`. When the last step was a
 fix-check, pass `--range-base` at that fix-check's commit: a new grant at a
