@@ -57,7 +57,7 @@ export interface GateList { schema_version: 1; run: string; gate_rev: number; it
   eli5?: GateEli5;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
   carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
-/** The captain approvals shape (docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
+/** The captain approvals shape (crew/docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
 export interface GateEli5 { summary: string; before_after: string; why: string; cause: string; decisions: string; plan_file_sha256: string }
 export const ELI5_FIELDS = [['before_after', 'Before → after'], ['why', 'Why it matters'], ['cause', 'What caused this work'], ['decisions', 'Big decisions']] as const;
 

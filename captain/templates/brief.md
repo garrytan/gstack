@@ -3,7 +3,7 @@
 Sent by the controller when a lane starts, and again when a lane takes on scope its brief
 did not name. The lane reads the rules file first, then this. Everything in angle brackets
 is filled by the controller; `Plan:` says whether the lane plans first
-(`docs/captain.md`, Plan before build).
+(`crew/docs/captain.md`, Plan before build).
 
 ```text
 Lane: <thread code> · Controller: <CONTROLLER> · Rules: <drive>/CREW.md · Base: <BASE>
@@ -18,7 +18,7 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
    send long output to files under ~/.capy/work. A wait under about 30 minutes checks in every
    240 s (wait on the operation with duration_seconds 240, then a silent re-wait, for about 30
    minutes at most); longer waits sleep on their operations, and so does the lane while /ship runs. Past twice the median lane spend, write handoffs/<code>/next.md and
-   tell me in one line (docs/captain.md, Lane context).
+   tell me in one line (crew/docs/captain.md, Lane context).
 
 1. Plan (when Plan: required). After the session-start install check, install for autoplan
    and follow autoplan/DRIVER.md "On Capy" (launch file sourced, GSTACK_AUTOPLAN_CHECKPOINT_DIR
@@ -46,7 +46,7 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
    its checks and comments once, stop the /ship subagent, run gstack-ship-queue ready
    --pr <n> --pregate <pregate.json> --screen|--no-screen at the pin (its notes on origin),
    audit your decision trail, write Attention and send READY; after READY, handle PR events
-   as usual (docs/captain.md, the lane's /ship sequence).
+   as usual (crew/docs/captain.md, the lane's /ship sequence).
 
 Done when: the READY block is sent at a frozen head, reports/<thread code>.md is written,
 and its Approvals table carries the plan approval row (the owner's words, the date) or the

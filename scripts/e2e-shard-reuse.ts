@@ -1,6 +1,6 @@
 /**
  * Verified first-attempt reuse for PR-lane E2E shards, on the receipts of
- * scripts/eval-input-cache.ts.
+ * crew/scripts/eval-input-cache.ts.
  *
  * A PR-profile shard (a file, or one case of a case-sharded file) is reused
  * only when every consumed input is byte-identical to a fresh pass recorded in
@@ -27,10 +27,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { buildEvalInputIdentity, lookupEvalInputCache, sourceDependencyClosure, storeEvalInputCache,
-  type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from './eval-input-cache';
+  type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from '../crew/scripts/eval-input-cache';
 import { matchGlob } from '../test/helpers/test-selection';
 import { E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from '../test/helpers/touchfiles-data';
-import { EVAL_CACHE_MAX_AGE_MS as RECEIPT_MAX_AGE_MS } from './eval-input-cache';
+import { EVAL_CACHE_MAX_AGE_MS as RECEIPT_MAX_AGE_MS } from '../crew/scripts/eval-input-cache';
 import { panelVerdict, TRIAL_ENV, type EvalCaseKind, type PanelShape, type PanelTrial } from '../test/helpers/eval-store';
 
 export interface E2EShardReuseRequest {
@@ -58,7 +58,7 @@ export interface E2EShardReuseRequest {
 
 export interface E2EShardReuseHit { key: string; source: EvalPassingProof['source'] }
 
-const HARNESS_FILES = ['scripts/test-paid-shards.ts', 'scripts/e2e-shard-reuse.ts', 'scripts/eval-input-cache.ts',
+const HARNESS_FILES = ['scripts/test-paid-shards.ts', 'scripts/e2e-shard-reuse.ts', 'crew/scripts/eval-input-cache.ts',
   'lib/eval-model.ts', 'bun.lock', '.github/docker/Dockerfile.ci', '.github/workflows/evals.yml',
   '.github/actions/fix-bun-temp/action.yml', '.github/actions/restore-deps/action.yml',
   '.github/actions/seed-claude-config/action.yml', '.github/actions/register-gstack-skills/action.yml'];
@@ -352,7 +352,7 @@ export function mergeReceiptDirs(out: string, dirs: string[]): number {
       fs.copyFileSync(source, target);
       merged++;
     }
-    // The recovery checkpoint (scripts/recover-receipts.ts) travels with the store; the newest wins.
+    // The recovery checkpoint (crew/scripts/recover-receipts.ts) travels with the store; the newest wins.
     const checkpoint = path.join(dir, 'recovery.json');
     const current = path.join(out, 'recovery.json');
     if (fs.existsSync(checkpoint) && fs.lstatSync(checkpoint).isFile()

@@ -262,7 +262,7 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     const run = path.join(repo.root, 'run');
     const step = (dir: string, readers: Array<[string, string]>) => { pass(path.join(run, dir), readers); Bun.sleepSync(5); };
     step('p1', [['specialist-batched', CLEAN], ['red-team', '[CRITICAL] lib/tree-receipt.ts:120 the tree receipt floors the branch\'s own stamp row at the gated VERSION']]);
-    step('fc1', [['fix-check', '[CRITICAL] lib/ship-queue-train-stamp.ts:88 the train stamp and verify checks pass no baseRef']]);
+    step('fc1', [['fix-check', '[CRITICAL] crew/lib/ship-queue-train-stamp.ts:88 the train stamp and verify checks pass no baseRef']]);
     step('fc2', [['fix-check', CLEAN]]);
     step('s11', [['targeted', '- [INFORMATIONAL] lib/stamp-only.ts:14 a comment names the old bound\n- [INFORMATIONAL] lib/stamp-only.ts:30 the side argument has no default test']]);
     const s = loop(summary(repo, '--run', run));

@@ -120,7 +120,7 @@ describe('gstack-runaway scan', () => {
     return run('scan', '--thread', write(name + '.json', doc), '--events', write(name + '.events.json', { items, cursor: null }), '--now', NOW).out;
   };
 
-  // Value: protects=warm-wait check-ins (docs/captain.md Warm waits, #4060) are not empty wakes: a turn whose only call re-issues the
+  // Value: protects=warm-wait check-ins (crew/docs/captain.md Warm waits, #4060) are not empty wakes: a turn whose only call re-issues the
   //   wait on the same operation, or a 240 s timer, inside 30 minutes of the wait that began the run is left out; a re-wait past 30
   //   minutes, a different wait, or a turn that also reads status still counts; fails_when=/runaway-stopper flags a lane that follows the
   //   rule (GST-1597); seam=emptyWakes; no_claim=whether the lane should have warm-waited at all

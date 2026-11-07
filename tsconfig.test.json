@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "include": [
     "test/**/*.ts",
+    "crew/test/**/*.ts",
     "test-setup.ts",
     "browse/test/**/*.ts",
     "make-pdf/test/**/*.ts",

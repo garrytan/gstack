@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ShipReceipt } from './headless-artifacts';
 import { type BaseRedPolicy } from './ship-policy';
-import { git, sha256, writeJsonAtomic } from './ship-queue-gate';
+import { git, sha256, writeJsonAtomic } from '../crew/lib/ship-queue-gate';
 import { runBashSync } from './script-invocation';
 import { resolveStateRoot } from './state-root';
 

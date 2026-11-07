@@ -16,7 +16,7 @@ import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { resolveReleaseConflicts } from '../lib/ship-queue-land';
 import { receiptDepthAtHead, receiptExclude, receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { mergePolicy, REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
-import { persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { persist, repoIdentity } from '../crew/lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };

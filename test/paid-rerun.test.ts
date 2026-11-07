@@ -14,10 +14,10 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { type CaseObservation, FLAKE_RECORDS_FILE, RERUN_PLAN_ARTIFACT, resolveCases, rerunCandidates, rerunSpend } from '../scripts/lib/paid-rerun';
 import { sliceExitCode } from '../scripts/lib/paid-plan';
-import { BINDING_FILE, buildBinding, findReusableGate } from '../scripts/gate-reuse';
-import type { GhRunner } from '../scripts/recover-receipts';
-import { buildTrainRecord } from '../scripts/train-gate';
-import { classifyGate } from '../lib/ship-queue-train-verdict';
+import { BINDING_FILE, buildBinding, findReusableGate } from '../crew/scripts/gate-reuse';
+import type { GhRunner } from '../crew/scripts/recover-receipts';
+import { buildTrainRecord } from '../crew/scripts/train-gate';
+import { classifyGate } from '../crew/lib/ship-queue-train-verdict';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CASE = 'plan-ceo-finding-floor';

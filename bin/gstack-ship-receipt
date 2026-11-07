@@ -51,7 +51,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { planRecheck, readRecheck, recheckPacket, recheckRecordTemplate } from '../lib/ship-recheck';
+import { planRecheck, readRecheck, recheckPacket, recheckRecordTemplate } from '../crew/lib/ship-recheck';
 import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
@@ -845,7 +845,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
     const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${rangeBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    // J1: a bounded product change since the reviewed head gets one reader on the range-diff instead of a full /ship (lib/ship-recheck.ts).
+    // J1: a bounded product change since the reviewed head gets one reader on the range-diff instead of a full /ship (crew/lib/ship-recheck.ts).
     if (changedProduct.length) {
       const named = changedProduct.filter(p => !p.startsWith('(') && !p.includes(' ('));
       const inter = named.length ? spawnSync('git', ['diff', '--no-color', '--no-ext-diff', from, head, '--', ...named.map(p => `:(literal)${p}`)], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }) : null;

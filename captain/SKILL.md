@@ -110,7 +110,7 @@ through it to one person (the owner). The operating model below is what keeps do
 lanes merging into one base branch every day without a red base: lanes never merge, a
 READY block is the only merge trigger, every merge runs through a train, every decision
 the owner makes is recorded in their own words, and flakes are fixed daily instead of
-retried away. The team guide, drive layout included, is `docs/captain.md`; the copy-paste
+retried away. The team guide, drive layout included, is `crew/docs/captain.md`; the copy-paste
 files are in `captain/templates/` next to this skill.
 
 Usage: `/captain [setup | ready <pr> | train | digest | approvals | flaky-pass]`; `/crew` is
@@ -154,7 +154,7 @@ rules file read the same names. A repo without a `train` block runs the per-PR R
 flow: the same block, no slots.
 
 The rules file is the lanes' contract, and it is pointers plus parameters: each rule is
-one line that names its home in gstack (`docs/captain.md`, the ship-policy, pregate and
+one line that names its home in gstack (`crew/docs/captain.md`, the ship-policy, pregate and
 testing docs, the /ship and /review skills, the repository's own AGENTS.md), so no crew
 carries its own copy of how to do things. The rules: session-start install check,
 validation discipline, untrusted external diffs, file ownership, pre-approved spend, the
@@ -364,7 +364,7 @@ recommendation is option 1; "do it" takes every recommendation in the last list,
 option ("A2") takes that option instead. When the owner has to do something, the line
 carries the exact link to the page (never a menu path; a Capy app page gets its exact path
 and field), numbered steps in the simplest words, and the one word to reply when done.
-Home: `docs/captain.md`, The ask format.
+Home: `crew/docs/captain.md`, The ask format.
 
 **Plan before build.** A lane that builds something runs a sized `/autoplan` on its brief as
 its first act after the session-start check and sends the controller the plan ask above; the controller relays it, and the
@@ -375,7 +375,7 @@ or upgrade, red main, a security bug) and fixes from an already-diagnosed, audit
 list are exempt. Other bug fixes skip plan review (`--kind fix`, R65) but carry a repro
 on current main or a failing test written first; features get the lean run (`--kind feature`). The brief a
 controller hands a lane, with its `Plan: required | approved | exempt` line, is
-`captain/templates/brief.md`; the rule is `docs/captain.md` (Plan before build).
+`captain/templates/brief.md`; the rule is `crew/docs/captain.md` (Plan before build).
 
 **C. The merge ask.** Every READY the controller brings to the owner, and every PR body:
 before/after images (uploaded with the host's PR asset tool, each captioned with what

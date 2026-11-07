@@ -18,7 +18,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { readFragments } from '../lib/changelog-fragments';
 import { HistoryReadError, readHistoryFile } from '../lib/history-read';
-import { classifyTrainHead } from '../lib/version-gate-train';
+import { classifyTrainHead } from '../crew/lib/version-gate-train';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HELPER = path.join(ROOT, '.github', 'scripts', 'history-read.sh');

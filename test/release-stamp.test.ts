@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyRelease, openRelease } from '../lib/release-stamp';
 import { loadPolicyFromBase, MERGE_KEY_VERSION } from '../lib/ship-policy';
-import { classifyTrainHead } from '../lib/version-gate-train';
+import { classifyTrainHead } from '../crew/lib/version-gate-train';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const POLICY = { ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d', required_checks: ['free-tests'] }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };

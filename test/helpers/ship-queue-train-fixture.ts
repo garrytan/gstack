@@ -1,5 +1,5 @@
 /**
- * Fixtures for merge trains (lib/ship-queue-train*.ts): a hermetic repo from
+ * Fixtures for merge trains (crew/lib/ship-queue-train*.ts): a hermetic repo from
  * restamp-fixture (bare origin plus working clone under os.tmpdir(), its own
  * git identity) whose base policy declares a `train` block, and a stateful
  * `gh` on PATH that answers every GitHub call the train surface makes from a
@@ -31,7 +31,7 @@ export interface Rule {
   plan?: { planned: number } | { manifest: unknown } | null;
   /** Marks every artifact of runs dispatched under this rule expired in the artifacts listing. */
   expired?: boolean;
-  /** A screen run's gate binding (gate-binding-a1/gate-binding.json, scripts/gate-reuse.ts) and its report's collector-outcomes.json (report-verdict-a1). */
+  /** A screen run's gate binding (gate-binding-a1/gate-binding.json, crew/scripts/gate-reuse.ts) and its report's collector-outcomes.json (report-verdict-a1). */
   binding?: { verdict: 'GREEN' | 'RED'; reconcile_exit?: number; flaky?: string[] };
   outcomes?: { red?: string[]; flakyLines?: string[] };
   /** The run confirmed a verdict reuse (R2a/R2): paid-plan carries a valid gate-reuse.json naming this run and no binding is uploaded. */
@@ -69,7 +69,7 @@ export function trainFixture(policy: Record<string, unknown> = TRAIN_POLICY, pre
   return { repo, state, dataFile, env, read, write };
 }
 
-/** The repo key lib/ship-queue-train-record.ts derives from origin's URL. */
+/** The repo key crew/lib/ship-queue-train-record.ts derives from origin's URL. */
 export function repoKey(fx: TrainFixture): string {
   const norm = fx.repo.origin.replace(/\.git$/, '').replace(/\/+$/, '');
   return createHash('sha256').update(norm).digest('hex').slice(0, 16);

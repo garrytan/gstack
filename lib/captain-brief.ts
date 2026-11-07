@@ -3,7 +3,7 @@
  * their person (capy/skill/gstack/captain.md): a two-line header with the
  * one-word reply, then Before → after, Why it matters, What caused this work,
  * Big decisions (each read from the reviewed plan through the shared heading
- * parser) and What we need from you: the owner's ask format (docs/captain.md
+ * parser) and What we need from you: the owner's ask format (crew/docs/captain.md
  * § The ask format), one lettered line per gate choice with the Captain's name
  * first when --captain-name gives it, options numbered with the recommendation
  * as 1 ("A1 to take recommendation"), closed by "do it": every recommendation

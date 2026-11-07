@@ -323,7 +323,7 @@ changes are explicitly deferred, not counted as PR passes. Weekly/manual runs of
 `evals-periodic.yml` execute both complete censuses fresh; manual `evals.yml`
 runs the broad gate. This deliberately moves some defect detection later.
 
-`scripts/eval-input-cache.ts` accepts only complete, clean, first-attempt passes
+`crew/scripts/eval-input-cache.ts` accepts only complete, clean, first-attempt passes
 with matching before/after inputs. Missing/unknown inputs force execution. Receipts
 are scoped to the same repository and PR, expire after 24 hours, and contain
 public scores and provenance rather than prompts or secrets.
@@ -526,7 +526,7 @@ still reruns a case only once. A flaky GREEN binds as GREEN with its
 `flaky_cases` and is reusable by R2a and R2 (`reused_flaky`); a run still red
 after its rerun binds RED and is never reused. Train runs take the same
 `rerun-plan` path; a bisect reruns a VERDICT FAIL once on its prefix inside
-`scripts/train-gate.ts`, and a pass there is a flaky PASS naming both runs.
+`crew/scripts/train-gate.ts`, and a pass there is a flaky PASS naming both runs.
 
 ### Ship measure
 
@@ -1332,7 +1332,7 @@ trials recorded before PTY sessions were priced from their transcripts
 
 Passes and failures of single-trial shards are written as receipts at the
 execution boundary, so a cancelled run's finished work survives. The
-`recover-receipts` job runs `scripts/recover-receipts.ts` from the base ref with
+`recover-receipts` job runs `crew/scripts/recover-receipts.ts` from the base ref with
 `actions: read`: it merges the receipts of at most 5 completed, cancelled
 `evals.yml` runs of the same PR (oldest first, negatives before passes, so a newer
 FAIL blocks an older PASS) and hands the store to `plan-slices`, which keeps
@@ -1394,7 +1394,7 @@ reuse names its flaky cases. Then either:
 Finally this head's own plan must have the same selection fingerprint (cases,
 statuses, trial plans, profile), so a main move that changes what the PR gate
 selects runs the full gate. `recover-receipts` proposes the candidate from
-base-ref code (`scripts/gate-reuse.ts find`), `plan-slices` confirms the
+base-ref code (`crew/scripts/gate-reuse.ts find`), `plan-slices` confirms the
 selection, `eval-slices` is skipped, and the report and PR comment say
 `PASS (reused: restamp-only, R2a)` or `PASS (reused: main moved, R2)` with
 the reused run, its head, why, and the receipt digest or own-diff signature.
@@ -1413,7 +1413,7 @@ apply from the next push, because adding a label does not start `evals.yml`.
 
 ### Replay gate cost
 
-`bun run scripts/gate-cost-replay.ts --runs <id,...> [--since YYYY-MM-DD --until YYYY-MM-DD | --prs 3201,3202] [--json]`
+`bun run crew/scripts/gate-cost-replay.ts --runs <id,...> [--since YYYY-MM-DD --until YYYY-MM-DD | --prs 3201,3202] [--json]`
 measures the paid PR gate's bill from recorded artifacts, for free. `--runs`
 names complete full-gate runs; their `paid-slice-*` and `trial-outcomes`
 artifacts are downloaded read-only with `gh` into `.context/gate-cost-cache`
@@ -1442,7 +1442,7 @@ stay heuristic until T2 lands. A `package.json` change that only moves the
 version is neither selected nor a canary trigger.
 The selectors are this checkout's, so an old merge is replayed against today's
 maps. A shallow checkout says which `git fetch --shallow-since` to run. Logic:
-`lib/gate-cost.ts`; tests: `test/gate-cost.test.ts`.
+`crew/lib/gate-cost.ts`; tests: `crew/test/gate-cost.test.ts`.
 
 ## Free suite runner, judge reuse and engine skips
 

@@ -1,7 +1,7 @@
 /**
  * The Captain brief (lib/captain-brief.ts, gstack-owner-brief render --captain)
  * and the shared heading parser (lib/markdown-sections.ts): the five-part shape,
- * every choice as a lettered ask line (docs/captain.md § The ask format), gate ids only on the agent line, the
+ * every choice as a lettered ask line (crew/docs/captain.md § The ask format), gate ids only on the agent line, the
  * rec_hash binding, and the incomplete and answered states.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';

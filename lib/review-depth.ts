@@ -46,7 +46,7 @@ export const LIGHT_ADVERSARIAL_REASON = 'backtest inconclusive (GSTA-147 D5)';
 const CLASS_RANK: Record<DiffClass, number> = { docs: 0, tests: 1, code: 2, gate: 3 };
 const DEPTH_RANK: Record<Depth, number> = { light: 0, standard: 1, full: 2 };
 
-const AGENT_PROSE = [/(^|\/)SKILL\.md(\.tmpl)?$/, /(^|\/)sections\//, /^scripts\/resolvers\//, /^docs\/[^/]*-policy\.md$/, /^docs\/(captain|unattended|pregate)\.md$/, /(^|\/)DRIVER\.md(\.tmpl)?$/, /(^|\/)templates\//, /(^|\/)(AGENTS|CLAUDE|ETHOS)\.md$/, /(^|\/)specialists\//, /(^|\/)checklist\.md$/, /^\.gstack\//];
+const AGENT_PROSE = [/(^|\/)SKILL\.md(\.tmpl)?$/, /(^|\/)sections\//, /^scripts\/resolvers\//, /^docs\/[^/]*-policy\.md$/, /^(crew\/)?docs\/(captain|unattended|pregate)\.md$/, /(^|\/)DRIVER\.md(\.tmpl)?$/, /(^|\/)templates\//, /(^|\/)(AGENTS|CLAUDE|ETHOS)\.md$/, /(^|\/)specialists\//, /(^|\/)checklist\.md$/, /^\.gstack\//];
 /** gstack-diff-scope's TEST_PATH_RE (the test-bootstrap rule), plus fixture directories. */
 const TEST_PATH = [/(^|\/)(tests?|spec|__tests__)\/|(^|\/)tests?\.py$|(^|\/)test_[^/]+\.py$|_test\.(go|py|rb|ts|js|exs|dart)$|\.(test|spec)\.[jt]sx?$|_spec\.rb$|Test\.(java|kt)$/, /(^|\/)fixtures?\//];
 const DOC_PATH = /\.(md|mdx|markdown|rst|txt|adoc)$/i;
@@ -57,7 +57,7 @@ const HARNESS_PINS = /^scripts\/harness-pins\//;
 /** Gate paths, the review-depth machinery included: an edit to how much review runs gets the most review. */
 const GATE_PATH = [
   /(^|\/)\.github\/workflows\//, SECRET_PATH, /state-root/, /(^|\/)(pregate|gate|ship-receipt|ship-policy)[^/]*\.(ts|sh|json)$/, /(^|\/)bin\/gstack-(pregate|gate|ship-receipt|verify-gate|ci-gate)$/,
-  /^lib\/review-(depth|collect|scope|targeted|risk|exclude)\.ts$/, /^lib\/redact-(engine|patterns)\.ts$/, /^lib\/default-base\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/(generated|always-run)\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
+  /^lib\/review-(depth|collect|scope|targeted|risk|exclude)\.ts$/, /^lib\/redact-(engine|patterns)\.ts$/, /^lib\/default-base\.ts$/, /^review\/specialists\/targeted\.md$/, /^bin\/gstack-review-plan$/, /^(crew\/)?lib\/ship-queue[^/]*\.ts$/, /^lib\/regen\.ts$/, /^\.gstack\/(generated|always-run)\.json$/, /^ship\/sections\/(review-army|adversarial)\.md\.tmpl$/, /^scripts\/resolvers\/review-army\.ts$/,
 ];
 
 /** The path rules lib/review-exclude.ts keeps a matched file for: a gate path, agent prose, or a data-shaped config file. */

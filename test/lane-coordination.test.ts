@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { COORDINATOR_CONTRACT, COORDINATOR_CONTRACT_HEADING } from '../lib/coordinator-contract';
 import { readBundle, renderVerification, verifyBundle } from '../lib/evidence-bundle';
-import { laneCheck, renderLaneCheck } from '../lib/lane-ownership';
+import { laneCheck, renderLaneCheck } from '../crew/lib/lane-ownership';
 import { RESOLVERS } from '../scripts/resolvers';
 import { cleanup, makeFixtureRepo, recordAndBundle, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 

@@ -26,7 +26,7 @@
  * (a screen is an explicit request).
  */
 import * as fs from 'node:fs';
-import { runGh, type GhRunner } from './recover-receipts';
+import { runGh, type GhRunner } from '../crew/scripts/recover-receipts';
 
 export interface FreeTestsRun { id: number; status: string; conclusion: string | null; head_sha: string; event: string }
 export type FreeTestsState =

@@ -24,7 +24,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { PolicyError } from './ship-policy';
 
-/** A local git (lib/ship-queue-gate's shape) so this module, which lib/ship-policy imports, pulls in no queue code. */
+/** A local git (crew/lib/ship-queue-gate's shape) so this module, which lib/ship-policy imports, pulls in no queue code. */
 function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): { ok: boolean; out: string; err: string; status: number | null } {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, env: env ?? process.env, maxBuffer: 64 * 1024 * 1024 });
   return { ok: r.status === 0, out: (r.stdout ?? '').replace(/\n$/, ''), err: (r.stderr ?? '').trim(), status: r.status };

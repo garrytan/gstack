@@ -9,8 +9,8 @@ lands on main green, reviewed, and in the order he chose.
 This page is what we built, how the pieces fit, why we think it is the best way
 to run a software factory today, what we learned the hard way, and how Garry
 actually uses it. The step-by-step setup is in
-[docs/recommended-harness.md](../docs/recommended-harness.md); the controller's
-reference is [docs/captain.md](../docs/captain.md).
+[crew/docs/recommended-harness.md](../crew/docs/recommended-harness.md); the controller's
+reference is [crew/docs/captain.md](../crew/docs/captain.md).
 
 ## The numbers
 
@@ -47,19 +47,19 @@ Most of what made it work did not exist on day one. It came out of Garry's
 replies, one at a time, each turned into a rule and then into gstack itself:
 
 - "yes merge when green" became the Captain's standing merge approval, and then
-  [merge trains](../docs/captain.md#merge-trains): one paid gate covers up to
+  [merge trains](../crew/docs/captain.md#merge-trains): one paid gate covers up to
   five READY PRs, and the Captain merges them slot by slot at the exact head.
 - "you can just run the failed test again and note that it is flaky and we
   should have a flaky test fix pass every day" became the one-rerun rule and a
-  [daily flaky pass](../docs/captain.md#the-daily-flaky-pass) automation.
+  [daily flaky pass](../crew/docs/captain.md#the-daily-flaky-pass) automation.
 - "for each plan approval i want a before/after, why it matters, what caused us
   to work on this, and big decisions you had to make" became
-  `gstack-owner-brief` and [the three approval shapes](../docs/captain.md#approvals-three-shapes).
+  `gstack-owner-brief` and [the three approval shapes](../crew/docs/captain.md#approvals-three-shapes).
 - "also we should really be using the gstack ship skill before merging PRs"
   became the `SHIP_RECEIPT` every READY must carry at its head.
 - "When you make a new thread or take on new functionality can you remember to
   use gstack autoplan to make a plan for it and then eli5 for approval from me?"
-  became [Plan before build](../docs/captain.md#plan-before-build).
+  became [Plan before build](../crew/docs/captain.md#plan-before-build).
 - "Gstack should be the actual holder of how to do things not one off Capy
   files" is why all of the above lives in this repository, not in anyone's Drive.
 
@@ -209,8 +209,8 @@ did it go on by default.
 
 ## Where to go next
 
-- [docs/recommended-harness.md](../docs/recommended-harness.md): set it up, day 0 to the first merged train.
-- [docs/captain.md](../docs/captain.md): the controller's reference (READY contract, trains, approvals, digest, flaky pass).
+- [crew/docs/recommended-harness.md](../crew/docs/recommended-harness.md): set it up, day 0 to the first merged train.
+- [crew/docs/captain.md](../crew/docs/captain.md): the controller's reference (READY contract, trains, approvals, digest, flaky pass).
 - [capy/skill/gstack/](skill/gstack/): the Capy skill every thread loads, its [factory.md](skill/gstack/factory.md) one-page summary of how crews work, and its [captain.md](skill/gstack/captain.md) for lanes.
 - [docs/why-gstack.md](../docs/why-gstack.md): the longer story behind gstack itself.
 

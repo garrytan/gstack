@@ -6,20 +6,20 @@
  * dispatched hotfix ref is a full SHA and the dry_run input, true by default,
  * never reaches the scheduled run; the security and regression inputs reach the
  * script only through env vars, beside a ref. The release-cut CLI the jobs call is
- * covered by test/release-cut.test.ts.
+ * covered by crew/test/release-cut.test.ts.
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { FLOOR_HOURS, SCHEDULED_GRACE_HOURS } from '../scripts/release-cut';
-import { FORCED_AFTER_HOURS, IMPORTANT_FLOOR_HOURS, REGULAR_DAYS } from '../scripts/release-cadence';
+import { FLOOR_HOURS, SCHEDULED_GRACE_HOURS } from '../crew/scripts/release-cut';
+import { FORCED_AFTER_HOURS, IMPORTANT_FLOOR_HOURS, REGULAR_DAYS } from '../crew/scripts/release-cadence';
 
 type Step = { name?: string; uses?: string; if?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> };
 type Job = { name?: string; if?: string; permissions?: Record<string, string>; 'timeout-minutes'?: number; steps: Step[] };
 type Workflow = { on: Record<string, any>; concurrency: { group: string; 'cancel-in-progress': boolean }; permissions?: unknown; jobs: Record<string, Job> };
 const ROOT = path.resolve(import.meta.dir, '..');
 const wf = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/weekly-release.yml'), 'utf8')) as Workflow;
-const BUN_RUN = 'bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts';
+const BUN_RUN = 'bun --no-env-file --config=/dev/null --no-install run crew/scripts/release-cut.ts';
 
 describe('weekly-release.yml', () => {
   // Value: protects=Garry's "twice a week" (2026-10-27) inside R74's daily check (2026-11-06: "as frequently as once a day and as infrequently as once a
@@ -40,7 +40,7 @@ describe('weekly-release.yml', () => {
     expect(wf.on.workflow_dispatch.inputs.regression).toMatchObject({ type: 'string', default: '' });
     expect(wf.on.workflow_dispatch.inputs.dry_run).toMatchObject({ type: 'boolean', default: true });
     expect(wf.on.workflow_dispatch.inputs.ref).toMatchObject({ type: 'string', default: '' });
-    expect(wf.on.pull_request).toEqual({ paths: ['.github/workflows/weekly-release.yml', 'scripts/release-cut.ts', 'scripts/release-cadence.ts', 'lib/changelog-fragments.ts'] });
+    expect(wf.on.pull_request).toEqual({ paths: ['.github/workflows/weekly-release.yml', 'crew/scripts/release-cut.ts', 'crew/scripts/release-cadence.ts', 'lib/changelog-fragments.ts'] });
     expect(wf.concurrency).toEqual({ group: "weekly-release-${{ github.event.pull_request.number || 'cut' }}", 'cancel-in-progress': false });
     expect(wf.permissions).toEqual({});
     expect(Object.keys(wf.jobs)).toEqual(['cut', 'dry-run']);

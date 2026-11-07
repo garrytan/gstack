@@ -2,7 +2,7 @@ name: Stable release
 # Tags the newest green commit on main as v<VERSION>, publishes the GitHub
 # Release, and fast-forwards refs/heads/stable to it (docs/releases.md). Team
 # installs follow stable, so this is the only thing that moves them. Runs
-# every day at 14:00 UTC as the daily check (scripts/release-cadence.ts, R74):
+# every day at 14:00 UTC as the daily check (crew/scripts/release-cadence.ts, R74):
 # it cuts when a gated change stable lacks carries an important: changelog
 # fragment and stable is 24 hours old, when stable is 7 days old and main has
 # gated changes, or on Monday and Thursday past the 72-hour floor; otherwise it
@@ -54,8 +54,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/weekly-release.yml'
-      - 'scripts/release-cut.ts'
-      - 'scripts/release-cadence.ts'
+      - 'crew/scripts/release-cut.ts'
+      - 'crew/scripts/release-cadence.ts'
       - 'lib/changelog-fragments.ts'
 
 # One cut at a time; a second dispatch waits for the first. A pull request's
@@ -133,7 +133,7 @@ jobs:
           [ -n "$SECURITY_REASON" ] && args+=(--security "$SECURITY_REASON")
           [ -n "$REGRESSION_REASON" ] && args+=(--regression "$REGRESSION_REASON")
           echo "## Stable release ($([ "$DRY_RUN" = true ] && echo 'dry run' || echo 'cut')$([ "$DAILY" = true ] && echo ', daily check'), $GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
-          bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts "${args[@]}"
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/release-cut.ts "${args[@]}"
 
   dry-run:
     name: Dry run against main
@@ -161,6 +161,6 @@ jobs:
           git fetch --quiet origin '+refs/heads/stable:refs/remotes/origin/stable' 2>/dev/null || echo "origin has no stable yet"
           git fetch --quiet --tags origin
           echo "## Stable release (dry run from PR #${{ github.event.pull_request.number }})" >> "$GITHUB_STEP_SUMMARY"
-          bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run
           echo "## Daily check (dry run from PR #${{ github.event.pull_request.number }})" >> "$GITHUB_STEP_SUMMARY"
-          bun --no-env-file --config=/dev/null --no-install run scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run --daily
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/release-cut.ts --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --dry-run --daily
