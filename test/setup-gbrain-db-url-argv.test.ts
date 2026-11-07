@@ -41,4 +41,13 @@ describe('setup-gbrain passes no database URL on argv', () => {
     );
     expect(offenders).toEqual([]);
   });
+
+  test('the wireup command clears ambient database URLs so config.json wins', () => {
+    const lines = docs.flatMap(([rel, text]) =>
+      text.split(/\r?\n/).filter((l) => /bin\/gstack-gbrain-source-wireup --strict/.test(l)).map((l) => `${rel}: ${l.trim()}`),
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    const offenders = lines.filter((l) => !/: GBRAIN_DATABASE_URL= DATABASE_URL= ~\/\.claude\//.test(l));
+    expect(offenders).toEqual([]);
+  });
 });
