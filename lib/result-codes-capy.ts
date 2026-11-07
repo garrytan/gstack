@@ -89,4 +89,34 @@ export const CAPY_RESULT_CODES = {
     summary: 'the install-mode session was behind origin and its session-start fast-forward was skipped (dirty, diverged or pinned checkout, a live lease, or gstack-upgrade missing); the row is a WARN with the reason and the trailer stays ok with a behind= note, because a gap above the supported minimum is never a hard fail',
     fix: 'run the fix the row names (bin/gstack-upgrade after clearing its refusal, or the Capy skill installer) when the lane needs the newer gstack; below the supported minimum the bootstrapper fails revision instead',
   },
+  PLAN_RECORD_MISSING: {
+    anchor: 'plan-record-missing',
+    summary: 'the PR body has no Plan: line, so the PR reads as Plan: required and nothing shows its plan step (GST-1751)',
+    fix: "copy the brief's Plan line into the PR body with gstack-approvals render --plan \"<line>\": Plan: approved: <run id or row id>, or Plan: exempt: <reason>; then rerun",
+  },
+  PLAN_UNRESOLVED: {
+    anchor: 'plan-unresolved',
+    summary: 'Plan: approved: <token> names no approval row this machine can read, or a row that is a ruling or grant rather than a plan approval',
+    fix: 'gstack-approvals import --autoplan <run dir> --by "<owner>" after the owner answered (or gstack-approvals add with their words for a plan approved outside /autoplan), then cite the run id or row id and rerun',
+  },
+  PLAN_NOT_APPROVED: {
+    anchor: 'plan-not-approved',
+    summary: 'the Plan line says required, or the cited plan row is pending or rejected, or its gate was answered in an agent\'s own words instead of the owner\'s',
+    fix: 'finish the plan step: relay the gate to the owner through the Captain, answer it with their exact words (--owner-reply), import it, and cite the run; nothing was written',
+  },
+  PLAN_EXEMPT_UNKNOWN: {
+    anchor: 'plan-exempt-unknown',
+    summary: 'Plan: exempt: names a reason docs/captain.md does not list (bug fix, s1, flaky, stamp, changelog-resolve, cap-repin, audited-list, read-only, changelog-only, or crew:<rule>)',
+    fix: "use the exemption the brief names, spelled as listed; a change none of them covers is a feature: Plan: required",
+  },
+  PLAN_STORE_UNAVAILABLE: {
+    anchor: 'plan-store-unavailable',
+    summary: 'Plan: approved: needs the approval store, and this machine has neither the state root\'s approvals nor a Drive mirror, so missing cannot be told apart from unreadable',
+    fix: 'run ready on the lane machine that imported the approval, or gstack-approvals sync there so the Drive mirror holds it; land checks the READY note and does not need the store',
+  },
+  QUEUE_PLAN_MISMATCH: {
+    anchor: 'queue-plan-mismatch',
+    summary: 'land found a READY note with no plan record, or a note whose Plan line differs from the PR body\'s, under plan_record: require',
+    fix: 'the lane fixes the PR body\'s Plan line if needed and reruns gstack-ship-queue ready --pr <n> at the pin, which resolves the line and writes the record into the note',
+  },
 } satisfies Record<string, ResultCode>;

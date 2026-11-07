@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { redactFindingSpans } from './redact-engine';
 import { git, sha256, writeJsonAtomic } from './ship-queue-gate';
 import { resolveStateRoot } from './state-root';
+import type { PlanRecord } from './plan-record';
 
 export const TRAIN_SCHEMA = 1;
 export const NOTES_REF = 'refs/notes/gstack-trains';
@@ -116,6 +117,8 @@ export interface WaveRecord {
 export interface ReadyReceipt {
   schema: 1; kind: 'ready'; repo_key: string; pr: string; head: string; base_sha: string; ready_at: string; screen: ScreenChoice; updated_at: string;
   base_red?: BaseRedCondition; fixes_base_red?: string[];
+  /** The PR body's Plan line as ready resolved it (lib/plan-record.ts); absent before plan_record or when it did not resolve. */
+  plan?: PlanRecord;
 }
 /** One release-gate bisect round (lib/release-gate.ts): the prefixes it dispatched on release-gate/<id> and what each case did there. */
 export interface ReleaseBisectRound { nonce: string; ref: string; run: { id: number; url: string } | null; prefixes: Array<{ sha: string; results: Record<string, PrefixResult> }> }

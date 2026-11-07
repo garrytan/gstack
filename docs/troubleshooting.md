@@ -2094,6 +2094,73 @@ all the command prints `SHOT_PNG: unavailable (...)` and exits 0 instead.
 
 **Fix.** Screenshot `shot.html` with your own browser at 880 px wide, or use `text.md`.
 
+<a id="plan-record-missing"></a>
+### `PLAN: ... (PLAN_RECORD_MISSING)`
+
+**Meaning.** The PR body has no `Plan:` line, so the PR reads as `Plan: required`
+(docs/captain.md, Plan before build). gstack never guesses from the diff, title or
+changelog whether a change is a feature. Under `plan_record: warn` (the Capy crew default)
+`gstack-ship-queue ready` prints the line and continues; under `require` it refuses.
+
+**Fix.** Copy the brief's Plan line into the PR body:
+`gstack-approvals render --plan "Plan: approved: <run id>"` (or `exempt: bug fix (R65)`) prints it
+under `## Approvals`. A PR whose only changes are changelog fragments needs no line.
+
+<a id="plan-unresolved"></a>
+### `PLAN: ... (PLAN_UNRESOLVED)`
+
+**Meaning.** `Plan: approved: <token>` names no approval row on this machine. A run id must
+match a row source `autoplan:<id>@gate_rev=<n>` in any branch's file of the repository's
+approval store (the state root plus every Drive mirror); a row id must exist and be a plan
+approval, not a `ruled_note`, `review_loop_grant` or `test_lane_exception` row.
+
+**Fix.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` after the owner's answer,
+or `gstack-approvals add` with their exact words for a plan approved outside /autoplan, then
+cite the run id or the row id it printed.
+
+<a id="plan-not-approved"></a>
+### `PLAN: ... (PLAN_NOT_APPROVED)`
+
+**Meaning.** The line says `required`, the newest gate revision's row for the cited run is
+pending or rejected, or the gate was answered in an agent's own words (`--words-by`, shown
+as "its own decision (not the owner's words)"). A lane approving its own plan is the skip
+this check exists to catch (GST-1751).
+
+**Fix.** Relay the gate to the owner through the Captain, answer it with their exact words
+(`gstack-autoplan answer … --owner-reply "<words>"`), import it, and cite the run.
+
+<a id="plan-exempt-unknown"></a>
+### `PLAN: ... (PLAN_EXEMPT_UNKNOWN)`
+
+**Meaning.** `Plan: exempt: <reason>` names a reason outside the list: `bug fix`, `s1`,
+`flaky`, `stamp`, `changelog-resolve`, `cap-repin`, `audited-list`, `read-only`,
+`changelog-only`, or `crew:<rule>` for an exemption a crew's rules file records. A
+trailing parenthetical such as `(R65)` is ignored.
+
+**Fix.** Use the exemption the brief names. A change none of them covers is a feature
+and needs `Plan: required` and a plan run.
+
+<a id="plan-store-unavailable"></a>
+### `PLAN: ... (PLAN_STORE_UNAVAILABLE)`
+
+**Meaning.** The line cites an approval, but this machine has no approval store: no
+state-root `approvals/` directory and no Drive mirror. That is reported apart from a
+missing row, because nothing could be read.
+
+**Fix.** Run `gstack-ship-queue ready` on the lane machine that imported the approval, or
+`gstack-approvals sync` there. `land` checks the plan record `ready` wrote into the READY
+note and does not need the store.
+
+<a id="queue-plan-mismatch"></a>
+### `gstack-ship-queue land: ... (QUEUE_PLAN_MISMATCH)`
+
+**Meaning.** Under `plan_record: require`, land found a READY note with no plan record
+(written before the key, or by a `ready` that refused nothing in warn mode), or a note
+whose Plan line differs from the PR body's current line.
+
+**Fix.** The lane fixes the PR body's Plan line if needed and reruns
+`gstack-ship-queue ready --pr <n>` at the pin.
+
 ## /ship token budget and fresh-context handoffs (gstack-ship-budget)
 
 The flow, the BUDGET line field by field and the meters are in [ship-budget.md](ship-budget.md).

@@ -271,8 +271,14 @@ run, `--kind feature`: one reviewer reading the plan and the draft code together
 revision and no carry check (docs/unattended.md). `--full` brings back the full run.
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
-says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
+says which applies, `Plan: required | approved: <run id or approval row id> | exempt: <reason>`, so an
 already-approved plan is not planned twice and exempt work does not wait on an ask.
+The lane copies that line into the PR body (`gstack-approvals render --plan "<line>"` under
+`## Approvals`), and `gstack-ship-queue ready` prints `PLAN:` and records it in the READY note
+(docs/ship-policy.md#plan-record): an `approved:` run id or row id must resolve to the owner's
+words, never a gate the lane answered itself; an `exempt:` reason must be on this list or a
+crew's `crew:<rule>`. Crew sessions warn by default; `plan_record: require` or
+`GSTACK_PLAN_RECORD=require` makes ready and land refuse.
 
 The copy-paste brief is [`captain/templates/brief.md`](../captain/templates/brief.md): the
 plan and the ask as step 1, the build after the word as step 2, /ship to READY as step 3,

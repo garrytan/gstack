@@ -17,6 +17,7 @@ ci: green at <sha12> (passed=<k> failed=0 pending=0 skipped=<s>)
 PREGATE: pass tree=<tree12> head=<sha12> checks=<c>
 gate: command=<"…"|none> full_e2e=<yes|no> gate-ahead=<…>
 SHIP_RECEIPT: pr=<n> head=<sha12> version=- base=<BASE> tree=<tree> session_kind=unattended …
+PLAN: approved <run id> row=<a-…> (…) | exempt <reason> | warn … (<CODE>)
 READY_RECEIPT: <path the tool wrote> (<local and notes-ref detail>)
 ```
 
@@ -60,7 +61,8 @@ image: <URL of the key before/after image>
 
 Refuse (send back) when: the SHA is short or a fork head; `SHIP_RECEIPT` reads `none` or
 `invalid`, or its head is not the pin; `ci:` is not `green at` the pin; `PREGATE:` is not
-`pass` for the pin's tree; `--no-screen` names no cases; a flaky case is not in the ledger;
+`pass` for the pin's tree; `PLAN:` is missing, says `warn`, or names another plan than the
+brief's `Plan:` line; `--no-screen` names no cases; a flaky case is not in the ledger;
 the PR page is "green" but no block was sent; the evidence offered is a cheap tier.
 
 After the slot call the lane answers with the stamped head:

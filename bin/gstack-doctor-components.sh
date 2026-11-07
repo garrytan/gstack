@@ -383,6 +383,12 @@ gstack_result_anchor() {
     PROJECT_NODE_PIN_UNMET) printf '%s' 'project-node-pin-unmet' ;;
     PIN_UNREASONED) printf '%s' 'pin-unreasoned' ;;
     UPGRADE_SKIPPED) printf '%s' 'upgrade-skipped' ;;
+    PLAN_RECORD_MISSING) printf '%s' 'plan-record-missing' ;;
+    PLAN_UNRESOLVED) printf '%s' 'plan-unresolved' ;;
+    PLAN_NOT_APPROVED) printf '%s' 'plan-not-approved' ;;
+    PLAN_EXEMPT_UNKNOWN) printf '%s' 'plan-exempt-unknown' ;;
+    PLAN_STORE_UNAVAILABLE) printf '%s' 'plan-store-unavailable' ;;
+    QUEUE_PLAN_MISMATCH) printf '%s' 'queue-plan-mismatch' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;

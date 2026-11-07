@@ -6,7 +6,8 @@
  *                        [--pending <text>] [--outcome approved|rejected|pending|standing]
  *                        [--date YYYY-MM-DD] [--source <ref>] [--branch <name>] [--json]
  *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
- *   gstack-approvals render [--no-heading] [--full] [--branch <name>]
+ *   gstack-approvals render [--no-heading] [--full] [--branch <name>] [--plan <the brief's Plan line>]
+ *   gstack-approvals plan-check --plan <the brief's Plan line>
  *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
  *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
@@ -27,6 +28,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
 import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
+import { parsePlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
@@ -48,7 +50,10 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           set, after a local preflight of those files passes; refused inside this checkout's open /ship run
   render  [--no-heading] [--full] the ## Approvals section for a PR body or report; a public repository, or one whose
           visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
-          its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private
+          its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private;
+          --plan "<the brief's Plan line>" adds that line and its check, which gstack-ship-queue ready reads (lib/plan-record.ts)
+  plan-check --plan "Plan: approved: <run id or row id> | exempt: <reason> | required"
+          resolve a Plan line against every branch's approval record; PLAN: … and exit 0, or the refusal code and exit 1
   list    [--json]
   sync                            re-mirror the record (GSTACK_APPROVALS_DIR, the Captain's drive approvals/, or the project-user Drive)
   path                            print the record and mirror paths, and which rule chose the mirror
@@ -60,7 +65,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -117,12 +122,21 @@ function importStack(cmd: string, flags: Record<string, string>, json: boolean):
   return firstError ? fail(cmd, firstError) : EXIT.ok;
 }
 
+const planText = (line: string) => (/^\s*Plan:/i.test(line) ? line.trim().replace(/^plan:/i, 'Plan:') : `Plan: ${line.trim()}`);
+
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
   const { flags, bools, error } = parse(rest);
   if (error) { process.stderr.write(`gstack-approvals: ${error}\n${HELP}\n`); return EXIT.usage; }
   if (flags['--stack'] !== undefined) return importStack(cmd, flags, bools.has('--json'));
+  if (cmd === 'plan-check') {
+    if (!flags['--plan']) { process.stderr.write(`gstack-approvals: plan-check needs --plan "<line>"\n`); return EXIT.usage; }
+    const res = resolvePlan(parsePlanLine(planText(flags['--plan'])), { cwd: process.cwd(), env: process.env });
+    if (!res.ok) return fail(cmd, res.failure);
+    process.stdout.write(`PLAN: ${res.summary}\n`);
+    return EXIT.ok;
+  }
   const loc = locate({ cwd: process.cwd(), env: process.env, branch: flags['--branch'] });
   if ('code' in loc) return fail(cmd, loc);
   const json = bools.has('--json');
@@ -186,6 +200,11 @@ function main(argv: string[]): number {
       const mode = renderMode(visibility, bools.has('--full'));
       if (mode === 'redacted') process.stderr.write(`APPROVALS_RENDER: redacted (repository visibility ${visibility}${bools.has('--full') ? '; --full applies only to a private repository' : ''}); gstack-approvals list shows the full record\n`);
       process.stdout.write(renderRecord(read, loc, { heading: !bools.has('--no-heading'), mode }));
+      if (flags['--plan']) {
+        const decl = parsePlanLine(planText(flags['--plan']));
+        const res = resolvePlan(decl, { cwd: process.cwd(), env: process.env });
+        process.stdout.write(`${decl?.line ?? 'Plan: required'}\nPlan check: ${res.ok ? res.summary : `${res.failure.code}: ${res.failure.message}`}\n\n`);
+      }
     }
     if (read.state === 'unavailable') return fail(cmd, { code: 'APPROVAL_RECORD_UNAVAILABLE', message: `no record at ${loc.file} and no mirror` });
     return EXIT.ok;
