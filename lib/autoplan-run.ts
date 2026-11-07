@@ -35,7 +35,7 @@ import { familyConflict, modelFamily } from './outside-voice-runner';
 import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
-import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
+import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLenses, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
 
 /** An unreadable run.lock younger than this is a lock some other gstack is still writing, never a stale one. */
 const LOCK_WRITE_GRACE_MS = 30_000;
@@ -120,7 +120,8 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
   const consent = (o.outsideEnabled ?? true) && !lean ? outsideConsent({ userInvoked: false }) : undefined;
   const consentMissing = consent && !consent.allowed ? consent.lines[0] : undefined;
   const phases: Record<string, PhaseState> = {};
-  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : lean ? LEAN_SKIPPED : scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected', native: { status: 'skipped' }, outside: { status: 'skipped' } };
+  const why = (p: Phase) => scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected';
+  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : !lean ? why(p) : leanLenses(scope).includes(p) ? LEAN_SKIPPED : `${why(p)} (lean)`, native: { status: 'skipped' }, outside: { status: 'skipped' } };
   const state: RunState = {
     schema_version: 1, run, status: 'running', required_phases: order, phases, artifacts: {}, revision: 0, out,
     plan_source: init.sourcePlan, active_plan: init.activePlan, restore: init.restorePath, scope, phase_order: order,

@@ -26,7 +26,7 @@ export function detectDxScope(activePlan: string, developerTool = false, agentPr
   const content = extractImplementationPlan(readFileSync(source, 'utf8'));
   const terms = dxTermsFor(content);
   return { activePlan: source, sha256: sha256(content), ...terms, developerTool, agentPrimary,
-    dxRequired: terms.dxRequiredByTerms || developerTool || agentPrimary, ...(require('../lib/autoplan-scope') as typeof import('../lib/autoplan-scope')).detectUiScope(content) };
+    dxRequired: terms.dxRequiredByTerms || developerTool || agentPrimary, ...(require('../lib/autoplan-scope') as typeof import('../lib/autoplan-scope')).detectUiScope(content, process.cwd()) };
 }
 
 // The native dispatch payload is assembled from the same immutable bytes as
