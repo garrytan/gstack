@@ -256,6 +256,13 @@ describe('fast PR coverage policy', () => {
     expect(prLines).not.toContain('Full gate restored');
   });
 
+  test('the design lint app profile and build receipt fixtures are free fixtures, so editing them never restores the full gate', () => {
+    const changedFiles = ['test/fixtures/ui-spacing/replica.html', 'test/fixtures/ui-spacing/preview/index.html', 'test/fixtures/ui-spacing/preview/fixtures/lastowner.json'];
+    const result = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles, screenPolicy: 'narrow' });
+    expect(result.unknownFiles).toEqual([]);
+    expect(result.mode).not.toBe('full-fallback');
+  });
+
   test('DX-11: an edited paid test file selects its own name-addressable gate cases outside the profile', () => {
     const direct: PrProfileMaps = { ...maps,
       e2eTouchfiles: { ...maps.e2eTouchfiles, 'own-named': ['test/skill-e2e-own.test.ts'], 'own-prose': ['test/skill-e2e-own.test.ts'] },
