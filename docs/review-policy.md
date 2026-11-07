@@ -653,7 +653,9 @@ repository whose every network-looking remote resolves to a local path through
 `url.<base>.insteadOf` (the ship fixtures' `https://github.com/fx/fx.git`). A
 marker on a sweep root itself is not honored, insteadOf that sends a local path
 to the network still counts, and a clone made inside a live fixture root goes
-unseen.
+unseen, as does one whose reader writes the marker or an insteadOf line itself.
+A `Bun.spawn` child given no `env` keeps the temp dir its test process started
+with, so its fixtures land outside the marked root and still count.
 
 What this protects: the readers' findings, the merged review and PR text never
 carry a sealed file a reader fetched or opened. What it cannot protect: data that

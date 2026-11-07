@@ -51,8 +51,9 @@ for (const name of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABA
   process.stderr.write(`test-setup: stripped inherited ${name}; tests must not reach a live gbrain\n`);
 }
 // One fixture root per test process (GST-1695). TMPDIR (TMP and TEMP on Windows)
-// points at it, so os.tmpdir() here and $TMPDIR in every spawned child put each
-// fixture inside it. It carries the fixture marker, so /ship's fetch sweep
+// points at it, so os.tmpdir() here, and $TMPDIR in a child spawned through
+// node:child_process or with this process's env, put each fixture inside it; a
+// Bun.spawn child given no env keeps the TMPDIR this process started with. It carries the fixture marker, so /ship's fetch sweep
 // (lib/review-sweep.ts) never reads a concurrent or leftover run's fixture
 // repositories as a reader's fetch, and this afterAll, which Bun runs once after
 // the last file even when a test timed out before its own cleanup, removes it.
