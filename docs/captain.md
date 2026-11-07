@@ -127,6 +127,12 @@ cheap guards (generated-content freshness, size and prompt budgets, credential s
 crew names them in `GUARD_CHECKS`), because a paid gate that turns red on a free check
 is spend wasted.
 
+A lane writes the public record in plain words: its branch name, PR title, commit subjects
+and changelog fragment say what changed for someone using the project, with an issue code
+only at the end (`capy/github-rate-limit-gst-1713`, "Stop gstack from hitting GitHub's rate
+limit while it waits on PRs (GST-1713)"), and its PR body keeps codes, receipts and lane
+state in the closing Agent notes section ([ship-policy.md](ship-policy.md#plain-titles)).
+
 A lane edits only the files it was given. The controller keeps the ownership list in the
 digest's **In progress**; a lane that needs a file another live lane owns tells the
 controller, who routes it, and never edits it itself. Everything crosses the crew through

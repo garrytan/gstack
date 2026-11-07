@@ -141,6 +141,11 @@ Homes are paths in the gstack checkout the lane checked at session start.
     current main or a failing test written first in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
     `captain/templates/brief.md`.
 
+25. **Plain public record.** PR titles, commit subjects, branch names and changelog entries
+    say in everyday words what changed for someone using the project; an issue code goes only
+    at the end. Internal notation lives in the PR body's closing Agent notes section. Home:
+    `docs/ship-policy.md` (Plain titles), checked by `gstack-plain-title`.
+
 ## Crew-specific rules
 
 Add rules here, numbered from 25, each with the date, the owner's words where there are
