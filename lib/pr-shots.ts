@@ -65,12 +65,19 @@ export function resolveCommit(cwd: string, ref: string): string | ShotError {
   return r.status === 0 ? r.stdout.trim() : { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: `base ref ${ref}` };
 }
 
-/** Where this branch left its base, using the shared default-base and ref-resolution rules. */
+/**
+ * Where this branch left its base, using the shared default-base and ref-resolution rules. A stale remote HEAD
+ * (a missing branch, or history HEAD does not share) falls back to main, then master, as this tool did before;
+ * the shared default itself stays fail-closed for the gates. A remote HEAD naming this branch still refuses.
+ */
 export function defaultBase(cwd: string): string | ShotError {
   const found = defaultBaseRef(cwd);
-  const base = 'ref' in found ? resolveBase(found.ref, cwd, 'HEAD') : null;
-  const fork = base && mergeBase('HEAD', base.sha, cwd);
-  return fork || { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: 'no merge base with the resolved base branch; pass --base <ref>' };
+  for (const ref of 'ref' in found ? [found.ref, 'main', 'master'] : []) {
+    const base = resolveBase(ref, cwd, 'HEAD');
+    const fork = base && mergeBase('HEAD', base.sha, cwd);
+    if (fork) return fork;
+  }
+  return { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: 'no merge base with the resolved base branch; pass --base <ref>' };
 }
 
 /** Both sides of a tracked file (or one heading's section of it) at `base` and in the working tree. */
