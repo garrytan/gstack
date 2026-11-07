@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrations: a note louder than its name</title>
+<style>
+:root { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.help { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+.x { flex: none; width: 32px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--muted); }
+.row .name { font-weight: 400; font-size: 14px; }
+.row .note { font-weight: 700; font-size: 16px; line-height: 22px; }
+</style>
+</head>
+<body>
+<main>
+<section class="panel integrations">
+  <h2>Integrations</h2>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">GitHub</div><div class="note">Reconnect: the token expired yesterday.</div></div><button class="x" aria-label="Disconnect GitHub">×</button></div>
+    <div class="row"><div class="text"><div class="name">PagerDuty</div><div class="note">Paging is off until a schedule is chosen.</div></div><button class="x" aria-label="Disconnect PagerDuty">×</button></div>
+  </div>
+  <p class="help">Integrations act with the permissions of the person who connected them.</p>
+</section>
+</main>
+</body>
+</html>

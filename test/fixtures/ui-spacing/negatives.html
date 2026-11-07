@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Negative controls: a nav list, a table, a card grid and a list spaced right</title>
+<style>
+:root { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.help { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+.x { flex: none; width: 32px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--muted); }
+.panel + .panel { margin-top: 24px; }
+nav.side ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); }
+nav.side li { padding: 2px 6px; }
+nav.side a { color: var(--ink); font-size: 14px; }
+nav.side small { display: block; }
+table { border-collapse: collapse; width: 100%; }
+td, th { padding: 4px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+td small { display: block; color: var(--ink); }
+td button { width: 18px; height: 18px; padding: 0; }
+.table-help { margin: 2px 0 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); padding: 3px; }
+.tile b { display: block; }
+.row .desc { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<section class="panel negatives">
+  <h2>Navigation</h2>
+  <nav class="side"><ul>
+    <li><a href="#general">General</a><small>Name, region and billing owner</small></li>
+    <li><a href="#sharing">Sharing</a><small>Credentials, channels and people</small></li>
+    <li><a href="#danger">Danger zone</a><small>Archive or delete the project</small></li>
+  </ul></nav>
+  <p class="table-help">Settings are saved as you go.</p>
+  <h2>Deploys</h2>
+  <table>
+    <tr><th>Service</th><th>Status</th><th></th></tr>
+    <tr><td>api<small>us-east</small></td><td>Live<small>2 min ago</small></td><td><button aria-label="Retry api">↻</button></td></tr>
+    <tr><td>web<small>us-west</small></td><td>Building<small>just now</small></td><td><button aria-label="Retry web">↻</button></td></tr>
+  </table>
+  <p class="table-help">Deploys older than 30 days are archived.</p>
+  <h2>Environments</h2>
+  <div class="cards">
+    <div class="tile"><b>Production</b>Three regions</div>
+    <div class="tile"><b>Staging</b>One region</div>
+    <div class="tile"><b>Preview</b>Per branch</div>
+  </div>
+  <p class="table-help">Each environment has its own secrets.</p>
+  <h2>Credentials</h2>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">Deploy key</div><div class="desc">Read-only access to the repository, added by Dana on March 3</div></div><button class="x" aria-label="Remove Deploy key">×</button></div>
+    <div class="row"><div class="text"><div class="name">Registry token</div><div class="desc">Pushes release images, added by Omar on April 18</div></div><button class="x" aria-label="Remove Registry token">×</button></div>
+  </div>
+  <p class="help">Credentials are encrypted at rest and never shown again after you add them.</p>
+</section>
+</main>
+</body>
+</html>

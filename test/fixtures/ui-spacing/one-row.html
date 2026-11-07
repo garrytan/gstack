@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Credentials: a list of one</title>
+<style>
+:root { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.help { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+.x { flex: none; width: 32px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--muted); }
+.row { padding: 3px 12px; }
+.row .desc { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<section class="panel credentials">
+  <h2>Credentials</h2>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">Deploy key</div><div class="desc">Read-only access to the repository, added by Dana on March 3</div></div><button class="x" aria-label="Remove Deploy key">×</button></div>
+  </div>
+  <p class="help">Credentials are encrypted at rest and never shown again after you add them.</p>
+</section>
+</main>
+</body>
+</html>
