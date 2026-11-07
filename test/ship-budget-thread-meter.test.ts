@@ -87,6 +87,17 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(field(note.out, 'NOTE', 'tree')).toBe(80_000_000);
   });
 
+  // Value: protects=the 100M default cap applies only to a start that found /ship's own row; fails_when=an untitled start in tree fallback gets the default cap and a lane's preflight work can stop /ship;
+  //   why_new=/ship pre-landing review of #4107 reproduced BUDGET_DEFAULT_CAP beside METER_FALLBACK (GST-1699); seam=none; no_claim=a cap once the row is found later
+  test('a --thread start in tree fallback with no --token-cap gets no default cap', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--thread', snap(h, 100_000_000, [['Subagent 1', 'lane fix', 5_000_000]])]);
+    expect(s.code, s.out + s.err).toBe(0);
+    expect(s.out).toContain('METER_FALLBACK');
+    expect(s.out).not.toContain('BUDGET_DEFAULT_CAP');
+    expect(s.out).not.toContain('admission_cap=100000000');
+  });
+
   // Value: protects=where /ship's usage cannot be separated the run still caps the tree and says so on every cost line, with the reason; fails_when=a fallback run prints an unlabelled used= or uncaps itself;
   //   why_new=GST-1699 keeps the tree as a labelled fallback; seam=none; no_claim=the exact /ship cost of a root-thread /ship
   test('before its row is found, and for /ship on the root thread, the run meters the tree, labelled with the reason', () => {
