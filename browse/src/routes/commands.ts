@@ -51,7 +51,11 @@ export function canDispatchOverTunnel(command: string | undefined | null, args?:
   if (!TUNNEL_COMMANDS.has(cmd)) return false;
   if (args === undefined || args === null) return true;
   if (!Array.isArray(args) || hasOutArg(args)) return false;
-  if ((cmd === 'goto' || cmd === 'newtab') && args.length > 0) return isWebUrl(args[0]);
+  if (cmd === 'goto' && args.length > 0) return isWebUrl(args[0]);
+  if (cmd === 'newtab') {
+    const url = args.find(arg => arg !== '--json');
+    return url === undefined || isWebUrl(url);
+  }
   try {
     if (cmd === 'screenshot') return parseScreenshotArgs(args).outputPath === undefined;
     if (cmd === 'snapshot') return parseSnapshotArgs(args).outputPath === undefined;

@@ -175,7 +175,7 @@ Each agent owns the tabs it creates. Rules:
 ## Security Model
 
 - **Physical port separation.** Local listener and tunnel listener are separate TCP sockets. ngrok only forwards the tunnel port. Tunnel callers cannot reach bootstrap endpoints at all (404, wrong port).
-- **Tunnel command allowlist.** `/command` over the tunnel only accepts 26 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
+- **Tunnel command allowlist.** `/command` over the tunnel only accepts 25 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
 - **Root token is tunnel-blocked.** A request bearing the root token over the tunnel listener returns 403 with a pairing hint. Only scoped session tokens work over the tunnel.
 - **Setup keys** expire in 5 minutes and can only be used once.
 - **Session tokens** expire in 24 hours (configurable).

@@ -152,6 +152,13 @@ describe('canDispatchOverTunnel — tunnel agents stay off the daemon filesystem
     expect(canDispatchOverTunnel('newtab', [])).toBe(true);
   });
 
+  test('newtab gates the URL its handler opens, skipping --json', () => {
+    expect(canDispatchOverTunnel('newtab', ['--json'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['--json', 'https://example.com'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['https://example.com', '--json'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['--json', 'file:///etc/hosts'])).toBe(false);
+  });
+
   test('eval (runs a file from the daemon disk) is not reachable over the tunnel', () => {
     expect(TUNNEL_COMMANDS.has('eval')).toBe(false);
     expect(canDispatchOverTunnel('eval', ['script.js'])).toBe(false);
