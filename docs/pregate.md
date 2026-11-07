@@ -1292,7 +1292,9 @@ base branch may have moved: the policy label's base commit does not count,
 GST-1775), each uncleared
 obligation takes the earlier receipt for the same lane, platform, workflow, job
 and gate command, with its `cleared_by`, stamp-only substitution and flaky exception, as long
-as the earlier obligation listed every test the new one needs. Each kept
+as the earlier obligation listed every test the new one needs. A receipt a
+stamp-only substitution accepted carries only while the base commit is the same:
+the base's stamp rules accepted it, and a moved base may have changed them. Each kept
 receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
 tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
 before its `PREGATE:` line. A run without `--base` at the record's head keeps

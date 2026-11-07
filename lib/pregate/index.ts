@@ -494,7 +494,8 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
  * a fresh record dropped them, so accept never passed. A receipt carries only into an uncleared obligation for the same
  * lane, platform, workflow, job and gate command whose tests the earlier one covered, at the same head, under the same policy source and base
  * branch (a base branch that moved between the runs keeps them: the policy label names the base commit, GST-1775), with its
- * flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
+ * flaky exception when it had one. A receipt accepted through a stamp-only substitution carries only while the base commit is
+ * unchanged: the base's stamp rules decided it, and a moved base may have changed them. A record for another head or tree (a same-tree amend gets new clears,
  * since a receipt and its exception were vetted against the head they name), or a rerun with a failed or unfinished check (a remote gate
  * that timed out this time), keeps nothing. Returns one PREGATE_CLEAR_KEPT line per lane.
  */
@@ -506,7 +507,7 @@ export function keepSameTreeClears(prev: PregateFile | null, file: PregateFile):
   for (const r of file.requires_remote ?? []) {
     if (r.receipt) continue;
     const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && o.command === r.command && r.tests.every(t => o.tests.includes(t)));
-    if (!old?.receipt) continue;
+    if (!old?.receipt || (old.substitution && (prev.base !== file.base || prev.policy !== file.policy))) continue;
     clearObligation(file, r.lane, old.receipt, old.cleared_by ?? 'an earlier run at this tree', old.substitution, prev.exceptions?.find(e => e.lane === r.lane));
     kept.push(`PREGATE_CLEAR_KEPT: ${r.lane} receipt=${old.receipt} (recorded at this tree ${file.tree.slice(0, 12)}; docs/pregate.md#same-tree-clears)`);
   }

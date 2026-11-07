@@ -156,4 +156,19 @@ describe('keepSameTreeClears (GST-1627)', () => {
       expect(carried(main('cccccccccccc'), other)).toBeNull();
     }
   });
+
+  // Value: protects=a receipt a stamp-only substitution accepted carries only at the base commit whose stamp rules accepted it
+  //   (GST-1775 cross-family read: a moved base may tighten them, and base policies carry no content digest); fails_when=the
+  //   substitution carries past a moved base, or a same-base rerun drops it; seam=keepSameTreeClears
+  test('a stamp-only substitution carries at the same base commit and fails closed when the base moved', () => {
+    const substitution = { gated_tree: 'd'.repeat(40), accepted_for: 'a'.repeat(40), policy: 'origin/main@cccccccccccc:.gstack/ship-policy.json', files: [{ path: 'VERSION', rule: 'stamp_files' }] };
+    const main = (sha: string) => ({ policy: `origin/main@${sha}:.gstack/pregate.json`, base: `origin/main@${sha}` });
+    const carried = (to: { policy: string; base: string }) => {
+      const next = file([obligation()], to);
+      const kept = keepSameTreeClears(file([obligation({ receipt: RUN_URL, substitution })], main('cccccccccccc')), next);
+      return [kept.length, next.requires_remote![0]!.receipt, next.requires_remote![0]!.substitution ?? null];
+    };
+    expect(carried(main('cccccccccccc'))).toEqual([1, RUN_URL, substitution]);
+    expect(carried(main('dddddddddddd'))).toEqual([0, null, null]);
+  });
 });
