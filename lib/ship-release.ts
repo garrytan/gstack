@@ -33,6 +33,7 @@ import { MIN_POLL_MS } from './gh-poll';
 import { lanesOnlyHeadPolicy } from './pregate/head-policy';
 import { finishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
+import { checkBranch, loadPlainTitlePolicy, type PlainFinding } from './plain-title';
 import { buildRunCheck } from './pregate/run-check';
 import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
 
@@ -737,6 +738,10 @@ export function push(argv: readonly string[], cwd: string): Report {
   const remote = git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], 120_000);
   if (remote.status !== 0) return r.stop(`cannot verify the remote branch (${firstLine(remote.stderr)}): restore access before pushing`);
   if (remote.stdout.split(/\s/)[0] === local) return r.add(`PUSH: ALREADY_PUSHED ${local.slice(0, 12)}`).next('Step 18');
+  let plain: PlainFinding[] = [];
+  try { if (!remote.stdout.trim()) plain = checkBranch(branch, loadPlainTitlePolicy(git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim())); }
+  catch (e: any) { return r.stop(`.gstack/plain-titles.json is invalid (${e.message}): fix it, then rerun push`); }
+  if (plain.length) return r.add(`BRANCH: refused ${plain.map(f => `"${f.match}"`).join(', ')}`).stop(`the branch name ${branch} is not plain words (docs/ship-policy.md#plain-titles): rename it with git branch -m <plain words>[-<issue code>], then rerun push --branch <new name>`);
   const p = git(cwd, ['push', '-u', 'origin', branch], 600_000);
   if (p.status !== 0) {
     const nff = /non-fast-forward|fetch first|rejected/.test(p.stderr);
