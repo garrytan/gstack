@@ -1,4 +1,4 @@
 {
-  "bytes": 122,
-  "why": "GST-1751: /ship finish --plan and Step 19-C render --plan carry the brief's Plan line"
+  "bytes": 118,
+  "why": "GST-1751 review fix: Step 8 plan discovery skips the Plan record line"
 }

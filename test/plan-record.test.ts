@@ -9,6 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildRow, locate, type ApprovalRow } from '../lib/approval-record';
 import { exemptReason, finishPlan, landPlan, parsePlanLine, planMode, readyPlan, resolvePlan } from '../lib/plan-record';
+import { planBinding } from '../lib/ship-audit';
 import { loadReady, persist, repoIdentity } from '../lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -172,6 +173,20 @@ describe('gstack-approvals plan-check and render --plan', () => {
     expect(parsePlanLine(body)).toMatchObject({ kind: 'approved', token: 'ap-1' });
     expect(body).toContain('Plan check: approved ap-1 row=');
     expect(body).not.toContain('Approve the plan A');
+  });
+
+  test('the Plan record line is never Step 8\'s plan-file binding, and render --plan refuses a line it cannot parse', () => {
+    const f = fixture({ main: [{ ask: 'Approve the plan A', source: 'autoplan:ap-1@gate_rev=1' }] });
+    const run = (args: string[]) => spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-approvals'), ...args], { cwd: f.cwd, encoding: 'utf8', timeout: 60_000, env: { ...process.env, ...f.env } });
+    const body = `${run(['render', '--plan', 'Plan: approved: ap-1']).stdout}\nPlan: docs/designs/X.md\n`;
+    expect(planBinding(body)).toBe('docs/designs/X.md');
+    const sed = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'plan-completion.md'), 'utf8').split('\n').find(l => l.startsWith('_BOUND=$(gh pr view'))!;
+    const pipeline = sed.replace(/^_BOUND=\$\(gh pr view --json body -q \.body 2>\/dev\/null/, 'cat').replace(/\)$/, '');
+    expect(spawnSync('bash', ['-c', pipeline], { input: body, encoding: 'utf8', timeout: 30_000 }).stdout.trim()).toBe('docs/designs/X.md');
+    const typo = run(['render', '--plan', 'aproved: ap-1']);
+    expect(typo.status).not.toBe(0);
+    expect(typo.stdout).toBe('');
+    expect(typo.stderr).toContain('render --plan needs');
   });
 });
 
