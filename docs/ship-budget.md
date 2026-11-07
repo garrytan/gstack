@@ -62,13 +62,15 @@ counter's growth since start. A pass's `readers_tokens` is the sum of its reader
 row is found (no reader yet and no task title, readers that are top-level subagents because /ship
 runs on the root thread, a list truncated past the row), the run meters the tree: it prints
 `METER_FALLBACK: <why>` and labels its cost lines `METER: tree (root counter, upper bound)`. A row
-missing from a later snapshot holds `used=` at its last reading (`METER_ROW_MISSING:`). A `--thread`
+missing from a later snapshot advances `used=` by the tree's growth since the previous snapshot, an
+upper bound, and holds there until the row's own cost catches up (`METER_ROW_MISSING:`). A `--thread`
 run refuses a bare `--reading`, and `resume --meter-source` or `--rebuild-from-record` (both take
 `--reading` readings). A run started without `--thread` ignores the file, so the pass program passes
 both.
 
-An observe run with no `--token-cap` that meters its own row gets the 100M default cap, as
-`--reading-from task` does.
+An observe run with no `--token-cap` started with a task title (`GSTACK_SHIP_TASK_TITLE`) gets the
+100M default cap, as `--reading-from task` does, even while it meters the tree because its row is not
+listed yet; an untitled run gets none, as on main.
 
 **Counting calls.** `gstack-ship-budget calls --events <file> [--since <iso>] [--until <iso>]` reads
 the host's transcript items (a JSON array, or `{ "items": [...] }` as Capy's `tools.thread.get`

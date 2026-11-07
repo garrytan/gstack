@@ -297,7 +297,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
-  const defaultCap = rawCap === undefined && mode === 'observe' && (threadStart ? pre.ship_meter?.label !== undefined : from === 'task') && tokensOpt(o, 'reading') !== undefined;
+  const defaultCap = rawCap === undefined && mode === 'observe' && from === 'task' && tokensOpt(o, 'reading') !== undefined;
   const cap = defaultCap ? SUBAGENT_DEFAULT_CAP : rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';

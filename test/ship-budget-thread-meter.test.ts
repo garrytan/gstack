@@ -98,6 +98,39 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(s.out).not.toContain('admission_cap=100000000');
   });
 
+  // Value: protects=a titled /ship keeps the 100M default cap even while its row is not listed yet; fails_when=a titled --thread start whose title matches no listed row runs uncapped;
+  //   why_new=/ship fix-check on #4107 (p2/targeted#1): the default followed row resolution, so a titled run with an unresolved row had no cap; seam=none; no_claim=untitled runs, which get no default as on main
+  test('a titled --thread start whose row is not listed yet still gets the 100M default cap', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--thread', snap(h, 100_000_000, [['Subagent 1', 'lane fix', 5_000_000]])], { GSTACK_SHIP_TASK_TITLE: 'ship #4107 at 6b7f601 z9' });
+    expect(s.code, s.out + s.err).toBe(0);
+    expect(s.out).toContain('METER_FALLBACK');
+    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 100M');
+    expect(s.out).toContain('admission_cap=100000000');
+  });
+
+  // Value: protects=while /ship's row is missing from a truncated snapshot used= advances by tree growth, so the cap still stops; fails_when=METER_ROW_MISSING holds used= flat and the cap fails open, or the row's return below that upper bound is rejected;
+  //   why_new=/ship fix-check on #4107 (p2/targeted#2); seam=none; no_claim=the exact /ship cost while its row is missing
+  test('a row missing from a later snapshot advances used= by tree growth, and the cap stops on it', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '12M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    expect(s.code, s.out + s.err).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const seen = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 9_000_000]])]);
+    expect(field(seen.out, 'NOTE', 'used')).toBe(4_000_000);
+    const missing = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 115_000_000, [['Subagent 2', 'lane suite', 1]])]);
+    expect(missing.code, missing.out + missing.err).toBe(0);
+    expect(missing.out).toContain('METER_ROW_MISSING: Subagent 1');
+    expect(field(missing.out, 'NOTE', 'used')).toBe(9_000_000);
+    const back = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 116_000_000, [['Subagent 1', SHIP, 10_000_000]])]);
+    expect(back.code, back.out + back.err).toBe(0);
+    expect(field(back.out, 'NOTE', 'used')).toBe(9_000_000);
+    const over = h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 121_000_000, [['Subagent 2', 'lane suite', 1]])]);
+    expect(field(over.out, 'NOTE', 'used')).toBe(14_000_000);
+    expect(over.code).toBe(3);
+    expect(over.out).toMatch(/^STOP: reason=budget_exhausted /m);
+  });
+
   // Value: protects=where /ship's usage cannot be separated the run still caps the tree and says so on every cost line, with the reason; fails_when=a fallback run prints an unlabelled used= or uncaps itself;
   //   why_new=GST-1699 keeps the tree as a labelled fallback; seam=none; no_claim=the exact /ship cost of a root-thread /ship
   test('before its row is found, and for /ship on the root thread, the run meters the tree, labelled with the reason', () => {

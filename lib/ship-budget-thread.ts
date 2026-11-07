@@ -24,7 +24,7 @@ export interface ShipMeter {
   dispatched: string[];
   /** Each row's cost at the run's first snapshot: a row found later is metered from here. */
   start_rows: Record<string, Cost>;
-  tree: { baseline: number; last: number };
+  tree: { baseline: number; last: number; credits?: number };
   /** Why the run still meters the tree. */
   fallback?: string;
 }
@@ -78,10 +78,12 @@ export function threadReading(l: Ledger, file: string, taskTitle?: string): { re
   const fresh = !l.ship_meter;
   const m: ShipMeter = l.ship_meter ??= {
     dispatched: [], start_rows: Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }])),
-    tree: { baseline: s.tokens, last: s.tokens }, ...(taskTitle ? { task_title: taskTitle } : {}),
+    tree: { baseline: s.tokens, last: s.tokens, credits: s.credits }, ...(taskTitle ? { task_title: taskTitle } : {}),
   };
   if (s.tokens < m.tree.last) throw budgetError('BUDGET_READING_REJECTED', `--thread ${file}: tree reading ${s.tokens} is below the run's last tree reading ${m.tree.last}`);
+  const prevTree = { tokens: m.tree.last, credits: m.tree.credits ?? s.credits };
   m.tree.last = s.tokens;
+  m.tree.credits = s.credits;
   for (const t of s.dispatched) if (!m.dispatched.includes(t)) m.dispatched.push(t);
   const readers = s.dispatched.length ? s.rows.filter(r => s.dispatched.includes(r.title)).reduce((a, r) => ({ n: a.n + 1, tokens: a.tokens + r.tokens, credits: Math.round((a.credits + r.credits) * 100) / 100 }), { n: 0, tokens: 0, credits: 0 }) : undefined;
   const lines: string[] = [];
@@ -105,8 +107,8 @@ export function threadReading(l: Ledger, file: string, taskTitle?: string): { re
   }
   const row = s.rows.find(r => r.label === m.label);
   if (!row) {
-    lines.push(`METER_ROW_MISSING: ${m.label} is not among the ${s.rows.length} of ${s.total} rows listed; used= holds at its last reading`);
-    return { reading: l.meter.last ?? l.meter.baseline, credits: l.credits?.last ?? 0, lines, ...(readers ? { readers } : {}) };
+    lines.push(`METER_ROW_MISSING: ${m.label} is not among the ${s.rows.length} of ${s.total} rows listed; used= advances by the tree's growth since the last snapshot (upper bound)`);
+    return { reading: (l.meter.last ?? l.meter.baseline) + (s.tokens - prevTree.tokens), credits: Math.round(((l.credits?.last ?? 0) + Math.max(0, s.credits - prevTree.credits)) * 1e4) / 1e4, lines, ...(readers ? { readers } : {}) };
   }
-  return { reading: row.tokens, credits: row.credits, lines, ...(readers ? { readers } : {}) };
+  return { reading: Math.max(row.tokens, l.meter?.last ?? 0), credits: Math.max(row.credits, l.credits?.last ?? 0), lines, ...(readers ? { readers } : {}) };
 }
