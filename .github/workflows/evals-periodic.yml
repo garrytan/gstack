@@ -89,7 +89,7 @@ jobs:
         # Byte-identity pinned by test/ci-image-tag-binding.test.ts.
         run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -458,7 +458,7 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
