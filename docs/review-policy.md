@@ -645,6 +645,15 @@ keep a network remote and files of 100 MB or more, outside `node_modules` and
 outside other repositories. An extracted archive, a smaller raw download, a fetch
 with no remote, a clone nested in another repository and a clone deleted before
 the stage ends all go unseen until the platform exposes reader transcripts.
+A test run's fixtures are not fetches, and each new one prints a
+`FETCH_IGNORED:` line with its reason instead: a directory below a sweep root
+that carries `.gstack-test-fixture` (test-setup.ts puts every test's temp
+paths under one such root per process and removes it after the last file), and a
+repository whose every network-looking remote resolves to a local path through
+`url.<base>.insteadOf` (the ship fixtures' `https://github.com/fx/fx.git`). A
+marker on a sweep root itself is not honored, insteadOf that sends a local path
+to the network still counts, and a clone made inside a live fixture root goes
+unseen.
 
 What this protects: the readers' findings, the merged review and PR text never
 carry a sealed file a reader fetched or opened. What it cannot protect: data that
