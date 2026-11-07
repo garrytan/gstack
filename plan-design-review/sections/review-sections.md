@@ -449,7 +449,7 @@ Produce this markdown table:
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
 | Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
+| Eng Review | \`/autoplan\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
@@ -676,14 +676,14 @@ SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true
 
 From the dashboard output, recommend the next review(s):
 
-- **/plan-eng-review** unless `skip_eng_review` is `true`: it is the required shipping gate. Stress it when this review added flows or changed the information architecture; an eng review whose commit predates this review is stale and should be re-run.
-- **/plan-ceo-review** only for fundamental product gaps (initial score below 4/10, major IA problems, or doubt about the problem itself) and no CEO review exists. Most design reviews should not trigger it. If both apply, eng review first.
+- **/autoplan** unless `skip_eng_review` is `true`: its eng phase reviews architecture and tests. Stress it when this review added flows or changed the information architecture; an eng review whose commit predates this review is stale and should be re-run.
+- **/plan-ceo-review** only for fundamental product gaps (initial score below 4/10, major IA problems, or doubt about the problem itself) and no CEO review exists. Most design reviews should not trigger it. If both apply, /autoplan covers both.
 - **/design-shotgun** for visual issues worth exploring; **/design-html** when approved mockups need HTML. Both produce design artifacts, so they fit plan mode.
 
 Use AskUserQuestion to present the next step. Always include the manual/stop
 option E; offer only applicable follow-on skills. If the user chooses manual,
 finish without starting another skill:
-- **A)** Run /plan-eng-review next (required gate)
+- **A)** Run /autoplan next (eng review)
 - **B)** Run /plan-ceo-review (only if fundamental product gaps found)
 - **C)** Run /design-shotgun — explore visual design variants for issues found
 - **D)** Run /design-html — generate Pretext-native HTML from approved mockups

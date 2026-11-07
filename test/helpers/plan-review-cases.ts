@@ -67,7 +67,8 @@ export function pickPlanReviewQuestion(question: NativeQuestion): number {
   const labels = question.options.map(option => planReviewOptionLabel(option.label));
   const run = (label: string) => /^(?:Run )?\/plan-(?:ceo|eng|design|devex)-review(?: (?:next|first))?(?:\s*\((?:required gate|only if UI scope detected(?: and no design review exists)?|only if fundamental product gaps found|only if significant product change and no CEO review exists)\))?$/i.test(label)
     || /^(?:Run )?\/design-shotgun(?: to explore visual variants| for visual variants| after adding an OpenAI key|\s*[—–-]\s*explore visual design variants for issues found)?$/i.test(label)
-    || /^(?:Run )?\/design-html(?:\s*[—–-]\s*generate Pretext-native HTML from approved mockups)?$/i.test(label);
+    || /^(?:Run )?\/design-html(?:\s*[—–-]\s*generate Pretext-native HTML from approved mockups)?$/i.test(label)
+    || /^(?:Run )?\/autoplan(?: next)?(?:\s*\(eng review\))?$/i.test(label);
   // A bare Skip declines only an offered, recognized follow-up in this handoff.
   const offersFollowUp = labels.some(run);
   const manual = (label: string) => /^Skip\s*[,:;.—–-]\s*(?:I(?:['’]ll| will)\s+)?handle (?:reviews|next steps) manually$/i.test(label)

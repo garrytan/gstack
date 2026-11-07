@@ -37,7 +37,7 @@ export const BLOCK_END = '<!-- gstack:end harness-routing -->';
 export const DOT_SKILLS_DIR = '/home/dot/skills';
 export const ROUTER_DESCRIPTION = 'Use to review a diff or PR, debug a bug or failing test, QA test a site, plan or review architecture, ship a PR, audit security or write release docs. Load first for any coding task: lists every gstack skill and where to read it.';
 /** OpenClaw hybrid mode: these task skills are listed as skills of their own; the router carries the rest. */
-export const HYBRID_SKILLS = ['review', 'investigate', 'qa', 'ship', 'plan-eng-review'];
+export const HYBRID_SKILLS = ['review', 'investigate', 'qa', 'ship'];
 /**
  * OpenClaw serves a registered skill's SKILL.md whole or refuses it ("Skill instructions cannot be partially
  * served"), with maxBytes from resolveAdaptiveReadMaxBytes: 32,768 (DEFAULT_READ_PAGE_MAX_BYTES) when the model's

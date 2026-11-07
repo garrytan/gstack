@@ -9,7 +9,7 @@
  * Used by skill:check and CI freshness checks.
  */
 
-import { discoverTemplates, discoverSectionTemplates, includesSkill } from './discover-skills';
+import { discoverTemplates, discoverSectionTemplates, includesSkill, RETIRED_SKILLS } from './discover-skills';
 import { externalSkillName, extractNameAndDescription } from './external-skill-names';
 export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
@@ -755,9 +755,10 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
+  const retired = RETIRED_SKILLS.includes(skillDir);
   // --out-dir mirrors the host tree (outputs only; inputs read from ROOT).
-  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', name);
-  const outputPath = path.join(outputDir, 'SKILL.md');
+  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', retired ? 'gstack-autoplan' : name);
+  const outputPath = path.join(outputDir, retired ? `${skillDir}.md` : 'SKILL.md');
 
   // Guard against symlink loops
   let symlinkLoop = false;
@@ -790,7 +791,7 @@ function processExternalHost(
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex). The
   // default_prompt comes from the template's codex_default_prompt: key when set.
-  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop ? {
+  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop && !retired ? {
     outputPath: path.join(outputDir, 'agents', 'openai.yaml'),
     content: generateOpenAIYaml(name, condenseOpenAIShortDescription(extractedDescription), extractCodexDefaultPrompt(tmplContent)),
   } : undefined;
@@ -884,7 +885,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   if (skillDir === '' || skillDir === '.') content = omitDisabledSkills(content, [...options.disabledSkills, ...excludedSkillDirs(options.modules)]);
   content = rewriteInstallRoot(insertRuntimePreludes(rewriteCarvedSectionRefs(content, ctx), ctx), currentHostConfig, options.installRoot);
 
-  const preamble = hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
+  const preamble = !(host !== 'claude' && RETIRED_SKILLS.includes(skillDir)) && hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
     ? { outputPath: path.join(path.dirname(outputPath), 'sections', SHARED_PREAMBLE_FILE), content: renderSharedPreamble(ctx, currentHostConfig, options) }
     : undefined;
   return { outputPath, content, symlinkLoop, metadata, preamble };

@@ -2,6 +2,7 @@ import { toShellPath, type TemplateContext } from './types';
 import * as path from 'path';
 import { getHostConfig } from '../../hosts';
 import { runtimeRootPrelude } from './runtime-root';
+import { RETIRED_SKILLS } from '../discover-skills';
 
 /** Claude's scoped hook enforces the parent publication boundary during /autoplan. */
 export function generateAutoplanPublicationHook(ctx: TemplateContext, args?: string[]): string {
@@ -119,6 +120,10 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
 
   const host = getHostConfig(ctx.host);
+  if (RETIRED_SKILLS.includes(skill)) {
+    const own = `gstack-autoplan/${skill}.md`;
+    return `the file \`${skill}.md\` in the installed \`/autoplan\` SKILL.md directory (local: \`${path.posix.dirname(host.localSkillRoot)}/${own}\`; global: \`~/${path.posix.dirname(host.globalRoot)}/${own}\`${ctx.host === 'codex' ? ', or the corresponding skills directory under CODEX_HOME when configured' : ''})`;
+  }
   const file = `gstack-${skill}/SKILL.md`;
   const local = `${path.posix.dirname(host.localSkillRoot)}/${file}`;
   const global = `~/${path.posix.dirname(host.globalRoot)}/${file}`;

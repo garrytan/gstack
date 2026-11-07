@@ -54,7 +54,6 @@ Conventions:
 - [/plan-ceo-review](plan-ceo-review/SKILL.md): CEO/founder-mode plan review.
 - [/plan-design-review](plan-design-review/SKILL.md): Designer's eye plan review — interactive, like CEO and Eng review.
 - [/plan-devex-review](plan-devex-review/SKILL.md): Interactive developer experience plan review.
-- [/plan-eng-review](plan-eng-review/SKILL.md): Eng manager-mode plan review.
 - [/plan-tune](plan-tune/SKILL.md): Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
 - [/qa](qa/SKILL.md): Use when you test the site, API or CLI and fix bugs.
 - [/qa-only](qa-only/SKILL.md): Report browser/API/CLI/job/worker/webhook bugs.

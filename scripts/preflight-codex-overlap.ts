@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { discoverTemplates, includesSkill } from './discover-skills';
+import { discoverTemplates, includesSkill, RETIRED_SKILLS } from './discover-skills';
 import { externalSkillName, extractNameAndDescription } from './external-skill-names';
 import { getHostConfig } from '../hosts';
 import { CLAUDE_CODE_RUNTIME_FILES } from '../lib/claude-code-migration';
@@ -114,6 +114,7 @@ const sourceNames = new Set<string>();
 for (const template of discoverTemplates(source)) {
   const dir = path.dirname(template.tmpl);
   const name = externalSkillName(dir, extractNameAndDescription(fs.readFileSync(path.join(source, template.tmpl), 'utf8')).name);
+  if (RETIRED_SKILLS.includes(dir)) continue;
   sourceNames.add(name);
   if (!includesSkill(config, dir)) continue;
   names.add(name);

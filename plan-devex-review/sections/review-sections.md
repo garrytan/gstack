@@ -764,7 +764,7 @@ Produce this markdown table:
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
 | Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
+| Eng Review | \`/autoplan\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
@@ -984,9 +984,9 @@ SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true
 
 After displaying the Review Readiness Dashboard, recommend next reviews:
 
-**Recommend /plan-eng-review if eng review is not skipped globally** — DX issues often
+**Recommend /autoplan if eng review is not skipped globally** — DX issues often
 have architectural implications. If this DX review found API design problems, error
-handling gaps, or CLI ergonomics issues, eng review should validate the fixes.
+handling gaps, or CLI ergonomics issues, /autoplan's eng phase should validate the fixes.
 
 **Suggest /plan-design-review if user-facing UI exists** — DX review focuses on
 developer-facing surfaces; design review covers end-user-facing UI.
@@ -997,7 +997,7 @@ out. This is where the competitive benchmark pays off: you have a concrete targe
 measure against.
 
 Use AskUserQuestion with applicable options:
-- **A)** Run /plan-eng-review next (required gate)
+- **A)** Run /autoplan next (eng review)
 - **B)** Run /plan-design-review (only if UI scope detected)
 - **C)** Ready to implement, run /devex-review after shipping
 - **D)** Skip, I'll handle next steps manually

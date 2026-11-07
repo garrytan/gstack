@@ -547,7 +547,7 @@ When the user's request matches an available skill, invoke it via the Skill tool
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours
 - Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
+- Architecture → invoke /autoplan
 - Design system/plan review → invoke /design-consultation or /plan-design-review
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate, unless one read-only check confirms the cause and a narrow fix (then fix it and run the focused test)

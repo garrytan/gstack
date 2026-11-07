@@ -30,7 +30,7 @@ describe('guard reason inventory', () => {
       if (reason.disposition === 'unverified') expect(text).toContain('Phase-report enforcement was skipped for this call');
       if (reason.disposition === 'corrective') expect(text).not.toContain(FALLBACK);
     }
-    expect(FALLBACK).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
+    expect(FALLBACK).toContain('/plan-ceo-review, then /plan-devex-review by hand');
     expect(FALLBACK).toContain('/context-save');
     expect(FALLBACK).toContain('/context-restore, then /autoplan <plan path>');
   });

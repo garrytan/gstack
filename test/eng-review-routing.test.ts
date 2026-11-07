@@ -158,7 +158,7 @@ describe('engineering review routing contracts', () => {
   test('#3106: an unpersisted review gets no saved credit; /ship names the PERSIST: line or a rerun', () => {
     const ctx = (skillName: string) => ({ skillName, tmplPath: `${skillName}/SKILL.md.tmpl`, host: 'claude', paths: HOST_PATHS.claude } as TemplateContext);
     const ship = compact(generateReviewDashboard(ctx('ship')));
-    expect(ship).toContain('With no Eng Review record, say "no saved Eng Review: run the `PERSIST:` line a read-only /plan-eng-review printed, or rerun it"');
+    expect(ship).toContain('With no Eng Review record, say "no saved Eng Review: run the `PERSIST:` line a read-only eng review printed, or rerun /autoplan"');
     expect(ship).toContain('docs/troubleshooting.md#plan-eng-review-not-persisted');
     expect(generateReviewDashboard(ctx('plan-eng-review'))).not.toContain('PERSIST:');
     const gate = compact(generateExitPlanModeGate(ctx('plan-eng-review')));

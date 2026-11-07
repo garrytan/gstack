@@ -472,7 +472,7 @@ Read skills/sections only at their triggers, never prefetch future phases. Load
 the tasks aggregator at Phase 4. Run every applicable skill and lazy section fully.
 
 **Section skip list — when following a loaded skill file, SKIP these sections
-(they are already handled by /autoplan):**
+(/autoplan handles them):**
 - Preamble (run first)
 - Scope gate (the plan under review is already the target)
 - AskUserQuestion Format
@@ -482,7 +482,8 @@ the tasks aggregator at Phase 4. Run every applicable skill and lazy section ful
 - Step 0: Detect platform and base branch
 - Review Readiness Dashboard
 - Plan File Review Report
-- Prerequisite Skill Offer (BENEFITS_FROM)
+- Prerequisite Skill Offer
+- Next Steps — Review Chaining
 - Outside Voice — Independent Plan Challenge
 - Design Outside Voices (independent)
 

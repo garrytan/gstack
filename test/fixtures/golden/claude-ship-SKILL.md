@@ -395,7 +395,7 @@ and outside_status; retain partial coverage. These details do not clear Eng Revi
 
 **3. Choose the historical verdict.** CLEARED requires the selected Eng Review
 to be `clean`, within 7 days and fresh under step 2. Otherwise report NOT CLEARED
-and its missing, stale or open-issue reason. With no Eng Review record, say "no saved Eng Review: run the `PERSIST:` line a read-only /plan-eng-review printed, or rerun it" (docs/troubleshooting.md#plan-eng-review-not-persisted). If `skip_eng_review` is true, show
+and its missing, stale or open-issue reason. With no Eng Review record, say "no saved Eng Review: run the `PERSIST:` line a read-only eng review printed, or rerun /autoplan" (docs/troubleshooting.md#plan-eng-review-not-persisted). If `skip_eng_review` is true, show
 "SKIPPED (global)" for Eng Review and CLEARED for this dashboard.
 This verdict never skips Step 9 or its finding, approval and convergence gates. Continue Step 1 even when history is NOT CLEARED.
 
@@ -423,7 +423,7 @@ VERDICT: {CLEARED or NOT CLEARED} — {reason}
 
 An outside review with status `unverified` or `unavailable` is missing coverage, never a pass.
 
-Over 200 lines, `DIFF:` recommends `/plan-eng-review` or `/autoplan`. `SCOPE: frontend=true` (from
+Over 200 lines, `DIFF:` recommends `/autoplan`. `SCOPE: frontend=true` (from
 `gstack-diff-scope <base>`) with no design review: mention "Design Review not run — Step 9 includes the lite check; consider /design-review for a full visual audit."
 
 Continue to Step 2 without asking; Step 9 applies the review gates.
