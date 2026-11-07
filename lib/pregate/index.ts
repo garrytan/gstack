@@ -319,6 +319,8 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     let text: string;
     try { text = fs.readFileSync(input.receiptPath, 'utf8'); }
     catch (e: any) { return { refused: 'PREGATE_RECEIPT_INVALID', message: `cannot read ${input.receiptPath}: ${e.message}` }; }
+    const lanesRows = [...text.matchAll(/^(?:tests|preflight) +lanes +(\S+)/gm)].map(m => m[1]);
+    if (/^ +lanes: +PREGATE_REMOTE: /m.test(text) && (!lanesRows.length || lanesRows.some(s => s !== 'requires-remote'))) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${input.receiptPath} prints its PREGATE_REMOTE: line under a lanes check that is ${lanesRows.join(', ') || 'missing'}, not requires-remote, so the gate did not pass there; ${lane} stays uncleared` };
     const report = parseRemoteReport(text.replace(/^ +lanes: +(?=PREGATE_REMOTE: )/gm, ''));
     if (!report) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${input.receiptPath} has no PREGATE_REMOTE: line; ${lane} stays uncleared` };
     const own = remoteReportProblem(report, report.tree);
@@ -490,7 +492,7 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
  * A rerun at the same tree keeps the clears its predecessor recorded (GST-1627): `gstack-ship-release accept` reruns the
  * pregate on the final tree after the lane cleared macos-named-regressions and windows-smoke from CI runs at that tree, and
  * a fresh record dropped them, so accept never passed. A receipt carries only into an uncleared obligation for the same
- * lane, platform, workflow and job whose tests the earlier one covered, at the same head, under the same policy source and base
+ * lane, platform, workflow, job and gate command whose tests the earlier one covered, at the same head, under the same policy source and base
  * branch (a base branch that moved between the runs keeps them: the policy label names the base commit, GST-1775), with its
  * flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
  * since a receipt and its exception were vetted against the head they name), or a rerun with a failed or unfinished check (a remote gate
@@ -503,7 +505,7 @@ export function keepSameTreeClears(prev: PregateFile | null, file: PregateFile):
   const kept: string[] = [];
   for (const r of file.requires_remote ?? []) {
     if (r.receipt) continue;
-    const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && r.tests.every(t => o.tests.includes(t)));
+    const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && o.command === r.command && r.tests.every(t => o.tests.includes(t)));
     if (!old?.receipt) continue;
     clearObligation(file, r.lane, old.receipt, old.cleared_by ?? 'an earlier run at this tree', old.substitution, prev.exceptions?.find(e => e.lane === r.lane));
     kept.push(`PREGATE_CLEAR_KEPT: ${r.lane} receipt=${old.receipt} (recorded at this tree ${file.tree.slice(0, 12)}; docs/pregate.md#same-tree-clears)`);

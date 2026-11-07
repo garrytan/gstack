@@ -134,7 +134,7 @@ describe('keepSameTreeClears (GST-1627)', () => {
     const kept = (next: PregateFile) => { keepSameTreeClears(prev(), next); return next.requires_remote![0]!.receipt; };
     expect(kept(file([obligation()], { base: 'origin/main@dddddddddddd' }))).toBe(RUN_URL);
     for (const next of [file([obligation()], { head: 'f'.repeat(40) }), file([obligation()], { tree: 'e'.repeat(40) }), file([obligation()], { policy: 'head' }), file([obligation()], { base: 'origin/release@cccccccccccc' }),
-      file([obligation({ tests: ['test/a.test.ts', 'test/b.test.ts'] })]), file([obligation({ job: 'smoke', lane: LANE })]), file([obligation({ platform: 'windows' })])]) {
+      file([obligation({ tests: ['test/a.test.ts', 'test/b.test.ts'] })]), file([obligation({ job: 'smoke', lane: LANE })]), file([obligation({ platform: 'windows' })]), file([obligation({ command: 'node scripts/other-gate.js' })])]) {
       expect(kept(next)).toBeNull();
     }
     expect(kept(file([obligation()], { checks: [{ id: 'lanes', status: 'incomplete' }] }))).toBeNull();

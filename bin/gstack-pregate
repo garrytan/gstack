@@ -204,7 +204,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     });
   }
   const file = await runPregate(ctx, { stage, only, run: flag(rest, '--run') });
-  const kept = keepSameTreeClears(prev, file);
+  const kept = keepSameTreeClears(fs.existsSync(out) ? readPregateFile(out).file : null, file);
   let written: string;
   try { written = writePregateFile(root, out, file); }
   catch (e: any) { process.stderr.write(resultLine('gstack-pregate', 'ARTIFACT_SCHEMA', e.message) + '\n'); return EXIT.fail; }

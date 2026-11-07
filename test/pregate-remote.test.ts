@@ -26,6 +26,7 @@ const GATE_SCRIPT = [
   "if (process.env.GATE_SILENT) process.exit(0);",
   "const spent = process.env.GATE_SPENT ? ` spent=${process.env.GATE_SPENT}` : '';",
   "console.log(`PREGATE_REMOTE: tree=${process.env.GATE_TREE || process.env.PREGATE_TREE} tests=${process.env.GATE_TESTS ?? 3} failed=${process.env.GATE_FAILED ?? 0}${spent}`);",
+  "if (process.env.GATE_EXIT) process.exitCode = Number(process.env.GATE_EXIT);",
 ].join('\n') + '\n';
 
 function gated(pregate: Record<string, unknown> = { ...BASE_PREGATE, remote_gate: GATE }): FixtureRepo {
@@ -104,7 +105,8 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
   // GBRA-347 (gbrain#8730): a stage run's log prints the gate's line under the lanes check (`    lanes:   PREGATE_REMOTE: …`),
   //   and `clear --receipt` on that log refused "has no PREGATE_REMOTE: line".
   // Value: protects=a gstack-pregate --remote log is a receipt clear accepts, validated like the bare line; fails_when=clear
-  //   refuses the indented form, or takes a line indented under another check; seam=gstack-pregate clear --receipt
+  //   refuses the indented form, takes a line indented under another check, or takes the log of a run whose gate exited 1;
+  //   seam=gstack-pregate clear --receipt
   test('`clear --receipt` takes the stage run\'s own log, where the gate\'s line sits under lanes:', async () => {
     const repo = gated();
     const run = runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'tests', '--remote', '--spend-cap', '5', '--allow-repo-commands']);
@@ -113,6 +115,10 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     fs.writeFileSync(log, run.out);
     expect(run.out).toMatch(/^ +lanes: +PREGATE_REMOTE: tree=[0-9a-f]{40} tests=3 failed=0$/m);
     expect(run.out).not.toMatch(/^PREGATE_REMOTE: /m);
+    const failed = runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'tests', '--remote', '--spend-cap', '5', '--allow-repo-commands'], { GATE_EXIT: '1' });
+    expect(failed.out).toMatch(/^ +lanes: +PREGATE_REMOTE: tree=[0-9a-f]{40} tests=3 failed=0$/m);
+    const failedLog = path.join(repo.root, 'failed-run.log');
+    fs.writeFileSync(failedLog, failed.out);
     const fileAt = path.join(repo.work, '.gstack/tmp/pregate.json');
     const { file } = await lanesOn(repo, { cores: 4, testBackend: 'local' });
     fs.writeFileSync(fileAt, JSON.stringify(file));
@@ -120,6 +126,9 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     const other = path.join(repo.root, 'other-check.log');
     fs.writeFileSync(other, `    guards:   PREGATE_REMOTE: tree=${file.tree} tests=3 failed=0\n`);
     expect(clear(other).err).toContain('has no PREGATE_REMOTE: line');
+    const refused = clear(failedLog);
+    expect(refused.status).not.toBe(EXIT.ok);
+    expect(refused.err).toContain('under a lanes check that is incomplete, not requires-remote');
     const ok = clear(log);
     expect(ok.status, ok.err).toBe(EXIT.ok);
     expect(ok.out).toContain(`PREGATE_CLEARED: pregate.json/remote_gate receipt=remote-gate tree=${file.tree.slice(0, 12)} tests=3 `);
