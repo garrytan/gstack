@@ -779,6 +779,22 @@ describe('gstack-capy-install: launch PATH, Bun reuse, CI pins, setup skip, verd
     expect(fs.existsSync(files[0].replace(/\.json$/, '.env'))).toBe(false);
   });
 
+  // protects: on a Capy machine the launch file appends the checkout's crew/bin after bin, once, so
+  // the crew-only commands that moved there (gstack-release-gate, gstack-coauthor-trailers) still
+  // resolve by bare name; a checkout without crew/bin adds nothing. fails_when: CREW_BIN_DIR is
+  // dropped from the launch file, prepended ahead of PATH, or appended on every source.
+  test('the launch file appends crew/bin after bin once when the checkout has one', () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.root, 'crew/bin'), { recursive: true });
+    const r = run(f, ['--for', 'autoplan']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    const launchFile = r.stdout.match(/^GSTACK_LAUNCH_FILE: (.+)$/m)?.[1] ?? '';
+    const sourced = spawnSync('sh', ['-c', '. "$1" && . "$1" && printf "%s\\n" "$PATH"', '_', launchFile],
+      { encoding: 'utf8', timeout: 30_000, env: { PATH: '/usr/bin:/bin' } });
+    expect(sourced.status, sourced.stderr).toBe(0);
+    expect(sourced.stdout.trimEnd()).toBe(`/usr/bin:/bin:${f.root}/bin:${fs.realpathSync(path.join(f.root, 'crew/bin'))}`);
+  });
+
   // /ship Step 7 value card. protects: the launch file is part of the ok verdict. When it cannot be
   // written on a passing run, the run FAILS (exit 1, `gstack: fail launch-file — …` trailer naming
   // the fix), prints no GSTACK_LAUNCH_FILE line (a caller must never be handed an empty path to
