@@ -146,7 +146,7 @@ function severityWords(text: string): Severity[] {
  * actionable regressions"), an optional predicate ("were found", "is evident"),
  * an optional scope that names the whole change ("in the diff", "in the changed
  * files", "while reviewing the staged, unstaged, or untracked changes", "in the
- * change as a whole"), then
+ * change as a whole", "in the changes on this branch", "in the diff against main"), then
  * at most one ".", "!" or ";". Nothing else may follow: a clause after the scope,
  * an exception, a colon explanation or a question never concludes, and a scope
  * that names part of the change ("in the parser") says nothing about the rest of
@@ -154,8 +154,8 @@ function severityWords(text: string): Severity[] {
  */
 const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete|definite),?\\s+){0,2}(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
 const CHANGE_NOUN = '(?:change(?:s|sets?)?|diffs?|patch(?:es)?|branch|commits?|pull\\s+request|PR|(?:changed|modified|touched)\\s+(?:files?|code|lines))';
-const CHANGE_KIND = '(?:staged|unstaged|untracked|committed|uncommitted|current|proposed|submitted|pending|whole|entire|full|complete|combined|new|latest|recent|local|read-only|code)';
-const WHOLE_CHANGE = `(?:(?:the|this|these|your|both|all(?:\\s+(?:of\\s+)?the)?)\\s+)?(?:${CHANGE_KIND}(?:(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s*\\/\\s*|\\s+(?:and|or)\\s+)${CHANGE_KIND})*\\s+)?${CHANGE_NOUN}(?:\\s+as\\s+a\\s+whole)?`;
+const CHANGE_KIND = '(?:staged|unstaged|untracked|committed|uncommitted|current|proposed|submitted|pending|whole|entire|full|complete|combined|new|latest|recent|local|read-only|code|branch)';
+const WHOLE_CHANGE = `(?:(?:the|this|these|your|both|all(?:\\s+(?:of\\s+)?the)?)\\s+)?(?:${CHANGE_KIND}(?:(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s*\\/\\s*|\\s+(?:and|or)\\s+)${CHANGE_KIND})*\\s+)?${CHANGE_NOUN}(?:\\s+as\\s+a\\s+whole)?(?:\\s+(?:on|in)\\s+(?:this|the)\\s+branch)?(?:\\s+against\\s+(?:the\\s+)?(?:base(?:\\s+branch)?|main|master|origin\\/[\\w-]+(?:\\/[\\w-]+)*))?`;
 const READING = '(?:reviewing|reading|checking|inspecting)';
 const NO_FINDINGS_LEAD = `(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:${READING}|reviewed|read|checked|inspected)\\s+${WHOLE_CHANGE},\\s+)?`;
 const NO_FINDINGS_STATEMENT = `(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+|(?:the|this|these)\\s+(?:changes?|diffs?|patch(?:es)?)\\s+(?:introduces?|adds?|contains?|ha(?:s|ve))\\s+)?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`;

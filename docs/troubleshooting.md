@@ -204,8 +204,9 @@ the readiness dashboard and the PR body, and never count it as a pass.
   actionable regressions", "I did not find any bugs" or "The changes introduce
   no regressions", then may add "were found" or "is evident", then may name the
   whole change ("in this change", "in the diff", "in the changed files", "in
-  the staged, unstaged, or untracked changes", "in the change as a whole"),
-  and ends there with at most one `.`, `!` or `;`. Anything else makes the
+  the staged, unstaged, or untracked changes", "in the change as a whole",
+  "in the changes on this branch", "in the diff against main"), and ends
+  there with at most one `.`, `!` or `;`. Anything else makes the
   review `unverified`: a clause after the scope ("No issues in the diff, so
   it is safe.", "No issues in the diff: the fallback swallows ENOENT."), an
   exception ("with the exception of", "save for"), a question ("No issues in
