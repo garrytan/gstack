@@ -140,7 +140,7 @@ describe('a no-findings statement counts only as the reply\'s conclusion (#3294)
     for (const text of ['No regressions found.', 'I did not find any defects.', 'There are no actionable regressions.',
       'NO_FINDINGS', '**NO_FINDINGS**', '`NO_FINDINGS`', '- NO_FINDINGS',
       `The change adds a retry cap and its tests.\n${REPORTER}`, 'Reviewed the retry helper.\n\nNo issues found in this change.',
-      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.',
+      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.', 'No issues found while reviewing the diff.',
       'Summary of the retry helper\nNo issues found.', 'I found no actionable regressions in the staged\nchanges.',
       // Clean `codex review --uncommitted` replies captured from codex-cli 0.160.0 with gpt-6-sol.
       'The change validates the retry limit before execution. No actionable regression was found.',
@@ -182,6 +182,82 @@ describe('a no-findings statement counts only as the reply\'s conclusion (#3294)
     expect(verdict(`${FINDING}\nRecommendation: ship because no regressions in the existing tests.`)).toBe('unverified');
     expect(verdict(`${FINDING}\nRecommendation: ship because no issues remain, but the fallback needs a follow-up.`)).toBe('unverified');
     expect(verdict('Recommendation: address the migration because no regressions were found in the parser change,\nbut the migration drops users_email_idx.')).toBe('unverified');
+  });
+});
+
+// #3469: a clean Codex review often signs off with one sentence about the checks
+// it ran. That sentence follows the no-findings conclusion; it never replaces it.
+describe('a closing check-results sentence keeps the no-findings conclusion (#3469)', () => {
+  // The two clean tails quoted in #3469 (codex review --base main, codex-cli 0.163.0-alpha, gpt-6-luna).
+  const TAILS = [
+    'No actionable regressions were identified in the diff. Tests, lint, and build all pass.',
+    'The changes introduce no definite, actionable regressions. Tests, lint, and build all pass.',
+  ];
+  const FINDING = 'The fallback path now swallows ENOENT and returns an empty config.';
+  const unverified = (text: string) => {
+    const r = classifyOutsideReview({ text, gate: 'structured' });
+    expect({ text, verdict: r.verdict, reason: r.reason }).toEqual({ text, verdict: 'unverified', reason: 'untagged_review' });
+  };
+
+  test("the reporter's clean tails read clean in-process and through the CLI /ship calls", () => {
+    for (const text of TAILS) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+      const r = cli(['--label', 'Codex structured review', '--exit', '0', '--stderr', file(''), 'structured', file(`${text}\n`)]);
+      expect([r.status, r.stdout]).toEqual([0, 'VERDICT: clean\nFINDINGS: none\n']);
+    }
+  });
+
+  test('other check-results sign-offs, one or several, on one line or after a blank line', () => {
+    for (const text of ['No issues found. Typecheck passes.', 'No regressions found in this change. The tests pass.\nLint passes.',
+      'I found no issues. Tests and build succeeded.', 'This patch introduces no regressions. All tests pass.',
+      'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
+      `The change adds a retry cap.\n\n${TAILS[0]}`, 'No issues found.\r\n\r\nTests, lint, and build all pass.\r\n']) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+    }
+  });
+
+  test('findings followed by a check-results sentence are never clean', () => {
+    for (const text of [`[P1] data loss\n${TAILS[0]}`, `P0: corrupts every row\n${TAILS[1]}`, `Severity: High. ${FINDING}\n${TAILS[0]}`]) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'findings' });
+    }
+    for (const text of [`${FINDING} Tests, lint, and build all pass.`, `No issues found. ${FINDING} Tests pass.`,
+      'No issues found. Tests pass. The fallback path now swallows ENOENT.',
+      'No regressions found. Tests pass, but the fallback path now swallows ENOENT.',
+      'No issues found, except that the fallback path now swallows ENOENT. Lint passes.',
+      `${FINDING}\nNo issues in the parser. Tests pass.`,
+      `${FINDING} The changes to the parser introduce no regressions. Tests pass.`,
+      'The changes introduce no regressions in parsing, while missing configuration now silently disables authentication.',
+      'No issues in the parser, while missing configuration now silently disables authentication. Tests pass.',
+      'The changes introduce no regressions in the diff, while missing configuration now silently disables authentication.',
+      'No issues in the parser, while the change silently disables authentication. Tests pass.',
+      'I reviewed the parser.\nNo issues in the diff, and the fallback path now swallows ENOENT in this change.',
+      'I reviewed the parser.\nNo issues in the parser whereas this change drops the cache.',
+      'The changes introduce no regressions in the diff, the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff and the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2014 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff (the fallback path now swallows ENOENT).',
+      'I reviewed the parser.\nNo issues in this change so callers now lose data.',
+      'I reviewed the parser.\nNo issues in the diff -- the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff [the fallback path now swallows ENOENT].',
+      'I reviewed the parser.\nNo issues in the diff / the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2012 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff plus the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff despite the fallback path now swallowing ENOENT.']) unverified(text);
+  });
+
+  test('a truncated, empty or check-only reply is never clean', () => {
+    for (const text of ['No actionable regressions were identified in the diff. Tests, lint, and b',
+      'No actionable regressions were identified in the diff. Tests, lint, and build all pass',
+      'No issues found. Tests', 'Tests, lint, and build all pass.', 'No regressions found. Tests fail.']) unverified(text);
+    const empty = classifyOutsideReview({ text: ' \n', gate: 'structured' });
+    expect([empty.verdict, empty.reason]).toEqual(['unavailable', 'empty_response']);
+  });
+
+  test('a check sentence that quotes code, continues a wrapped line or follows a condition is not a sign-off', () => {
+    for (const text of ['No issues found. Tests `do not` pass.', 'No issues found. `Not all` tests pass.',
+      'No issues found. Tests pass `only if the regression is skipped`.', 'No issues found. `Not all`\ntests pass.',
+      '```\ntests pass.\n```\nNo issues found.\n`Not all` tests pass.', 'No issues found in this patch, provided that:\nTests pass.',
+      'No issues found. Not all tests pass.', 'No issues found. Some tests pass.']) unverified(text);
   });
 });
 
