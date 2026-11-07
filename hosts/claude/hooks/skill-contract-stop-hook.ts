@@ -5,7 +5,9 @@
  * skill_contracts is on (env GSTACK_SKILL_CONTRACTS, then config
  * skill_contracts, then SWITCH_DEFAULT).
  *
- *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message)
+ *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message),
+ *     re-read until it holds that final message (lib/skill-gates.ts
+ *     readSettledTranscript; Stop can beat the CLI's flush)
  *     -> the most recently loaded skill that declares a contract (none: allow)
  *     -> final turn? (a STATUS line, a headless or unattended session, or no
  *        pending user question; otherwise allow)
@@ -31,10 +33,11 @@
 import { binPath, sessionKind } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome, parseTranscript,
-  readRecord, readTranscriptFile, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, withFinalMessage, writeRecord,
+  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome,
+  readRecord, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, writeRecord,
   type Contract, type Transcript,
 } from '../../../lib/skill-contract';
+import { readSettledTranscript } from '../../../lib/skill-gates';
 
 export const DEADLINE_MS = 5000;
 const STDIN_CAP_BYTES = 1024 * 1024;
@@ -89,7 +92,7 @@ async function main(): Promise<void> {
   if (!transcriptPath || !sessionId) return unknownShape('<stdin>', 'payload has no transcript_path or session_id');
   let transcript: Transcript;
   try {
-    transcript = withFinalMessage(parseTranscript(readTranscriptFile(transcriptPath)), payload.last_assistant_message);
+    transcript = readSettledTranscript(transcriptPath, payload.last_assistant_message).t;
   } catch (e) {
     if (e instanceof UnknownShape) return unknownShape(transcriptPath, e.message);
     throw e;

@@ -68,20 +68,25 @@ const SETTLE_POLL_MS = 50;
  * parsed). Claude Code can run Stop before it flushes the turn's last lines (a
  * smoke run saw a scope call and a phase publication land about 200 ms after
  * Stop fired), so a stale read can hold a finished run or miss a run's load.
- * Re-read until the final text is there, for at most SETTLE_MS or half the
- * deadline, then judge what exists. A transcript the parser cannot read is
- * GATE_TRANSCRIPT.
+ * Re-read until the final text is there, for at most maxWaitMs (SETTLE_MS by
+ * default), then judge what exists. Read and parse errors (StateError,
+ * UnknownShape) pass through for the caller to classify.
  */
+export function readSettledTranscript(file: string, finalMessage: unknown, opts: { includeSidechain?: boolean; maxWaitMs?: number } = {}): { raw: string; t: Transcript } {
+  const until = Date.now() + (opts.maxWaitMs ?? SETTLE_MS);
+  for (;;) {
+    const raw = readTranscriptFile(file);
+    const t = parseTranscript(raw, opts);
+    const settled = withFinalMessage(t, finalMessage);
+    if (settled === t || Date.now() >= until) return { raw, t: settled };
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
+  }
+}
+
+/** readSettledTranscript for a gate hook: waits at most half its deadline, and a transcript it cannot read is GATE_TRANSCRIPT. */
 export function settledTranscript(file: string, finalMessage: unknown, opts: { includeSidechain?: boolean } = {}): { raw: string; t: Transcript } {
-  const until = Date.now() + Math.min(SETTLE_MS, remainingMs() / 2);
   try {
-    for (;;) {
-      const raw = readTranscriptFile(file);
-      const t = parseTranscript(raw, opts);
-      const settled = withFinalMessage(t, finalMessage);
-      if (settled === t || Date.now() >= until) return { raw, t: settled };
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
-    }
+    return readSettledTranscript(file, finalMessage, { ...opts, maxWaitMs: Math.min(SETTLE_MS, remainingMs() / 2) });
   } catch (e) {
     if (e instanceof StateError || e instanceof UnknownShape) throw new GateError('GATE_TRANSCRIPT', e.message);
     throw e;
