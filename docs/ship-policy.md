@@ -2476,8 +2476,11 @@ git calls read with its full environment, so land records the config and hooks
 of the checkout's git directories, the `commondir` and `gitdir` files and the
 checkout's `.git` that say where git finds them, and the target of any of those
 that is a symlink, before the checks; it puts back anything a check changed or
-added and refuses with `QUEUE_LAND_MERGED_CHECKS`, naming any path it could not
-put back; and no `gstack-ship-queue` git call runs a hook or fsmonitor. It doesn't otherwise
+added and refuses with `QUEUE_LAND_MERGED_CHECKS`. When it cannot put a path
+back it names it, makes no further git call in the checkout and leaves the land
+lock held until you repair it and rerun land. Its own git calls in the merged
+tree run with the checks' environment, and no `gstack-ship-queue` git call runs
+a hook or fsmonitor. It doesn't otherwise
 sandbox the filesystem: a command can still write the linked `node_modules`,
 the checkout's other files, the user's global git config and directories on
 `PATH`, and read anything the user can (other processes' environments,

@@ -14,7 +14,7 @@
  * rerun after GitHub merged goes straight to the tree check.
  */
 import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
-import { runMergedChecks } from './land-merged-checks';
+import { runMergedChecks, unrestoredCheckouts } from './land-merged-checks';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
@@ -135,6 +135,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
     if (o.dryRun) return { ok: true, run, lines: [...lines, 'DRY-RUN: nothing verified (a rerun without --dry-run runs the tree check and writes the land note)'] };
     const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: policy.land?.merged_checks ?? [], allow: o.allowRepoCommands });
+    if (unrestoredCheckouts.has(root)) return { ...out, lines: [...out.lines, `LOCK: warn the checkout's git directory could not be put back after land.merged_checks, so land made no further git call there; repair it, then rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to release any lock an earlier run left`] };
     const left = readLock(root, remote);
     if (left.state !== 'held' || !ownsLock(left.lock, { pr: o.pr }, journal)) return out;
     const got = takeLock();
@@ -247,6 +248,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   };
   let out: StepOutput;
   let released = true;
-  try { out = locked(); } finally { if (held) released = held.release(); }
-  return released ? out : { ...out, lines: [...out.lines, `LOCK: warn the land lock release push failed, so the lock stays held; rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to resume and release it`] };
+  try { out = locked(); } finally { if (held) released = !unrestoredCheckouts.has(root) && held.release(); }
+  const kept = unrestoredCheckouts.has(root) ? 'the checkout\'s git directory could not be put back after land.merged_checks, so land did not push the lock release and the lock stays held; repair it, then' : 'the land lock release push failed, so the lock stays held;';
+  return released ? out : { ...out, lines: [...out.lines, `LOCK: warn ${kept} rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to resume and release it`] };
 }

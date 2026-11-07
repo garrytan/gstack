@@ -73,7 +73,7 @@ function gitState(root: string, tops: string[]): Map<string, GitEntry> {
   return state;
 }
 
-/** Put every guarded path back as `before` recorded it: added entries removed, files rewritten by rename, modes reset children first. Returns the paths that had changed and those it could not put back. */
+/** Put every guarded path back as `before` recorded it: directories opened (u+rwx) parents first, added entries removed, links and files rewritten, modes reset children first. Returns the paths that had changed and those it could not put back. */
 function restoreGitState(root: string, tops: string[], before: Map<string, GitEntry>): { changed: string[]; unrepaired: string[] } {
   const after = gitState(root, tops);
   const kind = (e: GitEntry) => e.link !== undefined ? 'link' : e.data ? 'file' : e.other ? 'other' : 'dir';
@@ -81,6 +81,9 @@ function restoreGitState(root: string, tops: string[], before: Map<string, GitEn
   const changed = [...new Set([...before.keys(), ...after.keys()])].filter(p => !same(before.get(p), after.get(p))).sort();
   const unrepaired = new Set<string>();
   const attempt = (p: string, fn: () => void) => { try { fn(); } catch { unrepaired.add(p); } };
+  const opened = new Set<string>();
+  const open = (d: string) => attempt(d, () => { const st = fs.lstatSync(d); if (st.isDirectory() && (st.mode & 0o700) !== 0o700) { fs.chmodSync(d, (st.mode | 0o700) & 0o7777); opened.add(d); } });
+  for (const p of changed) { open(path.dirname(p)); if (after.get(p) && kind(after.get(p)!) === 'dir') open(p); }
   for (const p of [...changed].reverse()) {
     const b = before.get(p), a = after.get(p);
     if (a && (!b || kind(a) !== kind(b))) attempt(p, () => fs.rmSync(p, { recursive: true, force: true }));
@@ -89,12 +92,15 @@ function restoreGitState(root: string, tops: string[], before: Map<string, GitEn
     const e = before.get(p);
     if (!e) continue;
     const exists = (() => { try { fs.lstatSync(p); return true; } catch { return false; } })();
-    if (e.link !== undefined) { if (!exists) attempt(p, () => fs.symlinkSync(e.link!, p)); }
+    if (e.link !== undefined) {
+      const cur = (() => { try { return fs.readlinkSync(p); } catch { return undefined; } })();
+      if (cur !== e.link) attempt(p, () => { if (exists) fs.rmSync(p, { recursive: true, force: true }); fs.symlinkSync(e.link!, p); });
+    }
     else if (e.data) attempt(p, () => { const tmp = `${p}.gstack-land-${process.pid}`; fs.writeFileSync(tmp, e.data!); fs.renameSync(tmp, p); });
     else if (!exists && !e.other && p !== path.join(root, '.git')) attempt(p, () => fs.mkdirSync(p));
     else if (!exists) unrepaired.add(p);
   }
-  for (const p of [...changed].reverse()) {
+  for (const p of [...new Set([...changed, ...opened])].sort().reverse()) {
     const e = before.get(p);
     if (e && e.link === undefined && !unrepaired.has(p)) attempt(p, () => fs.chmodSync(p, e.mode & 0o7777));
   }
@@ -117,6 +123,8 @@ export function landPolicyErrors(raw: unknown): PolicyError[] {
 }
 
 /** `setup`: land could not run the checks at all (git failed, or the merged tree's dependencies differ from the linked node_modules): the lane's code is not at fault. */
+/** Checkouts whose git directory land could not put back after land.merged_checks: no further git call there may push through it (ship-queue-land-direct skips the lock release). */
+export const unrestoredCheckouts = new Set<string>();
 export type MergedRun = { ok: true; tree: string } | { ok: false; conflict: boolean; setup?: boolean; tree?: string; detail: string };
 const LOCKFILES = ['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
 const DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'workspaces', 'overrides'];
@@ -180,7 +188,7 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     if (!gitDirs.length) return { ok: false, conflict: false, setup: true, tree, detail: 'cannot find the checkout\'s git directory, so the checks did not run' };
     const tops = gitTops(root, gitDirs);
     const saved = gitState(root, tops);
-    let failed = '';
+    let failed = '', setup = false;
     let restored: { changed: string[]; unrepaired: string[] } = { changed: [], unrepaired: [] };
     try {
       for (const cmd of checks) {
@@ -197,21 +205,22 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
         failed = `\`${cmd}\` ${r.error ? `did not finish (${r.error.message})` : `exited ${r.status ?? r.signal}`} on the merged tree ${tree.slice(0, 12)}${tail ? `:\n${tail}` : ''}`;
         break;
       }
+      if (!failed && git(dir, [...NO_HOOKS, 'rev-parse', 'HEAD'], env).out !== commit.out) failed = `the checks moved HEAD off the merged commit ${commit.out.slice(0, 12)}, so it was not the tree they passed`;
+      const status = failed ? null : git(dir, [...NO_HOOKS, 'status', '--porcelain', '--untracked-files=no'], env);
+      if (status && !status.ok) { setup = true; failed = `git status failed on the merged tree ${tree.slice(0, 12)}: ${status.err.split('\n')[0]}`; }
+      else if (status?.out) failed = `the checks changed tracked files on the merged tree ${tree.slice(0, 12)}, so it was not the tree they passed: ${status.out.split('\n').slice(0, 6).join(', ')}`;
+      if (linux && !killStrays()) failed ||= `git on the merged tree ${tree.slice(0, 12)} left processes running that land could not stop`;
     } finally {
       restored = restoreGitState(root, tops, saved);
     }
     const names = (ps: string[]) => ps.slice(0, 6).map(p => path.relative(root, p)).join(', ');
-    if (where() !== located) return { ok: false, conflict: false, tree, detail: `the checks changed where git finds the checkout's git directory on the merged tree ${tree.slice(0, 12)} (${names(restored.changed)}), and land could not put it back; repair it by hand before any git call there` };
-    if (restored.unrepaired.length) return { ok: false, conflict: false, tree, detail: `the checks changed ${names(restored.changed)} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}, and land could not put back ${names(restored.unrepaired)}; repair it by hand before any git call there` };
+    const lost = restored.unrepaired.length ? `land could not put back ${names(restored.unrepaired)}` : where() !== located ? 'land could not put back where git finds it' : '';
+    if (lost) { unrestoredCheckouts.add(root); return { ok: false, conflict: false, tree, detail: `the checks changed ${names(restored.changed)} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}, and ${lost}; repair it by hand, then rerun land to release its lock` }; }
     if (restored.changed.length) return { ok: false, conflict: false, tree, detail: `the checks changed ${names(restored.changed)} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}; land put them back` };
-    if (failed) return { ok: false, conflict: false, tree, detail: failed };
-    if (git(dir, [...NO_HOOKS, 'rev-parse', 'HEAD']).out !== commit.out) return { ok: false, conflict: false, tree, detail: `the checks moved HEAD off the merged commit ${commit.out.slice(0, 12)}, so it was not the tree they passed` };
-    const changed = git(dir, [...NO_HOOKS, 'status', '--porcelain', '--untracked-files=no']);
-    if (!changed.ok) return { ok: false, conflict: false, setup: true, tree, detail: `git status failed on the merged tree ${tree.slice(0, 12)}: ${changed.err.split('\n')[0]}` };
-    if (changed.out) return { ok: false, conflict: false, tree, detail: `the checks changed tracked files on the merged tree ${tree.slice(0, 12)}, so it was not the tree they passed: ${changed.out.split('\n').slice(0, 6).join(', ')}` };
+    if (failed) return { ok: false, conflict: false, setup, tree, detail: failed };
     return { ok: true, tree };
   } finally {
-    git(root, [...NO_HOOKS, 'worktree', 'remove', '--force', dir]);
+    if (!unrestoredCheckouts.has(root)) git(root, [...NO_HOOKS, 'worktree', 'remove', '--force', dir]);
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 }

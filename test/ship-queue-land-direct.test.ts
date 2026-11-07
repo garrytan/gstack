@@ -380,6 +380,53 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(fs.readFileSync(path.join(common, 'config'), 'utf8')).toBe(config);
   }, 90_000);
 
+  test('a merged check that repoints a symlinked .git/config: land puts the original link back and refuses', () => {
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); printf '[core]\\n\\tsshCommand = false\\n' > $d/alt && ln -sfn alt $d/config`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    const pin = openPr(fx, '94');
+    moveMain(fx, 'other.txt', 'other\n');
+    const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    fs.renameSync(path.join(common, 'config'), path.join(common, 'config.real'));
+    fs.symlinkSync('config.real', path.join(common, 'config'));
+    const r = land(fx, '94', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+    expect(r.err).toContain('land put them back');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(fs.readlinkSync(path.join(common, 'config'))).toBe('config.real');
+  }, 90_000);
+
+  test('a merged check that changes the config and then makes the git directory read-only: land opens it, puts the config and mode back and refuses', () => {
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); git config --file $d/config gstack.probe changed && chmod 555 $d`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    const pin = openPr(fx, '95');
+    moveMain(fx, 'other.txt', 'other\n');
+    const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    const config = fs.readFileSync(path.join(common, 'config'), 'utf8');
+    const mode = fs.statSync(common).mode;
+    const r = land(fx, '95', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('land put them back');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(fs.readFileSync(path.join(common, 'config'), 'utf8')).toBe(config);
+    expect(fs.statSync(common).mode).toBe(mode);
+  }, 90_000);
+
+  test('a guarded path land cannot put back: land refuses, makes no lock-release push and says the lock stays held', () => {
+    const write = `rm "$(git rev-parse --path-format=absolute --git-common-dir)/hooks/pipe"`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    const pin = openPr(fx, '96');
+    moveMain(fx, 'other.txt', 'other\n');
+    const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    spawnSync('mkfifo', [path.join(common, 'hooks', 'pipe')], { timeout: 10_000 });
+    const r = land(fx, '96', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('land could not put back .git/hooks/pipe');
+    expect(r.out).toContain('LOCK: warn the checkout\'s git directory could not be put back');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json')).released).not.toBe(true);
+  }, 90_000);
+
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
     const fx = setup(CHECKED);
     const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });
