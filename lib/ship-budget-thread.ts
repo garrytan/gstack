@@ -25,7 +25,7 @@ export interface ShipMeter {
   task_title?: string;
   /** Titles of subagents this run created, collected from every snapshot's `dispatched`. */
   dispatched: string[];
-  /** Each row's cost at the run's first snapshot: a row found later is metered from here. */
+  /** The rows listed at the run's first snapshot: only rows absent here can be this run's readers. */
   start_rows: Record<string, Cost>;
   /** The row and its cost at the last reading metered on it; absent after a tree reading. */
   row?: Cost & { label: string };
@@ -81,7 +81,6 @@ function identify(m: ShipMeter, s: Snapshot, caller: string | undefined): { labe
   const [label] = candidates as Set<string>;
   if (m.label !== undefined && m.label !== label) return { reason: `the run metered ${m.label} and this reading points at ${label}` };
   if (!s.rows.some(r => r.label === label)) return { reason: `${label} is not among the ${s.rows.length} of ${s.total} rows listed` };
-  if (!(label in m.start_rows)) return { reason: `${label} was not listed when the run started (a replacement /ship subagent)` };
   const confirmed = caller !== undefined || created.some(r => s.dispatched.includes(r.title) && parentOf(r.label) === label);
   if (!confirmed) return { reason: `this command names no task title and no readers of its own, so it cannot show it runs in ${label}` };
   return { label };
@@ -89,9 +88,8 @@ function identify(m: ShipMeter, s: Snapshot, caller: string | undefined): { labe
 
 /**
  * Turn a snapshot into this command's reading: a counter that grows by /ship's own row between two
- * readings that both metered that row, and by the tree's growth otherwise. The first time the row
- * is identified, used= is rebased onto that row's growth since the run's first snapshot, so tree
- * spend counted before it (the lane's work included) drops out.
+ * readings that both identified that row, and by the tree's growth otherwise (the reading that first
+ * identifies the row included). It never goes down, so the cap can over-count but never under-count.
  */
 export function threadReading(l: Ledger, file: string, taskTitle?: string): { reading: number; credits: number; lines: string[]; readers?: Cost & { n: number } } {
   const s = readSnapshot(file);
@@ -118,15 +116,8 @@ export function threadReading(l: Ledger, file: string, taskTitle?: string): { re
   }
   const row = s.rows.find(r => r.label === found.label)!;
   const lines: string[] = [];
-  let d: Cost;
-  if (fresh) d = { tokens: 0, credits: 0 };
-  else if (m.label === undefined) {
-    const base = m.start_rows[found.label] ?? { tokens: 0, credits: 0 };
-    l.meter.baseline = lastTokens; l.meter.last = lastTokens;
-    l.credits = { baseline: lastCredits, last: lastCredits, ...(l.credits?.carried === undefined ? {} : { carried: l.credits.carried }) };
-    d = { tokens: Math.max(0, row.tokens - base.tokens), credits: Math.max(0, row.credits - base.credits) };
-    lines.push(`METER_SCOPE: ship row=${found.label} (was the tree; used= now counts that row from the run's start)`);
-  } else d = m.row ? { tokens: Math.max(0, row.tokens - m.row.tokens), credits: Math.max(0, row.credits - m.row.credits) } : tree;
+  if (!fresh && m.label === undefined) lines.push(`METER_SCOPE: ship row=${found.label} (was the tree; used= counts that row's growth from this reading on)`);
+  const d = fresh ? { tokens: 0, credits: 0 } : m.row?.label === found.label ? { tokens: Math.max(0, row.tokens - m.row.tokens), credits: Math.max(0, row.credits - m.row.credits) } : tree;
   m.label = found.label;
   m.row = { label: found.label, tokens: row.tokens, credits: row.credits };
   delete m.fallback;

@@ -64,10 +64,11 @@ replacement /ship subagent, or RECOVER's `resume` in a new one), or a note or cl
 Ambiguity never refuses a command, never stops the run and never holds `used=` flat; the worst case
 is over-counting.
 
-The first time the row is identified, `used=` and the cap count that row from its cost at the run's
-first snapshot, so spend counted on the tree before it drops out. After that, each reading adds the
-row's growth when the previous reading metered the same row, and the tree's growth otherwise. Every
-cost line on the row prints
+`used=` never goes down. Each reading adds the row's growth when it and the previous reading both
+identified the same row, and the tree's growth otherwise, the reading that first identifies the row
+included. So the cap can over-count, never under-count. A titled `start` writes the title to a file it
+names on a `TITLE_FILE:` line; `ship/DRIVER.md` sources it in every later shell so phase notes and
+`close` carry the title. Every cost line on the row prints
 `METER: ship (task row <label>: /ship and its readers; tree= is the whole thread, never capped)`.
 `tree=` beside `used=` on every BUDGET, NOTE, BUDGET_FINAL and BUDGET_TIMELINE line is the root
 counter's growth since start. A pass's `readers_tokens` is the sum of its readers' own rows. Until the

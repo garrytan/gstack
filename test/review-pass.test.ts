@@ -728,7 +728,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     };
     const snapFile = path.join(dir, '.state/start-thread.json');
     fs.writeFileSync(snapFile, JSON.stringify(await h.tools.thread.get()));
-    const s = spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --thread "$2"', '_', rec, snapFile], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+    const s = spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --thread "$2"', '_', rec, snapFile], { cwd: dir, env: { ...env, GSTACK_SHIP_TASK_TITLE: '/ship PR #1' }, encoding: 'utf8', timeout: 60_000 });
     expect(s.status, s.stdout + s.stderr).toBe(0);
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x18p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'this', step: '9' });
     const note = res.split('\n').find(l => l.startsWith('NOTE: '))!;
@@ -740,41 +740,33 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).toContain('METER: ship (task row Subagent 1');
   }, 240_000);
 
-  // Value: protects=the registered pass program's note, which never sets GSTACK_SHIP_TASK_TITLE, meters /ship's row when the run's title and its readers agree, and the tree (labelled, no STOP, used= growing) when the run's title matches no row; fails_when=the untitled pass note is refused or stops the pass, or holds used= flat;
+  // Value: protects=the registered pass program's note, which carries no task title of its own, meters the tree (labelled, no STOP, used= growing) when the run's title matches no row; fails_when=the pass note is refused or stops the pass, or holds used= flat;
   //   why_new=/ship fix-check on #4107 (review-fc/fix-check#1: a titled run's pass note exited 2) and the Captain's fallback-on-ambiguity rule (GST-1699); seam=tools.thread.get fake with tasks rows; no_claim=Capy's row labels beyond the "Subagent <path>" form
-  test('on a titled --thread run the untitled pass note meters the row, or the tree when the title matches no row', async () => {
-    for (const title of ['/ship PR #1', '/ship PR #1 typo']) {
-      const { dir, env } = repo();
-      const rec = path.join(dir, '.state/rec.md');
-      fs.mkdirSync(path.dirname(rec), { recursive: true });
-      const h = host(dir, env);
-      let lane = 50_000_000;
-      h.tools.thread.get = async () => {
-        const readers = [...h.subs].map(([p, s]) => ({ label: 'Subagent 1.' + p, title: s.title, cost: { tokens: 2_000_000, credits: 2 } }));
-        const own = 3_000_000 + readers.length * 2_000_000;
-        lane += 7_000_000;
-        return { cost: { tokens: own + lane, credits: (own + lane) / 1e6 }, tasks: [{ label: 'Subagent 1', title: '/ship PR #1', cost: { tokens: own, credits: own / 1e6 } }, ...readers], tasks_total: readers.length + 1 };
-      };
-      const snapFile = path.join(dir, '.state/start-thread.json');
-      fs.writeFileSync(snapFile, JSON.stringify(await h.tools.thread.get()));
-      const s = spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --thread "$2"', '_', rec, snapFile], { cwd: dir, env: { ...env, GSTACK_SHIP_TASK_TITLE: title }, encoding: 'utf8', timeout: 60_000 });
-      expect(s.status, s.stdout + s.stderr).toBe(0);
-      const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x19p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'this', step: '9' });
-      const note = res.split('\n').find(l => l.startsWith('NOTE: '));
-      expect(note, res).toBeDefined();
-      expect(res).not.toMatch(/^STOP:/m);
-      const n = h.creates.length;
-      const used = Number(note!.match(/ used=(\d+)/)![1]);
-      if (title === '/ship PR #1') {
-        expect(used).toBe(n * 2_000_000);
-        expect(res).toContain('METER: ship (task row Subagent 1');
-      } else {
-        expect(res).toContain('METER_FALLBACK: 0 rows carry the task title "/ship PR #1 typo"');
-        expect(used).toBe(Number(note!.match(/ tree=(\d+)/)![1]));
-        expect(used).toBeGreaterThan(n * 2_000_000);
-      }
-    }
-  }, 480_000);
+  test('on a --thread run whose title matches no row the pass note meters the tree, with no STOP', async () => {
+    const { dir, env } = repo();
+    const rec = path.join(dir, '.state/rec.md');
+    fs.mkdirSync(path.dirname(rec), { recursive: true });
+    const h = host(dir, env);
+    let lane = 50_000_000;
+    h.tools.thread.get = async () => {
+      const readers = [...h.subs].map(([p, s]) => ({ label: 'Subagent 1.' + p, title: s.title, cost: { tokens: 2_000_000, credits: 2 } }));
+      const own = 3_000_000 + readers.length * 2_000_000;
+      lane += 7_000_000;
+      return { cost: { tokens: own + lane, credits: (own + lane) / 1e6 }, tasks: [{ label: 'Subagent 1', title: '/ship PR #1', cost: { tokens: own, credits: own / 1e6 } }, ...readers], tasks_total: readers.length + 1 };
+    };
+    const snapFile = path.join(dir, '.state/start-thread.json');
+    fs.writeFileSync(snapFile, JSON.stringify(await h.tools.thread.get()));
+    const s = spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --thread "$2"', '_', rec, snapFile], { cwd: dir, env: { ...env, GSTACK_SHIP_TASK_TITLE: '/ship PR #1 typo' }, encoding: 'utf8', timeout: 60_000 });
+    expect(s.status, s.stdout + s.stderr).toBe(0);
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x19p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'this', step: '9' });
+    const note = res.split('\n').find(l => l.startsWith('NOTE: '));
+    expect(note, res).toBeDefined();
+    expect(res).not.toMatch(/^STOP:/m);
+    expect(res).toContain('METER_FALLBACK: 0 rows carry the task title "/ship PR #1 typo"');
+    const used = Number(note!.match(/ used=(\d+)/)![1]);
+    expect(used).toBe(Number(note!.match(/ tree=(\d+)/)![1]));
+    expect(used).toBeGreaterThan(h.creates.length * 2_000_000);
+  }, 240_000);
 
   test('Step 14.5 runs as an audit-only pass: its docs reader alone, verbatim, with no reviewer plan', async () => {
     const { dir, env } = repo();

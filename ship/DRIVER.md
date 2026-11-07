@@ -34,6 +34,7 @@ with `gstack-ship-budget note --step <last step> --thread T --record <rec>`, T a
 `tools.thread.get({thread_id:"this"})` JSON (`tools.capy.write`). No check per step, no reservation, no meter-only
 call, no handoff; `used=` is /ship's own task row, its readers included, `tree=` the thread; a note with `used=`
 past `--token-cap` prints `verdict=stop`, the one stop check. The pass program notes its readers itself.
+`start` with the brief's `GSTACK_SHIP_TASK_TITLE` set; source its `TITLE_FILE:` in every later shell.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
 call resumes the poll. Lanes, pregate, `finish` run in background; after a restart, rerun the same command. Never end the turn while

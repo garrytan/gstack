@@ -338,6 +338,13 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
+  const title = ctx.env.GSTACK_SHIP_TASK_TITLE;
+  if (thread !== undefined && title) {
+    const titleFile = path.join(dir, 'title.env');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(titleFile, `export GSTACK_SHIP_TASK_TITLE='${title.replace(/'/g, `'\\''`)}'\n`, { mode: 0o600 });
+    note.push(`TITLE_FILE: ${titleFile} (source it after the launch file in every later shell, so each command meters /ship's own row)`);
+  }
   return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...(threadStart?.lines ?? []), ...out.stdout], exit: out.exit });
 }
 
