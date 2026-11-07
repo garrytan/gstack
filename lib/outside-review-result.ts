@@ -139,12 +139,22 @@ function severityWords(text: string): Severity[] {
 /**
  * A no-findings statement opening a sentence: NO_FINDINGS (its underscore is
  * gone after plainReview), "No issues found", "I found no actionable
- * regressions", "I did not find any bugs". Never a phrase inside another
- * clause ("renaming the flag is no problem for callers, but ...").
+ * regressions", "I did not find any bugs", "The changes introduce no definite,
+ * actionable regressions" (the whole change as subject). Never a phrase inside
+ * another clause ("renaming the flag is no problem for callers, but ...").
  */
-const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete)\\s+)?(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
+const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete|definite),?\\s+){0,2}(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
 const NO_FINDINGS_LEAD = '(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:reviewing|reading|checking|inspecting|reviewed|read|checked|inspected)\\b[^,.;]{0,80},\\s+)?';
-const NO_FINDINGS = new RegExp(`^${NO_FINDINGS_LEAD}(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+)?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`, 'i');
+const CHANGE_SUBJECT = '(?:the|this|these)\\s+(?:changes?|diffs?|patch(?:es)?)\\s+(?:introduces?|adds?|contains?|ha(?:s|ve))\\s+';
+const NO_FINDINGS = new RegExp(`^${NO_FINDINGS_LEAD}(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+|${CHANGE_SUBJECT})?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`, 'i');
+/** The whole change as subject is held to the scope rule even as the reply's only sentence. */
+const CHANGE_SUBJECT_STATEMENT = new RegExp(`^${NO_FINDINGS_LEAD}${CHANGE_SUBJECT}`, 'i');
+/**
+ * A whole sentence that only reports passing checks ("Tests, lint, and build all
+ * pass."). Closing the reply, it signs the review off and never replaces its conclusion (#3469).
+ */
+const CHECK_NAME = '(?:(?:unit|existing|targeted|full)\\s+)?(?:tests?|test suite|lint(?:ing)?|build|typecheck|type[- ]check|format check)';
+const CHECK_RESULTS = new RegExp(`^(?:the\\s+|all\\s+)?${CHECK_NAME}(?:(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${CHECK_NAME})*\\s+(?:all\\s+|both\\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|(?:is|are)\\s+green)[.!]$`, 'i');
 /** A contrast or exception qualifies the claim, so the sentence does not conclude that nothing was found. */
 const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
 const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report)?/i;
@@ -157,9 +167,43 @@ const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b
  * prose precedes it, anything after the statement other than a predicate
  * ("were found", "is evident") or a colon explanation must scope it to the
  * change as a whole: "No issues in the parser." or "No regressions were found
- * by the tests." says nothing about the rest of the reply.
+ * by the tests." says nothing about the rest of the reply. The conclusion is
+ * read from `concluding`, the reply without its closing check-results
+ * sentences, while the sentence count comes from the whole reply, so dropping
+ * a sign-off never makes a scoped claim the reply's only sentence.
  */
-function concludesNoFindings(code: string): boolean {
+function concludesNoFindings(code: string, concluding: string): boolean {
+  const all = reviewProse(code), { sentences, because } = reviewProse(concluding);
+  const total = all.sentences.length + (all.because ? 1 : 0);
+  return [sentences.at(-1), because].some(conclusion => {
+    const statement = conclusion?.match(NO_FINDINGS)?.[0];
+    if (!conclusion || !statement || NO_FINDINGS_EXCEPTION.test(conclusion)) return false;
+    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!]+$/, '').trim();
+    return (total === 1 && !CHANGE_SUBJECT_STATEMENT.test(conclusion)) || !qualifier || qualifier.startsWith(':') || WHOLE_CHANGE_SCOPE.test(qualifier);
+  });
+}
+
+/**
+ * The raw reply without the check-results sentences that close it, read before
+ * code is blanked so a sentence quoting code ("Tests `do not` pass.") never is
+ * one. A line is a sentence of its own only after a sentence end or a blank
+ * line, never the tail of a wrapped one ("`Not all`\ntests pass.") or a
+ * condition after a colon. The reply's only sentence is never dropped.
+ */
+function withoutClosingCheckResults(reply: string): string {
+  let rest = reply.trimEnd();
+  for (;;) {
+    const line = rest.slice(rest.lastIndexOf('\n') + 1);
+    const last = line.split(/(?<=[.!?;])[\t ]+/).at(-1)!;
+    const before = rest.slice(0, rest.length - last.length);
+    const ownSentence = last.length < line.length || /(?:[.!?;]|\n[\t \r]*)[\t \r]*\n[\t ]*$/.test(before);
+    if (!ownSentence || !CHECK_RESULTS.test(last.trim()) || !before.trim()) return rest;
+    rest = before.trimEnd();
+  }
+}
+
+/** The reply's prose sentences, wrapped lines joined, and its Recommendation because-clause. */
+function reviewProse(code: string): { sentences: string[]; because: string | undefined } {
   let prose = '', because: string | undefined, recommendationOpen = false;
   for (const line of code.split(/\r?\n/)) {
     const text = plainReview(line).trim();
@@ -177,14 +221,7 @@ function concludesNoFindings(code: string): boolean {
     } else if (/^[\t ]*#{1,6}[\t ]/.test(line)) prose += `\n${text}\n`;
     else prose += listed || prose.endsWith('\n') || /[.!?;:]$/.test(prose) || !/^[a-z]/.test(text) ? `\n${text}` : ` ${text}`;
   }
-  const sentences = prose.split(/(?<=[.!?;])\s+|\n|,\s+and\s+/i).map(sentence => sentence.trim()).filter(Boolean);
-  const total = sentences.length + (because ? 1 : 0);
-  return [sentences.at(-1), because].some(conclusion => {
-    const statement = conclusion?.match(NO_FINDINGS)?.[0];
-    if (!conclusion || !statement || NO_FINDINGS_EXCEPTION.test(conclusion)) return false;
-    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!]+$/, '').trim();
-    return total === 1 || !qualifier || qualifier.startsWith(':') || WHOLE_CHANGE_SCOPE.test(qualifier);
-  });
+  return { sentences: prose.split(/(?<=[.!?;])\s+|\n|,\s+and\s+/i).map(sentence => sentence.trim()).filter(Boolean), because };
 }
 
 /** Formatting the requested marker in bold, inline code, or a list does not invalidate a completed review. */
@@ -276,11 +313,12 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const code = withoutCode(input.text), plainCode = plainReview(code);
   const read = withoutCode(input.text, true), plainRead = plainReview(read);
   const marked = recommendationHeading(code);
+  const concludes = concludesNoFindings(marked, recommendationHeading(withoutCode(withoutClosingCheckResults(input.text))));
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
   const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
-  const unlabeled = reviewed && verdicts[1] !== undefined && !concludesNoFindings(marked)
+  const unlabeled = reviewed && verdicts[1] !== undefined && !concludes
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
   const cleanEvidence = levelsOf(code, plainCode).length > 0;
@@ -307,7 +345,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
   const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || v.includes('?') || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
-  if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(marked)) {
+  if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludes) {
     return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
   }
   return result('clean');
