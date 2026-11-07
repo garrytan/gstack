@@ -78,7 +78,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/design-count-native-8525.json': ['test/plan-count-completion.test.ts'],
   'test/fixtures/design-count-native-issue-fields.json': ['test/plan-count-completion.test.ts'],
   'test/fixtures/design-detector-source-public.json': ['test/design-detector-source-fixture.test.ts'],
-  'test/fixtures/design-lint/**': ['test/design-lint.test.ts', 'test/design-lint-color.test.ts', 'test/design-lint-type.test.ts', 'test/design-lint-structure.test.ts', 'test/design-lint-motion.test.ts', 'test/design-lint-chrome.test.ts', 'test/design-lint-assets.test.ts', 'test/design-lint-finish.test.ts', 'test/design-lint-tailwind.test.ts', 'test/design-lint-render.test.ts', 'test/design-lint-fourth-cycle.test.ts', 'test/design-lint-fifth-cycle.test.ts'],
+  'test/fixtures/design-lint/**': ['test/design-lint.test.ts', 'test/design-lint-color.test.ts', 'test/design-lint-type.test.ts', 'test/design-lint-structure.test.ts', 'test/design-lint-motion.test.ts', 'test/design-lint-chrome.test.ts', 'test/design-lint-assets.test.ts', 'test/design-lint-finish.test.ts', 'test/design-lint-tailwind.test.ts', 'test/design-lint-render.test.ts', 'test/design-lint-fourth-cycle.test.ts', 'test/design-lint-fifth-cycle.test.ts', 'test/design-lint-app-profile.test.ts', 'test/design-lint-scope-guard.test.ts'],
   'test/fixtures/design-floor-focus-36597762183.json': ['test/plan-design-floor-fixture.test.ts'],
   'test/fixtures/design-floor-focus-cover-all.json': ['test/plan-design-floor-fixture.test.ts'],
   'test/fixtures/design-floor-focus-review-focus.json': ['test/plan-design-floor-fixture.test.ts'],
@@ -259,6 +259,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/trial-cause/replays.json': ['test/trial-cause.test.ts'],
   'test/fixtures/trial-cause/thinking-captures-37198445662.json': ['test/trial-cause.test.ts'],
   'test/fixtures/trial-record-v1-reader.ts': ['test/helpers/eval-store.test.ts'],
+  'test/fixtures/ui-spacing/**': ['test/design-lint-app-contract.test.ts', 'test/design-lint-app-profile.test.ts', 'test/design-lint-scope-guard.test.ts'],
   'test/fixtures/windows-bash-resolution.json': ['test/script-invocation.test.ts'],
   'test/fixtures/workflow-required-steps.json': ['test/workflow-required-steps.test.ts'],
 };

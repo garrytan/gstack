@@ -2,23 +2,32 @@
 // gstack-design-lint — the free, deterministic design lint behind /design-html
 // and /design-review. Static tier over .html .css .jsx .tsx .vue .svelte .astro
 // (Tailwind class strings included); --render measures the page in gstack's own
-// browser (Aside first, the browse daemon otherwise).
+// browser (Aside first, the browse daemon otherwise). --scope app is the
+// render-only app profile: five spacing rules inside one --within section.
 //
 // Usage: gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>]
 //                           [--scope page|component] [--job <job>] [--json] [--rules]
+//        gstack-design-lint --scope app (--url <http://…> ... | --state-file <states.json>) --within <selector>
+//                           [--viewport WxH ...] [--wait-for <selector>] [--waivers <file>] [--json] [--verbose]
 //
 // Prints one "LINT: <blocks|ask|polish|waived> <rule-id> <file>:<line> <evidence> | fix: <fix>"
 // line per finding, then "LINT_SUMMARY: blocks=N ask=N waived=N polish=N render=<ran|skipped: reason>".
-// Exit 2 on blocks, 1 on unanswered asks, 0 otherwise; 3 on a usage error.
-// docs/design-lint.md is the contract.
+// Exit 2 on blocks, 1 on unanswered asks, 0 otherwise; 3 on a usage error; 4 when
+// --url was given and no browser measured it. Under --scope app: 0 clean, 1 open,
+// 4 incomplete, 3 usage, and a LINT_APP verdict line. docs/design-lint.md is the contract.
 
 import { formatResult, lint, type LintOptions } from '../lib/design-lint/index';
+import { appMain, renderUnavailable, type AppCliArgs } from '../lib/design-lint/app-cli';
 import { ruleTable } from '../lib/design-lint/report';
 
-const USAGE = 'usage: gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>] [--scope page|component] [--job <job>] [--json] [--rules]';
+const USAGE = 'usage: gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>] [--scope page|component] [--job <job>] [--json] [--rules]\n'
+  + '       gstack-design-lint --scope app (--url <http://…> ... | --state-file <states.json>) --within <selector> [--viewport WxH ...] [--wait-for <selector>] [--waivers <file>] [--json] [--verbose]';
 
 const args = process.argv.slice(2);
 const opts: LintOptions & { json: boolean; rules: boolean } = { render: false, urls: [], scope: 'page', job: null, json: false, rules: false };
+const app: AppCliArgs = { paths: [], urls: [], viewports: [], verbose: false, json: false };
+let appScope = false;
+const appFlags: string[] = [];
 const paths: string[] = [];
 const take = (flag: string): string => {
   const v = args[++i];
@@ -30,10 +39,16 @@ for (; i < args.length; i++) {
   const a = args[i];
   if (a === '--render') opts.render = true;
   else if (a === '--url') { opts.urls!.push(take(a)); opts.render = true; }
-  else if (a === '--scope') { const s = take(a); if (s !== 'page' && s !== 'component') { console.error('--scope must be page or component'); process.exit(3); } opts.scope = s; }
+  else if (a === '--scope') { const s = take(a); if (s === 'app') appScope = true; else if (s !== 'page' && s !== 'component') { console.error('--scope must be page, component or app'); process.exit(3); } else opts.scope = s; }
   else if (a === '--job') opts.job = take(a).trim().toLowerCase();
   else if (a === '--json') opts.json = true;
   else if (a === '--rules') opts.rules = true;
+  else if (a === '--verbose') app.verbose = true;
+  else if (a === '--within') { appFlags.push(a); app.within = take(a); }
+  else if (a === '--viewport') { appFlags.push(a); app.viewports.push(take(a)); }
+  else if (a === '--wait-for') { appFlags.push(a); app.waitFor = take(a); }
+  else if (a === '--waivers') { appFlags.push(a); app.waivers = take(a); }
+  else if (a === '--state-file') { appFlags.push(a); app.stateFile = take(a); }
   else if (a === '--help' || a === '-h') { console.log(USAGE); process.exit(0); }
   else if (a.startsWith('--')) { console.error(`unknown flag ${a}`); console.error(USAGE); process.exit(3); }
   else paths.push(a);
@@ -41,6 +56,14 @@ for (; i < args.length; i++) {
 if (opts.rules) {
   for (const r of ruleTable()) console.log(`${r.tier.padEnd(6)} ${r.id.padEnd(26)} ${r.gate.padEnd(7)} ${r.title}`);
   process.exit(0);
+}
+if (appScope) {
+  const code = await appMain({ ...app, paths, urls: opts.urls!, json: opts.json }, { out: (s) => console.log(s), err: (s) => console.error(s) });
+  process.exit(code);
+}
+if (appFlags.length) {
+  console.error(`gstack-design-lint: APP_ONLY: ${appFlags[0]} only with --scope app | fix: add --scope app, or drop ${appFlags[0]}`);
+  process.exit(3);
 }
 if (!paths.length && !opts.urls!.length) { console.error(USAGE); process.exit(3); }
 if (opts.urls!.some((u) => !/^https?:\/\//.test(u))) { console.error('--url takes an http or https address'); process.exit(3); }
@@ -52,4 +75,6 @@ if (!result.files.length && !opts.urls!.length) {
 }
 if (opts.json) console.log(JSON.stringify({ summary: result.summary, files: result.files.length, findings: result.findings }, null, 2));
 else console.log(formatResult(result));
+const missing = renderUnavailable(opts.urls!, result.summary.render);
+if (missing) { console.error(missing); process.exit(4); }
 process.exit(result.exitCode);
