@@ -2105,7 +2105,8 @@ alone). Recommend (b) short-term + (a) properly sequenced with the codemod.
 **What:** `evals-periodic.yml` runs an explicit 9-file matrix; the four tests
 demoted to `periodic` in v1.62.0.0 (`skill-e2e-plan-eng-plan-mode`,
 `skill-e2e-plan-design-plan-mode`, `skill-e2e-plan-eng-finding-floor`,
-`skill-e2e-plan-design-finding-floor`) are not in it, so they currently run
+`skill-e2e-plan-design-finding-floor`; the two plan-eng files were deleted with
+standalone /plan-eng-review in GST-1698) are not in it, so they currently run
 only locally/manually (`bun run test:periodic` or `eval:bg:periodic`). Wiring
 them needs a PTY-capable periodic job: the container skill-registration setup
 from evals.yml's `e2e-pty-plan-smoke` job (real-file SKILL.md copies for the
