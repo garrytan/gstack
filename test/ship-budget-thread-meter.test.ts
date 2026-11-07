@@ -151,6 +151,50 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(h.sb(['note', '--run', run, '--step', '10', '--reading', '130000000']).err).toContain('pass --thread');
   });
 
+  // Value: protects=a second /ship in the same lane finds its own row although an earlier /ship's readers carry the same titles, and counts only its own readers; fails_when=resolve or the readers sum matches rows that existed before the run started;
+  //   why_new=/ship on #4107 at 9c15d60 (voices/adversarial-native#1, #2, targeted#1): reader titles are per pass, not per run, so a re-ship metered the tree or an old row; seam=none; no_claim=an earlier reader first listed after this run's start
+  test('an earlier /ship\'s same-titled readers neither pick the row nor count as this run\'s readers', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '20M', '--thread',
+      snap(h, 100_000_000, [['Subagent 1', '/ship PR #4098 at aaa', 9_000_000], ['Subagent 1.1', P1, 3_000_000], ['Subagent 2', SHIP, 1_000_000]])]);
+    expect(s.code, s.out + s.err).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const note = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread',
+      snap(h, 130_000_000, [['Subagent 1', '/ship PR #4098 at aaa', 9_000_000], ['Subagent 1.1', P1, 3_000_000], ['Subagent 2', SHIP, 7_000_000], ['Subagent 2.1', P1, 2_000_000]], [P1])]);
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(note.out).toContain('METER_SCOPE: ship row=Subagent 2');
+    expect(field(note.out, 'NOTE', 'used')).toBe(6_000_000);
+    expect(field(note.out, 'NOTE', 'readers_tokens')).toBe(2_000_000);
+  });
+
+  // Value: protects=a titled run whose title matches no row still finds /ship's row from its readers; fails_when=a missed title keeps the run on the tree for its whole life;
+  //   why_new=/ship on #4107 at 9c15d60 (voices/adversarial-native#4); seam=none; no_claim=a title that matches two rows and readers under two parents
+  test('a task title that matches no row falls through to the parent of this run\'s readers', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '20M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: 'ship #4107 typo' });
+    expect(s.out).toContain('METER_FALLBACK: 0 rows carry the task title');
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const note = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread', snap(h, 140_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 1.1', P1, 2_000_000]], [P1])], { GSTACK_SHIP_TASK_TITLE: 'ship #4107 typo' });
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(note.out).toContain('METER_SCOPE: ship row=Subagent 1');
+    expect(field(note.out, 'NOTE', 'used')).toBe(4_000_000);
+  });
+
+  // Value: protects=a replacement /ship subagent cannot keep spending on a run whose meter reads its finished predecessor's row; fails_when=note or resume under another task title is accepted and used= stays flat;
+  //   why_new=/ship on #4107 at 9c15d60 (voices/outside-voice#1): resume in a replacement subagent bypassed the cap; seam=none; no_claim=an untitled replacement, which names no row to compare
+  test('a note or resume under another task title is refused', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const next = snap(h, 140_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 2', '/ship PR #4098 retry', 30_000_000]]);
+    for (const cmd of [['note', '--run', run, '--step', '9', '--thread', next], ['resume', '--run', run, '--thread', next]]) {
+      const out = h.sb(cmd, { GSTACK_SHIP_TASK_TITLE: '/ship PR #4098 retry' });
+      expect(out.code, cmd[0] + out.out).toBe(2);
+      expect(out.err).toContain('a replacement /ship subagent starts its own run');
+    }
+    expect(h.sb(['note', '--run', run, '--step', '9', '--thread', next], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(0);
+  });
+
   // Value: protects=the RECOVER cap covers every step still to run, not only Step 22 and the stop reserve; fails_when=an observe stop at a labelled step (9.2, judge) names used + Step 22 + reserve;
   //   why_new=#4098's RECOVER named 54.45M at 47.1M used and /ship then needed 66M (GST-1699); seam=lib/ship-budget.ts projector; no_claim=that the priors match any one run
   test('an observe stop names a RECOVER cap that covers the noted step through Step 22 at the run\'s own pace', () => {

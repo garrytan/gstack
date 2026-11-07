@@ -47,25 +47,30 @@ export function readSnapshot(file: string): Snapshot {
   return { tokens, credits, rows, total: num(doc.tasks_total) ?? rows.length, dispatched };
 }
 
+/** Rows this run can have created: absent from its first snapshot. An earlier /ship's readers carry the same titles. */
+const newRows = (m: ShipMeter, s: Snapshot) => s.rows.filter(r => !(r.label in m.start_rows));
+
 function resolve(m: ShipMeter, s: Snapshot): { label?: string; reason?: string } {
   const truncated = s.total > s.rows.length ? `; the snapshot lists ${s.rows.length} of ${s.total} rows` : '';
+  let titleMiss = '';
   if (m.task_title) {
     const hits = s.rows.filter(r => r.title === m.task_title);
     if (hits.length === 1) return { label: hits[0]!.label };
-    return { reason: `${hits.length} rows carry the task title "${m.task_title}"${truncated}` };
+    titleMiss = `${hits.length} rows carry the task title "${m.task_title}"; `;
   }
   const parents = new Set<string>();
+  const created = newRows(m, s);
   for (const title of m.dispatched) {
-    const hits = s.rows.filter(r => r.title === title);
+    const hits = created.filter(r => r.title === title);
     if (hits.length !== 1) continue;
     const parent = hits[0]!.label.replace(/\.\d+$/, '');
-    if (parent === hits[0]!.label) return { reason: `this run's readers are top-level subagents, so /ship runs on the root thread, whose own counter also holds the lane's work` };
+    if (parent === hits[0]!.label) return { reason: `${titleMiss}this run's readers are top-level subagents, so /ship runs on the root thread, whose own counter also holds the lane's work` };
     parents.add(parent);
   }
-  if (parents.size > 1) return { reason: `this run's readers sit under ${[...parents].join(', ')}` };
+  if (parents.size > 1) return { reason: `${titleMiss}this run's readers sit under ${[...parents].join(', ')}` };
   const [label] = parents;
   if (label && s.rows.some(r => r.label === label)) return { label };
-  return { reason: `no subagent this run created is listed yet (its row is found from its first reader)${truncated}` };
+  return { reason: `${titleMiss}no subagent this run created is listed yet (its row is found from its first reader)${truncated}` };
 }
 
 /**
@@ -80,12 +85,13 @@ export function threadReading(l: Ledger, file: string, taskTitle?: string): { re
     dispatched: [], start_rows: Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }])),
     tree: { baseline: s.tokens, last: s.tokens, credits: s.credits }, ...(taskTitle ? { task_title: taskTitle } : {}),
   };
+  if (!fresh && taskTitle && taskTitle !== (m.task_title ?? s.rows.find(r => r.label === m.label)?.title ?? taskTitle)) throw usageError(`run ${l.run} meters /ship task "${m.task_title ?? m.label}", not "${taskTitle}": a replacement /ship subagent starts its own run (gstack-ship-budget start --thread), so the cap reads the row that is spending`);
   if (s.tokens < m.tree.last) throw budgetError('BUDGET_READING_REJECTED', `--thread ${file}: tree reading ${s.tokens} is below the run's last tree reading ${m.tree.last}`);
   const prevTree = { tokens: m.tree.last, credits: m.tree.credits ?? s.credits };
   m.tree.last = s.tokens;
   m.tree.credits = s.credits;
   for (const t of s.dispatched) if (!m.dispatched.includes(t)) m.dispatched.push(t);
-  const readers = s.dispatched.length ? s.rows.filter(r => s.dispatched.includes(r.title)).reduce((a, r) => ({ n: a.n + 1, tokens: a.tokens + r.tokens, credits: Math.round((a.credits + r.credits) * 100) / 100 }), { n: 0, tokens: 0, credits: 0 }) : undefined;
+  const readers = s.dispatched.length ? newRows(m, s).filter(r => s.dispatched.includes(r.title)).reduce((a, r) => ({ n: a.n + 1, tokens: a.tokens + r.tokens, credits: Math.round((a.credits + r.credits) * 100) / 100 }), { n: 0, tokens: 0, credits: 0 }) : undefined;
   const lines: string[] = [];
   if (!m.label) {
     const found = resolve(m, s);
