@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gstack-artifacts-init — set up ~/.gstack/ as a git repo synced to a private
 # git host (GitHub or GitLab) so a remote gbrain can ingest your artifacts
-# (CEO plans, designs, /investigate reports) as a federated source.
+# (CEO plans, designs, retros) as a federated source.
 #
 # Replaces gstack-brain-init in v1.27.0.0 (per D4 hard-delete; no compat
 # shim). Existing users are migrated by gstack-upgrade/migrations/v1.27.0.0.sh.

@@ -85,8 +85,7 @@ before the commit and names each line to rewrite.">
 ## Blast radius
 <One or two sentences: what else the change touches (callers, consumers, generated
 files, hosts) and the one fact that makes that safe, with the rung of the evidence
-ladder the fact reached (file:line read, walked failure path, script ran, repro). The
-ladder is the `/investigate` skill's Blast radius section, when present.>
+ladder the fact reached (file:line read, walked failure path, script ran, repro).>
 
 ## Test Coverage
 <coverage diagram from Step 7, or "All new code paths have test coverage.">

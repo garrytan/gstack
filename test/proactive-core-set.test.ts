@@ -15,9 +15,9 @@ import { generateUpgradeCheck } from '../scripts/resolvers/preamble/generate-upg
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CORE = ['/office-hours', '/review', '/qa', '/ship'];
-const NON_CORE_SAMPLE = ['/investigate', '/plan-ceo-review', '/design-review', '/retro'];
+const NON_CORE_SAMPLE = ['/cso', '/plan-ceo-review', '/design-review', '/retro'];
 // The one place the core block may name non-core skills: the rule that says to name them for the user to type.
-const TYPE_IT_RULE = 'under `core`, name `/browse` or `/investigate` for the user to type instead of\ninvoking it.';
+const TYPE_IT_RULE = 'under `core`, name `/browse` for the user to type instead of\ninvoking it.';
 
 const routerTmpl = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
 const routerOut = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -62,7 +62,7 @@ describe('proactive core set: every skill preamble', () => {
   });
 
   test('a generated core skill and a generated non-core skill both carry it (it is the same preamble)', () => {
-    for (const skill of ['review', 'investigate']) {
+    for (const skill of ['review', 'retro']) {
       const out = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect(out).toContain('`core`: only /office-hours, /review, /qa, /ship');
     }
@@ -85,7 +85,7 @@ describe('proactive core set: the one-time prompt and the registry', () => {
     expect(QUESTIONS['preamble-proactive-behavior'].options).toEqual(['core', 'all', 'off']);
   });
 
-  test('the first-run and first-loop tips name only core skills (negative control: no /spec or /investigate tip; the off gating is proven by running the script in proactive-skill-start.test.ts)', () => {
+  test('the first-run and first-loop tips name only core skills (negative control: no /spec or /cso tip; the off gating is proven by running the script in proactive-skill-start.test.ts)', () => {
     const tips = skillStart.slice(skillStart.indexOf('if [ "$_ACTIVATED" = "no" ]; then'), skillStart.indexOf('# Routing injection'));
     for (const skill of NON_CORE_SAMPLE.concat(['/spec', '/plan-eng-review'])) expect(tips).not.toContain(skill);
     for (const skill of CORE) expect(tips).toContain(skill);

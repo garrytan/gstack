@@ -30,7 +30,6 @@ export const PR_PROFILE_CASE_IDS = [
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
-  'investigate-owned-completion', 'investigate-owned-abort', 'investigate-owned-ending-error',
   'ship-coverage-value', 'review-test-value', 'test-audit-report-only',
   'office-hours-auto-mode', 'plan-ceo-review-plan-mode',
 ] as const;
@@ -39,8 +38,6 @@ export const PR_PROFILE_CASE_IDS = [
 export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-office-hours-auto-mode.test.ts': ['office-hours-auto-mode'],
   'test/skill-e2e-plan-ceo-plan-mode.test.ts': ['plan-ceo-review-plan-mode'],
-  'test/skill-e2e-investigate-owned-completion.test.ts': ['investigate-owned-completion'],
-  'test/skill-e2e-investigate-owned-termination.test.ts': ['investigate-owned-abort', 'investigate-owned-ending-error'],
   'test/skill-e2e-hermetic-canary.test.ts': ['hermetic-canary', 'hermetic-sentinel'],
   'test/skill-e2e-bws.test.ts': ['browse-basic', 'browse-snapshot', 'skillmd-setup-discovery'],
   'test/skill-e2e-qa-workflow.test.ts': ['qa-bootstrap'],
@@ -244,6 +241,7 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/free-test-seed-allowlist.json', // Read only by the free seed ratchet (test/free-seed-ratchet.test.ts).
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
+  'careful/bin/hook-extract.sh', // The careful/freeze hooks' path extractor: free test/hook-scripts.test.ts covers it; no paid case reads it since the /investigate cases retired (GST-1717).
   'qm/**', // The QM edition (scripts/gen-qm-edition.ts): shipped to QM as a deployment layer, read by no paid case; free test/qm-edition.test.ts covers it (GST-1492).
   'capy/skill/**', // The vendored Capy skill (Drive bootstrapper): run by Capy agents, read by no paid case; test/capy-skill-wrapper.test.ts covers it.
   'USING_GBRAIN_WITH_GSTACK.md', // The /setup-gbrain guide: README, docs/gbrain-quick-tour.md and free tests read it; no skill prompt or paid fixture does (GST-1027).
@@ -498,7 +496,7 @@ export function selectPrProfile(options: {
           ? `Its test file changed, but the PR lane cannot select it by name; name its Bun test '${id}' (testIfSelected) to run it on PRs`
           : 'Broad gate census/release coverage; outside the fast PR profile',
   }));
-  const noQuickCoverage = files.filter(file => isPromptFile(file)
+  const noQuickCoverage = files.filter(file => isPromptFile(file) && (!derived || fs.existsSync(path.join(ROOT, file)))
     && !(depends(file, maps.globalTouchfiles) && (e2e.length > 0 || judges.length > 0))
     && !e2e.some(id => depends(file, maps.e2eTouchfiles[id]))
     && !judges.some(id => depends(file, maps.judgeTouchfiles[id])));

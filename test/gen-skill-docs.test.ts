@@ -2307,7 +2307,8 @@ describe('preamble routing injection (bin/gstack-skill-start emission layer)', (
 
   test('routing section content includes key routing rules', () => {
     expect(routingBlock).toContain('invoke /office-hours');
-    expect(routingBlock).toContain('invoke /investigate');
+    expect(routingBlock).toContain('Bugs/errors → fix them directly');
+    expect(routingBlock).not.toContain('/investigate');
     expect(routingBlock).toContain('invoke /ship');
     expect(routingBlock).toContain('invoke /qa');
   });
@@ -3390,7 +3391,7 @@ describe('Factory generation (--host factory)', () => {
   });
 
   test('non-sensitive skills lack disable-model-invocation', () => {
-    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-browse'];
+    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-office-hours', 'gstack-browse'];
     for (const name of NON_SENSITIVE) {
       const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
       const fmEnd = content.indexOf('\n---', 4);
@@ -4305,7 +4306,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
 // ─── Learnings + Confidence Resolver Tests ─────────────────────
 
 describe('LEARNINGS_SEARCH resolver', () => {
-  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
+  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'office-hours', 'plan-ceo-review'];
 
   for (const skill of SEARCH_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings search`, () => {
@@ -4358,7 +4359,7 @@ describe('LEARNINGS_SEARCH resolver', () => {
 });
 
 describe('LEARNINGS_LOG resolver', () => {
-  const LOG_SKILLS = ['review', 'retro', 'investigate'];
+  const LOG_SKILLS = ['review', 'retro'];
 
   for (const skill of LOG_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings log`, () => {
@@ -4598,10 +4599,8 @@ describe('voice-triggers processing', () => {
     expect(ship.slice(0, ship.indexOf('\n---', 4))).not.toContain('codex_default_prompt:');
 
     // The runtime-read and host-read keys survive the strip.
-    const investigate = fs.readFileSync(path.join(ROOT, 'investigate', 'SKILL.md'), 'utf-8');
-    const invFm = investigate.slice(0, investigate.indexOf('\n---', 4));
-    expect(invFm).toContain('hooks:');
-    expect(invFm).toContain('gbrain:');
+    expect(genFm).toContain('hooks:');
+    expect(genFm).toContain('gbrain:');
   });
 });
 

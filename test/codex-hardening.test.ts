@@ -975,10 +975,10 @@ describe('codex broken-install detection (#2742)', () => {
 // --- Live codex smokes keep away from the real Codex home -------------------
 
 describe('live codex smokes run codex in a private HOME and CODEX_HOME', () => {
-  // Every codex run writes $CODEX_HOME/tmp/arg0. The two smokes below probe the
-  // CLI at module load or in free-tier tests, so with a real codex on PATH they
+  // Every codex run writes $CODEX_HOME/tmp/arg0. The smoke below probes the
+  // CLI at module load or in free-tier tests, so with a real codex on PATH it
   // used to write into the developer's ~/.codex.
-  for (const file of ['test/codex-resume-flag-semantics.test.ts', 'test/codex-e2e-sol-scope.test.ts']) {
+  for (const file of ['test/codex-resume-flag-semantics.test.ts']) {
     test(`${file} never runs codex with the caller's HOME or Codex home`, () => {
       const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-smoke-home-'));
       try {

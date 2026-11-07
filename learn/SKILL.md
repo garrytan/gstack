@@ -106,7 +106,7 @@ appends one. Both live in `~/.claude/skills/gstack/bin/` and take `--help`. Pick
 
 | Request | Run | Then |
 |---|---|---|
-| show (default) | `~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20` | group by type; if empty, say none are recorded yet and that /review, /ship, /investigate and other skills record them as they work |
+| show (default) | `~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20` | group by type; if empty, say none are recorded yet and that /review, /ship and other skills record them as they work |
 | search | `~/.claude/skills/gstack/bin/gstack-learnings-search --query "<words>" --limit 20` | show the matches |
 | other projects | add `--cross-project` | only user-stated learnings from other projects appear |
 | stats | `~/.claude/skills/gstack/bin/gstack-learnings-search --stats` | show the counts as a table |

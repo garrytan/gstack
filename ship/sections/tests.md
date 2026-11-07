@@ -322,7 +322,7 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
 ### Step T4: Execute the chosen action
 
 **If "Investigate and fix now":**
-- One read-only root-cause pass, then `/investigate` if unclear.
+- One read-only root-cause pass. If the cause is still unclear, reproduce it with a focused failing test and trace it to the root cause before the fix.
 - Fix the pre-existing failure.
 - Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
 - Continue with the workflow.

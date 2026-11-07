@@ -6,7 +6,7 @@ name: Windows Smoke
 #   1. ./setup --host claude into an isolated HOME under Git Bash, with
 #      gstack's own browser (Playwright Chromium).
 #   2. The core skills start: gstack-skill-start for /ship, /review,
-#      /qa-only, /investigate and /browse answers SKILL_START_PROTO: 1.
+#      /qa-only and /browse answers SKILL_START_PROTO: 1.
 #   3. /browse on gstack's own browser: the installed browse runs a piped
 #      chain flow against a local page from an unrelated directory.
 #   4. The fastest Windows-safe free tests for those paths (list below).
@@ -69,7 +69,7 @@ jobs:
           SMOKE_HOME="$RUNNER_TEMP/smoke-home"
           USERPROFILE="$(cygpath -w "$SMOKE_HOME")"
           export HOME="$SMOKE_HOME" USERPROFILE
-          for skill in ship review qa-only investigate browse; do
+          for skill in ship review qa-only browse; do
             set +e
             OUT=$(timeout 120 "$SMOKE_HOME/.claude/skills/gstack/bin/gstack-skill-start" --skill "$skill" --model claude 2>&1 < /dev/null)
             CODE=$?

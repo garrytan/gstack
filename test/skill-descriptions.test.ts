@@ -13,7 +13,7 @@ import { HOST_PATHS } from '../scripts/resolvers/types';
  */
 
 const ROOT = join(import.meta.dir, '..');
-const SKILLS = ['investigate', 'review', 'qa', 'verify'];
+const SKILLS = ['review', 'qa', 'verify'];
 // splitCatalogDescription cuts a longer Claude lead with "...", which drops the end of the when-clause.
 const LEAD_CAP = 200;
 // test/catalog-budget.test.ts PER_SKILL_BYTE_CAP: name + Claude description bytes.
@@ -75,10 +75,11 @@ describe('discovery-target descriptions (GST-1088)', () => {
     });
   }
 
-  const PROMPTS: Array<[string, string]> = [
-    ['this test fails, fix it', 'investigate'],
-    ['why is this broken?', 'investigate'],
-    ['the build is broken, here is the stack trace', 'investigate'],
+  // A bug report routes to no skill since /investigate was cut (GST-1717): the router's Failures rule fixes it test-first.
+  const PROMPTS: Array<[string, string | null]> = [
+    ['this test fails, fix it', null],
+    ['why is this broken?', null],
+    ['the build is broken, here is the stack trace', null],
     ['review this PR', 'review'],
     ['can you look over my diff', 'review'],
     ['review my changes before I merge', 'review'],
@@ -88,10 +89,10 @@ describe('discovery-target descriptions (GST-1088)', () => {
     ['verify my change', 'verify'],
   ];
   for (const [prompt, want] of PROMPTS) {
-    test('untold prompt "' + prompt + '" carries a ' + want + ' trigger and no other target trigger', () => {
+    test('untold prompt "' + prompt + '" carries ' + (want ? 'a ' + want + ' trigger and no other' : 'no') + ' target trigger', () => {
       const p = prompt.toLowerCase();
       const hits = SKILLS.filter(s => triggersOf(s).some(t => p.includes(t)));
-      expect(hits, '"' + prompt + '" matches [' + hits.join(', ') + '], want [' + want + ']. ' + fix(want)).toEqual([want]);
+      expect(hits, '"' + prompt + '" matches [' + hits.join(', ') + '], want [' + (want ?? '') + ']. ' + fix(want ?? hits[0])).toEqual(want ? [want] : []);
     });
   }
 });
@@ -102,8 +103,8 @@ describe('contract blocks (frozen v1 schema)', () => {
     .map(d => d.name)
     .sort();
 
-  test('investigate and review declare contracts', () => {
-    for (const skill of ['investigate', 'review']) {
+  test('review declares a contract', () => {
+    for (const skill of ['review']) {
       const tmpl = skill + '/SKILL.md.tmpl';
       expect(contractFromTemplate(read(tmpl), tmpl), tmpl + ': no contract block. ' + fix(skill)).not.toBeNull();
     }
@@ -199,7 +200,7 @@ describe('contract-done-means renderer', () => {
   test('check and waive appear only once bin/gstack-skill-contract ships', () => {
     const shipped = existsSync(join(ROOT, 'bin', 'gstack-skill-contract'));
     expect(CONTRACT_CHECKER_SHIPPED, 'CONTRACT_CHECKER_SHIPPED in scripts/resolvers/contract-done-means.ts must be ' + shipped + ' while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: set it, then bun run gen:skill-docs').toBe(shipped);
-    for (const skill of ['investigate', 'review']) {
+    for (const skill of ['review']) {
       expect(read(skill + '/SKILL.md').includes('gstack-skill-contract'), skill + '/SKILL.md names gstack-skill-contract while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: bun run gen:skill-docs').toBe(shipped);
     }
     if (shipped) expect(existsSync(join(ROOT, 'docs', 'skill-routing-and-contracts.md')), 'docs/skill-routing-and-contracts.md is missing').toBe(true);
@@ -207,7 +208,7 @@ describe('contract-done-means renderer', () => {
   });
 
   test('check and waive run the checker through the host-resolved bin path, like every other gstack bin', () => {
-    for (const skill of ['investigate', 'review']) {
+    for (const skill of ['review']) {
       for (const [host, paths] of Object.entries(HOST_PATHS)) {
         const out = generateContractDoneMeans({ skillName: skill, tmplPath: join(ROOT, skill, 'SKILL.md.tmpl'), host, paths } as unknown as Parameters<typeof generateContractDoneMeans>[0]);
         for (const command of ['check', 'waive']) {

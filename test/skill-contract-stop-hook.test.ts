@@ -45,7 +45,7 @@ const stop = (file: string, env: Record<string, string> = {}, extra: Record<stri
 const record = () => JSON.parse(fs.readFileSync(path.join(state, 'skill-contracts', 'sess-1.json'), 'utf8'));
 
 describe('block once, with the pinned text', () => {
-  test('J1: /investigate loaded, edited, answered with no status line -> blocked with the pinned message', () => {
+  test('J1: /verify loaded, edited, answered with no status line -> blocked with the pinned message', () => {
     const r = stop(transcript(J1_TRANSCRIPT));
     expect(r.code).toBe(0);
     expect(r.stderr).toBe('');
@@ -55,7 +55,7 @@ describe('block once, with the pinned text', () => {
     expect(out.reason).toBe(PINNED);
     expect(out.reason).not.toMatch(/skill_contracts|gstack-config|\boff\b/);
     const run = Object.values(record().runs)[0] as any;
-    expect(run).toMatchObject({ skill: 'investigate', outcome: 'blocked', missing: ['debug-report', 'repro-after-fix'] });
+    expect(run).toMatchObject({ skill: 'verify', outcome: 'blocked', missing: ['debug-report', 'repro-after-fix'] });
     expect(fs.statSync(path.join(state, 'skill-contracts', 'sess-1.json')).mode & 0o777).toBe(0o600);
   });
 
@@ -135,7 +135,7 @@ describe('block once, with the pinned text', () => {
     expect((Object.values(record().runs)[0] as any).outcome).toBe('blocked');
   });
 
-  test('an /investigate run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
+  test('an /verify run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
     const file = transcript([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED'))]);
     expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
@@ -237,7 +237,7 @@ describe('fails open on state errors with one stderr line', () => {
     const bad = runHook(CONTRACT_HOOK, '{oops', hookEnv(state, skills, { GSTACK_SKILL_CONTRACTS: 'on' }));
     expect(bad.code).toBe(0);
     expect(bad.stderr).toMatch(STATE_ERROR);
-    const invalid = skillsDir([], { investigate: '---\nname: investigate\ncontract:\n  version: 2\n  items: []\n---\n' });
+    const invalid = skillsDir([], { verify: '---\nname: verify\ncontract:\n  version: 2\n  items: []\n---\n' });
     const r = runHook(CONTRACT_HOOK, payload(transcript(J1_TRANSCRIPT)), hookEnv(state, invalid, { GSTACK_SKILL_CONTRACTS: 'on' }));
     fs.rmSync(invalid, { recursive: true, force: true });
     expect(r.stdout).toBe('');

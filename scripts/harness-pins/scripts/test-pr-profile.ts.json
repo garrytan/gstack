@@ -1,1 +1,1 @@
-{"blob":"812d84b94328409328020a842696e1a34b22b095","since":6,"nonBehavioral":"narrow screens derive setup and loadouts.json is derived; case selection only, no verdict can change (GST-1575)"}
+{"blob":"507e219536d4cbd4e28b0d76a5f9ee471e0a2176","since":6,"nonBehavioral":"GST-1717 scoped fix: a changed prompt file counts as deleted only when it is absent from disk, so an untracked prompt on disk still needs full validation (stricter selection); no case's prompt, runner or grading changes, so no verdict can change"}

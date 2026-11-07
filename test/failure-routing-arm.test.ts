@@ -37,7 +37,7 @@ function mainMakeRepo(fixture: Fixture): string {
     fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
     fs.writeFileSync(path.join(repo, file), body);
   }
-  for (const skill of ['investigate', 'qa', 'review', 'ship']) {
+  for (const skill of ['qa', 'review', 'ship']) {
     fs.mkdirSync(path.join(repo, '.claude', 'skills', skill), { recursive: true });
     fs.writeFileSync(path.join(repo, '.claude', 'skills', skill, 'SKILL.md'), extractSkillHead(path.join(ROOT, skill, 'SKILL.md')));
   }
@@ -96,7 +96,7 @@ describe('router arms (GST-470)', () => {
     expect(plainMetrics([call('Read'), call('Grep'), call('Edit'), call('Read')])).toMatchObject({ editedBeforeRead: false, readsBeforeEdit: 2 });
     expect(plainMetrics([call('Edit'), call('Read')])).toMatchObject({ editedBeforeRead: true, readsBeforeEdit: 0 });
     expect(plainMetrics([call('Bash', { command: "sed -i 's/ /-/' src/slug.js" }), call('Read')])).toMatchObject({ editedBeforeRead: true, readsBeforeEdit: 0 });
-    expect(plainMetrics([call('Bash', { command: 'bun test' }), call('Skill', { skill: 'investigate' }), call('Write')]))
-      .toMatchObject({ editedBeforeRead: false, readsBeforeEdit: 1, sequence: 'Bash → Skill(investigate) → Write' });
+    expect(plainMetrics([call('Bash', { command: 'bun test' }), call('Skill', { skill: 'qa' }), call('Write')]))
+      .toMatchObject({ editedBeforeRead: false, readsBeforeEdit: 1, sequence: 'Bash → Skill(qa) → Write' });
   });
 });

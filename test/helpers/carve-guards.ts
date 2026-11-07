@@ -858,48 +858,6 @@ do not launch the downstream skill or open a browser.`,
     mustContain: ['window.__start()', 'window.__tick(dt)', 'whole milliseconds averaging 1000/60', 'Content never hides behind animation timing'],
   },
 
-  // ── Multi-agent wave PR D3 (2026-10-10): investigate recipes carve ──
-  // Five lazy recipes (flake, polluter, race, eval-bisect, backlog) read when
-  // the Recipes list or the --backlog argument matches; How to work, the
-  // Iron Law, the Scope Lock and the Report stay always-loaded (GST-938 dropped
-  // the Phases 1-5 prose: followed in 0 of 46 Opus 5.5 sessions).
-  investigate: {
-    skill: 'investigate',
-    expectedSections: ['flake.md', 'polluter.md', 'race.md', 'eval-bisect.md', 'backlog.md', 'blast-radius.md'],
-    requiredReads: ['flake.md'],
-    scenario:
-      'Walk /investigate in SIMULATION — do not run bash, edit files or acquire a freeze lock. The symptom: test/widget.test.ts fails in CI about one run in eight ("expected 3 events, got 2") and passes locally every time; the PR under review only touched src/widget.ts. Do NOT use AskUserQuestion. Read each pointed section before doing its step, apply the matching recipe, and report the investigation plan: what you would run on main and on the branch, the forced probe, and the exact `## Flake evidence` section you would require in the PR body. Stop before Phase 4.',
-    staticInvariants: {
-      mustStayInSkeleton: [
-        '## Iron Law',
-        '## Arguments',
-        '## How to work',
-        '## Scope Lock',
-        '## Recipes',
-        '## Report',
-        'git update-index --refresh',
-      ],
-      mustPrecedeStop: ['## Arguments'],
-      mustMoveToSection: [
-        '## Flake recipe',
-        '## Polluter recipe',
-        '## Race recipe',
-        '## Eval bisect recipe',
-        '## Backlog mode (`/investigate --backlog`)',
-        '## Flake evidence',
-        'ship-measure.ts free --files',
-        '## Blast radius',
-        'Look where grep stops',
-      ],
-      gateAfterStop: undefined, // operational skill, no plan-mode gate
-    },
-    behavioral: 'prompt',
-    maxSkeletonBytes: 30_210, // GSTA-96 hoist (2026-10-27): lowered from 52_000 by the shared preamble that moved to sections/preamble.md, keeping main's headroom of 377 bytes; measured 29,833 on the v1.91.273.0 merge. Before: D3 carve: Arguments table, Section index, Phase 1 call-site and update-index additions, five STOP pointers; measured 51,532 (2026-10-10). + pstack item 2(b)/8 (Garry 2026-10-26 "do it"): the blast-radius STOP pointer and index row plus the shared-premise red flag; measured 51,623 (2026-10-26), inside the existing cap.
-    minUnionBytes: 55_000, // D3 carve: skeleton + five recipes; measured union 61,513 (2026-10-10)
-    mustContain: ['root cause', 'hypothes', 'Flake evidence', 'still_open', 'already_fixed', 'P(fail | regression)', 'the one fact it is safe because of'],
-    maxSizeRatio: 1.12, // the monolith's cap (parity-harness MONOLITH_INVARIANTS before the carve); measured 61,513 / 60,600 = 1.0151 (2026-10-10). + the blast-radius section (2.8 KB); measured 66,167 / 60,600 = 1.0919 (2026-10-26).
-  },
-
   // ── pstack absorb C1 (2026-10-26, Garry "do it"): context-restore's first carve ──
   // One lazy section: the no-checkpoint fallback that mines this workspace's
   // own transcripts (host stores from hosts/*.ts, a fixed window, never another

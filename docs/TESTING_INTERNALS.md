@@ -1969,7 +1969,7 @@ for arm in rule removed none; do
   GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
 done
 for arm in current before none; do
-  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-contradicted-cause
+  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-verified-cause
 done
 ```
 
@@ -1986,8 +1986,8 @@ ran, the session ended normally) still assert. This departs from "the same
 panel" above because these contracts are gstack's own rules: a plain model was
 never asked to keep them, so a failing `none` trial is the measurement, not a
 regression, and a red verdict would block the gate on behavior nobody
-specified. The router's `none` arm has no "routed to /investigate" metric,
-since no skill is installed to route to; it records plain metrics instead:
+specified. The router's `none` arm has no repro-first metric,
+since it never sees the router's rules; it records plain metrics instead:
 whether the suite is green, whether an edit came before the first read, and
 how many read-only calls came before the first edit. The first paid comparison
 with these arms gets its own preregistration.

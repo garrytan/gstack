@@ -5,11 +5,10 @@ import { join, resolve, dirname } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 const ROOT = resolve(import.meta.dir, '..');
-// The Claude render: the template names the root as {{RUNTIME_ROOT}} ($HOME/.claude/skills/gstack on Claude).
-const template = readFileSync(join(ROOT, 'investigate/SKILL.md'), 'utf8');
-const scope = template.split('## Scope Lock')[1].split('\n---')[0];
-const acquisition = [...scope.matchAll(/```bash\n([\s\S]*?)```/g)][1][1];
-const registered = template.match(/command: '(.*check-freeze\.sh.*)'/)![1].replace(/''/g, "'");
+// The run-owned acquisition the retired /investigate Scope Lock ran (GST-1717); freeze-state.sh keeps acquire/release.
+const acquisition = 'bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" acquire "<detected-directory>"';
+// The Claude render of the hook /freeze registers ($HOME/.claude/skills/gstack on Claude).
+const registered = readFileSync(join(ROOT, 'freeze/SKILL.md'), 'utf8').match(/command: '(.*check-freeze\.sh.*)'/)![1].replace(/''/g, "'");
 let root: string;
 let a: string;
 let b: string;
@@ -62,7 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-test('investigation scope keeps the original physical boundary across two worktrees', () => {
+test('a run-owned scope keeps the original physical boundary across two worktrees', () => {
   acquire();
   expect(hook(a, join(a, 'src/file.ts')).hookSpecificOutput).toBeUndefined();
   expect(hook(b, join(a, 'src/file.ts')).hookSpecificOutput).toBeUndefined();
@@ -106,16 +105,6 @@ test('legacy root spellings retain their absolute-root meaning', () => {
   }
 });
 
-for (const ending of ['completion', 'explicit abort', 'known ending error']) {
-  test(`${ending}: emitted terminal cleanup releases only the acquired token`, () => {
-    const token = owner();
-    const cleanup = [...scope.matchAll(/```bash\n([\s\S]*?)```/g)][2][1];
-    expect(bash(cleanup.replace('<retained-owner-token>', token)).status).toBe(0);
-    expect(existsSync(state)).toBe(false);
-    expect(hook(b, join(b, 'src/file.ts')).hookSpecificOutput).toBeUndefined();
-    expect(mutation('release', token).status).toBe(0);
-  });
-}
 test('same-path and different-path successors survive stale-owner cleanup', () => {
   for (const path of [join(a, 'src'), join(b, 'src')]) {
     mutation('clear');
@@ -197,7 +186,7 @@ test('a replacement cannot interleave after owner comparison but before removal'
   } finally { writeFileSync(proceed, 'continue'); await exited; }
 });
 test('all skill writers use the coordinated helper, never raw file mutations', () => {
-  for (const name of ['investigate', 'freeze', 'guard', 'unfreeze']) {
+  for (const name of ['freeze', 'guard', 'unfreeze']) {
     const content = readFileSync(join(ROOT, name, 'SKILL.md.tmpl'), 'utf8');
     expect(content).toContain('freeze/bin/freeze-state.sh');
     expect(content).not.toMatch(/(?:>|rm[^\n]*)[^\n]*freeze-dir\.txt/);

@@ -3,15 +3,6 @@
   "layer_root": "qm/sandbox/skills",
   "skills": [
     {
-      "id": "gstack-investigate",
-      "source": "investigate",
-      "files": [
-        "SKILL.md"
-      ],
-      "first_step": "git log --oneline -20 -- <path>",
-      "first_step_marker": "\\bgit\\s+log\\b"
-    },
-    {
       "id": "gstack-review",
       "source": "review",
       "files": [

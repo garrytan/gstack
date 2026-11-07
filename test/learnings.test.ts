@@ -133,15 +133,6 @@ describe('gstack-learnings-log', () => {
     const parsed = JSON.parse(fs.readFileSync(f!, 'utf-8').trim());
     expect(parsed.type).toBe('investigation');
   });
-
-  // Caller contract: investigate/SKILL.md.tmpl must emit type:"investigation"
-  // verbatim. Guards against the template drifting to an invalid type and
-  // silently breaking the log path. See codex review finding for #1423.
-  test('investigate template emits type:"investigation" verbatim (caller contract)', () => {
-    const tmpl = fs.readFileSync(path.join(ROOT, 'investigate/SKILL.md.tmpl'), 'utf-8');
-    // The invocation line must include "type":"investigation" exactly.
-    expect(tmpl).toContain('"type":"investigation"');
-  });
 });
 
 describe('gstack-learnings-search', () => {
