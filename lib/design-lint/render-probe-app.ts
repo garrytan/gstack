@@ -391,7 +391,7 @@ export function appProbeScript(call: string): string {
 
 /** The readiness expression handed to the engine's waitFor: a selector matched through every open shadow root. With soft, it also turns true after ms, so a selector that never matches reaches the probe and reports WITHIN_NO_MATCH instead of failing the render. */
 export function composedWaitExpression(selector: string, soft: number | null): string {
-  const find = '(() => { const s = ' + JSON.stringify(selector) + '; const rs = [document]; for (let i = 0; i < rs.length; i++) { if (rs[i].querySelector(s)) return true; for (const e of rs[i].querySelectorAll("*")) if (e.shadowRoot) rs.push(e.shadowRoot); } return false; })()';
+  const find = '(() => { const s = ' + JSON.stringify(selector) + '; const rs = [document]; try { for (let i = 0; i < rs.length; i++) { if (rs[i].querySelector(s)) return true; for (const e of rs[i].querySelectorAll("*")) if (e.shadowRoot) rs.push(e.shadowRoot); } } catch (e) { return ' + (soft != null) + '; } return false; })()';
   if (soft == null) return find;
   return '(() => { const w = window; w.__gstackLintAppWait = w.__gstackLintAppWait || Date.now(); return ' + find + ' || Date.now() - w.__gstackLintAppWait > ' + soft + '; })()';
 }

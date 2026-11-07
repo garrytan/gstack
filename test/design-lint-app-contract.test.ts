@@ -15,7 +15,7 @@ import { parseStateFile, parseViewport, parseWaiverFile, redactText, redactUrl, 
 import { appMain, renderUnavailable, type AppCliArgs, type AppDeps } from '../lib/design-lint/app-cli';
 import { lint } from '../lib/design-lint/index';
 import { lintApp, APP_CODES } from '../lib/design-lint/render-app';
-import { appInstallScript } from '../lib/design-lint/render-probe-app';
+import { appInstallScript, composedWaitExpression } from '../lib/design-lint/render-probe-app';
 import { installScript } from '../lib/design-lint/render-probe';
 import { finalize, Reporter, type Finding } from '../lib/design-lint/report';
 import { RULES } from '../lib/design-lint/rules/ids';
@@ -300,6 +300,22 @@ describe('app profile contract: findings, redaction and traces (T22, T29, T34, T
     expect(redactUrl('https://' + ['u', 'p'].join(':') + '@h.test/a?code=1&next=/b')).toBe('https://h.test/a?code=REDACTED&next=%2Fb');
     expect(redactText('see http://h.test/?jwt=abc and https://k.test/x?api_key=1')).toBe('see http://h.test/?jwt=REDACTED and https://k.test/x?api_key=REDACTED');
     expect(stateNameOf('http://h.test/p?as=owner&password=x')).toBe('/p?as=owner&password=REDACTED');
+    expect(redactUrl('http://127.0.0.1:5300/cb#access_token=FRAGSENTINEL&state=x')).toBe('http://127.0.0.1:5300/cb#access_token=REDACTED&state=x');
+    expect(redactText('at http://h.test/#id_token=FRAGSENTINEL')).toBe('at http://h.test/#id_token=REDACTED');
+    expect(redactUrl('http://h.test/p#rows')).toBe('http://h.test/p#rows');
+    const hashed = await app({ urls: ['http://127.0.0.1:5300/cb#access_token=FRAGSENTINEL'], json: true }, { run: fakeRun({ measure: () => ok([f('row-crowding', 'div.row "x"')]) }) });
+    expect(hashed.out + hashed.err).not.toContain('FRAGSENTINEL');
+  });
+
+  test('two --url states that share a redacted name stay two states; the same URL twice is DUPLICATE_STATE', async () => {
+    const seen: string[] = [];
+    const two = await app({ urls: ['http://127.0.0.1:5300/p?session=owner', 'http://127.0.0.1:5300/p?session=viewer'] }, { run: async (spec) => { seen.push(spec.file); return fakeRun({})(spec); } });
+    expect(two.code).toBe(0);
+    expect(seen).toEqual(['http://127.0.0.1:5300/p?session=owner', 'http://127.0.0.1:5300/p?session=viewer']);
+    expect(two.out).toMatch(/^LINT_APP: verdict=clean code=OK states=2\/2 /m);
+    expect(two.out).toContain('state=/p?session=REDACTED~2 viewport=1440x900');
+    const dup = await app({ urls: [URL1, URL1] }, { run: neverRun });
+    expect([dup.code, dup.err]).toEqual([3, 'gstack-design-lint: DUPLICATE_STATE: --url ' + URL1 + ' is given twice | fix: measure each URL once']);
   });
 
   test('a probe that throws writes a 0600 trace under a private directory, names it, and prints its stack only with --verbose', async () => {
@@ -317,6 +333,21 @@ describe('app profile contract: findings, redaction and traces (T22, T29, T34, T
     expect(quiet.err).toBe('gstack-design-lint: PROBE_ERROR: the measure probe threw at /settings?as=owner 375x812; trace ' + trace);
     const loud = await app({ verbose: true }, { run, traceDir: path.join(tmpDir(), 'traces') });
     expect(loud.err).toContain('at glAppRows (eval:1:2)');
+    const blocker = path.join(tmpDir(), 'not-a-dir');
+    fs.writeFileSync(blocker, '');
+    const unwritable = await app({ verbose: true }, { run, traceDir: path.join(blocker, 'traces') });
+    expect(unwritable.code).toBe(4);
+    expect(unwritable.out).toMatch(/^LINT_APP: verdict=incomplete code=PROBE_ERROR /m);
+    expect(unwritable.err).toContain('gstack-design-lint: PROBE_ERROR: the measure probe threw at /settings?as=owner 375x812; no trace written (');
+  });
+
+  test('a section selector the browser refuses never holds readiness: the soft wait goes on to the probe, an explicit --wait-for stays not ready', async () => {
+    const refuses = { querySelector: () => { throw new SyntaxError("'main:foo' is not a valid selector"); }, querySelectorAll: () => [] };
+    const evaluate = (expression: string) => new Function('document', 'window', 'return ' + expression)(refuses, {});
+    expect(evaluate(composedWaitExpression('main:foo', 15_000))).toBe(true);
+    expect(evaluate(composedWaitExpression('main:foo', null))).toBe(false);
+    const late = await lintApp({ states: [{ name: 's', url: URL1 }], within: 'main', reach: async () => null, run: fakeRun({ fail: 'waitFor expression never became truthy: x (waited 16000ms)' }) });
+    expect([late.app.code, late.app.states[0].detail]).toEqual(['NOT_READY', 'the section main did not match within 15s']);
   });
 });
 

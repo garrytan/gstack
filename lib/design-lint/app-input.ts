@@ -30,15 +30,23 @@ export function parseViewport(spec: string): Viewport {
 
 const SECRET_PARAM = /token|key|secret|auth|session|sig|signature|password|pass|code|jwt|bearer/i;
 
-/** A URL fit to print: userinfo dropped, secret-looking query values replaced with REDACTED. Navigation always uses the real URL. */
+/** Parameters with every secret-looking value replaced with REDACTED, or null when none looks secret. */
+function redactParams(text: string): string | null {
+  const params = new URLSearchParams(text);
+  if (![...params.keys()].some((k) => SECRET_PARAM.test(k))) return null;
+  return new URLSearchParams([...params.entries()].map(([k, v]) => [k, SECRET_PARAM.test(k) ? 'REDACTED' : v])).toString();
+}
+
+/** A URL fit to print: userinfo dropped, secret-looking query and fragment parameter values replaced with REDACTED. Navigation always uses the real URL. */
 export function redactUrl(raw: string): string {
   let u: URL;
   try { u = new URL(raw); } catch { return raw.replace(/\/\/[^/@\s]*@/, '//'); }
   u.username = '';
   u.password = '';
-  if ([...u.searchParams.keys()].some((k) => SECRET_PARAM.test(k))) {
-    u.search = new URLSearchParams([...u.searchParams.entries()].map(([k, v]) => [k, SECRET_PARAM.test(k) ? 'REDACTED' : v])).toString();
-  }
+  const search = redactParams(u.search.slice(1));
+  if (search !== null) u.search = search;
+  const hash = u.hash.includes('=') ? redactParams(u.hash.slice(1)) : null;
+  if (hash !== null) u.hash = hash;
   return u.toString();
 }
 

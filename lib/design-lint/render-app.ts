@@ -150,8 +150,12 @@ async function lintState(state: AppState, opts: AppOptions, run: Runner, viewpor
   const all = (code: AppCode, detail: string, trace?: string) => {
     for (const v of viewports) out.coverage.push({ name: state.name, url: shown, viewport: viewportLabel(v), status: 'incomplete', code, matched: 0, detail: field(detail), ...(trace ? { trace } : {}) });
   };
-  const trace = (probe: string, viewport: string, stack: string): string => {
-    const file = writeTrace(opts.traceDir ?? defaultTraceDir(), { probe, state: state.name, viewport, stack: redactText(stack), url: shown });
+  const trace = (probe: string, viewport: string, stack: string): string | undefined => {
+    let file: string;
+    try { file = writeTrace(opts.traceDir ?? defaultTraceDir(), { probe, state: state.name, viewport, stack: redactText(stack), url: shown }); } catch (e) {
+      out.stderr.push(`gstack-design-lint: PROBE_ERROR: the ${probe} probe threw at ${state.name} ${viewport}; no trace written (${field((e as Error).message)})`);
+      return undefined;
+    }
     out.stderr.push(`gstack-design-lint: PROBE_ERROR: the ${probe} probe threw at ${state.name} ${viewport}; trace ${file}`);
     return file;
   };
@@ -169,7 +173,7 @@ async function lintState(state: AppState, opts: AppOptions, run: Runner, viewpor
   if (!res.ok) {
     const err = res.error ?? 'unknown error';
     const code = codeOfRunError(err);
-    all(code, code === 'NOT_READY' ? `the --wait-for selector ${opts.waitFor} did not match within ${sectionWait / 1000}s` : `the page did not render: ${err.slice(0, 300)}`);
+    all(code, code === 'NOT_READY' ? `${opts.waitFor ? `the --wait-for selector ${opts.waitFor}` : `the section ${within}`} did not match within ${sectionWait / 1000}s` : `the page did not render: ${err.slice(0, 300)}`);
     return out;
   }
   const setup = parseEval(res.evals[1]);

@@ -49,9 +49,13 @@ export function planApp(a: AppCliArgs): { states: AppState[]; notes: string[]; w
   const bad = a.urls.find((u) => !/^https?:\/\/[^/]/.test(u));
   if (bad) throw new AppUsageError('BAD_URL', `--url ${redactUrl(bad)} is not an http or https address`, 'pass the dev server URL, like http://127.0.0.1:5300/p');
   const viewports = a.viewports.map(parseViewport);
-  const parsed = a.stateFile ? parseStateFile(read('--state-file', a.stateFile, 'BAD_STATE_FILE')) : { states: a.urls.map((url) => ({ name: stateNameOf(url), url })), notes: [] };
-  const names = new Set<string>();
-  for (const s of parsed.states) { if (names.has(s.name)) throw new AppUsageError('DUPLICATE_STATE', `two states are named ${s.name}`, 'measure each URL once'); names.add(s.name); }
+  const twice = a.urls.find((u, i) => a.urls.indexOf(u) !== i);
+  if (twice) throw new AppUsageError('DUPLICATE_STATE', `--url ${redactUrl(twice)} is given twice`, 'measure each URL once');
+  const named = new Map<string, number>();
+  const parsed = a.stateFile ? parseStateFile(read('--state-file', a.stateFile, 'BAD_STATE_FILE')) : {
+    states: a.urls.map((url) => { const name = stateNameOf(url); const n = (named.get(name) ?? 0) + 1; named.set(name, n); return { name: n > 1 ? `${name}~${n}` : name, url }; }),
+    notes: [],
+  };
   const waivers = a.waivers ? parseWaiverFile(read('--waivers', a.waivers, 'BAD_WAIVERS'), (id) => !!ruleMeta(id)?.app) : [];
   return { states: parsed.states, notes: parsed.notes, within: a.within, viewports, waivers };
 }
@@ -66,7 +70,7 @@ export async function appMain(a: AppCliArgs, io: Io, deps: AppDeps = {}): Promis
   const r = await lintApp({ states: plan.states, within: plan.within, viewports: plan.viewports, waitFor: a.waitFor, waivers: plan.waivers, ...deps });
   r.app.notes.unshift(...plan.notes);
   for (const line of r.stderr) io.err(line);
-  if (a.verbose) for (const c of r.app.states) if (c.trace) io.err(`gstack-design-lint: trace ${c.trace}:\n${fs.readFileSync(c.trace, 'utf8')}`);
+  if (a.verbose) for (const c of r.app.states) if (c.trace) { try { io.err(`gstack-design-lint: trace ${c.trace}:\n${fs.readFileSync(c.trace, 'utf8')}`); } catch (e) { io.err(`gstack-design-lint: trace ${c.trace} could not be read: ${(e as Error).message}`); } }
   const missing = renderUnavailable(plan.states.map((s) => s.url), r.summary.render);
   if (missing) io.err(missing);
   if (a.json) { io.out(JSON.stringify({ summary: r.summary, files: 0, findings: r.findings, app: r.app }, null, 2)); return r.exitCode; }

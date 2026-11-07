@@ -324,7 +324,9 @@ report them. Its scheduler (`lib/design-lint/render-app.ts`) and probes
 `window.__gstackLintApp`) are separate from the page tier's, which is
 unchanged.
 
-- **States.** Each `--url` is one state, named by its path and query.
+- **States.** Each `--url` is one state, named by its path and query
+  (redacted); a later URL whose name is taken gets `~2`, `~3` after it, and
+  the same URL given twice exits 3 (`DUPLICATE_STATE`).
   `--state-file` names them instead:
   `{"version":1,"states":[{"name":"owner","url":"http://127.0.0.1:5300/p?as=owner","expect":"<selector>","within":"<selector>"}]}`.
   `name`, `expect` and `within` are optional; an unknown key, a missing or
@@ -430,7 +432,8 @@ detail, the fix and its anchor here. Nothing is retried: fix the named cause
 and rerun. A probe that throws writes `{probe, state, viewport, stack, url}`
 to a private file (mode 0600, in a 0700 `gstack-design-lint-traces`
 directory under the system temp directory) and names it on stdout and
-stderr; `--verbose` also prints the stack.
+stderr; `--verbose` also prints the stack. When the trace cannot be
+written, the state is still `PROBE_ERROR` and stderr says why.
 
 ### Waivers and redaction
 
@@ -443,9 +446,10 @@ exits 3. A finding whose rule matches and whose locator contains the waiver's
 prints as a `waiver` finding (unused), which does not change the verdict.
 
 Every URL a person sees (text, JSON, stderr, traces, state names) has its
-userinfo dropped and the value of any query parameter whose name contains
-token, key, secret, auth, session, sig, signature, password, pass, code, jwt
-or bearer replaced with `REDACTED`; the page is opened at the real URL.
+userinfo dropped and the value of any query or `#fragment` parameter whose
+name contains token, key, secret, auth, session, sig, signature, password,
+pass, code, jwt or bearer replaced with `REDACTED`; the page is opened at the
+real URL.
 
 ## Token names the rules read
 
