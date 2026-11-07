@@ -27,7 +27,7 @@ const HELP = `gstack-pr-shots — before/after image of a change for a PR body (
   --caption <text>        required: what changed and why (shown under the title and in the text version)
   --path <file>           a tracked file: base version vs working tree (source text, nothing executed)
     [--heading <title>]   only that Markdown section (fence-aware, same parser as the Captain brief)
-    [--base <ref>]        default: the merge base with origin/HEAD
+    [--base <ref>]        default: the merge base with the resolved base branch
   --before <file> --after <file>   two captures (terminal output, a rendered prompt) inside the repo or state root
   [--kind terminal|prompt]  pane styling (default prompt; terminal is a dark panel)
   [--title <text>] [--name <slug>] [--out <dir>] [--json]

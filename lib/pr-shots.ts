@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveBase } from './gate-diff/git';
+import { defaultBase as defaultBaseRef, mergeBase, resolveBase } from './gate-diff/git';
 import { findSection } from './markdown-sections';
 import { scan } from './redact-engine';
 import type { ResultCodeName } from './result-codes';
@@ -65,13 +65,12 @@ export function resolveCommit(cwd: string, ref: string): string | ShotError {
   return r.status === 0 ? r.stdout.trim() : { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: `base ref ${ref}` };
 }
 
-/** The default base: where this branch left origin's default branch. */
+/** Where this branch left its base, using the shared default-base and ref-resolution rules. */
 export function defaultBase(cwd: string): string | ShotError {
-  for (const ref of ['origin/HEAD', 'origin/main', 'main']) {
-    const r = git(cwd, ['merge-base', 'HEAD', ref]);
-    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
-  }
-  return { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: 'no merge base with origin/HEAD, origin/main or main; pass --base <ref>' };
+  const found = defaultBaseRef(cwd);
+  const base = 'ref' in found ? resolveBase(found.ref, cwd, 'HEAD') : null;
+  const fork = base && mergeBase('HEAD', base.sha, cwd);
+  return fork || { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: 'no merge base with the resolved base branch; pass --base <ref>' };
 }
 
 /** Both sides of a tracked file (or one heading's section of it) at `base` and in the working tree. */
