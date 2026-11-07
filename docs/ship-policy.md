@@ -1264,8 +1264,8 @@ written by the pr-body section of `/ship` after the body is composed.
 The ```` ```gstack-ship-receipt ```` block is the handoff record: identifiers
 first (`pr`, `head`, `version`, `base`), then the evidence (`gate`, `ci`,
 `head_tree`, `product_patch_id`, `gstack_version`, `review_depth`, `pregate`,
-`issues`, `approval`, `docs`, `review_loop`, `review_loop_exception`, `carry`,
-`no_stop`), validated
+`issues`, `approval`, `docs`, `review_loop`, `review_loop_exception`, `design`,
+`carry`, `no_stop`), validated
 against the `ship-receipt` schema (`gstack-artifact schema ship-receipt`) and
 read back by `gstack-ship-receipt read`, `result`, `carry` and the queue.
 
@@ -1280,6 +1280,16 @@ and `read`, `result`, `gstack-ship-queue ready`, `train build` and `verify
 --train` accept the receipt like any other. A repository that has a CHANGELOG
 but no version source records no `version` at all (the audit still says what
 it looked for); pass `--version` to name one.
+
+**`design`.** On a rendered-UI diff (`gstack-diff-scope` reports
+`SCOPE_FRONTEND=true` for the committed range, which counts CSS, views,
+components and, since GST-1718, Lit or htm tagged templates in .ts/.js files
+whose changed lines sit inside a tagged template or carry markup), write records
+`{ "mode": "static", "reason": "no preview declared" }`: /ship ran only the
+static design-lite check, and the PR body's `## Design Review` line says the
+same. It is advisory and nothing refuses on it. Other diffs record no
+`design` field, and receipts written before it stay valid. A carry copies it
+unchanged.
 
 **`docs`.** Step 14.5's outcome, from `gstack-ship-receipt write --docs
 <json|@file>`: `{ status: updated | current | blocked, scope, exception? }`,

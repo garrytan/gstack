@@ -113,7 +113,7 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   const scope = bin(cwd, 'gstack-diff-scope', [`origin/${base}`], 60_000).stdout;
   const scopeError = /^SCOPE_ERROR=(?!unmatched)(\S+)/m.exec(scope)?.[1];
   if (scopeError) r.add(`SCOPE: unknown (gstack-diff-scope origin/${base}: SCOPE_ERROR=${scopeError})`);
-  else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the design lite check; mention /design-review when no design review exists)' : ''}`);
+  else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the static design lite check only, no preview declared; mention /design-review when no design review exists)' : ''}`);
   if (!merge(cwd, base, r)) return false;
   const marker = run && shipRunMarker(cwd);
   try { if (marker) fs.writeFileSync(marker, `${run}\n`); } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }

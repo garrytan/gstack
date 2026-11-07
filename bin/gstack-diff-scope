@@ -349,6 +349,99 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   fi
 done
 
+# Template UI (GST-1718): a screen written as a tagged template inside a .ts or
+# .js file (Lit, lit-html, htm, uhtml) is frontend when a changed line in that
+# file carries markup. qm#3186 rendered its persona page this way and read
+# SCOPE_FRONTEND=false, so /ship's design checks skipped it silently. This arm
+# sets FRONTEND only; the backend arm above already counted the file, so a Lit
+# edit reads both, as .dart does. lib/frontend-scope.ts stays path-only (the
+# design detector scans paths). A template file holds a tagged template at the
+# head or the base (a deleted screen counts). A changed line counts when it sits
+# inside a tagged template on its side of the diff (CSS declarations and ${}
+# bindings included), or carries markup: a tagged template, an element tag not
+# preceded by an identifier (Promise<void> is not markup), class= or style=;
+# comment lines never count as markup. Paths are NUL-delimited, as in _collect.
+# Every git call tolerates failure under set -e.
+TEMPLATE_TAG_RE='(^|[^A-Za-z0-9_$.])(html|css|svg)[[:space:]]*`'
+MARKUP_LINE_RE="${TEMPLATE_TAG_RE}|(^|[^A-Za-z0-9_$])</?[a-z][a-z0-9-]*([[:space:]/>]|$)|(^|[^A-Za-z0-9_-])(class|style)="
+if [ "$FRONTEND" = false ]; then
+  TPL_CANDIDATES=()
+  for f in "${FILES_LIST[@]}"; do
+    case "$f" in
+      *.test.*|*.spec.*|test/*|tests/*|spec/*|__tests__/*|cypress/*|e2e/*) continue ;;
+      *.ts|*.js|*.mjs|*.cjs|*.mts|*.cts) [[ "$f" =~ $TEST_PATH_RE ]] || TPL_CANDIDATES+=("$f") ;;
+    esac
+  done
+  if [ "${#TPL_CANDIDATES[@]}" -gt 0 ]; then
+    _root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    _g() { git --literal-pathspecs -C "$_root" "$@" 2>/dev/null || true; }
+    _tpl_lines() {
+      awk '
+        function top() { return sp ? st[sp] : "" }
+        {
+          line = $0; n = length(line); hit = (tags > 0); i = 1
+          while (i <= n) {
+            c = substr(line, i, 1); t = top()
+            if (blk) { if (substr(line, i, 2) == "*/") { blk = 0; i += 2 } else i++; continue }
+            if (t == "T" || t == "U") {
+              if (c == "\\") { i += 2; continue }
+              if (c == "`") { if (t == "T") tags--; sp--; i++; continue }
+              if (substr(line, i, 2) == "${") { st[++sp] = "E"; dep[sp] = 0; i += 2; continue }
+              i++; continue
+            }
+            if (c == "\"" || c == "'\''") { q = c; i++; while (i <= n && substr(line, i, 1) != q) { if (substr(line, i, 1) == "\\") i++; i++ } i++; continue }
+            if (substr(line, i, 2) == "//") break
+            if (substr(line, i, 2) == "/*") { blk = 1; i += 2; continue }
+            if (c == "{" && t == "E") { dep[sp]++; i++; continue }
+            if (c == "}" && t == "E") { if (dep[sp] == 0) sp--; else dep[sp]--; i++; continue }
+            if (c == "`") {
+              if (substr(line, 1, i - 1) ~ /(^|[^A-Za-z0-9_$.])(html|css|svg)[ \t]*$/) { st[++sp] = "T"; tags++; hit = 1 } else st[++sp] = "U"
+              i++; continue
+            }
+            i++
+          }
+          if (hit) print NR
+        }'
+    }
+    _hunk_lines() {
+      awk '/^@@ /{ split($2, o, ","); split($3, a, ","); os = substr(o[1], 2) + 0; oc = (o[2] == "") ? 1 : o[2] + 0; ns = substr(a[1], 2) + 0; nc = (a[2] == "") ? 1 : a[2] + 0
+        for (k = 0; k < oc; k++) print "o " os + k; for (k = 0; k < nc; k++) print "n " ns + k }'
+    }
+    _mb=$(git merge-base "$BASE_SHA" "${HEAD_REF:-HEAD}" 2>/dev/null || echo "$BASE_SHA")
+    TPL_FILES=()
+    if [ -n "$HEAD_REF" ]; then
+      while IFS= read -r -d '' f; do [ -n "$f" ] && TPL_FILES+=("${f#"$HEAD_REF":}"); done < <(_g grep -l -z -E -e "$TEMPLATE_TAG_RE" "$HEAD_REF" -- "${TPL_CANDIDATES[@]}")
+    else
+      while IFS= read -r -d '' f; do [ -n "$f" ] && TPL_FILES+=("$f"); done < <(_g grep -l -z -E --untracked -e "$TEMPLATE_TAG_RE" -- "${TPL_CANDIDATES[@]}")
+    fi
+    while IFS= read -r -d '' f; do [ -n "$f" ] && TPL_FILES+=("${f#"$_mb":}"); done < <(_g grep -l -z -E -e "$TEMPLATE_TAG_RE" "$_mb" -- "${TPL_CANDIDATES[@]}")
+    if [ "${#TPL_FILES[@]}" -gt 0 ]; then
+      if [ -n "$HEAD_REF" ]; then
+        _d=$(_g diff -U0 "$BASE_SHA...$HEAD_REF" -- "${TPL_FILES[@]}")
+      else
+        _d=$(_g diff -U0 "$_mb" -- "${TPL_FILES[@]}")
+        [ -n "$(_g ls-files --others --exclude-standard -- "${TPL_FILES[@]}")" ] && FRONTEND=true
+      fi
+      _changed=$(grep -E '^[+-]' <<<"$_d" | grep -v -E '^(\+\+\+|---) (a/|b/|/dev/null)' | grep -v -E '^[+-][[:space:]]*(//|/\*|\*)' || true)
+      if [ "$FRONTEND" = false ] && [ -n "$_changed" ] && grep -q -E -e "$MARKUP_LINE_RE" <<<"$_changed"; then FRONTEND=true; fi
+      for f in "${TPL_FILES[@]}"; do
+        [ "$FRONTEND" = true ] && break
+        _old=$(_g show "$_mb:$f" | _tpl_lines)
+        if [ -n "$HEAD_REF" ]; then
+          _fd=$(_g diff -U0 "$BASE_SHA...$HEAD_REF" -- "$f")
+          _new=$(_g show "$HEAD_REF:$f" | _tpl_lines)
+        else
+          _fd=$(_g diff -U0 "$_mb" -- "$f")
+          _new=
+          if [ -f "$_root/$f" ]; then _new=$(_tpl_lines < "$_root/$f"); fi
+        fi
+        if awk 'FNR == NR { s[$0] = 1; next } ($0 in s) { f = 1; exit } END { exit !f }' \
+          <(sed 's/^/o /' <<<"$_old"; sed 's/^/n /' <<<"$_new") <(_hunk_lines <<<"$_fd"); then FRONTEND=true; fi
+      done
+    fi
+  fi
+fi
+
 _print_flags
 
 # Changed files but ZERO category matches (#2526): a classifier bug, an
