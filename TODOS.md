@@ -4,7 +4,7 @@
 
 ### P2: `/plan-eng-review` retirement follow-ups (filed 2026-11-06, GST-1698 /ship review of #4108)
 
-- **Stop the dots and generic harness targets from registering the retired skill.** `sourceSkills()` in `lib/harness-register.ts` lists every committed Claude-render skill and filters out only `gstack`, so `gstack-harness register --target dots|generic` still lists `plan-eng-review` in its router and gives it a folder in `all` mode. Filter `RETIRED_SKILLS` there (the Claude-render /autoplan reads Phase 3 from `~/.claude/skills/gstack/plan-eng-review/SKILL.md`, not from the harness payload) and add a case to `test/retired-skills.test.ts`. Raised by the outside voice (labelled blocking) and the native adversarial pass (non-blocking); below the blocking floor because nothing fails and the skill still works. **Effort:** S. **Priority:** P2.
+- **Delete the retired `plan-eng-multi-finding-batching` case and its counter subsystem.** The case checks one interactive question per eng finding; /autoplan Phase 3 auto-decides findings, so no shipped entry reaches it. The follow-up to #4108 took it out of the weekly lane through `PERIODIC_CI_EXCLUDE` instead of deleting it, because about 20 free tests and fixtures depend on its counter (`createEngBatchingIssueCounter` in `test/helpers/eng-seeded-coverage.ts`, `test/eng-batching-saved-ledger.test.ts`, `test/detector-corpus-plan-eng-multi-finding-batching.test.ts`, the `eng-batching-*` fixtures). Retirement card: detects=an eng review that batches findings into one plan write; non_test_callers=0; stronger_proof=the ceo/design/devex finding floors keep the shared one-question-per-finding contract; unlocks=the counter helpers, their free tests and fixtures. Delete each helper only after checking it has no other caller (plan-eng-review-artifact shares `engFirstReviewAUQ`). **Effort:** M. **Priority:** P3.
 - **Point the external-host methodology file's preamble Read at `gstack-autoplan`.** Every external host's `gstack-autoplan/plan-eng-review.md` says to Read `sections/preamble.md` relative to the installed `gstack-plan-eng-review` directory, which no longer exists. Normally the matching preamble id skips the reread, but after compaction late in a run the agent follows a missing path. Fixing it changes Phase 3 bytes, so it needs its own byte-pin update. **Effort:** S. **Priority:** P3.
 - **Redirect `gstack-doctor --for plan-eng-review`.** It now exits 2 with "unknown skill"; map the retired name to `/autoplan`'s requirements and print a one-line redirect, so saved lane scripts keep working. **Effort:** S. **Priority:** P3.
 - **Decide whether the QM edition keeps `gstack-plan`.** `hosts/qm.ts` and `qm/edition.json` still build `gstack-plan` from the `plan-eng-review` sources under another name, so the retired-name guards don't see it. Product call for Garry. **Effort:** S. **Priority:** P3.
@@ -545,8 +545,9 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   a PTY. A fresh run needs more than its 600 s budget (498 s pass; 595 s
   timeouts in census 37174266054 and a local run), so the periodic case
   resumes at Test review from that census run's real Scope Challenge ledger
-  (pass, 364 s) and the fresh run is the marathon case
-  plan-eng-review-artifact-full.
+  (pass, 364 s) and the fresh run was the marathon case
+  plan-eng-review-artifact-full (retired with standalone /plan-eng-review,
+  GST-1698).
 - **Gate-outcome telemetry** — count `not_run`/`unavailable` outcomes per
   reason code from `lib/gate-outcomes.ts` so the most common gaps get fixed
   first. **Effort:** S. **Priority:** P3.

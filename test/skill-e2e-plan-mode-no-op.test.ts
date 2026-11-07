@@ -16,11 +16,12 @@
  *
  * Coverage grew with the scope-gate bypass (plan-mode auto-select B):
  *  - plan-ceo-review: original preamble-misfire regression.
- *  - plan-eng-review / plan-design-review: the bypass must NOT fire outside
+ *  - plan-design-review: the bypass must NOT fire outside
  *    plan mode (scopeGateAutoSelectObserved stays false), and when the run
  *    ends in 'asked', the question that fired must be the scope gate itself
  *    (outside plan mode with no named target, the gate is the FIRST
- *    question by contract).
+ *    question by contract). (plan-eng-review had the same two checks; they
+ *    retired with that skill, GST-1698.)
  *  - plan-devex-review: no no-target scope gate, so only the terminal
  *    outcome and the absent plan-mode reminder are asserted. It reviews a
  *    pasted developer-facing plan: without one it reviews the checkout's
@@ -90,14 +91,14 @@ script against the task tracker. Prints to stdout; --out writes a file.
 `;
 
 describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
-  for (const skillName of ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'plan-devex-review'] as const) {
-    const hasScopeGate = skillName === 'plan-eng-review' || skillName === 'plan-design-review';
+  for (const skillName of ['plan-ceo-review', 'plan-design-review', 'plan-devex-review'] as const) {
+    const hasScopeGate = skillName === 'plan-design-review';
     test(`${skillName} reaches a terminal outcome outside plan mode`, async () => {
       const obs = await runPlanSkillObservation({
         skillName,
         inPlanMode: false,
         timeoutMs: CAPTURE_MS,
-        // eng/design: force the prose-fallback path. The unconditional
+        // design: force the prose-fallback path. The unconditional
         // gate-must-ask assert below pins the render shape the detector
         // anchors on, and only the --disallowedTools prose fallback makes
         // that shape CONTRACTUAL ("use exactly this shape" in the template);
@@ -164,7 +165,7 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
   // review output), proving the target was used rather than the question
   // merely skipped. Also the over-trigger guard for the tightened
   // "explicit-only" exception wording.
-  for (const skillName of ['plan-eng-review', 'plan-design-review'] as const) {
+  for (const skillName of ['plan-design-review'] as const) {
     test(`${skillName} skips the scope gate for an explicitly-pasted target`, async () => {
       const obs = await runPlanSkillObservation({
         skillName,

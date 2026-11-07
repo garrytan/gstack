@@ -1,5 +1,6 @@
 /**
- * AskUserQuestion format regression test for /plan-ceo-review and /plan-eng-review.
+ * AskUserQuestion format regression test for /plan-ceo-review (the /plan-eng-review
+ * cases retired with that skill, GST-1698).
  *
  * Context: a user on Opus 4.7 reported the RECOMMENDATION line and the
  * `Completeness: N/10` per-option score stopped appearing on AskUserQuestion
@@ -82,7 +83,7 @@ We're building a new user dashboard that shows recent activity, notifications, a
 - Cache: Redis for dashboard aggregates
 `;
 
-function setupPlanDir(tmpPrefix: string, skillName: 'plan-ceo-review' | 'plan-eng-review'): string {
+function setupPlanDir(tmpPrefix: string, skillName: 'plan-ceo-review'): string {
   const planDir = fs.mkdtempSync(path.join(os.tmpdir(), tmpPrefix));
   const run = (cmd: string, args: string[]) =>
     spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
@@ -105,12 +106,6 @@ function setupPlanDir(tmpPrefix: string, skillName: 'plan-ceo-review' | 'plan-en
   fs.cpSync(path.join(ROOT, skillName, 'sections'), sections, { recursive: true });
 
   return planDir;
-}
-
-// The capture instruction passed to every case except the mode and approach menus (D2).
-// Tells the agent to dump AskUserQuestion content to a file instead of calling a tool.
-function captureInstruction(outFile: string): string {
-  return `Write the verbatim text of every AskUserQuestion you would have made to ${outFile} (one question per session, full text including options and recommendation line). Do NOT call any tool to ask the user. Do NOT paraphrase — include the exact prose you would have shown. This is a format-capture test, not an interactive session.`;
 }
 
 /**
@@ -251,143 +246,6 @@ After writing the file, stop. Do not continue the review.`,
           evalCollector,
           evalId: '/plan-ceo-review-format-approach',
           evalTitle: 'Plan Format — CEO Approach Menu',
-          result,
-          passed: ['success', 'error_max_turns'].includes(result.exitReason),
-        });
-      },
-    });
-  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
-});
-
-// --- Case 3: plan-eng-review coverage-differentiated per-issue AskUserQuestion ---
-
-describeIfSelected('Plan Format — Eng Coverage Issue', ['plan-eng-review-format-coverage'], () => {
-  let planDir: string;
-  let outFile: string;
-
-  beforeAll(() => {
-    planDir = setupPlanDir('skill-e2e-plan-format-eng-cov-', 'plan-eng-review');
-    outFile = path.join(planDir, 'ask-capture.md');
-  });
-
-  afterAll(() => {
-    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
-  });
-
-  testConcurrentIfSelected('plan-eng-review-format-coverage', async () => {
-    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
-    await runRecordedOfficeHoursAttempt({
-      collector: evalCollector, name: '/plan-eng-review-format-coverage', suite: 'Plan Format — Eng Coverage Issue',
-      model: resolveEvalModel('capture'), budgetMs: CAPTURE_MS,
-      judgeMetadata,
-      run: signal => runSkillTest({
-        signal,
-        prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-During your review (Section 3 Test Review is the natural place), generate ONE AskUserQuestion about test coverage depth where the options are clearly coverage-differentiated. For example:
-  A) Full coverage: happy path + edge cases + error paths (Completeness 10/10)
-  B) Happy path only (Completeness 7/10)
-  C) Smoke test (Completeness 3/10)
-
-${captureInstruction(outFile)}
-
-After writing the file with that ONE question, stop. Do not continue the review.`,
-        workingDirectory: planDir,
-        maxTurns: 10,
-        timeout: CAPTURE_MS,
-        testName: 'plan-eng-review-format-coverage',
-        runId,
-        model: resolveEvalModel('capture'),
-      }),
-      validate: async (result, signal) => {
-        logCost('/plan-eng-review format (coverage)', result);
-        expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-        expect(fs.existsSync(outFile)).toBe(true);
-        const captured = fs.readFileSync(outFile, 'utf-8');
-        expect(captured.length).toBeGreaterThan(100);
-
-        // Coverage-differentiated: Completeness: N/10 required. Recommendation
-        // presence checked by the judge.
-        expect(captured).toMatch(COMPLETENESS_RE);
-
-        await assertRecommendationQuality({
-          captured,
-          signal,
-          record: metadata => Object.assign(judgeMetadata, metadata),
-          evalCollector,
-          evalId: '/plan-eng-review-format-coverage',
-          evalTitle: 'Plan Format — Eng Coverage Issue',
-          result,
-          passed: ['success', 'error_max_turns'].includes(result.exitReason),
-        });
-      },
-    });
-  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
-});
-
-// --- Case 4: plan-eng-review kind-differentiated per-issue AskUserQuestion ---
-
-describeIfSelected('Plan Format — Eng Kind Issue', ['plan-eng-review-format-kind'], () => {
-  let planDir: string;
-  let outFile: string;
-
-  beforeAll(() => {
-    planDir = setupPlanDir('skill-e2e-plan-format-eng-kind-', 'plan-eng-review');
-    outFile = path.join(planDir, 'ask-capture.md');
-  });
-
-  afterAll(() => {
-    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
-  });
-
-  testConcurrentIfSelected('plan-eng-review-format-kind', async () => {
-    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
-    await runRecordedOfficeHoursAttempt({
-      collector: evalCollector, name: '/plan-eng-review-format-kind', suite: 'Plan Format — Eng Kind Issue',
-      model: resolveEvalModel('capture'), budgetMs: CAPTURE_MS,
-      judgeMetadata,
-      run: signal => runSkillTest({
-        signal,
-        prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-During your review (Section 1 Architecture), generate ONE AskUserQuestion about an architectural choice where the options differ in kind, not in coverage. For example, "should we use Redis or Postgres for the cache layer?" — the options are different kinds of systems with different tradeoffs, not more-or-less-complete versions of the same thing.
-
-${captureInstruction(outFile)}
-
-After writing the file with that ONE question, stop. Do not continue the review.`,
-        workingDirectory: planDir,
-        maxTurns: 10,
-        timeout: CAPTURE_MS,
-        testName: 'plan-eng-review-format-kind',
-        runId,
-        model: resolveEvalModel('capture'),
-      }),
-      validate: async (result, signal) => {
-        logCost('/plan-eng-review format (kind)', result);
-        expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-        expect(fs.existsSync(outFile)).toBe(true);
-        const captured = fs.readFileSync(outFile, 'utf-8');
-        expect(captured.length).toBeGreaterThan(100);
-
-        // Kind-differentiated: Completeness: N/10 must NOT appear, and the brief
-        // says the options are not comparable on coverage (any wording).
-        // Recommendation presence checked by the judge.
-        expect(captured).not.toMatch(COMPLETENESS_RE);
-        expect(captured).toMatch(KIND_NOTE_RE);
-
-        await assertRecommendationQuality({
-          captured,
-          signal,
-          record: metadata => Object.assign(judgeMetadata, metadata),
-          evalCollector,
-          evalId: '/plan-eng-review-format-kind',
-          evalTitle: 'Plan Format — Eng Kind Issue',
           result,
           passed: ['success', 'error_max_turns'].includes(result.exitReason),
         });

@@ -1,7 +1,9 @@
 /**
  * /plan-ceo-review AskUserQuestion floor regression (gate, paid, real-PTY).
  *
- * See test/skill-e2e-plan-eng-finding-floor.test.ts for the contract.
+ * Contract: a seeded forcing finding must fire at least one AskUserQuestion
+ * before the review writes its plan or exits plan mode (the /plan-eng-review
+ * floor that first pinned it retired with that skill, GST-1698).
  */
 
 import { test } from 'bun:test';
