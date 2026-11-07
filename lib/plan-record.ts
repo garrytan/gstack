@@ -23,6 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { agentNotesOrBody } from './agent-notes';
 import { locate, type ApprovalRow, type Env } from './approval-record';
 import type { ResultCodeName } from './result-codes';
 import { isUnavailable, loadPolicyFromBase, type ShipPolicy } from './ship-policy';
@@ -77,10 +78,13 @@ export function planMode(policyValue: PlanMode | undefined, env: Env): { mode: P
 /** Under off, the one PLAN: line ready, land and finish still print when the machine's key decided the mode or was ignored. */
 const offNote = (mode: { mode: PlanMode; source: string }) => (mode.source.includes(LOCAL_SOURCE) ? `PLAN: off [mode off from ${mode.source}]` : undefined);
 
-/** The first `Plan:` line at the start of a line, outside fenced blocks; null when the body has none. */
+/**
+ * The first `Plan:` line at the start of a line, outside fenced blocks; null when the body has none. A body with an
+ * Agent notes section is read there only (lib/agent-notes.ts); a body without one is read whole.
+ */
 export function parsePlanLine(body: string): PlanDecl | null {
   let fenced = false;
-  for (const raw of body.split(/\r?\n/)) {
+  for (const raw of agentNotesOrBody(body).split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; continue; }
     if (fenced) continue;
     const m = /^(?:\*\*)?Plan:(?:\*\*)?\s*(.*)$/.exec(raw.trim());

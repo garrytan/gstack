@@ -13,7 +13,7 @@ export const COORDINATOR_CONTRACT_HEADING = '## Coordinator contract (inherited 
 
 export const COORDINATOR_CONTRACT = `${COORDINATOR_CONTRACT_HEADING}
 
-Merge conditions. A lane's PR merges only when: the required gate lanes are green on the stamped tree or the tree receipt says \`gate-reuse: eligible\`; \`gstack-lane-check\` reports \`clear\` for its planned files against every other open lane; the PR body opens with the \`gstack-ship-receipt\` block; and the coordinator, not the lane, says merge. A lane never merges, rebases another lane, or force-pushes.
+Merge conditions. A lane's PR merges only when: the required gate lanes are green on the stamped tree or the tree receipt says \`gate-reuse: eligible\`; \`gstack-lane-check\` reports \`clear\` for its planned files against every other open lane; the PR body carries the \`gstack-ship-receipt\` block in its Agent notes section; and the coordinator, not the lane, says merge. A lane never merges, rebases another lane, or force-pushes.
 
 Behavior-change notices. Every user-visible behavior change outside the plan's own items is listed in the PR body under \`## Behavior changes\` with the file, the old behavior and the new one, before the review starts. An omitted change found in review is a CRITICAL finding, whatever its size.
 

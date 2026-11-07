@@ -247,7 +247,7 @@ describe('generic trains end to end (fixture repos)', () => {
     expect(origin('rev-parse', 'main^{tree}')).toBe(t.gated[2].tree);
     expect(trainJson(fx, nonce)).toMatchObject({ state: 'merged', landing: { 1: { mode: 'direct', update: null }, 2: { mode: 'direct' } } });
     const merges = fx.read().log.filter(l => l.cmd === 'pr merge').map(l => (l.args as string[]).join(' '));
-    expect(merges[0]).toMatch(/^pr merge 1 --squash --match-head-commit [0-9a-f]{40}$/);
+    expect(merges[0]).toMatch(/^pr merge 1 --squash --match-head-commit [0-9a-f]{40} --subject Change from #1 \(#1\)$/);
   }, 300_000);
 
   test('strict protection forces update; a rebase method refuses it; a fork head is refused', () => {
@@ -653,6 +653,7 @@ describe('a pin whose own checks are red (round-2 High 2)', () => {
     expect(merged.status, merged.err + merged.out).toBe(EXIT.ok);
     const t = trainJson(fx, nonce);
     expect(t.landing['1']).toMatchObject({ mode: 'update' });
-    expect((fx.read().log.find(l => l.cmd === 'pr merge')!.args as string[]).at(-1)).toBe(t.landing['1'].update);
+    const mergeArgs = fx.read().log.find(l => l.cmd === 'pr merge')!.args as string[];
+    expect(mergeArgs[mergeArgs.indexOf('--match-head-commit') + 1]).toBe(t.landing['1'].update);
   }, 300_000);
 });

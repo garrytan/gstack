@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { awaitNonceRun, listDispatchRuns, makeNonce, runForNonce } from '../scripts/eval-bg';
 import { scriptInvocation } from './script-invocation';
 import type { ShipReceipt } from './headless-artifacts';
-import { extractReceipt, placeReceiptFirst } from './ship-receipt';
+import { extractReceipt, placeReceipt } from './ship-receipt';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import type { CommandGate, TrainGate, WorkflowsGate } from './ship-policy';
 import { git, type QueueFailure } from './ship-queue-gate';
@@ -66,7 +66,7 @@ export function bindTrainReceipt(root: string, baseRef: string, body: string, pr
   const b = bindShippedReceipt(root, baseRef, body, pr, accepted);
   if (b.ok || b.code !== 'QUEUE_RECEIPT_CONDITIONAL' || !conditional) return b;
   const { base_red: _, ...rest } = extractReceipt(body).receipt!;
-  return bindShippedReceipt(root, baseRef, placeReceiptFirst(body, rest as ShipReceipt), pr, accepted);
+  return bindShippedReceipt(root, baseRef, placeReceipt(body, rest as ShipReceipt), pr, accepted);
 }
 
 /** Per-run price reservation of a command gate: its timeout plus overhead, at the list price. */

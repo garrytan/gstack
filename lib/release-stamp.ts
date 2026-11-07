@@ -127,7 +127,7 @@ export function openRelease(o: OpenOptions): OpenResult {
     lines.push(`RELEASE: ${stamp.oldVersion} -> ${version} at origin/${o.base} ${baseSha.slice(0, 12)}`);
     if (o.dryRun) return { ok: true, version, branch, lines: [...lines, stamp.diff ?? ''] };
     const folded = /folded (.+?)(;|$)/.exec(stamp.stages.find(s => s.name === 'changelog')?.detail ?? '')?.[1] ?? 'see the CHANGELOG diff';
-    for (const step of [['add', '-A', '--', ...(stamp.files ?? [])], ['commit', '-q', '-m', `v${version} release: fold the changelog fragments`]]) {
+    for (const step of [['add', '-A', '--', ...(stamp.files ?? [])], ['commit', '-q', '-m', `Release v${version}`]]) {
       const r = git(dir, step);
       if (!r.ok) return fail('RELEASE_STAMP_INVALID', `git ${step[0]} failed in the release worktree: ${r.err.split('\n')[0]}`);
     }

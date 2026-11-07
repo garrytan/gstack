@@ -9,7 +9,8 @@
  * Scans the exact bytes it sends (lib/redact-engine.ts) and passes every value
  * to gh/glab as an argv element or on stdin, never through a shell string.
  * Exit: 0 posted · 1 HIGH refused · 2 MEDIUM needs --confirm <token> ·
- * 3 gh/glab failed · 64 usage. Logic and full usage: lib/gstack-post.ts.
+ * 3 gh/glab failed · 4 title not plain words (PLAIN_TITLE: lines) · 64 usage.
+ * Logic and full usage: lib/gstack-post.ts.
  */
 import * as fs from "fs";
 import * as path from "path";

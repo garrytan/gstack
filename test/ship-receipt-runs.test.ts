@@ -3,37 +3,40 @@
  * schema carries K1's no_stop records for L5.
  */
 import { describe, expect, test } from 'bun:test';
-import { extractReceipt, orderReceipt, placeReceiptFirst, readyTailLines, receiptRuns, RECEIPT_RUNS_KEPT, validateReceipt } from '../lib/ship-receipt';
+import { extractReceipt, orderReceipt, placeReceipt, readyTailLines, receiptRuns, RECEIPT_RUNS_KEPT, validateReceipt } from '../lib/ship-receipt';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 
 const receipt = (head: string, loop: Partial<NonNullable<ShipReceipt['review_loop']>> = {}): ShipReceipt =>
   orderReceipt({ schema_version: 1, head, base: 'main', version: '1.94.1.0', review_loop: { passes: 1, blocking_found: 0, deferred: 0, ...loop } });
 
 describe('receipt runs block', () => {
-  test('a write over a different receipt keeps the old run, oldest first, after the current block', () => {
-    let body = placeReceiptFirst('## Summary\nprose\n', receipt('a'.repeat(40), { passes: 2, blocking_found: 3, fixed: 3 }));
-    body = placeReceiptFirst(body, receipt('b'.repeat(40)));
-    body = placeReceiptFirst(body, receipt('c'.repeat(40), { passes: 1 }));
+  test('a write over a different receipt keeps the old run, oldest first, after the current block in the Agent notes section', () => {
+    let body = placeReceipt('## Summary\nprose\n', receipt('a'.repeat(40), { passes: 2, blocking_found: 3, fixed: 3 }));
+    body = placeReceipt(body, receipt('b'.repeat(40)));
+    body = placeReceipt(body, receipt('c'.repeat(40), { passes: 1 }));
     expect(extractReceipt(body).receipt!.head).toBe('c'.repeat(40));
     expect(receiptRuns(body).map(r => [r.head[0], r.review_loop?.blocking_found])).toEqual([['a', 3], ['b', 0]]);
-    expect(body.indexOf('gstack-receipt-runs')).toBeLessThan(body.indexOf('## Summary'));
+    expect(body.indexOf('gstack-receipt-runs')).toBeGreaterThan(body.indexOf('<!-- gstack:agent-notes -->'));
+    expect(body.indexOf('gstack-receipt-runs')).toBeGreaterThan(body.indexOf('```gstack-ship-receipt'));
+    expect(body.indexOf('<!-- gstack:agent-notes -->')).toBeGreaterThan(body.indexOf('## Summary'));
     expect(body.match(/## Summary/g)!.length).toBe(1);
   });
 
   test('a fence inside a recorded reason never closes the runs block (adversarial p-voices #1)', () => {
     const withReason = (head: string) => orderReceipt({ ...receipt(head, { fix_checks: 1 }), review_loop_exception: { accepted_by: 'Garry', date: '2026-11-03', via: 'x', reason: 'the \x60\x60\x60retry\x60\x60\x60 block is fine', fix_check: { head, findings: 0 } } });
-    let body = placeReceiptFirst('## Summary\nprose\n', withReason('b'.repeat(40)));
-    body = placeReceiptFirst(body, withReason('c'.repeat(40)));
-    body = placeReceiptFirst(body, withReason('d'.repeat(40)));
+    let body = placeReceipt('## Summary\nprose\n', withReason('b'.repeat(40)));
+    body = placeReceipt(body, withReason('c'.repeat(40)));
+    body = placeReceipt(body, withReason('d'.repeat(40)));
     expect(receiptRuns(body).map(r => r.head[0])).toEqual(['b', 'c']);
-    expect(body.endsWith('## Summary\nprose\n')).toBe(true);
+    expect(body.startsWith('## Summary\nprose\n\n<!-- gstack:agent-notes -->\n')).toBe(true);
+    expect(body.endsWith('```\n\n</details>\n')).toBe(true);
   });
 
   test('rewriting the same receipt adds no run, and the block keeps the newest RECEIPT_RUNS_KEPT', () => {
     const same = receipt('d'.repeat(40));
-    expect(receiptRuns(placeReceiptFirst(placeReceiptFirst('', same), same))).toEqual([]);
+    expect(receiptRuns(placeReceipt(placeReceipt('', same), same))).toEqual([]);
     let body = '';
-    for (let i = 0; i < RECEIPT_RUNS_KEPT + 5; i++) body = placeReceiptFirst(body, receipt(i.toString(16).padStart(40, '0')));
+    for (let i = 0; i < RECEIPT_RUNS_KEPT + 5; i++) body = placeReceipt(body, receipt(i.toString(16).padStart(40, '0')));
     const runs = receiptRuns(body);
     expect(runs.length).toBe(RECEIPT_RUNS_KEPT);
     expect(runs.at(-1)!.head).toBe((RECEIPT_RUNS_KEPT + 3).toString(16).padStart(40, '0'));
