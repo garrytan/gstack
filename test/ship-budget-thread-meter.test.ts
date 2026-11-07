@@ -17,11 +17,11 @@ const harnesses: Harness[] = [];
 const fresh = () => { const h = budgetHarness(); harnesses.push(h); return h; };
 afterEach(() => { while (harnesses.length) harnesses.pop()!.cleanup(); });
 
-type Row = [label: string, title: string, tokens: number];
+type Row = [label: string, title: string, tokens: number, status?: string];
 let n = 0;
 function snap(h: Harness, tree: number, rows: Row[], dispatched?: string[]): string {
   const file = path.join(h.root, `thread-${++n}.json`);
-  const tasks = rows.map(([label, title, tokens]) => ({ label, title, status: 'working', cost: { tokens, credits: tokens / 1000 } }));
+  const tasks = rows.map(([label, title, tokens, status]) => ({ label, title, status: status ?? 'working', cost: { tokens, credits: tokens / 1000 } }));
   fs.writeFileSync(file, JSON.stringify({ id: 'jam_root', cost: { tokens: tree, credits: tree / 1000 }, tasks, tasks_total: tasks.length, ...(dispatched ? { dispatched } : {}) }));
   return file;
 }
@@ -213,6 +213,21 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(after.code, after.out + after.err).toBe(0);
     expect(after.out).toContain('METER_FALLBACK: the run\'s identity points at Subagent 1, Subagent 2');
     expect(field(after.out, 'NOTE', 'used')).toBe(60_000_000);
+  });
+
+  // Value: protects=a replacement /ship subagent that sources the run's TITLE_FILE (so its commands carry the run's title) meters the tree once the titled row stops working, so its spend counts and the cap stops it; fails_when=the stopped row's flat cost is metered and used= stays flat while the replacement spends;
+  //   why_new=/ship on #4107 at 512c5f4 (p1/red-team#1, QA captures 002-003: used=0 with tree=80M under a 30M cap); seam=none; no_claim=which live subagent took over
+  test('a titled row that is not working meters the tree, so a replacement under the run\'s title is never flat', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '30M', '--thread', snap(h, 10_000_000, [['Subagent 2', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    expect(s.code, s.out + s.err).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const note = h.sb(['note', '--run', run, '--step', '9', '--thread',
+      snap(h, 90_000_000, [['Subagent 2', SHIP, 1_000_000, 'stopped'], ['Subagent 3', 'ship #4107 at 512c5f4 y2', 80_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    expect(note.out).toContain('METER_FALLBACK: Subagent 2 is stopped');
+    expect(field(note.out, 'NOTE', 'used')).toBe(80_000_000);
+    expect(note.out).toMatch(/verdict=stop/);
+    expect(note.code, note.out + note.err).toBe(3);
   });
 
   // Value: protects=RECOVER after a budget stop, which resumes in a new /ship subagent under a new title, is accepted and keeps metering (on the tree) from the usage so far; fails_when=the resume is refused, or used= drops or stays flat while the new subagent works;

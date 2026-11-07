@@ -60,7 +60,8 @@ command's own `GSTACK_SHIP_TASK_TITLE` and the parents of this run's readers all
 row, the same row as before, and the command names either a title or readers of its own (a pass
 note). Any ambiguity meters that reading on the tree instead: a title that matches no row or two,
 readers under two parents, a row missing from a truncated list, a command under another title (a
-replacement /ship subagent, or RECOVER's `resume` in a new one), or a note or close with neither.
+replacement /ship subagent, or RECOVER's `resume` in a new one), a matched row whose `status` is not
+`working` (a replacement that sourced the run's title), or a note or close with neither.
 Ambiguity never refuses a command, never stops the run and never holds `used=` flat; the worst case
 is over-counting.
 

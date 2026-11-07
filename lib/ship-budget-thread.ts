@@ -9,13 +9,13 @@
  * readers included, is what `used=` counts, but only on a reading where exactly one row matches
  * every piece of the run's identity. Any ambiguity (a title that matches no row or two, readers
  * under two parents, a missing row, a caller under another title, a command that names neither a
- * title nor readers) meters that reading on the tree instead, labelled METER_FALLBACK: the run can
+ * title nor readers, a matched row that is not working) meters that reading on the tree instead, labelled METER_FALLBACK: the run can
  * over-count, never under-count, and never stops or refuses for ambiguity.
  */
 import * as fs from 'node:fs';
 import { budgetError, usageError, type Ledger } from './ship-budget';
 
-interface Row { label: string; title: string; tokens: number; credits: number }
+interface Row { label: string; title: string; tokens: number; credits: number; status?: string }
 interface Snapshot { tokens: number; credits: number; rows: Row[]; total: number; dispatched: string[] }
 type Cost = { tokens: number; credits: number };
 
@@ -46,7 +46,7 @@ export function readSnapshot(file: string): Snapshot {
   for (const t of tasks) {
     const rt = num(t?.cost?.tokens), rc = num(t?.cost?.credits);
     if (typeof t?.label !== 'string' || typeof t?.title !== 'string' || rt === null || rc === null) throw usageError(`--thread ${file}: every tasks row needs label, title and cost.tokens/credits`);
-    rows.push({ label: t.label, title: t.title, tokens: rt, credits: rc });
+    rows.push({ label: t.label, title: t.title, tokens: rt, credits: rc, ...(typeof t.status === 'string' ? { status: t.status } : {}) });
   }
   const dispatched = Array.isArray(doc.dispatched) ? doc.dispatched.filter((x: unknown): x is string => typeof x === 'string') : [];
   return { tokens, credits, rows, total: num(doc.tasks_total) ?? rows.length, dispatched };
@@ -80,7 +80,9 @@ function identify(m: ShipMeter, s: Snapshot, caller: string | undefined): { labe
   if (candidates.size > 1) return { reason: `the run's identity points at ${[...candidates].join(', ')}` };
   const [label] = candidates as Set<string>;
   if (m.label !== undefined && m.label !== label) return { reason: `the run metered ${m.label} and this reading points at ${label}` };
-  if (!s.rows.some(r => r.label === label)) return { reason: `${label} is not among the ${s.rows.length} of ${s.total} rows listed` };
+  const row = s.rows.find(r => r.label === label);
+  if (!row) return { reason: `${label} is not among the ${s.rows.length} of ${s.total} rows listed` };
+  if (row.status !== undefined && row.status !== 'working') return { reason: `${label} is ${row.status}, so the subagent running this command is not that row (a replacement /ship subagent under the run's title)` };
   const confirmed = caller !== undefined || created.some(r => s.dispatched.includes(r.title) && parentOf(r.label) === label);
   if (!confirmed) return { reason: `this command names no task title and no readers of its own, so it cannot show it runs in ${label}` };
   return { label };

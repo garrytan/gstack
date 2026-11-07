@@ -45,6 +45,7 @@ export function budgetHarness(): Harness {
   const env: NodeJS.ProcessEnv = { ...process.env, GSTACK_STATE_ROOT: state, GSTACK_HOME: state, GSTACK_CAPY: '', GSTACK_SHIP_BUDGET_CHECKPOINT_DIR: checkpoints,
     CLAUDE_CONFIG_DIR: path.join(root, 'claude'), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
   delete env.GSTACK_SHIP_TOKEN_CAP;
+  delete env.GSTACK_SHIP_TASK_TITLE;
   delete env.GSTACK_LAUNCH_FILE;
   delete env.GSTACK_STATE_DIR;
   const git = (...args: string[]) => {
