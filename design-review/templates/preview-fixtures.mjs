@@ -91,7 +91,7 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
     const method = (req.method ?? 'GET').toUpperCase();
     const scenario = scenarioOf(req, url);
     const fail = (code, detail, fixLine) => {
-      record({ scenario, method, path: redact(url.pathname), code });
+      record({ scenario, method, path: redact(url.pathname), code, at: Date.now() });
       log(`${method} ${redact(url.pathname + url.search)} 501 ${code} scenario=${scenario || '-'}`);
       res.writeHead(501, { 'content-type': 'application/problem+json', 'x-gstack-preview': code, 'cache-control': 'no-store' });
       res.end(JSON.stringify({ type: `${DOC}#${code.toLowerCase().replace(/_/g, '-')}`, title: 'No fixture answers this request', status: 501, code, detail, fix: fixLine }));
@@ -105,8 +105,9 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
     if (!route) return fail('PREVIEW_UNHANDLED', `scenario "${scenario}" has no route "${method} ${url.pathname}"`, `add "${method} ${url.pathname}": {"status":200,"json":…} to ${file}`);
     const status = Number(route.status ?? 200);
     const finish = () => {
+      try { res.writeHead(status, { 'content-type': 'json' in route ? 'application/json' : 'text/plain', 'cache-control': 'no-store', ...(route.headers ?? {}) }); }
+      catch (e) { return fail('PREVIEW_UNKNOWN_SCENARIO', `route "${method} ${url.pathname}" in ${file} has a bad status or header (${e.message})`, 'fix that route in ' + file); }
       log(`${method} ${redact(url.pathname + url.search)} ${status} scenario=${scenario}`);
-      res.writeHead(status, { 'content-type': 'json' in route ? 'application/json' : 'text/plain', 'cache-control': 'no-store', ...(route.headers ?? {}) });
       res.end('json' in route ? JSON.stringify(route.json) : String(route.body ?? ''));
     };
     req.resume();
@@ -129,7 +130,8 @@ function staticHandler(root, api) {
   const base = path.resolve(root);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://' + HOST);
-    let file = path.join(base, decodeURIComponent(url.pathname));
+    let file;
+    try { file = path.join(base, decodeURIComponent(url.pathname)); } catch { res.writeHead(400, { 'content-type': 'text/plain' }); return res.end('bad escape in the path'); }
     if (file !== base && !file.startsWith(base + path.sep)) { res.writeHead(403); return res.end('outside the preview root'); }
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
     if (!fs.existsSync(file) && !path.extname(url.pathname) && !url.pathname.startsWith(api)) file = path.join(base, 'index.html');

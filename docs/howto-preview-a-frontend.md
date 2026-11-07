@@ -33,7 +33,11 @@ files instead, with the same fixture API; gstack's own tests use that mode on
   token-like parameters are replaced with `REDACTED`.
 - **No live backend.** Every request under the API prefix (`--api`, default
   `/api/`) is answered from a fixture or with a 501. Anything outside the
-  prefix is the app's (SPA routes still serve).
+  prefix is the app's (SPA routes still serve). An app that calls an
+  absolute API URL on another origin still reaches that host, so point its
+  API base at the preview. `preflight` prints `mutations=fixtures-only` only
+  when every state's page carries the preview's script; any other page is
+  `mutations=unknown`, and the loop then drives no changed action.
 - **A clean stop.** `stop` (or SIGTERM/SIGINT) closes the server, removes
   `<state>/preview.json` and exits 0.
 

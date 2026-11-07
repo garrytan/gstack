@@ -140,6 +140,15 @@ describe('an unsupported fixture route never yields a complete receipt (T26)', (
     expect(unknown.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNKNOWN_SCENARIO');
     expect(run({ unhandled: [] }).line).toStartWith('DESIGN_BUILD: clean');
   });
+
+  test('a 501 fixed before the final pass no longer counts, while a scenario-less 501 during it blocks every URL state', () => {
+    expect(run({ unhandled: [{ scenario: 'owner', method: 'GET', path: '/api/teams', code: 'PREVIEW_UNHANDLED', at: 1 }] }).line).toStartWith('DESIGN_BUILD: clean');
+    const late = run({ unhandled: [{ scenario: 'owner', method: 'GET', path: '/api/teams', code: 'PREVIEW_UNHANDLED', at: Date.now() + 60_000 }] });
+    expect(late.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
+    const none = run({ unhandled: [{ scenario: '', method: 'GET', path: '/api/members', code: 'PREVIEW_NO_SCENARIO', at: Date.now() + 60_000 }] });
+    expect(none.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_NO_SCENARIO');
+    expect(none.receipt.states.map((s) => (s.unhandled as unknown[]).length)).toEqual([1, 1]);
+  });
 });
 
 describe('the receipt is bound to the measured tree (T7, T29, T37)', () => {
@@ -200,7 +209,8 @@ describe('preflight, authorization and install (T14, T38, T31)', () => {
     expect((await preflight(inv, ['other.example.com'], { engine, reach })).exit).toBe(4);
     const granted = await preflight(inv, ['app.example.com'], { engine, reach });
     expect(granted.lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=fixtures+granted']);
-    expect((await preflight(inventory(), [], { engine, reach })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
+    expect((await preflight(inventory(), [], { engine, reach, shim: async () => true })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
+    expect((await preflight(inventory(), [], { engine, reach, shim: async (u) => !u.includes('lastowner') })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown']);
   });
 
   test('a URL that does not answer is unrendered NO_PREVIEW, redacted', async () => {

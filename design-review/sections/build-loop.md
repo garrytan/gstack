@@ -57,9 +57,9 @@ and is never counted as linted. Preview and fixtures:
 Browser first, then targets (loopback only; another host needs a
 `--grant-remote <host>` the person wrote; never add one yourself), then
 reachability. A `DESIGN_BUILD:` line here is the run's final line: stop. On
-`code=NO_PREVIEW`, start the preview once and rerun preflight once. Stay
-inside what `PREFLIGHT:` printed: `mutations=fixtures-only` means changed
-actions hit the preview's fixture routes, never a live backend.
+`code=NO_PREVIEW`, start the preview once and rerun preflight once. Under
+`mutations=unknown` (a page without the preview shim), never drive changed
+actions: they may reach a live backend.
 
 ### 3. Rounds (three at most)
 

@@ -160,7 +160,15 @@ export function verifyStart(repo: string, inv: Inventory, runDir: string): strin
   return `VERIFY: tree=${tree.slice(0, 12)} run=${runDir}`;
 }
 
-export interface PreflightDeps { engine?: () => EngineChoice; reach?: (url: string) => Promise<string | null> }
+export interface PreflightDeps { engine?: () => EngineChoice; reach?: (url: string) => Promise<string | null>; shim?: (url: string) => Promise<boolean> }
+
+async function servesShim(url: string): Promise<boolean> {
+  try {
+    return (await (await fetch(url, { signal: AbortSignal.timeout(10_000) })).text()).includes('data-gstack-preview');
+  } catch {
+    return false;
+  }
+}
 
 async function reachable(url: string): Promise<string | null> {
   try {
@@ -189,7 +197,8 @@ export async function preflight(inv: Inventory, grants: string[], deps: Prefligh
   }
   if (down.length) return { lines: [buildLine({ outcome: 'unrendered', code: 'NO_PREVIEW', detail: `no answer from ${down.join(', ')}` })], exit: 4 };
   const granted = withUrl.some((s) => !isLoopbackHost(new URL(s.url!).hostname));
-  return { lines: [`PREFLIGHT: ok engine=${engine.engine} states=${inv.states.length} targets=${granted ? 'loopback+granted' : 'loopback'} mutations=${granted ? 'fixtures+granted' : 'fixtures-only'}`], exit: 0 };
+  const previewed = !granted && (await Promise.all(withUrl.map((s) => (deps.shim ?? servesShim)(s.url!)))).every(Boolean);
+  return { lines: [`PREFLIGHT: ok engine=${engine.engine} states=${inv.states.length} targets=${granted ? 'loopback+granted' : 'loopback'} mutations=${granted ? 'fixtures+granted' : previewed ? 'fixtures-only' : 'unknown'}`], exit: 0 };
 }
 
 /** Map a gstack-skill-start transcript: a refused start is the build's INSTALL outcome. */
@@ -215,7 +224,7 @@ export function buildLine(i: LineInput): string {
   return parts.join(' ') + (i.detail ? ` (${i.detail.replace(/\s+/g, ' ').replace(/ \| fix: /g, ' / fix: ')})` : '') + (fix ? ` | fix: ${fix}` : '');
 }
 
-export interface UnhandledHit { scenario: string; method: string; path: string; code: string }
+export interface UnhandledHit { scenario: string; method: string; path: string; code: string; at?: number }
 
 /** The preview template's record of API calls it could not answer (unhandled.jsonl in its state directory). */
 export function readUnhandled(previewDir: string | undefined): UnhandledHit[] {
@@ -264,7 +273,7 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
     const linted = s.mode === 'url' && r.inv.viewports.every((v) => cov.some((c) => c.viewport === v && c.status === 'measured'));
     const shots = r.inv.viewports.map((v) => shotPath(r.runDir, s.name, v)).filter((f) => fs.existsSync(f));
     const scenario = scenarioOf(s);
-    const unhandled = s.mode === 'url' ? hits.filter((h) => h.scenario === scenario) : [];
+    const unhandled = s.mode === 'url' ? hits.filter((h) => (h.scenario === scenario || !h.scenario) && (h.at ?? verify.at) >= verify.at) : [];
     if (s.mode === 'url' && lint && !linted) {
       const bad = cov.find((c) => c.status !== 'measured');
       add(bad?.code ?? 'NOT_LINTED', `${s.name} not linted at every viewport${bad ? ` (${bad.code})` : ''}`);

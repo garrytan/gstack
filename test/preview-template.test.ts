@@ -29,6 +29,23 @@ async function begin(extra: string[] = []) {
 }
 
 describe('preview template: scenarios and the fixture API (T3, T21, T22, T26, T36)', () => {
+  test('a malformed path escape gets a 400 and a fixture with a bad status gets a recorded 501, and the preview keeps serving', async () => {
+    const fixtures = tmpDir();
+    fs.cpSync(FIXTURES, fixtures, { recursive: true });
+    const owner = JSON.parse(fs.readFileSync(path.join(fixtures, 'owner.json'), 'utf8'));
+    owner.routes['GET /api/teams'] = { status: 'ok', json: [] };
+    fs.writeFileSync(path.join(fixtures, 'owner.json'), JSON.stringify(owner));
+    const state = tmpDir();
+    const p = await startPreview(['--static', '--root', PAGE, '--fixtures', fixtures, '--port', '0', '--state', state]);
+    live.push(p);
+    expect((await fetch(p.url + '%E0%A4%A')).status).toBe(400);
+    const bad = await fetch(p.url + 'api/teams?as=owner');
+    expect([bad.status, bad.headers.get('x-gstack-preview')]).toEqual([501, 'PREVIEW_UNKNOWN_SCENARIO']);
+    expect((await bad.json()).detail).toContain('has a bad status or header');
+    expect((await fetch(p.url + 'api/members?as=owner')).status).toBe(200);
+    expect(fs.readFileSync(path.join(state, 'unhandled.jsonl'), 'utf8')).toContain('"path":"/api/teams","code":"PREVIEW_UNKNOWN_SCENARIO"');
+  });
+
   test('pages get the shim; API calls are answered by header, ?as= or Referer; anything unsupported is a recorded 501', async () => {
     const p = await begin();
     expect(p.ready).toMatch(/^PREVIEW: ready url=http:\/\/127\.0\.0\.1:\d+\/ mode=static state=\S+ log=\S+preview\.log$/);
@@ -57,7 +74,8 @@ describe('preview template: scenarios and the fixture API (T3, T21, T22, T26, T3
       expect(body.detail).toContain(detail);
     }
     const unhandled = fs.readFileSync(path.join(p.state, 'unhandled.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    expect(unhandled).toEqual([
+    expect(unhandled.every((h: { at: unknown }) => typeof h.at === 'number')).toBe(true);
+    expect(unhandled.map(({ at: _at, ...h }: { at: number }) => h)).toEqual([
       { scenario: '', method: 'GET', path: '/api/members', code: 'PREVIEW_NO_SCENARIO' },
       { scenario: 'nobody', method: 'GET', path: '/api/members', code: 'PREVIEW_UNKNOWN_SCENARIO' },
       { scenario: 'lastowner', method: 'GET', path: '/api/audit', code: 'PREVIEW_UNHANDLED' },
