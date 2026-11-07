@@ -375,7 +375,7 @@ async function main(): Promise<void> {
  * Stderr lines (in order):
  *   - "DAEMON_STARTED port=N version=V"  (or "DAEMON_ATTACHED port=N ..."
  *     if a daemon was already running)
- *   - "BOARD_PUBLISHED: http://127.0.0.1:N/boards/<id>/"
+ *   - "BOARD_PUBLISHED: http://127.0.0.1:N/<secret>/boards/<id>/"
  *   - "BOARD_URL: <same url>"  (alias for grep-friendliness)
  *   - "SERVE_STARTED: port=N html=<path>"  (legacy back-compat alias for
  *     any external script that scraped the pre-daemon output — note the
@@ -395,6 +395,7 @@ async function publishToDaemon(opts: { html: string; title?: string }): Promise<
   );
   const result = await publishBoard({
     port: ensured.port,
+    token: ensured.token,
     html: opts.html,
     title: opts.title,
   });

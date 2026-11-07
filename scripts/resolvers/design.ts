@@ -1227,7 +1227,7 @@ ${designBoardBlock(true)}
 
 This publishes the board to the design daemon, opens it in the user's default
 browser, and exits; it does not wait for feedback. Read captured stderr for the
-\`BOARD_URL: http://127.0.0.1:N/boards/<id>/\` line, then wait with AskUserQuestion:
+\`BOARD_URL: http://127.0.0.1:N/<secret>/boards/<id>/\` line, then wait with AskUserQuestion:
 "Review <BOARD_URL>, click Submit or Regenerate, then tell me (or paste your
 preferences here)." After the answer, read \`feedback.json\` or
 \`feedback-pending.json\` next to the board HTML.
@@ -1242,7 +1242,7 @@ If the JSON contains \`"regenerated": true\`:
 2. Generate new variants with \`$D iterate\` or \`$D variants\` using the updated brief, rewritten into the brief file (capture and round accounting as in Step 3)
 3. Rebuild the board with Step 4's board block, without \`--serve\`
 4. POST the new HTML to the running board. Parse the board URL from stderr
-   (\`BOARD_URL: http://127.0.0.1:N/boards/<id>/\` — the daemon path) or fall
+   (\`BOARD_URL: http://127.0.0.1:N/<secret>/boards/<id>/\` — the daemon path) or fall
    back to the legacy port (\`SERVE_STARTED: port=N\` — only emitted under
    \`--no-daemon\`, hits \`/api/reload\` root). Daemon path:
    \`jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "\${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-\`
@@ -1352,7 +1352,7 @@ export function generateDesignShotgunLoop(ctx: TemplateContext): string {
 
 ${designBoardBlock(true)}
 
-This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with \`BOARD_URL\` means the daemon is serving. Save its full \`http://127.0.0.1:N/boards/<id>/\` URL. Only legacy \`--no-daemon\` needs a host background task; \`SERVE_STARTED: port=N\` gives root URL \`http://127.0.0.1:N/\`.
+This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with \`BOARD_URL\` means the daemon is serving. Save its full \`http://127.0.0.1:N/<secret>/boards/<id>/\` URL. Only legacy \`--no-daemon\` needs a host background task; \`SERVE_STARTED: port=N\` gives root URL \`http://127.0.0.1:N/\`.
 
 **Wait with AskUserQuestion:** "Review <BOARD_URL>, Submit or request new variants, then tell me; or paste preferences here." The board chooses; the question waits. Do not poll.
 
@@ -1392,7 +1392,7 @@ ${designBoardBlock(true)}
 
 Creates HTML and opens the board. **Run it in the background** (host task, or \`&\` redirecting stdout/stderr to private files in \`$_DESIGN_DIR\`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Default stderr: \`BOARD_URL: http://127.0.0.1:N/boards/<id>/\`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy \`--no-daemon\` emits \`SERVE_STARTED: port=XXXXX\`, serving one board at \`/\` with reload at \`/api/reload\`.
+Default stderr: \`BOARD_URL: http://127.0.0.1:N/<secret>/boards/<id>/\`. Use that exact URL for AskUserQuestion and as the reload base. Only explicit legacy \`--no-daemon\` emits \`SERVE_STARTED: port=XXXXX\`, serving one board at \`/\` with reload at \`/api/reload\`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 

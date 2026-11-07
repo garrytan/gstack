@@ -535,7 +535,10 @@ export function generateCompareHtml(images: string[]): string {
         return;
       }
       fetch('./api/progress')
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (!r.ok) throw new Error('progress ' + r.status);
+          return r.json();
+        })
         .then(function(data) {
           if (data.status === 'serving') {
             clearInterval(pollInterval);

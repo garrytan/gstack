@@ -33,6 +33,7 @@ import { setTimeout as delay } from "timers/promises";
 import {
   acquireLock,
   CMDLINE_MARKER,
+  type DaemonState,
   healthCheck,
   isProcessAlive,
   readStateFile,
@@ -70,6 +71,7 @@ export interface EnsureDaemonOptions {
 
 export interface EnsureDaemonResult {
   port: number;
+  token: string;
   version: string;
   spawned: boolean;
 }
@@ -97,14 +99,19 @@ export async function ensureDaemon(
   if (existing) {
     const health = await healthCheck(existing.port);
     if (health) {
-      if (health.version === expectedVersion) {
+      if (health.version === expectedVersion && existing.token) {
         log(verbose, `attached to existing daemon pid=${existing.pid} port=${existing.port}`);
-        return { port: existing.port, version: health.version, spawned: false };
+        return { port: existing.port, token: existing.token, version: health.version, spawned: false };
       }
-      // Version mismatch: refuse if active boards exist (Codex finding).
+      // Version mismatch, or a daemon from before per-daemon secrets: refuse if
+      // active boards exist (Codex finding).
       if (health.activeBoards > 0) {
+        const mismatch =
+          health.version === expectedVersion
+            ? `existing daemon (gstack ${health.version}) predates per-daemon secrets`
+            : `existing daemon is gstack ${health.version}; this CLI is ${expectedVersion}`;
         process.stderr.write(
-          `[design-daemon] WARNING: existing daemon is gstack ${health.version}; this CLI is ${expectedVersion}.\n` +
+          `[design-daemon] WARNING: ${mismatch}.\n` +
             `[design-daemon] ${health.activeBoards} active board(s) detected. Refusing to auto-kill.\n` +
             `[design-daemon] Submit or close the open boards, then re-run.\n` +
             `[design-daemon] Or force restart: $D daemon stop (will drop in-memory history).\n`,
@@ -113,7 +120,7 @@ export async function ensureDaemon(
       }
       // No active boards — safe to graceful-shutdown and respawn.
       log(verbose, `daemon version mismatch (${health.version} vs ${expectedVersion}); shutting down`);
-      await gracefulShutdownExistingDaemon(existing.port);
+      await gracefulShutdownExistingDaemon(existing.port, existing.token);
       await killByPidWithIdentity(existing.pid, existing.cmdlineMarker, verbose);
     } else {
       // State file points at an unresponsive port. Either the daemon
@@ -136,7 +143,7 @@ export async function ensureDaemon(
       const fresh = readStateFile(stateFile);
       if (fresh) {
         const h = await healthCheck(fresh.port);
-        if (h) return { port: fresh.port, version: h.version, spawned: false };
+        if (h && fresh.token) return { port: fresh.port, token: fresh.token, version: h.version, spawned: false };
       }
       await delay(POLL_INTERVAL_MS);
     }
@@ -149,20 +156,20 @@ export async function ensureDaemon(
     const fresh = readStateFile(stateFile);
     if (fresh) {
       const h = await healthCheck(fresh.port);
-      if (h && h.version === expectedVersion) {
+      if (h && h.version === expectedVersion && fresh.token) {
         log(verbose, `another CLI won the lock; attaching pid=${fresh.pid} port=${fresh.port}`);
-        return { port: fresh.port, version: h.version, spawned: false };
+        return { port: fresh.port, token: fresh.token, version: h.version, spawned: false };
       }
     }
 
     log(verbose, "spawning new daemon");
-    const port = await spawnDaemon({
+    const spawned = await spawnDaemon({
       script: opts.daemonScript,
       env: { ...opts.daemonEnv, DESIGN_DAEMON_STATE_FILE: stateFile },
       stateFile,
       expectedVersion,
     });
-    return { port, version: expectedVersion, spawned: true };
+    return { port: spawned.port, token: spawned.token, version: expectedVersion, spawned: true };
   } finally {
     release();
   }
@@ -174,6 +181,8 @@ export async function ensureDaemon(
  */
 export interface PublishBoardOptions {
   port: number;
+  /** The daemon's secret from its state file (EnsureDaemonResult.token). */
+  token: string;
   html: string;
   title?: string;
   publisherPid?: number;
@@ -191,7 +200,7 @@ export async function publishBoard(opts: PublishBoardOptions): Promise<PublishBo
     publisherPid: opts.publisherPid ?? process.pid,
   };
   if (opts.title) body.title = opts.title;
-  const resp = await fetch(`http://127.0.0.1:${opts.port}/api/boards`, {
+  const resp = await fetch(`http://127.0.0.1:${opts.port}/${opts.token}/api/boards`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -265,7 +274,7 @@ interface SpawnDaemonOpts {
   expectedVersion: string;
 }
 
-async function spawnDaemon(opts: SpawnDaemonOpts): Promise<number> {
+async function spawnDaemon(opts: SpawnDaemonOpts): Promise<DaemonState> {
   const logPath = resolveStartupLogPath();
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   // Truncate the startup log on each spawn so a later read finds only THIS
@@ -291,9 +300,9 @@ async function spawnDaemon(opts: SpawnDaemonOpts): Promise<number> {
   const deadline = Date.now() + MAX_START_WAIT_MS;
   while (Date.now() < deadline) {
     const fresh = readStateFile(opts.stateFile);
-    if (fresh) {
+    if (fresh?.token) {
       const h = await healthCheck(fresh.port);
-      if (h) return fresh.port;
+      if (h) return fresh;
     }
     await delay(POLL_INTERVAL_MS);
   }
@@ -312,9 +321,12 @@ async function spawnDaemon(opts: SpawnDaemonOpts): Promise<number> {
   );
 }
 
-async function gracefulShutdownExistingDaemon(port: number): Promise<void> {
+async function gracefulShutdownExistingDaemon(port: number, token: string | undefined): Promise<void> {
+  // A daemon from before per-daemon secrets has no token; the caller's
+  // identity-checked SIGTERM stops it instead.
+  if (!token) return;
   try {
-    await fetch(`http://127.0.0.1:${port}/shutdown`, {
+    await fetch(`http://127.0.0.1:${port}/${token}/shutdown`, {
       method: "POST",
       signal: AbortSignal.timeout(2000),
     });
@@ -390,7 +402,7 @@ export async function shutdownDaemon(opts: { force?: boolean } = {}): Promise<{
       activeBoards: health.activeBoards,
     };
   }
-  await gracefulShutdownExistingDaemon(existing.port);
+  await gracefulShutdownExistingDaemon(existing.port, existing.token);
   // Best-effort: SIGTERM if /shutdown didn't take effect
   if (isProcessAlive(existing.pid)) {
     await killByPidWithIdentity(existing.pid, existing.cmdlineMarker, true);

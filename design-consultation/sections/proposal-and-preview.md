@@ -355,7 +355,7 @@ Write this round's board images (printed paths that passed checks, in order) as 
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with `BOARD_URL` means the daemon is serving. Save its full `http://127.0.0.1:N/boards/<id>/` URL. Only legacy `--no-daemon` needs a host background task; `SERVE_STARTED: port=N` gives root URL `http://127.0.0.1:N/`.
+This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with `BOARD_URL` means the daemon is serving. Save its full `http://127.0.0.1:N/<secret>/boards/<id>/` URL. Only legacy `--no-daemon` needs a host background task; `SERVE_STARTED: port=N` gives root URL `http://127.0.0.1:N/`.
 
 **Wait with AskUserQuestion:** "Review <BOARD_URL>, Submit or request new variants, then tell me; or paste preferences here." The board chooses; the question waits. Do not poll.
 
