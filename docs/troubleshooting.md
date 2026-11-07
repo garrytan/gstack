@@ -2120,11 +2120,15 @@ under `## Approvals`. A PR whose only changes are changelog fragments needs no l
 **Meaning.** `Plan: approved: <token>` names no approval row on this machine. A run id must
 match a row source `autoplan:<id>@gate_rev=<n>` in any branch's file of the repository's
 approval store (the state root plus every Drive mirror); a row id must exist and be a plan
-approval, not a `ruled_note`, `review_loop_grant` or `test_lane_exception` row.
+approval, not a `ruled_note`, `review_loop_grant` or `test_lane_exception` row. A public
+repo's `Plan: approved (record r-<id>)` must hash from a row id this machine can read; when it
+is the redacted Approvals block's own id (a hash of a whole record), the message says so.
 
 **Fix.** `gstack-approvals import --autoplan <run dir> --by "<owner>"` after the owner's answer,
 or `gstack-approvals add` with their exact words for a plan approved outside /autoplan, then
-cite the run id or the row id it printed.
+cite the run id or the row id it printed. For a record id, paste the Plan line
+`gstack-approvals render --plan` printed, and run ready where the plan was approved or after
+`gstack-approvals sync`.
 
 <a id="plan-not-approved"></a>
 ### `PLAN: ... (PLAN_NOT_APPROVED)`
