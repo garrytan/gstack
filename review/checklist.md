@@ -126,7 +126,7 @@ A gate is anything that would have made this change fail: a test, an assertion, 
 
 #### Timing-Dependent Tests
 - An added or changed test line that compares an elapsed wall-clock or CPU time with a bound (`expect(Date.now() - t0).toBeLessThan(400)`, `assert elapsed < 0.5`) or sleeps a fixed time and then asserts, with no `gstack-timing-ok: <reason>` comment on the line or the line above. `gstack-pregate` prints these as `TIMING_ASSERTION: <file>:<line> <pattern>`; suggest asserting on the outcome, an injected clock, a forced deadline or a poll with a deadline
-- A diff that raises an existing timing bound or adds a retry to make a flake pass: the bound is not the cause; find the timing cause and fix that, with a test that fails on it first
+- A diff that raises an existing timing bound or adds a retry to make a flake pass: the bound is not the cause; route it to /investigate's flake recipe (timing flakes)
 
 #### Keyboard-Count Test Loops
 - A Playwright or other browser-driver test that reaches an element by a counted loop of key presses (`for (let i = 0; i < 7; i++) await page.keyboard.press('Tab')`, N× `ArrowDown`) and then asserts on whatever has focus: the count encodes today's DOM order, so a reorder fails or passes the test for the wrong reason (`test-keyboard-count-loop`). Locate the target by role, label or test id and assert focus or selection on it; a counted loop stays only when the count itself is the behavior under test, named in the test title.
