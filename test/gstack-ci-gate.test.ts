@@ -227,14 +227,14 @@ describe('polling', () => {
   test('delayed registration: zero checks re-polled until checks appear', async () => {
     const c = clock();
     const gh = fakeGh({ required: [NONE, NONE, NONE_REQUIRED], all: [NONE, NONE, ok([row('build', 'pending')])] });
-    const result = await runCiGate(options({ registrationWaitSeconds: 60 }), gh, c.sleep, c.now);
+    const result = await runCiGate(options({ registrationWaitSeconds: 120 }), gh, c.sleep, c.now, () => 0);
     expect(result.verdict).toBe('PENDING');
-    expect(c.now()).toBe(20_000);
+    expect(c.now()).toBe(120_000);
   });
 
   test('registration wait is bounded at 60s, then NO_CHECKS', async () => {
     const c = clock();
-    const result = await runCiGate(options({ registrationWaitSeconds: 60 }), fakeGh({ required: [NONE], all: [NONE] }), c.sleep, c.now);
+    const result = await runCiGate(options({ registrationWaitSeconds: 60 }), fakeGh({ required: [NONE], all: [NONE] }), c.sleep, c.now, () => 0);
     expect(result.verdict).toBe('NO_CHECKS');
     expect(c.now()).toBe(60_000);
   });
@@ -242,15 +242,15 @@ describe('polling', () => {
   test('--wait polls PENDING until a final verdict', async () => {
     const c = clock();
     const all = [ok([row('t', 'pending')]), ok([row('t', 'pending')]), ok([row('t', 'pass')])];
-    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now);
+    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now, () => 0);
     expect(result.verdict).toBe('PASS');
-    expect(c.now()).toBe(60_000);
+    expect(c.now()).toBe(120_000);
   });
 
   test('--wait timeout reports PENDING and names the still-pending checks', async () => {
     const c = clock();
     const all = [ok([row('build', 'pass'), row('deploy-preview', 'pending')])];
-    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now);
+    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now, () => 0);
     expect(result.verdict).toBe('PENDING');
     expect(checkLines(result.lines)).toEqual(['CHECK\tdeploy-preview\tpending\trequired=n\thttps://ci.example/deploy-preview']);
     expect(result.lines.some(line => line.startsWith('NOTE still pending after waiting 240s'))).toBe(true);
@@ -259,9 +259,9 @@ describe('polling', () => {
   test('a failure during the wait stops immediately (fail fast)', async () => {
     const c = clock();
     const all = [ok([row('t', 'pending')]), ok([row('t', 'fail'), row('u', 'pending')])];
-    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now);
+    const result = await runCiGate(options({ waitSeconds: 240 }), fakeGh({ required: [NONE_REQUIRED], all }), c.sleep, c.now, () => 0);
     expect(result.verdict).toBe('FAIL');
-    expect(c.now()).toBe(30_000);
+    expect(c.now()).toBe(60_000);
   });
 });
 

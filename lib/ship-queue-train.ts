@@ -18,6 +18,7 @@ import { randomBytes } from 'node:crypto';
 import { DISPATCH_INPUTS, awaitNonceRun, dispatchWorkflow, listDispatchRuns, makeNonce, runForNonce, type WorkflowDispatch } from '../scripts/eval-bg';
 import { carryReleasedParent, changelogDamage, mergeChangelogs, parseChangelog, type ChangelogSection } from './changelog-check';
 import type { ResultStatus } from './headless-artifacts';
+import { pollDelayMs } from './gh-poll';
 import { baseOverlapLine } from './pr-wait';
 import { versionAtRef, versionFiles } from './restamp';
 import type { LoadedPolicy, ShipPolicy, TrainPolicy } from './ship-policy';
@@ -495,7 +496,7 @@ async function freePhase(env: TrainEnv, slug: string, t: TrainRecord, o: BuildOp
   const deadline = Date.now() + o.freeTimeoutSec * 1000;
   let found = newestBranchRun(env.ctx, slug, env.train.free_workflow, t.branch);
   while ((found === null || found === 'unreadable' || found.status !== 'completed') && Date.now() < deadline) {
-    await sleep(o.pollMs);
+    await sleep(pollDelayMs(o.pollMs));
     found = newestBranchRun(env.ctx, slug, env.train.free_workflow, t.branch);
   }
   if (found && found !== 'unreadable' && found.status !== 'completed') {

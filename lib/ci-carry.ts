@@ -23,12 +23,13 @@
  * suite as before. Security and advisory scans and the sealed guard are never
  * carried: callers carry test lanes only.
  *
- * waitForRun polls the newest run of one workflow on HEAD until it completes,
- * bounded by a timeout, and returns green, red with the failing jobs, still
- * running, or none.
+ * waitForRun polls the newest run of one workflow on HEAD (REST) until it
+ * completes, at least 60 s apart (lib/gh-poll.ts), bounded by a timeout, and
+ * returns green, red with the failing jobs, still running, or none.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pollDelayMs } from './gh-poll';
 import { normalPath, runChanged, runInventory, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RunDeps, type RunEvidence, type RunProfile, type RunSource } from './run-evidence';
 
 export type CarryRefusal = 'dirty_tree' | 'no_profile' | 'no_run' | 'no_verified_run' | 'tree_mismatch' | 'no_tests'
@@ -136,8 +137,8 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
 export type WaitVerdict = { state: 'green'; run: ApiRun } | { state: 'red'; run: ApiRun; failing: string[] } | { state: 'running'; run: ApiRun } | { state: 'none'; reason: string };
 const PASSING = ['success', 'skipped', 'neutral'];
 
-/** Poll the newest `workflow` run on `head` (among `events`) until it completes or `timeoutMs` passes. */
-export async function waitForRun(deps: RunDeps, o: { workflow: string; events: string[]; head: string; timeoutMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; clock: () => number }): Promise<WaitVerdict> {
+/** Poll the newest `workflow` run on `head` (among `events`) until it completes or `timeoutMs` passes; polls are at least 60 s apart. */
+export async function waitForRun(deps: RunDeps, o: { workflow: string; events: string[]; head: string; timeoutMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; clock: () => number; random?: () => number }): Promise<WaitVerdict> {
   const end = o.clock() + o.timeoutMs;
   for (;;) {
     const newest = deps.runsForHead(o.workflow, o.head).filter(r => o.events.includes(r.event)).sort(newestFirst)[0];
@@ -147,7 +148,7 @@ export async function waitForRun(deps: RunDeps, o: { workflow: string; events: s
       return { state: 'red', run: newest, failing };
     }
     if (o.clock() >= end) return newest ? { state: 'running', run: newest } : { state: 'none', reason: `no ${o.workflow} run on ${o.head.slice(0, 12)} after ${Math.round(o.timeoutMs / 1000)} s` };
-    await o.sleep(Math.max(1, Math.min(o.intervalMs, end - o.clock())));
+    await o.sleep(pollDelayMs(o.intervalMs, o.random));
   }
 }
 

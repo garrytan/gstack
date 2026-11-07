@@ -28,6 +28,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pollDelayMs } from '../lib/gh-poll';
 import { detectBaseBranch } from '../test/helpers/touchfiles';
 import { DEFAULT_JOBS, ROOT, type PaidTier } from './lib/paid-types';
 import { buildRunManifest, loadPaidTestDurations, recordedShardMs } from './lib/paid-plan';
@@ -243,7 +244,7 @@ export function dispatchWorkflow(dispatch: WorkflowDispatch, ref: string, run: E
 export async function awaitNonceRun(workflow: string, nonce: string, run: Exec, repo = CANONICAL_REPO): Promise<RunSummary | null> {
   const deadline = Date.now() + 10 * pollMs();
   while (Date.now() < deadline) {
-    await sleep(Math.min(pollMs(), 10_000));
+    await sleep(pollDelayMs(pollMs()));
     const found = runForNonce(listDispatchRuns(workflow, run, repo) ?? [], nonce);
     if (found) return found;
   }
@@ -335,7 +336,7 @@ async function followWorkflow(dispatch: WorkflowDispatch, ref: string, key: stri
       console.log(`[eval-bg] ${dispatch.workflow}: conclusion ${state.conclusion ?? 'unknown'} -> exit ${code}`);
       return code;
     }
-    await sleep(pollMs());
+    await sleep(pollDelayMs(pollMs()));
   }
 }
 

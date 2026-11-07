@@ -15,6 +15,7 @@ import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { parseUnifiedDiff, versionAtRef } from './restamp';
 import { branchSides, stampOnlyLine } from './stamp-only';
 import { DEFAULT_POLICY, matchesAny } from './ship-policy';
+import { ghSpawnSync } from './gh-poll';
 import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
@@ -40,7 +41,7 @@ export function hostedOrigin(cwd: string): boolean {
 }
 /** gh with argv, never a shell, so a branch name cannot change what runs. */
 export function gh(cwd: string, args: string[], timeout = 60_000): Run {
-  return done(spawnSync('gh', args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }));
+  return done(ghSpawnSync(args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }));
 }
 export function sh(cwd: string, command: string, timeout = 1_800_000): Run {
   return done(runBashSync(command, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 }));
