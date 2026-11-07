@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "routes": {
+    "GET /api/members": {
+      "status": 200,
+      "delay_ms": 600,
+      "json": [
+        {
+          "name": "Dana Whitfield",
+          "role": "Owner"
+        },
+        {
+          "name": "Omar Haddad",
+          "role": "Reader"
+        }
+      ]
+    }
+  }
+}
