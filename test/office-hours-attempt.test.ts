@@ -557,8 +557,6 @@ describe('session runner native CLI max-turns exit semantics', () => {
 const FORMAT_CASES = [
   ['skill-e2e-plan-format.test.ts', 'plan-ceo-review-format-mode'],
   ['skill-e2e-plan-format.test.ts', 'plan-ceo-review-format-approach'],
-  ['skill-e2e-plan-format.test.ts', 'plan-eng-review-format-coverage'],
-  ['skill-e2e-plan-format.test.ts', 'plan-eng-review-format-kind'],
   ['skill-e2e-plan-prosons.test.ts', 'plan-review-prosons-format'],
   ['skill-e2e-plan-prosons.test.ts', 'plan-review-prosons-hardstop-neg'],
   ['skill-e2e-plan-prosons.test.ts', 'plan-review-prosons-neutral-neg'],

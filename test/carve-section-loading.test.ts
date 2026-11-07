@@ -24,7 +24,6 @@ describeE2ETier('periodic')('carve section-loading', () => {
   test('carve-section-loading-land-and-deploy', () => runCarveSectionCase('land-and-deploy'), CAPTURE_LONG_MS);
   test('carve-section-loading-plan-design-review', () => runCarveSectionCase('plan-design-review'), CAPTURE_LONG_MS);
   test('carve-section-loading-plan-devex-review', () => runCarveSectionCase('plan-devex-review'), CAPTURE_LONG_MS);
-  test('carve-section-loading-plan-eng-review', () => runCarveSectionCase('plan-eng-review'), CAPTURE_LONG_MS);
   test('carve-section-loading-qa', () => runCarveSectionCase('qa'), CAPTURE_LONG_MS);
   test('carve-section-loading-retro', () => runCarveSectionCase('retro'), CAPTURE_LONG_MS);
   test('carve-section-loading-review', () => runCarveSectionCase('review'), CAPTURE_LONG_MS);

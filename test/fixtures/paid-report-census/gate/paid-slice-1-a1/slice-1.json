@@ -20,7 +20,7 @@
       "executedTests": 5,
       "skippedTests": 0,
       "budget": {
-        "timeoutMs": 3720000,
+        "timeoutMs": 2520000,
         "source": "registered",
         "policyId": "skill-e2e-plan-mode-no-op-existing-retry-v1"
       }

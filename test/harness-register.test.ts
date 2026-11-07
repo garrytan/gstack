@@ -13,6 +13,7 @@ import {
   BLOCK_BEGIN, BLOCK_END, CONTEXT_BLOCK_MAX, DOT_SKILLS_DIR, HARNESS_CODES, HYBRID_SKILLS, HarnessError, OPENCLAW_ALL_TEXTS, OPENCLAW_INSTRUCTION_MAX, ROUTER_DESCRIPTION, ROUTER_DESCRIPTION_MAX, TARGETS,
   contextBlock, contextScope, detect, listLedgers, readLedger, refresh, register, sourceSkills, unregister, type RegisterOptions,
 } from '../lib/harness-register';
+import { RETIRED_SKILLS } from '../scripts/discover-skills';
 import { QM_PACK_LIMITS, qmRequest, registerQm, removeQmPack } from '../lib/harness-qm';
 import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, registryRows, runSetup, tree } from './helpers/install-fixture';
 
@@ -137,6 +138,17 @@ describe('gstack-harness register and unregister (skill folders)', () => {
       expect(dotsAccepts(fs.readFileSync(md, 'utf8'), name), name).toBe(true);
       expect(fs.statSync(md).size).toBeLessThanOrEqual(256 * 1024);
     }
+  }, 60_000);
+
+  test('Claude-render targets (dots, generic) never register a retired skill; /autoplan still carries its methodology', () => {
+    const d = tmp();
+    const names = sourceSkills(TARGETS.dots, ROOT, d).map(s => s.name);
+    expect(names).toContain('autoplan');
+    for (const retired of RETIRED_SKILLS) expect(names).not.toContain(retired);
+    expect(sourceSkills(TARGETS.generic, ROOT, d).map(s => s.name)).toEqual(names);
+    const r = register(opts(d, 'dots', { mode: 'all', skillsDir: path.join(d, 'all') }));
+    for (const retired of RETIRED_SKILLS) expect(fs.existsSync(path.join(r.dest, retired))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'))).toBe(true);
   }, 60_000);
 
   test('generic: the context block is replaced in place, then cut out; the user\'s lines and edits survive', () => {
