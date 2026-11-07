@@ -1,7 +1,7 @@
 /**
  * gstack on Capy (crew/README.md): public CI runs the crew tests (crew/test)
- * only when a pull request changes crew/ or a file crew code or its tests
- * import. `scripts/test-free-shards.ts --ci-plan --crew-base <ref>` asks for
+ * only when a pull request changes crew/, a file crew code or its tests
+ * import, or a root file they run or read by path (bin/, .github/workflows/). `scripts/test-free-shards.ts --ci-plan --crew-base <ref>` asks for
  * that check; without --crew-base every free file is planned, as on main
  * pushes and in local runs. Typecheck still covers crew/ on every pull request.
  */
@@ -11,6 +11,9 @@ import * as path from 'node:path';
 
 export const CREW_TEST_ROOT = 'crew/test';
 export const isCrewTestFile = (file: string): boolean => file.startsWith(CREW_TEST_ROOT + '/');
+
+/** Root directories crew tests reach by path rather than import: the bin/ commands their fixtures spawn and the workflows they parse. */
+const CREW_TEST_INPUTS = ['bin/', '.github/workflows/'];
 
 const RELATIVE_SPEC = /(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"](\.{1,2}\/[^'"]+)['"]/gm;
 
@@ -49,8 +52,8 @@ export function crewTestSelection(root: string, base: string): CrewTestSelection
   if (diff.status !== 0 || listed.status !== 0) return { planned: true, reason: `git could not diff against ${base}, so they run` };
   const changed = diff.stdout.split('\n').filter(Boolean);
   const closure = crewImportClosure(root, listed.stdout.split('\n').filter(Boolean));
-  const hit = changed.find(file => file.startsWith('crew/') || closure.has(file));
+  const hit = changed.find(file => file.startsWith('crew/') || CREW_TEST_INPUTS.some(dir => file.startsWith(dir)) || closure.has(file));
   return hit
     ? { planned: true, reason: `${hit} changed` }
-    : { planned: false, reason: `nothing under crew/ or in what crew code imports changed since ${base}` };
+    : { planned: false, reason: `nothing under crew/, bin/ or .github/workflows/, or in what crew code imports, changed since ${base}` };
 }

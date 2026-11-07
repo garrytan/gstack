@@ -1,6 +1,6 @@
 /**
  * gstack on Capy (crew/README.md): a pull request's free-suite plan carries
- * crew/test only when the change touches crew/ or a file crew code imports
+ * crew/test only when the change touches crew/, bin/, .github/workflows/ or a file crew code imports
  * (scripts/lib/crew-tests.ts, --crew-base on scripts/test-free-shards.ts).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -56,7 +56,7 @@ describe('crewTestSelection', () => {
     const base = git('rev-parse', 'HEAD');
     change('ship/SKILL.md');
     change('lib/unrelated.ts');
-    expect(crewTestSelection(repo, base)).toEqual({ planned: false, reason: `nothing under crew/ or in what crew code imports changed since ${base}` });
+    expect(crewTestSelection(repo, base)).toEqual({ planned: false, reason: `nothing under crew/, bin/ or .github/workflows/, or in what crew code imports, changed since ${base}` });
   });
 
   test('a change under crew/ plans them', () => {
@@ -69,6 +69,19 @@ describe('crewTestSelection', () => {
     const base = git('rev-parse', 'HEAD');
     change('lib/c.ts');
     expect(crewTestSelection(repo, base)).toEqual({ planned: true, reason: 'lib/c.ts changed' });
+  });
+
+  test('a change to a bin/ command or workflow crew tests run or read by path plans them', () => {
+    write('bin/gstack-ship-queue', '#!/usr/bin/env bun\n');
+    write('.github/workflows/evals.yml', 'name: evals\n');
+    git('add', '-A');
+    git('commit', '-qm', 'add bin and workflow');
+    const base = git('rev-parse', 'HEAD');
+    change('bin/gstack-ship-queue');
+    expect(crewTestSelection(repo, base)).toEqual({ planned: true, reason: 'bin/gstack-ship-queue changed' });
+    const next = git('rev-parse', 'HEAD');
+    change('.github/workflows/evals.yml');
+    expect(crewTestSelection(repo, next)).toEqual({ planned: true, reason: '.github/workflows/evals.yml changed' });
   });
 
   test('a base git cannot read plans them', () => {
