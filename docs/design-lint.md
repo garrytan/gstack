@@ -453,7 +453,9 @@ Every URL a person sees (text, JSON, stderr, traces, state names) has its
 userinfo dropped and the value of any query or `#fragment` parameter whose
 name contains token, key, secret, auth, session, sig, signature, password,
 pass, code, jwt or bearer replaced with `REDACTED`; the page is opened at the
-real URL.
+real URL. A URL that does not parse (a port out of range, say) and URLs
+inside error text are redacted by pattern, and a value runs to the next `&`,
+`#` or whitespace, so punctuation inside a token never lets its tail through.
 
 ## Token names the rules read
 

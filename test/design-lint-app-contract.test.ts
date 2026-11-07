@@ -307,6 +307,32 @@ describe('app profile contract: findings, redaction and traces (T22, T29, T34, T
     expect(hashed.out + hashed.err).not.toContain('FRAGSENTINEL');
   });
 
+  test('a URL that does not parse and a token value holding ")" are redacted by pattern in text, JSON, stderr and traces', async () => {
+    expect(redactUrl('http://' + ['u', 'PW'].join(':') + '@localhost:99999/p?a=1&token=BADSENTINEL#sig=FRAGBAD')).toBe('http://localhost:99999/p?a=1&token=REDACTED#sig=REDACTED');
+    expect(stateNameOf('http://localhost:99999/p?token=BADSENTINEL')).toBe('http://localhost:99999/p?token=REDACTED');
+    expect(redactText('fetch failed at http://h.test/p?token=prefix)PARENSENTINEL_TAIL (x)')).toBe('fetch failed at http://h.test/p?token=REDACTED (x)');
+    expect(redactText('GET /api?api_key=a:b)c&as=owner failed')).toBe('GET /api?api_key=REDACTED&as=owner failed');
+    const bad = 'http://localhost:99999/p?token=SENTINEL_INVALID';
+    for (const argv of [[], ['--json']]) {
+      const r = runBin(['--scope', 'app', '--url', bad, '--within', 'body', ...argv]);
+      expect(r.code).toBe(4);
+      expect(r.out + r.err).not.toContain('SENTINEL_INVALID');
+      expect(r.out + r.err).toContain('token=REDACTED');
+    }
+    const paren = 'http://127.0.0.1:5300/p?as=owner&token=prefix)PARENSENTINEL';
+    const traceDir = tmpDir();
+    const run = fakeRun({ measure: (w) => (w === 375 ? { error: 'Error: boom at ' + paren, stack: 'Error: boom\n    at ' + paren + ':1:1' } : ok()) });
+    for (const json of [false, true]) {
+      const out: string[] = [];
+      const err: string[] = [];
+      await appMain(args({ urls: [paren], json, verbose: true }), { out: (s) => out.push(s), err: (s) => err.push(s) }, { run, traceDir, reach: async () => 'connect ECONNREFUSED for ' + paren });
+      await appMain(args({ urls: [paren], json, verbose: true }), { out: (s) => out.push(s), err: (s) => err.push(s) }, { run, traceDir, reach: async () => null });
+      const traces = fs.readdirSync(traceDir).map((t) => fs.readFileSync(path.join(traceDir, t), 'utf8')).join('');
+      expect(traces.length).toBeGreaterThan(0);
+      expect([json, (out.join('\n') + err.join('\n') + traces).includes('PARENSENTINEL')]).toEqual([json, false]);
+    }
+  });
+
   test('two --url states that share a redacted name stay two states; the same URL twice is DUPLICATE_STATE', async () => {
     const seen: string[] = [];
     const two = await app({ urls: ['http://127.0.0.1:5300/p?session=owner', 'http://127.0.0.1:5300/p?session=viewer'] }, { run: async (spec) => { seen.push(spec.file); return fakeRun({})(spec); } });
