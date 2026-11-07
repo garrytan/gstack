@@ -22,7 +22,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { parseReply, renderGate, type GateList } from '../lib/gate-list';
+import { legacyRecHash, parseReply, recHash, renderGate, type GateList } from '../lib/gate-list';
 import { attemptsOf, autoplan, readRun, resultOf, review, ROOT, runPhase, startSmallRun } from './helpers/autoplan-run-fixture';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-residuals-'));
@@ -183,6 +183,31 @@ describe('B-b/B-c: recommend binds rec to the render the owner saw; the owner re
     expect(ok.stdout).not.toMatch(new RegExp(`^APPLY: \\S+-${uc.id} `, 'm'));
     expect(ok.stdout).toMatch(/^APPLY: \S+-uc2 /m);
     expect(decisions(out).find(r => r.label === uc.id.toUpperCase())).toMatchObject({ chosen: 'a', owner_reply: 'rec', owner_reply_parsed: true, recommended_by: 'parent' });
+  });
+});
+
+describe('GST-1819: rec_hash binds to its run; a gate rendered before that keeps its own hash', () => {
+  test('another run\'s rec_hash for the same decision shape is refused; an unmarked gate accepts its legacy hash and records it', () => {
+    const out = agreedRun('run-bound');
+    const gateFile = path.join(out, 'gate.json');
+    const gate = JSON.parse(fs.readFileSync(gateFile, 'utf8')) as GateList;
+    expect(gate.rec_hash_v).toBe(2);
+    const before = fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8');
+    for (const hash of [recHash({ ...gate, run: `${gate.run}-other` }), legacyRecHash(gate)]) {
+      const refused = autoplan(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', hash, '--by', 'human']);
+      expect(refused.status, hash).toBe(3);
+      expect(refused.stderr).toMatch(/is not this gate's: .* for another run; current rec_hash=[0-9a-f]{12} \(run \S+\)\).*\(GATE_REC_STALE\)$/m);
+    }
+    expect(fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8')).toBe(before);
+    delete gate.rec_hash_v;
+    fs.writeFileSync(gateFile, JSON.stringify(gate, null, 2) + '\n');
+    const legacy = legacyRecHash(gate);
+    expect(legacy).not.toBe(recHash(gate));
+    const ok = autoplan(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', legacy, '--by', 'human']);
+    expect(ok.status, ok.stderr).toBe(0);
+    const answered = decisions(out).filter(r => r.answered_at);
+    expect(answered.length).toBe(gate.items.length);
+    for (const r of answered) expect(r.rec_hash).toBe(legacy);
   });
 });
 

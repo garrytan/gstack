@@ -170,6 +170,15 @@ describe('next wave B1/B-b: rec, aliases, quotes and the rec_hash', () => {
     expect(recHash(moved)).not.toBe(h);
     expect(renderGate(moved)).toContain('[d1] Delivery shape (approval; recommended: b (both reviewers name it; set by agent:relay))');
   });
+  test('rec_hash binds to its run and plan: two runs with the same decision shape never share one (GST-1819)', () => {
+    const eli5 = { summary: 's', before_after: '', why: '', cause: '', decisions: '', plan_file_sha256: 'a'.repeat(64) };
+    const first: GateList = { ...held, run: 'run-20261106101500', eli5 };
+    const second: GateList = { ...held, run: 'run-20261107093000', eli5: { ...eli5, plan_file_sha256: 'b'.repeat(64) } };
+    expect(recHash(first)).not.toBe(recHash(second));
+    expect(recHash({ ...first, run: second.run })).not.toBe(recHash(first));
+    expect(recHash({ ...first, eli5: second.eli5 })).not.toBe(recHash(first));
+    expect(recHash({ ...first, eli5: undefined, items: first.items.map(i => (i.id === 'd2' ? { ...i, title: 'another decision' } : i)) })).not.toBe(recHash({ ...first, eli5: undefined }));
+  });
 });
 
 describe('decisions.jsonl rows', () => {

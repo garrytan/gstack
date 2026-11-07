@@ -4967,6 +4967,13 @@ recommended `b` pending, and `all` now takes them.
 and answer with `--rec-hash <h>` from that render. Explicit `<id><option>`
 tokens are never refused.
 
+Since GST-1819 the hash also names the run, its reviewed plan's sha256 and each
+item's title and option keys, so a `--rec-hash` from another run's gate with
+the same decision shape is refused too: answer each run with the hash its own
+render printed. A gate written before that (its `gate.json` has no
+`rec_hash_v`) still accepts the hash it printed then, for that gate only, and
+the answer records that hash; a `recommend` on it moves it to the new hash.
+
 <a id="checkpoint-invalid"></a>
 ### `CHECKPOINT_INVALID`
 

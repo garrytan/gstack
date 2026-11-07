@@ -28,7 +28,7 @@ import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry'
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { phaseClose } from './autoplan-timing';
-import { ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
+import { ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
 import { readJsonl, sha256File } from './headless-artifacts';
 import { closeDraftDirectionsFile, loadBriefInputs } from './owner-brief';
@@ -254,7 +254,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
   items.push(planApproval(state, items));
-  const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0,
+  const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,
     ...(fs.existsSync(state.active_plan) ? { eli5: buildEli5(fs.readFileSync(state.active_plan, 'utf8'), state.active_plan) } : {}) };
   const problems = validateGateList(list);
   if (problems.length) throw new Error(`gate list invalid: ${problems.join('; ')}`);
@@ -288,6 +288,7 @@ export function recommendGate(state: RunState, gateRev: number, itemId: string, 
   const p1 = planApproval(state, list.items);
   list.items = list.items.map(i => (i.id === 'p1' ? p1 : i));
   list.rec_rev = (list.rec_rev ?? 0) + 1;
+  list.rec_hash_v = 2;
   fs.writeFileSync(gateFile, JSON.stringify(list, null, 2) + '\n');
   const updated = new Map([item, p1].map(i => [decisionId(list.run, gateRev, i.id), i]));
   writeDecisions(state.out, readDecisions(state.out).map(r => {
@@ -412,7 +413,9 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   if (parsed.error === 'GATE_REV_STALE') throw new RunError('GATE_REV_STALE', `reply names gate_rev=${gateRev}, current gate_rev=${list.gate_rev}`, 3);
   if (!parsed.valid) throw new RunError('GATE_REPLY_UNPARSED', parsed.error === 'GATE_EMPTY' ? 'empty reply' : `unparsed: ${parsed.unparsed.join(', ')}`);
   const currentHash = recHash(list);
-  if (o.recHash !== undefined && o.recHash !== currentHash) throw new RunError('GATE_REC_STALE', `--rec-hash ${o.recHash} was rendered before the recommendations changed; current rec_hash=${currentHash}`, 3);
+  const legacy = list.rec_hash_v === undefined && o.recHash !== undefined && o.recHash === legacyRecHash(list);
+  if (o.recHash !== undefined && o.recHash !== currentHash && !legacy) throw new RunError('GATE_REC_STALE', `--rec-hash ${o.recHash} is not this gate's: it was rendered before the recommendations changed, or for another run; current rec_hash=${currentHash} (run ${list.run})`, 3);
+  const answeredHash = legacy ? o.recHash! : currentHash;
   if (parsed.mode === 'rec' && list.rec_rev === undefined && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `this gate was written before \`rec\`/\`all\` took plan changes (gate.json has no rec_rev), so the owner saw a different meaning; render it again (gstack-gate render ${gateFile} --all), relay it, and answer with --rec-hash ${currentHash}, or reply with explicit <id><option> tokens`, 3);
   const takesRecs = parsed.mode === 'rec' || parsed.choices.some(c => c.id === 'p1' && c.chosen === 'b' && !c.prior);
   if (takesRecs && (list.rec_rev ?? 0) > 0 && o.recHash === undefined) throw new RunError('GATE_REC_STALE', `recommend changed this gate (rec_rev=${list.rec_rev}); \`rec\` and \`p1b\` take its recommendations, so pass --rec-hash from the render the owner saw (current rec_hash=${currentHash})`, 3);
@@ -427,7 +430,7 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const lines: string[] = o.carry ? [] : voidPendingCheck(state, `the owner answered gate_rev ${gateRev}`);
   const answeredAt = now();
   const owner = (r: DecisionRow): Partial<DecisionRow> => (shape && r.gate_rev === list.gate_rev && r.answered_at === answeredAt
-    ? { owner_mode: shape.mode, owner_named: shape.named.has((r.label ?? '').toLowerCase()), rec_hash: currentHash, answered_role: answeredBy?.startsWith('agent:') ? 'agent' : 'human' } : {});
+    ? { owner_mode: shape.mode, owner_named: shape.named.has((r.label ?? '').toLowerCase()), rec_hash: answeredHash, answered_role: answeredBy?.startsWith('agent:') ? 'agent' : 'human' } : {});
   const record = (answered = parsed) => writeDecisions(state.out, applyReply(rows, answered, answeredAt, answeredBy, provenance).map(r => {
     const c = r.gate_rev === list.gate_rev && r.chosen && !r.chosen_text ? itemOf((r.label ?? '').toLowerCase())?.options.find(o => o.key === r.chosen) : undefined;
     return { ...(c ? { ...r, chosen_text: c.text } : r), ...owner(r) };
