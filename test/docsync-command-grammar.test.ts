@@ -234,6 +234,30 @@ test('the installed docs-candidate helper is admitted only with a private .json 
   expect(docsNativeInterface(fixture)).toContain('compare <that .json> and --help commands');
 });
 
+test('the docs-candidate result command is admitted only with a private output file, a plain audit id and a private --out-dir', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const dir = path.join(fixture.home, 'docs-record');
+  for (const command of [
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${fixture.home}`,
+    `${helper} result ${output} --out-dir ${dir} --audit-id audit-1`,
+    `${helper} result --help`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${fixture.repo}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${path.join(fixture.repo, '.gstack')}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${path.join(fixture.skills, 'bin')}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${dir} --exec rm`,
+    `${helper} result ${output} --audit-id audit-1 --mode edit`,
+    `${helper} result ${output} --audit-id audit-1 --audit-id audit-2`,
+    `${helper} result ${output} --audit-id audit-1`,
+    `${helper} result ${output} --audit-id ../audit-1 --out-dir ${dir}`,
+    `${helper} result ${path.join(fixture.repo, 'out.md')} --audit-id audit-1 --out-dir ${dir}`,
+    `${helper} result --help extra`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate result <a saved private .md or .json child output> --audit-id <the audit id> --out-dir <`);
+});
+
 // Train gate 39904966815 and GSTA-63's focused run joined the candidate's --help onto a line of reads; v1.91.185.0 moved the
 // own-call rule into the sentence naming --help and the slip came back four times (JOINED_READ_LINES below). The --help only
 // prints usage, so it now joins a line of reads like a Git read; every other own-call command stays alone.
