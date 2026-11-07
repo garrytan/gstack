@@ -14,7 +14,8 @@
  * is ambiguous across multi-option items and is reported as unparsed, never
  * guessed. A reply binds to the gate revision it answers (`gate_rev`), and a
  * `rec` reply to the recommendations it saw (`rec_hash`, bumped by
- * `gstack-autoplan recommend`). Earlier answers at the same revision
+ * `gstack-autoplan recommend`; it also names the run and its plan, so two
+ * runs with the same decision shape never share one). Earlier answers at the same revision
  * (`prior`) are kept unless a token names the item again: only unresolved
  * items default.
  * Rendered by bin/gstack-gate; rows land in decisions.jsonl (lib/headless-artifacts.ts).
@@ -50,6 +51,8 @@ export type ItemClass = 'challenge2' | 'challenge1' | 'disagree' | 'agent' | 'ca
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
   rec_rev?: number;
+  /** 2: rendered with the run-bound `recHash`; absent on a gate written before it, whose renders printed `legacyRecHash`. */
+  rec_hash_v?: 2;
   /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
   eli5?: GateEli5;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
@@ -101,8 +104,18 @@ export function validateGateList(list: unknown): string[] {
   return problems;
 }
 
-/** The recommendations a `rec` reply takes, as a short hash the render prints and `answer --rec-hash` checks. */
+/**
+ * The recommendations a `rec` reply takes, as a short hash the render prints and `answer --rec-hash` checks. It names
+ * the run, the reviewed plan's sha256 and each item's title and option keys, so another run's gate never shares it.
+ */
 export function recHash(list: GateList): string {
+  const recs = list.items.map(i => [i.id, i.recommended, i.recommended_basis ?? '', i.recommended_by ?? '']);
+  const shape = list.items.map(i => [i.id, i.kind, i.title, i.options.map(o => [o.key, o.changes_plan ?? null])]);
+  return createHash('sha256').update(JSON.stringify(['rec_hash/2', list.run, list.eli5?.plan_file_sha256 ?? '', list.gate_rev, list.rec_rev ?? 0, recs, shape])).digest('hex').slice(0, 12);
+}
+
+/** The hash a gate written before `rec_hash_v` printed (gate revision and recommendations only); `answer` accepts it for that gate alone. */
+export function legacyRecHash(list: GateList): string {
   const recs = list.items.map(i => [i.id, i.recommended, i.recommended_basis ?? '', i.recommended_by ?? '']);
   return createHash('sha256').update(JSON.stringify([list.gate_rev, list.rec_rev ?? 0, recs])).digest('hex').slice(0, 12);
 }
