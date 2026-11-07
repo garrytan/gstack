@@ -24,7 +24,7 @@ export interface OutsideReviewInput {
 
 export interface OutsideReviewClassification {
   execution: { state: 'ran' } | { state: 'unavailable'; reason: GateReason; detail?: string };
-  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line; set only when non-zero. */
+  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line or ending `VERDICT: CLEAN`; set only when non-zero. */
   findings: { highest: Severity | null; unlabeled?: number };
   verdict: OutsideVerdict;
   /** Set for every verdict except clean/findings. */
@@ -137,82 +137,21 @@ function severityWords(text: string): Severity[] {
   return SEVERITY_LABELS.flatMap(re => [...text.matchAll(re)].map(m => SEVERITY_WORDS[m[1]!.toLowerCase()]!));
 }
 /**
- * The review's conclusion says it found nothing when its last prose sentence or
- * ", and" clause (a wrapped line that continues in lowercase joined), or the
- * because-clause of its Recommendation line, is one closed sentence (GST-1808):
- * an optional lead ("Overall," or "After reviewing the patch,"), a no-findings
- * statement (NO_FINDINGS, its underscore gone after plainReview; "No issues
- * found"; "I did not find any bugs"; "The changes introduce no definite,
- * actionable regressions"), an optional predicate ("were found", "is evident"),
- * an optional scope that names the whole change ("in the diff", "in the changed
- * files", "while reviewing the staged, unstaged, or untracked changes", "in the
- * change as a whole", "in the changes on this branch", "in the diff against main"), then
- * at most one ".", "!" or ";". Nothing else may follow: a clause after the scope,
- * an exception, a colon explanation or a question never concludes, and a scope
- * that names part of the change ("in the parser") says nothing about the rest of
- * it, even as the reply's only sentence.
+ * The reviewer's required last line (GST-1821) and the only evidence for clean
+ * on the review and structured gates: `VERDICT: CLEAN` or `VERDICT: FINDINGS`,
+ * alone on the reply's last non-empty line and outside code. Bold, inline code or
+ * a list marker around the whole line is formatting. Prose never stands in for it:
+ * every earlier form of a no-findings sentence leaked a false clean (GST-1808).
  */
-const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete|definite),?\\s+){0,2}(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
-const CHANGE_NOUN = '(?:change(?:s|sets?)?|diffs?|patch(?:es)?|branch|commits?|pull\\s+request|PR|(?:changed|modified|touched)\\s+(?:files?|code|lines))';
-const CHANGE_KIND = '(?:staged|unstaged|untracked|committed|uncommitted|current|proposed|submitted|pending|whole|entire|full|complete|combined|new|latest|recent|local|read-only|code|branch)';
-const WHOLE_CHANGE = `(?:(?:the|this|these|your|both|all(?:\\s+(?:of\\s+)?the)?)\\s+)?(?:${CHANGE_KIND}(?:(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s*\\/\\s*|\\s+(?:and|or)\\s+)${CHANGE_KIND})*\\s+)?${CHANGE_NOUN}(?:\\s+as\\s+a\\s+whole)?(?:\\s+(?:on|in)\\s+(?:this|the)\\s+branch)?(?:\\s+against\\s+(?:the\\s+)?(?:base(?:\\s+branch)?|(?:origin\\/)?(?:main|master)))?`;
-const READING = '(?:reviewing|reading|checking|inspecting)';
-const NO_FINDINGS_LEAD = `(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:${READING}|reviewed|read|checked|inspected)\\s+${WHOLE_CHANGE},\\s+)?`;
-const NO_FINDINGS_STATEMENT = `(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+|(?:the|this|these)\\s+(?:changes?|diffs?|patch(?:es)?)\\s+(?:introduces?|adds?|contains?|ha(?:s|ve))\\s+)?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`;
-const NO_FINDINGS_PREDICATE = '(?:\\s+(?:(?:was|were|is|are|has been|have been)\\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report))?';
-const NO_FINDINGS_SCOPE = `(?:\\s+(?:in|within|across|throughout|with|from|for|(?:while|when|after|on|upon)\\s+${READING})\\s+${WHOLE_CHANGE})?`;
-const NO_FINDINGS_CONCLUSION = new RegExp(`^${NO_FINDINGS_LEAD}${NO_FINDINGS_STATEMENT}${NO_FINDINGS_PREDICATE}${NO_FINDINGS_SCOPE}[.!;]?$`, 'i');
-/**
- * A whole sentence that only reports passing checks ("Tests, lint, and build all
- * pass."). Closing the reply, it signs the review off and never replaces its conclusion (#3469).
- */
-const CHECK_NAME = '(?:(?:unit|existing|targeted|full)\\s+)?(?:tests?|test suite|lint(?:ing)?|build|typecheck|type[- ]check|format check)';
-const CHECK_RESULTS = new RegExp(`^(?:the\\s+|all\\s+)?${CHECK_NAME}(?:(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${CHECK_NAME})*\\s+(?:all\\s+|both\\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|(?:is|are)\\s+green)[.!]$`, 'i');
-/** The conclusion is read from the reply without its closing check-results sentences, so a sign-off never stands in for it. */
-function concludesNoFindings(concluding: string): boolean {
-  const { sentences, because } = reviewProse(concluding);
-  return [sentences.at(-1), because].some(conclusion => conclusion !== undefined && NO_FINDINGS_CONCLUSION.test(conclusion));
-}
-
-/**
- * The raw reply without the check-results sentences that close it, read before
- * code is blanked so a sentence quoting code ("Tests `do not` pass.") never is
- * one. A line is a sentence of its own only after a sentence end or a blank
- * line, never the tail of a wrapped one ("`Not all`\ntests pass.") or a
- * condition after a colon. The reply's only sentence is never dropped.
- */
-function withoutClosingCheckResults(reply: string): string {
-  let rest = reply.trimEnd();
-  for (;;) {
-    const line = rest.slice(rest.lastIndexOf('\n') + 1);
-    const last = line.split(/(?<=[.!?;])[\t ]+/).at(-1)!;
-    const before = rest.slice(0, rest.length - last.length);
-    const ownSentence = last.length < line.length || /(?:[.!?;]|\n[\t \r]*)[\t \r]*\n[\t ]*$/.test(before);
-    if (!ownSentence || !CHECK_RESULTS.test(last.trim()) || !before.trim()) return rest;
-    rest = before.trimEnd();
-  }
-}
-
-/** The reply's prose sentences, wrapped lines joined, and its Recommendation because-clause. */
-function reviewProse(code: string): { sentences: string[]; because: string | undefined } {
-  let prose = '', because: string | undefined, recommendationOpen = false;
-  for (const line of code.split(/\r?\n/)) {
-    const text = plainReview(line).trim();
-    const listed = /^[\t ]*(?:#{1,6}|[-+*])[\t ]/.test(line);
-    if (recommendationOpen && text && !listed) {
-      because = `${because} ${text}`;
-      recommendationOpen = !/[.!?]$/.test(text);
-      continue;
-    }
-    recommendationOpen = false;
-    if (!text || /^(?:Recommendation|Verdict)[\t ]*:/i.test(text)) {
-      const clause = text.match(/^Recommendation[\t ]*:.*?\bbecause\b[\t ]*(\S.*)$/i)?.[1];
-      if (clause) { because = clause; recommendationOpen = !/[.!?]$/.test(clause); }
-      prose += '\n';
-    } else if (/^[\t ]*#{1,6}[\t ]/.test(line)) prose += `\n${text}\n`;
-    else prose += listed || prose.endsWith('\n') || /[.!?;:]$/.test(prose) || !/^[a-z]/.test(text) ? `\n${text}` : ` ${text}`;
-  }
-  return { sentences: prose.split(/(?<=[.!?;])\s+|\n|,\s+and\s+/i).map(sentence => sentence.trim()).filter(Boolean), because };
+const VERDICT_LINE = /^VERDICT: (CLEAN|FINDINGS)$/;
+type VerdictToken = 'CLEAN' | 'FINDINGS';
+/** The verdict token and the reply without its line; the whole reply when it has none. */
+function verdictLine(text: string): { token?: VerdictToken; body: string } {
+  const lines = text.trimEnd().split(/\r?\n/);
+  const last = lines.length - 1;
+  const outsideCode = withoutCode(text).split('\n')[last]?.trim();
+  const token = outsideCode ? VERDICT_LINE.exec(plainReview(lines[last]!).trim())?.[1] as VerdictToken | undefined : undefined;
+  return token ? { token, body: lines.slice(0, last).join('\n') } : { body: text };
 }
 
 /** Formatting the requested marker in bold, inline code, or a list does not invalidate a completed review. */
@@ -261,7 +200,7 @@ function withoutCode(text: string, readUnclosed = false): string {
     }
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
-      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
+      inner.trim() === 'NO_FINDINGS' || VERDICT_LINE.test(inner.trim()) || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
 }
 
@@ -299,20 +238,19 @@ const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|co
 const NUMBERED_ITEM = /^(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
 
 export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewClassification {
-  const plain = plainReview(input.text);
+  const { token, body } = verdictLine(input.text);
+  const plain = plainReview(body);
   const reviewed = input.gate !== 'proposal';
-  const code = withoutCode(input.text), plainCode = plainReview(code);
-  const read = withoutCode(input.text, true), plainRead = plainReview(read);
+  const code = withoutCode(body), plainCode = plainReview(code);
+  const read = withoutCode(body, true), plainRead = plainReview(read);
   const marked = recommendationHeading(code);
-  const concludes = concludesNoFindings(recommendationHeading(withoutCode(withoutClosingCheckResults(input.text))));
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
   const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
-  const unlabeled = reviewed && verdicts[1] !== undefined && !concludes
+  const unlabeled = reviewed && (verdicts[1] !== undefined || token === 'CLEAN')
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
-  const cleanEvidence = levelsOf(code, plainCode).length > 0;
   const ran = execution(input);
   if (ran.state === 'unavailable') return { execution: ran, findings, verdict: 'unavailable', reason: ran.reason, detail: ran.detail };
   const blocking = findings.highest === 'P0' || findings.highest === 'P1';
@@ -336,8 +274,10 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
   const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || v.includes('?') || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
-  if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludes) {
-    return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
+  if (input.gate === 'structured' || input.gate === 'review') {
+    if (!token) return result('unverified', 'missing_verdict');
+    if (token === 'FINDINGS' && !findings.highest) return result('unverified', 'untagged_review', 'VERDICT: FINDINGS with no readable severity');
+    if (token === 'CLEAN' && findings.unlabeled) return result('unverified', 'untagged_review', 'VERDICT: CLEAN beside numbered items with no readable severity');
   }
   return result('clean');
 }

@@ -485,7 +485,7 @@ do not launch the downstream skill or open a browser.`,
         'Plan File Discovery',
         'MULTI-SPECIALIST CONFIRMED',
         'Cross-model synthesis',
-        'codex review --base',
+        'structured review (large diffs only, 200+ lines)',
       ],
       gateAfterStop: undefined, // operational multi-STOP skill, like ship
     },
