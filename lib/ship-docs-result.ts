@@ -30,7 +30,7 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   for (const [raw, value] of Object.entries(parsed)) {
     const key = raw.trim();
     if (key !== raw) trimmed.push(raw);
-    if (Object.hasOwn(v, key)) problems.push(`"${key}" appears twice once whitespace around keys is trimmed`);
+    if (Object.hasOwn(v, key)) problems.push(`${shown(key)} appears twice once whitespace around keys is trimmed`);
     v[key] = value;
   }
   const unknown = Object.keys(v).filter(key => !(DOCS_RESULT_KEYS as readonly string[]).includes(key));

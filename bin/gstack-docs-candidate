@@ -313,6 +313,7 @@ function main(argv: string[]): void {
     if (!file || file.startsWith('--')) throw new Error('result takes the child output file, then --audit-id <id> --out-dir <record dir>');
     for (let i = 0; i < rest.length; i += 2) if (!['--audit-id', '--out-dir'].includes(rest[i]!)) throw new Error(`unknown argument: ${rest[i]}`);
     const auditId = one(rest, '--audit-id');
+    if (!/^[A-Za-z0-9._-]+$/.test(auditId) || auditId.includes('..')) throw new Error(`--audit-id ${JSON.stringify(auditId)} must be letters, digits, dot, underscore or dash, with no '..'`);
     const outDir = path.resolve(one(rest, '--out-dir'));
     const check = checkDocsResult(fs.readFileSync(file, 'utf8'), auditId);
     if (check.trimmed.length) console.log(`KEYS_TRIMMED: ${check.trimmed.map(k => JSON.stringify(k)).join(' ')}`);
