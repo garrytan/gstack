@@ -256,8 +256,9 @@ not a new ask ([carry-forward](unattended.md#carry-forward)).
 what it covers; a gate answered with `--words-by agent:<id>` is listed under that agent as its own decision, not the owner's words); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
-The brief's done line names the row. A plan approval is not a READY field; the
-[READY contract](#the-ready-contract) is unchanged.
+The brief's done line names the row. The READY block carries the resolved plan as its
+`PLAN:` line, which the [READY template](../captain/templates/READY.md) refuses when it is
+missing, says `warn`, or names another plan than the brief's `Plan:` line.
 
 **Exemptions.** Read-only lanes (triage, research, measurement, a review voice), the daily
 flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size or budget
