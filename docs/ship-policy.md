@@ -1284,7 +1284,7 @@ it looked for); pass `--version` to name one.
 **`design`.** On a rendered-UI diff (`gstack-diff-scope` reports
 `SCOPE_FRONTEND=true` for the committed range, which counts CSS, views,
 components and, since GST-1718, Lit or htm tagged templates in .ts/.js files
-whose changed lines carry markup), write records
+whose changed lines sit inside a tagged template or carry markup), write records
 `{ "mode": "static", "reason": "no preview declared" }`: /ship ran only the
 static design-lite check, and the PR body's `## Design Review` line says the
 same. It is advisory and nothing refuses on it. Other diffs record no
