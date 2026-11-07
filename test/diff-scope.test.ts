@@ -616,4 +616,20 @@ describe('gstack-diff-scope template UI (GST-1718)', () => {
     d.git('commit', '-qm', 'drop screen');
     expect(runScope(d.dir).SCOPE_FRONTEND).toBe('true');
   });
+
+  // Value: protects=a Lit screen with a non-ASCII file name still reads as frontend (git grep octal-quotes such paths
+  //   unless -z, and the quoted path matched no pathspec), and a <placeholder> in a comment does not; fails_when=the
+  //   template arm reads git grep without -z, or counts comment lines as markup; seam=none
+  test('a non-ASCII template file is frontend on --head and in the working tree; a comment placeholder is not', () => {
+    const { dir, git } = templateRepo();
+    edit(dir, 'export async function load', '// usage: load <base> --head <sha>\nexport async function load');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('false');
+    git('checkout', '-q', '.');
+    writeFileSync(join(dir, 'plugins', 'web-ui', 'src', 'café.ts'), LIT_BASE);
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('add', '.'); git('commit', '-qm', 'cafe screen');
+    const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+    const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(out).toContain('SCOPE_FRONTEND=true');
+  });
 });
