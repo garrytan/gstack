@@ -59,6 +59,7 @@ export function parsePlanLine(body: string): PlanDecl | null {
     if (!m) continue;
     const line = `Plan: ${m[1]!.trim()}`;
     const rest = m[1]!.trim();
+    if (!/^(approved|exempt|required)\b/i.test(rest)) continue;
     const approved = /^approved\s*:?\s*(\S+)/i.exec(rest);
     if (approved) return { kind: 'approved', line, token: approved[1]!.replace(/[),.;]+$/, '') };
     const exempt = /^exempt\s*:?\s*(.+)$/i.exec(rest);

@@ -47,6 +47,7 @@ describe('parsePlanLine', () => {
     expect(parsePlanLine('Plan: required')).toMatchObject({ kind: 'required' });
     expect(parsePlanLine('```\nPlan: exempt: flaky\n```\nno line here')).toBeNull();
     expect(parsePlanLine('| Plan: approved: x |')).toBeNull();
+    expect(parsePlanLine('Plan: /home/u/plan.md\nPlan: approved: ap-1')).toMatchObject({ kind: 'approved', token: 'ap-1' });
   });
 
   test('exemptions are the docs/captain.md list or crew:<rule>, with a trailing parenthetical ignored', () => {

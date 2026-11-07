@@ -289,7 +289,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
   const changed = git(ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
-  const plan = readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir });
+  const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir });
   if (plan.line) lines.push(plan.line);
   if (plan.failure) return fail(plan.failure, lines, run);
   if (!policy.policy.train && policy.policy.changelog_fragments) {

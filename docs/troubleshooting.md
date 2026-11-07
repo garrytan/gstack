@@ -2134,8 +2134,9 @@ this check exists to catch (GST-1751).
 
 **Meaning.** `Plan: exempt: <reason>` names a reason outside the list: `bug fix`, `s1`,
 `flaky`, `stamp`, `changelog-resolve`, `cap-repin`, `audited-list`, `read-only`,
-`changelog-only`, or `crew:<rule>` for an exemption a crew's rules file records. A
-trailing parenthetical such as `(R65)` is ignored.
+or `crew:<rule>` for an exemption a crew's rules file records. A trailing
+parenthetical such as `(R65)` is ignored. A diff of changelog fragments only needs
+no line.
 
 **Fix.** Use the exemption the brief names. A change none of them covers is a feature
 and needs `Plan: required` and a plan run.

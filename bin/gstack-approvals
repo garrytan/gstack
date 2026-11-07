@@ -53,7 +53,7 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private;
           --plan "<the brief's Plan line>" adds that line and its check, which gstack-ship-queue ready reads (lib/plan-record.ts)
   plan-check --plan "Plan: approved: <run id or row id> | exempt: <reason> | required"
-          resolve a Plan line against every branch's approval record; PLAN: … and exit 0, or the refusal code and exit 1
+          resolve a Plan line against every branch's approval record; PLAN: … and exit 0, or the refusal code and exit 3
   list    [--json]
   sync                            re-mirror the record (GSTACK_APPROVALS_DIR, the Captain's drive approvals/, or the project-user Drive)
   path                            print the record and mirror paths, and which rule chose the mirror
