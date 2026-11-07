@@ -44,17 +44,21 @@ describe('settings', () => {
     }
   });
 
-  test('--autoplan registers Stop on the autoplan-stop-gate shim with no matcher and turns its switch on (GST-1666)', () => {
+  test('--autoplan registers Stop (no matcher, GST-1666) and PreToolUse on Bash (the publish check, GST-1814) and turns its switch on', () => {
     const r = cli('settings', '--autoplan');
     expect(r.status).toBe(0);
     const s = JSON.parse(r.stdout);
     expect(s.env).toEqual({ GSTACK_AUTOPLAN_GATE: 'on' });
-    expect(Object.keys(s.hooks)).toEqual(['Stop']);
+    expect(Object.keys(s.hooks)).toEqual(['Stop', 'PreToolUse']);
     expect(s.hooks.Stop).toHaveLength(1);
     expect(s.hooks.Stop[0].matcher).toBeUndefined();
-    const cmd = s.hooks.Stop[0].hooks[0].command;
-    expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', 'autoplan-stop-gate-stop'));
-    expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+    expect(s.hooks.PreToolUse).toHaveLength(1);
+    expect(s.hooks.PreToolUse[0].matcher).toBe('Bash');
+    for (const [event, shim] of [['Stop', 'autoplan-stop-gate-stop'], ['PreToolUse', 'autoplan-stop-gate-publish']]) {
+      const cmd = s.hooks[event][0].hooks[0].command;
+      expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', shim));
+      expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+    }
   });
 
   test('--ceo-review --autoplan together: both switches on, Stop runs both gates', () => {
@@ -62,7 +66,7 @@ describe('settings', () => {
     expect(r.status).toBe(0);
     const s = JSON.parse(r.stdout);
     expect(s.env).toEqual({ GSTACK_CEO_REVIEW_GATE: 'on', GSTACK_AUTOPLAN_GATE: 'on' });
-    expect(Object.keys(s.hooks).sort()).toEqual(['Stop', 'SubagentStop']);
+    expect(Object.keys(s.hooks).sort()).toEqual(['PreToolUse', 'Stop', 'SubagentStop']);
     expect(s.hooks.Stop.map((e: { hooks: Array<{ command: string }> }) => path.basename(e.hooks[0].command))).toEqual(['ceo-review-gate-stop', 'autoplan-stop-gate-stop']);
   });
 
@@ -94,7 +98,7 @@ describe('hook timeout covers the gate deadline (GST-1615)', () => {
     expect(r.status).toBe(0);
     const hooks = JSON.parse(r.stdout).hooks as Record<string, Array<{ hooks: Array<{ timeout: number }> }>>;
     const timeouts = Object.values(hooks).flatMap(entries => entries.flatMap(e => e.hooks.map(h => h.timeout)));
-    expect(timeouts).toHaveLength(3);
+    expect(timeouts).toHaveLength(4);
     for (const t of timeouts) {
       expect(t * 1000).toBeGreaterThanOrEqual(DEADLINE_MAX_MS + HOOK_MARGIN_MS);
       expect(t).toBe(HOOK_TIMEOUT_S);
