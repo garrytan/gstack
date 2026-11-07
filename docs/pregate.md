@@ -535,7 +535,8 @@ the supervision above. Close the obligation one of four ways:
   names the VM route); or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
   --receipt <file>` with the gate's output (or a `gstack-pregate --remote` log,
-  where the line sits under `lanes:`), validated as `--remote` validates it
+  where the line sits under `lanes:`, accepted only when that log's lanes check
+  reads `requires-remote`), validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
   for a tree that differs from this one only by the repo's stamp rule is
   accepted and recorded, see [below](#remote-gate-stamp-only)), or
@@ -1289,8 +1290,8 @@ uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
 writes over a record for the same head, tree, policy source and base branch (the
 base branch may have moved: the policy label's base commit does not count,
 GST-1775), each uncleared
-obligation takes the earlier receipt for the same lane, platform, workflow and
-job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
+obligation takes the earlier receipt for the same lane, platform, workflow, job
+and gate command, with its `cleared_by`, stamp-only substitution and flaky exception, as long
 as the earlier obligation listed every test the new one needs. Each kept
 receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
 tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
