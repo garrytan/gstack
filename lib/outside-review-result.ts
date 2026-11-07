@@ -161,7 +161,7 @@ const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)
 const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b/i;
 /** A list of change kinds ("the staged, unstaged, or untracked changes") is one scope; any other joiner starts a clause the scope does not cover. */
 const SCOPE_LIST_JOIN = /(?:,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)(?=(?:staged|unstaged|untracked|committed)\b)/gi;
-const SCOPE_CLAUSE_BREAK = /[,;()\u2014\u2013]|\s-\s|\b(?:and|or|so|since|because|as|while|whereas|then|which|that|where|when|though|but|yet|until|unless|if)\b/i;
+const SCOPE_CLAUSE_BREAK = /[,;()[\]{}\u2012-\u2015]|--|\s[-/]\s|\b(?:and|or|plus|so|since|because|as|while|whereas|despite|then|which|that|where|when|though|but|yet|until|unless|if)\b/i;
 
 /**
  * The review's conclusion says it found nothing: its last prose sentence or

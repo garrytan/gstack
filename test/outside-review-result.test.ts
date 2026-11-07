@@ -236,7 +236,13 @@ describe('a closing check-results sentence keeps the no-findings conclusion (#34
       'I reviewed the parser.\nNo issues in the diff and the fallback path now swallows ENOENT.',
       'I reviewed the parser.\nNo issues in the diff \u2014 the fallback path now swallows ENOENT.',
       'I reviewed the parser.\nNo issues in the diff (the fallback path now swallows ENOENT).',
-      'I reviewed the parser.\nNo issues in this change so callers now lose data.']) unverified(text);
+      'I reviewed the parser.\nNo issues in this change so callers now lose data.',
+      'I reviewed the parser.\nNo issues in the diff -- the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff [the fallback path now swallows ENOENT].',
+      'I reviewed the parser.\nNo issues in the diff / the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2012 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff plus the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff despite the fallback path now swallowing ENOENT.']) unverified(text);
   });
 
   test('a truncated, empty or check-only reply is never clean', () => {
