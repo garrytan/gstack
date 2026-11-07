@@ -62,6 +62,13 @@ describe("HIGH credential patterns", () => {
     ],
     ["google.oauth_client_secret", 'client_secret: "GOCSPX-' + "Ab3xQ9zLmNp2RtVw7YkD1sHf" + '"'],
     ["telegram.bot_token", "TELEGRAM_TOKEN=8326208591:AA" + "HdqRy9Lm2ZpXvKb4NcQw8TuEr6YoP1sVg"],
+    ["aws.access_key", "temporary key ASIA" + "ZQ3XN7P2LM4RT8WV"],
+    ["github.user_to_server", "ghu_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
+    ["github.refresh", "ghr_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
+    ["openrouter.key", "OPENROUTER sk-or-v1-" + "9f8e7d6c5b4a39281706f5e4d3c2b1a0".repeat(2)],
+    ["stripe.restricted", "rk_live_" + "a1B2c3D4e5F6g7H8i9J0k1L2"],
+    ["supabase.secret", "sb_secret_" + "tR4i6cyMIrYTE3s6OyHGHw_ppx2p6WK"],
+    ["supabase.pat", "sbp_" + "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c"],
   ];
   for (const [id, text] of cases) {
     test(`flags ${id}`, () => {
@@ -460,6 +467,20 @@ describe("#1946 pattern negatives (placeholders never fire)", () => {
     expect(ids("dop_v1_short")).not.toContain("digitalocean.token");
     // pem header WITHOUT the GCP JSON shape stays pem.private_key only.
     expect(ids("-----BEGIN PRIVATE KEY-----")).not.toContain("gcp.service_account");
+  });
+});
+
+describe("OpenRouter, GitHub ghu_/ghr_, Stripe restricted, Supabase and AWS temporary key negatives", () => {
+  test("near-miss shapes never fire", () => {
+    expect(ids("sk-or-v1-" + "9f8e7d6c5b4a39281706f5e4d3c2b1a0")).not.toContain("openrouter.key");
+    expect(ids("ghu_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R")).not.toContain("github.user_to_server");
+    expect(ids("ghr_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R")).not.toContain("github.refresh");
+    expect(ids("rk_test_" + "a1B2c3D4e5F6g7H8i9J0k1L2")).not.toContain("stripe.restricted");
+    expect(ids("sb_publishable_" + "tR4i6cyMIrYTE3s6OyHGHw_ppx2p6WK")).not.toContain("supabase.secret");
+    expect(ids("sb_secret_key")).not.toContain("supabase.secret");
+    expect(ids("sbp_" + "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6")).not.toContain("supabase.pat");
+    expect(ids("sbp_" + "Zf8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c")).not.toContain("supabase.pat");
+    expect(ids("ASIA" + "ZQ3XN7P2LM4RT8W")).not.toContain("aws.access_key");
   });
 });
 
