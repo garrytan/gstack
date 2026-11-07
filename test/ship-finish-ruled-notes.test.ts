@@ -294,7 +294,7 @@ describe('finish chains contiguous fix-check rows (GST-1627)', () => {
   //   seam=finish's per-row grant match
   test('one grant naming both links\' stop heads counts for one link, and the chain refuses', () => {
     const { f, passHead, reviewed, reviewedBase, fc3 } = mergeShape({ grantFc3: false });
-    const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after ${passHead.slice(0, 12)} (review_loop_grant ${fc3.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'gstack minder (GSTA-36)', '--scope', 'this /ship invocation', '--json']);
+    const g = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check (review_loop_grant ${passHead.slice(0, 12)}, review_loop_grant ${fc3.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'gstack minder (GSTA-36)', '--scope', 'this /ship invocation', '--json']);
     expect(g.status, g.stderr).toBe(0);
     logLink(f, fc3);
     const r = finishAfterAudit(f, reviewed, reviewedBase);

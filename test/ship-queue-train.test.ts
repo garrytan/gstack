@@ -104,6 +104,29 @@ describe('the policy gate', () => {
     expect(ok.out).toMatch(new RegExp(`^READY_RECEIPT: .*ship-queue/ready/[^/]+/1-${head}\\.json \\(notes pushed to origin refs/notes/gstack-trains\\)$`, 'm'));
     expect(fx.repo.git('ls-remote', 'origin', 'refs/notes/gstack-trains')).not.toBe('');
   }, 120_000);
+
+  // Value: protects=under plan_record require ready refuses a PR body without a Plan line and records no READY receipt; a resolvable line lands in the receipt; fails_when=readyPlan's refusal or the receipt's plan field is dropped; why_new=plan-record.test.ts covers the helper only, not ready's wiring; seam=none; no_claim=approved-row resolution against a real store (exempt line used)
+  test('under GSTACK_PLAN_RECORD=require ready refuses a body with no Plan line and writes no receipt; an exempt line is recorded on the receipt', () => {
+    const fx = make({ ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' });
+    const head = openPr(fx, '1');
+    fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
+    const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    const req = { GSTACK_PLAN_RECORD: 'require' };
+    const missing = queue(fx, ['ready', '--pr', '1', '--pregate', pregate], req);
+    expect(missing.status).toBe(EXIT.refused);
+    expect(line(missing.out, 'PLAN:')).toContain('(PLAN_RECORD_MISSING)');
+    expect(missing.err).toContain('PLAN_RECORD_MISSING');
+    expect(missing.out).not.toContain('READY_RECEIPT:');
+    expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'ready'))).toBe(false);
+    setPrBody(fx, '1', shippedBody('1', head) + '\nPlan: exempt: bug fix\n');
+    const ok = queue(fx, ['ready', '--pr', '1', '--pregate', pregate], req);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(line(ok.out, 'PLAN:')).toBe('PLAN: exempt bug fix');
+    const receipt = path.join(fx.state, 'ship-queue', 'ready', repoKey(fx), `1-${head}.json`);
+    expect(JSON.parse(fs.readFileSync(receipt, 'utf8')).plan).toMatchObject({ line: 'Plan: exempt: bug fix', state: 'exempt', reason: 'bug fix' });
+  }, 120_000);
 });
 
 describe('ready under a train policy: the screen choice', () => {
@@ -133,6 +156,22 @@ describe('ready under a train policy: the screen choice', () => {
     expect(result(ok.out)).toBe(`GSTACK_RESULT: skill=ship-queue status=complete run=${receipt}`);
     expect(remoteRefs(fx)).toContain('refs/notes/gstack-trains');
     expect(dispatches(fx)).toEqual([]);
+  }, 120_000);
+
+  // Value: protects=train ready resolves the Plan line once (one PLAN: line), refuses under require with no receipt, and records the plan train land reads; fails_when=trainPlan's refusal or receipt field is dropped, or both ready paths print PLAN:; why_new=no train-ready plan case; seam=none; no_claim=train land's slotPlan
+  test('under GSTACK_PLAN_RECORD=require train ready refuses a body with no Plan line and writes nothing; an exempt line prints one PLAN: line and lands on the receipt', () => {
+    const { fx, head, pregate } = readyFixture();
+    const req = { GSTACK_PLAN_RECORD: 'require' };
+    const missing = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen'], req);
+    expect(missing.status).toBe(EXIT.refused);
+    expect(missing.err).toContain('(PLAN_RECORD_MISSING)');
+    expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'ready'))).toBe(false);
+    setPrBody(fx, '1', shippedBody('1', head) + '\nPlan: exempt: bug fix\n');
+    const ok = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen'], req);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out.split('\n').filter(l => l.startsWith('PLAN:'))).toEqual(['PLAN: exempt bug fix']);
+    const receipt = path.join(fx.state, 'ship-queue', 'ready', repoKey(fx), `1-${head}.json`);
+    expect(JSON.parse(fs.readFileSync(receipt, 'utf8')).plan).toMatchObject({ line: 'Plan: exempt: bug fix', state: 'exempt', reason: 'bug fix' });
   }, 120_000);
 
   test("GSTA-67: a lane whose origin is another URL form of the repository (#3331's git.capy.ai) writes its receipt under the owner/repo key", () => {

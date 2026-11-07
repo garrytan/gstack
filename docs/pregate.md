@@ -534,7 +534,9 @@ the supervision above. Close the obligation one of four ways:
   its preflight checks) and the VM only as the opt-in (under `--no-ci-carry` it
   names the VM route); or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
-  --receipt <file>` with the gate's output, validated as `--remote` validates it
+  --receipt <file>` with the gate's output (or a `gstack-pregate --remote` log,
+  where the line sits under `lanes:`, accepted only when that log's lanes check
+  reads `requires-remote`), validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
   for a tree that differs from this one only by the repo's stamp rule is
   accepted and recorded, see [below](#remote-gate-stamp-only)), or
@@ -1268,6 +1270,22 @@ them (`ci_carried=<lane>:<run>/<attempt>`). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
 default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
 
+<a id="record-ci-reuse"></a>**record-ci reuses its own row at the same tree (GST-1795).** Step 5's
+carry and accept both call `record-ci`, so at an unchanged pushed tree the
+second call would run the `per_file` remainder again. Instead, after it
+verifies the run live, `record-ci` reuses the label's newest ledger row when
+that row is the CI row it would write again: the same commit, clean tree,
+command, verified runs (id and attempt), profiles, jobs, base policy, covered
+count, unit and not-owed reason, FRESH within 24 hours, with no test-lane
+exception, and the same remainder files, each file's newest `<lane>.skipped`
+run at this tree written before that row and a pass under this runtime (a
+remainder run after the CI row, such as a zero-test rerun record-ci refused,
+vetoes reuse). It runs nothing here, prints
+`CI_RECORD_REUSED: label=<lane> runs=<id>/<attempt> tree=<tree12> policy=<policy>`
+after its record line, and accept's lane line ends `(reused the CI record at
+tree <tree12>)`. Any difference, a newer row for the label, or a run that is no
+longer green records afresh (or refuses) as before.
+
 <a id="accept-local-tests"></a>**When accept's final pregate runs the tests here (GST-1606).** The final
 pregate's tests stage carries only under a base run profile whose `os` matches
 this machine and whose workflow holds a lane this machine runs. A lane carried
@@ -1285,13 +1303,20 @@ pregate reran `gstack-pregate` on the tree the lane had already cleared
 `macos-named-regressions` and `windows-smoke` on from CI runs, and the fresh
 record dropped both receipts, so accept stopped on `requires-remote (2
 uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
-writes over a record for the same head, tree, policy and base branch, each uncleared
-obligation takes the earlier receipt for the same lane, platform, workflow and
-job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
-as the earlier obligation listed every test the new one needs. Each kept
+writes over a record for the same head, tree, policy source and base branch (the
+base branch may have moved: the policy label's base commit does not count,
+GST-1775), each uncleared
+obligation takes the earlier receipt for the same lane, platform, workflow, job
+and gate command, with its `cleared_by`, stamp-only substitution and flaky exception, as long
+as the earlier obligation listed every test the new one needs. A receipt a
+stamp-only substitution accepted carries only while the base commit is the same:
+the base's stamp rules accepted it, and a moved base may have changed them. Each kept
 receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
 tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
-before its `PREGATE:` line. A record for another head or tree keeps nothing,
+before its `PREGATE:` line. A run without `--base` at the record's head keeps
+that record's base branch rather than `origin/HEAD`'s, and says so on stderr when
+they differ, so a `--stage tests` rerun cannot drop the clears by reading
+another branch (GST-1775). A record for another head or tree keeps nothing,
 so any commit after the clear, even an amend that keeps the tree, needs a new
 clear at the new head: a receipt and its flaky exception were vetted against
 the head they name. A rerun with a

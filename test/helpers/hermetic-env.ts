@@ -24,6 +24,9 @@
  *      + DISABLE_AUTOUPDATER=1 (pinned in both branches; the scrub drops the
  *        workflow's copy and every PTY screen otherwise shows the updater's
  *        "no write permission to npm prefix" failure)
+ *      + GH_TELEMETRY=0 (gh 2.103 records a telemetry device-id under
+ *        $HOME/.local/state/gh, a stray write in every fixture HOME; run
+ *        42371706491's autoplan-ceo-only)
  *      + per-test overrides spread LAST
  *
  * Escape hatch: EVALS_HERMETIC=0 restores the legacy contaminated env
@@ -144,6 +147,7 @@ export function buildHermeticEnv(
   }
   if (!out.TERM) out.TERM = 'xterm-256color';
   out.DISABLE_AUTOUPDATER = '1';
+  out.GH_TELEMETRY = '0';
   Object.assign(out, hermeticVars);
   for (const [k, v] of Object.entries(overrides ?? {})) if (v !== undefined) out[k] = v;
   return out;

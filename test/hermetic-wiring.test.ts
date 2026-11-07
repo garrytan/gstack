@@ -17,6 +17,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawnSync } from 'child_process';
 import { buildHermeticEnv, getHermeticDirs, hermeticSkillsConfigDir } from './helpers/hermetic-env';
 
 const ROOT = path.resolve(import.meta.path, '..', '..');
@@ -99,6 +100,26 @@ describe('hermetic wiring tripwire', () => {
       expect(buildHermeticEnv(base, {}, { DISABLE_AUTOUPDATER: '0' }).DISABLE_AUTOUPDATER, 'per-test override stays last').toBe('0');
     }
     expect(read('test/helpers/hermetic-env.ts')).toContain('DISABLE_AUTOUPDATER=1 (pinned in both branches');
+  });
+
+  test('the hermetic branch pins GH_TELEMETRY=0, and a gh spawn under it leaves the fixture HOME empty (smoke)', () => {
+    // autoplan-ceo-only's HOME diff failed on gh 2.103's telemetry device-id
+    // (run 42371706491). The pin assertions guard that fix. The gh spawn is a
+    // smoke check only: an offline `gh auth status` in a fresh HOME does not
+    // write device-id even without the pin, so it cannot fail on unfixed code.
+    const base = { PATH: process.env.PATH ?? '/usr/bin', EVALS_HERMETIC: '1', GH_TELEMETRY: 'log' };
+    expect(buildHermeticEnv(base, {}).GH_TELEMETRY).toBe('0');
+    expect(buildHermeticEnv(base, {}, { GH_TELEMETRY: 'log' }).GH_TELEMETRY, 'per-test override stays last').toBe('log');
+    const gh = Bun.which('gh');
+    if (!gh) return;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hermetic-gh-home-'));
+    try {
+      const env = buildHermeticEnv(base, {}, { HOME: home, XDG_STATE_HOME: path.join(home, '.local', 'state') });
+      spawnSync(gh, ['auth', 'status'], { env, stdio: 'ignore', timeout: 15_000 });
+      expect(fs.readdirSync(home, { recursive: true }).map(String)).toEqual([]);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test('claude runners gate --strict-mcp-config on isHermeticEnabled()', () => {

@@ -31,6 +31,7 @@ import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type B
 import { waitForRun } from './ci-carry';
 import { MIN_POLL_MS } from './gh-poll';
 import { lanesOnlyHeadPolicy } from './pregate/head-policy';
+import { finishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { buildRunCheck } from './pregate/run-check';
 import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
@@ -520,7 +521,11 @@ function baseStillMerges(cwd: string, base: string, policy: Record<string, any> 
 
 /** Steps 15-16; once they pass, the /ship run's preflight marker is cleared, so a full preflight may merge the base again (GST-1204). */
 export async function finish(argv: readonly string[], cwd: string): Promise<Report> {
+  const { flag } = flagReader(argv);
+  const plan = finishPlan(cwd, flag('--base')!, flag('--plan'));
+  if (plan.failure) return new Report().add(plan.line!).stop(`${plan.failure.message} (${plan.failure.code}); fix: ${plan.failure.fix}`);
   const r = await finishStages(argv, cwd);
+  if (plan.line) r.lines.unshift(plan.line);
   const marker = r.exit === 0 && shipRunMarker(cwd);
   if (marker) fs.rmSync(marker, { force: true });
   return r;

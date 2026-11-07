@@ -50,6 +50,7 @@ export const MECHANICAL_RETAKE_KEY_VERSION = '1.97.0.0';
 export const TEST_CODE_KEY_VERSION = '1.97.0.0';
 export const CI_RECORD_TIMEOUT_KEY_VERSION = '1.97.0.0';
 export const BASE_MERGE_KEY_VERSION = '1.99.0.0';
+export const PLAN_RECORD_KEY_VERSION = '1.98.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -61,4 +62,5 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION, readers: READERS_KEY_VERSION,
   bookkeeping: BOOKKEEPING_KEY_VERSION, mechanical_retake: MECHANICAL_RETAKE_KEY_VERSION, test_code: TEST_CODE_KEY_VERSION, ci_record_timeout_s: CI_RECORD_TIMEOUT_KEY_VERSION,
   base_merge: BASE_MERGE_KEY_VERSION,
+  plan_record: PLAN_RECORD_KEY_VERSION,
 };

@@ -102,6 +102,7 @@ export interface ShipPolicy {
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
   /** Seconds accept gives each `gstack-evidence record-ci` (docs/ship-policy.md#ci-record-timeout), clamped to 3600; read from the base only. */ ci_record_timeout_s: number;
+  /** Whether ready and land check the PR body's Plan line (lib/plan-record.ts, docs/ship-policy.md#plan-record); read from the base only. */ plan_record: 'off' | 'warn' | 'require';
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
@@ -194,6 +195,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   docs: null,
   base_red: null, base_merge: 'auto', merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
   release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
+  plan_record: 'off',
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -235,6 +237,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   test_code: 'Root-anchored globs of test code the built-in test names miss, never under .gstack/ or .github/, for example ["tests/**/*.gd"] for GDScript checks. /ship finish routes a matching file changed after review as test code (one scoped reader of its test hunks) instead of behavior, beside the built-in globs; shared helpers and fixtures stay behavior. Read from the base branch only. Empty (default) declares none.',
   ci_record_timeout_s: 'Seconds `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane, an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
   base_merge: 'auto (default) | on-conflict | always. /ship Step 3 when the base branch has moved: on-conflict leaves a base that merges cleanly unmerged (`MERGE: skipped`, recorded in the receipt) and merges only to surface a conflict, and finish rechecks it after the release commit, for repos whose merge queue tests the merge commit; auto behaves as on-conflict when GitHub reports a merge queue on the base branch and as always otherwise (when it cannot tell, it merges and prints why on a BASE_MERGE: line); always merges the moved base before tests (docs/ship-policy.md#base-merge). Ignored under queue_mode stamp-at-merge, which never merges.',
+  plan_record: 'off (default) | warn | require. Whether `gstack-ship-queue ready` and `land` check the PR body\'s `Plan:` line (approved: <run id or row id> | exempt: <reason>) against the approval store (docs/ship-policy.md#plan-record). warn prints the PLAN: line and continues; require refuses a missing, unresolved or agent-approved plan. A Capy crew session with off gets warn; GSTACK_PLAN_RECORD=require is a crew opt-in. Read from the base branch only.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
@@ -478,6 +481,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('bookkeeping' in obj) listErrors('bookkeeping', obj.bookkeeping, errors, g => globError(g) ?? bookkeepingGlobError(g));
   if ('mechanical_retake' in obj) mechanicalErrors(obj.mechanical_retake, errors, globError);
   if ('test_code' in obj) listErrors('test_code', obj.test_code, errors, g => globError(g) ?? (/^\.(gstack|github)\//.test(g) ? 'must not name a path under .gstack/ or .github/' : null));
+  if ('plan_record' in obj && !['off', 'warn', 'require'].includes(obj.plan_record as string)) errors.push({ code: 'POLICY_INVALID', path: 'plan_record', message: 'must be off, warn or require' });
   if ('ci_record_timeout_s' in obj && !(Number.isInteger(obj.ci_record_timeout_s) && (obj.ci_record_timeout_s as number) >= 60)) errors.push({ code: 'POLICY_INVALID', path: 'ci_record_timeout_s', message: 'must be an integer of at least 60 seconds (accept clamps a value over 3600 to 3600)' });
   if ('restamp_command' in obj && obj.restamp_command !== null) {
     const t = obj.restamp_command;

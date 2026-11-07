@@ -227,6 +227,7 @@ describe('import --autoplan', () => {
     const rows = importAutoplan(run, 'b', 'Garry');
     if ('code' in rows) throw new Error(rows.message);
     expect(rows.map(r => [r.by, r.words])).toEqual([['Garry, relayed by agent:GSTA-36', 'Do it'], ["agent:GSTA-36, its own decision (not the owner's words)", 'Accepted on the standing approval']]);
+    expect(rows.map(r => r.words_by ?? null)).toEqual([null, 'agent:GSTA-36']);
   });
 
   test('a default run id whose YYYYMMDDHHMMSS stamp passes Luhn still imports (capy-captain-flow flake)', () => {

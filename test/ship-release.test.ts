@@ -172,6 +172,26 @@ describe('finish (Steps 15-16)', () => {
     expect(f.git('ls-remote', '--heads', 'origin', 'feat').stdout).toBe('');
   });
 
+  // Value: protects=finish --plan resolves the brief's Plan line before any stage: require + Plan: required stops with no commit; a resolvable line prints PLAN: first; fails_when=finishPlan runs after the stages, its stop is dropped, or the line is not first; why_new=plan-record.test.ts covers the helper only; seam=none; no_claim=approved-row resolution (exempt line used)
+  test('finish --plan: under GSTACK_PLAN_RECORD=require "Plan: required" stops before any stage; a resolvable line under warn prints PLAN: first', () => {
+    const f = fx();
+    const reviewed = wtree(f);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro']).status).toBe(0);
+    const post = snapshot(f);
+    const args = ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE];
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const stop = f.run(RELEASE, [...args, '--plan', 'Plan: required'], { GSTACK_PLAN_RECORD: 'require' });
+    expect(stop.status).toBe(3);
+    expect(stop.stdout).toMatch(/^PLAN: refused .*\(PLAN_NOT_APPROVED\)/m);
+    expect(stop.stdout).toMatch(/^STOP: .*\(PLAN_NOT_APPROVED\); fix: /m);
+    expect(stop.stdout).not.toContain('COMMIT:');
+    expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    const ok = f.run(RELEASE, [...args, '--plan', 'exempt: bug fix'], { GSTACK_PLAN_RECORD: 'warn' });
+    expect(ok.stdout.split('\n')[0]).toBe('PLAN: exempt bug fix');
+    expect(ok.stdout).toMatch(/^COMMIT: /m);
+    expect(ok.status).toBe(0);
+  });
+
   // Value: protects=under changelog_fragments the branch's own fragment is release metadata: version writes nothing and names it in NEXT, finish commits it as the release commit and the route counts it as metadata, and another fragment is still a feature file; fails_when=finish stops on changelog.d/<slug>.md or routes it to re-review (/ship #3648 fix-check 4, CRITICAL);
   //   why_new=releasePaths predates changelog_fragments (#3654); seam=gstack-ship-policy show-effective, gstack-wtree; no_claim=the merge step's fold
   test('under changelog_fragments the branch fragment is release metadata and Step 12 names it', () => {

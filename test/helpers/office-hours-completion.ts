@@ -223,7 +223,7 @@ export function validateOfficeHoursCompletion(evidence: OfficeHoursCompletionEvi
   const handoff = sectionBody(evidence.output, ['handoff', 'handoff — the relationship closing', 'handoff - the relationship closing'])
     || sectionBody(evidence.output, ['relationship closing']);
   if (!substantive(handoff)) fail('REPORT.md lacks a substantive Handoff');
-  if (!/\/plan-(?:ceo|eng|design|devex)-review\b/.test(handoff)) fail('Handoff lacks the next-skill recommendation');
+  if (!/\/(?:autoplan|plan-(?:ceo|design|devex)-review)\b/.test(handoff)) fail('Handoff lacks the next-skill recommendation');
   if (!/\b(?:declined|deferred|not now|later)\b/i.test(handoff)) fail('Handoff does not record the declined downstream launch');
   // The caller separately checks actual tool calls for downstream launch;
   // recording the user's choice here is not proof that it was respected.

@@ -256,8 +256,9 @@ not a new ask ([carry-forward](unattended.md#carry-forward)).
 what it covers; a gate answered with `--words-by agent:<id>` is listed under that agent as its own decision, not the owner's words); `gstack-approvals render` puts it in the report and the PR body. Before
 training the PR the controller compares that row's words and `gate_rev` with the ask it
 relayed and the reply it carried back; a row that does not match is not READY (shape A).
-The brief's done line names the row. A plan approval is not a READY field; the
-[READY contract](#the-ready-contract) is unchanged.
+The brief's done line names the row. The READY block carries the resolved plan as its
+`PLAN:` line, which the [READY template](../captain/templates/READY.md) refuses when it is
+missing, says `warn`, or names another plan than the brief's `Plan:` line.
 
 **Exemptions.** Read-only lanes (triage, research, measurement, a review voice), the daily
 flaky pass's repairs, slot stamps, CHANGELOG-only conflict resolves and a size or budget
@@ -271,8 +272,14 @@ run, `--kind feature`: one reviewer reading the plan and the draft code together
 revision and no carry check (docs/unattended.md). `--full` brings back the full run.
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
-says which applies, `Plan: required | approved: <run> | exempt: <reason>`, so an
+says which applies, `Plan: required | approved: <run id or approval row id> | exempt: <reason>`, so an
 already-approved plan is not planned twice and exempt work does not wait on an ask.
+The lane copies that line into the PR body (`gstack-approvals render --plan "<line>"` under
+`## Approvals`), and `gstack-ship-queue ready` prints `PLAN:` and records it in the READY note
+(docs/ship-policy.md#plan-record): an `approved:` run id or row id must resolve to the owner's
+words, never a gate the lane answered itself; an `exempt:` reason must be on this list or a
+crew's `crew:<rule>`. Crew sessions warn by default; `plan_record: require` or
+`GSTACK_PLAN_RECORD=require` makes ready and land refuse.
 
 The copy-paste brief is [`captain/templates/brief.md`](../captain/templates/brief.md): the
 plan and the ask as step 1, the build after the word as step 2, /ship to READY as step 3,

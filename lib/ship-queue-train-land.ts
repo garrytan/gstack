@@ -34,7 +34,8 @@ import { waitChecks } from './ship-queue-land';
 import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
-import { TERMINAL_STATES, activeFreeze, attemptsOf, freezeLockCleared, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
+import { landPlan } from './plan-record';
+import { TERMINAL_STATES, activeFreeze, attemptsOf, freezeLockCleared, loadReady, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
 import { fetchBase, fetchTrainBranch, findTrain, frozenLines, nextFor, outFailed, outPending, outRefused, save, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { confirmMerged, stopped } from './ship-queue-train-verify';
 
@@ -165,6 +166,14 @@ function confirmed(s: Slot, mainSha: string, line: string): TrainOut {
   return { ...out, lines: [...out.lines, `POST_MERGE_CHECKS: ${post.join(', ')} at ${mainSha.slice(0, 12)}`], next: `${Q} verify --post-merge ${mainSha} --checks ${JSON.stringify(post.join(','))} && ${out.next}` };
 }
 
+/** The slot's READY receipt must carry the PR body's current Plan line (docs/ship-policy.md#plan-record); null lets land go on. */
+function slotPlan(s: Slot, info: PrInfo): TrainOut | null {
+  const pr = s.t.slots[s.i]!.pr;
+  const plan = landPlan({ env: process.env, policyValue: s.env.policy.policy.plan_record, record: loadReady(s.env.repo.keys, pr, s.pin)?.plan, body: info.body });
+  if (plan.line) s.lines.push(plan.line);
+  return plan.failure ? outRefused(plan.failure, s.lines, plan.failure.fix, s.run) : null;
+}
+
 /** `direct`: merge the pin itself once its required checks are green there. */
 async function landDirect(ctx: QueueContext, s: Slot, info: PrInfo, base: string, why: string): Promise<TrainOut> {
   const pr = s.t.slots[s.i]!.pr;
@@ -172,6 +181,8 @@ async function landDirect(ctx: QueueContext, s: Slot, info: PrInfo, base: string
   const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${s.env.remote}/${ctx.base}`, info.body, pr, [s.pin], false);
   s.lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []), `MODE: direct (${why})`);
   if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /ship at its pin and READYs again`, s.run);
+  const plan = slotPlan(s, info);
+  if (plan) return plan;
   recordLanding(s, 'direct', null, base);
   return mergeAt(ctx, s, s.pin, base);
 }
@@ -195,6 +206,8 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
     const shipped = bindTrainReceipt(root, `refs/remotes/${env.remote}/${ctx.base}`, info.body, pr, [pin], !!t.slots[s.i]!.base_red);
     s.lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []));
     if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /ship at its pin and READYs again`, s.run);
+    const plan = slotPlan(s, info);
+    if (plan) return plan;
     if (!t.gated) {
       const added = ctx.gh(['pr', 'edit', pr, '--add-label', 'evals-no-debounce']);
       s.lines.push(`LABEL: evals-no-debounce ${added.ok ? 'added' : `not added (${(added.err ?? added.out).trim().slice(0, 80)}); the 10-minute quiet window applies`}`);
@@ -225,6 +238,8 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
   if ('error' in head) return outPending({ code: 'QUEUE_PROOF_MISSING', message: head.error }, s.lines, s.rerun, s.run);
   if (head.headRefOid !== j.stamp_commit) return stopped(env, t, 'QUEUE_TRAIN_MOVED', `#${pr}'s head is not the ${what} commit ${j.stamp_commit.slice(0, 12)}`, base, s.lines, true);
   if (head.baseRefName && head.baseRefName !== ctx.base) return retargeted(s, head.baseRefName, ctx.base);
+  const plan = slotPlan(s, head);
+  if (plan) return plan;
   const ci = ciAtHead(ctx, j.stamp_commit);
   s.lines.push(`CI: ${ci.line}`);
   const missing = missingChecks(ci, landRequiredChecks(env));
