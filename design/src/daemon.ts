@@ -7,16 +7,20 @@
  * serve.ts as the default for `$D compare --serve`; serve.ts is kept as
  * the --no-daemon legacy/test path.
  *
- * Endpoints (see plan docs/designs path for full table):
- *   GET  /                              index of boards
- *   GET  /health                        liveness + version (unauth)
- *   POST /api/boards                    publish a new board
- *   POST /shutdown                      graceful exit (refused if active)
- *   GET  /boards/<id>                   301 → /boards/<id>/
- *   GET  /boards/<id>/                  render board HTML
- *   GET  /boards/<id>/api/progress      state machine status
- *   POST /boards/<id>/api/feedback      submit/regenerate
- *   POST /boards/<id>/api/reload        swap board HTML
+ * Endpoints (see plan docs/designs path for full table). Every route but
+ * /health lives under /<secret>, the per-daemon token kept in the 0600 state
+ * file; published board URLs carry it, so board JS and the agent reach the
+ * board through the URL alone. Requests with a non-loopback Host or a
+ * cross-origin Origin are refused before routing.
+ *   GET  /health                        liveness + version (no secret)
+ *   GET  /<secret>/                     index of boards
+ *   POST /<secret>/api/boards           publish a new board
+ *   POST /<secret>/shutdown             graceful exit (refused if active)
+ *   GET  /<secret>/boards/<id>          301 → /<secret>/boards/<id>/
+ *   GET  /<secret>/boards/<id>/         render board HTML
+ *   GET  /<secret>/boards/<id>/api/progress  state machine status
+ *   POST /<secret>/boards/<id>/api/feedback  submit/regenerate
+ *   POST /<secret>/boards/<id>/api/reload    swap board HTML
  *
  * Lifecycle:
  *   start → bind 127.0.0.1:N → write state file → serve until 24h idle or
@@ -27,8 +31,11 @@
  * Both are Codex-flagged guards against silent loss of in-memory history.
  */
 
+import { randomBytes, timingSafeEqual } from "crypto";
 import fs from "fs";
 import path from "path";
+
+import { loopbackRequestRefusal } from "../../lib/loopback-request";
 
 import {
   CMDLINE_MARKER,
@@ -58,6 +65,8 @@ const IDLE_CHECK_INTERVAL_MS = parseInt(
 const MAX_BOARDS = parseInt(process.env.DESIGN_DAEMON_MAX_BOARDS || "50", 10);
 
 const VERSION = readVersionString();
+const DAEMON_TOKEN = randomBytes(32).toString("hex");
+const ROUTE_PREFIX = `/${DAEMON_TOKEN}`;
 
 // ─── Per-board state ─────────────────────────────────────────────
 
@@ -252,7 +261,7 @@ function handleIndex(): Response {
     .map((b) => {
       const ts = new Date(b.publishedAt).toISOString();
       const titleSuffix = b.title ? ` — ${escapeHtml(b.title)}` : "";
-      return `<li><a href="/boards/${b.id}/">${b.id}</a> <span class="state state-${b.state}">${b.state}</span> <time>${ts}</time>${titleSuffix}</li>`;
+      return `<li><a href="${ROUTE_PREFIX}/boards/${b.id}/">${b.id}</a> <span class="state state-${b.state}">${b.state}</span> <time>${ts}</time>${titleSuffix}</li>`;
     })
     .join("\n");
   const empty = `<p class="empty">No boards yet. Run <code>$D compare --serve</code> to publish one.</p>`;
@@ -280,7 +289,7 @@ ${list}
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
-async function handlePublish(req: Request, origin: string): Promise<Response> {
+async function handlePublish(req: Request, baseUrl: string): Promise<Response> {
   let body: any;
   try {
     body = await req.json();
@@ -319,7 +328,7 @@ async function handlePublish(req: Request, origin: string): Promise<Response> {
         error: "Source directory already in use by an active board",
         existing: {
           id: existing.id,
-          url: `${origin}/boards/${existing.id}/`,
+          url: `${baseUrl}/boards/${existing.id}/`,
           state: existing.state,
         },
       },
@@ -355,7 +364,7 @@ async function handlePublish(req: Request, origin: string): Promise<Response> {
   dlog(`published board ${id} sourceDir=${sourceDir} pid=${board.publisherPid}`);
   return Response.json({
     id,
-    url: `${origin}/boards/${id}/`,
+    url: `${baseUrl}/boards/${id}/`,
     sourceDir,
   });
 }
@@ -465,7 +474,7 @@ h1{font-size:20px}.id{font-family:ui-monospace,monospace;color:#888;font-size:13
 a{color:#0070f3;text-decoration:none}a:hover{text-decoration:underline}</style></head><body>
 <h1>Board expired</h1>
 <p>Board <span class="id">${escapeHtml(id)}</span> is no longer hosted by this daemon (evicted or the daemon restarted).</p>
-<p><a href="/">← see active boards</a></p>
+<p><a href="${ROUTE_PREFIX}/">← see active boards</a></p>
 </body></html>`;
 }
 
@@ -475,13 +484,22 @@ const BOARD_RE = /^\/boards\/([A-Za-z0-9_-]+)(\/.*)?$/;
 
 export async function fetchHandler(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const origin = url.origin;
-
+  const refusal = loopbackRequestRefusal(url.host, req.headers.get("origin"), serverRef?.port ?? Number(url.port));
+  if (refusal) return Response.json({ error: refusal }, { status: 403 });
   if (req.method === "GET" && url.pathname === "/health") return handleHealth();
-  if (req.method === "GET" && url.pathname === "/") return handleIndex();
-  if (req.method === "POST" && url.pathname === "/api/boards") return handlePublish(req, origin);
 
-  if (req.method === "POST" && url.pathname === "/shutdown") {
+  const [, secret = "", ...rest] = url.pathname.split("/");
+  const presented = Buffer.from(secret);
+  const expected = Buffer.from(DAEMON_TOKEN);
+  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const pathname = `/${rest.join("/")}`;
+
+  if (req.method === "GET" && pathname === "/") return handleIndex();
+  if (req.method === "POST" && pathname === "/api/boards") return handlePublish(req, url.origin + ROUTE_PREFIX);
+
+  if (req.method === "POST" && pathname === "/shutdown") {
     if (hasActiveBoards()) {
       return Response.json(
         {
@@ -495,7 +513,7 @@ export async function fetchHandler(req: Request): Promise<Response> {
     return Response.json({ shuttingDown: true });
   }
 
-  const m = url.pathname.match(BOARD_RE);
+  const m = pathname.match(BOARD_RE);
   if (m) {
     const id = m[1]!;
     const subpath = m[2] || "";
@@ -511,7 +529,7 @@ export async function fetchHandler(req: Request): Promise<Response> {
     if (req.method === "GET" && subpath === "") {
       return new Response(null, {
         status: 301,
-        headers: { Location: `/boards/${id}/` },
+        headers: { Location: `${ROUTE_PREFIX}/boards/${id}/` },
       });
     }
     if (req.method === "GET" && subpath === "/") return handleBoardGet(board);
@@ -546,6 +564,7 @@ export function start(): { port: number } {
     version: VERSION,
     serverPath: process.argv[1] || "",
     cmdlineMarker: CMDLINE_MARKER,
+    token: DAEMON_TOKEN,
   };
   writeStateFile(state);
   dlog(`DAEMON_STARTED port=${actualPort} pid=${process.pid} version=${VERSION}`);
@@ -574,6 +593,7 @@ if (import.meta.main) {
 
 // Exported for tests. Keep this small and stable.
 export const __testInternals__ = {
+  token: DAEMON_TOKEN,
   boards,
   fetchHandler,
   idleCheckTick,

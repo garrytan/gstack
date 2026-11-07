@@ -68,8 +68,8 @@ describe("daemon round-trip: publish → submit → feedback.json", () => {
     const boardDir = makeTmpDir("board-submit");
     try {
       const htmlPath = makeBoardHtml(boardDir, "<p>round-trip board</p>");
-      const board = await publishBoard({ port: d.port, html: htmlPath });
-      expect(board.url).toBe(`http://127.0.0.1:${d.port}/boards/${board.id}/`);
+      const board = await publishBoard({ port: d.port, token: d.token, html: htmlPath });
+      expect(board.url).toBe(`http://127.0.0.1:${d.port}/${d.token}/boards/${board.id}/`);
       expect(board.sourceDir).toBe(fs.realpathSync(boardDir));
 
       // GET the board URL — same path the browser would hit
@@ -124,14 +124,15 @@ describe("daemon round-trip: publish → submit → feedback.json", () => {
     try {
       const board = await publishBoard({
         port: d.port,
+        token: d.token,
         html: makeBoardHtml(boardDir),
       });
       // Use redirect: 'manual' so we observe the 301 response itself
-      const res = await fetch(`http://127.0.0.1:${d.port}/boards/${board.id}`, {
+      const res = await fetch(`http://127.0.0.1:${d.port}/${d.token}/boards/${board.id}`, {
         redirect: "manual",
       });
       expect(res.status).toBe(301);
-      expect(res.headers.get("Location")).toBe(`/boards/${board.id}/`);
+      expect(res.headers.get("Location")).toBe(`/${d.token}/boards/${board.id}/`);
     } finally {
       try { fs.rmSync(boardDir, { recursive: true, force: true }); } catch {}
     }
@@ -146,7 +147,7 @@ describe("daemon round-trip: publish → regenerate → reload → submit round 
     const boardDir = makeTmpDir("board-regen");
     try {
       const r1Path = makeBoardHtml(boardDir, "<p>round 1 variants</p>");
-      const board = await publishBoard({ port: d.port, html: r1Path });
+      const board = await publishBoard({ port: d.port, token: d.token, html: r1Path });
 
       // Skill issues a regenerate via the board JS path
       const regen = await fetch(`${board.url}api/feedback`, {
@@ -219,8 +220,8 @@ describe("daemon round-trip: two concurrent publishes share one daemon", () => {
     const dirA = makeTmpDir("two-a");
     const dirB = makeTmpDir("two-b");
     try {
-      const a = await publishBoard({ port: d.port, html: makeBoardHtml(dirA) });
-      const b = await publishBoard({ port: d.port, html: makeBoardHtml(dirB) });
+      const a = await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(dirA) });
+      const b = await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(dirB) });
 
       // Same daemon process — state file pid is stable
       const state = readStateFile(stateFile);
@@ -245,7 +246,7 @@ describe("daemon round-trip: two concurrent publishes share one daemon", () => {
       expect(fs.existsSync(path.join(b.sourceDir, "feedback.json"))).toBe(false);
 
       // Index page lists both
-      const idx = await fetch(`http://127.0.0.1:${d.port}/`);
+      const idx = await fetch(`http://127.0.0.1:${d.port}/${d.token}/`);
       const idxHtml = await idx.text();
       expect(idxHtml).toContain(a.id);
       expect(idxHtml).toContain(b.id);
