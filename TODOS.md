@@ -2,6 +2,14 @@
 
 ## NEXT PRIORITY
 
+### P2: `/plan-eng-review` retirement follow-ups (filed 2026-11-06, GST-1698 /ship review of #4108)
+
+- **Stop the dots and generic harness targets from registering the retired skill.** `sourceSkills()` in `lib/harness-register.ts` lists every committed Claude-render skill and filters out only `gstack`, so `gstack-harness register --target dots|generic` still lists `plan-eng-review` in its router and gives it a folder in `all` mode. Filter `RETIRED_SKILLS` there (the Claude-render /autoplan reads Phase 3 from `~/.claude/skills/gstack/plan-eng-review/SKILL.md`, not from the harness payload) and add a case to `test/retired-skills.test.ts`. Raised by the outside voice (labelled blocking) and the native adversarial pass (non-blocking); below the blocking floor because nothing fails and the skill still works. **Effort:** S. **Priority:** P2.
+- **Point the external-host methodology file's preamble Read at `gstack-autoplan`.** Every external host's `gstack-autoplan/plan-eng-review.md` says to Read `sections/preamble.md` relative to the installed `gstack-plan-eng-review` directory, which no longer exists. Normally the matching preamble id skips the reread, but after compaction late in a run the agent follows a missing path. Fixing it changes Phase 3 bytes, so it needs its own byte-pin update. **Effort:** S. **Priority:** P3.
+- **Redirect `gstack-doctor --for plan-eng-review`.** It now exits 2 with "unknown skill"; map the retired name to `/autoplan`'s requirements and print a one-line redirect, so saved lane scripts keep working. **Effort:** S. **Priority:** P3.
+- **Decide whether the QM edition keeps `gstack-plan`.** `hosts/qm.ts` and `qm/edition.json` still build `gstack-plan` from the `plan-eng-review` sources under another name, so the retired-name guards don't see it. Product call for Garry. **Effort:** S. **Priority:** P3.
+- **Pin the retirement in two more tests.** Assert that `generateLlmsTxt` output lists no `plan-eng-review` entry (`test/llms-txt-shape.test.ts`), and that `HYBRID_SKILLS` holds none of `RETIRED_SKILLS` (`test/harness-register.test.ts`). **Effort:** S. **Priority:** P3.
+
 ### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
 
 - **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
