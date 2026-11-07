@@ -336,6 +336,16 @@ describe('the no-findings conclusion is a closed sentence (GST-1808)', () => {
     for (const text of ['Recommendation: ship because I found no regressions in this change.', 'Recommendation: proceed because no findings remain.',
       'The change adds a retry cap.\nRecommendation: ship because no issues remain.', '## Recommendation\n\nApprove because I found no issues.']) clean(text, 'review');
   });
+
+  test('a whole-change scope may name the branch or the base it is diffed against, and nothing more', () => {
+    for (const text of ['No issues found in the changes on this branch.', 'I found no actionable regressions in the branch diff.',
+      'No issues found in the diff against main.', 'No issues found in the diff against the base branch.',
+      'No issues found in the changes on this branch against origin/main.', 'After reviewing the changes on this branch, I found no issues.']) clean(text);
+    clean('Recommendation: ship because no issues in the changes on this branch.', 'review');
+    for (const text of ['No issues found in the changes on this branch, except the auth path.', 'No issues found in the diff against main, so ship it.',
+      'No issues found in the changes on this branch?', 'No issues found in the diff against the auth module.',
+      'No issues found in the branch diff against main except the auth path.']) unverified(text);
+  });
 });
 
 describe('validateOutsideReview keeps the text-only shape for direct importers', () => {
