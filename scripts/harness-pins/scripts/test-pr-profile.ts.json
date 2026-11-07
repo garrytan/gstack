@@ -1,1 +1,1 @@
-{"blob":"43da2135a2f909f202d3ecda582029f805ff768d","since":6,"nonBehavioral":"test-pr-profile lists the new plain-title workflow as one no PR-gate case reads; no case's verdict can change"}
+{"blob":"36c45c32b6fed41e80255187d1e07e52fd7c32a4","since":6,"nonBehavioral":"test-pr-profile lists the plain-title workflow and gstack's own plain-title policy as files no PR-gate case reads; no case's verdict can change"}
