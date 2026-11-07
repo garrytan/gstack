@@ -2,7 +2,7 @@
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
 
-export const PREVIEW_TEMPLATE = path.resolve(import.meta.dir, '..', '..', 'design-review', 'templates', 'preview-fixtures.mjs');
+export const PREVIEW_TEMPLATE = path.join(import.meta.dir, '..', '..', 'design-review', 'templates', 'preview-fixtures.mjs');
 
 export interface Preview { url: string; port: number; proc: ReturnType<typeof Bun.spawn>; ready: string }
 
