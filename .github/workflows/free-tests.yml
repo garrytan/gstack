@@ -201,12 +201,7 @@ jobs:
           if [ "$runner" != "$FREE_SUITE_RUNNER" ] || [ "$shards" != "$FREE_SUITE_SHARDS" ] || [ "$jobs" != "$FREE_SUITE_JOBS" ]; then
             echo "- Runner-sizing experiment: $shards shards on $runner at $jobs sub-shards each (defaults $FREE_SUITE_SHARDS on $FREE_SUITE_RUNNER at $FREE_SUITE_JOBS); not a PR or train Free Tests result" >> "$GITHUB_STEP_SUMMARY"
           fi
-          # gstack on Capy (crew/README.md): a pull request plans crew/test only
-          # when it changes crew/, bin/, .github/workflows/ or a file crew code imports; main pushes plan all,
-          # and so does a pull request whose merge-base cannot be read.
-          crew=()
-          if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && base=$(git merge-base HEAD origin/main 2>/dev/null); then crew=(--crew-base "$base"); fi
-          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs" --job-setup-seconds "$FREE_SUITE_SETUP_SECONDS" ${crew[@]+"${crew[@]}"})
+          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs" --job-setup-seconds "$FREE_SUITE_SETUP_SECONDS")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "runner=$runner" >> "$GITHUB_OUTPUT"
       - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)

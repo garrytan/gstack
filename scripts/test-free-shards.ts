@@ -100,7 +100,6 @@ import { resolveStateRoot } from '../lib/state-root';
 import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeGuardFactory } from './lib/free-home-guard';
 import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning, windowsCurationLine } from './lib/free-ci-health';
 import { curateWindowsSafe, type CurationResult } from './lib/windows-curation';
-import { CREW_TEST_ROOT, crewTestSelection, isCrewTestFile } from './lib/crew-tests';
 import {
   assertSoloSeedSample, ciRunContext, parseJobsFlag, parseJunitCounts, plannedShardJobs, plannedShardJobsProblem, readJunitReport, rejectJobsWithoutCiRun,
   rejectShardJobsWithoutCiPlan, runCiShard, SLOW_UNDER_LOAD, subShardRecordProblems, validateJobsForShard, type ShardTestCounts, type SubShardRecord,
@@ -157,7 +156,7 @@ export const TEST_ROOTS = [
   'ios-qa/daemon/test',
   'ios-qa/scripts',
   'browser-skills',
-  CREW_TEST_ROOT,
+  'crew/test',
 ] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
@@ -450,8 +449,6 @@ export interface FreeCiPlan {
   id: string;
   /** `jobs` is the shard's k from --shard-jobs, present only when above 1. */
   shards: Array<{ shard: number; files: string[]; predictedMs: number; jobs?: number }>;
-  /** Present when --crew-base left the crew tests out (scripts/lib/crew-tests.ts). */
-  crewTests?: 'skipped';
 }
 
 /** Files that run in the trailing serial sub-shard under k > 1, never beside another child. */
@@ -461,7 +458,7 @@ const planDigest = (plan: Omit<FreeCiPlan, 'id'>): string =>
   createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
 /** One immutable plan is shared by isolated CI machines; never repack per job. */
-export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1, crewSkipped = false): FreeCiPlan {
+export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1): FreeCiPlan {
   const readers = files.filter(file => !(file in TREE_MUTATING));
   const exclusive = files.filter(file => file in TREE_MUTATING).sort();
   const packed = packShardsByDuration(readers, count, durations);
@@ -471,7 +468,7 @@ export function createFreeCiPlan(files: string[], count: number, durations: Reco
     const jobs = plannedShardJobs(files, shardJobs, runsSerialUnderJobs);
     return { shard: index + 1, files, predictedMs, ...(jobs ? { jobs } : {}) };
   });
-  const body = { version: 1 as const, revision, shards, ...(crewSkipped ? { crewTests: 'skipped' as const } : {}) };
+  const body = { version: 1 as const, revision, shards };
   return { ...body, id: planDigest(body) };
 }
 
@@ -486,10 +483,9 @@ export function ciPlanMatrix(plan: FreeCiPlan, setupSeconds?: number): { shard: 
 }
 
 export function validateFreeCiPlan(plan: FreeCiPlan, files: string[], revision: string): void {
-  const { id, version, shards, crewTests } = plan;
+  const { id, version, shards } = plan;
   if (version !== 1 || plan.revision !== revision || !Array.isArray(shards) || !shards.length
-    || id !== planDigest({ version, revision: plan.revision, shards, ...(crewTests ? { crewTests } : {}) })) throw new Error('CI plan identity or revision mismatch');
-  if (crewTests === 'skipped') files = files.filter(file => !isCrewTestFile(file));
+    || id !== planDigest({ version, revision: plan.revision, shards })) throw new Error('CI plan identity or revision mismatch');
   if (shards.some((shard, index) => shard.shard !== index + 1 || !Array.isArray(shard.files)
     || !Number.isFinite(shard.predictedMs) || shard.predictedMs < 0)) throw new Error('Invalid CI shard plan');
   const jobsProblems = shards.map(shard => plannedShardJobsProblem(shard, runsSerialUnderJobs)).filter(Boolean);
@@ -610,8 +606,6 @@ type CliOptions = {
   shardJobs?: number;
   /** Set only by --job-setup-seconds (with --ci-plan): the matrix then carries each shard's job timeout. */
   jobSetupSeconds?: number;
-  /** Set only by --crew-base (with --ci-plan): plan crew/test only when the change since this ref needs it. */
-  crewBase?: string;
 };
 
 export function parseCliOptions(argv: string[]): CliOptions {
@@ -629,7 +623,6 @@ export function parseCliOptions(argv: string[]): CliOptions {
   let jobs: number | undefined;
   let shardJobs: number | undefined;
   let jobSetupSeconds: number | undefined;
-  let crewBase: string | undefined;
   const paths: Record<'ciPlan' | 'ciRun' | 'ciVerify' | 'result' | 'results' | 'filesFrom', string | null> = {
     ciPlan: null, ciRun: null, ciVerify: null, result: null, results: null, filesFrom: null,
   };
@@ -660,10 +653,6 @@ export function parseCliOptions(argv: string[]): CliOptions {
       jobSetupSeconds = /^\d+$/.test(value) ? Number(value) : NaN;
       if (!(jobSetupSeconds > 0 && jobSetupSeconds <= 3600)) throw new Error('--job-setup-seconds needs a whole number of seconds from 1 to 3600');
     },
-    '--crew-base': (next) => {
-      crewBase = next();
-      if (!crewBase || crewBase.startsWith('--')) throw new Error('Missing ref for --crew-base');
-    },
     '--shards': (next) => {
       const value = next();
       if (!value) throw new Error('Missing value for --shards');
@@ -690,9 +679,8 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (jobs !== undefined && !paths.ciRun) rejectJobsWithoutCiRun();
   if (shardJobs !== undefined && !paths.ciPlan) rejectShardJobsWithoutCiPlan();
   if (jobSetupSeconds !== undefined && !paths.ciPlan) throw new Error('--job-setup-seconds applies only to --ci-plan');
-  if (crewBase !== undefined && (!paths.ciPlan || windowsOnly)) throw new Error('--crew-base applies only to a Linux --ci-plan');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
-  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }), ...(jobSetupSeconds === undefined ? {} : { jobSetupSeconds }), ...(crewBase === undefined ? {} : { crewBase }) };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit, quick, attributeHome, ...paths, ...(jobs === undefined ? {} : { jobs }), ...(shardJobs === undefined ? {} : { shardJobs }), ...(jobSetupSeconds === undefined ? {} : { jobSetupSeconds }) };
 }
 
 const describeLines = (lines: string[]) => `${lines.slice(0, 5).join(', ')}${lines.length > 5 ? ` (+${lines.length - 5} more)` : ''}`;
@@ -2024,15 +2012,8 @@ async function main(): Promise<number> {
         console.error(`[test:free] ${line}`);
         appendStepSummary(line);
       }
-      const crew = options.crewBase ? crewTestSelection(ROOT, options.crewBase) : null;
-      if (crew) {
-        const line = `crew tests: ${crew.planned ? 'planned' : 'skipped'} (${crew.reason})`;
-        console.error(`[test:free] ${line}`);
-        appendStepSummary(line);
-      }
-      const planFiles = crew && !crew.planned ? ciFiles.filter(file => !isCrewTestFile(file)) : ciFiles;
-      warnUnseededFreeFiles(planFiles, durations);
-      const plan = createFreeCiPlan(planFiles, options.shardCount, durations, revision, options.shardJobs, crew?.planned === false);
+      warnUnseededFreeFiles(ciFiles, durations);
+      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs);
       validateFreeCiPlan(plan, ciFiles, revision);
       const matrix = ciPlanMatrix(plan, options.jobSetupSeconds);
       if ('include' in matrix) {
@@ -2054,7 +2035,7 @@ async function main(): Promise<number> {
         appendStepSummary(section);
       }
       verifyFreeCiResults(plan, results);
-      console.log(`[test:free] CI PASS: ${plan.shards.reduce((n, shard) => n + shard.files.length, 0)} files across ${results.length} isolated shards; slowest ${Math.round(Math.max(...results.map(result => result.outcome.elapsedMs + (result.retry?.elapsedMs ?? 0))) / 1000)}s including retries`);
+      console.log(`[test:free] CI PASS: ${ciFiles.length} files across ${results.length} isolated shards; slowest ${Math.round(Math.max(...results.map(result => result.outcome.elapsedMs + (result.retry?.elapsedMs ?? 0))) / 1000)}s including retries`);
       return 0;
     }
     const shard = plan.shards[options.shardIndex! - 1];

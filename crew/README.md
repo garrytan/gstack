@@ -36,8 +36,7 @@ on any host, and an entry an earlier install made is removed.
 
 On Capy the session launch file (`bin/gstack-capy-install`) also puts
 `crew/bin/` on PATH, so the crew commands keep their bare names there. Public
-CI runs `crew/test/` on a pull request only when it changes `crew/` or a file
-crew code imports (`scripts/lib/crew-tests.ts`); every push to main runs them.
+CI runs `crew/test/` with the rest of the free suite.
 
 ## What is here
 
