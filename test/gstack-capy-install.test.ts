@@ -1372,6 +1372,25 @@ describe.skipIf(process.platform !== 'linux')('gstack-capy-install: the project 
     expect(JSON.parse(fs.readFileSync(onPath.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1], 'utf8'))).toMatchObject({ node_path: path.join(f.stub, 'node'), node_rule: 'PATH', launch_path: '' });
   });
 
+  test('the pins parser ignores the project\'s bunfig.toml: install and --check read the Bun and Node pins from the project directory without running its preload', () => {
+    const f = fixture();
+    withPins(f);
+    realBun(path.join(f.stub, 'bun'), '1.4.2');
+    fakeNode(path.join(f.stub, 'node'), '24.21.0');
+    const nvmNode = path.join(f.home, '.nvm/versions/node/v24.18.0/bin/node');
+    fakeNode(nvmNode, '24.18.0');
+    const project = nodeProject(f, '24.18.0');
+    const marker = path.join(f.base, 'preload-ran.log');
+    write(path.join(project, 'bunfig.toml'), 'preload = ["./preload.ts"]\n');
+    write(path.join(project, 'preload.ts'), `require('fs').appendFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(' ') + '\\n');\n`);
+    const r = run(f, ['--for', 'review'], {}, project);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain(`node 24.18.0 at ${nvmNode} (nvm; satisfies the project's Node pins`);
+    const c = run(f, ['--check', '--for', 'review'], {}, project);
+    expect(c.status, c.stdout + c.stderr).toBe(0);
+    expect(fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '').toBe('');
+  });
+
   test('no installed Node satisfies the pin: --check installs nothing; install downloads it into the runtime store checked against SHASUMS256.txt; a mismatch installs nothing', () => {
     const f = fixture();
     withPins(f);
