@@ -2204,9 +2204,9 @@ the moved base with `git merge-tree` first:
   `on-conflict` skips the check.
 
 The release commit can make a skipped base conflict (a claim-at-open VERSION or
-CHANGELOG write), so `gstack-ship-release finish` rechecks a head that lacks
-`origin/<base>` against a fresh fetch of the base, without moving
-`origin/<base>`: `BASE_MERGE: … still merges clean`, or a STOP that names the
+CHANGELOG write), so when `base_merge` would skip, `gstack-ship-release finish`
+rechecks a head that lacks `origin/<base>` against a fresh fetch of the base,
+without moving `origin/<base>`: `BASE_MERGE: … still merges clean`, or a STOP that names the
 conflicted files and sends the run back to Step 3's conflict rules and Steps
 5-16. The receipt records `base_merge: { base, behind, mergeable }` whenever the
 head lacks `origin/<base>`. A stacked child whose base has no queue merges its

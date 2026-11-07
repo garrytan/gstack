@@ -15,7 +15,7 @@ import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { baseMergeSkips, bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -196,18 +196,10 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-/** base_merge (docs/ship-policy.md#base-merge): under on-conflict, or auto when GitHub reports a merge queue on the base, a moved base that merges cleanly (git merge-tree) stays unmerged, since the queue tests the merge commit; a conflict, `always`, or a check that cannot answer merges as before, and `note` says why. */
+/** A moved base that merges cleanly (git merge-tree) stays unmerged when baseMergeSkips allows it; a conflict, or a check that cannot answer, merges as before, and `note` says why. */
 function cleanBaseSkip(cwd: string, base: string, mode: string): { skip?: string; note?: string } {
-  if (mode === 'always') return {};
-  let via = 'base_merge on-conflict: the repo\'s merge queue tests the merge commit';
-  if (mode === 'auto') {
-    if (!hostedOrigin(cwd)) return { note: 'auto, merge queue not checked (origin is not a hosted remote): merging' };
-    const q = gh(cwd, ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `branch=${base}`, '-f', 'query=query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){id}}}', '--jq', '.data.repository.mergeQueue != null'], 30_000);
-    const answer = q.stdout.trim();
-    if (q.status !== 0 || !/^(true|false)$/.test(answer)) return { note: `auto, merge queue check failed (${firstLine(q.stderr) || `gh exit ${q.status}, no answer`}): merging; set base_merge: on-conflict to skip a clean merge without the check` };
-    if (answer === 'false') return {};
-    via = `base_merge auto: GitHub's merge queue on ${base} tests the merge commit`;
-  }
+  const { via, note } = baseMergeSkips(cwd, base, mode);
+  if (!via) return { note };
   const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', 'HEAD', `origin/${base}`]);
   if (m.status === 1) return {};
   if (m.status !== 0) return { note: `merge-tree failed (${firstLine(m.stderr) || `exit ${m.status}`}): merging` };

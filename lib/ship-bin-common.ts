@@ -82,6 +82,17 @@ export function shipPolicy(cwd: string, base: string): Record<string, any> | nul
   try { return JSON.parse(r.stdout).policy ?? null; } catch { return null; }
 }
 
+/** base_merge (docs/ship-policy.md#base-merge): `via` when Step 3 may leave a clean moved base unmerged (on-conflict, or auto with GitHub's merge queue on the base); `note` when auto could not tell and so merges. */
+export function baseMergeSkips(cwd: string, base: string, mode: string): { via?: string; note?: string } {
+  if (mode === 'on-conflict') return { via: 'base_merge on-conflict: the repo\'s merge queue tests the merge commit' };
+  if (mode !== 'auto') return {};
+  if (!hostedOrigin(cwd)) return { note: 'auto, merge queue not checked (origin is not a hosted remote): merging' };
+  const q = gh(cwd, ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `branch=${base}`, '-f', 'query=query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){id}}}', '--jq', '.data.repository.mergeQueue != null'], 30_000);
+  const answer = q.stdout.trim();
+  if (q.status !== 0 || !/^(true|false)$/.test(answer)) return { note: `auto, merge queue check failed (${firstLine(q.stderr) || `gh exit ${q.status}, no answer`}): merging; set base_merge: on-conflict to skip a clean merge without the check` };
+  return answer === 'true' ? { via: `base_merge auto: GitHub's merge queue on ${base} tests the merge commit` } : {};
+}
+
 /** Manifests a version stamp writes: release metadata only while the edit changes nothing but the version. */
 export const VERSIONED_MANIFESTS = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json'];
 

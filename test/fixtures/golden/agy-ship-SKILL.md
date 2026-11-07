@@ -458,7 +458,7 @@ not web services already deployed.
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-The preflight merges the fetched base (`git merge`) so tests and reviews cover the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge).
+The preflight merges the fetched base so tests and reviews see the integrated code (`MERGE:`; `up to date` if nothing new; `skipped` under stamp-at-merge or `base_merge`).
 
 **Merge conflicts:** `MERGE:` names them. Auto-resolve simple ones (VERSION, schema.rb, CHANGELOG ordering). For complex or ambiguous conflicts, **STOP**: show the choices, ask via AskUserQuestion, wait for the answer before any edit; then commit and rerun the preflight.
 

@@ -34,7 +34,7 @@ import { lanesOnlyHeadPolicy } from './pregate/head-policy';
 import { finishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { buildRunCheck } from './pregate/run-check';
-import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
+import { baseMergeSkips, bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -506,9 +506,10 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   return true;
 }
 
-/** GST-1772: a base Step 3 left unmerged (base_merge) must still merge cleanly after the release commit, since a VERSION or CHANGELOG write can make it conflict; checked against a fresh fetch that leaves origin/<base> where Step 1 put it. */
+/** GST-1772: a base Step 3 may leave unmerged (base_merge) must still merge cleanly after the release commit, since a VERSION or CHANGELOG write can make it conflict; checked against a fresh fetch that leaves origin/<base> where Step 1 put it. */
 function baseStillMerges(cwd: string, base: string, policy: Record<string, any> | null, r: Report): boolean {
   if (policy?.queue_mode === 'stamp-at-merge' || git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) return true;
+  if (!baseMergeSkips(cwd, base, policy?.base_merge ?? 'auto').via) return true;
   const fetched = git(cwd, ['fetch', '--quiet', '--refmap=', 'origin', `refs/heads/${base}`], 300_000).status === 0;
   const tip = fetched ? git(cwd, ['rev-parse', 'FETCH_HEAD']).stdout.trim() : `origin/${base}`;
   const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', '--name-only', 'HEAD', tip]);
