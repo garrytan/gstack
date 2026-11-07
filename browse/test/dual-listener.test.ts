@@ -288,6 +288,18 @@ describe('/command tunnel command allowlist', () => {
     expect(handled).toEqual(guarded);
   });
 
+  test('a screenshot with no args field is gated like args: [] (tunnel refuses, local dispatches)', async () => {
+    const handled: unknown[] = [];
+    const body = { command: 'screenshot' };
+    const tunnel = await statusAndJson(await callRoute('POST', '/command', recordingCtx(handled), { surface: 'tunnel', body }));
+    expect(tunnel.status).toBe(403);
+    expect(tunnel.body.error).toBe(`Command 'screenshot' is not allowed over the tunnel surface`);
+    expect(handled).toEqual([]);
+    const local = await callRoute('POST', '/command', recordingCtx(handled), { surface: 'local', body });
+    expect(local.status).toBe(200);
+    expect(handled).toEqual([body]);
+  });
+
   test('tunnel surface still dispatches web navigation and path-free screenshots', async () => {
     const handled: unknown[] = [];
     const allowed = [

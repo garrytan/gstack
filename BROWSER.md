@@ -1232,8 +1232,9 @@ attrs, media, data, scroll, press, type, select, wait,
 newtab, tabs, back, forward, reload, snapshot, fill, url, closetab
 ```
 
-The gate also reads the args, so over the tunnel nothing is written to the
-daemon's disk: `goto`/`newtab` take http(s) URLs only, `screenshot` needs
+The gate also reads the args, so over the tunnel a paired agent can't read
+local files, can't choose a path on the daemon's disk, and can't make the
+daemon save screenshot or snapshot images: `goto`/`newtab` take http(s) URLs only, `screenshot` needs
 `--base64` (it returns the image) and cannot name an output path, `snapshot`
 refuses `-a`/`--annotate`, `-H`/`--heatmap` and `-o`, and `--out` is
 refused everywhere. `eval` is absent because it runs a file from the

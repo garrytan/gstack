@@ -38,8 +38,9 @@ export const TUNNEL_COMMANDS = new Set<string>([
  * Canonicalizes the command (so aliases hit the same set) and returns false
  * for null/undefined input.
  *
- * `args` is consulted so that over the tunnel nothing is written to the
- * daemon's disk and no local file is read: `--out`, a screenshot without
+ * `args` is consulted so that over the tunnel a paired agent can't read local
+ * files, can't choose a path on the daemon's disk, and can't make the daemon
+ * save screenshot or snapshot images: `--out`, a screenshot without
  * `--base64` or with an output path, a snapshot with `-a`/`-H`/`-o`, and
  * goto/newtab to anything but an http(s) URL (file: reads) are refused.
  * `eval` is absent from the allowlist because it runs a file from the
@@ -175,7 +176,7 @@ export const commandRoutes: RouteEntry[] = [
       // Tunnel surface: only commands in TUNNEL_COMMANDS are allowed.
       // Paired remote agents drive the browser but cannot configure the
       // daemon, launch new browsers, import cookies, or rotate tokens.
-      if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args)) {
+      if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args === undefined ? [] : body?.args)) {
         logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
         return jsonError(403, `Command '${body?.command}' is not allowed over the tunnel surface`, {
           hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot needs --base64 and cannot name an output path (target an element with screenshot --base64 --selector <css>), snapshot refuses -a/--annotate, -H/--heatmap and -o, and --out is never allowed.`,

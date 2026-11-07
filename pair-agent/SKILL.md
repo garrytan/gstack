@@ -384,8 +384,9 @@ ceremony, not the scope:
 - Create new tabs (each agent gets its own)
 - Cannot stop or restart the browser, or disconnect headed mode (needs --control)
 
-Remote agents go through the tunnel command allowlist, so nothing they do is
-written to this machine's disk: `goto`/`newtab` take http(s) URLs only,
+Remote agents go through the tunnel command allowlist, so they can't read local
+files, can't choose a path on this machine's disk, and can't make the daemon
+save screenshot or snapshot images: `goto`/`newtab` take http(s) URLs only,
 `screenshot` needs `--base64` and cannot name an output path, `snapshot`
 refuses `-a`, `-H` and `-o`, and
 `eval`, `js`, `cookies`, and `storage` are not dispatchable over the tunnel
