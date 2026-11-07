@@ -30,7 +30,7 @@ const PUBLISHED = /^\s*true\s+autoplan-published\s+(ceo|design|dx|eng)\s*$/;
 const PHASE_READ = /(?:^|[\\/])autoplan[\\/]sections[\\/](ceo|design|dx|eng)-phase\.md$/;
 const GATE_RENDER = /gstack-gate["']?\s+render(?:\s|$)/;
 const GATE_FILE = /(?:^|[\\/])gate\.json$/;
-const RUNNER = /\bgstack-autoplan["']?\s+(?:next|submit|answer|export)(?:\s|$)/;
+const RUNNER = /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:bun\s+(?:-\S+\s+)*)?["']?(?:[^\s"';&|]*[\\/])?gstack-autoplan(?:\.ts)?["']?\s+(?:next|submit|answer|export)(?:\s|$)/;
 const CEO_ONLY_END = /GSTACK_RESULT:\s*skill=autoplan\s+status=reviewed\b/;
 const AGENT_TOOLS = /^(?:Agent|Task)$/;
 
@@ -71,8 +71,9 @@ function scopePhases(scope: unknown): Phase[] | null {
 function isCeoOnly(load: SkillLoad, events: TranscriptEvent[]): boolean {
   const e = events[load.at];
   if (e?.kind === 'prompt') return /<command-args>[^<]*--ceo-only\b/.test(e.text);
-  if (e?.kind === 'tool_use') return /--ceo-only\b/.test(String(e.input.args ?? ''));
-  return false;
+  if (e?.kind === 'tool_use' && [e.input.args, e.input.command, e.input.skill].some(v => /--ceo-only\b/.test(String(v ?? '')))) return true;
+  const asked = events.slice(0, load.at).findLast(p => p.kind === 'prompt');
+  return asked?.kind === 'prompt' && /--ceo-only\b/.test(asked.text);
 }
 
 /** Check one /autoplan run: what it did, and the first step it is missing. */
@@ -117,6 +118,7 @@ export function checkRun(t: Transcript, load: SkillLoad): RunCheck {
     if (!AGENT_TOOLS.test(u.name)) return [];
     const r = results.get(u.id);
     if (!r) return [u.id];
+    if (!ok(u)) return [];
     if (u.input.run_in_background !== true && !/async_launched|"?isAsync"?\s*:\s*true|async agent launched/i.test(r.text)) return [];
     const ids = [u.id, ...[...r.text.matchAll(/\b(?:agent|task)[_ -]?id["']?\s*[:=]\s*["']?([\w-]+)/gi)].map(m => m[1])];
     const notified = run.slice(run.indexOf(r) + 1).some(e => e.kind === 'meta' && ids.some(id => e.text.includes(id)));

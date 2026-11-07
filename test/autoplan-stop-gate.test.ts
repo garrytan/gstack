@@ -222,6 +222,21 @@ describe('what the gate never holds', () => {
     expect(stop(runner).stdout.trim()).toBe('');
   });
 
+  test('a command that only mentions the runner (a docs search, an echo) is not runner mode', () => {
+    for (const command of ['rg "gstack-autoplan next --out" docs/unattended.md', 'echo skipping gstack-autoplan next']) {
+      expect(check([...LOADED, tool('n1', 'Bash', { command }), result('n1', ''), DONE])).toMatchObject({ mode: 'full', missing: 'scope' });
+    }
+    expect(check([...LOADED, tool('n1', 'Bash', { command: ". '/x/launch.env' && gstack-autoplan next --out /tmp/ap" }), result('n1', ''), DONE]).mode).toBe('runner');
+  });
+
+  test('a background reviewer whose launch failed is not pending: the stop is held', () => {
+    const denied = [...LOADED, ...init(), ...enter('ceo'),
+      tool('a1', 'Agent', { description: 'CEO review', prompt: 'review', run_in_background: true }), result('a1', 'Permission denied', true),
+      say('The reviewer could not start.')];
+    expect(check(denied).pendingAgents).toEqual([]);
+    expect(json(stop(denied).stdout).decision).toBe('block');
+  });
+
   test('an unreadable transcript fails open with an error marker', () => {
     const payload = { session_id: 'sess-1', transcript_path: path.join(work, 'missing.jsonl'), cwd: work, hook_event_name: 'Stop' };
     const r = runHook(HOOK, JSON.stringify(payload), baseEnv());
@@ -249,5 +264,15 @@ describe('a --ceo-only run is checked at its own end line', () => {
 
   test('the end line without Phase 1 published: blocked at Phase 1', () => {
     expect(json(stop([...CEO_ONLY, ...init(), ...enter('ceo'), END]).stdout).reason.split('\n')[0]).toContain('missing=ceo');
+  });
+
+  test('--ceo-only in a Skill call\'s command or skill field, or in the prompt before a Read load, is a ceo-only run', () => {
+    const rest = [...init(), ...phase('ceo'), END];
+    for (const input of [{ command: 'autoplan --ceo-only' }, { skill: 'autoplan --ceo-only' }]) {
+      expect(check([user('review my plan'), tool('s1', 'Skill', input), result('s1', 'loaded'), ...rest])).toMatchObject({ mode: 'ceo-only', missing: null });
+    }
+    const readLoad = [user('Run /autoplan PLAN.md --ceo-only'), tool('r1', 'Read', { file_path: `${SKILLS}/autoplan/SKILL.md` }), result('r1', '# autoplan'), ...rest];
+    expect(check(readLoad)).toMatchObject({ mode: 'ceo-only', missing: null });
+    expect(check([user('Run /autoplan PLAN.md'), ...readLoad.slice(1)])).toMatchObject({ mode: 'full', missing: 'eng' });
   });
 });
