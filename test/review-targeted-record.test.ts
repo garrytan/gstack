@@ -376,6 +376,27 @@ describe('a main merge after the read keeps the record when the PR\'s own change
     expect(evil.err).toContain(`the targeted reader read ${head.slice(0, 12)}`);
   });
 
+  // Value: protects=a record read on a merge that was later redone (same tree, a new commit) is refused with the real cause: the
+  //   read commit is not an ancestor of HEAD, so it does not carry even with the product patch unchanged (GST-1700, qm#2952: the message
+  //   blamed a product change and the lane chased one); fails_when=the refusal does not name the read commit, its ancestry and
+  //   the recovery, or names a product change; seam=gstack-ship-receipt write --review-targeted
+  test('a read on a redone merge resolution names the non-ancestor commit and the recovery', () => {
+    const { repo, head } = moneyBranch();
+    mainCommit(repo, mainBrings, 'main: budget ledger and secrets');
+    repo.git('merge', '-q', '--no-edit', 'origin/main');
+    const first = repo.git('rev-parse', 'HEAD');
+    const record = path.join(repo.root, 'targeted.json');
+    expect(verify(repo, targetedRead(repo, repo.git('merge-base', 'origin/main', 'HEAD'), 'h1', 'NO FINDINGS'), record).status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(record, 'utf8')).head).toBe(first);
+    repo.git('reset', '-q', '--hard', head);
+    repo.git('merge', '-q', '--no-edit', '-m', 'redo the main merge', 'origin/main');
+    expect(repo.git('rev-parse', 'HEAD^{tree}')).toBe(repo.git('rev-parse', `${first}^{tree}`));
+    const redone = write(repo, ['--review-targeted', `@${record}`]);
+    expect(redone.status).toBe(EXIT.fail);
+    expect(redone.err).toContain(`the targeted reader read ${first.slice(0, 12)}, which is not an ancestor of HEAD (usually after a rebase or a redone merge resolution, which rewrites the commit the reader read): a targeted record carries only from HEAD or an ancestor of it, even when the product patch is unchanged, so run the targeted reader on HEAD, rerun gstack-review-dispatch verify --targeted-out and write again; nothing written)`);
+    expect(redone.err).not.toContain('the product changed after the read');
+  });
+
   // Value: protects=with no main merge, a branch commit after the read that moves the PR's money line to another block with the
   //   same context and function header still voids the record (position-free hunks compared equal); fails_when=a path whose
   //   base content did not move is judged by its line-number-free hunks; seam=targetedClassesSince

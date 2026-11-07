@@ -2,7 +2,7 @@
 
 gstack's test workflows share one rule: a test earns its place by protecting
 behavior that a real regression would break. Test count is not a goal. The bar is
-embedded in `/plan-eng-review`, `/review`, `/qa`, `/qa-only` and `/ship`, so every
+embedded in `/autoplan`'s eng phase, `/review`, `/qa`, `/qa-only` and `/ship`, so every
 new or changed test in a diff meets it without a separate step. `/test-audit`
 applies the same bar to tests that already exist.
 

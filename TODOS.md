@@ -2,6 +2,14 @@
 
 ## NEXT PRIORITY
 
+### P2: `/plan-eng-review` retirement follow-ups (filed 2026-11-06, GST-1698 /ship review of #4108)
+
+- **Delete the retired `plan-eng-multi-finding-batching` case and its counter subsystem.** The case checks one interactive question per eng finding; /autoplan Phase 3 auto-decides findings, so no shipped entry reaches it. The follow-up to #4108 took it out of the weekly lane through `PERIODIC_CI_EXCLUDE` instead of deleting it, because about 20 free tests and fixtures depend on its counter (`createEngBatchingIssueCounter` in `test/helpers/eng-seeded-coverage.ts`, `test/eng-batching-saved-ledger.test.ts`, `test/detector-corpus-plan-eng-multi-finding-batching.test.ts`, the `eng-batching-*` fixtures). Retirement card: detects=an eng review that batches findings into one plan write; non_test_callers=0; stronger_proof=the ceo/design/devex finding floors keep the shared one-question-per-finding contract; unlocks=the counter helpers, their free tests and fixtures. Delete each helper only after checking it has no other caller (plan-eng-review-artifact shares `engFirstReviewAUQ`). **Effort:** M. **Priority:** P3.
+- **Point the external-host methodology file's preamble Read at `gstack-autoplan`.** Every external host's `gstack-autoplan/plan-eng-review.md` says to Read `sections/preamble.md` relative to the installed `gstack-plan-eng-review` directory, which no longer exists. Normally the matching preamble id skips the reread, but after compaction late in a run the agent follows a missing path. Fixing it changes Phase 3 bytes, so it needs its own byte-pin update. **Effort:** S. **Priority:** P3.
+- **Redirect `gstack-doctor --for plan-eng-review`.** It now exits 2 with "unknown skill"; map the retired name to `/autoplan`'s requirements and print a one-line redirect, so saved lane scripts keep working. **Effort:** S. **Priority:** P3.
+- **Decide whether the QM edition keeps `gstack-plan`.** `hosts/qm.ts` and `qm/edition.json` still build `gstack-plan` from the `plan-eng-review` sources under another name, so the retired-name guards don't see it. Product call for Garry. **Effort:** S. **Priority:** P3.
+- **Pin the retirement in two more tests.** Assert that `generateLlmsTxt` output lists no `plan-eng-review` entry (`test/llms-txt-shape.test.ts`), and that `HYBRID_SKILLS` holds none of `RETIRED_SKILLS` (`test/harness-register.test.ts`). **Effort:** S. **Priority:** P3.
+
 ### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
 
 - **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
@@ -537,8 +545,9 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   a PTY. A fresh run needs more than its 600 s budget (498 s pass; 595 s
   timeouts in census 37174266054 and a local run), so the periodic case
   resumes at Test review from that census run's real Scope Challenge ledger
-  (pass, 364 s) and the fresh run is the marathon case
-  plan-eng-review-artifact-full.
+  (pass, 364 s) and the fresh run was the marathon case
+  plan-eng-review-artifact-full (retired with standalone /plan-eng-review,
+  GST-1698).
 - **Gate-outcome telemetry** — count `not_run`/`unavailable` outcomes per
   reason code from `lib/gate-outcomes.ts` so the most common gaps get fixed
   first. **Effort:** S. **Priority:** P3.
@@ -2096,7 +2105,8 @@ alone). Recommend (b) short-term + (a) properly sequenced with the codemod.
 **What:** `evals-periodic.yml` runs an explicit 9-file matrix; the four tests
 demoted to `periodic` in v1.62.0.0 (`skill-e2e-plan-eng-plan-mode`,
 `skill-e2e-plan-design-plan-mode`, `skill-e2e-plan-eng-finding-floor`,
-`skill-e2e-plan-design-finding-floor`) are not in it, so they currently run
+`skill-e2e-plan-design-finding-floor`; the two plan-eng files were deleted with
+standalone /plan-eng-review in GST-1698) are not in it, so they currently run
 only locally/manually (`bun run test:periodic` or `eval:bg:periodic`). Wiring
 them needs a PTY-capable periodic job: the container skill-registration setup
 from evals.yml's `e2e-pty-plan-smoke` job (real-file SKILL.md copies for the

@@ -52,6 +52,7 @@
 # Exit: 0 ok, 1 a component failed, 2 usage, 3 preflight stopped before ./setup.
 set -u
 BASH_COMPAT=50
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 SELF="$(cd "$(dirname "$0")/.." && pwd -P)"
 ROOT="${GSTACK_CAPY_ROOT:-$SELF}"
@@ -190,7 +191,7 @@ PINS_OUT="" PINS_MODE=none RUNNER="" PIN="" PIN_SRC="" PIN_EXACT="" PIN_ALTS=""
 read_pins() {
   RUNNER="$1" PINS_OUT="" PINS_MODE=none PIN="" PIN_SRC="" PIN_EXACT="" PIN_ALTS=""
   [ -n "$PROJECT" ] && [ "$PROFILE" -eq 0 ] || return 0
-  [ -n "$RUNNER" ] && [ -f "$ROOT/bin/gstack-runtime-pins.ts" ] && PINS_OUT=$("$RUNNER" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" 2>/dev/null)
+  [ -n "$RUNNER" ] && [ -f "$ROOT/bin/gstack-runtime-pins.ts" ] && PINS_OUT=$("$RUNNER" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" 2>/dev/null)
   if printf '%s\n' "$PINS_OUT" | grep -q '^PINS_VERDICT: '; then
     PINS_MODE=parser
     _exact=$(printf '%s\n' "$PINS_OUT" | sed -n 's/^PIN_EXACT_REQUIRED: bun \([^ ]*\) \([^ ]*\)$/\1 \2/p')
@@ -229,7 +230,7 @@ read_pins() {
 # pins_accept VERSION — the resolver's eligibility hook: VERSION satisfies every project pin.
 pins_accept() {
   case "$PINS_MODE" in
-    parser) "$RUNNER" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" --bun "$1" 2>/dev/null | grep -Eq '^PINS_VERDICT: (pass|none)$' ;;
+    parser) "$RUNNER" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" --bun "$1" 2>/dev/null | grep -Eq '^PINS_VERDICT: (pass|none)$' ;;
     jq) case "$PIN" in
           '>='*) _gstack_bun_below "$1" "${PIN#>=}"; [ $? -eq 1 ] ;;
           [0-9]*.[0-9]*.[0-9]*) [ "$1" = "$PIN" ] ;;
@@ -352,7 +353,7 @@ fi
 # satisfies the pins, and never installs.
 NODE_STORE=$(gstack_node_store "$GSTACK_STATE_ROOT")
 NODE_BIN="" NODE_VER="" NODE_RULE="" NODE_WANT=""
-node_accept() { ! "$RUNNER" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" --node "$1" 2>/dev/null | grep -q '^PIN_FAIL: node '; }
+node_accept() { ! "$RUNNER" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$ROOT/bin/gstack-runtime-pins.ts" --project "$PROJECT" --node "$1" 2>/dev/null | grep -q '^PIN_FAIL: node '; }
 node_pins_text() { printf '%s\n' "$PINS_OUT" | sed -n 's/^PIN_SUMMARY: //p' | grep '^node' | tr '\n' ';' | sed 's/;$//; s/;/; /g'; }
 if [ "$PINS_MODE" = parser ] && printf '%s\n' "$PINS_OUT" | grep -q '^PIN: node '; then
   _nreq=$(printf '%s\n' "$PINS_OUT" | sed -n 's/^PIN_EXACT_REQUIRED: node \([^ ]*\) \([^ ]*\)$/\1 \2/p')

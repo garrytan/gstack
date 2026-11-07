@@ -10,6 +10,7 @@ import { expectMentions } from './helpers/prompt-structure';
 import { generateFailureRouting } from '../scripts/resolvers/preamble/generate-test-failure-triage';
 import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 import { readSkillStartup } from './helpers/skill-startup';
+import { RETIRED_SKILLS } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -1873,6 +1874,7 @@ describe('Doc inventory cross-check', () => {
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.')) continue;
       if (DOC_INVENTORY_EXCLUDE.has(entry.name)) continue;
+      if (RETIRED_SKILLS.includes(entry.name)) continue;
       const tmplPath = path.join(ROOT, entry.name, 'SKILL.md.tmpl');
       if (fs.existsSync(tmplPath)) dirs.push(entry.name);
     }
@@ -1916,6 +1918,7 @@ describe('Codex skill validation', () => {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       if (entry.name === 'codex') continue; // Unavailable on Codex
       if (entry.name === 'claude-code') continue; // Unavailable on Claude Code
+      if (RETIRED_SKILLS.includes(entry.name)) continue;
       if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
         skills.push(entry.name);
       }

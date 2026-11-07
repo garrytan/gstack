@@ -516,7 +516,7 @@ function phaseName(phase: string): string {
 function methodologyContent(phase: string, skillFile: string) {
   phaseName(phase);
   const skill = `plan-${phase === 'dx' ? 'devex' : phase}-review`;
-  if (!isAbsolute(skillFile) || basename(skillFile) !== 'SKILL.md') throw new Error('Expected an absolute installed SKILL.md path');
+  if (!isAbsolute(skillFile) || (basename(skillFile) !== 'SKILL.md' && basename(skillFile) !== `${skill}.md`)) throw new Error('Expected an absolute installed SKILL.md path');
   const readPart = (file: string) => {
     const resolved = realpathSync(file);
     if (!statSync(resolved).isFile()) throw new Error('Methodology source must be a regular file');

@@ -14,6 +14,7 @@ import {
 } from '../lib/doctor-components';
 import { RESULT_CODES } from '../lib/result-codes';
 import { DOCTOR_COMPONENTS_RELPATH } from '../scripts/gen-doctor-components';
+import { RETIRED_SKILLS } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const bash = (script: string) => spawnSync('bash', ['-c', `. "${path.join(ROOT, DOCTOR_COMPONENTS_RELPATH)}" && ${script}`], { encoding: 'utf8', timeout: 20_000 });
@@ -34,7 +35,7 @@ describe('doctor component table', () => {
   });
 
   test('every skill directory in the repo is classified, and no classified skill is missing (install profiles are the only other rows)', () => {
-    const skills = fs.readdirSync(ROOT).filter(d => fs.existsSync(path.join(ROOT, d, 'SKILL.md.tmpl'))).sort();
+    const skills = fs.readdirSync(ROOT).filter(d => fs.existsSync(path.join(ROOT, d, 'SKILL.md.tmpl')) && !RETIRED_SKILLS.includes(d)).sort();
     expect(skills.length).toBeGreaterThan(40);
     expect(Object.keys(SKILL_REQUIREMENTS).filter(s => !INSTALL_PROFILES.includes(s)).sort()).toEqual(skills);
     expect(INSTALL_PROFILES).toEqual(['review-voice']);

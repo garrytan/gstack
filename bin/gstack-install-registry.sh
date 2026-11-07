@@ -339,3 +339,10 @@ gstack_disabled_normalize() {
   done
   printf '%s' "$out"
 }
+
+# GSTACK_RETIRED_SKILLS — skills gstack keeps off every host whatever
+# disabled_skills says; an existing gstack-owned entry is removed like a
+# disabled one. The source stays for the skill that reads it: plan-eng-review
+# is /autoplan's eng-phase methodology (GST-1698). Same list as RETIRED_SKILLS
+# in scripts/discover-skills.ts (test/retired-skills.test.ts).
+GSTACK_RETIRED_SKILLS="plan-eng-review"

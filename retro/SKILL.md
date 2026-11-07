@@ -371,7 +371,7 @@ Conditional rows (skip each when its input is absent or empty in the window):
 If eureka moments exist, list them:
 ```
   EUREKA /office-hours (branch: garrytan/auth-rethink): "Session tokens don't need server storage — browser crypto API makes client-side JWT validation viable"
-  EUREKA /plan-eng-review (branch: garrytan/cache-layer): "Redis isn't needed here — Bun's built-in LRU cache handles this workload"
+  EUREKA /autoplan (branch: garrytan/cache-layer): "Redis isn't needed here — Bun's built-in LRU cache handles this workload"
 ```
 
 ### Step 3: Commit Time Distribution

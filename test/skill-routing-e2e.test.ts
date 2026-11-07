@@ -73,7 +73,7 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
-    'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review',
+    'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'autoplan',
     'plan-design-review', 'design-review', 'design-consultation', 'retro',
     'document-release', 'investigate', 'office-hours', 'browse', 'setup-browser-cookies',
     'gstack-upgrade', 'humanizer',
@@ -241,7 +241,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       spawnSync('git', ['commit', '-m', 'initial'], { cwd: tmpDir, stdio: 'pipe', timeout: 5000 });
 
       const testName = 'journey-plan-eng';
-      const expectedSkill = 'plan-eng-review';
+      const expectedSkill = 'autoplan';
       const result = await runSkillTest({
         prompt: "I wrote up a plan for the waitlist app in plan.md. Can you take a look at the architecture and make sure I'm not missing any edge cases or failure modes before I start coding?",
         workingDirectory: tmpDir,

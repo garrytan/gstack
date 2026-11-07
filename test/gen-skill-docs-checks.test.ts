@@ -67,7 +67,7 @@ describe('generator artifact and dry-run contract', () => {
     const skills = generated.artifacts.filter(a => a.kind === 'skill' && pointerId.test(fs.readFileSync(path.join(render, a.relativePath), 'utf-8')));
     expect(skills.length).toBeGreaterThan(40 * ALL_HOST_NAMES.length);
     expect(preambles.map(a => `${a.host}:${path.dirname(path.dirname(a.relativePath))}`).sort())
-      .toEqual(skills.map(a => `${a.host}:${path.dirname(a.relativePath)}`).sort());
+      .toEqual([...new Set(skills.map(a => `${a.host}:${path.dirname(a.relativePath)}`))].sort());
     for (const host of ALL_HOST_NAMES) {
       const bodies = new Set(preambles.filter(a => a.host === host).map(a => fs.readFileSync(path.join(render, a.relativePath), 'utf-8')));
       expect(bodies.size, host).toBe(1);

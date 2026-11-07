@@ -9,6 +9,16 @@ import type { HostConfig } from './host-config';
 
 const SKIP = new Set(['node_modules', '.git', 'dist']);
 
+/**
+ * Retired skills: the source stays because another skill reads it, but no host
+ * registers it. plan-eng-review is /autoplan's eng-phase methodology (GST-1698).
+ * External hosts get that methodology beside gstack-autoplan/SKILL.md as
+ * <name>.md, since Codex and Copilot register every nested SKILL.md. setup and
+ * gstack-relink read the same list from GSTACK_RETIRED_SKILLS in
+ * bin/gstack-install-registry.sh.
+ */
+export const RETIRED_SKILLS = ['plan-eng-review'];
+
 /** The generator and its coverage checks use the same include-minus-skip rule. */
 export function includesSkill(host: HostConfig, skillDir: string): boolean {
   const { includeSkills, skipSkills } = host.generation;

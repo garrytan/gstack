@@ -24,7 +24,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { mkdirpSync } from '../lib/fs-utils';
-import { discoverTemplates, includesSkill } from './discover-skills';
+import { discoverTemplates, includesSkill, RETIRED_SKILLS } from './discover-skills';
 import claudeHost from '../hosts/claude';
 import { COMMAND_DESCRIPTIONS as BROWSE_COMMANDS } from '../browse/src/commands';
 
@@ -145,7 +145,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
   const skills: SkillEntry[] = [];
   for (const t of templates) {
     if (!includesSkill(claudeHost, path.dirname(t.tmpl))) continue;
-    if (opts.excludedSkills?.includes(path.dirname(t.tmpl))) continue;
+    if (opts.excludedSkills?.includes(path.dirname(t.tmpl)) || RETIRED_SKILLS.includes(path.dirname(t.tmpl))) continue;
     const filePath = path.join(root, t.tmpl);
     const entry = parseSkillFrontmatter(filePath);
     if (!entry) {

@@ -43,7 +43,7 @@ are empty or that restate what's already settled. No page cap — extra length
 must come from genuinely open questions, not template completeness.
 
 After writing, tell the user:
-**"Design doc saved to: {repo path if written, else ~/.gstack path}{when both: ' (cross-session copy in ~/.gstack)'}. Other skills (/plan-ceo-review, /plan-eng-review) will find it automatically."**
+**"Design doc saved to: {repo path if written, else ~/.gstack path}{when both: ' (cross-session copy in ~/.gstack)'}. Other skills (/plan-ceo-review, /autoplan) will find it automatically."**
 
 ### Startup mode design doc template:
 
@@ -497,13 +497,13 @@ If E: proceed to next-skill recommendations.
 
 Don't just list options. Offer to launch the next review NOW so the design doc flows
 straight into a structured review. Map the design-doc mode to the recommended option
-(default `/plan-eng-review` when ambiguous — it has the broadest real-world use and the
-strongest retention).
+(default `/autoplan` when ambiguous — it runs the CEO, design, DX and eng reviews in one
+pass).
 
 **If `PROACTIVE` is `false` or `off`, OR `CONDUCTOR_SESSION: true`:** do NOT auto-launch.
 Recommend in one line and stop; the user invokes:
 - EXPANSION / ambitious → "Next: `/plan-ceo-review` to pressure-test scope and find the 10-star product."
-- well-scoped → "Next: `/plan-eng-review` to lock architecture, tests, and edge cases."
+- well-scoped → "Next: `/autoplan` to lock architecture, tests, and edge cases."
 - visual/UX-heavy → "Next: `/plan-design-review` for a visual/UX pass."
 
 **Otherwise**, offer via AskUserQuestion (D<N> format from the preamble):
@@ -514,11 +514,11 @@ ELI10: You just wrote a design doc. The natural next step is a structured review
 catches scope and architecture problems before you build. I can launch it right now, or
 you can run it later yourself.
 Stakes if we pick wrong: skipping review means problems surface mid-build, costing rework.
-Recommendation: the mode-mapped option (`/plan-eng-review` if unsure) because it locks the
+Recommendation: the mode-mapped option (`/autoplan` if unsure) because it locks the
 plan before any code is written.
 Completeness: A=10/10, B=9/10, C=8/10, D=3/10
 Pros / cons:
-A) Run /plan-eng-review now (recommended)
+A) Run /autoplan now (recommended)
   ✅ Locks architecture, tests, and edge cases before a line of code is written
   ❌ Adds ~15 min CC now (human: 1-2 hrs of review compressed)
 B) Run /plan-ceo-review now

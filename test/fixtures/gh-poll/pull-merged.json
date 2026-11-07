@@ -1,0 +1,20 @@
+{
+  "number": 4101,
+  "html_url": "https://github.com/garrytan/gstack/pull/4101",
+  "state": "closed",
+  "merged": true,
+  "merged_at": "2026-11-07T02:28:30Z",
+  "updated_at": "2026-11-07T02:28:33Z",
+  "mergeable_state": "unknown",
+  "user": {
+    "login": "garrytan"
+  },
+  "head": {
+    "sha": "ff050059a9ebeeaa41618287f0f9687612174bbc",
+    "ref": "capy/release-stamps-and-a"
+  },
+  "base": {
+    "sha": "e4b1e3455230a958cc53667e920994a9747d440c",
+    "ref": "main"
+  }
+}

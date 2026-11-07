@@ -307,7 +307,7 @@ Prefer the richer of recent project test plans and plans in conversation over gi
    SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
    ls -t "$GSTACK_STATE_ROOT"/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
-2. **Conversation context:** Prior `/plan-eng-review` or `/plan-ceo-review` test plans.
+2. **Conversation context:** Prior `/autoplan` or `/plan-ceo-review` test plans.
 3. Fall back to git diff only if neither exists.
 
 ---

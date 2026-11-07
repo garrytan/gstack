@@ -542,3 +542,134 @@ describe('uncommitted work is visible (#2299)', () => {
     expect(vars.SCOPE_DOCS).toBe('true'); // pre-fix: git's octal quoting defeated *.md
   });
 });
+
+describe('gstack-diff-scope template UI (GST-1718)', () => {
+  const LIT_BASE = [
+    "import { html } from 'lit';",
+    'export function rowTpl(name: string) {',
+    '  return html`<div class="permission-row"><span class="label">${name}</span></div>`;',
+    '}',
+    'export async function load(): Promise<void> {',
+    '  await fetch("/api/personas");',
+    '}',
+    '',
+  ].join('\n');
+  function templateRepo(): { dir: string; git: (...a: string[]) => ReturnType<typeof spawnSync> } {
+    const dir = createRepo([]);
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+    git('checkout', '-q', 'main');
+    mkdirSync(join(dir, 'plugins', 'web-ui', 'src'), { recursive: true });
+    mkdirSync(join(dir, 'src', 'personas'), { recursive: true });
+    writeFileSync(join(dir, 'plugins', 'web-ui', 'src', 'personas.ts'), LIT_BASE);
+    writeFileSync(join(dir, 'src', 'personas', 'persona-service.ts'), 'export const svc = 1;\n');
+    git('add', '.'); git('commit', '-qm', 'base screens');
+    git('checkout', '-q', '-b', 'topic');
+    return { dir, git };
+  }
+  const edit = (dir: string, from: string, to: string) => {
+    const p = join(dir, 'plugins', 'web-ui', 'src', 'personas.ts');
+    writeFileSync(p, readFileSync(p, 'utf8').replace(from, to));
+  };
+
+  // Value: protects=a screen written as a Lit template in a .ts file reads as frontend, so /ship's design-lite check and
+  //   the design specialist run (qm#3186 read SCOPE_FRONTEND=false and both skipped silently); fails_when=the content arm
+  //   is missing, or it clears SCOPE_BACKEND for the same file; seam=a synthetic Lit file at qm#3186's path, committed and
+  //   read through --head and through the working tree; no_claim=no qm source is used.
+  test('a markup edit in a Lit template file is frontend and still backend, on --head and in the working tree', () => {
+    const { dir, git } = templateRepo();
+    edit(dir, '<span class="label">${name}</span>', '<span class="label">${name}</span><small class="note">Only owner</small>');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    writeFileSync(join(dir, 'src', 'personas', 'persona-service.ts'), 'export const svc = 2;\n');
+    git('add', '.'); git('commit', '-qm', 'persona access');
+    const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+    const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(out).toContain('SCOPE_FRONTEND=true');
+    expect(out).toContain('SCOPE_BACKEND=true');
+  });
+
+  // Value: protects=logic edits in a file that happens to hold templates, and TypeScript generics, stay backend-only, so
+  //   the design reviewers do not fire on every touch of a UI module; fails_when=the arm counts any changed line in a
+  //   template file, or reads Promise<void> as a tag; seam=none
+  test('a logic-only or generic-only edit in a template file is not frontend', () => {
+    const { dir } = templateRepo();
+    edit(dir, 'await fetch("/api/personas");', 'await fetch("/api/personas?v=2");');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('false');
+    edit(dir, 'Promise<void>', 'Promise<Map<string, number>>');
+    const vars = runScope(dir);
+    expect(vars.SCOPE_FRONTEND).toBe('false');
+    expect(vars.SCOPE_BACKEND).toBe('true');
+  });
+
+  // Value: protects=test fixtures that render templates do not turn on the design reviewers, while a brand-new or a
+  //   deleted screen does; fails_when=test paths are scanned, untracked files are ignored, or a deleted template file
+  //   reads as no change; seam=none
+  test('a template test file is not frontend; an untracked or deleted template file is', () => {
+    const t = templateRepo();
+    mkdirSync(join(t.dir, 'plugins', 'web-ui', 'test'), { recursive: true });
+    writeFileSync(join(t.dir, 'plugins', 'web-ui', 'test', 'personas-page.test.ts'), LIT_BASE);
+    writeFileSync(join(t.dir, 'plugins', 'web-ui', 'src', 'row.test.ts'), LIT_BASE);
+    expect(runScope(t.dir).SCOPE_FRONTEND).toBe('false');
+    writeFileSync(join(t.dir, 'plugins', 'web-ui', 'src', 'picker.ts'), LIT_BASE);
+    expect(runScope(t.dir).SCOPE_FRONTEND).toBe('true');
+    const d = templateRepo();
+    d.git('rm', '-q', 'plugins/web-ui/src/personas.ts');
+    d.git('commit', '-qm', 'drop screen');
+    expect(runScope(d.dir).SCOPE_FRONTEND).toBe('true');
+  });
+
+  // Value: protects=a Lit screen with a non-ASCII file name still reads as frontend (git grep octal-quotes such paths
+  //   unless -z, and the quoted path matched no pathspec), and a <placeholder> in a comment does not; fails_when=the
+  //   template arm reads git grep without -z, or counts comment lines as markup; seam=none
+  test('a non-ASCII template file is frontend on --head and in the working tree; a comment placeholder is not', () => {
+    const { dir, git } = templateRepo();
+    edit(dir, 'export async function load', '// usage: load <base> --head <sha>\nexport async function load');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('false');
+    git('checkout', '-q', '.');
+    writeFileSync(join(dir, 'plugins', 'web-ui', 'src', 'café.ts'), LIT_BASE);
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('add', '.'); git('commit', '-qm', 'cafe screen');
+    const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+    const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(out).toContain('SCOPE_FRONTEND=true');
+  });
+
+  // Value: protects=a spacing or binding edit inside a multiline Lit template (no tag, element or class= on the changed
+  //   line) still reads as frontend, as does a screen tagged with whitespace before the backtick; fails_when=the arm
+  //   tests changed lines alone instead of their place inside a tagged template, or the tag regex requires the backtick
+  //   right after html/css/svg; seam=none
+  test('a CSS-only or binding-only edit inside a multiline template is frontend; so is html `...` with a space', () => {
+    const { dir, git } = templateRepo();
+    git('checkout', '-q', 'main');
+    const card = join(dir, 'plugins', 'web-ui', 'src', 'card.ts');
+    writeFileSync(card, [
+      "import { LitElement, css, html } from 'lit';",
+      'export class Card extends LitElement {',
+      '  static styles = css`',
+      '    .row { padding: 4px; }',
+      '  `;',
+      '  render() {',
+      '    return html`',
+      '      <div class="row">',
+      '        ${this.label}',
+      '      </div>`;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+    git('add', '.'); git('commit', '-qm', 'card');
+    git('checkout', '-q', '-B', 'topic', 'main');
+    const swap = (from: string, to: string) => writeFileSync(card, readFileSync(card, 'utf8').replace(from, to));
+    swap('padding: 4px;', 'padding: 12px;');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('commit', '-qam', 'spacing');
+    const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+    const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(out).toContain('SCOPE_FRONTEND=true');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    swap('${this.label}', '${this.title}');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('checkout', '-q', '.');
+    writeFileSync(join(dir, 'plugins', 'web-ui', 'src', 'row.ts'), "import { html } from 'lit';\nexport const row = html `<p>Hi</p>`;\n");
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+  });
+});

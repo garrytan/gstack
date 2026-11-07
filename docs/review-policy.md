@@ -121,7 +121,15 @@ incomplete coverage, which blocks until the reviewer is rerun.
    own grant is refused there, so each link still needs the owner's word. In the
    loop, a new grant naming the last fix-check's commit (`--range-base`) plans
    the next link the same way; a grant recorded before a later logged fix-check
-   already bought a link and is refused (GST-1681).
+   already bought a link and is refused (GST-1681). Edits after the last
+   fix-check that are only release stamps under the base policy's stamp rule
+   (line-exact: one other line in a stamp file makes the file an edit) and docs
+   are no gate-class edit: the plan reads them with the receipt's classifier
+   (`docsChangeSince`, the [targeted-only read](#targeted-only-read-after-the-loop)'s)
+   and prints `NEXT: done`, or `NEXT: targeted` when a docs claim on a
+   targeted-class diff needs the read, with no grant (GST-1702). An executable,
+   symlink or gitlink file in that range, or a commit the gate scan tags there
+   (a `[skip ci]` message), still stops.
 
 <a id="transitions"></a>
 ### Transitions
@@ -146,6 +154,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
 | a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
+| `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |
 | `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 | a fix-check that stops in the loop, with a new recorded grant naming its own commit (`--range-base`, the stop it answers), after any number of fix-checks | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 
@@ -645,6 +654,17 @@ keep a network remote and files of 100 MB or more, outside `node_modules` and
 outside other repositories. An extracted archive, a smaller raw download, a fetch
 with no remote, a clone nested in another repository and a clone deleted before
 the stage ends all go unseen until the platform exposes reader transcripts.
+A test run's fixtures are not fetches, and each new one prints a
+`FETCH_IGNORED:` line with its reason instead: a directory below a sweep root
+that carries `.gstack-test-fixture` (test-setup.ts puts every test's temp
+paths under one such root per process and removes it after the last file), and a
+repository whose every network-looking remote resolves to a local path through
+`url.<base>.insteadOf` (the ship fixtures' `https://github.com/fx/fx.git`). A
+marker on a sweep root itself is not honored, insteadOf that sends a local path
+to the network still counts, and a clone made inside a live fixture root goes
+unseen, as does one whose reader writes the marker or an insteadOf line itself.
+A `Bun.spawn` child given no `env` keeps the temp dir its test process started
+with, so its fixtures land outside the marked root and still count.
 
 What this protects: the readers' findings, the merged review and PR text never
 carry a sealed file a reader fetched or opened. What it cannot protect: data that

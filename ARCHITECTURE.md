@@ -345,12 +345,12 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{QA_METHODOLOGY}}` | `resolvers/utility.ts` | Browser-only QA methodology, conditionally loaded by /qa and /qa-only |
 | `{{QA_SCOPE}}, {{QA_EXPLORATORY}}, {{QA_FUNCTIONAL}}, {{QA_RESOURCE}}, {{QA_METHOD_READS}}, {{QA_REVIEW}}` | `resolvers/qa.ts` | Surface selection, checkpointed native/exploratory QA, direct conditional method reads, installed-asset references and bounded review/ship callers |
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
-| `{{SHARED_LIBS_RUBRIC}}` | `resolvers/shared-libs.ts` | Shared-code criteria for /deslop-shared-libs, /plan-eng-review, and /review: verified callers, existing helpers, compatibility, tests, and total savings |
+| `{{SHARED_LIBS_RUBRIC}}` | `resolvers/shared-libs.ts` | Shared-code criteria for /deslop-shared-libs, /autoplan's eng phase, and /review: verified callers, existing helpers, compatibility, tests, and total savings |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
-| `{{TEST_VALUE_BAR:<mode>}}` | `resolvers/test-value.ts` | Shared test value bar (authoring gate, value card, X/Y coverage, red-first proof, low-value catalog) for /qa and /qa-only (`qa`) and /test-audit (`audit`); /plan-eng-review and /ship embed it through the coverage audit |
+| `{{TEST_VALUE_BAR:<mode>}}` | `resolvers/test-value.ts` | Shared test value bar (authoring gate, value card, X/Y coverage, red-first proof, low-value catalog) for /qa and /qa-only (`qa`) and /test-audit (`audit`); /autoplan's eng phase and /ship embed it through the coverage audit |
 | `{{TEST_VALUE_MESSAGE:<key>}}` | `resolvers/test-value.ts` | One degraded-mode message (problem, consequence, fix, docs anchor) from the shared constants |
 | `{{TEST_BOOTSTRAP}}` | `resolvers/testing.ts` | Test framework detection, bootstrap, CI/CD setup for /ship and /design-review |
-| `{{CODEX_PLAN_REVIEW}}` | `resolvers/outside-voice-steps.ts` | Optional outside plan review for /plan-ceo-review and /plan-eng-review: Claude Code on Codex, Codex on other supported harnesses, with the caller's native subagent fallback |
+| `{{CODEX_PLAN_REVIEW}}` | `resolvers/outside-voice-steps.ts` | Optional outside plan review for /plan-ceo-review and /autoplan's eng phase: Claude Code on Codex, Codex on other supported harnesses, with the caller's native subagent fallback |
 | `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
 | `{{DESIGN_DETECTOR}}` | `resolvers/design.ts` | Probe block + sentinel reading for the user-installed impeccable engine (`bin/gstack-design-detect.ts`); `:phase0` renders design-review's mechanical scan, `:gate` design-html's bounded slop gate |
 | `{{DESIGN_MD_CHECK}}` | `resolvers/design.ts` | Open DESIGN.md format check through `bin/gstack-design-md.ts`, with the one-time conversion offer persisted in the file; `:calibrate` renders the tokens-as-calibration form for /design-review |

@@ -709,7 +709,7 @@ plan; the audit is `not run`.
 <a id="plan-eng-review-not-persisted"></a>
 ### `PERSISTED: no` / `PERSIST: gstack-review-log '{...}'` / `no saved Eng Review: run the PERSIST: line ...`
 
-**Meaning.** /plan-eng-review ran where the caller forbids writes (for example
+**Meaning.** The eng review methodology (`/autoplan`'s eng phase) ran where the caller forbids writes (for example
 a delegating agent keeps the reviewer read-only, so it cannot edit the plan it
 judges). The review completed: it ends `DONE` with `PERSISTED: no`, records
 telemetry `success`, and returns the full report and decision ledger in its
@@ -727,7 +727,7 @@ review-log command with this review's values.
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review",...}'
 ```
 
-Or rerun /plan-eng-review where it may write its report and log.
+Or rerun /autoplan where it may write its report and log.
 
 **Expected result.** `gstack-review-read` lists the `plan-eng-review` entry and
 /ship's dashboard shows the Eng Review row (CLEAR when its status is `clean`).
@@ -3703,7 +3703,9 @@ exposes no reader id, so the stage is the unit: every reader of that stage is
 quarantined. Its reply moves to `<out>/quarantine/` (mode 0600), its findings
 leave `merged.jsonl`, and it never reaches the Red Team, the judge, the
 returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
-until the stage has rerun and swept clean.
+until the stage has rerun and swept clean. A test run's fixtures (a root
+carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
+path through `url.<base>.insteadOf`) print `FETCH_IGNORED:` and never count.
 
 **Fix.** Nothing to rerun by hand: the pass plans one fresh attempt per slot
 (`RERUN:`, readers named `<reader>#2`; not a review round) and the pass program

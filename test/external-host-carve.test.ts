@@ -93,7 +93,7 @@ describe('C4: ship, plan-ceo-review, office-hours and design-review are carved o
     }
     expect(offenders).toEqual([]);
     const codex = ALL_HOST_CONFIGS.find(c => c.name === 'codex')!;
-    expect(fs.readFileSync(path.join(skillDir(codex, renders.all, 'plan-eng-review'), 'SKILL.md'), 'utf8'))
+    expect(fs.readFileSync(path.join(skillDir(codex, renders.all, 'autoplan'), 'plan-eng-review.md'), 'utf8'))
       .toContain('Read the `review-sections` section inlined in this SKILL.md');
     const html = fs.readFileSync(path.join(skillDir(codex, renders.all, 'design-html'), 'SKILL.md'), 'utf8');
     expect(html).not.toContain('detector-install-offer.md');

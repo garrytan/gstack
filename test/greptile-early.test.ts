@@ -64,7 +64,7 @@ function fixture(opts: {
       if (cmd === "gh" && args[0] === "repo") return ok("{}");
       if (cmd === "gh" && joined.includes("/comments?sort=created")) return ok(JSON.stringify(joined.includes("/issues/") ? opts.comments ?? [] : []));
       if (cmd === "gh" && joined.startsWith("pr list")) return ok(JSON.stringify(opts.openPrs ?? []));
-      if (cmd === "gh" && joined.startsWith("pr view")) return ok(SHA + "\n");
+      if (cmd === "gh" && joined.startsWith("api repos/{owner}/{repo}/pulls/12 ")) return ok(SHA + "\n");
       if (cmd === "gh" && joined.includes("/check-runs")) return ok(JSON.stringify(opts.checks ?? []));
       if (cmd === "gh" && joined.includes("/reviews")) return ok(JSON.stringify(opts.reviews ?? []));
       if (cmd === "gh" && joined.includes("/issues/12/comments")) return ok(JSON.stringify(opts.summaries ?? []));
@@ -237,7 +237,7 @@ describe("waiting for the review (CEO-8 completion signal)", () => {
     const f = fixture();
     const polls = () => f.calls.filter(c => c.args.join(" ").includes("/check-runs")).length;
     f.run("wait", "12", "--since", since);
-    expect(polls()).toBe(4); // at 0, 30, 60 and 90 seconds
+    expect(polls()).toBe(2); // at 0 and 60-75 seconds: polls are at least 60 s apart (GST-1713)
     f.advance(9 * 60_000);
     const r = f.run("wait", "12", "--since", since);
     expect(r.out).toContain("GREPTILE_REVIEW: timeout");

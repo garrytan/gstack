@@ -53,7 +53,31 @@ const prJson = (shape: PrShape = {}) => JSON.stringify({
 const checksJson = (...rows: Array<[string, string] | [string, string, string]>) =>
   JSON.stringify(rows.map(([name, bucket, description]) => ({ name, bucket, link: `https://ci.example/${name}`, description: description ?? '' })));
 
-/** Scripted replies per gh command shape; a list is consumed one poll at a time, the last reply repeating. */
+/** The REST `pulls/{n}` reply for a scripted GraphQL PR reply: same facts, REST spellings; updated_at moves when the reply does. */
+function restPull(graphql: string): string {
+  const node = JSON.parse(graphql).data.repository.pullRequest;
+  return JSON.stringify({
+    html_url: node.url, state: node.state === 'OPEN' ? 'open' : 'closed', merged: node.state === 'MERGED', head: { sha: node.headRefOid },
+    base: { ref: node.baseRefName }, mergeable_state: String(node.mergeStateStatus).toLowerCase(), user: { login: node.author.login },
+    updated_at: `u-${graphql.length}-${[...graphql].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 0)}`,
+  });
+}
+const CONCLUSION: Record<string, string> = { pass: 'success', fail: 'failure', skipping: 'skipped', cancel: 'cancelled' };
+/** `gh pr checks`-shaped rows as the REST check-runs lines `gh api --paginate --jq '.check_runs[]'` prints, one suite per row. */
+function restCheckRuns(result: GhResult): GhResult {
+  if (result.status !== 0) return result;
+  const rows = JSON.parse(result.stdout || '[]') as Array<{ name: string; bucket: string; link: string; description: string }>;
+  return ok(rows.map((row, i) => JSON.stringify({
+    id: i + 1, name: row.name, status: row.bucket === 'pending' ? 'in_progress' : 'completed', conclusion: row.bucket === 'pending' ? null : CONCLUSION[row.bucket] ?? row.bucket,
+    completed_at: row.bucket === 'pending' ? null : '2026-11-06T00:00:00Z', details_url: row.link, output: { title: row.description }, app: { id: 15368 }, check_suite: { id: 100 + i },
+  })).join('\n'));
+}
+
+/**
+ * Scripted replies per gh command shape; a list is consumed one poll at a time, the last reply repeating. `pr` is the
+ * GraphQL reply; each REST `pulls/{n}` read takes the next one and the GraphQL conversation read returns that same reply.
+ * `checks` is `gh pr checks`-shaped and served as REST check runs.
+ */
 interface Script {
   pr?: string | string[];
   checks?: GhResult | GhResult[];
@@ -67,15 +91,26 @@ function fakeGh(script: Script) {
   // Function declarations, not generic arrows: pregate's import scanner reads tests as TSX, where `<T>(x) =>` is a tag.
   function queue<T>(value: T | T[] | undefined): T[] { return value === undefined ? [] : Array.isArray(value) ? [...value] : [value]; }
   function next<T>(q: T[]): T | undefined { return q.length > 1 ? q.shift() : q[0]; }
-  const prs = queue(script.pr).map(ok);
+  const prs = queue(script.pr);
   const checks = queue(script.checks);
   const calls: string[][] = [];
+  let current = prJson();
   const gh = (args: string[]): GhResult => {
     calls.push(args);
-    const [a, b] = args;
-    if (a === 'api' && b === 'graphql') return next(prs) ?? ok(prJson());
-    if (a === 'pr' && b === 'checks') return next(checks) ?? ok(checksJson());
-    if (a === 'pr' && b === 'view') return ok('{"number":42}');
+    const a = args[0];
+    const b = args[1] === '--paginate' ? args[2] : args[1];
+    if (a === 'api' && b === 'graphql') return ok(current);
+    if (a === 'api' && b === `repos/${REPO}/pulls/42`) {
+      if (args.includes('.number')) return ok('42\n');
+      current = next(prs) ?? prJson();
+      return ok(restPull(current));
+    }
+    if (a === 'api' && b.includes('/check-runs')) return restCheckRuns(next(checks) ?? ok(checksJson()));
+    if (a === 'api' && b.includes('/status')) return ok('');
+    if (a === 'api' && b.includes('/git/ref/heads/')) {
+      const oid = JSON.parse(current).data.repository.pullRequest.baseRef?.target.oid;
+      return oid ? ok(`${oid}\n`) : NOT_FOUND;
+    }
     if (a === 'pr' && b === 'diff') return script.prFiles ?? ok('');
     if (a === 'repo' && b === 'view') return ok(`${REPO}\n`);
     if (a === 'api' && b.includes('/rules/branches/')) return script.rulesets ?? NOT_FOUND;
@@ -360,7 +395,7 @@ describe('arguments and the gh layer', () => {
     expect(parsePrTarget('abc')).toMatchObject({ error: "'abc' is not a PR number or PR URL" });
     expect(parsePrTarget('0')).toMatchObject({ error: "'0' is not a valid PR number" });
     expect(parsePrTarget('42', 'nope')).toMatchObject({ error: "'nope' is not owner/name" });
-    expect(parsePrWaitArgs(['42', '--until', 'green', '--interval', '2'])).toEqual({ target: '42', until: 'green', interval: 5, timeout: 60, excludes: [] });
+    expect(parsePrWaitArgs(['42', '--until', 'green', '--interval', '2'])).toEqual({ target: '42', until: 'green', interval: 60, timeout: 60, excludes: [] });
     expect(parsePrWaitArgs(['42', '--exclude', 'quality-gate, canary', '--exclude', 'canary'])).toMatchObject({ excludes: ['quality-gate', 'canary'] });
     expect(parsePrWaitArgs(['42', '--exclude', ' , '])).toMatchObject({ error: expect.stringContaining('--exclude needs') });
     expect(parsePrWaitArgs(['42', '--timeout', '0'])).toMatchObject({ timeout: 0 });
@@ -377,9 +412,9 @@ describe('arguments and the gh layer', () => {
     expect(prWaitMain([], env(fakeGh({})))).toBe(2);
     expect(lines()[0]).toMatch(/missing PR number.*\(PR_WAIT_REFUSED; .*#pr-wait-refused\)$/);
     stdout = [];
-    const gone = (args: string[]): GhResult => (args[1] === 'view' ? err('GraphQL: Could not resolve to a PullRequest with the number of 42. (HTTP 404)') : ok(''));
+    const gone = (args: string[]): GhResult => (args[1] === `repos/${REPO}/pulls/42` ? err('gh: Not Found (HTTP 404)') : ok(''));
     expect(prWaitMain(['42', '--repo', REPO], env(gone))).toBe(2);
-    expect(lines()[0]).toContain('cannot read owner/project#42: GraphQL: Could not resolve');
+    expect(lines()[0]).toContain('cannot read owner/project#42: gh: Not Found (HTTP 404)');
     expect(RESULT_CODES.PR_WAIT_REFUSED.anchor).toBe('pr-wait-refused');
     expect(RESULT_CODES.PR_WAIT_BLOCKED.anchor).toBe('pr-wait-blocked');
   });
@@ -539,13 +574,13 @@ describe('pass-1 review fixes: gates agree, bounded waits, bot identity, local f
   });
 
   test('run() ends as blocked after ten transient failures, and at once on a non-transient gh error', () => {
-    const down = (args: string[]): GhResult => (args[1] === 'graphql' ? err('gh: Something went wrong (HTTP 502)') : ok(''));
+    const down = (): GhResult => err('gh: Something went wrong (HTTP 502)');
     const e = env(down);
     expect(new Watcher(e, REPO, 42, 'green', 20, botLists(e.vars)).run()).toBe(PR_WAIT_EXIT.blocked);
     expect(stderr.join('').match(/poll failed \(\d+\/10\)/g)).toHaveLength(10);
     expect(lines()[0]).toBe('#42 gstack-pr-wait stopped: GitHub unreachable for 10 polls: gh: Something went wrong (HTTP 502)');
     stdout = [];
-    const gone = (args: string[]): GhResult => (args[1] === 'graphql' ? err('gh: Not Found (HTTP 404)') : ok(''));
+    const gone = (args: string[]): GhResult => (args[1] === `repos/${REPO}/pulls/42` ? err('gh: Not Found (HTTP 404)') : ok(''));
     const e2 = env(gone);
     expect(new Watcher(e2, REPO, 42, 'green', 20, botLists(e2.vars)).run()).toBe(PR_WAIT_EXIT.blocked);
     expect(lines()[0]).toBe('#42 gstack-pr-wait stopped: gh: Not Found (HTTP 404)');
@@ -595,9 +630,9 @@ describe('pass-1 review fixes: gates agree, bounded waits, bot identity, local f
     mkdirSync(fakeBin);
     writeFileSync(join(fakeBin, 'gh'), `#!/bin/sh
 case "$1 $2" in
-  'pr view') echo '{"number":42}' ;;
+  'api repos/owner/project/pulls/42') echo '${restPull(prJson({}))}' ;;
   'api graphql') echo '${prJson({})}' ;;
-  'pr checks') echo '${checksJson(['build', 'pending'])}'; exit 8 ;;
+  'api --paginate') echo '${restCheckRuns(ok(checksJson(['build', 'pending']))).stdout}' ;;
   *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
 esac`, { mode: 0o755 });
     const stateRoot = join(dir, 'state');
@@ -617,6 +652,42 @@ esac`, { mode: 0o755 });
     expect(next.lock()).toBeNull();
     expect(readFileSync(lockFile, 'utf8')).toBe('4242');
   }, 30_000);
+});
+
+describe('GitHub budget (GST-1713): REST every poll, the GraphQL conversation read only when it can have changed', () => {
+  const graphqlReads = (gh: ReturnType<typeof fakeGh>) => gh.calls.filter(c => c[1] === 'graphql').length;
+  const run = (script: Script, until: PrWaitOptions['until'], polls: number, between: () => void = () => {}) => {
+    const gh = fakeGh(script);
+    const e = env(gh);
+    const w = new Watcher(e, REPO, 42, until, 60, botLists(e.vars));
+    for (let i = 0; i < polls; i++) { expect(w.poll()).toBeNull(); w.save(); w.baseline = false; between(); }
+    return gh;
+  };
+
+  // Value: protects=the shared GraphQL quota; fails_when=gstack-pr-wait spends a GraphQL read (or gh pr checks) on every poll again
+  test('an unchanged PR is read through GraphQL once across polls; checks and state never touch GraphQL', () => {
+    const gh = run({ checks: ok(checksJson(['build', 'pending'])) }, 'green', 4);
+    expect(graphqlReads(gh)).toBe(1);
+    expect(gh.calls.some(c => c[0] === 'pr')).toBe(false);
+    expect(gh.calls.filter(c => c.includes(`repos/${REPO}/pulls/42`))).toHaveLength(4);
+  });
+
+  test('a new comment (updated_at moves) or ten minutes reread the conversation; a ready watch rereads it once green', () => {
+    const talk = comment('c9', { login: 'reviewer' }, 'please rename');
+    const changed = run({ pr: [prJson(), prJson(), prJson({ comments: [talk] })], checks: ok(checksJson(['build', 'pending'])) }, 'green', 4);
+    expect(graphqlReads(changed)).toBe(2);
+    expect(lines()).toEqual([`#42 comment from reviewer: please rename https://github.com/${REPO}/pull/42#issuecomment-c9`]);
+    expect(graphqlReads(run({ checks: ok(checksJson(['build', 'pending'])) }, 'green', 3, () => { clock += 10 * 60_000; }))).toBe(3);
+    expect(graphqlReads(run({ checks: ok(checksJson(['build', 'pass'])) }, 'ready', 3))).toBe(3);
+  });
+
+  test('run() sleeps at least 60 s between polls, even when asked for 5', () => {
+    const sleeps: number[] = [];
+    const e = { ...env(fakeGh({ checks: ok(checksJson(['build', 'pending'])) })), sleep: (ms: number) => { sleeps.push(ms); clock += ms; } };
+    expect(new Watcher(e, REPO, 42, 'green', 5, botLists(e.vars), 5).run()).toBe(PR_WAIT_EXIT.blocked);
+    expect(sleeps.length).toBeGreaterThan(0);
+    for (const ms of sleeps) expect(ms).toBeGreaterThanOrEqual(60_000);
+  });
 });
 
 describe('state matrix cells (gstack-state-matrix: --until × bucket, merge state × --until, lock, baseline × event)', () => {

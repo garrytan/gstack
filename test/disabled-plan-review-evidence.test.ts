@@ -219,10 +219,10 @@ describe('disabled outside-plan live oracle', () => {
     const unexpectedWrite = join(repo, 'unexpected-review-write');
     writeFileSync(join(brokenRuntime, 'bin/gstack-review-log'), '#!/bin/sh\nprintf invoked > "$UNEXPECTED_REVIEW_WRITE"\n', { mode: 0o755 });
     for (const [skill, id, phase] of [
-      ['gstack-plan-eng-review', 'codex-plan-review', 'plan-review'],
-      ['gstack-document-release', 'codex-doc-review', 'documentation'],
+      ['gstack-autoplan/plan-eng-review.md', 'codex-plan-review', 'plan-review'],
+      ['gstack-document-release/SKILL.md', 'codex-doc-review', 'documentation'],
     ]) {
-      const instructions = readFileSync(join(rendered, '.agents', 'skills', skill, 'SKILL.md'), 'utf8');
+      const instructions = readFileSync(join(rendered, '.agents', 'skills', skill), 'utf8');
       const fence = [...instructions.matchAll(/```bash\n([\s\S]*?)\n```/g)]
         .map(match => match[1]).find(command => command.includes(`"skill":"${id}"`) && command.includes('"outside_status":"disabled"'));
       expect(fence, skill).toBeDefined();

@@ -1111,6 +1111,7 @@ _skill_source_exists() {
   # render from the template's frontmatter `name:` when that differs from the
   # directory, so both the directory and every frontmatter name count.
   local g="$1" n="$2" base="${2#gstack-}"
+  case " ${GSTACK_RETIRED_SKILLS:-} " in *" $base "*) return 1 ;; esac
   [ -f "$g/$base/SKILL.md.tmpl" ] && return 0
   [ -f "$g/$n/SKILL.md.tmpl" ] && return 0
   grep -qsE "^name:[[:space:]]*(gstack-)?${base}[[:space:]]*$" "$g"/*/SKILL.md.tmpl 2>/dev/null && return 0
@@ -1323,8 +1324,8 @@ _setup_print_summary() {
   echo ""
   echo "Install summary:"
   printf '%s' "$_SETUP_ROWS" | gstack_install_registry_render
-  if [ "$_DISABLED_SKILLS" != " " ] && [ -n "${_DISABLED_SKILLS:-}" ]; then
-    echo "  disabled skills (not registered on any host):$_DISABLED_SKILLS"
+  if [ "${_USER_DISABLED_SKILLS:- }" != " " ]; then
+    echo "  disabled skills (not registered on any host):$_USER_DISABLED_SKILLS"
     echo "    re-enable: gstack-config set disabled_skills \"\""
   fi
 }
@@ -1442,11 +1443,14 @@ fi
 # it keep working. Missing or empty = every skill enabled (#1206). Linkers test
 # membership inline with "${_DISABLED_SKILLS:- }", so a linker extracted on its
 # own (tests) behaves as "nothing disabled".
-_DISABLED_SKILLS="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+_USER_DISABLED_SKILLS="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+# Retired skills (GSTACK_RETIRED_SKILLS) take the same no-entry path on every
+# host; only the user's own list is reported and passed to the router.
+_DISABLED_SKILLS="$(gstack_disabled_normalize "$GSTACK_RETIRED_SKILLS $_USER_DISABLED_SKILLS")"
 # Every render of the router (committed-path renders of env-var hosts and the
 # per-install renders) omits disabled skills (C8); the default Claude router is
 # rendered in place by gstack-relink.
-_DISABLED_CSV="$(printf '%s' "$_DISABLED_SKILLS" | xargs | tr ' ' ',')"
+_DISABLED_CSV="$(printf '%s' "$_USER_DISABLED_SKILLS" | xargs | tr ' ' ',')"
 # plan_mode_preamble=off (#3168): every render below omits the plan-mode
 # preamble; the default Claude install then serves a render instead of the
 # committed files (bin/gstack-render-claude.sh).
@@ -4021,6 +4025,21 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       fi
       _copy_skill_md "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
       _record_skill_copies "$target_dir" || true
+      # Generated siblings of SKILL.md (gstack-autoplan/plan-eng-review.md, the
+      # Phase 3 methodology) travel with it; user files next to them survive.
+      for extra_file in "$skill_dir"/*.md; do
+        [ -f "$extra_file" ] || continue
+        [ "$(basename "$extra_file")" = "SKILL.md" ] && continue
+        extra_dest="$target_dir/$(basename "$extra_file")"
+        if [ -L "$extra_dest" ]; then
+          extra_target="$(_gstack_link_target_abs "$extra_dest")"
+          _gstack_target_is_ours "$extra_target" "$SOURCE_GSTACK_DIR" || continue
+        elif [ -e "$extra_dest" ] && ! _gstack_generated_header "$extra_dest"; then
+          echo "  kept $skill_name/$(basename "$extra_file"): existing file is not gstack-managed" >&2
+          continue
+        fi
+        _link_or_copy "$extra_file" "$extra_dest"
+      done
       # Native sections already contain Kiro paths/provider markers. Refresh
       # generated files individually so user assets next to them survive.
       if [ -d "$skill_dir/sections" ]; then

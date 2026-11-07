@@ -286,6 +286,29 @@ or out-of-tier placeholders. A retained passing judge is reusable only when its
 complete request, rubric, parameters and relevant dependencies match; native
 behavioral acceptance follows its separate freshness contract.
 
+## Paid cases of the retired standalone /plan-eng-review (GST-1698)
+
+The skill's methodology still ships: `plan-eng-review/` is /autoplan's Phase 3
+methodology source, bound into each run by the methodology snapshot. Cases that
+check that methodology or Phase 3's required outputs stay. Cases that checked
+the standalone interactive entry, which no longer ships, are retired. None was
+quarantined: `CASE_QUARANTINE` holds flaky cases that keep running, and these
+cases are not flaky, their entry point is gone.
+
+| Case | Fate | Why, and what still proves the contract |
+| --- | --- | --- |
+| `plan-eng-review` (SDK) | kept | Runs the methodology source over a plan, the bytes Phase 3 loads. |
+| `plan-eng-coverage-audit` (gate) | kept | Phase 3 must produce the codepath-to-test diagram; the case reads the same methodology and sections. |
+| `plan-eng-review-artifact` (PTY checkpoint) | kept | Phase 3 must leave a test plan on disk; the case's Test review writes it from the same section. |
+| `journey-plan-eng` | kept, retargeted | Architecture-review requests now route to /autoplan (#4108). |
+| `plan-eng-multi-finding-batching` | retired, excluded | Checks one interactive question per finding; Phase 3 auto-decides findings. `PERIODIC_CI_EXCLUDE` stops its weekly run; deleting it with its counter helpers is a TODOS.md item. |
+| `plan-eng-review-plan-mode` | retired, deleted | Standalone plan-mode handshake; the ceo, design and devex plan-mode cases and `plan-mode-no-op` keep the shared contract. |
+| `plan-eng-finding-floor` | retired, deleted | Interactive first-finding question; the ceo, design and devex floors keep the shared floor. |
+| `plan-eng-review-artifact-full` | retired, deleted | Fresh standalone marathon run; the checkpoint case keeps the artifact requirement. |
+| `plan-eng-review-format-coverage`, `plan-eng-review-format-kind` | retired, deleted | Format of standalone questions; the ceo format cases keep the shared question format. |
+| `carve-section-loading-plan-eng-review` | retired, deleted | Model-driven section loading on standalone entry; Phase 3 gets the methodology through the snapshot instead. |
+| `auq-matrix-plan-eng-review`, the eng rows of `plan-mode-no-op` | retired rows | Standalone entry; the other skills' rows keep both files' contracts. |
+
 ## Remaining work, not claimed savings
 
 Report final acceptance with the delivery revision and its actual case inventory.

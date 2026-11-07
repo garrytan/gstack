@@ -156,7 +156,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_repeat');
-    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
+    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review by hand');
   });
 
   test('a denied call after the report proves the report was journaled, so the next attempt counts it', async () => {
