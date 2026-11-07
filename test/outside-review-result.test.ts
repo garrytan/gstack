@@ -140,7 +140,7 @@ describe('a no-findings statement counts only as the reply\'s conclusion (#3294)
     for (const text of ['No regressions found.', 'I did not find any defects.', 'There are no actionable regressions.',
       'NO_FINDINGS', '**NO_FINDINGS**', '`NO_FINDINGS`', '- NO_FINDINGS',
       `The change adds a retry cap and its tests.\n${REPORTER}`, 'Reviewed the retry helper.\n\nNo issues found in this change.',
-      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.',
+      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.', 'No issues found while reviewing the diff.',
       'Summary of the retry helper\nNo issues found.', 'I found no actionable regressions in the staged\nchanges.',
       // Clean `codex review --uncommitted` replies captured from codex-cli 0.160.0 with gpt-6-sol.
       'The change validates the retry limit before execution. No actionable regression was found.',
@@ -226,7 +226,12 @@ describe('a closing check-results sentence keeps the no-findings conclusion (#34
       `${FINDING}\nNo issues in the parser. Tests pass.`,
       `${FINDING} The changes to the parser introduce no regressions. Tests pass.`,
       'The changes introduce no regressions in parsing, while missing configuration now silently disables authentication.',
-      'No issues in the parser, while missing configuration now silently disables authentication. Tests pass.']) unverified(text);
+      'No issues in the parser, while missing configuration now silently disables authentication. Tests pass.',
+      'The changes introduce no regressions in the diff, while missing configuration now silently disables authentication.',
+      'No issues in the parser, while the change silently disables authentication. Tests pass.',
+      'I reviewed the parser.\nNo issues in the diff, and the fallback path now swallows ENOENT in this change.',
+      'I reviewed the parser.\nNo issues in the parser whereas this change drops the cache.',
+      'The changes introduce no regressions in the diff, the fallback path now swallows ENOENT.']) unverified(text);
   });
 
   test('a truncated, empty or check-only reply is never clean', () => {

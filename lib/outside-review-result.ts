@@ -156,9 +156,9 @@ const CHANGE_SUBJECT_STATEMENT = new RegExp(`^${NO_FINDINGS_LEAD}${CHANGE_SUBJEC
 const CHECK_NAME = '(?:(?:unit|existing|targeted|full)\\s+)?(?:tests?|test suite|lint(?:ing)?|build|typecheck|type[- ]check|format check)';
 const CHECK_RESULTS = new RegExp(`^(?:the\\s+|all\\s+)?${CHECK_NAME}(?:(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${CHECK_NAME})*\\s+(?:all\\s+|both\\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|(?:is|are)\\s+green)[.!]$`, 'i');
 /** A contrast or exception qualifies the claim, so the sentence does not conclude that nothing was found. */
-const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
+const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|whereas|while(?!\s+(?:reviewing|reading|checking|inspecting)\b)|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
 const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report)?/i;
-const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b/i;
+const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s(?:[^,;]|,\s*(?:(?:and|or)\s+)?(?=(?:staged|unstaged|untracked|committed)\b))*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b[^,;]*$/i;
 
 /**
  * The review's conclusion says it found nothing: its last prose sentence or
