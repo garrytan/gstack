@@ -400,6 +400,23 @@ describe("inlineLocalImages", () => {
     expect(warnings.some((w) => w.includes("not a recognized image"))).toBe(true);
   });
 
+  test("non-image bytes under an image extension are not inlined", async () => {
+    const text = Buffer.from("plain text named like an image\n");
+    fs.writeFileSync(path.join(dir, "fake.png"), text);
+    fs.writeFileSync(path.join(dir, "fake.svg"), text);
+    for (const name of ["fake.png", "fake.svg"]) {
+      const warnings: string[] = [];
+      const out = await inlineLocalImages(`<img src="${name}">`, { ...base, warn: (m) => warnings.push(m) });
+      expect(out).not.toContain(text.toString("base64"));
+      expect(out).not.toContain("data:");
+      expect(out).toContain("image-missing");
+      expect(warnings.some((w) => w.includes("not a recognized image"))).toBe(true);
+      await expect(
+        inlineLocalImages(`<img src="${name}">`, { ...base, strict: true, warn: () => {} }),
+      ).rejects.toThrow(StrictModeError);
+    }
+  });
+
   test("non-image file + --strict → StrictModeError", async () => {
     fs.writeFileSync(path.join(dir, "notes2.txt"), "plain text\n");
     await expect(

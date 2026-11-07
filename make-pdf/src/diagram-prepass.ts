@@ -650,7 +650,7 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
 
     const buf = fs.readFileSync(filePath);
     const dims = imageDims(buf);
-    const mime = dims?.mime ?? mimeFromExtension(filePath);
+    const mime = dims?.mime ?? signedExtensionMime(buf, filePath);
     if (mime === "application/octet-stream") {
       const msg = `not a recognized image (png, jpeg, gif, webp, svg): ${src}`;
       if (opts.strict) throw new StrictModeError(msg);
@@ -756,6 +756,20 @@ function safeRealpath(p: string): string {
   } catch {
     return p;
   }
+}
+
+const IMAGE_SIGNATURES: Record<string, (b: Buffer) => boolean> = {
+  "image/png": (b) => b.length >= 8 && b.readUInt32BE(0) === 0x89504e47 && b.readUInt32BE(4) === 0x0d0a1a0a,
+  "image/jpeg": (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/gif": (b) => /^GIF8[79]a/.test(b.toString("ascii", 0, 6)),
+  "image/webp": (b) => b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP",
+  "image/svg+xml": (b) => /<svg[\s>]/i.test(b.toString("utf8", 0, 65536)),
+};
+
+/** The extension's image MIME, only when the bytes carry that format's signature. */
+function signedExtensionMime(buf: Buffer, p: string): string {
+  const mime = mimeFromExtension(p);
+  return IMAGE_SIGNATURES[mime]?.(buf) ? mime : "application/octet-stream";
 }
 
 function mimeFromExtension(p: string): string {
