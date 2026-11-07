@@ -22,6 +22,75 @@ import { resolveConfig } from './config';
 import { filterSessionCookies } from './session-persist';
 import type { Frame } from 'playwright';
 
+/**
+ * Parse screenshot args. Priority: flags (--viewport, --clip, --base64,
+ * --selector) → selector (@ref, CSS) → output path. `outputPath` is set only
+ * when the caller named one; the tunnel gate refuses any that is.
+ */
+export function parseScreenshotArgs(args: string[]): {
+  outputPath?: string;
+  targetSelector?: string;
+  clipRect?: { x: number; y: number; width: number; height: number };
+  viewportOnly: boolean;
+  base64Mode: boolean;
+} {
+  let outputPath: string | undefined;
+  let clipRect: { x: number; y: number; width: number; height: number } | undefined;
+  let targetSelector: string | undefined;
+  let viewportOnly = false;
+  let base64Mode = false;
+
+  const remaining: string[] = [];
+  let flagSelector: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const inline = /^(--clip|--selector)=(.*)$/s.exec(args[i]);
+    const flag = inline ? inline[1] : args[i];
+    const flagValue = () => (inline ? inline[2] : args[++i]);
+    if (flag === '--viewport') {
+      viewportOnly = true;
+    } else if (flag === '--base64') {
+      base64Mode = true;
+    } else if (flag === '--selector') {
+      flagSelector = flagValue();
+      if (!flagSelector) throw new Error('Usage: screenshot --selector <css> [path]');
+    } else if (flag === '--clip') {
+      const coords = flagValue();
+      if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
+      const parts = coords.split(',').map(Number);
+      if (parts.length !== 4 || parts.some(isNaN))
+        throw new Error('Usage: screenshot --clip x,y,width,height — all must be numbers');
+      clipRect = { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+    } else if (args[i].startsWith('--')) {
+      throw new Error(`Unknown screenshot flag: ${args[i]}`);
+    } else {
+      remaining.push(args[i]);
+    }
+  }
+
+  // Separate target (selector/@ref) from output path
+  for (const arg of remaining) {
+    // File paths containing / and ending with an image/pdf extension are never CSS selectors
+    const isFilePath = arg.includes('/') && /\.(png|jpe?g|webp|pdf)$/i.test(arg);
+    if (isFilePath) {
+      outputPath = arg;
+    } else if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {
+      targetSelector = arg;
+    } else {
+      outputPath = arg;
+    }
+  }
+
+  // --selector flag takes precedence; conflict with positional selector.
+  if (flagSelector !== undefined) {
+    if (targetSelector !== undefined) {
+      throw new Error('--selector conflicts with positional selector — choose one');
+    }
+    targetSelector = flagSelector;
+  }
+
+  return { outputPath, targetSelector, clipRect, viewportOnly, base64Mode };
+}
+
 /** Tokenize a pipe segment respecting double-quoted strings. */
 function tokenizePipeSegment(segment: string): string[] {
   const tokens: string[] = [];
@@ -440,61 +509,10 @@ export async function handleMetaCommand(
 
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
-      // Parse priority: flags (--viewport, --clip, --base64) → selector (@ref, CSS) → output path
       const page = bm.getPage();
-      let outputPath = `${TEMP_DIR}/browse-screenshot.png`;
-      let clipRect: { x: number; y: number; width: number; height: number } | undefined;
-      let targetSelector: string | undefined;
-      let viewportOnly = false;
-      let base64Mode = false;
-
-      const remaining: string[] = [];
-      let flagSelector: string | undefined;
-      for (let i = 0; i < args.length; i++) {
-        const inline = /^(--clip|--selector)=(.*)$/s.exec(args[i]);
-        const flag = inline ? inline[1] : args[i];
-        const flagValue = () => (inline ? inline[2] : args[++i]);
-        if (flag === '--viewport') {
-          viewportOnly = true;
-        } else if (flag === '--base64') {
-          base64Mode = true;
-        } else if (flag === '--selector') {
-          flagSelector = flagValue();
-          if (!flagSelector) throw new Error('Usage: screenshot --selector <css> [path]');
-        } else if (flag === '--clip') {
-          const coords = flagValue();
-          if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
-          const parts = coords.split(',').map(Number);
-          if (parts.length !== 4 || parts.some(isNaN))
-            throw new Error('Usage: screenshot --clip x,y,width,height — all must be numbers');
-          clipRect = { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
-        } else if (args[i].startsWith('--')) {
-          throw new Error(`Unknown screenshot flag: ${args[i]}`);
-        } else {
-          remaining.push(args[i]);
-        }
-      }
-
-      // Separate target (selector/@ref) from output path
-      for (const arg of remaining) {
-        // File paths containing / and ending with an image/pdf extension are never CSS selectors
-        const isFilePath = arg.includes('/') && /\.(png|jpe?g|webp|pdf)$/i.test(arg);
-        if (isFilePath) {
-          outputPath = arg;
-        } else if (arg.startsWith('@e') || arg.startsWith('@c') || arg.startsWith('.') || arg.startsWith('#') || arg.includes('[')) {
-          targetSelector = arg;
-        } else {
-          outputPath = arg;
-        }
-      }
-
-      // --selector flag takes precedence; conflict with positional selector.
-      if (flagSelector !== undefined) {
-        if (targetSelector !== undefined) {
-          throw new Error('--selector conflicts with positional selector — choose one');
-        }
-        targetSelector = flagSelector;
-      }
+      const parsed = parseScreenshotArgs(args);
+      const { clipRect, targetSelector, viewportOnly, base64Mode } = parsed;
+      const outputPath = parsed.outputPath ?? `${TEMP_DIR}/browse-screenshot.png`;
 
       validateOutputPath(outputPath);
 
