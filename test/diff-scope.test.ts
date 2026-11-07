@@ -632,4 +632,44 @@ describe('gstack-diff-scope template UI (GST-1718)', () => {
     const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
     expect(out).toContain('SCOPE_FRONTEND=true');
   });
+
+  // Value: protects=a spacing or binding edit inside a multiline Lit template (no tag, element or class= on the changed
+  //   line) still reads as frontend, as does a screen tagged with whitespace before the backtick; fails_when=the arm
+  //   tests changed lines alone instead of their place inside a tagged template, or the tag regex requires the backtick
+  //   right after html/css/svg; seam=none
+  test('a CSS-only or binding-only edit inside a multiline template is frontend; so is html `...` with a space', () => {
+    const { dir, git } = templateRepo();
+    git('checkout', '-q', 'main');
+    const card = join(dir, 'plugins', 'web-ui', 'src', 'card.ts');
+    writeFileSync(card, [
+      "import { LitElement, css, html } from 'lit';",
+      'export class Card extends LitElement {',
+      '  static styles = css`',
+      '    .row { padding: 4px; }',
+      '  `;',
+      '  render() {',
+      '    return html`',
+      '      <div class="row">',
+      '        ${this.label}',
+      '      </div>`;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+    git('add', '.'); git('commit', '-qm', 'card');
+    git('checkout', '-q', '-B', 'topic', 'main');
+    const swap = (from: string, to: string) => writeFileSync(card, readFileSync(card, 'utf8').replace(from, to));
+    swap('padding: 4px;', 'padding: 12px;');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('commit', '-qam', 'spacing');
+    const head = git('rev-parse', 'HEAD').stdout.toString().trim();
+    const out = spawnSync('bash', [SCRIPT, 'main', '--head', head], { cwd: dir, stdio: 'pipe', timeout: 5000 }).stdout.toString();
+    expect(out).toContain('SCOPE_FRONTEND=true');
+    git('reset', '-q', '--hard', 'HEAD~1');
+    swap('${this.label}', '${this.title}');
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+    git('checkout', '-q', '.');
+    writeFileSync(join(dir, 'plugins', 'web-ui', 'src', 'row.ts'), "import { html } from 'lit';\nexport const row = html `<p>Hi</p>`;\n");
+    expect(runScope(dir).SCOPE_FRONTEND).toBe('true');
+  });
 });
