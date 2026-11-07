@@ -347,12 +347,20 @@ async function renderCheckingCleanup(spec: RenderSpec, bin: string, renderFn = r
 /** The subprocess driver: one job per process, so the module's engine cache and the spawn-time PATH are both under the test's control. */
 function writeDriver(dir: string): string {
   const driver = path.join(dir, 'driver.ts');
-  fs.writeFileSync(driver, `const M = await import(${JSON.stringify(LIB)});
-const job = JSON.parse(process.argv[2]);
+  fs.writeFileSync(driver, `const job = JSON.parse(process.argv[2]);
+if (job.hostPlatform) Object.defineProperty(process, 'platform', { value: job.hostPlatform });
+const M = await import(${JSON.stringify(LIB)});
 let out;
 if (job.fn === 'probeAside') out = M.probeAside(job.timeoutMs, job.platform);
 else if (job.fn === 'renderWithAside') out = await M.renderWithAside(job.spec);
-else if (job.fn === 'render') {
+else if (job.fn === 'noBrowserHelp') {
+  const choice = M.pickEngine(true, {
+    probe: () => ({ ok: false, reason: 'NEEDS_ASIDE', detail: 'unavailable in fixture' }),
+    resolveBin: () => null,
+  });
+  const fallback = await M.renderWithBrowse({ file: '/nonexistent/help.html', steps: [] }, null);
+  out = { help: M.NO_BROWSER_HELP, choice, fallback };
+} else if (job.fn === 'render') {
   if (job.primeAside) M.pickEngine(true, { probe: () => ({ ok: true, version: 'fake-aside' }) });
   const results = [];
   for (let i = 0; i < (job.repeat ?? 1); i++) results.push(await M.render(job.spec));
@@ -948,6 +956,35 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(r.error).toContain('timed out after');
     expect(Date.now() - t0).toBeLessThan(8_000);
   }, 20_000);
+});
+
+describe('aside-render: missing-browser advice', () => {
+  let tmp: string;
+  let driver: string;
+  beforeAll(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aside-render-help-'));
+    driver = writeDriver(tmp);
+  });
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  // Value: protects=missing-browser remedies offer Aside only on macOS and retain the headless-browser setup path;
+  //   fails_when=shared help recommends Aside on every host or drops a supported remedy;
+  //   why_new=existing renderer/setup tests require setup advice but not platform-specific remedies; seam=none
+  test.each(['linux', 'win32', 'darwin'])('offers only supported remedies on %s', platform => {
+    const result = runDriver<{ help: string; choice: EngineChoice; fallback: RenderResult }>(driver, {
+      fn: 'noBrowserHelp', hostPlatform: platform,
+    });
+    expect(result.choice.engine).toBeNull();
+    if (result.choice.engine !== null) return;
+    expect(result.fallback.ok).toBe(false);
+    for (const [surface, message] of Object.entries({
+      help: result.help, pickEngine: result.choice.error, renderWithBrowse: result.fallback.error ?? '',
+    })) {
+      expect(message, surface).toContain('./setup');
+      expect(message, surface).toContain('GSTACK_BROWSE_BIN');
+      expect(/\bopen\b[^\n]*\bAside\b/i.test(message), surface).toBe(platform === 'darwin');
+    }
+  });
 });
 
 describe('aside-render: pickEngine — cached engine choice through the probe/resolver seam', () => {
