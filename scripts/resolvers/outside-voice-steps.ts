@@ -389,7 +389,7 @@ survived the review scrutiny, overcomplexity (is there a fundamentally simpler
 approach the review was too deep in the weeds to see?), feasibility risks the review
 took for granted, missing dependencies or sequencing issues, and strategic
 miscalibration (is this the right thing to build at all?). Be direct. Be terse. No
-compliments. Just the problems.${needsApprovalReadiness ? '\n\nWrite Recommendation: <action> because <specific reason>. If there are no findings, say so and explain why the plan is ready. ' + OUTSIDE_VERDICT_REQUEST + '\n' : ''}
+compliments. Just the problems.${needsApprovalReadiness ? '\n\nWrite Recommendation: <action> because <specific reason>; if no findings, explain why the plan is ready. ' + OUTSIDE_VERDICT_REQUEST + '\n' : ''}
 ${ctx.skillName === 'plan-devex-review' ? `
 REVIEW CONTEXT (from the full working list, outside the truncated plan body):
 <requested DX mode and explicit boundaries>

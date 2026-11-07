@@ -176,7 +176,9 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
       ? `Request [P0]-[P3] severity tags and ${VERDICT_LAST_LINE}.`
       : opts.purpose === 'design-direction'
         ? 'Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>.'
-        : `Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and ${VERDICT_LAST_LINE}.`;
+        : planRecommendation
+          ? "Request severity (Critical, High, Medium or Low) per finding and the prompt's Recommendation and VERDICT lines."
+          : `Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and ${VERDICT_LAST_LINE}.`;
   const preparation = `${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName)
       ? 'Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file'
       : 'Write the **complete prompt and context**, including actual plan/spec/source, to a private file'}${outsideVoiceFor(ctx).id === 'claude-code' ? ' (Claude Code has no tools, git or path access)' : ''}. Substitute its shell-quoted path for \`<prepared-prompt-file>\`; never interpolate user text into shell source. ${completion}`;

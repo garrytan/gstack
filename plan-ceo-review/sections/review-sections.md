@@ -443,7 +443,7 @@ took for granted, missing dependencies or sequencing issues, and strategic
 miscalibration (is this the right thing to build at all?). Be direct. Be terse. No
 compliments. Just the problems.
 
-Write Recommendation: <action> because <specific reason>. If there are no findings, say so and explain why the plan is ready. End with exactly `VERDICT: CLEAN` (no findings) or `VERDICT: FINDINGS` as the last line.
+Write Recommendation: <action> because <specific reason>; if no findings, explain why the plan is ready. End with exactly `VERDICT: CLEAN` (no findings) or `VERDICT: FINDINGS` as the last line.
 
 
 THE PLAN:
@@ -456,7 +456,7 @@ Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
 fallback below, never a replacement provider. Finish termination before fallback and consume only
 completed output. Use private temporary paths, with no background jobs.
 
-Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and `VERDICT: CLEAN` or `VERDICT: FINDINGS` as the last line.
+Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding and the prompt's Recommendation and VERDICT lines.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.

@@ -485,7 +485,7 @@ do not launch the downstream skill or open a browser.`,
         'Plan File Discovery',
         'MULTI-SPECIALIST CONFIRMED',
         'Cross-model synthesis',
-        'codex review --base',
+        'Codex runs `codex exec` read-only and reads that diff itself.',
       ],
       gateAfterStop: undefined, // operational multi-STOP skill, like ship
     },
