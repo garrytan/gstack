@@ -41,6 +41,35 @@ below is what `ship/SKILL.md` runs; it is unchanged.
 A dotted `--step` such as `9.1` records under its parent step (`9`) with the sub-step as its label,
 unless `--label` is given.
 
+### /ship's own row (`--thread`)
+
+A /ship subagent can read only the root thread, whose counter also holds the lane's own fix work,
+background suites, trail reads and sibling subagents. On 2026-11-06/07 that spent /ship's cap for it
+about eight times (#4096-#4101, GST-1699). So a `ship/DRIVER.md` run passes the whole
+`tools.thread.get({ thread_id: "this" })` result instead of one number: each program writes it to a
+file with `tools.capy.write` and runs `start`, `note`, `close` or `resume` with `--thread <file>`
+(no `--reading` or `--credits`; `start` needs `--mode observe`). The file's `tasks` rows list every
+subagent in the tree with the cost of its own subtree. /ship's own row is the subagent /ship runs in:
+the row titled `GSTACK_SHIP_TASK_TITLE` when the brief names one, else the parent of a subagent this
+run created. The pass program adds `dispatched` (its readers' titles) to the file it notes with, and
+the ledger keeps every title per run.
+
+Once the row is found, `used=` and the cap count that row from its cost at the run's first snapshot,
+so spend counted on the tree before it drops out, and every cost line prints
+`METER: ship (task row <label>: /ship and its readers; tree= is the whole thread, never capped)`.
+`tree=` beside `used=` on every BUDGET, NOTE, BUDGET_FINAL and BUDGET_TIMELINE line is the root
+counter's growth since start. A pass's `readers_tokens` is the sum of its readers' own rows. Until the
+row is found (no reader yet and no task title, readers that are top-level subagents because /ship
+runs on the root thread, a list truncated past the row), the run meters the tree: it prints
+`METER_FALLBACK: <why>` and labels its cost lines `METER: tree (root counter, upper bound)`. A row
+missing from a later snapshot holds `used=` at its last reading (`METER_ROW_MISSING:`). A `--thread`
+run refuses a bare `--reading`, and `resume --meter-source` or `--rebuild-from-record` (both take
+`--reading` readings). A run started without `--thread` ignores the file, so the pass program passes
+both.
+
+An observe run with no `--token-cap` that meters its own row gets the 100M default cap, as
+`--reading-from task` does.
+
 **Counting calls.** `gstack-ship-budget calls --events <file> [--since <iso>] [--until <iso>]` reads
 the host's transcript items (a JSON array, or `{ "items": [...] }` as Capy's `tools.thread.get`
 transcript returns; a leading `~` or `~/` in `<file>` means the home directory) and prints
@@ -248,7 +277,13 @@ A stop prints
 
     STOP: reason=budget_exhausted spent=<n> reserved=<n> unknown=<n> admission_cap=<n> next=<id> projected=<n>
     RECOVER: /ship --resume <record> --token-cap <used + reserved + unknown + projected tail>
+    REMAINING: steps=<from>-22 projected=<n> rate=<f> reserve=<n> (the RECOVER cap is used + reserved + unknown + these)
     GSTACK_RESULT: skill=ship status=incomplete run=<dir>
+
+The projected tail covers every step still to run, through Step 22, plus the tail and stop reserve.
+An admission stop counts from the step it refused. An observe stop counts from the step its note
+named (a `9.2` note counts Step 9 again), and scales the calibrated priors by the run's own pace:
+`used` over the priors of the steps before it, times the calibration's headroom (`rate=`).
 
 Raising the cap is the owner's call; the resume journals who raised it and their words:
 

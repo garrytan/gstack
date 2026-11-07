@@ -31,12 +31,13 @@ describe('the Capy meter is the agent\'s own jam counter', () => {
     expect(RESULT_CODES.BUDGET_READING_MISSING.fix).not.toContain('thread_id: "this"');
   });
 
-  // Value: protects=every place that tells the agent how to read the meter names its own jam, so prose and contract agree; fails_when=a section, the Capy skill, docs/ship-budget.md or the troubleshooting fix still reads thread_id "this";
+  // Value: protects=every place that tells the agent how to read the meter names its own jam, so prose and contract agree; fails_when=a section, the Capy skill, docs/ship-budget.md or the troubleshooting fix still reads thread_id "this" as a counter (GST-1699: a --thread snapshot of "this" is how /ship finds its own row);
   //   why_new=the contract test above reads only lib; seam=none; no_claim=the agent finds its jam id
-  test('the budget prose reads the agent\'s own jam counter, never thread_id "this"', () => {
+  test('the budget prose reads the agent\'s own jam counter, never thread_id "this" except as a --thread snapshot', () => {
     for (const rel of ['ship/sections/budget-handoff.md.tmpl', 'capy/skill/gstack/SKILL.md', 'docs/ship-budget.md', 'docs/troubleshooting.md']) {
       const text = read(rel);
-      expect(text, rel).not.toContain('thread_id: "this"');
+      const bare = [...text.matchAll(/thread_id: "this"/g)].filter(m => !text.slice(m.index!, m.index! + 300).includes('--thread'));
+      expect(bare.length, `${rel}: thread_id "this" read as a counter, not a --thread snapshot (GST-1699)`).toBe(0);
       expect(text, rel).toMatch(/thread_id: "<(?:this agent's|your) own jam id>"/);
     }
     const capy = read('capy/skill/gstack/SKILL.md');

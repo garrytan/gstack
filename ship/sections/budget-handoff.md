@@ -15,6 +15,7 @@ note past the cap stops.
   subagents included; a root thread's is `"this"`; a subagent with `GSTACK_SHIP_TASK_TITLE` reads its own row of the
   root thread's `tasks` for every reading) in the same program as the
   `gstack-ship-budget` command, never its own call: `--reading <cost.tokens> --credits <cost.credits>`.
+  A `ship/DRIVER.md` run passes `--thread <file>` (that program's whole `thread.get` result) instead, so it caps /ship's own task row.
   `--prior-reading <n>` (per-call charge; three of them price steps at the run's own median) is a reading
   your previous call already took; never spend a call only to read the meter. One older than the run's last reading is ignored.
 - Claude Code: `start --session <id>`, or echo the nonce the refusal prints once and

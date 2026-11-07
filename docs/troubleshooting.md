@@ -2122,6 +2122,8 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 
 **Fix.** In the execute program that runs the command, read
 `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.
+A run started with `--thread` (ship/DRIVER.md) takes `--thread <file>` instead: that program's whole
+`tools.thread.get` result, written with `tools.capy.write` ([/ship's own row](ship-budget.md#ships-own-row---thread)).
 
 <a id="meter-scope-parent"></a>
 ### `gstack-ship-budget: ... (METER_SCOPE_PARENT)`

@@ -17,7 +17,7 @@ export const BUDGET_RESULT_CODES = {
   BUDGET_READING_MISSING: {
     anchor: 'budget-reading-missing',
     summary: 'the Capy meter needs a fresh counter reading and none was passed',
-    fix: 'read cost.tokens from tools.thread.get({ thread_id: "<your own jam id>" }) (your own jam, its subagents included; a subagent that can read only the root thread starts with --subagent --reading-from this --meter-scope tree) inside the execute program that runs the command and pass it with --reading <n> (ship/sections/budget-handoff.md has the recipe)',
+    fix: 'read cost.tokens from tools.thread.get({ thread_id: "<your own jam id>" }) (your own jam, its subagents included; a subagent that can read only the root thread starts with --subagent --reading-from this --meter-scope tree) inside the execute program that runs the command and pass it with --reading <n> (ship/sections/budget-handoff.md has the recipe); a run started with --thread takes --thread <file>, that program\'s whole tools.thread.get result, instead',
   },
   METER_SCOPE_PARENT: {
     anchor: 'meter-scope-parent',

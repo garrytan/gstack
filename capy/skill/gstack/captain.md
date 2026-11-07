@@ -155,9 +155,9 @@ The READY report attaches the key image (Capy message attachment), so the Captai
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
 A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
-`ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
-take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
-`--reading-from task`, so it caps at 100M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
+`ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief. Its `--thread` meter
+(`ship/DRIVER.md`) then caps that row, /ship and its readers, from the first reading, at 100M by default; your own work while it runs
+shows only as `tree=`. Never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

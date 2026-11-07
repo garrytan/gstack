@@ -27,6 +27,7 @@ import { resultLine, type ResultCodeName } from './result-codes';
 import { capyDriveFolder } from './autoplan-checkpoint';
 import { BIN_DIR, runScriptSync } from './script-invocation';
 import { SMALL_DIFF_LINES, type Role } from './review-depth';
+import type { ShipMeter } from './ship-budget-thread';
 
 export const SHIP_STEPS = ['0.9', '1', '2', '3', '4', '5', '6', '6.5', '7', '8', '9', '10', '11', '11.5', '12', '13', '14', '14.5', '15', '16', '17', '18', '19', '20', '21', '22'] as const;
 /** Reviewer roles plus `docs`, the Step 14.5 documentation audit: each is one reader priced and reconciled the same way. */
@@ -70,7 +71,7 @@ export interface Reservation {
   starts?: Array<{ token: string; at: string }>;
 }
 /** One observation: the run's totals at a program's end, and the readers it dispatched when it measured them. */
-export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number } }
+export interface Note { step: string; label?: string; at: string; used: number; tree?: number; credits?: number; readers?: { n: number; tokens: number; credits?: number } }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
@@ -101,6 +102,8 @@ export interface Ledger {
   notes?: Note[];
   /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
   meter_scope?: 'tree';
+  /** --thread runs (GST-1699): /ship's own tasks row, the tree beside it, and why the run still meters the tree. */
+  ship_meter?: ShipMeter;
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
 }
 
@@ -376,9 +379,14 @@ export function mutateLedger<T>(file: string, env: NodeJS.ProcessEnv, fn: (l: Le
 export const TREE_METER = 'METER: tree (root counter, upper bound)';
 
 /** A tree-scoped run never prints a cost line without TREE_METER on the line after it. */
+/** A --thread run metering /ship's own tasks row (GST-1699): what used= counts, and that tree= is not capped. */
+export const shipMeterLine = (label: string) => `METER: ship (task row ${label}: /ship and its readers; tree= is the whole thread, never capped)`;
+export const treeUsed = (l: Ledger) => (l.ship_meter ? l.ship_meter.tree.last - l.ship_meter.tree.baseline : null);
+
 export function labelScope<T>(l: Ledger, out: T): T {
-  if (l.meter_scope !== 'tree') return out;
-  const label = (lines: string[]) => lines.flatMap((line, i) => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/.test(line) && lines[i + 1] !== TREE_METER ? [line, TREE_METER] : [line]);
+  const meter = l.meter_scope === 'tree' ? TREE_METER : l.ship_meter?.label ? shipMeterLine(l.ship_meter.label) : null;
+  if (!meter) return out;
+  const label = (lines: string[]) => lines.flatMap((line, i) => /^(BUDGET|BUDGET_FINAL|BUDGET_TIMELINE|BUDGET_DRIFT|NOTE|RECONCILED):/.test(line) && lines[i + 1] !== meter ? [line, meter] : [line]);
   if (Array.isArray(out)) return label(out) as T;
   const o = out as { stdout?: unknown };
   if (Array.isArray(o?.stdout)) o.stdout = label(o.stdout);
@@ -426,7 +434,8 @@ export function budgetLine(l: Ledger, f: { call: number | null; next: string; pr
   const t = tally(l);
   const p = projector(l);
   const credits = creditsUsed(l);
-  return `BUDGET: used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
+  const tree = treeUsed(l);
+  return `BUDGET: used=${t.used}${tree === null ? '' : ` tree=${tree}`}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} tail=${p.reserve} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} next=${f.next} projected=${f.projected} calibration=${p.label} verdict=${f.verdict}`;
 }
 
 /** The per-call context above the host floor that the delegate thresholds compare; null when the charge is unknown. */

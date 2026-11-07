@@ -167,14 +167,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(calls).toContain(`One pass with no fixes is ${headings.length + 1} calls: Phases 1-${headings.length} and the report; at most 12`);
   });
 
-  // Value: protects=the ledger records instead of admitting: one note at each program's end with tokens and credits, the reader pair inside the dispatching program, and the cap as the single stop; fails_when=the driver brings back a check per boundary, a reservation, a meter-only call or a handoff (replay 5: 11 meter-only calls at 286k on #34's child), or drops the credits reading;
+  // Value: protects=the ledger records instead of admitting: one note at each program's end with the thread snapshot (tokens, credits and tasks rows; GST-1699 caps /ship's own row), readers noted by the pass program, and the cap as the single stop; fails_when=the driver brings back a check per boundary, a reservation, a meter-only call or a handoff (replay 5: 11 meter-only calls at 286k on #34's child), or goes back to the bare root counter;
   //   why_new=observe mode is new; seam=none; no_claim=the host's counter accuracy
-  test('the budget paragraph runs observe mode: note with --reading and --credits, no check per step, the cap as the one stop', () => {
+  test('the budget paragraph runs observe mode: note with the thread snapshot, no check per step, the cap on /ship\'s own row as the one stop', () => {
     const budget = flat(doc.slice(doc.indexOf('**Budget: observe.**'), doc.indexOf('\n\n', doc.indexOf('**Budget: observe.**'))));
-    for (const s of ['gstack-ship-budget start --mode observe', 'gstack-ship-budget note --step <last step> --reading R --credits C', '`cost.credits`',
-      'No check per step, no reservation, no meter-only call, no handoff', '--dispatched-at <R> --dispatched-credits <C> --readers <n>']) expect(budget).toContain(s);
-    expect(doc).not.toMatch(/check --step|--next dispatch:|--delegate measured/);
-    expect(doc).toContain('gstack-ship-budget close --reading R --credits C');
+    for (const s of ['gstack-ship-budget start --mode observe', 'gstack-ship-budget note --step <last step> --thread T', '`tools.thread.get({thread_id:"this"})` JSON (`tools.capy.write`)',
+      'No check per step, no reservation, no meter-only call, no handoff', '`used=` is /ship\'s own task row, its readers included, `tree=` the thread', 'The pass program notes its readers itself']) expect(budget).toContain(s);
+    expect(doc).not.toMatch(/check --step|--next dispatch:|--delegate measured|--reading R/);
+    expect(doc).toContain('gstack-ship-budget close --thread T');
   });
 
   // Value: protects=no call waits past the 5-minute prompt cache and no turn ends while readers run: a program returns 200 s after its first line, the next call resumes the poll, long commands run in background, and Capy waits on operations only when no reader runs, with the choice of a ping over a waiting child stated where the parent and Capy read it; fails_when=a phase waits in one program until slow work ends (cache probe: a call after a 7-minute gap cost ~2,820 credits against ~70), the parent ends its turn on `wait` while readers run (GSTA-189: 23 of 25 waits were one wake per finished reader), the cadence drifts back toward the cache lifetime (240 s counted from the poll loop, or 270 s), or the reason is dropped, or a lane is no longer told to rerun the same command after a machine restart (GST-1028: lanes destroyed pregate VMs a rerun would have reattached);
@@ -208,7 +208,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
       'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5)', 'Step 7 may write tests, so it settles first',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
-    expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
+    expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--thread T --record <rec>');
   });
 
   // Value: protects=a reader counts as settled only once it has run (status done or failed, or a final summary), in the driver, the Capy skill and the budget section, so a poll never closes a batch on a subagent that was just created; fails_when=the settled rule is dropped or lets a bare idle status through (replay 7e #36: the Red Team reservation settled actual=0 because a just-created subagent read idle);

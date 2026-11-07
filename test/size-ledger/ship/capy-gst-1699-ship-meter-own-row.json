@@ -1,0 +1,4 @@
+{
+  "bytes": 135,
+  "why": "GST-1699: /ship meters its own task row via --thread; RECOVER covers the remaining steps"
+}

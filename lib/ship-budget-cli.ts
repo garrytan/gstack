@@ -14,12 +14,13 @@ import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import {
   BudgetError, DEFAULT_TAIL, SUBAGENT_DEFAULT_CAP, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
-  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, labelScope, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
+  aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, labelScope, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch, treeUsed,
   parseNext, parseRecordBlock, parseStep, parseTokens, pointMarker, projector, readLedger, reserveIn, restoreRun, reviewPaths,
   runDirFor, settleIn, stepProjection, tally, unitConstants, unreservedDispatches, usageError, writeLedger,
   type Ledger, type MeterKind, type Next, type Note,
 } from './ship-budget';
 import { callLogFile, countLoggedCalls, loggedCallsLine, readCallLog } from './ship-call-log';
+import { threadReading } from './ship-budget-thread';
 import { callsLine, countCalls } from './ship-calls';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
@@ -104,18 +105,55 @@ function dispatchedOpt(o: Opts, lastBefore: number | null): { at: number; reader
   return { at, ...(readers !== undefined ? { readers } : {}), late: lastBefore !== null && lastBefore > at };
 }
 
+/**
+ * --thread (GST-1699): on a run started with it, the snapshot replaces --reading and --credits
+ * (the pass program passes both for runs started without it, which ignore the file), and the
+ * readers it names are measured from their own rows, not a before/after pair.
+ */
+function useThread(l: Ledger, o: Opts): { lines: string[]; readers?: { n: number; tokens: number; credits: number } } {
+  const file = str(o, 'thread');
+  if (!l.ship_meter) return { lines: [] };
+  if (!file) {
+    if (str(o, 'reading') !== undefined) throw usageError(`run ${l.run} meters /ship's own tasks row; pass --thread <file holding this program's tools.thread.get result> instead of --reading`);
+    return { lines: [] };
+  }
+  const n = str(o, 'readers');
+  const t = threadReading(l, file);
+  o.reading = String(t.reading);
+  o.credits = String(Math.round(t.credits * 1e4) / 1e4);
+  for (const k of ['prior-reading', 'dispatched-at', 'dispatched-credits', 'readers']) delete o[k];
+  return { lines: t.lines, ...(t.readers ? { readers: { ...t.readers, ...(Number(n) > 0 ? { n: Number(n) } : {}) } } : {}) };
+}
+
+/**
+ * Tokens the steps left from `from` through 22 should take, plus the tail reserve. An observe run
+ * reserves nothing and measures no step, so its priors are scaled by its own pace: used so far over
+ * the priors of the steps before `from`, times the calibration's headroom. An observe note names
+ * the step that just ran, so the RECOVER cap covers it and every step after it.
+ */
+function remainingCost(l: Ledger, from: string): { steps: number; rate: number; reserve: number } {
+  const cal = loadCalibration(l.calibration);
+  const p = projector(l, cal);
+  const at = SHIP_STEPS.indexOf(from as any);
+  const done = at > 0 ? p.segment(SHIP_STEPS[0], SHIP_STEPS[at - 1]!) : 0;
+  const rate = l.mode === 'observe' && done > 0 ? (tally(l).used / done) * cal.headroom : 1;
+  return { steps: Math.ceil(p.segment(from, '22') * rate), rate, reserve: p.reserve };
+}
+
 /** The stop block: STOP, the resumable RECOVER line and GSTACK_RESULT incomplete; a child also writes its return. */
 export function stopLines(l: Ledger, f: { call: number | null; next: string; step: string; projected: number; reason: 'budget_exhausted' | 'context_threshold'; threshold?: number }): string[] {
   l.stopped = { at: new Date().toISOString(), reason: f.reason, step: f.step, next: f.next };
   const t = tally(l);
   const p = projector(l);
-  const from = f.next.startsWith('dispatch:') ? f.step : f.next;
-  const tailCost = p.segment(from, '22') + p.reserve;
+  const from = l.mode === 'observe' || f.next.startsWith('dispatch:') ? f.step : f.next;
+  const left = remainingCost(l, from);
+  const tailCost = left.steps + left.reserve;
   const lines = [budgetLine(l, { ...f, verdict: 'stop' })];
   if (f.reason === 'budget_exhausted') {
     lines.push(`STOP: reason=budget_exhausted spent=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap} next=${f.next} projected=${f.projected}`,
       resultLine('gstack-ship-budget', 'BUDGET_CAP_REACHED', `next ${f.next} needs ${f.projected} + reserve ${p.reserve}`),
-      `RECOVER: /ship --resume ${l.record ?? '<record>'} --token-cap ${t.used + t.reserved + t.unknown + tailCost}`);
+      `RECOVER: /ship --resume ${l.record ?? '<record>'} --token-cap ${t.used + t.reserved + t.unknown + tailCost}`,
+      `REMAINING: steps=${from}-22 projected=${left.steps} rate=${left.rate.toFixed(2)} reserve=${left.reserve} (the RECOVER cap is used + reserved + unknown + these)`);
   } else {
     lines.push(`STOP: reason=context_threshold call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} threshold=${f.threshold ?? DELEGATE_SEGMENT_CALL} next=${f.next} (--delegate never)`,
       `RECOVER: /ship --resume ${l.record ?? '<record>'} in a fresh session`);
@@ -238,9 +276,18 @@ function pickMeter(o: Opts): MeterKind | undefined {
 }
 
 export function cmdStart(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from', 'meter-source'], ['subagent']);
+  const o = parseArgs(argv, ['token-cap', 'record', 'meter', 'reading', 'credits', 'prior-reading', 'session', 'nonce', 'reserve', 'delegate', 'calibration', 'ledger', 'call-floor', 'mode', 'meter-scope', 'reading-from', 'meter-source', 'thread'], ['subagent']);
   const mode = str(o, 'mode') ?? 'admit';
   if (mode !== 'admit' && mode !== 'observe') throw usageError(`--mode '${mode}' is not admit or observe`);
+  const thread = str(o, 'thread');
+  if (thread !== undefined) {
+    if (mode !== 'observe') throw usageError('--thread meters an observe run (ship/DRIVER.md); add --mode observe');
+    const clash = ['reading', 'credits', 'prior-reading', 'meter', 'meter-scope', 'reading-from', 'meter-source', 'subagent'].filter(k => o[k] !== undefined);
+    if (clash.length) throw usageError(`--thread carries the readings and finds /ship's own row itself; drop ${clash.map(k => '--' + k).join(' ')}`);
+  }
+  const pre = {} as Ledger;
+  const threadStart = thread === undefined ? undefined : threadReading(pre, thread, ctx.env.GSTACK_SHIP_TASK_TITLE || undefined);
+  if (threadStart) { o.reading = String(threadStart.reading); o.credits = String(Math.round(threadStart.credits * 1e4) / 1e4); }
   const scope = str(o, 'meter-scope');
   if (scope !== undefined && scope !== 'self' && scope !== 'tree') throw usageError(`--meter-scope '${scope}' is not self or tree`);
   const from = str(o, 'reading-from') ?? (ctx.env.GSTACK_SHIP_TASK_TITLE ? 'task' : undefined);
@@ -250,7 +297,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
-  const defaultCap = rawCap === undefined && mode === 'observe' && from === 'task' && tokensOpt(o, 'reading') !== undefined;
+  const defaultCap = rawCap === undefined && mode === 'observe' && (from === 'task' || threadStart !== undefined) && tokensOpt(o, 'reading') !== undefined;
   const cap = defaultCap ? SUBAGENT_DEFAULT_CAP : rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
@@ -281,7 +328,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     epochs: [], carried_used: 0, estimate_used: 0, unknown: 0, next_id: 1, reservations: [], handoffs: [], cap_raises: [],
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
     ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
-    ...(scope === 'tree' || parentCounter ? { meter_scope: 'tree' as const } : {}),
+    ...(scope === 'tree' || parentCounter || pre.meter_scope ? { meter_scope: 'tree' as const } : {}), ...(pre.ship_meter ? { ship_meter: pre.ship_meter } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;
@@ -291,7 +338,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
-  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
+  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...(threadStart?.lines ?? []), ...out.stdout], exit: out.exit });
 }
 
 /**
@@ -346,15 +393,17 @@ export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
 }
 
 export function cmdClose(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'reading', 'credits', 'approved-by', 'words']);
+  const o = parseArgs(argv, ['run', 'record', 'reading', 'credits', 'approved-by', 'words', 'thread']);
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+    const scope = useThread(l, o).lines;
     readMeter(l, o, false);
     for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
     if (freshReading(l, o)) measureSettled(l);
     const t = tally(l);
     const open = l.reservations.filter(r => r.kind === 'dispatch' && r.state === 'consumed').length;
     const credits = creditsUsed(l);
-    const lines = [`BUDGET_FINAL: used=${t.used}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} open_dispatches=${open}`];
+    const tree = treeUsed(l);
+    const lines = [...scope, `BUDGET_FINAL: used=${t.used}${tree === null ? '' : ` tree=${tree}`}${credits === null ? '' : ` credits=${credits}`} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap ?? 'none'} unit=${l.meter.contract.unit} meter=${l.meter.contract.meter} epoch=${l.meter.epoch} open_dispatches=${open}`];
     const sum = (kind: string, k: 'projected' | 'actual') => (l.samples ?? []).filter(s => s.kind === kind).reduce((n, s) => n + s[k], 0);
     const count = (kind: string) => (l.samples ?? []).filter(s => s.kind === kind).length;
     if (l.notes?.length) lines.push(`BUDGET_TIMELINE: ${l.notes.map(noteText).join('; ')}`);
@@ -380,7 +429,7 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
   });
 }
 
-const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}`
+const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.tree === undefined ? '' : ` tree=${n.tree}`}${n.credits === undefined ? '' : ` credits=${n.credits}`}`
   + (n.readers ? ` readers=${n.readers.n} readers_tokens=${n.readers.tokens}${n.readers.credits === undefined ? '' : ` readers_credits=${n.readers.credits}`}` : '');
 
 /**
@@ -390,7 +439,7 @@ const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n
  * program with it instead of a check at each boundary.
  */
 export function cmdNote(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['run', 'record', 'step', 'label', 'reading', 'credits', 'dispatched-at', 'dispatched-credits', 'readers']);
+  const o = parseArgs(argv, ['run', 'record', 'step', 'label', 'reading', 'credits', 'dispatched-at', 'dispatched-credits', 'readers', 'thread']);
   const raw = str(o, 'step');
   const parent = raw && !(SHIP_STEPS as readonly string[]).includes(raw) ? /^(\d+)(?:\.\d+)+$/.exec(raw)?.[1] : undefined;
   const step = parseStep(parent && (SHIP_STEPS as readonly string[]).includes(parent) ? parent : raw);
@@ -398,17 +447,20 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
   return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
     if (l.closed_at) throw usageError(`run ${l.run} is closed`);
     if (l.stopped) return { stdout: [budgetLine(l, { call: null, next: l.stopped.next, projected: 0, verdict: 'stop' }), `STOP: reason=${l.stopped.reason} at Step ${l.stopped.step}; resume first: gstack-ship-budget resume --record ${l.record}`, `GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`], exit: 3 };
+    const scope = useThread(l, o);
     if (l.meter.contract.meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `note --step ${step}: run ${l.run} meter=capy`);
     const dispatched = dispatchedOpt(o, null);
     const before = str(o, 'dispatched-credits') === undefined ? undefined : parseCredits(str(o, 'dispatched-credits'), '--dispatched-credits');
     if (before !== undefined && !dispatched) throw usageError('--dispatched-credits needs --dispatched-at <the token reading taken with it>');
     readMeter(l, o, true);
     const credits = creditsUsed(l);
-    const readers = dispatched && l.meter.last !== null ? { n: dispatched.readers ?? 1, tokens: l.meter.last - dispatched.at,
-      ...(before !== undefined && l.credits ? { credits: Math.round((l.credits.last - before) * 100) / 100 } : {}) } : undefined;
-    const n: Note = { step, ...(label ? { label } : {}), at: new Date().toISOString(), used: tally(l).used, ...(credits === null ? {} : { credits }), ...(readers ? { readers } : {}) };
+    const readers = scope.readers ?? (dispatched && l.meter.last !== null ? { n: dispatched.readers ?? 1, tokens: l.meter.last - dispatched.at,
+      ...(before !== undefined && l.credits ? { credits: Math.round((l.credits.last - before) * 100) / 100 } : {}) } : undefined);
+    const tree = treeUsed(l);
+    const n: Note = { step, ...(label ? { label } : {}), at: new Date().toISOString(), used: tally(l).used, ...(tree === null ? {} : { tree }), ...(credits === null ? {} : { credits }), ...(readers ? { readers } : {}) };
     (l.notes ??= []).push(n);
-    return observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
+    const out = observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
+    return { stdout: [...scope.lines, ...out.stdout], exit: out.exit };
   });
 }
 
@@ -435,7 +487,7 @@ export function cmdCalls(argv: string[], ctx: Ctx): Outcome {
 
 /** resume: re-attach after a stop or a machine change; rebuild or restore a lost ledger; journal a cap raise. */
 export function cmdResume(argv: string[], ctx: Ctx): Outcome {
-  const o = parseArgs(argv, ['record', 'run', 'reading', 'credits', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words', 'meter-source'], ['rebuild-from-record']);
+  const o = parseArgs(argv, ['record', 'run', 'reading', 'credits', 'prior-reading', 'meter', 'session', 'nonce', 'token-cap', 'approved-by', 'words', 'meter-source', 'thread'], ['rebuild-from-record']);
   const source = str(o, 'meter-source');
   const cap = str(o, 'token-cap');
   if (cap !== undefined && (!str(o, 'approved-by') || !str(o, 'words'))) throw usageError('resume --token-cap needs --approved-by <who> --words <the owner\'s words>; raising the cap is the owner\'s call');
@@ -453,6 +505,8 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     try { readLedger(file); } catch { rebuildLedger(file, record, ctx, o); lines.push(`REBUILT: ledger=${file} from=${record}`); }
   }
   const out = mutateLedger(file, ctx.env, l => {
+    if (l.ship_meter && (source !== undefined || o['rebuild-from-record'] === true)) throw usageError('a --thread run resumes on its own thread with --thread <file>; --meter-source and --rebuild-from-record take --reading readings');
+    const scope = useThread(l, o).lines;
     const meter = pickMeter(o) ?? l.meter.contract.meter;
     const successor = source !== undefined && source !== l.meter.source;
     if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);
@@ -481,7 +535,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     const was = l.stopped;
     delete l.stopped;
     pointMarker(l.marker, l);
-    return [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];
+    return [...scope, `BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];
   });
   return { stdout: [...lines, ...out], exit: 0 };
 }
