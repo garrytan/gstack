@@ -1738,17 +1738,18 @@ or commit disappears), the observer's own check reports failure, and
 `gstack-ship-queue ready` counts every check at the head. Rerun it once;
 if it fails again, delete the job. Fork pull requests, pushes and dispatches
 skip the job. A missing token skips only its step, so the job still fetches
-the action. It is the only job in the workflow that sees a secret
-(`TRUNK_API_TOKEN`), so it checks out nothing and runs none of the pull
-request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`). At the
+the action. Its only secret is `TRUNK_API_TOKEN` (in free-tests.yml it is
+the only job that sees any secret; evals.yml's other jobs hold their own), so
+it checks out nothing and runs none of the pull request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`). At the
 pinned commit (`src/config.ts`, `src/changed-files.ts`), the action makes one
 network call: a request for verdicts to
 `api.trunk.io/v2/dynamic-ci/generate-plan`, at most 3 attempts with a
 30-second budget each. Telemetry is off. With no checkout and an empty
 `github-token`, the action sends no file list, and Trunk reads the diff itself
 through its GitHub App.
-`test/free-tests-workflow-wiring.test.ts` and
-`test/ci-reuse-workflow-wiring.test.ts` lock that shape in place.
+`test/free-tests-workflow-wiring.test.ts`,
+`test/ci-reuse-workflow-wiring.test.ts` and
+`test/trunk-dynamic-ci-observers.test.ts` lock that shape in place.
 
 **Review date: one week after it merges (2026-11-12 if it merges on
 2026-11-05).** Compare Trunk's would-skip verdicts with what the jobs it
