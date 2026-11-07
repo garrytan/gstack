@@ -136,8 +136,7 @@ describe("ensureDaemon", () => {
     // Track for cleanup
     activeDaemons.push({
       proc: { pid: state!.pid } as any,
-      port: state!.port,
-      token: state!.token,
+      port: state!.port, token: state!.token,
       stateFile,
       stop: async () => {
         try { process.kill(state!.pid, "SIGTERM"); } catch {}
@@ -182,8 +181,7 @@ describe("ensureDaemon", () => {
 
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
-      token: fresh!.token,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -218,8 +216,7 @@ describe("ensureDaemon", () => {
     expect(fresh!.pid).not.toBe(process.pid);
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
-      token: fresh!.token,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -248,8 +245,7 @@ describe("ensureDaemon", () => {
     expect(fresh!.pid).not.toBe(existing.proc.pid);
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
-      token: fresh!.token,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -442,11 +438,7 @@ describe("daemon idle-shutdown behavior (real process)", () => {
     let pollCount = 0;
     const boardDir = makeTmpDir("idle-poll");
     try {
-      const board = await publishBoard({
-        port: d.port,
-        token: d.token,
-        html: makeBoardHtml(boardDir),
-      });
+      const board = await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(boardDir) });
       // Submit so the board becomes `done` — non-done would trigger the
       // 1h extension path and keep the daemon alive past IDLE_MS.
       await fetch(`${board.url}api/feedback`, {
@@ -558,8 +550,7 @@ describe("concurrent ensureDaemon race", () => {
     // Track for cleanup
     activeDaemons.push({
       proc: { pid: state!.pid } as any,
-      port: state!.port,
-      token: state!.token,
+      port: state!.port, token: state!.token,
       stateFile,
       stop: async () => {
         try { process.kill(state!.pid, "SIGTERM"); } catch {}
