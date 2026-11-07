@@ -2473,9 +2473,11 @@ checkout's, the linked `node_modules` can't vouch for it: land refuses with
 `QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships.
 The worktree shares the checkout's `.git`, whose config and hooks land's later
 git calls read with its full environment, so land records the config and hooks
-of the checkout's git directories before the checks, puts back anything a check
-changed or added, and refuses with `QUEUE_LAND_MERGED_CHECKS`; and no
-`gstack-ship-queue` git call runs a hook or fsmonitor. It doesn't otherwise
+of the checkout's git directories, the `commondir` and `gitdir` files and the
+checkout's `.git` that say where git finds them, and the target of any of those
+that is a symlink, before the checks; it puts back anything a check changed or
+added and refuses with `QUEUE_LAND_MERGED_CHECKS`, naming any path it could not
+put back; and no `gstack-ship-queue` git call runs a hook or fsmonitor. It doesn't otherwise
 sandbox the filesystem: a command can still write the linked `node_modules`,
 the checkout's other files, the user's global git config and directories on
 `PATH`, and read anything the user can (other processes' environments,

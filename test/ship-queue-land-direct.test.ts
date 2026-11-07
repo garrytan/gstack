@@ -344,6 +344,42 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
   }, 90_000);
 
+  test('a merged check that points the checkout\'s .git/commondir at another directory: land removes it, refuses with QUEUE_LAND_MERGED_CHECKS and merges nothing', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-commondir-'));
+    const alt = path.join(scratch, 'alt');
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); a=${alt}; mkdir -p $a && ln -s $d/objects $d/refs $a/ && cp $d/HEAD $a/ && printf '[core]\\n\\tsshCommand = false\\n' > $a/config && echo $a > $d/commondir`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '92');
+      moveMain(fx, 'other.txt', 'other\n');
+      const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+      const r = land(fx, '92', pin, ['--allow-repo-commands']);
+      expect(r.status).not.toBe(EXIT.ok);
+      expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+      expect(r.err).toContain('commondir');
+      expect(fx.read().mergeArgs).toBeUndefined();
+      expect(fs.existsSync(path.join(common, 'commondir'))).toBe(false);
+      expect(fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir')).toBe(common);
+      expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'))).toMatchObject({ released: true });
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('a merged check that leaves a FIFO in the checkout\'s hooks and changes its config: land removes the FIFO without reading it, puts the config back and refuses', () => {
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); mkfifo $d/hooks/held && git config --file $d/config gstack.probe changed`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    const pin = openPr(fx, '93');
+    moveMain(fx, 'other.txt', 'other\n');
+    const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    const config = fs.readFileSync(path.join(common, 'config'), 'utf8');
+    const r = land(fx, '93', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+    expect(r.err).toContain('hooks/held');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    expect(fs.existsSync(path.join(common, 'hooks', 'held'))).toBe(false);
+    expect(fs.readFileSync(path.join(common, 'config'), 'utf8')).toBe(config);
+  }, 90_000);
+
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
     const fx = setup(CHECKED);
     const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });
