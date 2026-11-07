@@ -435,10 +435,8 @@ if [ "$FRONTEND" = false ]; then
           _new=
           if [ -f "$_root/$f" ]; then _new=$(_tpl_lines < "$_root/$f"); fi
         fi
-        while read -r _side _num; do
-          if [ "$_side" = o ]; then _set=$_old; else _set=$_new; fi
-          if grep -q -x -e "$_num" <<<"$_set"; then FRONTEND=true; break; fi
-        done < <(_hunk_lines <<<"$_fd")
+        if awk 'FNR == NR { s[$0] = 1; next } ($0 in s) { f = 1; exit } END { exit !f }' \
+          <(sed 's/^/o /' <<<"$_old"; sed 's/^/n /' <<<"$_new") <(_hunk_lines <<<"$_fd"); then FRONTEND=true; fi
       done
     fi
   fi
