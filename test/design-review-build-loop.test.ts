@@ -17,16 +17,19 @@ const SKILL = read('design-review/SKILL.md');
 const SECTION = read('design-review/sections/build-loop.md.tmpl');
 
 describe('/design-review --build routing (T14, T38, T5)', () => {
-  test('the dispatch comes before the clean-tree check and keeps the shared browser setup', () => {
+  test('the dispatch comes before the clean-tree check and its pointer after the hard rules', () => {
     const dispatch = TMPL.indexOf('**`--build`:**');
     const clean = TMPL.indexOf('**Check for clean working tree:**');
     const browser = TMPL.indexOf('**Check the Aside browser:**');
     expect(dispatch).toBeGreaterThan(0);
     expect(dispatch).toBeLessThan(clean);
-    expect(TMPL.indexOf('{{SECTION:build-loop}}')).toBeLessThan(clean);
     expect(clean).toBeLessThan(browser);
-    expect(TMPL.slice(dispatch, clean)).toContain('skip the clean-tree check; run **Check the Aside browser**, then the section below instead of the audit.');
-    expect(SKILL.indexOf('sections/build-loop.md')).toBeLessThan(SKILL.indexOf('git status --porcelain'));
+    expect(TMPL.slice(dispatch, clean)).toContain('skip the clean-tree check; run **Check the Aside browser**, then its STOP in Phases 1-6, not the audit.');
+    const pointer = TMPL.indexOf('{{SECTION:build-loop}}');
+    expect(TMPL.indexOf('{{DESIGN_HARD_RULES}}')).toBeLessThan(pointer);
+    expect(pointer).toBeLessThan(TMPL.indexOf('{{SECTION:craft-audit}}'));
+    expect(SKILL.indexOf('### Design Hard Rules')).toBeLessThan(SKILL.indexOf('> **STOP.**'));
+    expect(SKILL.indexOf('> **STOP.**')).toBe(SKILL.indexOf('> **STOP.** Before a --build run'));
   });
 
   test('the catalog description and triggers name the build mode', () => {
@@ -43,9 +46,9 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
 
   test('preflight before any round, at most three editing rounds, then a read-only final pass bound by verify-start', () => {
     const at = (s: string) => { const i = SECTION.indexOf(s); expect([s, i >= 0]).toEqual([s, true]); return i; };
-    expect(at('"$_DB" preflight')).toBeLessThan(at('--run-dir "$RUN/round-N"'));
+    expect(at('{{BIN_DIR}}/gstack-design-build preflight')).toBeLessThan(at('--run-dir "<RUN>/round-N"'));
     expect(at('### 3. Rounds (three at most)')).toBeLessThan(at('Stop\nediting after round 3'));
-    expect(at('"$_DB" verify-start')).toBeLessThan(at('"$_DB" receipt'));
+    expect(at('{{BIN_DIR}}/gstack-design-build verify-start')).toBeLessThan(at('{{BIN_DIR}}/gstack-design-build receipt'));
     expect(SECTION).toContain('There is no\nfourth editing round without a written grant.');
   });
 
@@ -54,6 +57,17 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
     expect(SECTION).toContain('Never\n   read the lint\'s exit status as the result.');
     for (const bad of [/\$\?/, /exit code/i, /-eq 0/, /echo ["']?DESIGN_BUILD/]) expect(SECTION).not.toMatch(bad);
     expect(SECTION).toContain('Run the printed `LINT_CMD:` line exactly.');
+  });
+
+  test('each bash block stands alone: the first resolves the state root and slug, later ones name the helper and the run path literally', () => {
+    const blocks = [...SECTION.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
+    expect(blocks[0]).toContain('SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)');
+    expect(blocks[0]).toContain('GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?');
+    for (const b of blocks.slice(1)) {
+      expect(b).not.toMatch(/\$(_DB|RUN|SLUG|GSTACK_STATE_ROOT)\b/);
+      expect(b).toContain('{{BIN_DIR}}/gstack-design-build');
+    }
+    expect(SECTION).toContain("Save it where the driver can write (Aside's\n   session directory; /tmp for $B), then cp it to the `SHOT:` path.");
   });
 
   test('the seven items are single-sourced in this section', () => {

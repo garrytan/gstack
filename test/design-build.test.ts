@@ -240,7 +240,7 @@ describe('the bin: one line, exit codes, and a dirty tree left as it was (T17, T
     const sh = (args: string[]) => spawnSync(BIN, args, { cwd: repo, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: path.join(work, 'state') } });
     const p = sh(['plan', '--inventory', inv, '--run-dir', runDir]);
     expect(p.status, p.stderr).toBe(0);
-    expect(p.stdout).toContain(`LINT_CMD: gstack-design-lint --scope app --state-file '${runDir}/states.json' --within 'section.access' --viewport 1440x900 --viewport 375x812 --json > '${runDir}/lint.json'`);
+    expect(p.stdout).toContain(`LINT_CMD: '${path.join(ROOT, 'bin', 'gstack-design-lint')}' --scope app --state-file '${runDir}/states.json' --within 'section.access' --viewport 1440x900 --viewport 375x812 --json > '${runDir}/lint.json'`);
     expect(p.stdout).toContain(`SHOT: owner 375x812 ${URL_OWNER} -> ${runDir}/shots/owner-375x812.png`);
     expect(JSON.parse(fs.readFileSync(path.join(runDir, 'states.json'), 'utf8'))).toEqual({ version: 1, states: [{ name: 'owner', url: URL_OWNER, expect: '.rows .row' }] });
     expect(sh(['verify-start', '--inventory', inv, '--run-dir', runDir]).stdout).toMatch(/^VERIFY: tree=[0-9a-f]{12} /);

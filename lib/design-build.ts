@@ -115,7 +115,7 @@ export function plan(inv: Inventory, runDir: string, waivers?: string): string[]
   const stateFile = path.join(runDir, 'states.json');
   const lintStates = urlStates.map((s) => ({ name: s.name, url: s.url, ...(s.expect ? { expect: s.expect } : {}), ...(s.within ? { within: s.within } : {}) }));
   fs.writeFileSync(stateFile, JSON.stringify({ version: 1, states: lintStates }, null, 2) + '\n', { mode: 0o600 });
-  const lint = ['gstack-design-lint', '--scope', 'app', '--state-file', quote(stateFile), '--within', quote(inv.within), ...inv.viewports.flatMap((v) => ['--viewport', v]), ...(waivers ? ['--waivers', quote(waivers)] : []), '--json', '>', quote(path.join(runDir, 'lint.json'))];
+  const lint = [quote(path.resolve(import.meta.dir, '..', 'bin', 'gstack-design-lint')), '--scope', 'app', '--state-file', quote(stateFile), '--within', quote(inv.within), ...inv.viewports.flatMap((v) => ['--viewport', v]), ...(waivers ? ['--waivers', quote(waivers)] : []), '--json', '>', quote(path.join(runDir, 'lint.json'))];
   return [
     `DESIGN_BUILD_PLAN: states=${inv.states.length} url=${urlStates.length} screenshot_only=${inv.states.length - urlStates.length} viewports=${inv.viewports.join(',')} run=${runDir}`,
     ...(urlStates.length ? [`LINT_CMD: ${lint.join(' ')}`] : []),

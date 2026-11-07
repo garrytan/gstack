@@ -47,7 +47,8 @@ describe.skipIf(!hasBrowser)('build receipt through the real lint (T26, T2, T3, 
     const planned = sh(['plan', '--inventory', inv, '--run-dir', runDir]).stdout;
     expect(sh(['verify-start', '--inventory', inv, '--run-dir', runDir]).status).toBe(0);
     const lintCmd = /^LINT_CMD: (.*)$/m.exec(planned)![1]!;
-    spawnSync('bash', ['-c', lintCmd], { cwd: repo, env, timeout: 180_000 });
+    const lanePath = (process.env.PATH ?? '').split(path.delimiter).filter((d) => !fs.existsSync(path.join(d, 'gstack-design-lint'))).join(path.delimiter);
+    spawnSync('bash', ['-c', lintCmd], { cwd: repo, env: { ...process.env, PATH: lanePath }, timeout: 180_000 });
     const lint = JSON.parse(fs.readFileSync(path.join(runDir, 'lint.json'), 'utf8'));
     expect(lint.app.verdict).toBe('clean');
     expect(lint.app.states.map((s: { name: string; viewport: string; status: string }) => [s.name, s.viewport, s.status])).toEqual([

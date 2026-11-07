@@ -162,10 +162,7 @@ bun --no-env-file --config=/dev/null run $HOME/.claude/skills/gstack/bin/gstack-
 
 `DESIGN_MD_FORMAT: spec`: the front matter is normative. Run `bun --no-env-file --config=/dev/null run $HOME/.claude/skills/gstack/bin/gstack-design-md.ts tokens DESIGN.md` and calibrate against the flat token map: a value present there is never a finding, and a finding that departs from a token names the token. `legacy` or `unknown`: read the file as prose. The `DESIGN_MD_MARKER` line is the user's persisted format choice; respect it and never offer a conversion here (that is /design-consultation's question). `missing`: calibrate against the code tokens captured above, or universal principles when there are none.
 
-**`--build`:** skip the clean-tree check; run **Check the Aside browser**, then the section below instead of the audit.
-
-> **STOP.** Before a --build run, Read `~/.claude/skills/gstack/design-review/sections/build-loop.md` and execute it
-> in full. Do not work from memory — that section is the source of truth for this step.
+**`--build`:** skip the clean-tree check; run **Check the Aside browser**, then its STOP in Phases 1-6, not the audit.
 
 **Check for clean working tree:**
 
@@ -985,6 +982,9 @@ sections. Read a section in full before doing its step; do not work from memory.
 | a craft, Persuade or redesign audit | `sections/craft-audit.md` |
 | the outside-voice pass that precedes Phase 7 triage (Codex availability, consent, both voices and synthesis) | `sections/outside-voices.md` |
 | writing a Phase 8e.5 regression test with no known test command (detect the framework, or offer to bootstrap one) | `sections/test-bootstrap.md` |
+
+> **STOP.** Before a --build run, Read `~/.claude/skills/gstack/design-review/sections/build-loop.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
 
 > **STOP.** Before a craft, Persuade or redesign audit, Read `~/.claude/skills/gstack/design-review/sections/craft-audit.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
