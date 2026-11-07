@@ -3,8 +3,8 @@
 `/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /ship run spends, and
 long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
-There is one default cap: an observe-mode /ship subagent that meters its own task row (`--reading-from task`,
-below) and names no cap gets 100M, the line where /runaway-stopper stops a subagent, and prints
+There is one default cap: an observe-mode /ship subagent started with a task title (`--reading-from task`,
+or `GSTACK_SHIP_TASK_TITLE` on a `--thread` run, below) that names no cap gets 100M, the line where /runaway-stopper stops a subagent, and prints
 `BUDGET_DEFAULT_CAP: 100M`; `--token-cap none` turns it off. Without a cap, /ship meters usage when it can and prints it, and
 nothing else changes.
 

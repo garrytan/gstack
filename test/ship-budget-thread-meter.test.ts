@@ -87,7 +87,7 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(field(note.out, 'NOTE', 'tree')).toBe(80_000_000);
   });
 
-  // Value: protects=the 100M default cap applies only to a start that found /ship's own row; fails_when=an untitled start in tree fallback gets the default cap and a lane's preflight work can stop /ship;
+  // Value: protects=an untitled --thread start gets no 100M default cap, as on main; fails_when=an untitled start in tree fallback gets the default cap and a lane's preflight work can stop /ship;
   //   why_new=/ship pre-landing review of #4107 reproduced BUDGET_DEFAULT_CAP beside METER_FALLBACK (GST-1699); seam=none; no_claim=a cap once the row is found later
   test('a --thread start in tree fallback with no --token-cap gets no default cap', () => {
     const h = fresh();
