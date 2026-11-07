@@ -319,7 +319,7 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     let text: string;
     try { text = fs.readFileSync(input.receiptPath, 'utf8'); }
     catch (e: any) { return { refused: 'PREGATE_RECEIPT_INVALID', message: `cannot read ${input.receiptPath}: ${e.message}` }; }
-    const report = parseRemoteReport(text);
+    const report = parseRemoteReport(text.replace(/^ +lanes: +(?=PREGATE_REMOTE: )/gm, ''));
     if (!report) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${input.receiptPath} has no PREGATE_REMOTE: line; ${lane} stays uncleared` };
     const own = remoteReportProblem(report, report.tree);
     if (own) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${own}; ${lane} stays uncleared` };
@@ -490,13 +490,15 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
  * A rerun at the same tree keeps the clears its predecessor recorded (GST-1627): `gstack-ship-release accept` reruns the
  * pregate on the final tree after the lane cleared macos-named-regressions and windows-smoke from CI runs at that tree, and
  * a fresh record dropped them, so accept never passed. A receipt carries only into an uncleared obligation for the same
- * lane, platform, workflow and job whose tests the earlier one covered, at the same head, under the same policy and base
- * branch, with its flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
+ * lane, platform, workflow and job whose tests the earlier one covered, at the same head, under the same policy source and base
+ * branch (a base branch that moved between the runs keeps them: the policy label names the base commit, GST-1775), with its
+ * flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
  * since a receipt and its exception were vetted against the head they name), or a rerun with a failed or unfinished check (a remote gate
  * that timed out this time), keeps nothing. Returns one PREGATE_CLEAR_KEPT line per lane.
  */
 export function keepSameTreeClears(prev: PregateFile | null, file: PregateFile): string[] {
-  if (!prev || prev.head !== file.head || prev.tree !== file.tree || prev.policy !== file.policy || prev.policy_digest !== file.policy_digest || baseBranchOf(prev.base) !== baseBranchOf(file.base)) return [];
+  const source = (label: string | undefined) => (label ?? '').replace(/^(\S+?)@[0-9a-f]{7,40}(?=:|\s|$)/, '$1');
+  if (!prev || prev.head !== file.head || prev.tree !== file.tree || source(prev.policy) !== source(file.policy) || prev.policy_digest !== file.policy_digest || baseBranchOf(prev.base) !== baseBranchOf(file.base)) return [];
   if (file.checks.some(c => c.status === 'fail' || c.status === 'incomplete' || c.status === 'not_installed')) return [];
   const kept: string[] = [];
   for (const r of file.requires_remote ?? []) {

@@ -101,6 +101,30 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     expect(ok.out).not.toContain('attested');
   });
 
+  // GBRA-347 (gbrain#8730): a stage run's log prints the gate's line under the lanes check (`    lanes:   PREGATE_REMOTE: …`),
+  //   and `clear --receipt` on that log refused "has no PREGATE_REMOTE: line".
+  // Value: protects=a gstack-pregate --remote log is a receipt clear accepts, validated like the bare line; fails_when=clear
+  //   refuses the indented form, or takes a line indented under another check; seam=gstack-pregate clear --receipt
+  test('`clear --receipt` takes the stage run\'s own log, where the gate\'s line sits under lanes:', async () => {
+    const repo = gated();
+    const run = runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'tests', '--remote', '--spend-cap', '5', '--allow-repo-commands']);
+    expect(run.status, run.err).toBe(EXIT.ok);
+    const log = path.join(repo.root, 'stage-run.log');
+    fs.writeFileSync(log, run.out);
+    expect(run.out).toMatch(/^ +lanes: +PREGATE_REMOTE: tree=[0-9a-f]{40} tests=3 failed=0$/m);
+    expect(run.out).not.toMatch(/^PREGATE_REMOTE: /m);
+    const fileAt = path.join(repo.work, '.gstack/tmp/pregate.json');
+    const { file } = await lanesOn(repo, { cores: 4, testBackend: 'local' });
+    fs.writeFileSync(fileAt, JSON.stringify(file));
+    const clear = (receipt: string) => runBin(repo, 'gstack-pregate', ['clear', '--remote', 'pregate.json/remote_gate', '--receipt', receipt]);
+    const other = path.join(repo.root, 'other-check.log');
+    fs.writeFileSync(other, `    guards:   PREGATE_REMOTE: tree=${file.tree} tests=3 failed=0\n`);
+    expect(clear(other).err).toContain('has no PREGATE_REMOTE: line');
+    const ok = clear(log);
+    expect(ok.status, ok.err).toBe(EXIT.ok);
+    expect(ok.out).toContain(`PREGATE_CLEARED: pregate.json/remote_gate receipt=remote-gate tree=${file.tree.slice(0, 12)} tests=3 `);
+  });
+
   test('`clear` on a test_backend obligation records the run URL as attested, not validated, and says so', async () => {
     const repo = gated(BASE_PREGATE);
     const fileAt = path.join(repo.work, '.gstack/tmp/pregate.json');
