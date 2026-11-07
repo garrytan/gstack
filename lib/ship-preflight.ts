@@ -16,7 +16,7 @@ import { versionAtRef } from './restamp';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { baseMergeSkips, bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { baseMergeSkips, bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipBaseSkip, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -155,10 +155,15 @@ function merge(cwd: string, base: string, r: Report): boolean {
     r.stop(`unresolved conflicts in ${short(unmerged, 8)} with no merge, cherry-pick or revert in progress: resolve them (git add) or restore the files, then rerun (Step 3)`);
     return false;
   }
+  const skipRecord = shipBaseSkip(cwd);
+  if (skipRecord) fs.rmSync(skipRecord, { force: true });
   if (stampAtMerge) r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
   else if (git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
   else {
     const plan = cleanBaseSkip(cwd, base, policy?.base_merge ?? 'auto');
+    if (plan.skip) {
+      try { fs.writeFileSync(skipRecord, `${git(cwd, ['rev-parse', `origin/${base}`]).stdout.trim()}\n`); } catch (e) { plan.note = `cannot record the skip for finish's recheck (${firstLine((e as Error).message)}): merging`; plan.skip = undefined; }
+    }
     if (plan.note) r.add(`BASE_MERGE: ${plan.note}`);
     if (plan.skip) r.add(`MERGE: skipped (${plan.skip})`);
     else {

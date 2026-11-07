@@ -31,6 +31,11 @@ export function shipRunMarker(cwd: string): string {
   const p = git(cwd, ['rev-parse', '--git-path', 'gstack-ship-run']);
   return p.status === 0 && p.stdout.trim() ? path.resolve(cwd, p.stdout.trim()) : '';
 }
+/** GST-1772: the origin/<base> sha Step 3 left unmerged under base_merge, beside the run marker; Step 3 rewrites or clears it, finish rechecks only the base it names and clears it with the marker. */
+export function shipBaseSkip(cwd: string): string {
+  const p = git(cwd, ['rev-parse', '--git-path', 'gstack-ship-base-skip']);
+  return p.status === 0 && p.stdout.trim() ? path.resolve(cwd, p.stdout.trim()) : '';
+}
 export function bin(cwd: string, name: string, args: string[], timeout = 600_000): Run {
   return done(runScriptSync(path.join(BIN_DIR, name), args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 }));
 }
