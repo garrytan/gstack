@@ -609,9 +609,9 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
       return buildMissingImagePlaceholder(src);
     }
 
-    // Out-of-tree reads are legal (local CLI semantics — like pandoc) but
-    // never silent: an agent PDF-ing untrusted markdown should not quietly
-    // embed ~/.ssh/config into a shareable document. --strict makes it fatal.
+    // Out-of-tree files are never read: rendering untrusted markdown must not
+    // copy files from elsewhere on disk into a shareable document. Visible
+    // placeholder by default; --strict makes it fatal.
     // Compare REAL paths — a symlink inside the input dir pointing outside
     // would otherwise pass a string-prefix check (Codex adversarial finding).
     // Runs after the existence check: realpath of a missing file can't
@@ -620,8 +620,9 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
     const realFilePath = safeRealpath(filePath);
     if (!realFilePath.startsWith(inputRoot)) {
       const msg = `image resolves OUTSIDE the input directory: ${src} → ${realFilePath}`;
-      if (opts.strict) throw new StrictModeError(msg + " — move it under the markdown's directory or drop --strict");
+      if (opts.strict) throw new StrictModeError(msg + " — move it under the markdown's directory");
       opts.warn(msg);
+      return buildBlockedLocalPlaceholder("outside the document directory", src);
     }
 
     // Bound the read BEFORE reading: a markdown image pointing at a special
@@ -650,6 +651,12 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
     const buf = fs.readFileSync(filePath);
     const dims = imageDims(buf);
     const mime = dims?.mime ?? mimeFromExtension(filePath);
+    if (mime === "application/octet-stream") {
+      const msg = `not a recognized image (png, jpeg, gif, webp, svg): ${src}`;
+      if (opts.strict) throw new StrictModeError(msg);
+      opts.warn(msg);
+      return buildBlockedLocalPlaceholder("not an image", src);
+    }
 
     // Print-resolution normalization (D4): rasters only — SVG scales free.
     if (dims && mime !== "image/svg+xml" && dims.width > maxPx && opts.run) {
@@ -732,6 +739,13 @@ function buildBlockedRemotePlaceholder(src: string): string {
   return (
     `<span class="image-missing" role="img" aria-label="remote image blocked">` +
     `[remote image blocked (use --allow-network): ${escapeHtml(src)}]</span>`
+  );
+}
+
+function buildBlockedLocalPlaceholder(reason: string, src: string): string {
+  return (
+    `<span class="image-missing" role="img" aria-label="image blocked">` +
+    `[image blocked (${reason}): ${escapeHtml(src)}]</span>`
   );
 }
 
