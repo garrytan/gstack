@@ -87,15 +87,21 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(field(note.out, 'NOTE', 'tree')).toBe(80_000_000);
   });
 
-  // Value: protects=the 100M default cap applies only to a start that found /ship's own row; fails_when=an untitled start in tree fallback gets the default cap and a lane's preflight work can stop /ship;
-  //   why_new=/ship pre-landing review of #4107 reproduced BUDGET_DEFAULT_CAP beside METER_FALLBACK (GST-1699); seam=none; no_claim=a cap once the row is found later
-  test('a --thread start in tree fallback with no --token-cap gets no default cap', () => {
+  // Value: protects=a --thread observe start with no --token-cap and no task title keeps the 100M default cap, as main's --reading-from task start did; fails_when=the default reaches a --thread run only through GSTACK_SHIP_TASK_TITLE, which nothing exports, so it runs uncapped;
+  //   why_new=/ship targeted re-read of #4107 (lib/ship-budget-cli.ts:300:money): an untitled --thread start ran uncapped where main capped it at 100M; seam=none; no_claim=which row the run meters
+  test('a --thread start with no --token-cap and no task title gets the 100M default cap, even in tree fallback', () => {
     const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--thread', snap(h, 100_000_000, [['Subagent 1', 'lane fix', 5_000_000]])]);
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--thread', snap(h, 100_000_000, [['Subagent 1', 'lane fix', 5_000_000]])], { GSTACK_SHIP_TASK_TITLE: '' });
     expect(s.code, s.out + s.err).toBe(0);
     expect(s.out).toContain('METER_FALLBACK');
-    expect(s.out).not.toContain('BUDGET_DEFAULT_CAP');
-    expect(s.out).not.toContain('admission_cap=100000000');
+    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 100M');
+    expect(s.out).toContain('admission_cap=100000000');
+    for (const cap of ['none', '30M']) {
+      const o = fresh();
+      const out = o.sb(['start', '--record', o.record(), '--mode', 'observe', '--token-cap', cap, '--thread', snap(o, 100_000_000, [['Subagent 1', 'lane fix', 5_000_000]])]);
+      expect(out.code, out.out + out.err).toBe(0);
+      expect(out.out).not.toContain('BUDGET_DEFAULT_CAP');
+    }
   });
 
   // Value: protects=a titled /ship keeps the 100M default cap even while its row is not listed yet; fails_when=a titled --thread start whose title matches no listed row runs uncapped;

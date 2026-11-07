@@ -3,8 +3,8 @@
 `/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /ship run spends, and
 long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
-There is one default cap: an observe-mode /ship subagent started with a task title (`--reading-from task`,
-or `GSTACK_SHIP_TASK_TITLE` on a `--thread` run, below) that names no cap gets 100M, the line where /runaway-stopper stops a subagent, and prints
+There is one default cap: an observe-mode /ship run that names no cap gets 100M when it meters with
+`--thread` (below) or starts with a task title (`--reading-from task`), the line where /runaway-stopper stops a subagent, and prints
 `BUDGET_DEFAULT_CAP: 100M`; `--token-cap none` turns it off. Without a cap, /ship meters usage when it can and prints it, and
 nothing else changes.
 
@@ -68,9 +68,9 @@ run refuses a bare `--reading`, and `resume --meter-source` or `--rebuild-from-r
 `--reading` readings). A run started without `--thread` ignores the file, so the pass program passes
 both.
 
-An observe run with no `--token-cap` started with a task title (`GSTACK_SHIP_TASK_TITLE`) gets the
-100M default cap, as `--reading-from task` does, even while it meters the tree because its row is not
-listed yet; an untitled run gets none, as on main.
+An observe `--thread` run with no `--token-cap` gets the 100M default cap, as `--reading-from task`
+does, whatever it meters: /ship's own row (found by `GSTACK_SHIP_TASK_TITLE` or a reader's parent) or
+the tree while that row is not listed yet. `--token-cap none` turns it off.
 
 **Counting calls.** `gstack-ship-budget calls --events <file> [--since <iso>] [--until <iso>]` reads
 the host's transcript items (a JSON array, or `{ "items": [...] }` as Capy's `tools.thread.get`
