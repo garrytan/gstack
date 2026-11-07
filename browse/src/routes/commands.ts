@@ -38,11 +38,11 @@ export const TUNNEL_COMMANDS = new Set<string>([
  * Canonicalizes the command (so aliases hit the same set) and returns false
  * for null/undefined input.
  *
- * `args` is consulted so remote paired agents cannot read local files or
- * choose where anything is written: `--out` (a write), a screenshot or
- * snapshot output path (a write), and goto/newtab to anything but an http(s)
- * URL (file: reads) are refused. Fixed-name captures still go to the temp
- * dir. `eval` is absent from the allowlist because it runs a file from the
+ * `args` is consulted so that over the tunnel nothing is written to the
+ * daemon's disk and no local file is read: `--out`, a screenshot without
+ * `--base64` or with an output path, a snapshot with `-a`/`-H`/`-o`, and
+ * goto/newtab to anything but an http(s) URL (file: reads) are refused.
+ * `eval` is absent from the allowlist because it runs a file from the
  * daemon's disk. Omitting `args` (undefined) preserves the old command-only
  * behavior; null, a non-array, or an array with a non-string element is refused.
  */
@@ -58,8 +58,14 @@ export function canDispatchOverTunnel(command: string | undefined | null, args?:
     return url === undefined || isWebUrl(url);
   }
   try {
-    if (cmd === 'screenshot') return parseScreenshotArgs(args).outputPath === undefined;
-    if (cmd === 'snapshot') return parseSnapshotArgs(args).outputPath === undefined;
+    if (cmd === 'screenshot') {
+      const shot = parseScreenshotArgs(args);
+      return shot.base64Mode && shot.outputPath === undefined;
+    }
+    if (cmd === 'snapshot') {
+      const snap = parseSnapshotArgs(args);
+      return !snap.outputPath && !snap.annotate && !snap.heatmap;
+    }
   } catch {
     return false;
   }
@@ -172,7 +178,7 @@ export const commandRoutes: RouteEntry[] = [
       if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args)) {
         logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
         return jsonError(403, `Command '${body?.command}' is not allowed over the tunnel surface`, {
-          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot/snapshot cannot name an output path (target an element with screenshot --selector <css>), and --out is never allowed.`,
+          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot needs --base64 and cannot name an output path (target an element with screenshot --base64 --selector <css>), snapshot refuses -a/--annotate, -H/--heatmap and -o, and --out is never allowed.`,
         });
       }
       return ctx.commands.handle(body, tokenInfo);

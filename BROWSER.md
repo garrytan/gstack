@@ -1232,11 +1232,11 @@ attrs, media, data, scroll, press, type, select, wait,
 newtab, tabs, back, forward, reload, snapshot, fill, url, closetab
 ```
 
-The gate also reads the args, so a paired agent cannot read local files or
-choose where anything is written: `goto`/`newtab` take http(s) URLs only,
-`screenshot` and `snapshot` cannot name an output path (`screenshot --base64`
-returns the image; fixed-name captures still go to the temp dir), and `--out`
-is refused everywhere. `eval` is absent because it runs a file from the
+The gate also reads the args, so over the tunnel nothing is written to the
+daemon's disk: `goto`/`newtab` take http(s) URLs only, `screenshot` needs
+`--base64` (it returns the image) and cannot name an output path, `snapshot`
+refuses `-a`/`--annotate`, `-H`/`--heatmap` and `-o`, and `--out` is
+refused everywhere. `eval` is absent because it runs a file from the
 daemon's disk.
 
 Notably absent: `pair`, `unpair`, `cookies`, `setup`, `launch`, `restart`,

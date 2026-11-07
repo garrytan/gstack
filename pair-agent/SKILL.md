@@ -384,10 +384,10 @@ ceremony, not the scope:
 - Create new tabs (each agent gets its own)
 - Cannot stop or restart the browser, or disconnect headed mode (needs --control)
 
-Remote agents go through the tunnel command allowlist, so they cannot read local
-files or choose where anything is written: `goto`/`newtab` take http(s) URLs
-only, `screenshot` and `snapshot` cannot name an output path (use
-`screenshot --base64`; fixed-name captures still go to the temp dir), and
+Remote agents go through the tunnel command allowlist, so nothing they do is
+written to this machine's disk: `goto`/`newtab` take http(s) URLs only,
+`screenshot` needs `--base64` and cannot name an output path, `snapshot`
+refuses `-a`, `-H` and `-o`, and
 `eval`, `js`, `cookies`, and `storage` are not dispatchable over the tunnel
 even with admin scope. Agents paired with `--local` get all of them.
 

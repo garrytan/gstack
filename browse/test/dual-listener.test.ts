@@ -254,6 +254,10 @@ describe('/command tunnel command allowlist', () => {
     { command: 'eval', args: ['script.js'] },
     { command: 'screenshot', args: ['assets/logo.png'] },
     { command: 'snapshot', args: ['-a', '-o', 'annotated.png'] },
+    { command: 'screenshot', args: [] },
+    { command: 'screenshot', args: ['--selector', '.hero'] },
+    { command: 'snapshot', args: ['-a'] },
+    { command: 'snapshot', args: ['-H', '{"@e1":"green"}'] },
   ];
   function recordingCtx(handled: unknown[]) {
     return stubRouteContext({
@@ -290,7 +294,7 @@ describe('/command tunnel command allowlist', () => {
       { command: 'goto', args: ['https://example.com'] },
       { command: 'newtab', args: ['http://localhost:3000/'] },
       { command: 'screenshot', args: ['--base64'] },
-      { command: 'screenshot', args: [] },
+      { command: 'screenshot', args: ['--base64', '--selector', '.hero'] },
       { command: 'snapshot', args: ['-i'] },
     ];
     for (const body of allowed) {

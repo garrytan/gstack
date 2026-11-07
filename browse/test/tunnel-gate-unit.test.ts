@@ -164,12 +164,17 @@ describe('canDispatchOverTunnel — tunnel agents stay off the daemon filesystem
     expect(canDispatchOverTunnel('eval', ['script.js'])).toBe(false);
   });
 
-  test('screenshot without an output path dispatches', () => {
+  test('screenshot with --base64 and no output path dispatches', () => {
     const allowed = [
-      [], ['--base64'], ['--viewport'], ['@e3'], ['#main', '--base64'],
-      ['--selector', '.hero'], ['--selector=.hero', '--base64'], ['--clip', '0,0,10,10', '--base64'],
+      ['--base64'], ['--viewport', '--base64'], ['@e3', '--base64'], ['#main', '--base64'],
+      ['--selector=.hero', '--base64'], ['--clip', '0,0,10,10', '--base64'],
     ];
     for (const args of allowed) expect(canDispatchOverTunnel('screenshot', args)).toBe(true);
+  });
+
+  test('screenshot without --base64 is refused (it would write a temp file)', () => {
+    const refused = [[], ['--viewport'], ['@e3'], ['--selector', '.hero'], ['--clip', '0,0,10,10']];
+    for (const args of refused) expect(canDispatchOverTunnel('screenshot', args)).toBe(false);
   });
 
   test('screenshot naming an output path is refused', () => {
@@ -182,9 +187,14 @@ describe('canDispatchOverTunnel — tunnel agents stay off the daemon filesystem
 
   test('snapshot naming an output path is refused', () => {
     expect(canDispatchOverTunnel('snapshot', ['-i'])).toBe(true);
-    expect(canDispatchOverTunnel('snapshot', ['-a'])).toBe(true);
     expect(canDispatchOverTunnel('snapshot', ['-a', '-o', '/tmp/a.png'])).toBe(false);
     expect(canDispatchOverTunnel('snapshot', ['--heatmap', '{"@e1":"green"}', '--output', 'heat.png'])).toBe(false);
+  });
+
+  test('annotated and heatmap snapshots are refused (they write temp images)', () => {
+    for (const args of [['-a'], ['--annotate'], ['-i', '-a'], ['-H', '{"@e1":"green"}'], ['--heatmap', '{"@e1":"green"}']]) {
+      expect(canDispatchOverTunnel('snapshot', args)).toBe(false);
+    }
   });
 
   test('args that are not an array are refused', () => {
