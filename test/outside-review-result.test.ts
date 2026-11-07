@@ -210,6 +210,7 @@ describe('a closing check-results sentence keeps the no-findings conclusion (#34
   test('other check-results sign-offs, one or several, on one line or after a blank line', () => {
     for (const text of ['No issues found. Typecheck passes.', 'No regressions found in this change. The tests pass.\nLint passes.',
       'I found no issues. Tests and build succeeded.', 'This patch introduces no regressions. All tests pass.',
+      'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
       `The change adds a retry cap.\n\n${TAILS[0]}`, 'No issues found.\r\n\r\nTests, lint, and build all pass.\r\n']) {
       expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
     }
@@ -231,7 +232,11 @@ describe('a closing check-results sentence keeps the no-findings conclusion (#34
       'No issues in the parser, while the change silently disables authentication. Tests pass.',
       'I reviewed the parser.\nNo issues in the diff, and the fallback path now swallows ENOENT in this change.',
       'I reviewed the parser.\nNo issues in the parser whereas this change drops the cache.',
-      'The changes introduce no regressions in the diff, the fallback path now swallows ENOENT.']) unverified(text);
+      'The changes introduce no regressions in the diff, the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff and the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2014 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff (the fallback path now swallows ENOENT).',
+      'I reviewed the parser.\nNo issues in this change so callers now lose data.']) unverified(text);
   });
 
   test('a truncated, empty or check-only reply is never clean', () => {

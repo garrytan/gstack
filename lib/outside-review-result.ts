@@ -158,7 +158,10 @@ const CHECK_RESULTS = new RegExp(`^(?:the\\s+|all\\s+)?${CHECK_NAME}(?:(?:,\\s*(
 /** A contrast or exception qualifies the claim, so the sentence does not conclude that nothing was found. */
 const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|whereas|while(?!\s+(?:reviewing|reading|checking|inspecting)\b)|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
 const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report)?/i;
-const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s(?:[^,;]|,\s*(?:(?:and|or)\s+)?(?=(?:staged|unstaged|untracked|committed)\b))*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b[^,;]*$/i;
+const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b/i;
+/** A list of change kinds ("the staged, unstaged, or untracked changes") is one scope; any other joiner starts a clause the scope does not cover. */
+const SCOPE_LIST_JOIN = /(?:,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)(?=(?:staged|unstaged|untracked|committed)\b)/gi;
+const SCOPE_CLAUSE_BREAK = /[,;()\u2014\u2013]|\s-\s|\b(?:and|or|so|since|because|as|while|whereas|then|which|that|where|when|though|but|yet|until|unless|if)\b/i;
 
 /**
  * The review's conclusion says it found nothing: its last prose sentence or
@@ -178,8 +181,9 @@ function concludesNoFindings(code: string, concluding: string): boolean {
   return [sentences.at(-1), because].some(conclusion => {
     const statement = conclusion?.match(NO_FINDINGS)?.[0];
     if (!conclusion || !statement || NO_FINDINGS_EXCEPTION.test(conclusion)) return false;
-    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!]+$/, '').trim();
-    return (total === 1 && !CHANGE_SUBJECT_STATEMENT.test(conclusion)) || !qualifier || qualifier.startsWith(':') || WHOLE_CHANGE_SCOPE.test(qualifier);
+    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!;]+$/, '').trim();
+    return (total === 1 && !CHANGE_SUBJECT_STATEMENT.test(conclusion)) || !qualifier || qualifier.startsWith(':')
+      || (WHOLE_CHANGE_SCOPE.test(qualifier) && !SCOPE_CLAUSE_BREAK.test(qualifier.replace(SCOPE_LIST_JOIN, ' ')));
   });
 }
 
