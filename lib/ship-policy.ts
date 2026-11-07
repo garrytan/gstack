@@ -98,6 +98,7 @@ export interface ShipPolicy {
   /** Bookkeeping tables (`.tsv`, `.csv`, `.txt` globs) whose small post-review edits take /ship finish's scoped reader (docs/ship-policy.md#bookkeeping); read from the base only. */ bookkeeping: string[];
   /** Constants a branch may retake after a base merge, with their fixture fields and golden regen ids (docs/ship-policy.md#mechanical-retake); read from the base only. */ mechanical_retake: MechanicalConstant[];
   /** Globs of test code the built-in test names miss (GDScript checks), which /ship finish routes as test code (docs/ship-policy.md#test-code); read from the base only. */ test_code: string[];
+  /** `on-conflict`: /ship Step 3 leaves a base that merges cleanly unmerged (a merge queue tests the merge commit) and merges only on a conflict; `auto` does that when GitHub reports a merge queue on the base branch; `always` merges whenever the base moved. */ base_merge: 'auto' | 'on-conflict' | 'always';
   /** `direct` lands each READY PR at its own green head (`land --pin`, docs/ship-policy.md#land-direct); `train` keeps merge trains. */ merge: 'direct' | 'train';
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
   /** Seconds accept gives each `gstack-evidence record-ci` (docs/ship-policy.md#ci-record-timeout), clamped to 3600; read from the base only. */ ci_record_timeout_s: number;
@@ -191,7 +192,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   min_gstack_version: null,
   train: null,
   docs: null,
-  base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
+  base_red: null, base_merge: 'auto', merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
   release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
 };
 
@@ -233,6 +234,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   mechanical_retake: MECHANICAL_EXPLANATION,
   test_code: 'Root-anchored globs of test code the built-in test names miss, never under .gstack/ or .github/, for example ["tests/**/*.gd"] for GDScript checks. /ship finish routes a matching file changed after review as test code (one scoped reader of its test hunks) instead of behavior, beside the built-in globs; shared helpers and fixtures stay behavior. Read from the base branch only. Empty (default) declares none.',
   ci_record_timeout_s: 'Seconds `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane, an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
+  base_merge: 'auto (default) | on-conflict | always. /ship Step 3 when the base branch has moved: on-conflict leaves a base that merges cleanly unmerged (`MERGE: skipped`, recorded in the receipt) and merges only to surface a conflict, and finish rechecks it after the release commit, for repos whose merge queue tests the merge commit; auto behaves as on-conflict when GitHub reports a merge queue on the base branch and as always otherwise (when it cannot tell, it merges and prints why on a BASE_MERGE: line); always merges the moved base before tests (docs/ship-policy.md#base-merge). Ignored under queue_mode stamp-at-merge, which never merges.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
@@ -459,6 +461,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   oneOf('history', ['merge-only', 'squash-ok']);
   oneOf('review_scope', ['frozen', 'diff-plus-blocking', 'all']);
   oneOf('merge', ['direct', 'train']);
+  oneOf('base_merge', ['auto', 'on-conflict', 'always']);
   if ('review_exclude_paths' in obj) excludeErrors(obj.review_exclude_paths, errors);
   if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
   if ('readers' in obj) readersErrors(obj.readers, errors, containedRelative);

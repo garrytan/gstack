@@ -6,8 +6,8 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
-import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { BASE_MERGE_KEY_VERSION, BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
+import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
 const fixtures: ShipFx[] = [];
@@ -446,5 +446,34 @@ describe('push: the pre-push housekeeping guards (GST-1138)', () => {
     expect(lineOf(reused.stdout, 'GUARDS')).toMatch(/^GUARDS: pass \(reused from pregate-finish-preflight\.json at tree /);
     expect(runs()).toBe('');
     expect(lineOf(reused.stdout, 'PUSH')).toMatch(/^PUSH: pushed /);
+  });
+});
+
+describe('finish after a skipped base merge (GST-1772)', () => {
+  // Value: protects=a base Step 3 left unmerged under base_merge is rechecked after the release commit against a fresh fetch, so a VERSION bump that now conflicts stops finish with the files named instead of reaching the merge queue;
+  //   fails_when=finish passes a head whose release commit conflicts with the moved base, merges it itself, or moves origin/<base>;
+  //   why_new=GST-1772 autoplan finding (claim-at-open bump after a skipped merge); seam=git fetch --refmap=, git merge-tree; no_claim=how the conflict is resolved
+  test('a skipped base that the release commit now conflicts with stops finish; one that still merges is reported clean', () => {
+    const policy = { '.gstack/ship-policy.json': JSON.stringify({ base_merge: 'on-conflict', min_gstack_version: BASE_MERGE_KEY_VERSION }) + '\n' };
+    const f = fx(policy);
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    expect(lineOf(f.run(PREFLIGHT, ['--base', 'main']).stdout, 'MERGE')).toMatch(/^MERGE: skipped \(origin\/main is 1 commit/);
+    const step1 = f.git('rev-parse', 'origin/main').stdout.trim();
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.advanceBase({ VERSION: '1.0.1.0\n' });
+    f.write({ VERSION: '1.0.0.1\n' });
+    const stopped = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+    expect(stopped.status).toBe(3);
+    expect(stopped.stdout).toMatch(/STOP: origin\/main at [0-9a-f]{12}, left unmerged at Step 3, now conflicts with HEAD in VERSION: git merge origin\/main under Step 3's conflict rules/);
+    expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(step1);
+    const g = fx(policy);
+    g.advanceBase({ 'docs/new.md': '# new\n' });
+    g.run(PREFLIGHT, ['--base', 'main']);
+    const reviewed2 = wtree(g);
+    const post2 = snapshot(g);
+    g.write({ VERSION: '1.0.0.1\n' });
+    const clean = g.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed2, '--docs-post', post2, '--lane', LANE]);
+    expect(lineOf(clean.stdout, 'BASE_MERGE')).toMatch(/^BASE_MERGE: origin\/main at [0-9a-f]{12} still merges clean with HEAD \(left unmerged at Step 3\)$/);
   });
 });

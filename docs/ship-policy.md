@@ -74,6 +74,7 @@ branch that changes the policy.
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
+| `base_merge` | `auto` \| `on-conflict` \| `always` | `auto` | What /ship Step 3 does when the base has moved ([details](#base-merge)). `on-conflict` leaves a base that merges cleanly unmerged and merges only to surface a conflict; `auto` does that when GitHub reports a merge queue on the base branch; `always` merges every moved base. Ignored under `queue_mode: stamp-at-merge`. A non-default value needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
 | `land` | `{ merged_checks }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. Read from the base revision only. Needs `min_gstack_version`. |
 | `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
@@ -2183,6 +2184,33 @@ the skill reports it and CI's version gate is the backstop. A base at or above t
 branch VERSION still stops.
 
 <a id="stamp-at-merge"></a>
+<a id="base-merge"></a>
+## `base_merge`: Step 3 on merge-queue repos
+
+A repo that lands through a merge queue (GitHub's, for example) tests the exact
+merge commit of the PR and the base before it lands, so /ship's Step 3 refresh
+merge changes the head, restarts CI and the PR's report, and on a stack forces a
+merge-up through every child, without testing anything the queue won't test
+again (GST-1772). With `base_merge: on-conflict`, or `auto` (the default)
+when `gh api graphql` reports `mergeQueue` on the base branch, Step 3 checks
+the moved base with `git merge-tree` first:
+
+- It merges cleanly: nothing is merged and the preflight prints
+  `MERGE: skipped (origin/<base> is N commit(s) ahead and merges clean; …)`.
+- It conflicts: Step 3 merges and stops on the conflicted files, as before.
+- `auto` cannot tell (a local origin, a failed or empty gh answer) or
+  merge-tree fails: Step 3 merges, and a `BASE_MERGE:` line says why.
+  `on-conflict` skips the check.
+
+The release commit can make a skipped base conflict (a claim-at-open VERSION or
+CHANGELOG write), so `gstack-ship-release finish` rechecks a head that lacks
+`origin/<base>` against a fresh fetch of the base, without moving
+`origin/<base>`: `BASE_MERGE: … still merges clean`, or a STOP that names the
+conflicted files and sends the run back to Step 3's conflict rules and Steps
+5-16. The receipt records `base_merge: { base, behind, mergeable }` whenever the
+head lacks `origin/<base>`. A stacked child whose base has no queue merges its
+parent as before unless the policy sets `on-conflict`.
+
 ## `queue_mode: stamp-at-merge`
 
 Under `stamp-at-merge` nothing is claimed when a PR opens. The stamp happens

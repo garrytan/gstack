@@ -22,8 +22,19 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'ruled_notes', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
+  'review_loop_exception', 'ruled_notes', 'mechanical', 'review_targeted', 'design', 'base_merge', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
+
+/** GST-1772: what a head that leaves origin/<base> unmerged records (base_merge, docs/ship-policy.md#base-merge); undefined when the head holds the base or git cannot tell. */
+export function receiptBaseMerge(repoRoot: string, base: string, head: string): ShipReceipt['base_merge'] {
+  const git = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 });
+  const tip = git(['rev-parse', '--verify', '--quiet', `origin/${base.replace(/^origin\//, '')}^{commit}`]).stdout?.trim();
+  if (!tip || git(['merge-base', '--is-ancestor', tip, head]).status !== 1) return undefined;
+  const merged = git(['merge-tree', '--write-tree', '--no-messages', head, tip]).status;
+  const behind = Number(git(['rev-list', '--count', `${head}..${tip}`]).stdout?.trim());
+  if ((merged !== 0 && merged !== 1) || !Number.isInteger(behind)) return undefined;
+  return { base: tip, behind, mergeable: merged === 0 ? 'clean' : 'conflict' };
+}
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
 export function orderReceipt(input: Partial<ShipReceipt> & { docs?: unknown }): ShipReceipt {

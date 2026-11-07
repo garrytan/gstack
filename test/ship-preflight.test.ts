@@ -8,6 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { laneConcurrency } from '../lib/ship-bin-common';
+import { BASE_MERGE_KEY_VERSION } from '../lib/ship-policy';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);
@@ -129,6 +130,50 @@ describe('gstack-ship-preflight', () => {
     expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
     expect(lineOf(r.stdout, 'DIFF')).toMatch(/^DIFF: 1 file changed, 1 insertion\(\+\); commits=1$/);
     expect(lineOf(r.stdout, 'POLICY')).toContain('queue_mode=stamp-at-merge');
+  });
+
+  // Value: protects=base_merge (GST-1772): on a merge-queue repo Step 3 leaves a base that merges cleanly unmerged, still merges a conflicting one, and auto asks GitHub for the queue and says why it merged when it cannot tell;
+  //   fails_when=a clean base is merged under on-conflict or a detected queue, a conflict is skipped, a failed queue check skips or merges silently, or always skips;
+  //   why_new=CAPY-1 on qm #3186 and #2878; seam=gh api graphql (mergeQueue), git merge-tree; no_claim=GitHub's own queue semantics
+  test('base_merge: a clean moved base is skipped under on-conflict or a detected queue; a conflict, always, no queue or a failed check merges', () => {
+    const policy = (mode: string) => ({ '.gstack/ship-policy.json': JSON.stringify({ base_merge: mode, min_gstack_version: BASE_MERGE_KEY_VERSION }) + '\n' });
+    const skip = fx(policy('on-conflict'));
+    skip.advanceBase({ 'docs/new.md': '# new\n' });
+    const head = skip.git('rev-parse', 'HEAD').stdout.trim();
+    const skipped = skip.run(PREFLIGHT, ['--base', 'main']);
+    expect([skipped.status, lineOf(skipped.stdout, 'MERGE'), lineOf(skipped.stdout, 'BASE_MERGE')]).toEqual([0, "MERGE: skipped (origin/main is 1 commit(s) ahead and merges clean; base_merge on-conflict: the repo's merge queue tests the merge commit, so Step 3 merges only on a conflict)", '']);
+    expect(skip.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    const conflict = fx(policy('on-conflict'), { 'src/a.ts': 'export const a = 2;\n' });
+    conflict.advanceBase({ 'src/a.ts': 'export const a = 3;\n' });
+    const stopped = conflict.run(PREFLIGHT, ['--base', 'main']);
+    expect([stopped.status, /STOP: merge conflicts in src\/a\.ts/.test(stopped.stdout)]).toEqual([3, true]);
+    const auto = (gh: string, mode?: string) => {
+      const f = fx(mode ? policy(mode) : {});
+      f.gh(gh);
+      f.advanceBase({ 'docs/new.md': '# new\n' });
+      const r = f.run(PREFLIGHT, ['--base', 'main']);
+      return [r.status, lineOf(r.stdout, 'MERGE').replace(/[0-9a-f]{12}$/, '<sha>'), lineOf(r.stdout, 'BASE_MERGE')];
+    };
+    const queue = (answer: string) => `case "$*" in *mergeQueue*) echo ${answer} ;; esac`;
+    expect(auto(queue('true'))).toEqual([0, "MERGE: skipped (origin/main is 1 commit(s) ahead and merges clean; base_merge auto: GitHub's merge queue on main tests the merge commit, so Step 3 merges only on a conflict)", '']);
+    expect(auto(queue('false'))).toEqual([0, 'MERGE: merged origin/main at <sha>', '']);
+    expect(auto(queue('true'), 'always')).toEqual([0, 'MERGE: merged origin/main at <sha>', '']);
+    expect(auto('case "$*" in *mergeQueue*) echo "HTTP 401: Bad credentials" >&2; exit 1 ;; esac')).toEqual([0, 'MERGE: merged origin/main at <sha>',
+      'BASE_MERGE: auto, merge queue check failed (HTTP 401: Bad credentials): merging; set base_merge: on-conflict to skip a clean merge without the check']);
+  });
+
+  // Value: protects=a local origin/HEAD naming neither the base nor the remote's default branch is named with its fix, without stopping (the GBrain machine whose ready read another PR's review_exclude policy);
+  //   fails_when=the preflight is silent about a stray origin/HEAD, stops on it, or warns when origin/HEAD names the base;
+  //   why_new=GST-1772 scope addition from GStack Minder; seam=git symbolic-ref; no_claim=which tools read origin/HEAD
+  test('a local origin/HEAD naming another branch is a warning with its fix; naming the base is quiet', () => {
+    const f = fx();
+    expect(lineOf(f.run(PREFLIGHT, ['--base', 'main']).stdout, 'ORIGIN_HEAD')).toBe('');
+    f.git('push', '-q', 'origin', 'feat:other-pr');
+    f.git('fetch', '-q', 'origin', '+refs/heads/other-pr:refs/remotes/origin/other-pr');
+    f.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/other-pr');
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(r.status).toBe(0);
+    expect(lineOf(r.stdout, 'ORIGIN_HEAD')).toBe("ORIGIN_HEAD: warning: refs/remotes/origin/HEAD names origin/other-pr, neither origin/main nor the remote's default origin/main; a tool that takes the base from origin/HEAD (gstack-ship-queue ready's review_exclude read) reads origin/other-pr's policy instead; fix: git remote set-head origin --auto");
   });
 
   // Value: protects=Step 1 refreshes origin/<base> itself, so a clone whose fetch refspec leaves out the base (a single-branch

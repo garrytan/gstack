@@ -82,6 +82,8 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   if (remoteHead.status !== 0) { r.stop(`git ls-remote origin HEAD failed: ${firstLine(remoteHead.stderr)}; restore access first`); return false; }
   const head = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remoteHead.stdout)?.[1] ?? defaultBaseBranch(cwd).branch;
   if (branch === head) { r.stop(`on the base branch (${branch}): ship from a feature branch`); return false; }
+  const local = git(cwd, ['symbolic-ref', '-q', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^refs\/remotes\//, '');
+  if (local && local !== `origin/${base}` && local !== `origin/${head}`) r.add(`ORIGIN_HEAD: warning: refs/remotes/origin/HEAD names ${local}, neither origin/${base} nor the remote's default origin/${head}; a tool that takes the base from origin/HEAD (gstack-ship-queue ready's review_exclude read) reads ${local}'s policy instead; fix: git remote set-head origin --auto`);
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
@@ -155,17 +157,22 @@ function merge(cwd: string, base: string, r: Report): boolean {
   if (stampAtMerge) r.add('MERGE: skipped (queue_mode stamp-at-merge: the slot stamp merges the base; docs/ship-policy.md#ship-before-ready)');
   else if (git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) r.add('MERGE: up to date');
   else {
-    const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
-    const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
-    if (m.status !== 0) {
-      const conflicts = git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
-      r.stop(conflicts.length
-        ? `merge conflicts in ${short(conflicts, 8)}: resolve simple ones (VERSION, schema.rb, CHANGELOG ordering) yourself; for complex or ambiguous ones ask (Step 3), then commit the merge and rerun`
-        : `git merge origin/${base} failed: ${firstLine(m.stderr || m.stdout)}`);
-      return false;
+    const plan = cleanBaseSkip(cwd, base, policy?.base_merge ?? 'auto');
+    if (plan.note) r.add(`BASE_MERGE: ${plan.note}`);
+    if (plan.skip) r.add(`MERGE: skipped (${plan.skip})`);
+    else {
+      const before = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+      const m = git(cwd, ['merge', `origin/${base}`, '--no-edit'], 300_000);
+      if (m.status !== 0) {
+        const conflicts = git(cwd, ['diff', '--name-only', '--diff-filter=U']).stdout.split('\n').filter(Boolean);
+        r.stop(conflicts.length
+          ? `merge conflicts in ${short(conflicts, 8)}: resolve simple ones (VERSION, schema.rb, CHANGELOG ordering) yourself; for complex or ambiguous ones ask (Step 3), then commit the merge and rerun`
+          : `git merge origin/${base} failed: ${firstLine(m.stderr || m.stdout)}`);
+        return false;
+      }
+      const after = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
+      r.add(after === before ? 'MERGE: up to date' : `MERGE: merged origin/${base} at ${after.slice(0, 12)}`);
     }
-    const after = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
-    r.add(after === before ? 'MERGE: up to date' : `MERGE: merged origin/${base} at ${after.slice(0, 12)}`);
   }
   const added = git(cwd, ['diff', forkPoint(cwd, base), '--diff-filter=A', '--name-only']).stdout.split('\n');
   const untracked = git(cwd, ['ls-files', '--others', '--exclude-standard']).stdout.split('\n');
@@ -187,6 +194,25 @@ function merge(cwd: string, base: string, r: Report): boolean {
   } catch { /* unknown */ }
   r.add(`RUNTIME_LINES: ${runtime} (gstack-ship-budget check --runtime-lines at the Step 9 and 12 boundaries)`);
   return true;
+}
+
+/** base_merge (docs/ship-policy.md#base-merge): under on-conflict, or auto when GitHub reports a merge queue on the base, a moved base that merges cleanly (git merge-tree) stays unmerged, since the queue tests the merge commit; a conflict, `always`, or a check that cannot answer merges as before, and `note` says why. */
+function cleanBaseSkip(cwd: string, base: string, mode: string): { skip?: string; note?: string } {
+  if (mode === 'always') return {};
+  let via = 'base_merge on-conflict: the repo\'s merge queue tests the merge commit';
+  if (mode === 'auto') {
+    if (!hostedOrigin(cwd)) return { note: 'auto, merge queue not checked (origin is not a hosted remote): merging' };
+    const q = gh(cwd, ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `branch=${base}`, '-f', 'query=query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){id}}}', '--jq', '.data.repository.mergeQueue != null'], 30_000);
+    const answer = q.stdout.trim();
+    if (q.status !== 0 || !/^(true|false)$/.test(answer)) return { note: `auto, merge queue check failed (${firstLine(q.stderr) || `gh exit ${q.status}, no answer`}): merging; set base_merge: on-conflict to skip a clean merge without the check` };
+    if (answer === 'false') return {};
+    via = `base_merge auto: GitHub's merge queue on ${base} tests the merge commit`;
+  }
+  const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', 'HEAD', `origin/${base}`]);
+  if (m.status === 1) return {};
+  if (m.status !== 0) return { note: `merge-tree failed (${firstLine(m.stderr) || `exit ${m.status}`}): merging` };
+  const behind = git(cwd, ['rev-list', '--count', `HEAD..origin/${base}`]).stdout.trim();
+  return { skip: `origin/${base} is ${behind} commit(s) ahead and merges clean; ${via}, so Step 3 merges only on a conflict` };
 }
 
 async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, run: { concurrency: number; line: string }, r: Report): Promise<void> {

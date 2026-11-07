@@ -111,6 +111,8 @@ export interface ShipReceipt {
   pregate?: string; requires_remote?: string[];
   /** GST-1718: the design pass a rendered-UI diff got; phase 1 records only the static design-lite check, with why no rendered pass ran. */
   design?: { mode: 'static'; reason: string };
+  /** GST-1772: a head that leaves origin/<base> unmerged (base_merge, docs/ship-policy.md#base-merge): the base tip it was compared with, how many commits the head lacks, and whether that base merges with it. */
+  base_merge?: { base: string; behind: number; mergeable: 'clean' | 'conflict' };
   /** Approval classes (lib/approval-citations.ts): source, status, one record per declared class with hits, report-only built-in hits. */
   approval?: Record<string, unknown>;
   // C-pregate (C6): issue links the body carries, by intent.
@@ -279,6 +281,7 @@ export const ARTIFACT_SCHEMAS = {
       ruled_notes: { type: 'array', items: { type: 'object', required: ['finding', 'head', 'by', 'reason', 'at', 'approval'], properties: { finding: str, head: str, by: str, reason: str, at: str, approval: str } } },
       mechanical: strList,
       design: { type: 'object', required: ['mode', 'reason'], properties: { mode: { enum: ['static'] }, reason: str } },
+      base_merge: { type: 'object', required: ['base', 'behind', 'mergeable'], properties: { base: str, behind: { type: 'integer', minimum: 0 }, mergeable: { enum: ['clean', 'conflict'] } } },
       no_stop: { type: 'array', items: { type: 'object', required: ['class', 'reason', 'evidence'], properties: { class: { enum: [...NO_STOP_CLASSES] }, reason: str, evidence: str } } },
       issues: { type: 'object', properties: { fixes: { type: 'array', items: { type: 'integer' } }, refs: { type: 'array', items: { type: 'integer' } }, flakes: { type: 'array', items: { type: 'object', required: ['issue', 'run'], properties: { issue: { type: 'integer' }, run: str } } }, related: { type: 'array', items: { type: 'object', required: ['pr', 'author', 'closes'], properties: { pr: { type: 'integer' }, repo: str, author: str, closes: { type: 'array', items: { type: 'integer' } }, supersedes: { type: 'boolean' }, credit: { type: 'boolean' } } } } } },
     },

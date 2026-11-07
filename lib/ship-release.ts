@@ -505,6 +505,19 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   return true;
 }
 
+/** GST-1772: a base Step 3 left unmerged (base_merge) must still merge cleanly after the release commit, since a VERSION or CHANGELOG write can make it conflict; checked against a fresh fetch that leaves origin/<base> where Step 1 put it. */
+function baseStillMerges(cwd: string, base: string, policy: Record<string, any> | null, r: Report): boolean {
+  if (policy?.queue_mode === 'stamp-at-merge' || git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) return true;
+  const fetched = git(cwd, ['fetch', '--quiet', '--refmap=', 'origin', `refs/heads/${base}`], 300_000).status === 0;
+  const tip = fetched ? git(cwd, ['rev-parse', 'FETCH_HEAD']).stdout.trim() : `origin/${base}`;
+  const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', '--name-only', 'HEAD', tip]);
+  const where = fetched ? `origin/${base} at ${tip.slice(0, 12)}` : `origin/${base} (fetch failed; Step 1's copy)`;
+  if (m.status === 0) { r.add(`BASE_MERGE: ${where} still merges clean with HEAD (left unmerged at Step 3)`); return true; }
+  if (m.status !== 1) { r.add(`BASE_MERGE: not checked (merge-tree failed: ${firstLine(m.stderr) || `exit ${m.status}`})`); return true; }
+  r.stop(`${where}, left unmerged at Step 3, now conflicts with HEAD in ${short(m.stdout.split('\n').slice(1).filter(Boolean), 8)}: git merge origin/${base} under Step 3's conflict rules, commit, then run Steps 5-16 again`);
+  return false;
+}
+
 /** Steps 15-16; once they pass, the /ship run's preflight marker is cleared, so a full preflight may merge the base again (GST-1204). */
 export async function finish(argv: readonly string[], cwd: string): Promise<Report> {
   const r = await finishStages(argv, cwd);
@@ -533,6 +546,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   }
   const policy = shipPolicy(cwd, base);
   if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD', base), flag('--trailer'), r)) return r;
+  if (!baseStillMerges(cwd, base.replace(/^origin\//, ''), policy, r)) return r;
   for (const cmd of all('--build')) {
     const b = sh(cwd, cmd);
     r.add(`BUILD: ${b.status === 0 ? 'ok' : `FAIL exit=${b.status}`} ${cmd.slice(0, 120)}`);
