@@ -677,7 +677,7 @@ EOR
 )
 _routing_offer() {
   if [ "$_PROACTIVE" = "core" ]; then
-    _GSTACK_CORE_RULES="$_CORE_ROUTING_RULES" awk '/^- .* → invoke \// { if (!done) { print ENVIRON["_GSTACK_CORE_RULES"]; done = 1 } next } { print }'
+    _GSTACK_CORE_RULES="$_CORE_ROUTING_RULES" awk '/^- .* → / { if (!done) { print ENVIRON["_GSTACK_CORE_RULES"]; done = 1 } next } { print }'
   else
     cat
   fi | sed "s|__BIN__|$_BIN|g"
