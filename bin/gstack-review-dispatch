@@ -81,7 +81,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
        [--voices] [--checklist-root <dir>] [--fix-list <f> --hunks <f> --tests <f> [--callers <f>]] [-- <gstack-review-plan flags>]
       runs gstack-review-plan and writes <out>/pass-manifest.json: stage first (audit readers marked first in --extras),
       specialists (with the other --extras readers), red-team, voices (Step 11). Renders first and specialists now; prints
-      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped or fix-check prints PASS: none.
+      the plan, MANIFEST: and one READER: line per reader. A plan whose NEXT is not full, scoped, fix-check or targeted prints
+      PASS: none, except NEXT: voices under --voices.
       --voices (Step 11 on its own --out) keeps only the plan's voices, so it renders nothing its program never sends; it
       takes no --extras, and a reviewer pass refuses to resume its manifest.
       <id> is letters, digits and dashes, read as lowercase (P1 is p1): the manifest, reader titles and a resume use that form.
@@ -405,7 +406,7 @@ function pass(): number {
   const step = p.next.step;
   const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
   const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
-  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check' && step !== 'targeted') { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check' && step !== 'targeted' && !(step === 'voices' && args.includes('--voices'))) { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
   const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
   if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
   const mergeBase = mergeBaseWith(base);

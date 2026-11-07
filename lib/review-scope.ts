@@ -468,8 +468,8 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
     }
   }
   for (const p of ledgerPasses) {
-    const n = /^p(\d+)$/.exec(p.name ?? '')?.[1];
-    if (n && !passes.some(r => String(r.pass) === n)) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
+    const n = passNo(p);
+    if (n !== undefined && Number.isFinite(n) && !passes.some(r => String(r.pass) === String(n))) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
   }
   const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
   if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);

@@ -534,7 +534,9 @@ the supervision above. Close the obligation one of four ways:
   its preflight checks) and the VM only as the opt-in (under `--no-ci-carry` it
   names the VM route); or
 - after running it, `gstack-pregate clear --remote pregate.json/remote_gate
-  --receipt <file>` with the gate's output, validated as `--remote` validates it
+  --receipt <file>` with the gate's output (or a `gstack-pregate --remote` log,
+  where the line sits under `lanes:`, accepted only when that log's lanes check
+  reads `requires-remote`), validated as `--remote` validates it
   (a run URL is refused, `PREGATE_RECEIPT_INVALID` for a bad receipt; a receipt
   for a tree that differs from this one only by the repo's stamp rule is
   accepted and recorded, see [below](#remote-gate-stamp-only)), or
@@ -1285,13 +1287,20 @@ pregate reran `gstack-pregate` on the tree the lane had already cleared
 `macos-named-regressions` and `windows-smoke` on from CI runs, and the fresh
 record dropped both receipts, so accept stopped on `requires-remote (2
 uncleared)` and never exited 0 (#4063, GST-1595). Now, when `gstack-pregate`
-writes over a record for the same head, tree, policy and base branch, each uncleared
-obligation takes the earlier receipt for the same lane, platform, workflow and
-job, with its `cleared_by`, stamp-only substitution and flaky exception, as long
-as the earlier obligation listed every test the new one needs. Each kept
+writes over a record for the same head, tree, policy source and base branch (the
+base branch may have moved: the policy label's base commit does not count,
+GST-1775), each uncleared
+obligation takes the earlier receipt for the same lane, platform, workflow, job
+and gate command, with its `cleared_by`, stamp-only substitution and flaky exception, as long
+as the earlier obligation listed every test the new one needs. A receipt a
+stamp-only substitution accepted carries only while the base commit is the same:
+the base's stamp rules accepted it, and a moved base may have changed them. Each kept
 receipt prints `PREGATE_CLEAR_KEPT: <lane> receipt=<receipt> (recorded at this
 tree <tree12>; …)` (on stderr under `--json`), and accept relays the lines
-before its `PREGATE:` line. A record for another head or tree keeps nothing,
+before its `PREGATE:` line. A run without `--base` at the record's head keeps
+that record's base branch rather than `origin/HEAD`'s, and says so on stderr when
+they differ, so a `--stage tests` rerun cannot drop the clears by reading
+another branch (GST-1775). A record for another head or tree keeps nothing,
 so any commit after the clear, even an amend that keeps the tree, needs a new
 clear at the new head: a receipt and its flaky exception were vetted against
 the head they name. A rerun with a

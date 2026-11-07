@@ -298,4 +298,26 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     const s = loop(summary(repo, '--run', run));
     expect(s).toMatchObject({ passes: 1, blocking_found: 1, fixed: 0, fix_checks: 1, unrecorded: 1 });
   });
+
+  // GST-1775 (gbrain#8730): a granted fix-check run with out <run>/p4 left its ledger in p4, and its row was logged
+  //   pass:2 skill:review-fix-check, so summary named p4 an unbound pass 4 and the receipt carried unbound=1.
+  // Value: protects=a fix-check ledger binds to its review-fix-check row whatever its directory is called;
+  //   fails_when=a fix-check ledger named p<N> is read as pass N; seam=gstack-review-scope summary --run
+  test('a fix-check ledger in a p<N> directory is a fix-check, never an unbound pass N', () => {
+    const repo = branchWith([
+      review(0, 1, [{ fingerprint: 'lib/a.ts:10:logic', severity: 'CRITICAL', blocking: true, action: 'fixed', raised_by: 'red-team' }]),
+      review(20, 2, []),
+      { ...fixCheck(40, []), pass: 2 },
+    ]);
+    const run = path.join(repo.root, 'run');
+    const step = (dir: string, readers: Array<[string, string]>) => { pass(path.join(run, dir), readers); Bun.sleepSync(5); };
+    step('p1', [['red-team', '[CRITICAL] lib/a.ts:10 the cap is never enforced']]);
+    step('p2', [['red-team', CLEAN]]);
+    step('p4', [['fix-check', CLEAN]]);
+    const r = summary(repo, '--run', run);
+    expect(r.err).not.toContain('REVIEW_SCOPE_UNBOUND');
+    const s = loop(r);
+    expect(s).toMatchObject({ passes: 2, blocking_found: 1, fixed: 1, fix_checks: 1, rounds: 3, ledgers_read: 3 });
+    expect(s.unbound).toBeUndefined();
+  });
 });
