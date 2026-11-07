@@ -103,10 +103,15 @@ export async function ensureDaemon(
         log(verbose, `attached to existing daemon pid=${existing.pid} port=${existing.port}`);
         return { port: existing.port, token: existing.token, version: health.version, spawned: false };
       }
-      // Version mismatch: refuse if active boards exist (Codex finding).
+      // Version mismatch, or a daemon from before per-daemon secrets: refuse if
+      // active boards exist (Codex finding).
       if (health.activeBoards > 0) {
+        const mismatch =
+          health.version === expectedVersion
+            ? `existing daemon (gstack ${health.version}) predates per-daemon secrets`
+            : `existing daemon is gstack ${health.version}; this CLI is ${expectedVersion}`;
         process.stderr.write(
-          `[design-daemon] WARNING: existing daemon is gstack ${health.version}; this CLI is ${expectedVersion}.\n` +
+          `[design-daemon] WARNING: ${mismatch}.\n` +
             `[design-daemon] ${health.activeBoards} active board(s) detected. Refusing to auto-kill.\n` +
             `[design-daemon] Submit or close the open boards, then re-run.\n` +
             `[design-daemon] Or force restart: $D daemon stop (will drop in-memory history).\n`,
