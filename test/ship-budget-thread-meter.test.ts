@@ -231,6 +231,23 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
 
   // Value: protects=a note or close that names neither a task title nor readers of its own meters the tree instead of being refused, and a pass note proves the row by its readers; fails_when=an untitled command is refused, meters the stored title's row unconfirmed, or holds used= flat;
   //   why_new=/ship fix-check on #4107 (fix-check#1: the pass program's untitled note was refused) and the Captain's rule that a missing title means the tree (GST-1699); seam=none; no_claim=which subagent an untitled command runs in
+  // Value: protects=an untitled run resumed in a replacement /ship subagent keeps its predecessor's spend in used=; fails_when=the replacement's first pass note rebases used= onto a row the run's first snapshot never listed, dropping the earlier subagent's spend;
+  //   why_new=the specialist's repro on #4107 at 76f7a3f: used= fell from 41M to 8M while /ship had spent about 48M; seam=none; no_claim=a titled replacement, covered by the task-title tests above
+  test('an untitled run replaced before its first reader keeps the old subagent spend in used=', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '50M', '--thread', snap(h, 100_000_000, [['Subagent 1', 'ship A', 1_000_000]])]);
+    expect(s.code, s.out + s.err).toBe(0);
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 140_000_000, [['Subagent 1', 'ship A', 41_000_000]])]);
+    const resume = h.sb(['resume', '--run', run, '--thread', snap(h, 141_000_000, [['Subagent 1', 'ship A', 41_000_000], ['Subagent 2', 'ship A recover', 1_000_000]])]);
+    expect(resume.code, resume.out + resume.err).toBe(0);
+    const p = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread',
+      snap(h, 150_000_000, [['Subagent 1', 'ship A', 41_000_000], ['Subagent 2', 'ship A recover', 8_000_000], ['Subagent 2.1', P1, 2_000_000]], [P1])]);
+    expect(p.code, p.out + p.err).toBe(0);
+    expect(field(p.out, 'NOTE', 'used')).toBeGreaterThanOrEqual(48_000_000);
+    expect(p.out).toContain('METER_FALLBACK: Subagent 2 was not listed when the run started');
+  });
+
   test('an untitled note or close meters the tree; an untitled pass note meters the row its readers prove', () => {
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '100M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });

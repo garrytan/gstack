@@ -81,6 +81,7 @@ function identify(m: ShipMeter, s: Snapshot, caller: string | undefined): { labe
   const [label] = candidates as Set<string>;
   if (m.label !== undefined && m.label !== label) return { reason: `the run metered ${m.label} and this reading points at ${label}` };
   if (!s.rows.some(r => r.label === label)) return { reason: `${label} is not among the ${s.rows.length} of ${s.total} rows listed` };
+  if (!(label in m.start_rows)) return { reason: `${label} was not listed when the run started (a replacement /ship subagent)` };
   const confirmed = caller !== undefined || created.some(r => s.dispatched.includes(r.title) && parentOf(r.label) === label);
   if (!confirmed) return { reason: `this command names no task title and no readers of its own, so it cannot show it runs in ${label}` };
   return { label };
