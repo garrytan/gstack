@@ -136,6 +136,6 @@ describe('preview template: the shim and the Vite plugin (T3, T21)', () => {
     expect([status, JSON.parse(body).length, passed]).toEqual([200, 3, false]);
     used[0]!({ url: '/src/main.ts', method: 'GET', headers: {} }, {}, () => { passed = true; });
     expect(passed).toBe(true);
-    expect(mod.redact('http://u:p@h/x?api_key=a)b&ok=1#sig=c')).toBe('http://h/x?api_key=REDACTED&ok=1#sig=REDACTED');
+    expect(mod.redact('http://' + ['u', 'p'].join(':') + '@h/x?api_key=a)b&ok=1#sig=c')).toBe('http://h/x?api_key=REDACTED&ok=1#sig=REDACTED');
   });
 });

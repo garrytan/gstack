@@ -241,7 +241,7 @@ function readLint(runDir: string, verifyAt: number, add: (code: string, detail: 
 }
 
 /** Decide the outcome from the evidence on disk, write the versioned receipt and return its one line. */
-export function receipt(r: ReceiptInput): { line: string; file: string; exit: number; receipt: Record<string, unknown> } {
+export function receipt(r: ReceiptInput): { line: string; file: string; exit: number; receipt: Record<string, unknown> & { states: Array<Record<string, unknown>>; open: unknown[]; waived: unknown[] } } {
   if (!Number.isInteger(r.rounds) || r.rounds < 0 || r.rounds > MAX_ROUNDS) throw new BuildUsageError('ROUNDS', `--rounds ${r.rounds} is outside 0 to ${MAX_ROUNDS}`, `the loop stops editing after round ${MAX_ROUNDS}; report the open list instead of a fourth round`);
   const verifyFile = path.join(r.runDir, 'verify.json');
   if (!fs.existsSync(verifyFile)) throw new BuildUsageError('NO_VERIFY', `${verifyFile} is missing`, 'run verify-start right before the final verification pass');

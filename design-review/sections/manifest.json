@@ -5,6 +5,12 @@
   "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section. Carved on every host (CARVED_ON_EVERY_HOST in scripts/resolvers/sections.ts).",
   "sections": [
     {
+      "id": "build-loop",
+      "file": "build-loop.md",
+      "title": "Build loop: /design-review --build",
+      "trigger": "a --build run"
+    },
+    {
       "id": "craft-audit",
       "file": "craft-audit.md",
       "title": "Craft audit: Persuade pages and redesigns",

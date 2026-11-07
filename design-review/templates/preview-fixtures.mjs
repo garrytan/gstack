@@ -236,9 +236,12 @@ async function stopCmd(o) {
   const file = path.join(stateDir, 'preview.json');
   if (!fs.existsSync(file)) { console.log(`PREVIEW: stopped (nothing running for ${stateDir})`); return; }
   const { pid, port } = JSON.parse(fs.readFileSync(file, 'utf8'));
-  try { process.kill(pid, 'SIGTERM'); } catch { fs.rmSync(file, { force: true }); }
-  for (let i = 0; i < 50 && fs.existsSync(file); i++) await new Promise((r) => setTimeout(r, 100));
-  if (fs.existsSync(file)) throw new PreviewError('PREVIEW_STOP', `process ${pid} did not stop within 5 s`);
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  if (alive()) process.kill(pid, 'SIGTERM');
+  const running = () => fs.existsSync(file) && alive();
+  for (let i = 0; i < 50 && running(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (running()) throw new PreviewError('PREVIEW_STOP', `process ${pid} did not stop within 5 s`);
+  fs.rmSync(file, { force: true });
   console.log(`PREVIEW: stopped port=${port}`);
 }
 
