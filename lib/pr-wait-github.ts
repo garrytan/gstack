@@ -1,10 +1,11 @@
 /**
  * pr-wait-github — the GitHub read side of gstack-pr-wait: a gh runner that
- * retries transient failures, the one GraphQL read of a pull request, its
- * checks from `gh pr checks`, the required-check names from rulesets and
- * classic branch protection, and the base-branch comparisons. The event logic
- * is lib/pr-wait.ts; the two are split so each stays under the module-size
- * ratchet.
+ * retries transient failures (never a rate limit, GST-1713), the pull
+ * request's state, base head and head-commit checks from REST, the one
+ * GraphQL read of its conversation (comments, reviews, review threads), the
+ * required-check names from rulesets and classic branch protection, and the
+ * base-branch comparisons. The event logic is lib/pr-wait.ts; the two are
+ * split so each stays under the module-size ratchet.
  *
  * Design ported from tstack's `pr-wait` (t3dotgg/tstack,
  * skills/babysit-pr/scripts/pr-wait at 7de017b, MIT, Copyright (c) 2026 Theo
@@ -12,6 +13,7 @@
  * gstack's gh runner shape (lib/ci-gate.ts).
  */
 import type { GhResult, GhRunner } from './ci-gate';
+import { parseHeadChecks, parsePullState, rateLimitKind, type PullState } from './gh-poll';
 
 export class GhError extends Error {
   constructor(message: string, readonly transient: boolean) {
@@ -32,22 +34,12 @@ export interface Actor { login: string; bot: boolean }
 export interface Comment { id: string; url: string; body: string; author: Actor }
 export interface Review { id: string; url: string; state: string; body: string; commitOid: string | null; author: Actor }
 export interface Thread { isResolved: boolean; path: string; line: number | null; comments: Comment[] }
-export interface PullRequest {
-  url: string;
-  state: string;
-  headRefOid: string;
-  baseRefName: string;
-  mergeStateStatus: string;
-  baseOid: string | null;
-  author: string;
-  viewer: string;
-  comments: Comment[];
-  reviews: Review[];
-  threads: Thread[];
-}
+/** What people said on the PR: the one GraphQL read, which REST cannot answer (review-thread resolution). */
+export interface Conversation { viewer: string; comments: Comment[]; reviews: Review[]; threads: Thread[] }
+export interface PullRequest extends PullState, Conversation { baseOid: string | null }
 export interface Check { name: string; bucket: string; link: string; description: string }
 
-const TRANSIENT = /HTTP (5\d\d|429)|rate limit|timed? ?out|connection (reset|refused)|EOF|temporar|could not resolve host|TLS handshake|Something went wrong/i;
+const TRANSIENT = /HTTP 5\d\d|timed? ?out|connection (reset|refused)|EOF|temporar|could not resolve host|TLS handshake|Something went wrong/i;
 const RETRIES = 5;
 const PASS_BUCKETS = new Set(['pass', 'skipping', 'neutral']);
 /** Worst bucket first, for collapsing duplicate check names (push and pull_request runs of one job). */
@@ -58,9 +50,6 @@ query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      url state headRefOid baseRefName mergeStateStatus
-      author { login }
-      baseRef { target { oid } }
       comments(last: 100) { nodes { id url body author { login __typename } } }
       reviews(last: 100) {
         nodes { id url state body commit { oid } author { login __typename } }
@@ -85,7 +74,11 @@ function lastLine(text: string): string {
   return text.trim().split(/\r?\n/).filter(Boolean).at(-1) ?? '';
 }
 
-/** Run gh. A transient failure (HTTP 5xx or 429, network) is retried with doubling backoff. */
+/**
+ * Run gh. A transient failure (HTTP 5xx, network) is retried with doubling backoff. A rate limit is never retried
+ * here: it throws a transient GhError at once, and the poll loop waits its full interval (the production runner,
+ * lib/gh-poll.ts withRateLimit, has already slept until the reset).
+ */
 export function runGh(env: GhEnv, args: string[], allow: number[] = [0]): GhResult {
   let delay = 2_000;
   for (let attempt = 1; ; attempt++) {
@@ -93,11 +86,13 @@ export function runGh(env: GhEnv, args: string[], allow: number[] = [0]): GhResu
     // gh missing is fatal; any other spawn failure (its 60 s timeout, a signal) is a slow API, so retry.
     if (result.error && /not installed/.test(result.error)) throw new GhError(result.error, false);
     const status = result.status ?? -1;
+    if (status !== 0 && rateLimitKind(args, `${result.stderr}\n${result.stdout}`)) throw new GhError(lastLine(result.stderr) || 'GitHub rate limit', true);
     const transient = status !== 0 && (result.error !== undefined || result.status === null || TRANSIENT.test(result.stderr));
     if (!transient && allow.includes(status)) return result;
     const message = result.error ?? (lastLine(result.stderr) || `gh exited ${status}`);
     if (!transient || attempt === RETRIES) throw new GhError(message, transient);
     env.log(`gh ${args.slice(0, 2).join(' ')}: ${message}; retry in ${delay / 1000}s`);
+    // gh-poll-exempt: a 5xx or network retry of one read (2, 4, 8, 16 s), never a rate limit (thrown above)
     env.sleep(delay);
     delay *= 2;
   }
@@ -125,31 +120,43 @@ export function currentRepo(env: GhEnv): string {
   return runGh(env, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).stdout.trim();
 }
 
-/** Confirms the PR exists and is readable; throws GhError otherwise. */
+/** Confirms the PR exists and is readable (REST); throws GhError otherwise. */
 export function confirmPullRequest(env: GhEnv, repo: string, pr: number): void {
-  runGh(env, ['pr', 'view', String(pr), '-R', repo, '--json', 'number']);
+  runGh(env, ['api', `repos/${repo}/pulls/${pr}`, '--jq', '.number']);
 }
 
-export function fetchPullRequest(env: GhEnv, repo: string, pr: number): PullRequest {
+/** The PR's state, head, base and merge state from REST `pulls/{n}`: no GraphQL. */
+export function fetchPullState(env: GhEnv, repo: string, pr: number): PullState {
+  const state = parsePullState(runGh(env, ['api', `repos/${repo}/pulls/${pr}`]).stdout);
+  if (!state) throw new GhError(`${repo}#${pr} is not a pull request GitHub returned`, false);
+  return state;
+}
+
+/** The base branch's current head commit (REST), or null when unreadable. */
+export function fetchBaseOid(env: GhEnv, repo: string, base: string): string | null {
+  try {
+    return runGh(env, ['api', `repos/${repo}/git/ref/heads/${base}`, '--jq', '.object.sha']).stdout.trim() || null;
+  } catch (error) {
+    if (error instanceof GhError && error.transient) throw error;
+    return null;
+  }
+}
+
+/** The conversation: the one GraphQL read, made only when lib/pr-wait.ts decides it is stale. */
+export function fetchConversation(env: GhEnv, repo: string, pr: number): Conversation {
   const [owner, name] = repo.split('/');
   const result = runGh(env, ['api', 'graphql', '-f', `query=${PR_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${pr}`]);
   let parsed: Json;
   try { parsed = obj(JSON.parse(result.stdout)); } catch {
     throw new GhError('gh api graphql printed output that is not JSON', false);
   }
-  const node = obj(obj(obj(parsed.data).repository).pullRequest);
-  if (!str(node.headRefOid)) {
+  const pullRequest = obj(obj(parsed.data).repository).pullRequest;
+  if (!pullRequest || typeof pullRequest !== 'object') {
     const errors = Array.isArray(parsed.errors) ? parsed.errors.map(e => str(obj(e).message)).filter(Boolean).join('; ') : '';
     throw new GhError(errors || `${repo}#${pr} is not a pull request GitHub returned`, false);
   }
+  const node = obj(pullRequest);
   return {
-    url: str(node.url),
-    state: str(node.state),
-    headRefOid: str(node.headRefOid),
-    baseRefName: str(node.baseRefName),
-    mergeStateStatus: str(node.mergeStateStatus) || 'UNKNOWN',
-    baseOid: str(obj(obj(node.baseRef).target).oid) || null,
-    author: str(obj(node.author).login) || 'ghost',
     viewer: str(obj(obj(parsed.data).viewer).login),
     comments: nodes(node.comments).map(comment),
     reviews: nodes(node.reviews).map(r => ({ ...comment(r), state: str(r.state), commitOid: str(obj(r.commit).oid) || null })),
@@ -162,29 +169,28 @@ export function fetchPullRequest(env: GhEnv, repo: string, pr: number): PullRequ
   };
 }
 
+/** Every entry of a paginated REST list, read with `--paginate --jq '.<key>[]'` (one JSON value per line). */
+function restList(env: GhEnv, path: string, key: string): unknown[] {
+  const lines = runGh(env, ['api', '--paginate', path, '--jq', `.${key}[]`]).stdout.split(/\r?\n/).filter(Boolean);
+  try { return lines.map(line => JSON.parse(line)); } catch {
+    throw new GhError(`gh api ${path} printed output that is not JSON`, false);
+  }
+}
+
 /**
- * Every check on the PR head by name, duplicates collapsed to the worst
- * bucket. `gh pr checks` exits 8 while checks run and 1 when one failed:
- * those are states, so the JSON is read whatever the exit status.
+ * Every check on the head commit by name, from REST check runs and commit
+ * statuses (the same rows `gh pr checks` reads through GraphQL), duplicates
+ * collapsed to the worst bucket.
  */
-export function fetchChecks(env: GhEnv, repo: string, pr: number): Map<string, Check> {
-  const result = runGh(env, ['pr', 'checks', String(pr), '-R', repo, '--json', 'name,bucket,link,description'], [0, 1, 8]);
+export function fetchChecks(env: GhEnv, repo: string, head: string): Map<string, Check> {
+  const rows = parseHeadChecks(
+    restList(env, `repos/${repo}/commits/${head}/check-runs?per_page=100`, 'check_runs'),
+    restList(env, `repos/${repo}/commits/${head}/status?per_page=100`, 'statuses'),
+  );
   const checks = new Map<string, Check>();
-  if (!result.stdout.trim()) {
-    if (/no checks reported/.test(result.stderr)) return checks;
-    throw new GhError(lastLine(result.stderr) || `gh pr checks exited ${result.status}`, false);
-  }
-  let rows: unknown;
-  try { rows = JSON.parse(result.stdout); } catch {
-    throw new GhError('gh pr checks printed output that is not JSON', false);
-  }
-  if (!Array.isArray(rows)) throw new GhError('gh pr checks JSON is not a list', false);
-  for (const raw of rows.map(obj)) {
-    const name = str(raw.name);
-    if (!name) continue;
-    const row: Check = { name, bucket: str(raw.bucket) || 'pending', link: str(raw.link), description: str(raw.description) };
-    const current = checks.get(name);
-    if (!current || RANK[bucketClass(row.bucket)] > RANK[bucketClass(current.bucket)]) checks.set(name, row);
+  for (const row of rows) {
+    const current = checks.get(row.name);
+    if (!current || RANK[bucketClass(row.bucket)] > RANK[bucketClass(current.bucket)]) checks.set(row.name, row);
   }
   return checks;
 }

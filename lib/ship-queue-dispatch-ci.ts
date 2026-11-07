@@ -16,6 +16,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pollDelayMs } from './gh-poll';
 import type { PregateFile } from './headless-artifacts';
 import { PREGATE_OUT_REL, clearObligation, readPregateFile, writePregateFile } from './pregate/index';
 import type { QueueContext } from './ship-queue';
@@ -65,7 +66,7 @@ export async function dispatchCi(ctx: QueueContext, o: DispatchCiOptions): Promi
       run = run && slug ? runView(ctx, slug, run.databaseId) ?? run : runsAt(ctx, wf, branch, head)[0];
       if (run?.status === 'completed') break;
       if (Date.now() >= deadline) return { lines: [...lines, `CI_DISPATCH: ${wf} --ref ${branch} ${run ? `run ${run.databaseId} ${run.url} ${run.status}` : 'no run appeared'}`], failure: { code: 'QUEUE_TRAIN_PENDING', message: `${wf} ${run ? `run ${run.databaseId} is still ${run.status}` : 'has no workflow_dispatch run at this head yet'} at the --dispatch-ci timeout; rerun ready --dispatch-ci to continue waiting` } };
-      await sleep(o.pollMs);
+      await sleep(pollDelayMs(o.pollMs));
     }
     lines.push(`CI_DISPATCH: ${wf} --ref ${branch} run ${run.databaseId} ${run.url} ${run.conclusion ?? 'unknown'}`);
     concluded.set(wf, run);

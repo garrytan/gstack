@@ -2378,7 +2378,7 @@ restamping`, GST-1245), so a reset stamp needs no hand cleanup:
    keeps the reviewed pin apart from the last pushed head, so a rerun leases
    on what it pushed and never on a head someone else pushed
    (`QUEUE_TRAIN_MOVED`, never overwritten).
-5. **Wait** for the PR's checks on the stamp commit, polling every 30 seconds
+5. **Wait** for the PR's checks on the stamp commit, polling every 60 seconds or more (lib/gh-poll.ts)
    with the same check read the pin passed (`--timeout <min>`, default 60). `--no-wait`
    stops after the push and prints `gstack-pr-wait <n> --until green &&
    gstack-ship-queue land --pr <n>` to run instead.

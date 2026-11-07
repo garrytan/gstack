@@ -255,7 +255,7 @@ gh run list --repo "$REPO" --branch "$BASE_BRANCH" --limit 10 --json databaseId,
 Match `DEPLOY_SHA`, workflow and target environment. If no run appears yet, repeat
 the lookup within the same 20-minute deadline. A name match on another SHA is not evidence.
 
-Poll every 30 seconds:
+Poll every 60 seconds:
 ```bash
 gh run view <run-id> --repo "$REPO" --json status,conclusion
 ```
@@ -441,7 +441,7 @@ Recheck read-only evidence; never redo a merge/deploy because a section was miss
 
 - Never force-push, bypass CI, replay a confirmed merge, or hide missing evidence.
 - Auto-detect facts; ask when unknown or an explicit approval gate applies.
-- Step 3 is one `gstack-pr-wait` call; elsewhere poll at the stated interval (30 s for merge readback and deploy) with progress lines.
+- Step 3 is one `gstack-pr-wait` call; elsewhere poll at the stated interval (60 s for merge readback and deploy) with progress lines.
 - After merge failures, offer approved rollback when appropriate; never revert a rollback automatically.
 - Verify once; `/canary` does extended monitoring; rechecks need the user's choice.
 - Use `--delete-branch`; reconcile failed cleanup non-destructively with confirmation.

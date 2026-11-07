@@ -151,6 +151,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/exit-propagation/**': ['test/exit-propagation.test.ts'],
   'test/fixtures/factory-scorecard/**': ['test/factory-scorecard.test.ts'],
   'test/fixtures/free-shard-capture.ts': ['test/test-free-shards-capture.test.ts'],
+  'test/fixtures/gh-poll/**': ['test/gh-poll.test.ts'],
   'test/fixtures/golden/**': ['test/host-config.test.ts', 'test/ship-review-loop.test.ts'],
   'test/fixtures/health-detect-legacy.sh': ['test/health-detect-no-loss.test.ts'],
   'test/fixtures/impeccable-antipatterns.json': ['test/design-catalog.test.ts', 'test/impeccable-fixtures.test.ts'],

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { MIN_POLL_MS, pollDelayMs, syncLimitEnv, withRateLimit } from './gh-poll';
 
 export type CiVerdict = 'PASS' | 'FAIL' | 'PENDING' | 'NO_CHECKS' | 'ERROR';
 export const CI_GATE_EXIT: Record<CiVerdict, number> = { PASS: 0, FAIL: 1, PENDING: 2, NO_CHECKS: 3, ERROR: 4 };
@@ -57,10 +58,12 @@ Options:
   --override-head SHA     head the exclusions were approved for; must equal
                           --expect-head
   --wait SECONDS          keep polling while PENDING, up to SECONDS (default 0)
-  --interval SECONDS      poll interval (default 30)
+  --interval SECONDS      poll interval (default and minimum 60, plus jitter;
+                          a smaller value is raised to 60)
   --registration-wait S   when no check exists yet, re-poll up to S seconds
                           before reporting NO_CHECKS (default 0; use 60 right
                           after a push, when checks may not be registered yet)
+  A GitHub rate limit waits for its reset, never retries at once (GST-1713).
   --help                  show this help`;
 
 export function bucketClass(bucket: string): Klass {
@@ -201,6 +204,7 @@ export async function runCiGate(
   gh: GhRunner,
   sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms)),
   now: () => number = Date.now,
+  random: () => number = Math.random,
 ): Promise<CiGateResult> {
   if (opts.excludes.length > 0 && opts.overrideHead !== opts.expectHead) {
     return {
@@ -210,13 +214,12 @@ export async function runCiGate(
   }
   const started = now();
   const elapsed = () => (now() - started) / 1000;
+  const step = Math.max(opts.intervalSeconds, MIN_POLL_MS / 1000);
   let result = evaluateOnce(gh, opts);
   while (true) {
-    if (result.verdict === 'NO_CHECKS' && elapsed() + Math.min(opts.intervalSeconds, 10) <= opts.registrationWaitSeconds) {
-      await sleep(Math.min(opts.intervalSeconds, 10) * 1000);
-    } else if (result.verdict === 'PENDING' && elapsed() + opts.intervalSeconds <= opts.waitSeconds) {
-      await sleep(opts.intervalSeconds * 1000);
-    } else break;
+    const window = result.verdict === 'NO_CHECKS' ? opts.registrationWaitSeconds : result.verdict === 'PENDING' ? opts.waitSeconds : 0;
+    if (elapsed() >= window) break;
+    await sleep(pollDelayMs(step * 1000, random));
     result = evaluateOnce(gh, opts);
   }
   if (result.verdict === 'NO_CHECKS') {
@@ -230,7 +233,7 @@ export async function runCiGate(
 
 export function parseCiGateArgs(argv: string[]): CiGateOptions | { help: true } | { error: string; expectHead?: string } {
   const opts: CiGateOptions = {
-    repo: '', pr: '', expectHead: '', excludes: [], waitSeconds: 0, intervalSeconds: 30, registrationWaitSeconds: 0,
+    repo: '', pr: '', expectHead: '', excludes: [], waitSeconds: 0, intervalSeconds: MIN_POLL_MS / 1000, registrationWaitSeconds: 0,
   };
   const seconds = (value: string | undefined, flag: string, positive = false): number | string => {
     if (value === undefined || !/^\d+(?:\.\d+)?$/.test(value)) return `${flag} needs a number of seconds`;
@@ -270,14 +273,15 @@ export function parseCiGateArgs(argv: string[]): CiGateOptions | { help: true } 
   return opts;
 }
 
-export const spawnGh: GhRunner = args => {
+/** gh as a GhRunner, with gh-poll's rate-limit rule: a rate-limited call sleeps until the reset instead of failing or retrying at once. */
+export const spawnGh: GhRunner = withRateLimit(args => {
   const result = spawnSync('gh', args, { encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
     return { status: null, stdout: '', stderr: result.stderr ?? '', error: code === 'ENOENT' ? 'gh is not installed or not on PATH' : `gh failed to run (${code ?? result.error.message})` };
   }
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
-};
+}, syncLimitEnv);
 
 export async function ciGateMain(argv: string[], gh: GhRunner = spawnGh, write: (text: string) => void = text => process.stdout.write(text)): Promise<number> {
   const parsed = parseCiGateArgs(argv);

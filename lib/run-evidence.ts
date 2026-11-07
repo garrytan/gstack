@@ -40,6 +40,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sha256Hex, writeReceipt } from './egress-receipt';
+import { ghSpawnSync } from './gh-poll';
 import { runBashSync } from './script-invocation';
 
 /**
@@ -307,7 +308,7 @@ const receiptFailed = (err: unknown) => process.stderr.write(`[run-evidence] egr
 
 function gh(args: string[], timeoutMs = 60_000): string {
   try { writeReceipt(receiptFor('api.github.com', 'actions-run-read', args.join(' '))); } catch (err) { receiptFailed(err); }
-  const r = spawnSync('gh', args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+  const r = ghSpawnSync(args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0 || r.error) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || String(r.error ?? '')).trim().slice(0, 300)}`);
   return r.stdout;
 }

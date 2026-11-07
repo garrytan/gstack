@@ -123,6 +123,7 @@ function gateMain(o: Required<Pick<BackstopOptions, 'repo' | 'branch' | 'sha'>> 
       run = json<Run>(o.gh(['api', `repos/${o.repo}/actions/runs/${run.id}`], GH_MS)) ?? run;
       if (run.status === 'completed') return run;
     }
+    // gh-poll-exempt: runs in GitHub Actions (evals-main-backstop.yml) on GITHUB_TOKEN; default 60 s
     o.sleep(o.pollMs);
   }
   lines.push(`the gate ${run ? `run ${run.id}` : 'dispatch'} did not finish before the backstop deadline`);
@@ -151,6 +152,7 @@ export function runBackstop(o: BackstopOptions): { action: BackstopAction; lines
     if (!merging.length) break;
     if (now() >= settleUntil) { lines.push(`BACKSTOP: train(s) ${merging.map(t => t.nonce).join(', ')} still merging after the settle window; gating anyway`); break; }
     lines.push(`BACKSTOP: waiting for train(s) ${merging.map(t => t.nonce).join(', ')} to finish merging${fetched.ok ? '' : ` (${fetched.detail})`}`);
+    // gh-poll-exempt: runs in GitHub Actions (evals-main-backstop.yml) on GITHUB_TOKEN; default 60 s
     sleep(pollMs);
   }
   const digest = stampFreeTree(git, o.sha, o.repoRoot, loaded.policy);

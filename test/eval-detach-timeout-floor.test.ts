@@ -135,7 +135,7 @@ describe('completion contract on both backends (DX-2)', () => {
   };
   const sandbox = () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eval-bg-'));
-    const env: NodeJS.ProcessEnv = { ...process.env, HOME: dir, GSTACK_EVAL_BG_POLL_MS: '50' };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: dir, GSTACK_EVAL_BG_POLL_MS: '50', GSTACK_GH_POLL_FLOOR_MS: '0' };
     return { dir, env };
   };
 
