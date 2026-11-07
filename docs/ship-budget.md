@@ -53,24 +53,27 @@ subagent in the tree with the cost of its own subtree. /ship's own row is the su
 the row titled `GSTACK_SHIP_TASK_TITLE` when the brief names one, else the parent of a subagent this
 run created. The pass program adds `dispatched` (its readers' titles) to the file it notes with, and
 the ledger keeps every title per run. Reader titles repeat across /ship runs in one lane, so only rows
-absent from the run's first snapshot count as its readers, and a task title that matches no row falls
-through to the readers' parent. A run that stored a task title takes `note`, `close` and `resume`
-only under that title, or from a pass note whose readers sit under its row; an untitled run adopts the
-first title it sees while its row is unknown. RECOVER runs in a new /ship subagent under a new title:
-its owner-approved `resume --approved-by <who> --words <their words> --thread <file>` rebinds the
-run to that title (`METER_REBIND:`), so `used=` so far carries and the new row is metered from that
-snapshot. Any other new title is refused, so the cap never reads a finished predecessor's row.
+absent from the run's first snapshot count as its readers.
 
-Once the row is found, `used=` and the cap count that row from its cost at the run's first snapshot,
-so spend counted on the tree before it drops out, and every cost line prints
+The row is metered only on a reading that identifies it unambiguously: the run's stored title, the
+command's own `GSTACK_SHIP_TASK_TITLE` and the parents of this run's readers all point at one listed
+row, the same row as before, and the command names either a title or readers of its own (a pass
+note). Any ambiguity meters that reading on the tree instead: a title that matches no row or two,
+readers under two parents, a row missing from a truncated list, a command under another title (a
+replacement /ship subagent, or RECOVER's `resume` in a new one), or a note or close with neither.
+Ambiguity never refuses a command, never stops the run and never holds `used=` flat; the worst case
+is over-counting.
+
+The first time the row is identified, `used=` and the cap count that row from its cost at the run's
+first snapshot, so spend counted on the tree before it drops out. After that, each reading adds the
+row's growth when the previous reading metered the same row, and the tree's growth otherwise. Every
+cost line on the row prints
 `METER: ship (task row <label>: /ship and its readers; tree= is the whole thread, never capped)`.
 `tree=` beside `used=` on every BUDGET, NOTE, BUDGET_FINAL and BUDGET_TIMELINE line is the root
 counter's growth since start. A pass's `readers_tokens` is the sum of its readers' own rows. Until the
-row is found (no reader yet and no task title, readers that are top-level subagents because /ship
-runs on the root thread, a list truncated past the row), the run meters the tree: it prints
-`METER_FALLBACK: <why>` and labels its cost lines `METER: tree (root counter, upper bound)`. A row
-missing from a later snapshot advances `used=` by the tree's growth since the previous snapshot, an
-upper bound, and holds there until the row's own cost catches up (`METER_ROW_MISSING:`). A `--thread`
+row is identified (no reader yet and no task title, readers that are top-level subagents because
+/ship runs on the root thread, or any ambiguity above), the reading meters the tree: it prints
+`METER_FALLBACK: <why>` and labels its cost lines `METER: tree (root counter, upper bound)`. A `--thread`
 run refuses a bare `--reading`, and `resume --meter-source` or `--rebuild-from-record` (both take
 `--reading` readings). A run started without `--thread` ignores the file, so the pass program passes
 both.

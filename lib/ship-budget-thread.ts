@@ -6,11 +6,14 @@
  * `tasks` rows, one per subagent in the tree, each with the cost of its own subtree. /ship's own
  * row is the subagent it runs in, found by the brief's GSTACK_SHIP_TASK_TITLE or as the parent of
  * a subagent this run created (`dispatched`, the titles the pass program writes). That row,
- * readers included, is what `used=` counts and the cap stops on. Until it is found (no reader yet,
- * /ship on the root thread itself, a truncated list) the run meters the tree, labelled.
+ * readers included, is what `used=` counts, but only on a reading where exactly one row matches
+ * every piece of the run's identity. Any ambiguity (a title that matches no row or two, readers
+ * under two parents, a missing row, a caller under another title, a command that names neither a
+ * title nor readers) meters that reading on the tree instead, labelled METER_FALLBACK: the run can
+ * over-count, never under-count, and never stops or refuses for ambiguity.
  */
 import * as fs from 'node:fs';
-import { budgetError, newEpoch, usageError, type Ledger } from './ship-budget';
+import { budgetError, usageError, type Ledger } from './ship-budget';
 
 interface Row { label: string; title: string; tokens: number; credits: number }
 interface Snapshot { tokens: number; credits: number; rows: Row[]; total: number; dispatched: string[] }
@@ -24,6 +27,8 @@ export interface ShipMeter {
   dispatched: string[];
   /** Each row's cost at the run's first snapshot: a row found later is metered from here. */
   start_rows: Record<string, Cost>;
+  /** The row and its cost at the last reading metered on it; absent after a tree reading. */
+  row?: Cost & { label: string };
   tree: { baseline: number; last: number; credits?: number };
   /** Why the run still meters the tree. */
   fallback?: string;
@@ -49,101 +54,81 @@ export function readSnapshot(file: string): Snapshot {
 
 /** Rows this run can have created: absent from its first snapshot. An earlier /ship's readers carry the same titles. */
 const newRows = (m: ShipMeter, s: Snapshot) => s.rows.filter(r => !(r.label in m.start_rows));
+const parentOf = (label: string) => label.replace(/\.\d+$/, '');
 
-function resolve(m: ShipMeter, s: Snapshot): { label?: string; reason?: string } {
+/**
+ * The row this reading may meter: the one label every piece of identity points at. The run's
+ * stored title, the caller's title, and the parents of the readers this run created each name
+ * a row; a title matching zero or several rows, two different rows, a row other than the one
+ * metered before, or a caller that names neither a title nor this pass's readers is ambiguous.
+ */
+function identify(m: ShipMeter, s: Snapshot, caller: string | undefined): { label: string } | { reason: string } {
   const truncated = s.total > s.rows.length ? `; the snapshot lists ${s.rows.length} of ${s.total} rows` : '';
-  let titleMiss = '';
-  if (m.task_title) {
-    const hits = s.rows.filter(r => r.title === m.task_title);
-    if (hits.length === 1) return { label: hits[0]!.label };
-    titleMiss = `${hits.length} rows carry the task title "${m.task_title}"; `;
+  if (caller !== undefined && m.task_title !== undefined && caller !== m.task_title) return { reason: `this command's task title "${caller}" is not the run's "${m.task_title}" (a replacement /ship subagent or a RECOVER under a new title)` };
+  const title = m.task_title ?? caller;
+  const candidates = new Set<string>();
+  if (title !== undefined) {
+    const hits = s.rows.filter(r => r.title === title);
+    if (hits.length !== 1) return { reason: `${hits.length} rows carry the task title "${title}"${truncated}` };
+    candidates.add(hits[0]!.label);
   }
-  const parents = new Set<string>();
   const created = newRows(m, s);
-  for (const title of m.dispatched) {
-    const hits = created.filter(r => r.title === title);
-    if (hits.length !== 1) continue;
-    const parent = hits[0]!.label.replace(/\.\d+$/, '');
-    if (parent === hits[0]!.label) return { reason: `${titleMiss}this run's readers are top-level subagents, so /ship runs on the root thread, whose own counter also holds the lane's work` };
-    parents.add(parent);
-  }
-  if (parents.size > 1) return { reason: `${titleMiss}this run's readers sit under ${[...parents].join(', ')}` };
-  const [label] = parents;
-  if (label && s.rows.some(r => r.label === label)) return { label };
-  return { reason: `${titleMiss}no subagent this run created is listed yet (its row is found from its first reader)${truncated}` };
+  const readers = created.filter(r => m.dispatched.includes(r.title));
+  if (readers.some(r => parentOf(r.label) === r.label)) return { reason: "this run's readers are top-level subagents, so /ship runs on the root thread, whose own counter also holds the lane's work" };
+  for (const r of readers) candidates.add(parentOf(r.label));
+  if (candidates.size === 0) return { reason: `no subagent this run created is listed yet (its row is found from its first reader)${truncated}` };
+  if (candidates.size > 1) return { reason: `the run's identity points at ${[...candidates].join(', ')}` };
+  const [label] = candidates as Set<string>;
+  if (m.label !== undefined && m.label !== label) return { reason: `the run metered ${m.label} and this reading points at ${label}` };
+  if (!s.rows.some(r => r.label === label)) return { reason: `${label} is not among the ${s.rows.length} of ${s.total} rows listed` };
+  const confirmed = caller !== undefined || created.some(r => s.dispatched.includes(r.title) && parentOf(r.label) === label);
+  if (!confirmed) return { reason: `this command names no task title and no readers of its own, so it cannot show it runs in ${label}` };
+  return { label };
 }
 
 /**
- * Who may note on this run. A run that stored a task title takes a command only under that title,
- * or from a pass whose readers sit under its row; a run with no title adopts the first one it sees
- * while its row is unknown. An owner-approved resume under a new title (RECOVER runs in a new /ship
- * subagent) rebinds the run to that title: used= so far carries in a closed epoch and the new row
- * is metered from this snapshot.
+ * Turn a snapshot into this command's reading: a counter that grows by /ship's own row between two
+ * readings that both metered that row, and by the tree's growth otherwise. The first time the row
+ * is identified, used= is rebased onto that row's growth since the run's first snapshot, so tree
+ * spend counted before it (the lane's work included) drops out.
  */
-function owner(l: Ledger, m: ShipMeter, s: Snapshot, taskTitle: string | undefined, rebind: boolean): string[] {
-  const stored = m.task_title ?? (taskTitle && m.label ? s.rows.find(r => r.label === m.label)?.title : undefined);
-  if (stored === undefined) {
-    if (taskTitle && !m.label) m.task_title = taskTitle;
-    return [];
-  }
-  if (taskTitle === undefined) {
-    const parents = new Set(newRows(m, s).filter(r => s.dispatched.includes(r.title)).map(r => r.label.replace(/\.\d+$/, '')));
-    const own = m.label ?? s.rows.find(r => r.title === stored)?.label;
-    if (parents.size === 1 && own !== undefined && parents.has(own)) return [];
-    throw usageError(`run ${l.run} meters /ship task "${stored}": run this command with GSTACK_SHIP_TASK_TITLE set to that title (a pass note proves the row by its readers instead)`);
-  }
-  if (taskTitle === stored) return [];
-  if (!rebind) throw usageError(`run ${l.run} meters /ship task "${stored}", not "${taskTitle}": a replacement /ship subagent resumes it with the owner's approval (gstack-ship-budget resume --approved-by <who> --words <their words> --thread <file>), which rebinds the run to its own row`);
-  newEpoch(l, l.meter.contract, s.tokens, { source: l.meter.source ?? 'this', credits: s.credits });
-  m.task_title = taskTitle;
-  delete m.label;
-  m.dispatched = [];
-  m.start_rows = Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }]));
-  return [`METER_REBIND: run ${l.run} now meters /ship task "${taskTitle}" (was "${stored}"); used= so far carries`];
-}
-
-/**
- * Turn a snapshot into this command's reading: /ship's own row once found, else the tree. The
- * first time the row is found, the run's meter is rebased onto that row's cost at the run's first
- * snapshot, so tree spend counted before it (the lane's work included) drops out of used=.
- */
-export function threadReading(l: Ledger, file: string, taskTitle?: string, rebind = false): { reading: number; credits: number; lines: string[]; readers?: Cost & { n: number } } {
+export function threadReading(l: Ledger, file: string, taskTitle?: string): { reading: number; credits: number; lines: string[]; readers?: Cost & { n: number } } {
   const s = readSnapshot(file);
   const fresh = !l.ship_meter;
   const m: ShipMeter = l.ship_meter ??= {
     dispatched: [], start_rows: Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }])),
     tree: { baseline: s.tokens, last: s.tokens, credits: s.credits }, ...(taskTitle ? { task_title: taskTitle } : {}),
   };
-  const lines: string[] = [];
-  if (!fresh) lines.push(...owner(l, m, s, taskTitle, rebind));
   if (s.tokens < m.tree.last) throw budgetError('BUDGET_READING_REJECTED', `--thread ${file}: tree reading ${s.tokens} is below the run's last tree reading ${m.tree.last}`);
-  const prevTree = { tokens: m.tree.last, credits: m.tree.credits ?? s.credits };
+  const tree = { tokens: s.tokens - m.tree.last, credits: Math.max(0, s.credits - (m.tree.credits ?? s.credits)) };
   m.tree.last = s.tokens;
   m.tree.credits = s.credits;
   for (const t of s.dispatched) if (!m.dispatched.includes(t)) m.dispatched.push(t);
   const readers = s.dispatched.length ? newRows(m, s).filter(r => s.dispatched.includes(r.title)).reduce((a, r) => ({ n: a.n + 1, tokens: a.tokens + r.tokens, credits: Math.round((a.credits + r.credits) * 100) / 100 }), { n: 0, tokens: 0, credits: 0 }) : undefined;
-  if (!m.label) {
-    const found = resolve(m, s);
-    if (found.label) {
-      m.label = found.label;
-      delete m.fallback;
-      delete l.meter_scope;
-      const base = m.start_rows[found.label] ?? { tokens: 0, credits: 0 };
-      if (!fresh) {
-        l.meter.baseline = base.tokens; l.meter.last = base.tokens;
-        l.credits = { baseline: base.credits, last: base.credits, ...(l.credits?.carried === undefined ? {} : { carried: l.credits.carried }) };
-        lines.push(`METER_SCOPE: ship row=${found.label} (was the tree; used= now counts that row from the run's start)`);
-      }
-    } else {
-      m.fallback = found.reason;
-      l.meter_scope = 'tree';
-      return { reading: s.tokens, credits: s.credits, lines: [`METER_FALLBACK: ${found.reason}`], ...(readers ? { readers } : {}) };
-    }
+  const found = identify(m, s, taskTitle);
+  const lastTokens = fresh ? s.tokens : l.meter.last ?? l.meter.baseline;
+  const lastCredits = fresh ? s.credits : l.credits?.last ?? 0;
+  const out = (d: Cost, lines: string[]) => ({ reading: lastTokens + d.tokens, credits: Math.round((lastCredits + d.credits) * 1e4) / 1e4, lines, ...(readers ? { readers } : {}) });
+  if (!('label' in found)) {
+    m.fallback = found.reason;
+    delete m.row;
+    l.meter_scope = 'tree';
+    return out(fresh ? { tokens: 0, credits: 0 } : tree, [`METER_FALLBACK: ${found.reason}`]);
   }
-  const row = s.rows.find(r => r.label === m.label);
-  if (!row) {
-    lines.push(`METER_ROW_MISSING: ${m.label} is not among the ${s.rows.length} of ${s.total} rows listed; used= advances by the tree's growth since the last snapshot (upper bound)`);
-    return { reading: (l.meter.last ?? l.meter.baseline) + (s.tokens - prevTree.tokens), credits: Math.round(((l.credits?.last ?? 0) + Math.max(0, s.credits - prevTree.credits)) * 1e4) / 1e4, lines, ...(readers ? { readers } : {}) };
-  }
-  return { reading: Math.max(row.tokens, l.meter?.last ?? 0), credits: Math.max(row.credits, l.credits?.last ?? 0), lines, ...(readers ? { readers } : {}) };
+  const row = s.rows.find(r => r.label === found.label)!;
+  const lines: string[] = [];
+  let d: Cost;
+  if (fresh) d = { tokens: 0, credits: 0 };
+  else if (m.label === undefined) {
+    const base = m.start_rows[found.label] ?? { tokens: 0, credits: 0 };
+    l.meter.baseline = lastTokens; l.meter.last = lastTokens;
+    l.credits = { baseline: lastCredits, last: lastCredits, ...(l.credits?.carried === undefined ? {} : { carried: l.credits.carried }) };
+    d = { tokens: Math.max(0, row.tokens - base.tokens), credits: Math.max(0, row.credits - base.credits) };
+    lines.push(`METER_SCOPE: ship row=${found.label} (was the tree; used= now counts that row from the run's start)`);
+  } else d = m.row ? { tokens: Math.max(0, row.tokens - m.row.tokens), credits: Math.max(0, row.credits - m.row.credits) } : tree;
+  m.label = found.label;
+  m.row = { label: found.label, tokens: row.tokens, credits: row.credits };
+  delete m.fallback;
+  delete l.meter_scope;
+  return out(d, lines);
 }

@@ -30,10 +30,11 @@ const P1 = 'ship r1-p1 specialist';
 
 describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
   // Value: protects=a lane's own work (its fix calls, background suites, sibling subagents) never moves /ship's used= or spends its cap; fails_when=used= follows the root counter after /ship's row is known;
-  //   why_new=#4098 stopped at 47.1M on the tree while /ship's own row was far lower, and stopped again right after the cap raise (GST-1699); seam=none; no_claim=spend before /ship's first reader when no task title names its row (labelled tree fallback)
+  //   why_new=#4098 stopped at 47.1M on the tree while /ship's own row was far lower, and stopped again right after the cap raise (GST-1699); seam=none; no_claim=a note with neither a task title nor readers of its own, which meters the tree by design
   test('lane work outside /ship does not move used=, and the cap does not stop on it', () => {
     const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])]);
+    const titled = { GSTACK_SHIP_TASK_TITLE: SHIP };
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])], titled);
     expect(s.code, s.out + s.err).toBe(0);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     const pass = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread',
@@ -43,13 +44,13 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(field(pass.out, 'NOTE', 'tree')).toBe(40_000_000);
     expect(pass.out).toContain('METER: ship (task row Subagent 1');
     const lane = h.sb(['note', '--run', run, '--step', '10', '--thread',
-      snap(h, 260_000_000, [['Subagent 1', SHIP, 10_000_000], ['Subagent 1.1', P1, 3_000_000], ['Subagent 2', 'lane suite', 60_000_000]])]);
+      snap(h, 260_000_000, [['Subagent 1', SHIP, 10_000_000], ['Subagent 1.1', P1, 3_000_000], ['Subagent 2', 'lane suite', 60_000_000]])], titled);
     expect(lane.code, lane.out + lane.err).toBe(0);
     expect(field(lane.out, 'NOTE', 'used')).toBe(5_000_000);
     expect(field(lane.out, 'NOTE', 'tree')).toBe(160_000_000);
     expect(field(lane.out, 'BUDGET', 'used')).toBe(5_000_000);
     expect(lane.out).toMatch(/verdict=continue/);
-    const close = h.sb(['close', '--run', run, '--thread', snap(h, 270_000_000, [['Subagent 1', SHIP, 10_000_000], ['Subagent 2', 'lane suite', 70_000_000]])]);
+    const close = h.sb(['close', '--run', run, '--thread', snap(h, 270_000_000, [['Subagent 1', SHIP, 10_000_000], ['Subagent 2', 'lane suite', 70_000_000]])], titled);
     expect(close.code, close.out + close.err).toBe(0);
     expect(close.out).toMatch(/^BUDGET_FINAL: used=5000000 tree=170000000 credits=5000 /m);
   });
@@ -115,24 +116,25 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(s.out).toContain('admission_cap=100000000');
   });
 
-  // Value: protects=while /ship's row is missing from a truncated snapshot used= advances by tree growth, so the cap still stops; fails_when=METER_ROW_MISSING holds used= flat and the cap fails open, or the row's return below that upper bound is rejected;
-  //   why_new=/ship fix-check on #4107 (p2/targeted#2); seam=none; no_claim=the exact /ship cost while its row is missing
-  test('a row missing from a later snapshot advances used= by tree growth, and the cap stops on it', () => {
+  // Value: protects=while /ship's row is missing from a truncated snapshot the reading meters the tree, so used= keeps growing and the cap still stops; fails_when=a missing row holds used= flat, refuses the note, or a later return of the row is rejected;
+  //   why_new=/ship fix-check on #4107 (p2/targeted#2) and the Captain's fallback-on-ambiguity rule (GST-1699); seam=none; no_claim=the exact /ship cost while its row is missing
+  test('a row missing from a later snapshot meters that reading on the tree, and the cap stops on it', () => {
     const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '12M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const titled = { GSTACK_SHIP_TASK_TITLE: SHIP };
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '12M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])], titled);
     expect(s.code, s.out + s.err).toBe(0);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const seen = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 9_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const seen = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 9_000_000]])], titled);
     expect(field(seen.out, 'NOTE', 'used')).toBe(4_000_000);
-    const missing = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 115_000_000, [['Subagent 2', 'lane suite', 1]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const missing = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 115_000_000, [['Subagent 2', 'lane suite', 1]])], titled);
     expect(missing.code, missing.out + missing.err).toBe(0);
-    expect(missing.out).toContain('METER_ROW_MISSING: Subagent 1');
+    expect(missing.out).toContain('METER_FALLBACK: 0 rows carry the task title');
     expect(field(missing.out, 'NOTE', 'used')).toBe(9_000_000);
-    const back = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 116_000_000, [['Subagent 1', SHIP, 10_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const back = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 116_000_000, [['Subagent 1', SHIP, 10_000_000]])], titled);
     expect(back.code, back.out + back.err).toBe(0);
-    expect(field(back.out, 'NOTE', 'used')).toBe(9_000_000);
-    const over = h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 121_000_000, [['Subagent 2', 'lane suite', 1]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
-    expect(field(over.out, 'NOTE', 'used')).toBe(14_000_000);
+    expect(field(back.out, 'NOTE', 'used')).toBe(10_000_000);
+    const over = h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 121_000_000, [['Subagent 2', 'lane suite', 1]])], titled);
+    expect(field(over.out, 'NOTE', 'used')).toBe(15_000_000);
     expect(over.code).toBe(3);
     expect(over.out).toMatch(/^STOP: reason=budget_exhausted /m);
   });
@@ -167,72 +169,85 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(field(note.out, 'NOTE', 'readers_tokens')).toBe(2_000_000);
   });
 
-  // Value: protects=a titled run whose title matches no row still finds /ship's row from its readers; fails_when=a missed title keeps the run on the tree for its whole life;
-  //   why_new=/ship on #4107 at 9c15d60 (voices/adversarial-native#4); seam=none; no_claim=a title that matches two rows and readers under two parents
-  test('a task title that matches no row falls through to the parent of this run\'s readers', () => {
-    const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '20M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: 'ship #4107 typo' });
-    expect(s.out).toContain('METER_FALLBACK: 0 rows carry the task title');
-    const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const note = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread', snap(h, 140_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 1.1', P1, 2_000_000]], [P1])], { GSTACK_SHIP_TASK_TITLE: 'ship #4107 typo' });
-    expect(note.code, note.out + note.err).toBe(0);
-    expect(note.out).toContain('METER_SCOPE: ship row=Subagent 1');
-    expect(field(note.out, 'NOTE', 'used')).toBe(4_000_000);
-  });
-
-  // Value: protects=a replacement /ship subagent cannot keep spending on a run whose meter reads its finished predecessor's row; fails_when=note or resume under another task title is accepted and used= stays flat;
-  //   why_new=/ship on #4107 at 9c15d60 (voices/outside-voice#1): resume in a replacement subagent bypassed the cap; seam=none; no_claim=an untitled replacement, which names no row to compare
-  test('a note or resume under another task title is refused', () => {
-    const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
-    const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const next = snap(h, 140_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 2', '/ship PR #4098 retry', 30_000_000]]);
-    for (const cmd of [['note', '--run', run, '--step', '9', '--thread', next], ['resume', '--run', run, '--thread', next]]) {
-      const out = h.sb(cmd, { GSTACK_SHIP_TASK_TITLE: '/ship PR #4098 retry' });
-      expect(out.code, cmd[0] + out.out).toBe(2);
-      expect(out.err).toContain('a replacement /ship subagent resumes it with the owner\'s approval');
+  // Value: protects=a titled run whose title matches no row, or two rows, meters every reading on the tree, labelled, with no refusal, no stop under the cap and no flat used=; fails_when=a missed or duplicated title meters some other row or refuses the note;
+  //   why_new=/ship on #4107 (voices/adversarial-native#4, fix-check#1) and the Captain's fallback-on-ambiguity rule (GST-1699); seam=none; no_claim=which row a missed title meant
+  test('a task title that matches no row, or two, meters the tree with METER_FALLBACK', () => {
+    for (const rows of [[['Subagent 1', SHIP, 1_000_000]], [['Subagent 1', 'ship #4107 typo', 1_000_000], ['Subagent 2', 'ship #4107 typo', 1_000_000]]] as Row[][]) {
+      const h = fresh();
+      const env = { GSTACK_SHIP_TASK_TITLE: 'ship #4107 typo' };
+      const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '100M', '--thread', snap(h, 100_000_000, rows)], env);
+      expect(s.code, s.out + s.err).toBe(0);
+      expect(s.out).toMatch(/METER_FALLBACK: [02] rows carry the task title/);
+      const run = h.field(s.out, 'BUDGET_RUN', 'id');
+      const reader = rows.length === 1 ? 'Subagent 1.1' : 'Subagent 2.1';
+      const note = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread', snap(h, 140_000_000, [...rows, [reader, P1, 2_000_000]], [P1])]);
+      expect(note.code, note.out + note.err).toBe(0);
+      expect(note.out).toMatch(/METER_FALLBACK: [02] rows carry the task title/);
+      expect(field(note.out, 'NOTE', 'used')).toBe(40_000_000);
+      expect(note.out).toContain('METER: tree (root counter, upper bound)');
     }
-    expect(h.sb(['note', '--run', run, '--step', '9', '--thread', next], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(0);
   });
 
-  // Value: protects=RECOVER after a budget stop, which runs in a new /ship subagent under a new title, rebinds the run to that subagent's row and keeps the usage so far; fails_when=the approved resume is refused, or the rebound run drops used= or keeps reading the finished row;
-  //   why_new=/ship fix-check grant a-c2fde7b5d8d2 on #4107 (review-p2b/red-team#1): the round-1 guard refused every RECOVER; seam=none; no_claim=a resume with no task title, which has no row to bind
-  test('an owner-approved resume under a new task title rebinds the run and carries used=', () => {
+  // Value: protects=a replacement /ship subagent's commands (another task title) meter the tree, so the cap keeps binding and nothing is refused; fails_when=the run keeps reading its finished predecessor's row (used= flat) or refuses the replacement's note or resume;
+  //   why_new=/ship on #4107 (voices/outside-voice#1, review-p2b/red-team#1) and the Captain's fallback-on-ambiguity rule (GST-1699); seam=none; no_claim=the replacement's exact cost
+  test('a note or resume under another task title meters the tree, never refused and never flat', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '100M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const retry = { GSTACK_SHIP_TASK_TITLE: '/ship PR #4098 retry' };
+    const note = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 140_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 2', '/ship PR #4098 retry', 30_000_000]])], retry);
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(note.out).toContain('METER_FALLBACK: this command\'s task title "/ship PR #4098 retry" is not the run\'s');
+    expect(field(note.out, 'NOTE', 'used')).toBe(40_000_000);
+    const resume = h.sb(['resume', '--run', run, '--thread', snap(h, 150_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 2', '/ship PR #4098 retry', 40_000_000]])], retry);
+    expect(resume.code, resume.out + resume.err).toBe(0);
+    expect(resume.out).toContain('METER_FALLBACK');
+    const after = h.sb(['note', '--run', run, '--step', '10', '--readers', '1', '--thread',
+      snap(h, 160_000_000, [['Subagent 1', SHIP, 5_000_000], ['Subagent 2', '/ship PR #4098 retry', 48_000_000], ['Subagent 2.1', P1, 2_000_000]], [P1])]);
+    expect(after.code, after.out + after.err).toBe(0);
+    expect(after.out).toContain('METER_FALLBACK: the run\'s identity points at Subagent 1, Subagent 2');
+    expect(field(after.out, 'NOTE', 'used')).toBe(60_000_000);
+  });
+
+  // Value: protects=RECOVER after a budget stop, which resumes in a new /ship subagent under a new title, is accepted and keeps metering (on the tree) from the usage so far; fails_when=the resume is refused, or used= drops or stays flat while the new subagent works;
+  //   why_new=/ship on #4107 (review-p2b/red-team#1: the round-1 guard refused every RECOVER) and the Captain's fallback-on-ambiguity rule (GST-1699); seam=none; no_claim=a rebind to the new row, which the rule replaces with the tree
+  test('RECOVER under a new task title resumes, carries used= and meters the tree', () => {
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     const stop = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 120_000_000, [['Subagent 1', SHIP, 11_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(stop.code, stop.out + stop.err).toBe(3);
-    const next = 'ship #4107 at da2ab1e r2d2';
+    expect(field(stop.out, 'NOTE', 'used')).toBe(10_000_000);
+    const next = { GSTACK_SHIP_TASK_TITLE: 'ship #4107 at da2ab1e r2d2' };
     const resume = h.sb(['resume', '--run', run, '--token-cap', '60M', '--approved-by', 'garry', '--words', 'do it', '--thread',
-      snap(h, 125_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 500_000]])], { GSTACK_SHIP_TASK_TITLE: next });
+      snap(h, 125_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next.GSTACK_SHIP_TASK_TITLE, 500_000]])], next);
     expect(resume.code, resume.out + resume.err).toBe(0);
-    expect(resume.out).toContain(`METER_REBIND: run ${run} now meters /ship task "${next}"`);
-    const note = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 160_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 6_500_000]])], { GSTACK_SHIP_TASK_TITLE: next });
+    expect(resume.out).toContain('METER_FALLBACK');
+    const note = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 160_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next.GSTACK_SHIP_TASK_TITLE, 6_500_000]])], next);
     expect(note.code, note.out + note.err).toBe(0);
-    expect(field(note.out, 'NOTE', 'used')).toBe(16_000_000);
-    expect(h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 161_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 7_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(2);
+    expect(field(note.out, 'NOTE', 'used')).toBe(50_000_000);
+    expect(note.out).toContain('METER: tree (root counter, upper bound)');
   });
 
-  // Value: protects=a titled run takes a note or close only under its title or from a pass whose readers sit under its row, and an untitled run adopts the first title it sees; fails_when=a caller with no title, or a new title on a run that stored none, keeps noting on the run;
-  //   why_new=/ship fix-check grant a-c2fde7b5d8d2 on #4107 (review-p2b/red-team#2, specialist-batched#1); seam=none; no_claim=an untitled run noted only by untitled callers
-  test('a note or close with no title, or under a title the run did not adopt, is refused unless a pass proves the row', () => {
+  // Value: protects=a note or close that names neither a task title nor readers of its own meters the tree instead of being refused, and a pass note proves the row by its readers; fails_when=an untitled command is refused, meters the stored title's row unconfirmed, or holds used= flat;
+  //   why_new=/ship fix-check on #4107 (fix-check#1: the pass program's untitled note was refused) and the Captain's rule that a missing title means the tree (GST-1699); seam=none; no_claim=which subagent an untitled command runs in
+  test('an untitled note or close meters the tree; an untitled pass note meters the row its readers prove', () => {
     const h = fresh();
-    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '50M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '100M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const bare = snap(h, 110_000_000, [['Subagent 1', SHIP, 2_000_000]]);
-    for (const cmd of ['note', 'close']) {
-      const out = h.sb(cmd === 'note' ? ['note', '--run', run, '--step', '9', '--thread', bare] : ['close', '--run', run, '--thread', bare]);
-      expect(out.code, cmd + out.out).toBe(2);
-      expect(out.err).toContain('run this command with GSTACK_SHIP_TASK_TITLE set to that title');
-    }
+    const bare = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 2_000_000]])]);
+    expect(bare.code, bare.out + bare.err).toBe(0);
+    expect(bare.out).toContain('METER_FALLBACK: this command names no task title and no readers of its own');
+    expect(field(bare.out, 'NOTE', 'used')).toBe(10_000_000);
     const pass = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread', snap(h, 120_000_000, [['Subagent 1', SHIP, 4_000_000], ['Subagent 1.1', P1, 1_000_000]], [P1])]);
     expect(pass.code, pass.out + pass.err).toBe(0);
-    const u = fresh();
-    const us = u.sb(['start', '--record', u.record(), '--mode', 'observe', '--token-cap', '50M', '--thread', snap(u, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])]);
-    const urun = u.field(us.out, 'BUDGET_RUN', 'id');
-    expect(u.sb(['note', '--run', urun, '--step', '6', '--thread', snap(u, 105_000_000, [['Subagent 1', SHIP, 2_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(0);
-    expect(u.sb(['note', '--run', urun, '--step', '7', '--thread', snap(u, 106_000_000, [['Subagent 1', SHIP, 2_000_000], ['Subagent 2', '/ship retry', 1]])], { GSTACK_SHIP_TASK_TITLE: '/ship retry' }).code).toBe(2);
+    expect(pass.out).toContain('METER: ship (task row Subagent 1');
+    expect(field(pass.out, 'NOTE', 'used')).toBe(20_000_000);
+    const next = h.sb(['note', '--run', run, '--step', '10', '--readers', '1', '--thread', snap(h, 150_000_000, [['Subagent 1', SHIP, 7_000_000], ['Subagent 1.1', P1, 1_000_000], ['Subagent 1.2', 'ship r1-p2 outside-voice', 2_000_000]], ['ship r1-p2 outside-voice'])]);
+    expect(field(next.out, 'NOTE', 'used')).toBe(23_000_000);
+    const close = h.sb(['close', '--run', run, '--thread', snap(h, 160_000_000, [['Subagent 1', SHIP, 7_000_000]])]);
+    expect(close.code, close.out + close.err).toBe(0);
+    expect(close.out).toMatch(/^BUDGET_FINAL: used=33000000 /m);
   });
 
   // Value: protects=the RECOVER cap covers every step still to run, not only Step 22 and the stop reserve; fails_when=an observe stop at a labelled step (9.2, judge) names used + Step 22 + reserve;
