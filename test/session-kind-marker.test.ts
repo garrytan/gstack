@@ -38,7 +38,7 @@ const SESSION_KIND_INVENTORY: Record<string, string> = {
 const CODE_FILE = /\.(ts|tsx|js|mjs|cjs|sh|bash)$/;
 
 /** Files under root/dirs whose code (not comments) names GSTACK_SESSION_KIND, as root-relative paths. */
-function sessionKindReaders(root: string, dirs = ['bin', 'lib', 'hosts', 'scripts']): string[] {
+function sessionKindReaders(root: string, dirs = ['bin', 'lib', 'hosts', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts']): string[] {
   const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return e.name === 'node_modules' || e.name === 'dist' ? [] : walk(p);

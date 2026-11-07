@@ -204,8 +204,8 @@ jobs:
           # gstack on Capy (crew/README.md): a pull request plans crew/test only
           # when it changes crew/ or a file crew code imports; main pushes plan all.
           crew=()
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then crew=(--crew-base "$(git merge-base HEAD origin/main)"); fi
-          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs" --job-setup-seconds "$FREE_SUITE_SETUP_SECONDS" "${crew[@]}")
+          if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then crew=(--crew-base "$(git merge-base HEAD origin/main)"); fi
+          matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards "$shards" --shard-jobs "$jobs" --job-setup-seconds "$FREE_SUITE_SETUP_SECONDS" ${crew[@]+"${crew[@]}"})
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "runner=$runner" >> "$GITHUB_OUTPUT"
       - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)

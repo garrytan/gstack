@@ -313,6 +313,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/gstack-ship-queue.test.ts',
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts',
   },
+  {
+    file: 'crew/test/release-gate-workflow.test.ts',
+    reason: 'the gate-step case splices a native temp-path stub into the step\'s bash -e script in place of crew/bin/gstack-release-gate, and on windows-latest its gated case exits non-zero (expected 0; windows-scoped-shard, run 42421330820); release-gate.yml itself runs only on ubuntu-latest',
+  },
   // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in crew/test/ship-queue-train-logic.test.ts.
   {
     file: 'crew/test/ship-queue-train-land.test.ts',

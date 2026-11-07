@@ -425,7 +425,7 @@ describe('egress receipt wiring tripwire', () => {
   });
 
   test('NEW-SINK SCANNER: every outbound network op in the tree is wired or reasoned-exempt', () => {
-    const SWEEP = ['bin', 'lib', 'scripts', 'design/src', 'browse/src', 'hosts'];
+    const SWEEP = ['bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts', 'design/src', 'browse/src', 'hosts'];
     const offenders: string[] = [];
     for (const dirRel of SWEEP) {
       const dir = path.join(ROOT, dirRel);

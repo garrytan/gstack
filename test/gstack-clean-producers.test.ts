@@ -58,7 +58,7 @@ const KEPT: Record<string, string> = {
 const matches = (name: string, pattern: string) => pattern.endsWith('*') ? name.startsWith(pattern.slice(0, -1)) : pattern.startsWith('*') ? name.endsWith(pattern.slice(1)) : name === pattern;
 
 function trackedSources(): string[] {
-  const r = spawnSync('git', ['ls-files', '-z', '--', '*.tmpl', 'lib', 'bin', 'scripts', 'autoplan/bin', 'browse/src'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('git', ['ls-files', '-z', '--', '*.tmpl', 'lib', 'bin', 'scripts', 'crew/lib', 'crew/bin', 'crew/scripts', 'autoplan/bin', 'browse/src'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
   if (r.status !== 0) throw new Error('git ls-files failed: ' + r.stderr);
   return r.stdout.split('\0').filter(f => f && !/(^|\/)test\//.test(f) && !f.endsWith('.test.ts') && fs.existsSync(path.join(ROOT, f)));
 }

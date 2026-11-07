@@ -154,7 +154,7 @@ describe('/captain skill', () => {
     const doc = read('crew/docs/captain.md');
     const links = [...doc.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)].map(m => m[1]).filter(l => !/^https?:/.test(l));
     expect(links.length).toBeGreaterThan(5);
-    for (const l of links) expect(fs.existsSync(path.resolve(ROOT, 'docs', l)), l).toBe(true);
+    for (const l of links) expect(fs.existsSync(path.resolve(ROOT, 'crew', 'docs', l)), l).toBe(true);
     for (const f of ['README.md', 'AGENTS.md', 'docs/skills.md', 'SKILL.md.tmpl', 'docs/PROJECT_STRUCTURE.md']) expect(read(f), f).toMatch(/\/captain\b/);
     expect(read('README.md')).toContain('crew/docs/captain.md');
   });

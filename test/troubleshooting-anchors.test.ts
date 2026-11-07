@@ -61,7 +61,7 @@ describe('docs/troubleshooting.md anchors', () => {
   // resolve against the docs in this working tree, so a new anchor never fails
   // before it reaches main.
   test('every docs/<guide>.md#anchor linked from shipped code (relative or full URL) exists in the working tree', () => {
-    const roots = ['setup', 'bin', 'lib', 'browse/src', 'autoplan/bin', 'scripts/resolvers', 'hosts'];
+    const roots = ['setup', 'bin', 'lib', 'crew/bin', 'crew/lib', 'browse/src', 'autoplan/bin', 'scripts/resolvers', 'hosts'];
     const files = roots.flatMap(function walk(rel: string): string[] {
       const full = path.join(ROOT, rel);
       if (!fs.existsSync(full)) return [];

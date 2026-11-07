@@ -365,7 +365,7 @@ export function seedHermeticRuntimeView(root: string, destination: string): void
   const sourceRoot = fs.realpathSync(root);
   const excluded = new Set(['node_modules', 'test', 'tests']);
   const roots = new Set([
-    'SKILL.md', 'ETHOS.md', 'VERSION', 'package.json', 'bin', 'lib', 'scripts',
+    'SKILL.md', 'ETHOS.md', 'VERSION', 'package.json', 'bin', 'lib', 'scripts', 'crew',
     'browse', 'browser-skills', 'design', 'extension', 'model-overlays', 'agents',
     // On-demand protocol/reference files explicitly read by shipped skills.
     'docs/askuserquestion-split.md', 'docs/askuserquestion-cjk.md',

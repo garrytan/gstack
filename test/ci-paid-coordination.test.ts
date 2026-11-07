@@ -205,6 +205,7 @@ describe('dependency-free CI planner and report execution', () => {
     expect(fs.readFileSync(path.join(fixture, 'test/helpers/llm-judge.ts'), 'utf8'))
       .toBe(fs.readFileSync(path.join(ROOT, 'test/helpers/llm-judge.ts'), 'utf8'));
     fs.cpSync(path.join(ROOT, 'lib'), path.join(fixture, 'lib'), sourceOnly);
+    fs.cpSync(path.join(ROOT, 'crew'), path.join(fixture, 'crew'), sourceOnly);
     expect(fs.existsSync(path.join(fixture, 'lib/diagram-render/node_modules'))).toBe(false);
     for (const file of collectPaidTestFiles()) {
       fs.copyFileSync(path.join(ROOT, file), path.join(fixture, file));

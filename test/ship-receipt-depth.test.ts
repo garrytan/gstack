@@ -81,7 +81,7 @@ describe('write records the review depth at the checked-out head', () => {
     commit(repo, { 'lib/util.js': lines(3) });
     const installed = path.join(repo.root, 'installed-gstack');
     const sourceOnly = { recursive: true, filter: (file: string) => path.basename(file) !== 'node_modules' };
-    for (const dir of ['bin', 'lib', 'scripts']) fs.cpSync(path.join(ROOT, dir), path.join(installed, dir), sourceOnly);
+    for (const dir of ['bin', 'lib', 'scripts', 'crew']) fs.cpSync(path.join(ROOT, dir), path.join(installed, dir), sourceOnly);
     fs.writeFileSync(path.join(installed, 'VERSION'), '1.0.0.0\n');
     const body = path.join(repo.root, 'body.md');
     const write = runScriptSync(path.join(installed, 'bin', 'gstack-ship-receipt'), ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body],
