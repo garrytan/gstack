@@ -104,6 +104,14 @@ describe('a rate-limited call backs off until the reset, never retries at once',
     for (const ms of h.sleeps) expect(ms).toBeGreaterThanOrEqual(MIN_POLL_MS);
   });
 
+  // Value: protects=the land lock; fails_when=a rate-limited gh pr merge sleeps past PUSH_STALE_MS while another lander may break the lock
+  test('a rate-limited gh pr merge fails at once: no rate_limit read, no sleep, no rerun', () => {
+    const h = harness([err(GRAPHQL_LIMIT)]);
+    expect(h.gh(['pr', 'merge', '42', '--squash', '--match-head-commit', 'abc']).status).toBe(1);
+    expect(h.calls).toEqual([['pr', 'merge', '42', '--squash', '--match-head-commit', 'abc']]);
+    expect(h.sleeps).toEqual([]);
+  });
+
   test('success and real failures return at once: no rate_limit read, no sleep', () => {
     const h = harness([err('gh: Not Found (HTTP 404)')]);
     expect(h.gh(['api', 'repos/o/r/pulls/42']).status).toBe(1);
@@ -138,6 +146,7 @@ describe('REST replies parse from recorded fixtures', () => {
     expect(open).toMatchObject({ state: 'OPEN', baseRefName: 'main', headRefOid: '8cadbdc985a6259842722f58c82f370f985fd39b' });
     expect(parsePullState(JSON.stringify({ ...JSON.parse(fixture('pull-open.json')), mergeable_state: 'behind' }))!.mergeStateStatus).toBe('BEHIND');
     expect(parsePullState(JSON.stringify({ ...JSON.parse(fixture('pull-open.json')), state: 'closed' }))!.state).toBe('CLOSED');
+    expect(parsePullState(JSON.stringify({ ...JSON.parse(fixture('pull-open.json')), user: { login: 'capy-ai[bot]' } }))!.author).toBe('capy-ai');
     expect(parsePullState('{"message":"Not Found"}')).toBeNull();
     expect(parsePullState('not json')).toBeNull();
   });

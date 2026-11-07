@@ -137,7 +137,10 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
 export type WaitVerdict = { state: 'green'; run: ApiRun } | { state: 'red'; run: ApiRun; failing: string[] } | { state: 'running'; run: ApiRun } | { state: 'none'; reason: string };
 const PASSING = ['success', 'skipped', 'neutral'];
 
-/** Poll the newest `workflow` run on `head` (among `events`) until it completes or `timeoutMs` passes; polls are at least 60 s apart. */
+/**
+ * Poll the newest `workflow` run on `head` (among `events`) until it completes or `timeoutMs` passes; polls are at least 60 s
+ * apart, so the last poll can land up to one poll interval (75 s with jitter) after `timeoutMs`.
+ */
 export async function waitForRun(deps: RunDeps, o: { workflow: string; events: string[]; head: string; timeoutMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; clock: () => number; random?: () => number }): Promise<WaitVerdict> {
   const end = o.clock() + o.timeoutMs;
   for (;;) {

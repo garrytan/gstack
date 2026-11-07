@@ -77,16 +77,22 @@ export function rateLimitWaitMs(kind: RateLimitKind, rateLimitJson: string, nowM
 export interface LimitEnv { sleep(ms: number): void; now(): number; log(message: string): void; random?: () => number; vars?: Vars }
 
 /**
+ * `gh pr merge` runs under the land lock, which another lander may break once the holder is 10 minutes into a merge
+ * (PUSH_STALE_MS): a rate-limited merge fails at once, as it did before the wait existed, instead of sleeping through it.
+ */
+const failsFast = (args: readonly string[]): boolean => args[0] === 'pr' && args[1] === 'merge';
+
+/**
  * Wrap a gh runner: a rate-limited failure sleeps until the reset and reruns the same call, at most MAX_LIMIT_WAITS
- * times; any other result (success or a real failure) returns at once. The `gh api rate_limit` read goes through
- * the inner runner, unwrapped.
+ * times; any other result (success or a real failure) and a rate-limited `gh pr merge` return at once. The
+ * `gh api rate_limit` read goes through the inner runner, unwrapped.
  */
 export function withRateLimit(gh: GhRunner, env: LimitEnv): GhRunner {
   return args => {
     for (let waits = 0; ; waits++) {
       const result = gh(args);
       const kind = result.status === 0 ? null : rateLimitKind(args, `${result.stderr}\n${result.stdout}`);
-      if (!kind || waits >= MAX_LIMIT_WAITS) return result;
+      if (!kind || waits >= MAX_LIMIT_WAITS || failsFast(args)) return result;
       const limits = gh(['api', 'rate_limit']);
       const ms = rateLimitWaitMs(kind, limits.status === 0 ? limits.stdout : '', env.now(), env.random, env.vars);
       env.log(`GitHub ${kind} rate limit on gh ${args.slice(0, 2).join(' ')}; waiting ${Math.round(ms / 1000)} s for the reset before one retry (${waits + 1}/${MAX_LIMIT_WAITS})`);
@@ -132,7 +138,7 @@ export function parsePullState(json: string): PullState | null {
     headRefOid: head,
     baseRefName: str(obj(raw.base).ref),
     mergeStateStatus: (str(raw.mergeable_state) || 'unknown').toUpperCase(),
-    author: str(obj(raw.user).login) || 'ghost',
+    author: str(obj(raw.user).login).replace(/\[bot\]$/, '') || 'ghost',
     updatedAt: str(raw.updated_at),
   };
 }

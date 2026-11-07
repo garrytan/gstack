@@ -239,6 +239,14 @@ describe('polling', () => {
     expect(c.now()).toBe(60_000);
   });
 
+  test('registration wait re-polls once even when the first read takes time', async () => {
+    const c = clock();
+    const base = fakeGh({ required: [NONE, NONE_REQUIRED], all: [NONE, ok([row('build', 'pending')])] });
+    const gh: GhRunner = args => { c.sleep(500); return base(args); };
+    const result = await runCiGate(options({ registrationWaitSeconds: 60 }), gh, c.sleep, c.now, () => 0);
+    expect(result.verdict).toBe('PENDING');
+  });
+
   test('--wait polls PENDING until a final verdict', async () => {
     const c = clock();
     const all = [ok([row('t', 'pending')]), ok([row('t', 'pending')]), ok([row('t', 'pass')])];

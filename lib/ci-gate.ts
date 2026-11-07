@@ -218,7 +218,7 @@ export async function runCiGate(
   let result = evaluateOnce(gh, opts);
   while (true) {
     const window = result.verdict === 'NO_CHECKS' ? opts.registrationWaitSeconds : result.verdict === 'PENDING' ? opts.waitSeconds : 0;
-    if (elapsed() + step > window) break;
+    if (elapsed() >= window) break;
     await sleep(pollDelayMs(step * 1000, random));
     result = evaluateOnce(gh, opts);
   }
