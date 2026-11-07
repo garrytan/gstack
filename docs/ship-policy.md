@@ -2470,11 +2470,25 @@ off the merged commit fails. Land re-reads the base policy after the locked
 fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
 merged tree's lockfile or `package.json` dependencies differ from the
 checkout's, the linked `node_modules` can't vouch for it: land refuses with
-`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
-the filesystem: a command can still write the checkout's `.git` (the worktree
-shares it) and the linked `node_modules`, and read anything the user can (other
-processes' environments, credential files), so pass the flag only for a base
-policy and PRs you trust to run. A list such
+`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships.
+The worktree shares the checkout's `.git`, whose config and hooks land's later
+git calls read with its full environment, so land records the config and hooks
+of the checkout's git directories, the `commondir` and `gitdir` files and the
+checkout's `.git` that say where git finds them, and every hop of a symlink
+among them, before the checks. When a check changed or added any of them, land
+restores nothing: it refuses with `QUEUE_LAND_MERGED_CHECKS` naming each path,
+makes no further git call in the checkout and leaves the land lock held.
+Inspect each named path and restore it from a trusted copy (delete a hook the
+checks added), then release the lock without running the checks with
+`gstack-ship-queue land --pr <n> --pin <sha>` (no `--allow-repo-commands`: it
+refuses with `REPO_COMMANDS_NOT_ALLOWED` and releases the lock). Land's own git
+calls in the merged tree run with the checks' environment, and no
+`gstack-ship-queue` git call runs a hook or fsmonitor. It doesn't otherwise
+sandbox the filesystem: a command can still write the linked `node_modules`,
+the checkout's other files, the user's global git config and directories on
+`PATH`, and read anything the user can (other processes' environments,
+credential files), so pass the flag only for a base policy and PRs you trust to
+run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
 merge, a CI round and a new receipt per PR. gstack's own policy runs
 typecheck, the generated-docs freshness check, and the size and budget guards

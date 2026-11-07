@@ -14,7 +14,7 @@
  * rerun after GitHub merged goes straight to the tree check.
  */
 import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
-import { runMergedChecks } from './land-merged-checks';
+import { changedCheckouts, runMergedChecks } from './land-merged-checks';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
@@ -127,6 +127,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.baseRefName && info.baseRefName !== ctx.base) return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}`, fix: `retarget it to ${ctx.base}, or land its parent first` });
   const remote = ctx.remote ?? 'origin';
   const journal = `land-pin:${o.pin}`;
+  const unlock = `LOCK: warn land.merged_checks changed the checkout's git directory, so land pushed no lock release and the land lock stays held; once every path it names is restored from a trusted copy, release the lock without running the checks: gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} (without --allow-repo-commands)`;
   const takeLock = () => acquireLandLock({
     root, remote, holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal, now, phase: () => 'merging', breakLock: o.breakLock,
     takeover: (held: LandLock) => !held.train && held.pr === o.pr && held.journal.startsWith('land-pin:') ? `LOCK: taking over #${o.pr}'s land lock that an earlier land --pin run left (${held.journal}, since ${held.started_at})` : null,
@@ -135,6 +136,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
     if (o.dryRun) return { ok: true, run, lines: [...lines, 'DRY-RUN: nothing verified (a rerun without --dry-run runs the tree check and writes the land note)'] };
     const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: policy.land?.merged_checks ?? [], allow: o.allowRepoCommands });
+    if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };
     const left = readLock(root, remote);
     if (left.state !== 'held' || !ownsLock(left.lock, { pr: o.pr }, journal)) return out;
     const got = takeLock();
@@ -247,6 +249,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   };
   let out: StepOutput;
   let released = true;
-  try { out = locked(); } finally { if (held) released = held.release(); }
+  try { out = locked(); } finally { if (held) released = !changedCheckouts.has(root) && held.release(); }
+  if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };
   return released ? out : { ...out, lines: [...out.lines, `LOCK: warn the land lock release push failed, so the lock stays held; rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to resume and release it`] };
 }
