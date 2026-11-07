@@ -439,6 +439,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/ship-accept-remote-gate-lanes.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-same-tree-clears.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42302497169)',
   },
+  {
+    file: 'test/ship-record-ci-reuse.test.ts',
+    reason: 'drives bin/gstack-evidence, gstack-ship-preflight and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-remote-gate-lanes.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42382484796)',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for
