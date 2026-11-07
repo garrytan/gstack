@@ -172,6 +172,19 @@ after you approve); ask for `gstack-office-hours`, or list them with
 Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
 load only in trusted folders (`/trust`).
 
+Jcode loads skills by directory name from `~/.jcode/skills` (the user-global
+tier, read before `~/.agents/skills`); ask for `gstack-office-hours`, or list
+them with `/skills`. Its skill frontmatter parses only `name` and `description`,
+so the render carries exactly that and nothing Claude-Code-specific: there is
+no per-skill model override, no hook, and `allowed-tools` is advisory prose,
+not an enforced filter. Setup writes only `~/.jcode/skills/gstack*` and never
+touches `~/.claude/skills` or `~/.agents/skills`, and `--host auto` selects Jcode
+only when `jcode` is on `PATH`. Safety skills are advisory there (Jcode hooks
+are global, configured under `~/.jcode/config.toml` `[hooks]`, and gstack does
+not write them). The cross-model outside-voice resolvers (Claude/Codex shells,
+GBrain) are suppressed in the render: they name CLIs Jcode sessions cannot
+always reach, so those skills fall back to in-session review.
+
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.

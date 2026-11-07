@@ -55,6 +55,7 @@ rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
 rm -rf ~/.gemini/antigravity-cli/skills/gstack* 2>/dev/null
 rm -rf ~/.gemini/skills/gstack* 2>/dev/null
+rm -rf ~/.jcode/skills/gstack* 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

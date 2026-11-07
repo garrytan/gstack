@@ -76,7 +76,7 @@ Inventory of every setup side effect, by phase (line numbers are approximate):
 |---|---|---|
 | Build | `browse/dist`, `design/dist`, `make-pdf/dist`, `bin/gstack-cso-*` in the source checkout | source |
 | Hosts record | `.gstack-installed-hosts` in the source checkout: every host setup installed from it, additive (#1694) | source |
-| Generation | renders for the recorded hosts only (`.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/`, `.gemini-cli/`) in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
+| Generation | renders for the recorded hosts only (`.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/`, `.gemini-cli/`, `.jcode-render/`) in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
 | Render prune | renders of hosts the record does not name: links into the checkout removed, generated files moved to `$GSTACK_STATE_ROOT/backups/host-renders/<ts>-<id>/`, other files kept | source / state root |
 | Chromium | Playwright cache (`~/.cache/ms-playwright`), lock under the state root | machine |
 | Config | `skill_prefix`, `timeline_stop_hook`, team-mode keys in `$GSTACK_STATE_ROOT/config.yaml` | state root |
@@ -319,6 +319,48 @@ Unverified without a Gemini API key on the build machines (why it is not
 `full`): a live model run of any skill, `ask_user` option handling, and
 plan mode with gstack's plan-review skills. Discovery is verified:
 `gemini skills list` after `./setup --host gemini` lists the `gstack-*` skills.
+
+## Jcode (osmanaksu/gstack#1)
+
+Shipped as `experimental` (`hosts/jcode.ts`, `./setup --host jcode`). Verified
+against the jcode source (`crates/jcode-base/src/skill.rs`,
+`crates/jcode-app-core/src/tool/skill.rs`) on 2026-11-06:
+
+| Fact | Value | Source |
+|---|---|---|
+| User skills | `~/.jcode/skills/<skill>/SKILL.md`, then the `~/.agents/skills` alias | `jcode-base` `SkillRegistry::load_global` |
+| Workspace skills | `./.jcode/skills`, `./.agents/skills`, `./.claude/skills` (project overlay, loaded fresh per session) | `load_project_overlay` |
+| Precedence | global < project overlay; same name: the overlay wins | `merge_overlay` |
+| Frontmatter | only `name` and `description` are parsed; `allowed-tools` is advisory prose, never enforced; `triggers`, `version`, `model`, `preamble-tier`, `hooks` are silently ignored | `SkillFrontmatter` (no `deny_unknown_fields`) |
+| Discovery | `<dir>/<name>/SKILL.md`; the skill loads as prompt text + base dir — it changes no tool policy | `load_skill` |
+| Invocation | the model loads the skill by name after a matching ask; `/skills` lists them | jcode TUI skill panel |
+| Hooks | global only (`~/.jcode/config.toml` `[hooks]`); no per-skill hooks, no per-skill model override | `config.toml` |
+
+What the host does: skills in `~/.jcode/skills/gstack-*`, runtime root
+`~/.jcode/skills/gstack` with `.source-path` for `/gstack-upgrade`, `name:`
+equal to the `gstack-<skill>` directory, frontmatter limited to `name` and
+`description`, and a one-paragraph tool glossary mapping Claude's PascalCase
+tool names to jcode's lowercase ones (`Bash`, `Read`, `Edit`, `Write`,
+`Task`, `WebFetch`, `TodoWrite` ...) ahead of the preamble's STATUS rules.
+The render directory is `.jcode-render/` (gitignored), not `.jcode/`, so
+this repo's own workspace never lists render output as skills, and the
+render never collides with jcode's own `./.jcode/` project state.
+Path rewrites map `CLAUDE.md` to `AGENTS.md` and `.claude/skills` to
+`.jcode/skills`. The cross-model outside-voice resolvers (Claude/Codex
+shells, GBrain) are suppressed: they shell out to CLIs a jcode session
+cannot assume, so those skills fall back to in-session review.
+Safety is advisory (jcode hooks are global and gstack does not write them),
+matching every non-Claude host.
+
+Unverified without a full live skill run (why it is not `full`): loading a
+skill's body and executing its workflow end to end, and an upgrade from an
+existing install. Discovery is verified two ways: `./setup --host jcode` in
+the conformance kit links every `gstack-*` skill into a clean
+`~/.jcode/skills` and registers the row, and a live `jcode run` against an
+isolated `JCODE_HOME` (2026-11-06) discovered all 65 rendered skills and read
+`gstack-review`'s `description` back verbatim, confirming the real
+`load_global`/`parse_skill` path accepts the render's `name`+`description`
+frontmatter.
 
 ## Instruction-only hosts and agent harnesses
 

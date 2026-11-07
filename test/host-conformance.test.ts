@@ -32,6 +32,7 @@ const DISCOVERY: Record<string, string> = {
   copilot: '.copilot/skills',
   agy: '.gemini/antigravity-cli/skills',
   gemini: '.gemini/skills',
+  jcode: '.jcode/skills',
 };
 /** Every directory any host (or a shared agents layout) reads. */
 const ALL_DISCOVERY_DIRS = [...Object.values(DISCOVERY), '.agents/skills', '.hermes/skills'];
