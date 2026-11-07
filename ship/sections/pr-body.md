@@ -22,8 +22,8 @@ Write the text into each printed file with your file-write tool (Claude Code's W
    GitLab reads `glab mr view <pr-number> --output json | jq -r .title` into the same pipe.
 2. For a new PR/MR, write `v<NEW_VERSION> <plain change>` into the file with your file-write tool, adding
    ` (<issue code>)` at the end when the work has one. The front says in everyday words what changed for
-   someone using the project ("Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)");
-   no `<type>(<scope>):` prefix, no tracker code, lane or Captain name, and none of the repository's
+   someone using the project ("Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)")
+   and names what the user gets, not the mechanism; no `<type>(<scope>):` prefix, no tracker code, lane or Captain name, and none of the repository's
    coined terms before that trailing group (docs/ship-policy.md#plain-titles).
 3. Every created or updated title MUST start with `v$NEW_VERSION `; check the file with
    `grep -Eq '^v<new-version>( |$)' "$TITLE_FILE"` and never publish an unprefixed title.

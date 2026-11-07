@@ -280,6 +280,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/native-qualification.yml',
   '.github/workflows/osv-scanner.yml',
   '.github/workflows/platform-qualification.yml',
+  '.github/workflows/plain-title.yml',
   '.github/workflows/pr-title-sync.yml',
   '.github/workflows/quality-gate.yml',
   '.github/workflows/scorecard.yml',
