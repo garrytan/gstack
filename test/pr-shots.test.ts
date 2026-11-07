@@ -118,6 +118,27 @@ describe('default base', () => {
     expect('code' in page).toBe(false); // not PR_SHOTS_IDENTICAL for a committed change
   });
 
+  // Value: protects=a stale remote HEAD cannot hide a usable origin/main before-image;
+  //   fails_when=a dangling or unrelated HEAD target is accepted without trying the real base;
+  //   why_new=the feature-HEAD cases have a resolving target that shares history; seam=none
+  test.each(['dangling', 'unrelated'])('an unusable origin/HEAD (%s) falls back to main', state => {
+    const r = featureRepo();
+    const target = 'refs/remotes/origin/retired';
+    if (state === 'unrelated') {
+      const unrelated = r.git('commit-tree', 'HEAD^{tree}', '-m', 'unrelated root');
+      r.git('update-ref', target, unrelated);
+    }
+    r.git('symbolic-ref', 'refs/remotes/origin/HEAD', target);
+    expect(r.git('rev-parse', 'refs/remotes/origin/main')).toBe(r.base);
+    const chosen = defaultBase(r.dir);
+    expect(chosen).toBe(r.base);
+    if (typeof chosen !== 'string') throw new Error(chosen.message);
+    const sides = pathSides(r.dir, 'doc.md', chosen);
+    if ('code' in sides) throw new Error(sides.message);
+    expect(sides.before.text).toBe('before\n');
+    expect(sides.after.text).toBe('after\n');
+  });
+
   test('a moved remote base still compares from the branch fork point, not its tip', () => {
     const r = featureRepo();
     r.git('checkout', '-q', 'main');

@@ -46,7 +46,10 @@ export function defaultBaseBranch(cwd: string, remotes: readonly string[] = ['or
     const target = read('git', ['symbolic-ref', '--quiet', `${prefix}HEAD`], cwd, 30_000);
     if (!target.startsWith(prefix)) continue;
     const branch = target.slice(prefix.length);
-    if (branch !== current && upstream !== `${remote}/${branch}` && commit(cwd, target) !== headSha) return { branch, remote };
+    const targetSha = commit(cwd, target);
+    // A stale symref can name a missing branch or unrelated history; keep looking for a usable base.
+    if (!targetSha || !read('git', ['merge-base', 'HEAD', targetSha], cwd, 30_000)) continue;
+    if (branch !== current && upstream !== `${remote}/${branch}` && targetSha !== headSha) return { branch, remote };
     skipped ??= { remote, branch };
   }
   const pr = current ? read('gh', ['pr', 'view', '--json', 'baseRefName,isCrossRepository', '-q', PR_BASE], cwd, 5_000).split('\n')[0] : '';
