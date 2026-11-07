@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Bash shim for the /autoplan gate's PreToolUse hook on Bash (GST-1814): only a
+# publish no-op (true autoplan-published <phase>) reaches
+# hosts/claude/hooks/autoplan-stop-gate.ts; every other Bash call returns at
+# once without starting bun. Registered by ./setup --autoplan-gate for
+# PreToolUse with matcher Bash.
+#
+# FAIL-OPEN: every failure path (bun missing, script crash) still exits 0.
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+PAYLOAD="$(cat)" || exit 0
+case "$PAYLOAD" in *autoplan-published*) ;; *) exit 0 ;; esac
+printf '%s' "$PAYLOAD" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/autoplan-stop-gate.ts" || true
+exit 0
