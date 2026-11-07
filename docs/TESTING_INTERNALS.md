@@ -1704,6 +1704,22 @@ whether it would have run or skipped `free-suite` and
 free-suite shards share one verdict. The verdicts show up in the job summary,
 on the pull request's Dynamic CI tab and at app.trunk.io/dynamic-ci.
 
+Trunk keys verdicts by workflow file: it answers only for jobs in the workflow
+that ran the action. So since GST-1847, the other costly pull-request
+workflows carry the same observer job, each named "Trunk Dynamic CI (learning
+only, <workflow>)":
+
+| Workflow | Observed jobs |
+|---|---|
+| `free-tests.yml` | `free-suite`, `macos-named-regressions` |
+| `windows-smoke.yml` | `windows-smoke` |
+| `windows-scoped-tests.yml` | `windows-scoped-shard` |
+| `windows-setup-e2e.yml` | `windows-setup`, `held-install-journey` |
+| `quality-gate.yml` | `quality` |
+| `evals.yml` | `build-image`, `eval-slices` |
+
+Everything below holds for every observer.
+
 It never skips anything. No job needs the observer, no condition reads its
 verdicts, and it exports no outputs. Switching Trunk to enforcement in its
 dashboard would still skip nothing, because nothing in this workflow reads
