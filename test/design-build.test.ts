@@ -222,7 +222,7 @@ describe('preflight, authorization and install (T14, T38, T31)', () => {
     const preview = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => (new URL(req.url).pathname === '/api/__gstack-preview' ? new Response(null, { status: 204, headers: { 'x-gstack-preview': 'ready' } }) : new Response(page, { headers: { 'content-type': 'text/html' } })) });
     const bounce = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => Response.redirect(`http://127.0.0.1:${preview.port}${new URL(req.url).pathname}`, 302) });
     try {
-      const at = (port: number) => inventory({ states: [{ name: 'owner', url: `http://127.0.0.1:${port}/settings?as=owner`, mode: 'url' }] as Inventory['states'] });
+      const at = (port?: number) => inventory({ states: [{ name: 'owner', url: `http://127.0.0.1:${port}/settings?as=owner`, mode: 'url' }] as Inventory['states'] });
       for (const port of [marked.port, bounce.port]) expect((await preflight(at(port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=unknown']);
       expect((await preflight(at(preview.port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=fixtures-only']);
     } finally { for (const s of [marked, preview, bounce]) s.stop(true); }
