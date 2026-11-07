@@ -39,8 +39,12 @@ export interface QueueFailure { code: ResultCodeName; message: string; fix?: str
 
 export function sha256(buf: Buffer | string): string { return createHash('sha256').update(buf).digest('hex'); }
 
+/** No queue git call runs a hook or fsmonitor: land's run after land.merged_checks, repo commands that can write where the checkout's hooks live (lib/land-merged-checks.ts). */
 export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv, input?: string | Buffer): { ok: boolean; out: string; err: string; status: number | null } {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, env: env ?? process.env, input, maxBuffer: 64 * 1024 * 1024 });
+  const base = env ?? process.env;
+  const n = Number(base.GIT_CONFIG_COUNT) || 0;
+  const noHooks = { GIT_CONFIG_COUNT: String(n + 2), [`GIT_CONFIG_KEY_${n}`]: 'core.hooksPath', [`GIT_CONFIG_VALUE_${n}`]: '/dev/null', [`GIT_CONFIG_KEY_${n + 1}`]: 'core.fsmonitor', [`GIT_CONFIG_VALUE_${n + 1}`]: 'false' };
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, env: { ...base, ...noHooks }, input, maxBuffer: 64 * 1024 * 1024 });
   return { ok: r.status === 0, out: (r.stdout ?? '').replace(/\n$/, ''), err: (r.stderr ?? '').trim(), status: r.status };
 }
 

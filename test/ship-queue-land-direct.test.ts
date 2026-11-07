@@ -304,6 +304,46 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     }
   }, 90_000);
 
+  test('land.merged_checks that change the checkout\'s git hooks or config: land puts them back, refuses with QUEUE_LAND_MERGED_CHECKS, merges nothing, and runs no hook in its later git calls', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-gitdir-'));
+    const marker = path.join(scratch, 'hook-ran');
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); printf '#!/bin/sh\\ntouch ${marker}\\n' > $d/hooks/pre-push; chmod +x $d/hooks/pre-push; git config --file $d/config gstack.probe changed`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '90');
+      moveMain(fx, 'other.txt', 'other\n');
+      const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+      const config = fs.readFileSync(path.join(common, 'config'), 'utf8');
+      const r = land(fx, '90', pin, ['--allow-repo-commands']);
+      expect(r.status).not.toBe(EXIT.ok);
+      expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+      expect(r.err).toContain('hooks/pre-push');
+      expect(fx.read().mergeArgs).toBeUndefined();
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fs.existsSync(path.join(common, 'hooks', 'pre-push'))).toBe(false);
+      expect(fs.readFileSync(path.join(common, 'config'), 'utf8')).toBe(config);
+      expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'))).toMatchObject({ released: true });
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('a hook a merged check writes under the checkout\'s core.hooksPath never runs in land\'s git calls, and land still merges', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-hookspath-'));
+    const marker = path.join(scratch, 'hook-ran');
+    const write = `h=$(git rev-parse --path-format=absolute --git-common-dir)/../.hooks; mkdir -p $h && printf '#!/bin/sh\\ntouch ${marker}\\n' > $h/pre-push && chmod +x $h/pre-push`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      fx.repo.git('config', 'core.hooksPath', '.hooks');
+      const pin = openPr(fx, '91');
+      moveMain(fx, 'other.txt', 'other\n');
+      const ok = land(fx, '91', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      expect(fs.existsSync(path.join(fx.repo.work, '.hooks', 'pre-push'))).toBe(true);
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fx.read().mergeArgs).toBeDefined();
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
     const fx = setup(CHECKED);
     const pin = openPr(fx, '83', { edit: w => fs.writeFileSync(path.join(w, 'other.txt'), 'pr\n') });

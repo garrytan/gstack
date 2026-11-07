@@ -16,6 +16,10 @@
  * with setsid or a double fork is reparented to land, which kills every child it has after each check. When either
  * fails the checks do not run. macOS has no /proc but `ps -E` (KERN_PROCARGS2) shows a same-uid process's exec-time
  * environment and has no per-process opt-out, so there the land process's environment stays readable to the checks.
+ * The checks also run as land's user, so they can write the checkout's git directory, whose config and hooks land's
+ * later git calls (the lock push, the merge check) read with land's environment. Land records the config and hooks of
+ * the checkout's git directories before the checks, puts back anything the checks changed or added, and refuses; and
+ * no queue git call runs a hook (lib/ship-queue-gate's git()).
  */
 import { dlopen, FFIType } from 'bun:ffi';
 import { spawnSync } from 'node:child_process';
@@ -39,6 +43,44 @@ const MAX_CHECKS = 16, MAX_COMMAND = 512, CHECK_TIMEOUT_MS = 900_000;
 const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'];
 /** No hook or fsmonitor from the repository's config or the merged tree runs in the git calls around the checks. */
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+
+/** The paths in a git directory that decide what programs git runs: its config and its hooks. */
+const GIT_GUARDED = ['config', 'config.worktree', 'hooks'];
+type GitEntry = { mode: number; link?: string; data?: Buffer };
+
+/** Every guarded path under `dirs` (parents before children) with its mode and bytes, or a symlink's target. */
+function gitState(dirs: string[]): Map<string, GitEntry> {
+  const state = new Map<string, GitEntry>();
+  const walk = (p: string) => {
+    let st: fs.Stats;
+    try { st = fs.lstatSync(p); } catch { return; }
+    if (st.isSymbolicLink()) state.set(p, { mode: st.mode, link: fs.readlinkSync(p) });
+    else if (!st.isDirectory()) state.set(p, { mode: st.mode, data: fs.readFileSync(p) });
+    else { state.set(p, { mode: st.mode }); for (const name of fs.readdirSync(p)) walk(path.join(p, name)); }
+  };
+  for (const dir of dirs) for (const name of GIT_GUARDED) walk(path.join(dir, name));
+  return state;
+}
+
+/** Put every guarded path back as `before` recorded it, removing what was added; returns the paths that had changed. */
+function restoreGitState(dirs: string[], before: Map<string, GitEntry>): string[] {
+  const after = gitState(dirs);
+  const same = (a?: GitEntry, b?: GitEntry) => !!a && !!b && a.mode === b.mode && a.link === b.link && (a.data && b.data ? a.data.equals(b.data) : a.data === b.data);
+  const changed = [...new Set([...before.keys(), ...after.keys()])].filter(p => !same(before.get(p), after.get(p)));
+  for (const dir of dirs) for (const name of GIT_GUARDED) {
+    const top = path.join(dir, name);
+    const under = (p: string) => p === top || p.startsWith(top + path.sep);
+    if (!changed.some(under)) continue;
+    fs.rmSync(top, { recursive: true, force: true });
+    for (const [p, e] of before) {
+      if (!under(p)) continue;
+      if (e.link !== undefined) { fs.symlinkSync(e.link, p); continue; }
+      if (e.data) fs.writeFileSync(p, e.data); else fs.mkdirSync(p);
+      fs.chmodSync(p, e.mode & 0o7777);
+    }
+  }
+  return changed;
+}
 
 export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line.';
 
@@ -113,6 +155,10 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     const linux = process.platform === 'linux';
     const open = linux ? closeLandProc() : null;
     if (open) return { ok: false, conflict: false, setup: true, tree, detail: `cannot close land's /proc environment to the checks (${open}), so they did not run` };
+    const gitDirs = [...new Set(git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir']).out.split('\n').filter(Boolean))];
+    if (!gitDirs.length) return { ok: false, conflict: false, setup: true, tree, detail: 'cannot find the checkout\'s git directory, so the checks did not run' };
+    const saved = gitState(gitDirs);
+    let failed = '';
     for (const cmd of checks) {
       const group = process.platform !== 'win32';
       const log = path.join(scratch, 'check.log');
@@ -121,11 +167,15 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
       const r = spawnSync('sh', ['-c', cmd], opts);
       fs.closeSync(fd);
       if (group && r.pid) try { process.kill(-r.pid, 'SIGKILL'); } catch {}
-      if (linux && !killStrays()) return { ok: false, conflict: false, tree, detail: `\`${cmd}\` left processes running that land could not stop on the merged tree ${tree.slice(0, 12)}` };
+      if (linux && !killStrays()) { failed = `\`${cmd}\` left processes running that land could not stop on the merged tree ${tree.slice(0, 12)}`; break; }
       if (r.status === 0 && !r.error) continue;
       const tail = fs.readFileSync(log, 'utf8').trim().split('\n').slice(-6).join('\n');
-      return { ok: false, conflict: false, tree, detail: `\`${cmd}\` ${r.error ? `did not finish (${r.error.message})` : `exited ${r.status ?? r.signal}`} on the merged tree ${tree.slice(0, 12)}${tail ? `:\n${tail}` : ''}` };
+      failed = `\`${cmd}\` ${r.error ? `did not finish (${r.error.message})` : `exited ${r.status ?? r.signal}`} on the merged tree ${tree.slice(0, 12)}${tail ? `:\n${tail}` : ''}`;
+      break;
     }
+    const touched = restoreGitState(gitDirs, saved);
+    if (touched.length) return { ok: false, conflict: false, tree, detail: `the checks changed ${touched.slice(0, 6).map(p => path.relative(root, p)).join(', ')} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}; land put them back` };
+    if (failed) return { ok: false, conflict: false, tree, detail: failed };
     if (git(dir, [...NO_HOOKS, 'rev-parse', 'HEAD']).out !== commit.out) return { ok: false, conflict: false, tree, detail: `the checks moved HEAD off the merged commit ${commit.out.slice(0, 12)}, so it was not the tree they passed` };
     const changed = git(dir, [...NO_HOOKS, 'status', '--porcelain', '--untracked-files=no']);
     if (!changed.ok) return { ok: false, conflict: false, setup: true, tree, detail: `git status failed on the merged tree ${tree.slice(0, 12)}: ${changed.err.split('\n')[0]}` };
