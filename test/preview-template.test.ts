@@ -39,11 +39,14 @@ describe('preview template: scenarios and the fixture API (T3, T21, T22, T26, T3
     const p = await startPreview(['--static', '--root', PAGE, '--fixtures', fixtures, '--port', '0', '--state', state]);
     live.push(p);
     expect((await fetch(p.url + '%E0%A4%A')).status).toBe(400);
+    const probe = await fetch(p.url + 'api/__gstack-preview', { redirect: 'manual' });
+    expect([probe.status, probe.headers.get('x-gstack-preview')]).toEqual([204, 'ready']);
     const bad = await fetch(p.url + 'api/teams?as=owner');
     expect([bad.status, bad.headers.get('x-gstack-preview')]).toEqual([501, 'PREVIEW_UNKNOWN_SCENARIO']);
     expect((await bad.json()).detail).toContain('has a bad status or header');
     expect((await fetch(p.url + 'api/members?as=owner')).status).toBe(200);
     expect(fs.readFileSync(path.join(state, 'unhandled.jsonl'), 'utf8')).toContain('"path":"/api/teams","code":"PREVIEW_UNKNOWN_SCENARIO"');
+    expect(fs.readFileSync(path.join(state, 'unhandled.jsonl'), 'utf8')).not.toContain('__gstack-preview');
   });
 
   test('pages get the shim; API calls are answered by header, ?as= or Referer; anything unsupported is a recorded 501', async () => {
@@ -74,8 +77,7 @@ describe('preview template: scenarios and the fixture API (T3, T21, T22, T26, T3
       expect(body.detail).toContain(detail);
     }
     const unhandled = fs.readFileSync(path.join(p.state, 'unhandled.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    expect(unhandled.every((h: { at: unknown }) => typeof h.at === 'number')).toBe(true);
-    expect(unhandled.map(({ at: _at, ...h }: { at: number }) => h)).toEqual([
+    expect(unhandled).toEqual([
       { scenario: '', method: 'GET', path: '/api/members', code: 'PREVIEW_NO_SCENARIO' },
       { scenario: 'nobody', method: 'GET', path: '/api/members', code: 'PREVIEW_UNKNOWN_SCENARIO' },
       { scenario: 'lastowner', method: 'GET', path: '/api/audit', code: 'PREVIEW_UNHANDLED' },
@@ -144,6 +146,7 @@ describe('preview template: the shim and the Vite plugin (T3, T21)', () => {
     const mod = await import(PREVIEW_TEMPLATE);
     const plugin = mod.gstackPreviewFixtures({ fixtures: FIXTURES });
     expect(plugin.name).toBe('gstack-preview-fixtures');
+    expect(plugin.apply).toBe('serve');
     expect(plugin.transformIndexHtml()).toEqual([{ tag: 'script', attrs: { 'data-gstack-preview': '' }, children: mod.SHIM, injectTo: 'head-prepend' }]);
     const used: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
     plugin.configureServer({ middlewares: { use: (fn: (typeof used)[number]) => used.push(fn) } });

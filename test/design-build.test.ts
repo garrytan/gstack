@@ -141,11 +141,11 @@ describe('an unsupported fixture route never yields a complete receipt (T26)', (
     expect(run({ unhandled: [] }).line).toStartWith('DESIGN_BUILD: clean');
   });
 
-  test('a 501 fixed before the final pass no longer counts, while a scenario-less 501 during it blocks every URL state', () => {
-    expect(run({ unhandled: [{ scenario: 'owner', method: 'GET', path: '/api/teams', code: 'PREVIEW_UNHANDLED', at: 1 }] }).line).toStartWith('DESIGN_BUILD: clean');
-    const late = run({ unhandled: [{ scenario: 'owner', method: 'GET', path: '/api/teams', code: 'PREVIEW_UNHANDLED', at: Date.now() + 60_000 }] });
-    expect(late.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
-    const none = run({ unhandled: [{ scenario: '', method: 'GET', path: '/api/members', code: 'PREVIEW_NO_SCENARIO', at: Date.now() + 60_000 }] });
+  test('a 501 recorded at any point in the run keeps the receipt incomplete, and a scenario-less one blocks every URL state', () => {
+    const early = run({ unhandled: [{ scenario: 'owner', method: 'DELETE', path: '/api/teams/7', code: 'PREVIEW_UNHANDLED', at: 1 }] });
+    expect(early.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
+    expect(early.line).toContain('restart the preview, then start a fresh run from preflight');
+    const none = run({ unhandled: [{ scenario: '', method: 'GET', path: '/api/members', code: 'PREVIEW_NO_SCENARIO' }] });
     expect(none.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_NO_SCENARIO');
     expect(none.receipt.states.map((s) => (s.unhandled as unknown[]).length)).toEqual([1, 1]);
   });
@@ -207,10 +207,25 @@ describe('preflight, authorization and install (T14, T38, T31)', () => {
     expect(refused.lines[0]).toStartWith('DESIGN_BUILD: incomplete code=UNAUTHORIZED_TARGET (prod at https://app.example.com/settings?as=owner is not on loopback and has no grant; no page was opened and no action ran)');
     expect(reached).toEqual([]);
     expect((await preflight(inv, ['other.example.com'], { engine, reach })).exit).toBe(4);
-    const granted = await preflight(inv, ['app.example.com'], { engine, reach });
+    const probed: string[] = [];
+    const granted = await preflight(inv, ['app.example.com'], { engine, reach, preview: async (u) => { probed.push(u); return true; } });
     expect(granted.lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=fixtures+granted']);
-    expect((await preflight(inventory(), [], { engine, reach, shim: async () => true })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
-    expect((await preflight(inventory(), [], { engine, reach, shim: async (u) => !u.includes('lastowner') })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown']);
+    expect(probed).toEqual([URL_OWNER]);
+    expect((await preflight(inv, ['app.example.com'], { engine, reach, preview: async () => false })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=unknown']);
+    expect((await preflight(inventory(), [], { engine, reach, preview: async () => true })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
+    expect((await preflight(inventory(), [], { engine, reach, preview: async (u) => !u.includes('lastowner') })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown']);
+  });
+
+  test('only the preview\'s own probe answer proves fixtures-only: a marker in the HTML or a redirect does not', async () => {
+    const page = '<!doctype html><!-- data-gstack-preview --><script data-gstack-preview></script><title>app</title>';
+    const marked = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(page, { headers: { 'content-type': 'text/html' } }) });
+    const preview = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => (new URL(req.url).pathname === '/api/__gstack-preview' ? new Response(null, { status: 204, headers: { 'x-gstack-preview': 'ready' } }) : new Response(page, { headers: { 'content-type': 'text/html' } })) });
+    const bounce = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => Response.redirect(`http://127.0.0.1:${preview.port}${new URL(req.url).pathname}`, 302) });
+    try {
+      const at = (port: number) => inventory({ states: [{ name: 'owner', url: `http://127.0.0.1:${port}/settings?as=owner`, mode: 'url' }] as Inventory['states'] });
+      for (const port of [marked.port, bounce.port]) expect((await preflight(at(port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=unknown']);
+      expect((await preflight(at(preview.port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=fixtures-only']);
+    } finally { for (const s of [marked, preview, bounce]) s.stop(true); }
   });
 
   test('a URL that does not answer is unrendered NO_PREVIEW, redacted', async () => {

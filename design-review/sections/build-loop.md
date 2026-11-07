@@ -57,9 +57,9 @@ and is never counted as linted. Preview and fixtures:
 Browser first, then targets (loopback only; another host needs a
 `--grant-remote <host>` the person wrote; never add one yourself), then
 reachability. A `DESIGN_BUILD:` line here is the run's final line: stop. On
-`code=NO_PREVIEW`, start the preview once and rerun preflight once. Under
-`mutations=unknown` (a page without the preview shim), never drive changed
-actions: they may reach a live backend.
+`code=NO_PREVIEW`, start the preview and rerun preflight once. Under
+`mutations=unknown` (no preview answered), never drive changed actions:
+they may reach a live backend.
 
 ### 3. Rounds (three at most)
 
@@ -78,8 +78,9 @@ actions: they may reach a live backend.
    and keyboard close back to its trigger.
 5. Fix in source and fixtures. Leave the edits uncommitted.
 
-An incomplete state (a code in `app.states[]`, or a preview 501) is a harness
-problem, not a round: fix its named cause and rerun it. Stop
+An incomplete state (a code in `app.states[]`) is a harness problem, not a
+round: fix its named cause and rerun it. A preview 501 ends the run: add its
+route, restart the preview, rerun from preflight. Stop
 editing after round 3, or earlier once a round is clean.
 
 ### 4. Final verification (read-only) and the receipt
@@ -107,7 +108,7 @@ fourth editing round without a written grant.
 |---------|-------|------|
 | `clean` / `waived` | every URL state linted at every viewport, every state shot, nothing open | report it |
 | `open` | complete coverage, open findings | each one gets a waiver with its reason, or a PR body line |
-| `incomplete` | a state not linted everywhere, not shot, a preview 501, or stale evidence | fix the named cause, rerun the final pass once, list the rest unverified in the PR body |
+| `incomplete` | a state not linted everywhere, not shot, a preview 501, or stale evidence | its fix line; list the rest unverified in the PR body |
 | `unrendered` | install, browser or preview missing | its fix line |
 | `stale` | the tree changed after the receipt | rerun the final pass |
 

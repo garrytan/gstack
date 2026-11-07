@@ -88,10 +88,11 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
   return (req, res, next) => {
     const url = new URL(req.url ?? '/', 'http://' + HOST);
     if (!url.pathname.startsWith(api)) return next();
+    if (url.pathname === api + '__gstack-preview') { res.writeHead(204, { 'x-gstack-preview': 'ready', 'cache-control': 'no-store' }); return res.end(); }
     const method = (req.method ?? 'GET').toUpperCase();
     const scenario = scenarioOf(req, url);
     const fail = (code, detail, fixLine) => {
-      record({ scenario, method, path: redact(url.pathname), code, at: Date.now() });
+      record({ scenario, method, path: redact(url.pathname), code });
       log(`${method} ${redact(url.pathname + url.search)} 501 ${code} scenario=${scenario || '-'}`);
       res.writeHead(501, { 'content-type': 'application/problem+json', 'x-gstack-preview': code, 'cache-control': 'no-store' });
       res.end(JSON.stringify({ type: `${DOC}#${code.toLowerCase().replace(/_/g, '-')}`, title: 'No fixture answers this request', status: 501, code, detail, fix: fixLine }));
@@ -119,6 +120,7 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
 export function gstackPreviewFixtures({ fixtures, api = '/api/', stateDir, log } = {}) {
   return {
     name: 'gstack-preview-fixtures',
+    apply: 'serve',
     transformIndexHtml: () => [{ tag: 'script', attrs: { 'data-gstack-preview': '' }, children: SHIM, injectTo: 'head-prepend' }],
     configureServer(server) { server.middlewares.use(createFixtureMiddleware({ fixtures: path.resolve(fixtures), api, stateDir, log })); },
   };

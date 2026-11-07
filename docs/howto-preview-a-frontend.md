@@ -36,8 +36,11 @@ files instead, with the same fixture API; gstack's own tests use that mode on
   prefix is the app's (SPA routes still serve). An app that calls an
   absolute API URL on another origin still reaches that host, so point its
   API base at the preview. `preflight` prints `mutations=fixtures-only` only
-  when every state's page carries the preview's script; any other page is
-  `mutations=unknown`, and the loop then drives no changed action.
+  when the preview's own probe route, `/api/__gstack-preview`, answers at
+  every loopback state's origin without a redirect. A page that merely
+  carries the script, a redirect, or a custom `--api` prefix is
+  `mutations=unknown`, and the loop then drives no changed action. The Vite
+  plugin applies to the dev server only, so a build never carries the script.
 - **A clean stop.** `stop` (or SIGTERM/SIGINT) closes the server, removes
   `<state>/preview.json` and exits 0.
 
@@ -79,7 +82,7 @@ the error and still rendered.
 
 | Code | Means | Fix |
 |------|-------|-----|
-| <a id="preview-unhandled"></a>`PREVIEW_UNHANDLED` | the scenario file has no route for this method and path | add the route to that file |
+| <a id="preview-unhandled"></a>`PREVIEW_UNHANDLED` | the scenario file has no route for this method and path | add the route to that file, restart the preview and start a fresh run from preflight: every 501 the preview recorded during a run keeps its receipt incomplete |
 | <a id="preview-unknown-scenario"></a>`PREVIEW_UNKNOWN_SCENARIO` | no `<scenario>.json`, or it is not JSON | add or fix the file |
 | <a id="preview-no-scenario"></a>`PREVIEW_NO_SCENARIO` | an API call with no scenario at all | open the page with `?as=<scenario>` |
 
