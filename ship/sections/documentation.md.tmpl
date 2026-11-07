@@ -56,7 +56,7 @@ Reentry never resets the count or authorizes a launch.
 > - `schema_version`: integer 1; `audit_id`: the exact supplied string.
 > - `status`: updated/current/blocked.
 > - `files_updated`, `files_reviewed`, `blockers`, `decisions`: string arrays. Paths are unique repo-relative files, not globs.
-> - `documentation_section`: nonempty Markdown with scope, result and debt, without a ## Documentation heading. No extra or legacy fields.
+> - `documentation_section`: the complete section itself, never a placeholder: nonempty Markdown with scope, result and debt, without a ## Documentation heading. Spell every key exactly as listed; no extra or legacy fields.
 >
 > Completed audits without blockers are `updated` if edited, otherwise `current`; describe scope even without docs. Failed/incomplete audits are `blocked`, with reasons/partial edits. Read-only corrections block. Metadata observations go only in decisions.
 
@@ -67,10 +67,14 @@ Reentry never resets the count or authorizes a launch.
 1. **Collect.** Inspect the child handle for terminal completion and final output
    within ~10 minutes; launch metadata is not completion. On failure/deadline,
    use recovery before another writer.
-2. **Check output.** Parse only the LAST nonempty line. Require every field/type,
-   exact audit id, schema, status invariant and actual spawned marker above, as
-   echoed in the child output; state files are not evidence of it.
-   Never default or reconstruct missing values.
+2. **Check output.** Save the output, then run
+   `~/.claude/skills/gstack/bin/gstack-docs-candidate result <output> --audit-id <audit-id> --out-dir <record dir>`.
+   It parses only the LAST nonempty line, trims whitespace around keys and requires
+   every field/type, exact audit id, schema and status invariant. `DOCS_RESULT: ok`
+   saves `<audit-id>-result.json` and the section unchanged as `<audit-id>-documentation.md`;
+   `DOCS_RESULT_INVALID` names each bad key and prints a `RETRY_NOTE:`. Also require
+   the actual spawned marker above, as echoed in the child output; state files are
+   not evidence of it. Never default or reconstruct missing values.
 3. **Check ownership.** Run `gstack-docs-candidate compare <candidate>`.
    Compare actual changes against the candidate, enforcing
    prompt/audit-scope permissions and protected-file exclusions. HEAD and index
@@ -97,8 +101,8 @@ branch's copy (a PR cannot raise its own cap), prints one `DOCS_CAP: <path> <byt
 blocked audit, repaired by trimming that file, never by raising the cap. Then save for Step 16 only post-child hashes (rerun the Prepare `snapshot`
 with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added,
 plus `--carry <this run's earlier audit's -post.json>` on a re-audit so receipt write
-resets both audits' files; Step 16 `compare`s it; never type hashes), status, the child's final JSON line as `<audit-id>-result.json`, and the section copied unchanged as the sole content of a private
-`<audit-id>-documentation.md`. That file is the section's single source;
+resets both audits' files; Step 16 `compare`s it; never type hashes), status, and keep the `<audit-id>-result.json` and private `<audit-id>-documentation.md`
+that `result` wrote. That section file is the section's single source;
 reports and Step 19 insert it by command (`cat`) where they can, never retyped or edited.
 Save records once; cite files by path, never copying their content.
 Print `Documentation: updated` with paths or `Documentation: current` with scope,
@@ -122,7 +126,9 @@ auto-commit or push unexpected child commits.
    STOP ship. Reject late results from abandoned ids.
 2. If an attempt remains and either the audited inputs changed or
    a concrete launch/input/permission correction or reviewed patch repair is available,
-   apply any repair with user approval for risky edits.
+   apply any repair with user approval for risky edits. A `DOCS_RESULT_INVALID`
+   result is such a correction: end the remaining attempt's prompt with its
+   `RETRY_NOTE:` text verbatim.
    Repeat Prepare using current inputs and a fresh id/snapshot, run the remaining
    attempt, then validate it through Parent processing.
 3. Otherwise STOP before commit/publication and do not launch another child.
@@ -139,3 +145,4 @@ auto-commit or push unexpected child commits.
    (`DOCS_AUDIT_BLOCKED`). Then save Step 16's post snapshot from it: the Prepare
    `snapshot` with `--out <audit-id>-post.json --exception .gstack/tmp/docs-audit.json`;
    finish refuses a blocked audit whose post snapshot lacks it. An unattended run has no owner to accept: it stops here.
+   Its stop names the failure's own code (`DOCS_RESULT_INVALID` and its keys for a malformed result).

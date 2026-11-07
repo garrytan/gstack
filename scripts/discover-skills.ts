@@ -4,6 +4,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { HostConfig } from './host-config';
 
@@ -19,6 +20,23 @@ const SKIP = new Set(['node_modules', '.git', 'dist']);
  * GSTACK_RETIRED_SKILLS in bin/gstack-install-registry.sh.
  */
 export const RETIRED_SKILLS = ['plan-eng-review', 'investigate'];
+
+/**
+ * The gstack-on-Capy skills (crew/README.md): registered only on a Capy
+ * machine, and kept off every host elsewhere like a retired skill. Same list
+ * as GSTACK_CREW_SKILLS in bin/gstack-install-registry.sh, and the same Capy
+ * test as its gstack_on_capy.
+ */
+export const CREW_SKILLS = ['captain'];
+
+export function onCapyMachine(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): boolean {
+  return Boolean(env.CAPY_MACHINE_CONFIG) || fs.existsSync(path.join(home, '.capy', 'system'));
+}
+
+/** What no host registers on this machine: the retired skills, plus the crew skills off Capy. */
+export function unregisteredSkills(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string[] {
+  return onCapyMachine(env, home) ? RETIRED_SKILLS : [...RETIRED_SKILLS, ...CREW_SKILLS];
+}
 
 /** The generator and its coverage checks use the same include-minus-skip rule. */
 export function includesSkill(host: HostConfig, skillDir: string): boolean {
