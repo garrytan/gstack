@@ -5516,11 +5516,18 @@ the lane fixes it at a new head (a flaky case gets its one rerun under rule
 **Meaning.** `origin/main` moved since the pin's merge base, and a
 `land.merged_checks` command failed on the pin merged onto main's tip. The
 message names the command, its exit and its last output lines. Nothing was
-merged.
+merged. When the message says the checks changed paths in the checkout's git
+directory (its config, hooks, `commondir` or `gitdir` files, or the checkout's
+`.git`), land made no further git call in the checkout, pushed no lock
+release, and a `LOCK: warn` line says the land lock stays held.
 
 **Fix.** The lane merges `origin/main` into the branch, fixes what the
 command names, pushes, waits for the required checks, runs /ship and `ready`
-at the new head, and sends a new READY.
+at the new head, and sends a new READY. For changed git paths, first inspect
+each named path and restore it from a trusted copy (delete a hook the checks
+added) before any git command in that checkout, then release the lock without
+running the checks with `gstack-ship-queue land --pr <n> --pin <sha>` (no
+`--allow-repo-commands`).
 
 <a id="queue-land-not-clean"></a>
 ### `QUEUE_LAND_NOT_CLEAN`
