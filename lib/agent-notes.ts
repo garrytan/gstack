@@ -42,13 +42,20 @@ export function agentNotesLines(lines: string[]): { marker: number; start: numbe
   if (marker === undefined) return null;
   let start = marker + 1;
   while (start < lines.length && lines[start]!.trim() === '') start++;
-  if (start < lines.length && lines[start]!.trim() === AGENT_NOTES_OPEN) start++;
+  if (start < lines.length && /^<details\b[^>]*>\s*(?:<summary>[^<]*<\/summary>)?$/i.test(lines[start]!.trim())) {
+    start++;
+    if (start < lines.length && /^<summary>[^<]*<\/summary>$/i.test(lines[start]!.trim())) start++;
+  }
   return { marker, start, close: wrapperClose(lines, start) };
 }
 
-/** The `</details>` line that closes the wrapper: the first one outside fences with every `<details>` opened inside the notes closed. */
+/**
+ * The `</details>` line that closes the wrapper: the first one outside fences with every `<details>` opened inside the
+ * notes closed, or, when a `<details>` in the notes never closes, the first `</details>` line outside fences.
+ */
 function wrapperClose(lines: string[], from: number): number {
   let depth = 0;
+  let first = -1;
   let fence: string | null = null;
   for (let i = from; i < lines.length; i++) {
     const line = lines[i]!.replace(/\r?\n$/, '');
@@ -56,10 +63,11 @@ function wrapperClose(lines: string[], from: number): number {
     const open = FENCE_OPEN.exec(line);
     if (open) { fence = open[1]!; continue; }
     if (line.trim() === CLOSE && depth === 0) return i;
+    if (line.trim() === CLOSE && first < 0) first = i;
     const prose = line.replace(/`[^`]*`/g, '');
     depth = Math.max(0, depth + (prose.match(/<details\b/gi)?.length ?? 0) - (prose.match(/<\/details>/gi)?.length ?? 0));
   }
-  return lines.length;
+  return first >= 0 ? first : lines.length;
 }
 
 /** The body around its section: the text above the marker, the content inside the wrapper, and any text after `</details>`. */

@@ -83,8 +83,14 @@ const offNote = (mode: { mode: PlanMode; source: string }) => (mode.source.inclu
  * Agent notes section is read there only (lib/agent-notes.ts); a body without one is read whole.
  */
 export function parsePlanLine(body: string): PlanDecl | null {
+  const notes = agentNotesOrBody(body);
+  return planLineIn(notes) ?? (notes === body ? null : planLineIn(body));
+}
+
+/** The first Plan line in the text, outside code fences. */
+function planLineIn(text: string): PlanDecl | null {
   let fenced = false;
-  for (const raw of agentNotesOrBody(body).split(/\r?\n/)) {
+  for (const raw of text.split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; continue; }
     if (fenced) continue;
     const m = /^(?:\*\*)?Plan:(?:\*\*)?\s*(.*)$/.exec(raw.trim());

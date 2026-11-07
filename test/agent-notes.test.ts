@@ -47,6 +47,18 @@ describe('splitAgentNotes and withAgentNotes', () => {
     const nested = 'Fixes #1\n\n<details><summary>Runs</summary>\n\nr\n\n</details>';
     expect(splitAgentNotes('Opening.\n\n' + notes(nested) + '\n' + shots).notes).toBe(nested);
   });
+
+  test('an open or two-line opener and an unclosed collapsible inside the notes keep text added after the section outside it', () => {
+    const after = '\nA note a person added.\n';
+    for (const opener of ['<details open><summary>Agent notes</summary>', '<details>\n<summary>Agent notes</summary>']) {
+      const body = `Opening.\n\n${AGENT_NOTES_MARKER}\n${opener}\n\nFixes #1\n\n</details>\n${after}`;
+      expect(splitAgentNotes(body).notes).toBe('Fixes #1');
+      expect(withAgentNotes(body, 'Fixes #2').endsWith('</details>\n' + after)).toBe(true);
+    }
+    const unclosed = 'Opening.\n\n' + notes('Fixes #1\n\n<details><summary>Runs</summary>\n\nr') + '\n' + after;
+    expect(splitAgentNotes(unclosed).notes).toBe('Fixes #1\n\n<details><summary>Runs</summary>\n\nr');
+    expect(withAgentNotes(unclosed, 'Fixes #2').endsWith('</details>\n' + after)).toBe(true);
+  });
 });
 
 describe('placeReceipt: the receipt lives in the Agent notes section', () => {
@@ -115,11 +127,14 @@ describe('which receipt binds', () => {
 });
 
 describe('readers find their lines inside the Agent notes section', () => {
-  test('the Plan line is read from the notes; a body with a section ignores a Plan line in its readable part', () => {
+  test('the Plan line is read from the notes first; with none there, the readable part still counts', () => {
     const body = 'Opening.\n\n## Summary\n\nx\n\n' + notes('Plan: exempt: docs-only\n\n' + renderReceiptBlock(receipt(HEAD)));
     expect(parsePlanLine(body)).toEqual({ kind: 'exempt', line: 'Plan: exempt: docs-only', reason: 'docs-only' });
+    expect(parsePlanLine('Plan: approved: r-1\n\n' + notes('Plan: exempt: docs-only'))?.kind).toBe('exempt');
     const readableOnly = 'Plan: approved: r-1\n\n' + notes('Fixes #14');
-    expect(parsePlanLine(readableOnly)).toBeNull();
+    expect(parsePlanLine(readableOnly)).toEqual({ kind: 'approved', line: 'Plan: approved: r-1', token: 'r-1' });
+    const older = 'Opening.\n\n## Approvals\n\nPlan: exempt: docs-only\n';
+    expect(parsePlanLine(placeReceipt(older, receipt(HEAD)))).toEqual(parsePlanLine(older));
     expect(parsePlanLine('## Approvals\n\nPlan: exempt: docs-only\n')?.kind).toBe('exempt');
   });
 

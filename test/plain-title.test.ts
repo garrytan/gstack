@@ -89,6 +89,13 @@ describe('checkTitle', () => {
     expect(checkTitle('v1.98.0.0 release', policy)).toEqual([]);
   });
 
+  test('a credential in a refused title is masked in the finding, so no printed line carries it', () => {
+    const key = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+    const [f] = checkTitle(`fix(${key}): explain setup`, policy);
+    expect(f?.kind).toBe('scope-prefix');
+    expect(f?.match).not.toContain(key);
+  });
+
   test('the titles gstack generates pass', () => {
     expect(checkTitle('v1.98.0.0 release', policy)).toEqual([]);
     expect(checkTitle('Add a changelog entry for changes merged by hand next to #4122', policy)).toEqual([]);

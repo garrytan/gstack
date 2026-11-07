@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { splitAgentNotes } from './agent-notes';
 import { maskProse } from './prose-lint';
+import { redactFindingSpans } from './redact-engine';
 
 export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[] }
 export interface PlainFinding { code: 'PLAIN_TITLE_REFUSED' | 'PLAIN_BRANCH_REFUSED' | 'PLAIN_OPENING_REFUSED' | 'PLAIN_CHANGELOG_REFUSED' | 'PLAIN_COMMIT_REFUSED'; kind: 'code' | 'term' | 'scope-prefix' | 'opening-shape'; match: string; hint: string }
@@ -94,8 +95,11 @@ function scan(text: string, policy: PlainTitlePolicy, normalize: (s: string) => 
   return hits;
 }
 
+/** A match as it may be printed: a credential the title or branch carries is masked before any line shows it. */
+const shown = (match: string): string => redactFindingSpans(match) ?? match;
+
 const toFindings = (code: Code, hits: Hit[]): PlainFinding[] => hits.map(h => ({
-  code, kind: h.kind, match: h.match,
+  code, kind: h.kind, match: shown(h.match),
   hint: h.kind === 'code' && (code === 'PLAIN_BRANCH_REFUSED' || code === 'PLAIN_OPENING_REFUSED' || code === 'PLAIN_CHANGELOG_REFUSED') ? HINTS[code] : HINTS[h.kind],
 }));
 
@@ -113,7 +117,7 @@ function titleFindings(title: string, policy: PlainTitlePolicy, code: Code): Pla
   const front = splitTitle(title).front.replace(/^v\d+(?:\.\d+)+\s*/i, '');
   const scope = /^[A-Za-z][\w.-]*\([^()]{0,60}\)!?:/.exec(front);
   return [
-    ...(scope ? [{ code, kind: 'scope-prefix' as const, match: scope[0], hint: HINTS['scope-prefix'] }] : []),
+    ...(scope ? [{ code, kind: 'scope-prefix' as const, match: shown(scope[0]), hint: HINTS['scope-prefix'] }] : []),
     ...toFindings(code, scan(front, policy)),
   ];
 }
