@@ -1270,6 +1270,22 @@ them (`ci_carried=<lane>:<run>/<attempt>`). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
 default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
 
+<a id="record-ci-reuse"></a>**record-ci reuses its own row at the same tree (GST-1795).** Step 5's
+carry and accept both call `record-ci`, so at an unchanged pushed tree the
+second call would run the `per_file` remainder again. Instead, after it
+verifies the run live, `record-ci` reuses the label's newest ledger row when
+that row is the CI row it would write again: the same commit, clean tree,
+command, verified runs (id and attempt), profiles, jobs, base policy, covered
+count, unit and not-owed reason, FRESH within 24 hours, with no test-lane
+exception, and the same remainder files, each file's newest `<lane>.skipped`
+run at this tree written before that row and a pass under this runtime (a
+remainder run after the CI row, such as a zero-test rerun record-ci refused,
+vetoes reuse). It runs nothing here, prints
+`CI_RECORD_REUSED: label=<lane> runs=<id>/<attempt> tree=<tree12> policy=<policy>`
+after its record line, and accept's lane line ends `(reused the CI record at
+tree <tree12>)`. Any difference, a newer row for the label, or a run that is no
+longer green records afresh (or refuses) as before.
+
 <a id="accept-local-tests"></a>**When accept's final pregate runs the tests here (GST-1606).** The final
 pregate's tests stage carries only under a base run profile whose `os` matches
 this machine and whose workflow holds a lane this machine runs. A lane carried

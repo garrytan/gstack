@@ -206,7 +206,7 @@ export function importedTestLines(cwd: string, missing: string[], candidates: st
  * not-owed reason, or the last CARRY_NONE reason. A lane the cleared remote gate stood in for (--remote-gate-stands-in, GST-1688)
  * reads as its receipt, its count and why the CI carry refused.
  */
-export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
+export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; reused?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
   const lines = stderr.split('\n');
   const last = lines.findLast(x => x.startsWith('gstack-evidence: recorded label='));
   const gateRow = last && / tests_ran=(\d+) log=- source=remote_gate receipt=(.+)$/.exec(last);
@@ -220,7 +220,8 @@ export function recordCiResult(stderr: string): { runs?: string; tests?: string;
   const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(lines[at]!);
   const here = / skipped_here=(\d+) tests_ran_here=(\S+)( not_owed_here=\d+)?$/.exec(lines[at]!);
   const notOwed = lines.slice(at + 1).find(x => x.startsWith('gstack-evidence: not owed: '))?.slice('gstack-evidence: not owed: '.length);
-  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}${here[3] ?? ''}` } : {}), ...(exception ? { exception } : {}) };
+  const reused = lines.slice(at + 1).map(x => /^CI_RECORD_REUSED: .* tree=([0-9a-f]+) /.exec(x)?.[1]).find(Boolean);
+  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}${here[3] ?? ''}` } : {}), ...(exception ? { exception } : {}), ...(reused ? { reused } : {}) };
 }
 
 /** The per_file runner command for `files`: `{files}` replaced by the paths, each anchored with ./ (Bun reads a bare relative path as a substring filter) and single-quoted for bash. */
