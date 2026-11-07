@@ -92,7 +92,7 @@ describe('checkTitle', () => {
   test('the titles gstack generates pass', () => {
     expect(checkTitle('v1.98.0.0 release', policy)).toEqual([]);
     expect(checkTitle('Add a changelog entry for changes merged by hand next to #4122', policy)).toEqual([]);
-    expect(checkTitle('Merge 2 related changes to browse together (#4120, #4121)', policy)).toEqual([]);
+    expect(checkTitle('Merge 2 related changes together (#4120, #4121)', policy)).toEqual([]);
   });
 
   test('splitTitle keeps only a trailing group made of references', () => {
@@ -153,6 +153,11 @@ describe('checkOpening', () => {
     expect(brief(checkOpening('One thing. Two things. Three things.', policy))).toEqual(['opening-shape:3 sentences']);
     expect(checkOpening('This changes the setup, e.g. the default. It is plain.', policy)).toEqual([]);
     expect(brief(checkOpening('The pregate clears faster (GST-1713).', policy))).toEqual(['code:GST-1713', 'term:pregate']);
+  });
+
+  test('a marker quoted inline in the opening does not end it; only the section marker on its own line does', () => {
+    const opening = 'Readers find the `<!-- gstack:agent-notes -->` section at the end. It holds the checks. It stays collapsed.\n\n';
+    expect(brief(checkOpening(opening + NOTES, policy))).toEqual(['opening-shape:3 sentences']);
   });
 });
 

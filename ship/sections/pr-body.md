@@ -76,8 +76,8 @@ The completion message lists unpromoted candidates, `Related:` lines and any `IS
 ### Capy
 
 Run `[ "${GSTACK_CAPY:-}" = 1 ] && echo 'CAPY_PR: on' || echo 'CAPY_PR: off'`. On `CAPY_PR: on`, read
-`~/.claude/skills/gstack/ship/sections/capy-pr.md` now: the body opens with its `## What changed`,
-`## Why` and `## Approvals` before the sections below. On `CAPY_PR: off`, skip it.
+`~/.claude/skills/gstack/ship/sections/capy-pr.md` now: `## What changed`, `## Why` and `## Blast radius`
+lead; `## Approvals` goes into the Agent notes. On `CAPY_PR: off`, skip it.
 
 The PR/MR body should contain these sections (never reuse a prior run's body). The front is for people,
 the end is for machines: the body opens with one or two plain sentences (what changed for someone using

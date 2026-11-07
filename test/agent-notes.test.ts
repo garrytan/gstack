@@ -37,6 +37,16 @@ describe('splitAgentNotes and withAgentNotes', () => {
     expect(twice).toBe('Opening.\n\n## Summary\n\nx\n\n' + notes('Fixes #2') + '\n' + badge);
     expect(withAgentNotes(twice, 'Fixes #2')).toBe(twice);
   });
+
+  test('a collapsible a person adds after the section stays after it, and one nested inside the notes stays inside', () => {
+    const shots = '<details><summary>Screenshots</summary>\n\n![a](a.png)\n\n</details>\n';
+    const body = 'Opening.\n\n' + notes('Fixes #1') + '\n' + shots;
+    expect(splitAgentNotes(body).notes).toBe('Fixes #1');
+    expect(withAgentNotes(body, 'Fixes #2')).toBe('Opening.\n\n' + notes('Fixes #2') + '\n' + shots);
+    expect(placeReceipt(body, receipt(HEAD)).endsWith('</details>\n\n' + shots)).toBe(true);
+    const nested = 'Fixes #1\n\n<details><summary>Runs</summary>\n\nr\n\n</details>';
+    expect(splitAgentNotes('Opening.\n\n' + notes(nested) + '\n' + shots).notes).toBe(nested);
+  });
 });
 
 describe('placeReceipt: the receipt lives in the Agent notes section', () => {

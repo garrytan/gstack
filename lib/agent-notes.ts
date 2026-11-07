@@ -43,7 +43,23 @@ export function agentNotesLines(lines: string[]): { marker: number; start: numbe
   let start = marker + 1;
   while (start < lines.length && lines[start]!.trim() === '') start++;
   if (start < lines.length && lines[start]!.trim() === AGENT_NOTES_OPEN) start++;
-  return { marker, start, close: linesOutsideFences(lines, start, CLOSE).at(-1) ?? lines.length };
+  return { marker, start, close: wrapperClose(lines, start) };
+}
+
+/** The `</details>` line that closes the wrapper: the first one outside fences with every `<details>` opened inside the notes closed. */
+function wrapperClose(lines: string[], from: number): number {
+  let depth = 0;
+  let fence: string | null = null;
+  for (let i = from; i < lines.length; i++) {
+    const line = lines[i]!.replace(/\r?\n$/, '');
+    if (fence !== null) { if (fenceCloses(fence, line)) fence = null; continue; }
+    const open = FENCE_OPEN.exec(line);
+    if (open) { fence = open[1]!; continue; }
+    if (line.trim() === CLOSE && depth === 0) return i;
+    const prose = line.replace(/`[^`]*`/g, '');
+    depth = Math.max(0, depth + (prose.match(/<details\b/gi)?.length ?? 0) - (prose.match(/<\/details>/gi)?.length ?? 0));
+  }
+  return lines.length;
 }
 
 /** The body around its section: the text above the marker, the content inside the wrapper, and any text after `</details>`. */

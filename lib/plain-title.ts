@@ -13,13 +13,13 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { splitAgentNotes } from './agent-notes';
 import { maskProse } from './prose-lint';
 
 export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[] }
 export interface PlainFinding { code: 'PLAIN_TITLE_REFUSED' | 'PLAIN_BRANCH_REFUSED' | 'PLAIN_OPENING_REFUSED' | 'PLAIN_CHANGELOG_REFUSED' | 'PLAIN_COMMIT_REFUSED'; kind: 'code' | 'term' | 'scope-prefix' | 'opening-shape'; match: string; hint: string }
 export const PLAIN_TITLE_POLICY_PATH = '.gstack/plain-titles.json';
 
-const AGENT_NOTES_MARKER = '<!-- gstack:agent-notes -->';
 const KEYS = ['$schema', 'codes', 'terms', 'allow', 'since', 'exempt_branch_prefixes'];
 const HINTS = {
   code: 'move the tracker code to one trailing group like (ABC-123)',
@@ -160,7 +160,7 @@ export function checkOpening(body: string, policy: PlainTitlePolicy | null): Pla
   if (!policy) return [];
   const code: Code = 'PLAIN_OPENING_REFUSED';
   const shapeFinding = (match: string): PlainFinding => ({ code, kind: 'opening-shape', match, hint: HINTS['opening-shape'] });
-  const lines = body.split(AGENT_NOTES_MARKER)[0]!.replace(/\r\n?/g, '\n').split('\n');
+  const lines = splitAgentNotes(body).readable.replace(/\r\n?/g, '\n').split('\n');
   const start = lines.findIndex(l => l.trim() !== '');
   if (start < 0) return [shapeFinding('no opening paragraph')];
   const shape = openingShape(lines[start]!);
