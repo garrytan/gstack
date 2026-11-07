@@ -400,6 +400,13 @@ describe("inlineLocalImages", () => {
     expect(warnings.some((w) => w.includes("not a recognized image"))).toBe(true);
   });
 
+  test("markdown at the filesystem root still inlines images beneath it", async () => {
+    const file = path.join(dir, "rooted.png");
+    fs.writeFileSync(file, tinyPng(12, 12));
+    const out = await inlineLocalImages(`<img src="${file}">`, { ...base, inputDir: path.parse(dir).root, warn: () => {} });
+    expect(out).toContain("data:image/png;base64,");
+  });
+
   test("non-image bytes under an image extension are not inlined", async () => {
     const text = Buffer.from("plain text named like an image\n");
     fs.writeFileSync(path.join(dir, "fake.png"), text);

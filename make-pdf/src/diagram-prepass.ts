@@ -616,9 +616,9 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
     // would otherwise pass a string-prefix check (Codex adversarial finding).
     // Runs after the existence check: realpath of a missing file can't
     // resolve, and on macOS /var vs /private/var would false-positive.
-    const inputRoot = safeRealpath(path.resolve(opts.inputDir)) + path.sep;
+    const inputRoot = safeRealpath(path.resolve(opts.inputDir));
     const realFilePath = safeRealpath(filePath);
-    if (!realFilePath.startsWith(inputRoot)) {
+    if (!isInsideDir(realFilePath, inputRoot)) {
       const msg = `image resolves OUTSIDE the input directory: ${src} → ${realFilePath}`;
       if (opts.strict) throw new StrictModeError(msg + " — move it under the markdown's directory");
       opts.warn(msg);
@@ -747,6 +747,11 @@ function buildBlockedLocalPlaceholder(reason: string, src: string): string {
     `<span class="image-missing" role="img" aria-label="image blocked">` +
     `[image blocked (${reason}): ${escapeHtml(src)}]</span>`
   );
+}
+
+function isInsideDir(p: string, dir: string): boolean {
+  const rel = path.relative(dir, p);
+  return rel !== "" && rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
 }
 
 /** realpath that degrades to the input path when resolution fails. */
