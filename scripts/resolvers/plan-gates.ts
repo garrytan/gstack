@@ -203,7 +203,7 @@ Audit the plan this branch was built from, never a plan that is merely the newes
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
 _REPOTOP=$(git rev-parse --show-toplevel 2>/dev/null)
-_BOUND=$(gh pr view --json body -q .body 2>/dev/null | tr -d '\\r\`' | sed -n 's/^[[:space:]]*Plan: *\\([^ ]*\\).*/\\1/p' | grep -vEm1 '^(approved|exempt|required)(:|$)')
+_BOUND=$(gh pr view --json body -q .body 2>/dev/null | tr -d '\\r\`' | awk 'sub(/^[ \\t]*Plan:/,"")&&NF{print $1}' | grep -viEm1 '^(approved|exempt|required)(:|$)')
 [ -n "$_BOUND" ] && echo "PLAN_BINDING: $_BOUND"
 if [ -n "$_REPOTOP" ]; then
   _BASE=$(git merge-base "origin/<base>" HEAD 2>/dev/null)

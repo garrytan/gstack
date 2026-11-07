@@ -1,4 +1,4 @@
 {
-  "bytes": 118,
-  "why": "GST-1751 review fix: Step 8 plan discovery skips the Plan record line"
+  "bytes": 48,
+  "why": "GST-1751: Step 8 plan discovery skips the Plan record line (case-insensitive, whitespace split); Step 16 names finish --plan"
 }

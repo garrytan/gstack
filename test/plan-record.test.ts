@@ -188,6 +188,24 @@ describe('gstack-approvals plan-check and render --plan', () => {
     expect(typo.stdout).toBe('');
     expect(typo.stderr).toContain('render --plan needs');
   });
+
+  const bound = (body: string) => {
+    const sed = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'plan-completion.md'), 'utf8').split('\n').find(l => l.startsWith('_BOUND=$(gh pr view'))!;
+    const pipeline = sed.replace(/^_BOUND=\$\(gh pr view --json body -q \.body 2>\/dev\/null/, 'cat').replace(/\)$/, '');
+    return { ts: planBinding(body), sh: spawnSync('bash', ['-c', pipeline], { input: body, encoding: 'utf8', timeout: 30_000 }).stdout.trim() };
+  };
+
+  test('a plan file named like a record kind is a binding, not a record line', () => {
+    for (const file of ['approved-plan.md', 'required.md', 'docs/designs/exempt.md']) {
+      expect(parsePlanLine(`Plan: ${file}`)).toBeNull();
+      expect(bound(`Plan: approved: ap-1\nPlan: ${file}\n`)).toEqual({ ts: file, sh: file });
+    }
+  });
+
+  test('a tab-separated binding resolves without the tab, and record kinds are skipped in any case', () => {
+    expect(bound('Plan:\tdocs/designs/X.md\n')).toEqual({ ts: 'docs/designs/X.md', sh: 'docs/designs/X.md' });
+    expect(bound('Plan:\tAPPROVED:\tap-1\nPlan: Required\nPlan:\n\tdocs/designs/Y.md\nPlan:\tdocs/designs/X.md\n')).toEqual({ ts: 'docs/designs/X.md', sh: 'docs/designs/X.md' });
+  });
 });
 
 describe('/ship finish and the READY note', () => {

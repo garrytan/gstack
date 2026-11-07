@@ -38,7 +38,7 @@ export function todosHits(text: string, touched: readonly string[]): string[] {
 }
 
 /** The PR body's plan-file binding: the first `Plan:` line that is not a plan record line (lib/plan-record.ts parsePlanLine). */
-export const planBinding = (body: string) => [...body.replace(/[\r`]/g, '').matchAll(/^\s*Plan:\s*(\S+).*$/gm)].find(m => !parsePlanLine(m[0]))?.[1];
+export const planBinding = (body: string) => [...body.replace(/[\r`]/g, '').matchAll(/^[ \t]*Plan:[ \t]*(\S+).*$/gm)].find(m => !parsePlanLine(m[0]))?.[1];
 
 /** Step 8's discovery: the PR body's Plan: binding, docs/designs/ files this branch changed or that name it, then personal plan files naming it. */
 function planCandidates(cwd: string, fork: string, branch: string): string[] {
