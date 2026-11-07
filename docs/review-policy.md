@@ -127,7 +127,9 @@ incomplete coverage, which blocks until the reviewer is rerun.
    are no gate-class edit: the plan reads them with the receipt's classifier
    (`docsChangeSince`, the [targeted-only read](#targeted-only-read-after-the-loop)'s)
    and prints `NEXT: done`, or `NEXT: targeted` when a docs claim on a
-   targeted-class diff needs the read, with no grant (GST-1702).
+   targeted-class diff needs the read, with no grant (GST-1702). An executable,
+   symlink or gitlink file in that range, or a commit the gate scan tags there
+   (a `[skip ci]` message), still stops.
 
 <a id="transitions"></a>
 ### Transitions

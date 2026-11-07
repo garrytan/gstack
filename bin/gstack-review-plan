@@ -93,7 +93,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             --grant adds one scoped fix-check; after a fix-check, each new grant adds one more (a chain link,
                             --range-base at the last fix-check's commit); pass --pass, --last and --fix-checks as the loop left them.
                             After a fix-check, edits since --range-base that are only release stamps (the base policy's stamp rule,
-                            line-exact) and docs (docsChangeSince, the receipt's classifier) are no gate-class edit: done, or targeted
+                            line-exact) and docs (docsChangeSince, the receipt's classifier), with no executable, symlink or gitlink mode and no gate-scan
+                            tag in the range, are no gate-class edit: done, or targeted
                             when a docs claim needs the targeted read on a targeted-class diff (GST-1702)
   --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR)
   --declare-risk <classes>  risk classes the lane declares for the diff (comma list of ${RISK_CLASSES.join(', ')}): they join
@@ -246,7 +247,8 @@ function main(): number {
   const postReview = has('--post-review');
   const fixCheckAt = postReview && pass > 0 && last === 'fix-check' && fixRange?.runtime_lines != null ? git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim() : undefined;
   const afterFixCheck = fixCheckAt ? docsChangeSince(root, fixCheckAt, head, ref) : null;
-  const carried = afterFixCheck && afterFixCheck.verdict !== 'code' ? afterFixCheck : null;
+  const rawSince = fixCheckAt ? git(['diff', '--raw', '--no-renames', fixCheckAt, 'HEAD']) : null;
+  const carried = afterFixCheck && afterFixCheck.verdict !== 'code' && rawSince !== null && !/^:\d+ (100755|120000|160000) /m.test(rawSince) && gateTagsOf([fixCheckAt!]) === 0 ? afterFixCheck : null;
   const plan = planReview({
     ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),

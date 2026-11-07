@@ -156,4 +156,28 @@ describe('GST-1702: release stamps and a docs-audit edit after the last fix-chec
     expect(p.out).toContain('NEXT: done');
     expect(dispatches(p.out)).toEqual([]);
   });
+
+  // Value: protects=an executable file with a docs extension after the fix-check is code to the gate, not a docs-audit edit;
+  //   fails_when=the carry reads the path name alone and plans done for an unreviewed script; seam=gstack-review-plan --post-review
+  test('an executable docs-extension file after the fix-check still stops', () => {
+    const { repo, fc } = fixChecked(false);
+    stamp(repo);
+    fs.mkdirSync(path.join(repo.work, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(repo.work, 'docs/task.md'), '#!/bin/sh\necho hi\n', { mode: 0o755 });
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'Step 14.5 docs audit');
+    const p = postReview(repo, fc);
+    expect(p.status, p.err).toBe(0);
+    expect(p.out).toContain('NEXT: stop (edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path');
+  });
+
+  // Value: protects=a commit the gate scan tags after the fix-check (a [skip ci] message on a docs-audit commit) keeps the stop;
+  //   fails_when=the carry drops the range's gate tag and plans done; seam=gstack-review-plan --post-review
+  test('a docs-audit commit with [skip ci] after the fix-check still stops', () => {
+    const { repo, fc } = fixChecked(false);
+    stamp(repo);
+    commit(repo, { 'docs/run-order.md': '# Run order\n\nRead the overview first.\n' }, 'Step 14.5 docs audit [skip ci]');
+    const p = postReview(repo, fc);
+    expect(p.status, p.err).toBe(0);
+    expect(p.out).toContain('NEXT: stop (edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path');
+  });
 });
