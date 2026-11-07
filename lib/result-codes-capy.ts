@@ -96,7 +96,7 @@ export const CAPY_RESULT_CODES = {
   },
   PLAN_UNRESOLVED: {
     anchor: 'plan-unresolved',
-    summary: 'Plan: approved: <token> names no approval row this machine can read, or a row that is a ruling or grant rather than a plan approval',
+    summary: 'Plan: approved: <token> (or a public repo\'s approved (record r-<id>)) names no approval row this machine can read, or a row that is a ruling or grant rather than a plan approval',
     fix: 'gstack-approvals import --autoplan <run dir> --by "<owner>" after the owner answered (or gstack-approvals add with their words for a plan approved outside /autoplan), then cite the run id or row id and rerun',
   },
   PLAN_NOT_APPROVED: {
