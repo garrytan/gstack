@@ -17,7 +17,7 @@ import { bunIsolationArgs } from '../lib/bun-isolation';
 import { tree } from './helpers/install-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const GUARDED = ['test/update-channel.test.ts', 'test/update-channel-setup.test.ts'];
+const GUARDED = ['test/update-channel.test.ts', 'test/update-channel-setup.test.ts', 'test/outside-voice-preflight.test.ts'];
 const SENTINELS: Record<string, string> = { GSTACK_STATE_ROOT: 'state-root', GSTACK_HOME: 'gstack-home', GSTACK_STATE_DIR: 'state-dir', CLAUDE_PLUGIN_DATA: 'plugin-data', HOME: 'home' };
 
 const bases: string[] = [];
