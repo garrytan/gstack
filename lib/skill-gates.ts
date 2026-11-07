@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { atomicWriteSync } from './fs-atomic';
 import { resolveStateRoot } from './state-root';
+import { StateError, UnknownShape, parseTranscript, readTranscriptFile, withFinalMessage, type Transcript } from './skill-contract';
 import { appendHookTrace, readStdinBounded, type TraceHook } from './skill-route';
 
 export type GateHook = 'investigate-gate' | 'ceo-review-gate' | 'autoplan-gate';
@@ -57,6 +58,34 @@ export function remainingMs(): number {
 /** A failure with a code from docs/skill-gates.md#error-codes. */
 export class GateError extends Error {
   constructor(readonly code: string, why: string) { super(why); }
+}
+
+const SETTLE_MS = 2000;
+const SETTLE_POLL_MS = 50;
+
+/**
+ * A stop's transcript once it holds the payload's final message (raw text and
+ * parsed). Claude Code can run Stop before it flushes the turn's last lines (a
+ * smoke run saw a scope call and a phase publication land about 200 ms after
+ * Stop fired), so a stale read can hold a finished run or miss a run's load.
+ * Re-read until the final text is there, for at most SETTLE_MS or half the
+ * deadline, then judge what exists. A transcript the parser cannot read is
+ * GATE_TRANSCRIPT.
+ */
+export function settledTranscript(file: string, finalMessage: unknown, opts: { includeSidechain?: boolean } = {}): { raw: string; t: Transcript } {
+  const until = Date.now() + Math.min(SETTLE_MS, remainingMs() / 2);
+  try {
+    for (;;) {
+      const raw = readTranscriptFile(file);
+      const t = parseTranscript(raw, opts);
+      const settled = withFinalMessage(t, finalMessage);
+      if (settled === t || Date.now() >= until) return { raw, t: settled };
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
+    }
+  } catch (e) {
+    if (e instanceof StateError || e instanceof UnknownShape) throw new GateError('GATE_TRANSCRIPT', e.message);
+    throw e;
+  }
 }
 
 export const cleanSessionId = (sid: string) => sid.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'unknown';
