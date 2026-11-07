@@ -10,6 +10,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { CREW_SKILLS, RETIRED_SKILLS, onCapyMachine, unregisteredSkills } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -117,4 +118,30 @@ describe('gstack-relink registers /captain only on Capy', () => {
     expect(relink().status).toBe(0);
     expect(fs.readFileSync(path.join(skills, 'captain', 'SKILL.md'), 'utf8')).toBe(own);
   });
+});
+
+describe('the harness registrar registers /captain only on Capy', () => {
+  const lib = path.join(ROOT, 'lib', 'harness-register.ts');
+  const sourceNames = (env: Record<string, string> = {}) => {
+    const probe = `const { sourceSkills, TARGETS } = await import(${JSON.stringify(lib)}); for (const t of ['dots', 'hermes']) console.log(t + ':' + sourceSkills(TARGETS[t], ${JSON.stringify(ROOT)}, process.env.SCRATCH).map(s => s.name).join(' '));`;
+    const r = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', probe], {
+      encoding: 'utf8', timeout: 120_000, env: { ...process.env, HOME: home, CAPY_MACHINE_CONFIG: '', SCRATCH: path.join(tmp, 'scratch'), ...env },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    return Object.fromEntries(r.stdout.trim().split('\n').map(l => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 1).split(' ')]));
+  };
+
+  test('off Capy neither the Claude render nor a host render carries captain', () => {
+    const { dots, hermes } = sourceNames();
+    expect(dots).toContain('ship');
+    expect(dots).not.toContain('captain');
+    expect(hermes).toContain('gstack-ship');
+    expect(hermes).not.toContain('gstack-captain');
+  }, 120_000);
+
+  test('on Capy both renders carry captain', () => {
+    const { dots, hermes } = sourceNames({ CAPY_MACHINE_CONFIG: '/etc/capy/machine.json' });
+    expect(dots).toContain('captain');
+    expect(hermes).toContain('gstack-captain');
+  }, 120_000);
 });
