@@ -133,6 +133,7 @@ QM_EDITION.skills.push(
       {
         file: 'review/checklist.md', heading: 'Review Categories', level: 2,
         dropBlocks: ['gstack-timing-ok', 'CC+gstack'],
+        replaceText: [["route it to /investigate's flake recipe (timing flakes)", 'find the timing cause and fix that, with a test that fails on it first']],
         skipHeadings: [
           'Gate Integrity', 'Approval Classes and Data Repairs', 'Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)',
           'Keyboard-Count Test Loops', 'Distribution & CI/CD Pipeline', 'Repo Conventions & Platform Fit (runs on every PR type)',
