@@ -13,6 +13,7 @@
  * neither the base land checked nor in the pin), a land note on refs/notes/gstack-trains, and the lock's release. A
  * rerun after GitHub merged goes straight to the tree check.
  */
+import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
 import { runMergedChecks } from './land-merged-checks';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
@@ -235,8 +236,8 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if (lost) return fail(lines, lost);
     const m = ctx.gh(['pr', 'merge', o.pr, method, '--match-head-commit', o.pin]);
     let merge: string | undefined;
-    for (let i = 0; i < (m.ok ? 4 : 1) && !isSha(merge); i++) {
-      if (i) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3_000);
+    for (let i = 0; i < (m.ok ? 3 : 1) && !isSha(merge); i++) {
+      if (i) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs(MIN_POLL_MS));
       const after = view(ctx, o.pr);
       merge = 'code' in after || after.state !== 'MERGED' ? undefined : after.mergeCommit?.oid;
     }

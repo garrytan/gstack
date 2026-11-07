@@ -11,10 +11,10 @@ const SECRET = 'fixture-private-diagnostic-value';
 
 // Import the actual paid registration in an isolated Bun process. Only model
 // execution is replaced; Bun assertions and the report-file validator are real.
-for (const skill of ['design', 'eng'] as const) {
+for (const skill of ['design'] as const) {
  const PAID_FILE = `test/skill-e2e-plan-${skill}-plan-mode.test.ts`;
  const skillName = `plan-${skill}-review`;
- for (const scenario of ['success', 'missing-auto-select', 'scope-question', 'bad-report', 'bad-outcome', 'retry', 'unwritable', ...(skill === 'eng' ? ['missing-decisions'] : [])]) {
+ for (const scenario of ['success', 'missing-auto-select', 'scope-question', 'bad-report', 'bad-outcome', 'retry', 'unwritable']) {
   test(`${skill} plan-mode caller preserves its outcome and failure evidence: ${scenario}`, () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-mode-evidence-'));
     const evalDir = path.join(dir, 'artifacts');
@@ -29,7 +29,7 @@ const runnerPath = ${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-run
 const { assertReportAtBottomIfPlanWritten, planFileHasDecisionsSection } = await import(runnerPath);
 const scenario = ${JSON.stringify(scenario)};
 const report = ${JSON.stringify(path.join(dir, 'plan.md'))};
-fs.writeFileSync(report, '# Plan\\n' + (scenario === 'missing-decisions' ? '' : '## Decisions to confirm\\nPending.\\n')
+fs.writeFileSync(report, '# Plan\\n## Decisions to confirm\\nPending.\\n'
   + '## GSTACK REVIEW REPORT\\nDone.\\n' + (scenario === 'bad-report' ? '## Unexpected trailing section\\n' : ''));
 let calls = 0;
 mock.module(runnerPath, () => ({
@@ -37,10 +37,10 @@ mock.module(runnerPath, () => ({
   runPlanSkillObservation: async opts => {
     const call = ++calls;
     fs.appendFileSync(${JSON.stringify(events)}, JSON.stringify({ call, opts }) + '\\n');
-    return { outcome: ['bad-report', 'missing-decisions'].includes(scenario) ? 'plan_ready' : scenario === 'bad-outcome' ? 'auto_decided' : 'asked',
+    return { outcome: scenario === 'bad-report' ? 'plan_ready' : scenario === 'bad-outcome' ? 'auto_decided' : 'asked',
       summary: 'Returned observation ' + call, elapsedMs: 42,
       evidence: 'Visible terminal tail ' + call + ': ' + process.env.DIAGNOSTIC_API_TOKEN,
-      ...(['bad-report', 'missing-decisions'].includes(scenario) ? { planFile: report } : {}),
+      ...(scenario === 'bad-report' ? { planFile: report } : {}),
       proseAUQEverObserved: true, waitingEverObserved: true, tokensObserved: { 'draft-plan': true, 'scope-announcement': false },
       scopeGateQuestionObserved: scenario === 'scope-question',
       scopeGateAutoSelectObserved: !['missing-auto-select', 'retry', 'unwritable'].includes(scenario) };
@@ -68,14 +68,6 @@ await import(${JSON.stringify(path.join(ROOT, PAID_FILE))});
           keys.push('initialPlanContent', 'trackTokens');
           expect(opts.trackTokens.length).toBeGreaterThan(0);
           for (const token of opts.trackTokens) expect(opts.initialPlanContent).toContain(token);
-          if (skill === 'eng') {
-            keys.push('extraArgs', 'cwd', 'env');
-            expect(opts.extraArgs).toEqual(['--disallowedTools', 'AskUserQuestion']);
-            // The seeded runner plan reviews its own fixture project, never this checkout.
-            expect(path.isAbsolute(opts.cwd)).toBe(true);
-            expect(path.relative(ROOT, opts.cwd).startsWith('..')).toBe(true);
-            expect(opts.env).toEqual({ DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
-          }
         }
         expect(Object.keys(opts).sort()).toEqual(keys.sort());
       }
@@ -113,7 +105,6 @@ await import(${JSON.stringify(path.join(ROOT, PAID_FILE))});
       if (scenario === 'bad-report') expect(output).toContain('GSTACK REVIEW REPORT contract violation');
       if (scenario === 'missing-auto-select') expect(output).toContain('scopeGateAutoSelectObserved');
       if (scenario === 'scope-question') expect(output).toContain('scopeGateQuestionObserved');
-      if (scenario === 'missing-decisions') expect(output).toContain('without a question');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 }

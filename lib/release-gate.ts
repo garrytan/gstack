@@ -26,6 +26,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { DISPATCH_INPUTS, makeNonce } from '../scripts/eval-bg';
+import { pollDelayMs } from './gh-poll';
 import { ghFailureReason, type GhRunner } from '../scripts/recover-receipts';
 import { MAX_BISECT_CASES, MAX_PREFIXES, RELEASE_BISECT_ARTIFACT, RELEASE_BISECT_REF, type Git } from '../scripts/train-gate';
 import type { ReleaseGatePolicy } from './release-gate-policy';
@@ -187,7 +188,7 @@ function follow(env: GateEnv, workflow: string, nonce: string, known: number | n
       if (run) lines.push(`RELEASE: run ${run.id} ${run.html_url ?? ''}`.trim());
     } else if (run.status === 'completed') return run;
     if (env.now() >= env.deadline) break;
-    env.sleep(env.pollMs);
+    env.sleep(pollDelayMs(env.pollMs));
     if (run) run = ghJson<Run>(env, ['api', `repos/${env.repo}/actions/runs/${run.id}`]) ?? run;
   }
   lines.push(`RELEASE: ${run ? `run ${run.id} is still ${run.status}` : `no run for nonce ${nonce} yet`} at the deadline; the record stays resumable`);

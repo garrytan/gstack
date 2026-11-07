@@ -1,0 +1,20 @@
+{
+  "number": 4108,
+  "html_url": "https://github.com/garrytan/gstack/pull/4108",
+  "state": "open",
+  "merged": false,
+  "merged_at": null,
+  "updated_at": "2026-11-07T03:31:02Z",
+  "mergeable_state": "unknown",
+  "user": {
+    "login": "garrytan"
+  },
+  "head": {
+    "sha": "8cadbdc985a6259842722f58c82f370f985fd39b",
+    "ref": "capy/gst-1698-cut-plan-eng-review"
+  },
+  "base": {
+    "sha": "dd97420b5355ede9e149d023e5f4cf40ad6f0f27",
+    "ref": "main"
+  }
+}

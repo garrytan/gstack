@@ -32,6 +32,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { ghSpawnSync } from '../lib/gh-poll';
 import { EXIT, exitTableHelp, formatResult } from '../lib/headless-artifacts';
 import { versionAtRef } from '../lib/restamp';
 import { RESULT_CODES } from '../lib/result-codes';
@@ -166,7 +167,7 @@ async function main(argv: string[]): Promise<number> {
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
   if (probe.status !== 0) return usage('not inside a git repository');
   const repoRoot = probe.stdout.trim();
-  const gh = (a: string[]) => { const r = spawnSync('gh', a, { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 }); return { ok: r.status === 0, out: r.stdout ?? '', err: r.stderr ?? (r.error ? String(r.error.message) : '') }; };
+  const gh = (a: string[]) => { const r = ghSpawnSync(a, { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 }); return { ok: r.status === 0, out: r.stdout ?? '', err: r.stderr ?? (r.error ? String(r.error.message) : '') }; };
   const ctx: QueueContext = { repoRoot, base: resolveBaseBranch(repoRoot, flag(args, '--base')), gh };
   const pr = flag(args, '--pr');
   if (cmd === 'gate-ahead') return gateAhead(ctx, args);

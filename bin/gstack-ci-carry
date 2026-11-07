@@ -10,7 +10,7 @@
  * ship_lanes_from names) at HEAD's clean tree. With --command, the base branch's mapping for that exact lane
  * command supplies the profiles and the inventory the runs must cover (a pin-file command, so it needs
  * --allow-repo-commands). Prints CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1).
- * wait: polls the newest run of the profile's workflow at HEAD until it completes (default timeout 1800 s),
+ * wait: polls the newest run of the profile's workflow at HEAD (REST, at least 60 s apart) until it completes (default timeout 1800 s),
  * prints CI_WAIT: green|red|running|none, and on green runs find. Exit 0 green and carried, 1 red or not
  * carried, 3 still running or no run. Logic: lib/ci-carry.ts; the run checks are lib/run-evidence.ts.
  */
@@ -28,7 +28,7 @@ const HELP = `gstack-ci-carry — use a verified CI run at HEAD's exact tree ins
       --policy-from head --simulate: the same check under the branch's own map and profiles, every line starting
       SIMULATION:; a dry run that proves a new mapping before it lands (find never writes evidence; nothing clears)
   wait [--base <branch>] [--profile <name>] [--timeout <s>] [--interval <s>]
-      poll the newest run at HEAD (default 1800 s, every 20 s): CI_WAIT: green|red|running|none, then find on green;
+      poll the newest run at HEAD (default 1800 s, every 60 s at least, plus jitter): CI_WAIT: green|red|running|none, then find on green;
       exit 0 carried, 1 red or not carried, 3 still running or no run
 
 Profiles and ship_lanes_from come from origin/<base>'s .gstack/pregate.json only (a simulation reads the branch's). Only a clean, committed tree
@@ -75,7 +75,7 @@ function find(): number {
 
 if (cmd === 'find') process.exit(find());
 const timeout = Number(flag('--timeout') ?? '1800');
-const interval = Number(flag('--interval') ?? '20');
+const interval = Number(flag('--interval') ?? '60');
 if (!(timeout >= 0 && timeout <= 21_600) || !(interval >= 1 && interval <= 600)) usage('--timeout is 0-21600 seconds and --interval 1-600');
 const profile = check.profiles[profiles[0]!];
 if (!profile) usage(`${profiles[0]} is not a run_profiles name on origin/${base}`);

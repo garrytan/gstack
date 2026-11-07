@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { mergeChangelogs, parseChangelog } from './changelog-check';
+import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
 import { fragmentSlug, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef } from './restamp';
 import { acquireLandLock, lockLabel, readLock, writeLock, type LandLockPhase } from './ship-queue-land-lock';
@@ -212,7 +213,7 @@ function prInfo(ctx: QueueContext, pr: string): PrInfo | QueueFailure {
 export function waitChecks(ctx: QueueContext, sha: string, minutes: number): void {
   const deadline = Date.now() + minutes * 60_000;
   for (let ci = ciAtHead(ctx, sha); !ci.green && !ci.line.startsWith('red') && Date.now() < deadline; ci = ciAtHead(ctx, sha)) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30_000);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs(MIN_POLL_MS));
   }
 }
 

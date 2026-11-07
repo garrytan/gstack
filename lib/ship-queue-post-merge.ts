@@ -12,6 +12,7 @@
  * commit pending, a failed one makes it red (named as a commit status when no
  * check run failed). Rerun it after an interruption and it continues.
  */
+import { pollDelayMs } from './gh-poll';
 import { ciAtHead, type QueueContext } from './ship-queue';
 import { outFailed, outOk, outPending, type TrainOut } from './ship-queue-train';
 
@@ -46,6 +47,6 @@ export async function verifyPostMerge(ctx: QueueContext, o: PostMergeOptions): P
         : ci.none ? `no check run has attached to ${at} yet` : settled ? `the post-merge checks the train gate names never ran at ${at}: ${absent.join(', ')}` : `main's push workflows at ${at} have not settled at the timeout: ${pending.join(', ') || 'a commit status'} still running`;
       return outPending({ code: 'QUEUE_TRAIN_PENDING', message }, lines, again, 'none');
     }
-    await sleep(o.pollMs);
+    await sleep(pollDelayMs(o.pollMs));
   }
 }

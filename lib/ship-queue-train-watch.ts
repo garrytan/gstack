@@ -13,6 +13,7 @@
  * --land lands each landable slot in order through train land, stopping at the first refusal with its code and NEXT.
  * It never merges without --land and never merges main into a PR.
  */
+import { pollDelayMs } from './gh-poll';
 import type { QueueContext } from './ship-queue';
 import { buildTrain, findTrain, nextFor, outOk, outPending, outRefused, trainEnv, trainStatus, type TrainOut } from './ship-queue-train';
 import { repoSlug, runView } from './ship-queue-train-github';
@@ -36,7 +37,7 @@ async function awaitGate(ctx: QueueContext, t: TrainRecord, deadline: number, po
     const view = runView(ctx, slug, a.run.id);
     if (view?.status === 'completed') return null;
     if (Date.now() >= deadline) return `run ${a.run.id} is still ${view?.status ?? 'unreadable'} at the watch timeout`;
-    await sleep(pollMs);
+    await sleep(pollDelayMs(pollMs));
   }
 }
 
@@ -49,7 +50,7 @@ async function awaitPrefixRuns(ctx: QueueContext, t: TrainRecord, deadline: numb
     const running = open.filter(a => runView(ctx, slug, a.run!.id)?.status !== 'completed');
     if (!running.length) return null;
     if (Date.now() >= deadline) return `${running.length} prefix run(s) still running at the watch timeout (${running.map(a => a.run!.id).join(', ')})`;
-    await sleep(pollMs);
+    await sleep(pollDelayMs(pollMs));
   }
 }
 
@@ -70,7 +71,7 @@ async function watchGeneric(ctx: QueueContext, env: TrainEnv, start: TrainRecord
     verdict = trainVerdict(ctx, { train: t.nonce });
     reload();
     if (!t.verdict && Date.now() >= deadline) return { ...verdict, lines: [...lines, ...verdict.lines], next: again };
-    if (!t.verdict) await sleep(o.pollMs);
+    if (!t.verdict) await sleep(pollDelayMs(o.pollMs));
   }
   verdict ??= trainVerdict(ctx, { train: t.nonce });
   lines.push(...verdict.lines);

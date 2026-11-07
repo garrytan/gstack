@@ -5,7 +5,7 @@
  * 2026-10-03 periodic and gate census artifacts (run 37151477069, commit
  * ac20ef1), whose report counted deselections as SKIPPED 82/282 and left
  * 72/24 testcases unattributed. Budget records follow the current declared
- * policy (plan-mode-no-op: 3,720,000 ms since v1.91.18.0 added its devex member).
+ * policy (plan-mode-no-op: 2,520,000 ms since its plan-eng-review member retired, GST-1698).
  * The periodic fixture is re-shaped to the current case shards: qa-workflow runs
  * as its qa-fix-loop case shard (its three gate-tier siblings become sibling
  * deselections) and the review carve runs as a case of the consolidated

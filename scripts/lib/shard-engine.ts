@@ -15,6 +15,7 @@ import { StringDecoder } from 'node:string_decoder';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { FIXTURE_MARKER } from '../../lib/fixture-marker';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
 // Strict Bun-test output classification works around a Bun test runner bug
@@ -568,6 +569,9 @@ export async function runShardChild(options: RunShardChildOptions): Promise<Shar
  * a group-SIGKILLed shard never runs its own cleanup, so the lane removes
  * `stateDir` afterwards (the cleanup backstop). `realpath` resolves a
  * symlinked tmpdir (macOS /var -> /private/var) for lanes that compare paths.
+ * `stateDir` carries the test fixture marker (GST-1695): /ship's fetch sweep
+ * skips it, and test-setup.ts keeps the shard's TMPDIR instead of nesting its
+ * own root, so a case that compares its temp paths with `tmp` still matches.
  */
 export function createShardSandbox(
   prefix: string,
@@ -576,6 +580,7 @@ export function createShardSandbox(
 ): { stateDir: string; tmp: string; env: NodeJS.ProcessEnv } {
   const created = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const stateDir = options.realpath ? fs.realpathSync(created) : created;
+  fs.writeFileSync(path.join(stateDir, FIXTURE_MARKER), `gstack test shard sandbox (${prefix})\n`);
   const tmp = path.join(stateDir, 'tmp');
   fs.mkdirSync(tmp);
   const env: NodeJS.ProcessEnv = {
