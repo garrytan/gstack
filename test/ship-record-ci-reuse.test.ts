@@ -97,6 +97,7 @@ describe('record-ci reuses its own CI row at the same tree (GST-1795)', () => {
     ['remainder selection', isCi, (r: Record<string, any>) => ({ ...r, skipped_here: { ...r.skipped_here, files: ['test/a.test.ts'] } })],
     ['age', isCi, (r: Record<string, any>) => ({ ...r, ts: at(25 * 60) })],
     ['exception', isCi, (r: Record<string, any>) => ({ ...r, exception: { approval: 'a-1', head: r.commit } })],
+    ['clean flag', isCi, (r: Record<string, any>) => ({ ...r, dirty: true })],
     ['remainder runtime', isHere, (r: Record<string, any>) => ({ ...r, identity: '0'.repeat(64) })],
     ['remainder verdict', isHere, (r: Record<string, any>) => ({ ...r, exit: 1 })],
   ])('a mismatched %s records afresh', (_name, pick, edit) => {
