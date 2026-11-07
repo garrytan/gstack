@@ -138,7 +138,7 @@ export function missingStep(c: RunCheck): string {
   const m = c.missing;
   if (m === 'scope') return '/autoplan is not done: Phase 0 has not run scope, so no review phase has started. Run Phase 0 now (bun "<SNAPSHOT_TOOL>" init ...), then run every applicable phase in order in this turn.';
   if (m === 'gate') return '/autoplan is not done: every applicable phase published, but the Phase 4 Final Approval Gate is not written. Read autoplan/sections/tasks-aggregator.md, write $_AP/gate.json and run gstack-gate render on it, then present the gate.';
-  if (m === 'end') return '/autoplan --ceo-only is not done: Phase 1 published, but the run has not finished. Write $_AP/ceo-review.md as sections/ceo-only.md says and end with: GSTACK_RESULT: skill=autoplan status=reviewed run=<absolute $_AP>';
+  if (m === 'end') return '/autoplan --ceo-only is not done: Phase 1 published, but the run has not finished. Write $_AP/ceo-review.md as the --ceo-only section says and end with: GSTACK_RESULT: skill=autoplan status=reviewed run=<absolute $_AP>';
   if (!m) return '';
   const label = `Phase ${PHASE_NUMBER[m]} (${PHASE_NAME[m]})`;
   if (c.entered.includes(m)) {
