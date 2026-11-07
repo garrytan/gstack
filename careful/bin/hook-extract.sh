@@ -163,7 +163,7 @@ gstack_hook_decision() {
 #   bin/gstack-state-root.sh, the one bash implementation of the chain
 #   bin/gstack-paths uses (docs/state-root.md). Hooks run on every Edit/Bash
 #   call, so the twin is pure bash — never spawn gstack-paths from a hook. The
-#   writers (/freeze, /guard, /unfreeze, /investigate) resolve through
+#   writers (/freeze, /guard, /unfreeze) resolve through
 #   gstack-paths; a reader that used a different chain failed OPEN whenever
 #   GSTACK_HOME was set (#1459). test/hook-scripts.test.ts pins parity.
 #   Printed WITHOUT a trailing newline: callers capture with a sentinel

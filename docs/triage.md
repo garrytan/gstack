@@ -70,7 +70,7 @@ label separately with `gh issue edit <n> --add-label <label>`.
 A duplicate of a parked issue is still a duplicate: close it with the link,
 and the parked issue's comment or TODOS.md entry credits both reporters. A
 report that no longer reproduces on current main closes as fixed when a commit,
-PR or version explains why (cite it, as `/investigate --backlog` does with
+PR or version explains why (cite it as
 `already_fixed <commit>`); when nothing does, it closes as won't fix with the
 version it was checked against and an invitation to reopen with a repro.
 

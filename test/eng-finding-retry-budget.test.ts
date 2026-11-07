@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { resolvePaidShardBudget, retriesForFiles, planPaidShards, parseRunManifest, verifySliceResults, runPaidShard, buildRunManifest, paidShardWallUpperBoundMs, collectPaidTestFiles, selectPaidTestFiles, isOverlayTestFile, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_JOBS, parseCliOptions, expandCaseShards, expandTrialShards, shardFile, sliceExecutionOrder, sliceSupervisedWallMs, resolvePaidShardTimeoutMs } from '../scripts/test-paid-shards';
 import { FINDING_RETRY_BUDGETS, ALL_TIERS, SHARD_RESERVE_MS } from './helpers/eval-budgets';
+import { PERIODIC_CI_EXCLUDE } from './helpers/periodic-exclude-data';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -141,7 +142,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
 
 test('registered allocation is deterministic and preserves every discovered file', () => {
   const files = collectPaidTestFiles();
-  expect(files).toHaveLength(114); // - skill-llm-eval (last standalone judges removed, GST-1403); + skill-e2e-autoplan-ceo-only (GST-537); + skill-e2e-planning-wave (GSTA-228); + skill-e2e-model-panel (GSTA-173); + skill-e2e-write-skill (GSTA-133); + skill-e2e-ship-frozen-scope (frozen review scope, GSTA-113 PR 2); + skill-e2e-failure-routing (#3157/#3158); + skill-e2e-dx-error-contract (#3226); + skill-e2e-gate-integrity (HONEST_WORK_GATE_INTEGRITY W8); + skill-e2e-autoplan-schema-canary, -guard-pty and -long-session (Oct 7 wave, CEO-13, ENG-18, CEO-15); + skill-e2e-ship-measure-seeded-flake (v1.91.32.0); W5a: 15 carve wrappers became one case-sharded file; + codex-e2e-multiblock-live and skill-e2e-design-model-smoke (v1.91.30.0);
+  expect(files).toHaveLength(108); // - skill-e2e-investigate-owned-completion, -owned-termination and codex-e2e-sol-scope (/investigate retired, GST-1717); - skill-e2e-plan-eng-plan-mode, -plan-eng-finding-floor and -plan-eng-artifact-full (standalone /plan-eng-review retired, GST-1698); - skill-llm-eval (last standalone judges removed, GST-1403); + skill-e2e-autoplan-ceo-only (GST-537); + skill-e2e-planning-wave (GSTA-228); + skill-e2e-model-panel (GSTA-173); + skill-e2e-write-skill (GSTA-133); + skill-e2e-ship-frozen-scope (frozen review scope, GSTA-113 PR 2); + skill-e2e-failure-routing (#3157/#3158); + skill-e2e-dx-error-contract (#3226); + skill-e2e-gate-integrity (HONEST_WORK_GATE_INTEGRITY W8); + skill-e2e-autoplan-schema-canary, -guard-pty and -long-session (Oct 7 wave, CEO-13, ENG-18, CEO-15); + skill-e2e-ship-measure-seeded-flake (v1.91.32.0); W5a: 15 carve wrappers became one case-sharded file; + codex-e2e-multiblock-live and skill-e2e-design-model-smoke (v1.91.30.0);
   expect(files).toContain('test/skill-e2e-ship-skip.test.ts');
   const m = livePlan(files);
   expect(livePlan([...files].reverse())).toEqual(m);
@@ -175,6 +176,7 @@ test('single-slice manifest retains all registered files with one allocation', (
   for (const m of manifests) expect(m.entries.filter(e => e.status === 'planned').every(e => e.slice === 1)).toBe(true);
   for (const budget of FINDING_RETRY_BUDGETS) {
     const entries = manifests.flatMap(m => m.entries.filter(e => e.file === budget.file && e.status === 'planned'));
+    if (PERIODIC_CI_EXCLUDE[budget.file]) { expect(entries, budget.file).toHaveLength(0); continue; }
     expect(entries, budget.file).toHaveLength(1);
     expect(entries[0]!.budget).toEqual(resolvePaidShardBudget([budget.file]));
   }

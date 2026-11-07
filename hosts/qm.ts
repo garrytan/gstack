@@ -1,5 +1,5 @@
 /**
- * QM edition: three gstack skills in QM's own skill format.
+ * QM edition: two gstack skills in QM's own skill format.
  *
  * QM (a work assistant) lists skills in a name-and-description index with a
  * 12,000-char budget and loads a body only when the agent asks for it through
@@ -10,7 +10,7 @@
  * install hook, so every command a skill names is a POSIX utility, git, or a
  * POSIX sh script shipped inside the skill.
  *
- * This is not a HostConfig in hosts/index.ts: it renders three skills by
+ * This is not a HostConfig in hosts/index.ts: it renders two skills by
  * section selection, without the shared preamble, instead of the whole
  * catalog through gen-skill-docs. scripts/gen-qm-edition.ts reads this spec
  * and writes qm/sandbox/skills/<id>/ plus qm/edition.json; test/qm-edition.test.ts enforces the
@@ -101,35 +101,6 @@ export const qmScriptCommand = (id: string, script: string, args = ''): string =
 
 QM_EDITION.skills.push(
   {
-    id: 'gstack-investigate',
-    source: 'investigate',
-    description: 'Use when a test fails, code errors or output is wrong: find and prove the root cause before any fix, then fix it with a regression test. (gstack)',
-    header: [
-      '# Investigate: root cause before any fix',
-      '',
-      '**Start here, before reading code.** In the repository (`cd` into it first: the shell starts in the workspace root), run with `execute`, adding the failing file or directory if you know it:',
-      '',
-      '```sh',
-      'git status --short',
-      'git log --oneline -20 -- <path>',
-      '```',
-      '',
-      'Then reproduce the symptom with the project\'s own test or run command, and write down what you saw, before you form a hypothesis.',
-    ].join('\n'),
-    parts: [
-      { file: 'investigate/SKILL.md.tmpl', heading: 'Iron Law', level: 2 },
-      { file: 'investigate/SKILL.md.tmpl', heading: 'How to work', level: 2 },
-      { file: 'investigate/sections/race.md.tmpl', heading: 'Race recipe', level: 2 },
-      {
-        file: 'investigate/SKILL.md.tmpl', heading: 'Report', level: 2,
-        dropBlocks: ['Scope Lock', 'Log the investigation as a learning', 'gstack-learnings-log'],
-      },
-      { file: 'investigate/SKILL.md.tmpl', heading: 'Important Rules', level: 2 },
-    ],
-    firstStep: { command: 'git log --oneline -20 -- <path>', marker: '\\bgit\\s+log\\b' },
-    scripts: {},
-  },
-  {
     id: 'gstack-review',
     source: 'review',
     description: 'Use before merging a branch or PR: review the diff for bugs that pass CI but break production, fix the obvious ones and ask about the rest. (gstack)',
@@ -162,7 +133,7 @@ QM_EDITION.skills.push(
       {
         file: 'review/checklist.md', heading: 'Review Categories', level: 2,
         dropBlocks: ['gstack-timing-ok', 'CC+gstack'],
-        replaceText: [["route it to /investigate's flake recipe (timing flakes)", 'find its cause first (gstack-investigate)']],
+        replaceText: [["route it to /investigate's flake recipe (timing flakes)", 'find the timing cause and fix that, with a test that fails on it first']],
         skipHeadings: [
           'Gate Integrity', 'Approval Classes and Data Repairs', 'Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)',
           'Keyboard-Count Test Loops', 'Distribution & CI/CD Pipeline', 'Repo Conventions & Platform Fit (runs on every PR type)',

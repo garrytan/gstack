@@ -8,6 +8,8 @@
 import { type RouteEntry, jsonError } from './table';
 import { canonicalizeCommand } from '../commands';
 import { hasOutArg } from '../read-commands';
+import { parseScreenshotArgs } from '../meta-commands';
+import { parseSnapshotArgs } from '../snapshot';
 import { emitActivity } from '../activity';
 import { logTunnelDenial } from '../tunnel-denial-log';
 import { sanitizeBody, stripLoneSurrogateEscapes } from '../sanitize';
@@ -24,7 +26,7 @@ export const TUNNEL_COMMANDS = new Set<string>([
   'goto', 'click', 'text', 'screenshot',
   'html', 'links', 'forms', 'accessibility',
   'attrs', 'media', 'data',
-  'scroll', 'press', 'type', 'select', 'wait', 'eval',
+  'scroll', 'press', 'type', 'select', 'wait',
   // Tab + navigation primitives operator docs and CLI hints already promised
   'newtab', 'tabs', 'back', 'forward', 'reload',
   // Read/inspect/write operators paired agents need to be useful
@@ -36,16 +38,48 @@ export const TUNNEL_COMMANDS = new Set<string>([
  * Canonicalizes the command (so aliases hit the same set) and returns false
  * for null/undefined input.
  *
- * `args` is consulted so an `--out` invocation (e.g. `eval --out <file>`) is
- * NEVER tunnel-dispatchable: `--out` turns an otherwise-readable command into a
- * local-disk WRITE, and the tunnel surface never grants disk-write capability to
- * remote paired agents. Omitting `args` preserves the old command-only behavior.
+ * `args` is consulted so that over the tunnel a paired agent can't read local
+ * files, can't choose a path on the daemon's disk, and can't make the daemon
+ * save screenshot or snapshot images: `--out`, a screenshot without
+ * `--base64` or with an output path, a snapshot with `-a`/`-H`/`-o`, and
+ * goto/newtab to anything but an http(s) URL (file: reads) are refused.
+ * `eval` is absent from the allowlist because it runs a file from the
+ * daemon's disk. Omitting `args` (undefined) preserves the old command-only
+ * behavior; null, a non-array, or an array with a non-string element is refused.
  */
 export function canDispatchOverTunnel(command: string | undefined | null, args?: string[]): boolean {
   if (typeof command !== 'string' || command.length === 0) return false;
-  if (Array.isArray(args) && hasOutArg(args)) return false;
   const cmd = canonicalizeCommand(command);
-  return TUNNEL_COMMANDS.has(cmd);
+  if (!TUNNEL_COMMANDS.has(cmd)) return false;
+  if (args === undefined) return true;
+  if (!Array.isArray(args) || args.some(arg => typeof arg !== 'string') || hasOutArg(args)) return false;
+  if (cmd === 'goto' && args.length > 0) return isWebUrl(args[0]);
+  if (cmd === 'newtab') {
+    const url = args.find(arg => arg !== '--json');
+    return url === undefined || isWebUrl(url);
+  }
+  try {
+    if (cmd === 'screenshot') {
+      const shot = parseScreenshotArgs(args);
+      return shot.base64Mode && shot.outputPath === undefined;
+    }
+    if (cmd === 'snapshot') {
+      const snap = parseSnapshotArgs(args);
+      return !snap.outputPath && !snap.annotate && !snap.heatmap;
+    }
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function isWebUrl(value: unknown): boolean {
+  try {
+    const { protocol } = new URL(String(value));
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 export const commandRoutes: RouteEntry[] = [
@@ -142,10 +176,10 @@ export const commandRoutes: RouteEntry[] = [
       // Tunnel surface: only commands in TUNNEL_COMMANDS are allowed.
       // Paired remote agents drive the browser but cannot configure the
       // daemon, launch new browsers, import cookies, or rotate tokens.
-      if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args)) {
+      if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args === undefined ? [] : body?.args)) {
         logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
         return jsonError(403, `Command '${body?.command}' is not allowed over the tunnel surface`, {
-          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Note: --out (disk write) is never allowed over the tunnel.`,
+          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot needs --base64 and cannot name an output path (target an element with screenshot --base64 --selector <css>), snapshot refuses -a/--annotate, -H/--heatmap and -o, and --out is never allowed.`,
         });
       }
       return ctx.commands.handle(body, tokenInfo);

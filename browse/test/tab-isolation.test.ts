@@ -132,6 +132,7 @@ describe('Tab Isolation', () => {
 
 // Test the instruction block generator
 import { generateInstructionBlock } from '../src/cli';
+import { canDispatchOverTunnel } from '../src/routes/commands';
 
 describe('generateInstructionBlock', () => {
   it('generates a valid instruction block with setup key', () => {
@@ -254,6 +255,22 @@ describe('generateInstructionBlock', () => {
     expect(block).toContain('"command": "snapshot"');
     expect(block).toContain('"command": "click"');
     expect(block).toContain('"command": "fill"');
+  });
+
+  it('every COMMAND REFERENCE example passes the tunnel gate', () => {
+    const block = generateInstructionBlock({
+      setupKey: 'gsk_setup_gate',
+      serverUrl: 'https://test.ngrok.dev',
+      scopes: ['read', 'write', 'admin', 'meta'],
+      expiresAt: '2026-04-06T00:00:00Z',
+    });
+
+    const examples = [...block.matchAll(/\{"command": "(\w+)", "args": (\[[^\]]*\])/g)];
+    expect(examples.length).toBeGreaterThan(5);
+    for (const [, command, rawArgs] of examples) {
+      const args = JSON.parse(rawArgs.replace(/"URL"/g, '"https://example.com"'));
+      expect({ command, args, allowed: canDispatchOverTunnel(command, args) }).toEqual({ command, args, allowed: true });
+    }
   });
 });
 

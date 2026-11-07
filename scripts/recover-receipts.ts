@@ -235,6 +235,7 @@ export function collectRecovery(options: CollectOptions): { checkpoint: Recovery
       const id = String(listedRun.id);
       let run = listedRun;
       while (run.status !== 'completed' && left() > (options.pollMs ?? 5_000)) {
+        // gh-poll-exempt: runs in GitHub Actions (evals.yml) on GITHUB_TOKEN, not the shared Capy installation
         sleep(options.pollMs ?? 5_000);
         const polled = gh(['api', `repos/${options.repo}/actions/runs/${id}`], left());
         if (polled.status !== 0) break;

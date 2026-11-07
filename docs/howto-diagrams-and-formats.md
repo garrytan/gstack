@@ -59,9 +59,11 @@ so a phone photo doesn't bloat the document.
 
 Image safety defaults: remote (http/https) images are **blocked with a
 visible placeholder** unless you pass `--allow-network`. An image path that
-resolves outside the markdown's directory (even through a symlink) still
-inlines but warns loudly. Files over 64MB and non-regular files (fifos,
-devices) degrade to a placeholder instead of hanging the render.
+resolves outside the markdown's directory (even through a symlink) is never
+read: it renders as a visible placeholder with a warning. Only image files
+(png, jpeg, gif, webp, svg) inline; other files, files over 64MB and
+non-regular files (fifos, devices) degrade to a placeholder instead of
+hanging the render.
 
 Per-image directives go immediately after the image:
 
@@ -130,9 +132,9 @@ make-pdf generate docs.md --strict
 ```
 
 Missing local images, blocked remote images, out-of-tree image reads (a path
-or symlink resolving outside the markdown's directory), oversized files
-(>64MB), and non-regular files all exit non-zero instead of degrading to a
-warning or placeholder — for docs pipelines where a broken image should
+or symlink resolving outside the markdown's directory), non-image files,
+oversized files (>64MB), and non-regular files all exit non-zero instead of
+degrading to a warning or placeholder — for docs pipelines where a broken image should
 break the build.
 
 ## Troubleshooting

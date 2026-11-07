@@ -16,9 +16,10 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { GhRunner } from './ci-gate';
 import {
-  GhError, behindBy, bucketClass, compareFiles, confirmPullRequest, currentRepo, fetchChecks, fetchPullRequest,
-  pullRequestFiles, requiredChecks, type Check, type GhEnv, type PullRequest,
+  GhError, behindBy, bucketClass, compareFiles, confirmPullRequest, currentRepo, fetchBaseOid, fetchChecks, fetchConversation,
+  fetchPullState, pullRequestFiles, requiredChecks, type Check, type Conversation, type GhEnv, type PullRequest,
 } from './pr-wait-github';
+import { MIN_POLL_MS, pollDelayMs, type PullState } from './gh-poll';
 import { readConfigKey, resolveStateRoot, type StateRootEnv } from './state-root';
 import { resultCodeSuffix, resultLineWithDocs } from './result-codes';
 
@@ -31,7 +32,9 @@ const STATUS_BOTS = ['github-actions', 'vercel', 'netlify', 'railway', 'cloudfla
 /** A state file older than this describes an old session: start a fresh baseline instead of replaying it. */
 export const STALE_STATE_MS = 6 * 3600 * 1000;
 const MAX_FAILED_POLLS = 10;
-const MIN_INTERVAL_SECONDS = 5;
+const MIN_INTERVAL_SECONDS = MIN_POLL_MS / 1000;
+/** The conversation (the one GraphQL read) is reread when the PR's updated_at or head moves, and at least this often. */
+const CONVERSATION_REFRESH_MS = 10 * 60_000;
 /** Minutes before a watch that met nothing ends as PR_WAIT_BLOCKED, naming what is still pending; 0 waits without limit. */
 export const DEFAULT_TIMEOUT_MINUTES = 60;
 
@@ -77,6 +80,11 @@ comes from the URL or the current checkout.
               merge state is known (default)
   any-change  stop after the first poll that prints an event
 
+--interval  seconds between polls: at least 60 (the default), plus up to 15 s
+            of jitter. Each poll reads REST (PR, checks, base head); the
+            GraphQL conversation read runs only when the PR changed, every
+            10 minutes, or once green under --until ready. A rate limit waits
+            for its reset, never retries at once
 --timeout   minutes before a watch that met nothing ends as PR_WAIT_BLOCKED,
             naming what is still pending (default 60; 0 waits without limit)
 --exclude   check names (comma-separated, repeatable) left out of the verdict,
@@ -115,7 +123,7 @@ lock, which the next watcher for the PR takes over once the pid is gone.
 Docs: docs/troubleshooting.md#gstack-pr-wait`;
 
 export function parsePrWaitArgs(argv: string[]): PrWaitOptions | { help: true } | { error: string } {
-  const opts: PrWaitOptions = { until: 'ready', interval: 20, timeout: DEFAULT_TIMEOUT_MINUTES, excludes: [] };
+  const opts: PrWaitOptions = { until: 'ready', interval: MIN_INTERVAL_SECONDS, timeout: DEFAULT_TIMEOUT_MINUTES, excludes: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') return { help: true };
@@ -217,6 +225,7 @@ export class Watcher {
   private prevSnapshot: string | null = null;
   private prFiles = new Map<string, Set<string>>();
   private pending: string[] = [];
+  private conversationCache: { key: string; at: number; value: Conversation } | null = null;
   private readonly gh: GhEnv;
 
   constructor(readonly env: PrWaitEnv, readonly repo: string, readonly pr: number, readonly until: Until, readonly interval: number, readonly bots: BotLists, readonly timeoutMinutes = DEFAULT_TIMEOUT_MINUTES, readonly excludes: readonly string[] = []) {
@@ -450,12 +459,26 @@ export class Watcher {
   private dirtyLine(base: string, head: string): string { return `merge state is DIRTY on ${head.slice(0, 7)}: the branch conflicts with ${base}, rebase it`; }
   private behindLine(base: string, head: string): string { return `merge state is BEHIND on ${head.slice(0, 7)}: update the branch from ${base} before merging`; }
 
+  /**
+   * The conversation, reread through GraphQL only when the PR's updated_at or head moved, the cached read is ten
+   * minutes old, or `force` (a ready verdict is near, so review-thread resolution must be current). REST cannot read
+   * thread resolution; every other fact comes from REST each poll.
+   */
+  private conversation(state: PullState, force: boolean): Conversation {
+    const key = `${state.headRefOid}|${state.updatedAt}`;
+    const cached = this.conversationCache;
+    if (cached && !force && cached.key === key && this.env.now() - cached.at < CONVERSATION_REFRESH_MS) return cached.value;
+    const value = fetchConversation(this.gh, this.repo, this.pr);
+    this.conversationCache = { key, at: this.env.now(), value };
+    return value;
+  }
+
   /** One poll. Returns an exit code when the watch ends, null to keep polling. Throws GhError. */
   poll(): number | null {
-    const pr = fetchPullRequest(this.gh, this.repo, this.pr);
-    if (pr.state === 'MERGED') return this.finish(PR_WAIT_EXIT.met, [`merged: ${pr.url}`]);
-    if (pr.state === 'CLOSED') return this.finish(PR_WAIT_EXIT.blocked, [`closed without merging: ${pr.url}`]);
-    const base = pr.baseRefName;
+    const state = fetchPullState(this.gh, this.repo, this.pr);
+    if (state.state === 'MERGED') return this.finish(PR_WAIT_EXIT.met, [`merged: ${state.url}`]);
+    if (state.state === 'CLOSED') return this.finish(PR_WAIT_EXIT.blocked, [`closed without merging: ${state.url}`]);
+    const base = state.baseRefName;
     if (this.required === null) {
       const read = requiredChecks(this.gh, this.repo, base);
       this.required = read.names;
@@ -471,12 +494,13 @@ export class Watcher {
         if (refused.length) this.log(`exclude refused for required check${refused.length === 1 ? '' : 's'} ${refused.join(', ')}: a required check gates`);
       }
     }
-    const checks = fetchChecks(this.gh, this.repo, this.pr);
-    const head = pr.headRefOid;
+    const head = state.headRefOid;
+    const checks = fetchChecks(this.gh, this.repo, head);
     const short = head.slice(0, 7);
     this.events = 0;
 
     const ci = this.evaluateChecks(checks, head);
+    const pr: PullRequest = { ...state, baseOid: fetchBaseOid(this.gh, this.repo, base), ...this.conversation(state, this.until === 'ready' && ci.green) };
     const unresolved = this.emitConversation(pr, new Set([pr.author, pr.viewer]));
     const bots = this.emitBots(pr, checks, head);
     this.emitBaseAndMerge(pr, head);
@@ -540,7 +564,7 @@ export class Watcher {
         this.log(`poll failed (${failures}/${MAX_FAILED_POLLS}): ${error.message}`);
         if (failures >= MAX_FAILED_POLLS) return this.finish(PR_WAIT_EXIT.blocked, [`gstack-pr-wait stopped: GitHub unreachable for ${failures} polls: ${error.message}`]);
       }
-      this.env.sleep(this.interval * 1000);
+      this.env.sleep(pollDelayMs(this.interval * 1000));
     }
   }
 }

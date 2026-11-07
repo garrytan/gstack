@@ -85,8 +85,7 @@ before the commit and names each line to rewrite.">
 ## Blast radius
 <One or two sentences: what else the change touches (callers, consumers, generated
 files, hosts) and the one fact that makes that safe, with the rung of the evidence
-ladder the fact reached (file:line read, walked failure path, script ran, repro). The
-ladder is the `/investigate` skill's Blast radius section, when present.>
+ladder the fact reached (file:line read, walked failure path, script ran, repro).>
 
 ## Test Coverage
 <coverage diagram from Step 7, or "All new code paths have test coverage.">
@@ -120,7 +119,7 @@ proof, fixes and blocked/inconclusive/not-run coverage. Never present stale or
 unavailable results as passing.>
 
 ## Design Review
-<If design review ran: "Design Review (lite): N findings — M auto-fixed, K skipped. AI Slop: clean/N issues.">
+<If design review ran: "Design Review: static (no preview declared). Design-lite: N findings — M auto-fixed, K skipped. AI Slop: clean/N issues." The receipt's `design` field says the same; no rendered /design-review runs inside /ship yet.>
 <Detector: "clean" | "N findings (rule-id, rule-id)" | "not installed" | "not cached" | "off" — the state the probe printed; rule ids and counts only, finding text and snippets never reach the PR body.>
 <If no frontend files changed: "No frontend files changed — design review skipped.">
 

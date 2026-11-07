@@ -39,10 +39,10 @@ afterEach(async () => {
   }
 });
 
-async function board(port = daemon.port): Promise<PublishBoardResult> {
+async function board(owner: SpawnedDaemon = daemon): Promise<PublishBoardResult> {
   const directory = path.join(cwd, `board-${++boardNumber}`);
   fs.mkdirSync(directory);
-  return publishBoard({ port, html: makeBoardHtml(directory) });
+  return publishBoard({ port: owner.port, token: owner.token, html: makeBoardHtml(directory) });
 }
 
 // These are the declared actor records, not relabeled historical questions.
@@ -365,7 +365,7 @@ test('a real foreign daemon port is refused without changing either board', asyn
   fs.mkdirSync(path.dirname(otherState), { recursive: true });
   const other = await spawnDaemonForTest({ stateFile: otherState });
   daemons.push(other);
-  const foreign = await board(other.port);
+  const foreign = await board(other);
   expect(() => picker()(question(foreign.url))).toThrow();
   await expectUnsubmitted(published);
   await expectUnsubmitted(foreign);

@@ -2,10 +2,10 @@
 import { FREE_TEXT_WRITE_RULE, freeTextFileBash, freeTextFileUse } from '../free-text-file';
 
 export function generateFailureRouting(): string {
-  return `**Failures: check the cause, then route.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
+  return `**Failures: check the cause, then fix it test-first.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
 
-- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, invoke \`/investigate\` before any further tracing or edit.
-- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause, scope or intended behavior is still unclear, invoke \`/investigate\` before any broader diagnosis or edit.`;
+- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, leave the suggested fix alone: reproduce the failure with a focused failing test, trace it to the root cause, fix that and rerun the test.
+- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause or scope is still unclear, write or run a focused test that fails on the bug before any edit, trace the failure to its root cause, fix that and rerun the test. If the intended behavior is unclear, ask the user.`;
 }
 
 export function generateTestFailureTriage(): string {
@@ -55,7 +55,7 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
 ### Step T4: Execute the chosen action
 
 **If "Investigate and fix now":**
-- One read-only root-cause pass, then \`/investigate\` if unclear.
+- One read-only root-cause pass. If the cause is still unclear, reproduce it with a focused failing test and trace it to the root cause before the fix.
 - Fix the pre-existing failure.
 - Commit the fix separately from the branch's changes: \`git commit -m "fix: pre-existing test failure in <test-file>"\`
 - Continue with the workflow.

@@ -106,6 +106,7 @@ for (const variant of ['basic', 'intervening', 'cropped', 'same-basename', 'path
   : variant==='cropped' ? cropped.screen.replaceAll(path.dirname(cropped.hook.expected),path.dirname(expected)).replaceAll(path.basename(cropped.hook.expected),'report.md')
   : captured.screen.replaceAll(captured.expectedPath,expected).replace('../gstack-e2e-plan-ceo-paired-2Rv5Bi/gstack-test-plan-ceo-paired.md',expected).replaceAll('gstack-test-plan-ceo-paired.md','report.md');
  if(variant==='same-basename')screen=screen.replaceAll(expected,'__ACTIVE_PLAN_PATH__').replaceAll('report.md','PLAN.md');
+ screen=screen.split('\n').map(row=>{const cut=row.length>120?row.lastIndexOf(' ',120):-1;return cut>0?row.slice(0,cut)+'\n'+row.match(/^ */)![0]+row.slice(cut+1):row;}).join('\n');
  fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
 import * as fs from 'node:fs';import * as path from 'node:path';
 const item=JSON.parse(process.env.FILE_EPOCH_CASE);const log=e=>fs.appendFileSync(item.events,JSON.stringify(e)+'\n');

@@ -1328,7 +1328,7 @@ COMMAND REFERENCE:
   Navigate:    {"command": "goto", "args": ["URL"], "tabId": N}
   Snapshot:    {"command": "snapshot", "args": ["-i"], "tabId": N}
   Full text:   {"command": "text", "args": [], "tabId": N}
-  Screenshot:  {"command": "screenshot", "args": ["/tmp/s.png"], "tabId": N}
+  Screenshot:  {"command": "screenshot", "args": ["--base64"], "tabId": N}
   Click:       {"command": "click", "args": ["@e3"], "tabId": N}
   Fill form:   {"command": "fill", "args": ["@e5", "value"], "tabId": N}
   Go back:     {"command": "back", "args": [], "tabId": N}

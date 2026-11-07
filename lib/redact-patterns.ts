@@ -1161,8 +1161,8 @@ export const PATTERNS: RedactPattern[] = [
     id: "aws.access_key",
     tier: "HIGH",
     category: "secret",
-    description: "AWS access key ID (AKIA…)",
-    regex: /\b(AKIA[0-9A-Z]{16})\b/,
+    description: "AWS access key ID (AKIA… long-term, ASIA… temporary)",
+    regex: /\b((?:AKIA|ASIA)[0-9A-Z]{16})\b/,
   },
   {
     id: "aws.secret_key",
@@ -1193,6 +1193,20 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "GitHub server-to-server token",
     regex: /\b(ghs_[A-Za-z0-9]{36})\b/,
+  },
+  {
+    id: "github.user_to_server",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitHub App user-to-server token",
+    regex: /\b(ghu_[A-Za-z0-9]{36})\b/,
+  },
+  {
+    id: "github.refresh",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitHub App refresh token",
+    regex: /\b(ghr_[A-Za-z0-9]{36,})\b/,
   },
   {
     id: "github.fine_grained",
@@ -1290,6 +1304,13 @@ export const PATTERNS: RedactPattern[] = [
       /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,})\b/,
   },
   {
+    id: "openrouter.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "OpenRouter API key",
+    regex: /\b(sk-or-v1-[a-f0-9]{64})\b/,
+  },
+  {
     id: "sendgrid.key",
     tier: "HIGH",
     category: "secret",
@@ -1302,6 +1323,27 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Stripe live SECRET key",
     regex: /\b(sk_live_[A-Za-z0-9]{24,})\b/,
+  },
+  {
+    id: "stripe.restricted",
+    tier: "HIGH",
+    category: "secret",
+    description: "Stripe live restricted key",
+    regex: /\b(rk_live_[A-Za-z0-9]{24,})\b/,
+  },
+  {
+    id: "supabase.secret",
+    tier: "HIGH",
+    category: "secret",
+    description: "Supabase secret API key",
+    regex: /\b(sb_secret_[A-Za-z0-9_-]{20,})\b/,
+  },
+  {
+    id: "supabase.pat",
+    tier: "HIGH",
+    category: "secret",
+    description: "Supabase personal access token",
+    regex: /\b(sbp_[a-f0-9]{40})\b/,
   },
   {
     id: "slack.token",

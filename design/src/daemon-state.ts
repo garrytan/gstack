@@ -20,6 +20,7 @@ export interface DaemonState {
   version: string;
   serverPath: string;
   cmdlineMarker: string;
+  token: string; // per-daemon secret; every route but /health lives under /<token>
 }
 
 // String we grep for in the spawned daemon's cmdline to confirm a pid is

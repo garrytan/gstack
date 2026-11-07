@@ -90,7 +90,7 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Mismatched time windows between related features — one uses hourly buckets, another uses daily keys for the same data
 
 #### Timing-Dependent Tests
-- A diff that raises an existing timing bound or adds a retry to make a flake pass: the bound is not the cause; find its cause first (gstack-investigate)
+- A diff that raises an existing timing bound or adds a retry to make a flake pass: the bound is not the cause; find the timing cause and fix that, with a test that fails on it first
 
 #### Type Coercion at Boundaries
 - Values crossing Ruby→JSON→JS boundaries where type could change (numeric vs string) — hash/digest inputs must normalize types

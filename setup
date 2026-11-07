@@ -60,10 +60,6 @@ Claude Code hooks (docs/skill-routing-and-contracts.md):
   --skill-contracts / --no-skill-contracts
                     Block once when a contract skill ends without its
                     required outputs (Stop). Saved as skill_contracts.
-  --investigate-gate / --no-investigate-gate
-                    After /investigate loads, block changes to tracked source
-                    (Edit, Write and Bash) until a root cause is stated
-                    (docs/skill-gates.md). Saved as investigate_gate.
   --ceo-review-gate / --no-ceo-review-gate
                     After /plan-ceo-review loads, block its final stop (and a
                     review subagent's) until the output file ranks the top
@@ -205,7 +201,6 @@ PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = ex
 TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explicit (#2677)
 SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
-INVESTIGATE_GATE_MODE=""    # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 CEO_REVIEW_GATE_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 AUTOPLAN_GATE_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1666)
 MODEL_OVERRIDE=""
@@ -222,7 +217,7 @@ _setup_unknown_option() {
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
     --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
-    --investigate-gate --no-investigate-gate --ceo-review-gate --no-ceo-review-gate --autoplan-gate --no-autoplan-gate \
+    --ceo-review-gate --no-ceo-review-gate --autoplan-gate --no-autoplan-gate \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
       n = length(a); m = length(b)
@@ -271,9 +266,6 @@ while [ $# -gt 0 ]; do
     --skill-contracts)    SKILL_CONTRACTS_MODE="on"; shift ;;
     --no-skill-contracts) SKILL_CONTRACTS_MODE="off"; shift ;;
     --skill-contracts=*)  SKILL_CONTRACTS_MODE="${1#--skill-contracts=}"; shift ;;
-    --investigate-gate)    INVESTIGATE_GATE_MODE="on"; shift ;;
-    --no-investigate-gate) INVESTIGATE_GATE_MODE="off"; shift ;;
-    --investigate-gate=*)  INVESTIGATE_GATE_MODE="${1#--investigate-gate=}"; shift ;;
     --ceo-review-gate)     CEO_REVIEW_GATE_MODE="on"; shift ;;
     --no-ceo-review-gate)  CEO_REVIEW_GATE_MODE="off"; shift ;;
     --ceo-review-gate=*)   CEO_REVIEW_GATE_MODE="${1#--ceo-review-gate=}"; shift ;;
@@ -790,7 +782,7 @@ _link_or_copy() {
 # _link_runtime_dists SOURCE ROOT — the compiled design and make-pdf binaries
 # behind $GSTACK_DESIGN and $GSTACK_MAKE_PDF on every env-var host (#2891),
 # and freeze/bin (with the careful/bin helper it sources), whose state and
-# check scripts /freeze, /guard, /unfreeze and /investigate run as
+# check scripts /freeze, /guard and /unfreeze run as
 # "$GSTACK_ROOT/freeze/bin/...". Subdirectories only, never the whole skill
 # directory: make-pdf/, freeze/ and careful/ ship a Claude SKILL.md a host
 # scanning its skills root would discover as a duplicate skill.
@@ -1006,17 +998,20 @@ _backup_skill_md() {
 # _cleanup_weak_dir DIR — remove only what weak proof covers: the SKILL.md and
 # our marker. User files in the directory stay, and so does the directory
 # when it is not empty afterwards.
-# _cleanup_weak_dir DIR GSTACK_DIR [SRC_SKILL_MD NAME] — remove only what weak
+# _cleanup_weak_dir DIR GSTACK_DIR [SRC_SKILL_MD NAME [BACKUP_NAME]] — remove only what weak
 # proof covers. A real SKILL.md that differs from our source (raw, or with its
-# name: line rewritten to NAME, which is how alias and prefixed copies differ)
-# is a customized file: it is moved to the backup root, never deleted, and if
-# the backup fails it stays. Our runtime-asset links go; the user's files stay.
+# name: line rewritten to NAME, which is how alias and prefixed copies differ),
+# or whose named source is gone, is a customized file: it is moved to the
+# backup root, never deleted, and if the backup fails it stays. Our
+# runtime-asset links go; the user's files stay. BACKUP_NAME (default NAME)
+# names the backup, so copies of one skill on several hosts never collide.
 _cleanup_weak_dir() {
   local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest
-  if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] && [ -f "$src" ] \
-     && ! cmp -s "$d/SKILL.md" "$src" \
-     && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; then
-    if ! _backup_skill_md "$d/SKILL.md" "$name"; then
+  local bk="${5:-$name}"
+  if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] \
+     && { [ ! -f "$src" ] || { ! cmp -s "$d/SKILL.md" "$src" \
+     && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; }; }; then
+    if ! _backup_skill_md "$d/SKILL.md" "$bk"; then
       echo "  kept $name/SKILL.md: could not back up the customized file — left untouched" >&2
       return 0
     fi
@@ -1058,7 +1053,7 @@ _cleanup_linked_dir() {
 # residual is accepted and filed; the marker is the load-bearing signal.
 _gstack_generated_header() {
   # Bytes, not lines: a long frontmatter pushes the banner past line 40 in
-  # four real skills (investigate: line 57), and a line-count check left them
+  # some real skills, and a line-count check left them
   # "foreign" on every pre-marker Windows install.
   local f="$1" head40
   head40="$(head -c 8192 "$f" 2>/dev/null)" || return 1
@@ -1118,7 +1113,7 @@ _skill_source_exists() {
   return 1
 }
 _prune_stale_generated() {
-  local gstack_dir="$1" gen_dir="$2" d n names="" host dest gen_real
+  local gstack_dir="$1" gen_dir="$2" d n names="" host dest gen_real label
   shift 2
   for d in "$gen_dir"/gstack-*; do
     [ -d "$d" ] && [ ! -L "$d" ] || continue
@@ -1136,7 +1131,6 @@ _prune_stale_generated() {
     # The rename helper owns replacement-before-retirement, including failures.
     if [ "$n" = "gstack-claude" ] && [ "${GSTACK_DEFER_CLAUDE_RENAME_PRUNE:-0}" = "1" ]; then continue; fi
     _skill_source_exists "$gstack_dir" "$n" && continue
-    if [ -d "$gen_dir/$n" ] && [ ! -L "$gen_dir/$n" ]; then rm -rf "$gen_dir/$n"; fi
     for host in "$@"; do
       [ -n "$host" ] && { [ -e "$host/$n" ] || [ -L "$host/$n" ]; } || continue
       _owned_for_windows_refresh "$host/$n" || continue
@@ -1153,9 +1147,11 @@ _prune_stale_generated() {
       elif [ ! -d "$host/$n" ]; then
         rm -f "$host/$n"
       else
-        _cleanup_weak_dir "$host/$n" "$gstack_dir"
+        label="${host#"$HOME"/}"; label="${label#/}"
+        _cleanup_weak_dir "$host/$n" "$gstack_dir" "$gen_dir/$n/SKILL.md" "$n" "${label//\//_}/$n"
       fi
     done
+    if [ -d "$gen_dir/$n" ] && [ ! -L "$gen_dir/$n" ]; then rm -rf "$gen_dir/$n"; fi
     log "  pruned retired skill: $n"
   done
 }
@@ -4288,7 +4284,7 @@ if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
   log ""
   log "  gstack is ready. First move:"
   log "    New idea / empty repo?   /office-hours  or  /spec"
-  log "    Existing code?           /qa  to see it work, or  /investigate"
+  log "    Existing code?           /qa  to see it work, or  /review  your branch"
   log "  (Run /gstack-upgrade anytime to stay current)"
   log ""
   # Best-effort onboarding telemetry (respects telemetry!=off; never blocks setup).
@@ -5016,20 +5012,10 @@ _skill_hook_gate skill_contracts "$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS 
 # timeout and lets the stop through unchecked. Empty if bun cannot run, which
 # omits the timeout and leaves Claude Code's default.
 SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates" hook-timeout 2>/dev/null || true)"
-# The /investigate gate (GST-1461, docs/skill-gates.md) registers one shim per
-# event; each basename has its own KNOWN_HOOKS row under one source tag.
-INVESTIGATE_GATE_PRE="$(_hook_command_path hosts/claude/hooks/investigate-gate-pre || true)"
-INVESTIGATE_GATE_POST="$(_hook_command_path hosts/claude/hooks/investigate-gate-post || true)"
-INVESTIGATE_GATE_POST_FAILURE="$(_hook_command_path hosts/claude/hooks/investigate-gate-post-failure || true)"
-INVESTIGATE_GATE_STOP="$(_hook_command_path hosts/claude/hooks/investigate-gate-stop || true)"
-INVESTIGATE_GATE_EDIT_MATCHER="Edit|Write|MultiEdit|NotebookEdit|Bash"
-_skill_hook_gate investigate_gate "$INVESTIGATE_GATE_MODE" GSTACK_INVESTIGATE_GATE PreToolUse \
-  "$INVESTIGATE_GATE_PRE" gstack-investigate-gate "$SKILL_GATE_HOOK_TIMEOUT" \
-  "after /investigate loads, changes to tracked source wait for a stated root cause" \
-  "$INVESTIGATE_GATE_EDIT_MATCHER" \
-  PostToolUse "$INVESTIGATE_GATE_POST" Bash \
-  PostToolUseFailure "$INVESTIGATE_GATE_POST_FAILURE" Bash \
-  Stop "$INVESTIGATE_GATE_STOP" ""
+# /investigate and its gate are retired (GST-1717): an earlier setup's
+# registration is removed whatever investigate_gate says, and the KNOWN_HOOKS
+# rows stay so the old entries are still recognized as ours.
+[ -x "$SETTINGS_HOOK" ] && { "$SETTINGS_HOOK" remove-source --source gstack-investigate-gate >/dev/null || echo "  warning: could not remove the retired /investigate gate hooks (exit $?); rerun: $SETTINGS_HOOK remove-source --source gstack-investigate-gate" >&2; } || true
 # The /plan-ceo-review gate (GST-1461) holds the final stop of a session or a
 # review subagent: Stop plus SubagentStop, one shim each.
 CEO_REVIEW_GATE_STOP="$(_hook_command_path hosts/claude/hooks/ceo-review-gate-stop || true)"

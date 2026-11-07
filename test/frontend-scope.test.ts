@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { isFrontendPath } from '../lib/frontend-scope';
+import { TEMPLATE_TAG, TEMPLATE_TAG_ERE, TEST_PATH_ERE, isFrontendPath, isTemplateCandidate } from '../lib/frontend-scope';
 
 const ROOT = path.join(import.meta.dir, '..');
 const POSIX = process.platform !== 'win32';
@@ -57,6 +57,27 @@ describe('isFrontendPath', () => {
   test('normalizes leading ./ and backslashes', () => {
     expect(isFrontendPath('./styles/a.css')).toBe(true);
     expect(isFrontendPath('src\\components\\A.tsx')).toBe(true);
+  });
+});
+
+describe('template content arm (GST-1718 regex, reused by /autoplan in GST-1750)', () => {
+  test('TEMPLATE_TAG_ERE and TEST_PATH_ERE are byte-identical to the script', () => {
+    const script = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-diff-scope'), 'utf-8');
+    expect(script.match(/^TEMPLATE_TAG_RE='([^']+)'$/m)?.[1]).toBe(TEMPLATE_TAG_ERE);
+    expect(script.match(/^TEST_PATH_RE='([^']+)'$/m)?.[1]).toBe(TEST_PATH_ERE);
+  });
+
+  test('TEMPLATE_TAG matches a tag before a backtick on one line, as grep -E does', () => {
+    for (const s of ['return html`<p>`', 'x = svg `<g/>`', '  css`a{}`', 'foo(html`x`)']) expect(TEMPLATE_TAG.test(s), s).toBe(true);
+    for (const s of ['xhtml`x`', 'a.html`x`', 'my_css`x`', 'html\n`x`', 'html("x")']) expect(TEMPLATE_TAG.test(s), s).toBe(false);
+  });
+
+  test.each([
+    ['plugins/web-ui/src/personas.ts', true], ['src/a.mjs', true], ['a.cts', true],
+    ['src/a.test.ts', false], ['src/a.spec.js', false], ['test/a.ts', false], ['e2e/a.ts', false], ['cypress/a.js', false],
+    ['src/__tests__/a.ts', false], ['pkg/tests/a.ts', false], ['src/a_test.ts', false], ['src/A.tsx', false], ['src/a.TS', false],
+  ] as Array<[string, boolean]>)('isTemplateCandidate(%s) → %p', (p, expected) => {
+    expect(isTemplateCandidate(p)).toBe(expected);
   });
 });
 

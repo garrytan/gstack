@@ -62,7 +62,7 @@ describe('E2E_KINDS registry', () => {
     // Contract-shaped cases stay rule: ask-before-decide, plan-mode no-writes,
     // mandated steps, secrets, and the batching floor never ride a majority.
     for (const id of ['plan-ceo-mode-routing', 'plan-eng-multi-finding-batching', 'plan-design-review-plan-mode',
-      'plan-eng-review-plan-mode', 'plan-ceo-section-loading', 'setup-gbrain-bad-token', 'qa-only-no-fix', 'review-sql-injection']) {
+      'plan-ceo-section-loading', 'setup-gbrain-bad-token', 'qa-only-no-fix', 'review-sql-injection']) {
       expect(E2E_KINDS[id], id).toBe('rule');
     }
   });

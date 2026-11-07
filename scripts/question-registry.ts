@@ -17,7 +17,7 @@
  *
  * v1 coverage target: the ~30-50 most-common recurring question categories across
  * ship, review, office-hours, plan-ceo-review, plan-eng-review, plan-design-review,
- * plan-devex-review, qa, investigate, and land-and-deploy. One-way doors 100%.
+ * plan-devex-review, qa, and land-and-deploy. One-way doors 100%.
  *
  * Adding a new entry
  * ------------------
@@ -56,7 +56,6 @@ export type StandardOption =
   | 'reject'
   | 'defer'
   | 'skip'
-  | 'investigate'
   | 'approve'
   | 'deny'
   | 'expand'
@@ -440,26 +439,6 @@ export const QUESTIONS = {
     door_type: 'two-way',
     options: ['quick', 'standard', 'deep'],
     description: "QA tier: quick (critical/high only), standard (+medium), or deep (+low)?",
-  },
-
-  // -----------------------------------------------------------------------
-  // /investigate — root-cause debugging
-  // -----------------------------------------------------------------------
-  'investigate-hypothesis-confirm': {
-    id: 'investigate-hypothesis-confirm',
-    skill: 'investigate',
-    category: 'approval',
-    door_type: 'two-way',
-    options: ['accept', 'reject', 'refine'],
-    description: "Root-cause hypothesis — accept, reject, or refine before proceeding to fix?",
-  },
-  'investigate-fix-apply': {
-    id: 'investigate-fix-apply',
-    skill: 'investigate',
-    category: 'approval',
-    door_type: 'one-way',
-    options: ['accept', 'reject'],
-    description: "Apply the proposed fix?",
   },
 
   // -----------------------------------------------------------------------

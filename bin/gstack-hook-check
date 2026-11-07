@@ -15,7 +15,7 @@
 # `_hook_command_path <path>` argument in <root>/setup (or the setup named by
 # --setup, when another tree's setup registers <root>'s hooks), plus every
 # gstack path on a `command:` line in a skill's frontmatter (<root>/*/SKILL.md:
-# /autoplan, /careful, /freeze, /guard, /investigate, /plan-ceo-review). Claude
+# /autoplan, /careful, /freeze, /guard, /plan-ceo-review). Claude
 # Code runs those while the skill is active, and a broken PreToolUse one blocks
 # the tool call. test/setup-hook-syntax-gate.test.ts keeps the lists equal.
 #

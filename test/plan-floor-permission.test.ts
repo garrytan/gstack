@@ -521,10 +521,10 @@ test('duplicate declarations and existing fixture files cannot be rewritten into
   expect(() => createPlanCountFixture(FORCING_FLOOR_CEO,{requestedPlanPath,files:{'gstack-test-plan-ceo-floor.md':'different source'}})).toThrow();
 });
 
-test.each(['auq_observed','timeout','throw'])('all four actual floor registrations keep the declared actor and %s outcome', outcome => {
+test.each(['auq_observed','timeout','throw'])('all three actual floor registrations keep the declared actor and %s outcome', outcome => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(),'floor-registration-free-'));
   const worker = path.join(dir,'registrations.test.ts'), facts = path.join(dir,'calls.jsonl');
-  const files = ['ceo','eng','design','devex'].map(kind => path.join(ROOT,`test/skill-e2e-plan-${kind}-finding-floor.test.ts`));
+  const files = ['ceo','design','devex'].map(kind => path.join(ROOT,`test/skill-e2e-plan-${kind}-finding-floor.test.ts`));
   try {
     for (const file of files) expect(fs.statSync(file).isFile()).toBe(true);
     fs.writeFileSync(worker, `
@@ -557,7 +557,7 @@ ${files.map(file => `await import(${JSON.stringify(file)});`).join('\n')}
     const output = result.stdout.toString()+result.stderr.toString();
     expect(result.exitCode,output).toBe(outcome === 'auq_observed' ? 0 : 1);
     expect(fs.readFileSync(facts,'utf8').trim().split('\n').map(line=>JSON.parse(line).kind).sort())
-      .toEqual(['ceo','design','devex','eng']);
+      .toEqual(['ceo','design','devex']);
     if(outcome !== 'auq_observed') expect(output).toContain(outcome === 'throw' ? 'controlled runner failure' : 'floor test FAILED: outcome=timeout');
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 },25_000);

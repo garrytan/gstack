@@ -86,7 +86,7 @@ describe('QM edition (hosts/qm.ts)', () => {
     expect(() => renderSkill(variant({ dropBlocks: ['text that is not there'] }))).toThrow(/matched nothing/);
     expect(() => renderSkill(variant({ replaceText: [['text that is not there', 'x']] }))).toThrow(/matched nothing/);
     expect(() => renderSkill(variant({ skipHeadings: ['No Such Heading'] }))).toThrow(/found 0 times/);
-    expect(() => renderSkill(variant({ heading: 'Systematic Debugging', level: 1 }))).toThrow(/unmapped placeholder/);
+    expect(() => renderSkill(variant({ file: 'review/SKILL.md.tmpl', heading: 'Pre-Landing PR Review', level: 1, skipHeadings: [], dropBlocks: [], replaceText: [] }))).toThrow(/unmapped placeholder/);
     // A "# ..." comment inside a code fence is never a heading.
     expect(() => renderSkill(variant({ heading: '$HOME-anchored like the careful/freeze frontmatter hooks: early skill bash runs' }))).toThrow(/found 0 times/);
   });

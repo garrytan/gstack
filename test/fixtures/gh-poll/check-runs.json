@@ -1,0 +1,1221 @@
+{
+  "total_count": 64,
+  "check_runs": [
+    {
+      "id": 128269175403,
+      "name": "free-tests",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:17:27Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128269175403",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128269175403",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888293,
+      "name": "free-suite (4)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:17:08Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888293",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888293",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888243,
+      "name": "free-suite (10)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:26Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888243",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888243",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888204,
+      "name": "free-suite (9)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:15:59Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888204",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888204",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888201,
+      "name": "free-suite (7)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:00Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888201",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888201",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888196,
+      "name": "free-suite (6)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:15:59Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888196",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888196",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888195,
+      "name": "free-suite (1)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:15:39Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888195",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888195",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888184,
+      "name": "free-suite (5)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:32Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888184",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888184",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888159,
+      "name": "free-suite (8)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:42Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888159",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888159",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888150,
+      "name": "free-suite (11)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:13:37Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888150",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888150",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888135,
+      "name": "free-suite (2)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:37Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888135",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888135",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267888108,
+      "name": "free-suite (3)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:16:26Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888108",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267888108",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267800662,
+      "name": "Trunk Dynamic CI (learning only)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:12:09Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267800662",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267800662",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267800601,
+      "name": "reuse",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:12:09Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267800601",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267800601",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799958,
+      "name": "cso-windows-launcher",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:13:46Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799958",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799958",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799937,
+      "name": "cso-docker-integration",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:12:35Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799937",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799937",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799864,
+      "name": "cso-macos-launcher",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:13:15Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799864",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799864",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799842,
+      "name": "typecheck",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:12:34Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799842",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799842",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799809,
+      "name": "macos-named-regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:15:31Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799809",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799809",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799802,
+      "name": "quick-bun-default",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:13:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799802",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799802",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267799588,
+      "name": "free-plan",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:12:29Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799588",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42328030770/job/128267799588",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114685849622
+      }
+    },
+    {
+      "id": 128267475495,
+      "name": "free-tests",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:11:21Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128267475495",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128267475495",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266879587,
+      "name": "windows-scoped-tests",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:08:58Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128266879587",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128266879587",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428588
+      }
+    },
+    {
+      "id": 128266204862,
+      "name": "slices-comment",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266204862",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266204862",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266204292,
+      "name": "slices-report",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266204292",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266204292",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266203725,
+      "name": "rerun-plan",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203725",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203725",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266203681,
+      "name": "train-check",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203681",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203681",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266203480,
+      "name": "eval-rerun",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203480",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203480",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266203137,
+      "name": "train-bisect",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203137",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266203137",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266202924,
+      "name": "eval-slices",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:06:28Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266202924",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266202924",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266147691,
+      "name": "free-suite (9)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147691",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147691",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147613,
+      "name": "free-suite (7)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:09:16Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147613",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147613",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147557,
+      "name": "free-suite (8)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:18Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147557",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147557",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147542,
+      "name": "free-suite (3)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:39Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147542",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147542",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147533,
+      "name": "free-suite (11)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:07:23Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147533",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147533",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147525,
+      "name": "free-suite (1)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:37Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147525",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147525",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147515,
+      "name": "free-suite (2)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:11:00Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147515",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147515",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147508,
+      "name": "free-suite (5)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:09:08Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147508",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147508",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147489,
+      "name": "free-suite (4)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:31Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147489",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147489",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147486,
+      "name": "free-suite (10)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:09:31Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147486",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147486",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266147439,
+      "name": "free-suite (6)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:10:08Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147439",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266147439",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081531,
+      "name": "cso-macos-launcher",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:08:10Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081531",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081531",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081482,
+      "name": "cso-docker-integration",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:27Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081482",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081482",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081471,
+      "name": "cso-windows-launcher",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:07:42Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081471",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081471",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081452,
+      "name": "quick-bun-default",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:07:44Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081452",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081452",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081443,
+      "name": "free-plan",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:16Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081443",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081443",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081424,
+      "name": "macos-named-regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:08:37Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081424",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081424",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266081397,
+      "name": "typecheck",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:35Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081397",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128266081397",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128266055434,
+      "name": "readiness-comment",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:05:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055434",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055434",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266055391,
+      "name": "plan-slices",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:05:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055391",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055391",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266055247,
+      "name": "recover-receipts",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:05:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055247",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266055247",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266054919,
+      "name": "readiness",
+      "status": "completed",
+      "conclusion": "skipped",
+      "completed_at": "2026-11-07T02:05:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266054919",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266054919",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266053505,
+      "name": "build-image",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:27Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266053505",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266053505",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266053423,
+      "name": "screen-summary",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:14Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266053423",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128266053423",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128266037116,
+      "name": "windows-scoped-shard",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:08:53Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128266037116",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128266037116",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428588
+      }
+    },
+    {
+      "id": 128265980576,
+      "name": "Check VERSION is not stale vs queue",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:05Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327471124/job/128265980576",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327471124/job/128265980576",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684429384
+      }
+    },
+    {
+      "id": 128265980113,
+      "name": "actionlint",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:05:53Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470975/job/128265980113",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470975/job/128265980113",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428964
+      }
+    },
+    {
+      "id": 128265979803,
+      "name": "reuse",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:01Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128265979803",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128265979803",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128265979664,
+      "name": "quality",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:06:07Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470949/job/128265979664",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470949/job/128265979664",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428943
+      }
+    },
+    {
+      "id": 128265979483,
+      "name": "Trunk Dynamic CI (learning only)",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:05:48Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128265979483",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470893/job/128265979483",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428816
+      }
+    },
+    {
+      "id": 128265979295,
+      "name": "route",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:05:55Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128265979295",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470800/job/128265979295",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428568
+      }
+    },
+    {
+      "id": 128265979247,
+      "name": "check-freshness",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:05:57Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470857/job/128265979247",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470857/job/128265979247",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428734
+      }
+    },
+    {
+      "id": 128265978989,
+      "name": "windows-scope",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:05:51Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128265978989",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470805/job/128265978989",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428588
+      }
+    },
+    {
+      "id": 128265978805,
+      "name": "windows-smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-07T02:09:14Z",
+      "details_url": "https://github.com/garrytan/gstack/actions/runs/42327470755/job/128265978805",
+      "html_url": "https://github.com/garrytan/gstack/actions/runs/42327470755/job/128265978805",
+      "output": {
+        "title": null
+      },
+      "app": {
+        "id": 15368,
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 114684428477
+      }
+    }
+  ]
+}

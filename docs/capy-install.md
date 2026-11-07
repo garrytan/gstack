@@ -295,7 +295,9 @@ uses it to refuse a base merge under an open run
    runs; the pins, the doctor and the install verdict all use the resolved
    directory) with the doctor's own parser (`bin/gstack-runtime-pins.ts`: engines,
    packageManager, `.tool-versions`, `.bun-version` and CI `bun-version:` lanes
-   for this platform). CI exact pins for this platform are alternatives: a
+   for this platform), run with an isolated Bun (`--no-env-file
+   --config="${GSTACK_BUN_CONFIG:-/dev/null}"`) so the project's `bunfig.toml`
+   and `.env` never load into the installer. CI exact pins for this platform are alternatives: a
    repository may test several Bun versions (gstack's own CI pins 1.4.2 and
    runs one job on 1.4.4), so a Bun equal to any one of them satisfies CI;
    CI ranges and every non-CI pin stay required. One resolver picks the Bun (`gstack_bun_resolve` in

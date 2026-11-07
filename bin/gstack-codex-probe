@@ -837,7 +837,7 @@ _gstack_codex_log_event() {
 
 _gstack_codex_log_hang() {
   # Invoked when a codex invocation times out (exit 124). Records an
-  # operational learning so future /investigate sessions surface the pattern.
+  # operational learning so future debugging sessions surface the pattern.
   # Best-effort: errors swallowed.
   local _mode="${1:-unknown}"
   local _prompt_size="${2:-0}"

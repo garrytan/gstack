@@ -19,8 +19,8 @@
  * review, answering each question with its first option, and the case stops
  * once the artifact exists or the report completes. The requirement is
  * unchanged: exactly one new QA test plan under the run's own state root, about
- * the reviewed dashboard change. The fresh start-to-finish path is the marathon
- * case in skill-e2e-plan-eng-artifact-full.test.ts.
+ * the reviewed dashboard change. (The fresh start-to-finish marathon case
+ * retired with the standalone skill, GST-1698.)
  */
 
 import { expect, test } from 'bun:test';

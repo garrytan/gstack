@@ -16,7 +16,7 @@ clawhub publish openclaw/skills/gstack-openclaw-office-hours \
   --version 1.0.0 --changelog "description of changes"
 ```
 
-Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigate`,
+Repeat for each skill: `gstack-openclaw-ceo-review`,
 `gstack-openclaw-retro`. Bump `--version` on each update.
 
 **Auth:** `clawhub login` (opens browser for GitHub auth). `clawhub whoami` to verify.

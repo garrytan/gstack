@@ -19,7 +19,7 @@ import { resolveStateRoot } from './state-root';
 import { StateError, UnknownShape, parseTranscript, readTranscriptFile, withFinalMessage, type Transcript } from './skill-contract';
 import { appendHookTrace, readStdinBounded, type TraceHook } from './skill-route';
 
-export type GateHook = 'investigate-gate' | 'ceo-review-gate' | 'autoplan-gate';
+export type GateHook = 'ceo-review-gate' | 'autoplan-gate';
 export type GateEvent = 'fired' | 'blocked' | 'released' | 'observed' | 'exhausted' | 'skipped' | 'error';
 export const GATE_DOC = 'docs/skill-gates.md';
 export const DEADLINE_MS = 5000;

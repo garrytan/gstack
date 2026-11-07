@@ -41,8 +41,8 @@ describe('UI evidence is a rendered surface in the Implementation plan', () => {
   test('non-visual CLI prose with UI words is weak evidence: no Design phase, sections still load', () => {
     const r = detectUiScope(CLI_PROSE);
     expect(r.uiRequired).toBe(false);
-    expect(r.uiMatches).toBe(3);
-    expect(r.uiEvidence).toEqual({ terms: [{ term: 'component', count: 1 }, { term: 'screen', count: 1 }, { term: 'form', count: 1 }], visual: [], files: [] });
+    expect(r.uiMatches).toBe(4);
+    expect(r.uiEvidence).toEqual({ terms: [{ term: 'component', count: 1 }, { term: 'screen', count: 1 }, { term: 'form', count: 1 }, { term: 'list', count: 1 }], visual: [], files: [] });
     const scope = detectScope(planFile(CLI_PROSE), ROOT, {});
     expect(scope.ui).toBe(false);
     expect(phaseOrder(scope)).not.toContain('design');
@@ -72,6 +72,47 @@ describe('UI evidence is a rendered surface in the Implementation plan', () => {
   });
 });
 
+let repos = 0;
+/** A repo root with Lit-style template files, plain .ts, test files and links out of the root. */
+const templateRepo = () => {
+  const root = path.join(host.base, `tpl-${++repos}`, 'repo');
+  const write = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  write('plugins/web-ui/src/personas.ts', 'export const row = (p) => html`<div class="permission-row">${p.name}</div>`;\n');
+  write('src/spaced.js', 'const t = svg `<path d="M0 0"/>`;\n');
+  write('lib/pages.ts', 'export const pages = ["a.html"];\nconst xhtml`x` = 1;\n');
+  write('src/split.ts', 'const t = html\n`<p></p>`;\n');
+  write('test/view.ts', 'html`<p></p>`;\n');
+  write('src/view.test.ts', 'html`<p></p>`;\n');
+  write('src/__tests__/view.ts', 'html`<p></p>`;\n');
+  write('../outside.ts', 'html`<p></p>`;\n');
+  fs.symlinkSync(path.join(root, '..', 'outside.ts'), path.join(root, 'src', 'linked.ts'));
+  return root;
+};
+const PERSONA_PROSE = 'Each grant is a permission row in plugins/web-ui/src/personas.ts with a role menu; the picker sits under the section.';
+
+describe('template files and list-style terms (GST-1750)', () => {
+  test('a named .ts/.js file holding a tagged html, css or svg template is a rendered file', () => {
+    const root = templateRepo();
+    expect(detectUiScope(PERSONA_PROSE, root)).toMatchObject({ uiRequired: true, uiEvidence: { files: ['plugins/web-ui/src/personas.ts'] } });
+    expect(detectUiScope('Draw the icon in ./src/spaced.js.', root).uiEvidence.files).toEqual(['./src/spaced.js']);
+  });
+
+  test('without a root, or for a plain, test, missing or out-of-root file, a .ts path is not UI', () => {
+    const root = templateRepo();
+    expect(detectUiScope(PERSONA_PROSE).uiRequired).toBe(false);
+    for (const file of ['lib/pages.ts', 'src/split.ts', 'test/view.ts', 'src/view.test.ts', 'src/__tests__/view.ts', 'src/missing.ts', '../outside.ts', 'src/linked.ts']) {
+      expect(detectUiScope(`Touch ${file} only.`, root).uiRequired, file).toBe(false);
+    }
+  });
+
+  test('row, list, picker, menu and section are UI terms: near a visual noun they add Design, bare they do not', () => {
+    for (const [prose, pair] of [['Show the grants as a list on the persona page.', 'list~page'], ['Add a role picker to the settings view.', 'picker~view'], ['Each row gets the shared row style.', 'row~style'], ['The page menu opens on hover.', 'menu~page'], ['Move the help section under the page header.', 'section~page']]) {
+      expect(detectUiScope(prose!).uiEvidence.visual, prose).toEqual([pair]);
+    }
+    expect(detectUiScope('List the files in each section and write one row per menu entry.')).toMatchObject({ uiRequired: false, uiMatches: 4 });
+  });
+});
+
 describe('per-axis provenance, --no-dx and the plan marker', () => {
   test('--no-ui alone labels a detected DX as detected, not flag-forced', () => {
     const scope = detectScope(planFile(DX_PROSE), ROOT, { ui: false });
@@ -94,7 +135,7 @@ describe('per-axis provenance, --no-dx and the plan marker', () => {
     const out = path.join(host.base, 'run-pin');
     const r = next(['--out', out, '--plan', file, '--no-ui', '--developer-tool']);
     expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toMatch(/^SCOPE: ui=no \(terms: component×1, screen×1, form×1; visual: none; files: none\) dx=yes \(detected: [^)]*flag×2[^)]*\) docs_only=no \(detected\) source=ui:flag,dx:flag$/m);
+    expect(r.stdout).toMatch(/^SCOPE: ui=no \(terms: component×1, screen×1, form×1, list×1; visual: none; files: none\) dx=yes \(detected: [^)]*flag×2[^)]*\) docs_only=no \(detected\) source=ui:flag,dx:flag$/m);
     expect(r.stdout).toContain(`SCOPE_PIN: add <!-- gstack-autoplan-scope: --no-ui --developer-tool --> as the first line of ${file} to keep these flags`);
     expect(fs.readFileSync(file).equals(before)).toBe(true);
     expect(readRun(out).scope).toMatchObject({ cli_flags: ['--no-ui', '--developer-tool'], marker: null, sources: { ui: 'flag', dx: 'flag' } });
@@ -120,7 +161,14 @@ describe('per-axis provenance, --no-dx and the plan marker', () => {
 describe('interactive parity: one detector', () => {
   test('snapshot scope returns uiRequired with its evidence', () => {
     expect(snapshotScope(planFile('Edit src/components/Settings.tsx.'))).toMatchObject({ uiRequired: true, uiEvidence: { files: ['src/components/Settings.tsx'] } });
-    expect(snapshotScope(planFile(CLI_PROSE, 'The Settings page layout gets a new button.'))).toMatchObject({ uiRequired: false, uiMatches: 3 });
+    expect(snapshotScope(planFile(CLI_PROSE, 'The Settings page layout gets a new button.'))).toMatchObject({ uiRequired: false, uiMatches: 4 });
+  });
+
+  test('snapshot scope reads a named template file from the repo root it runs in', () => {
+    const root = templateRepo();
+    const r = spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-autoplan-snapshot.ts'), 'scope', planFile(PERSONA_PROSE)], { cwd: root, env: hostEnv(), encoding: 'utf8', timeout: 60_000 });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({ uiRequired: true, uiEvidence: { files: ['plugins/web-ui/src/personas.ts'], visual: [] } });
   });
 
   test('autoplan Step 2 takes UI scope from the returned uiRequired instead of a prose grep', () => {

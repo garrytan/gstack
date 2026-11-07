@@ -127,12 +127,7 @@ describe('generateGBrainContextLoad — compression pin', () => {
     }
   });
 
-  test('/investigate gets the data-research routing suffix', () => {
-    const out = generateGBrainContextLoad(buildCtx('investigate'));
-    expect(out).toContain('data-research');
-  });
-
-  test('non-investigate skills do NOT get the data-research suffix', () => {
+  test('no skill gets the retired data-research suffix', () => {
     for (const { skill } of PLANNING_SKILLS) {
       const out = generateGBrainContextLoad(buildCtx(skill));
       expect(out).not.toContain('data-research');

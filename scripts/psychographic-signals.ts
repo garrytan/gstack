@@ -199,7 +199,7 @@ export const SIGNAL_MAP: Record<string, Record<string, DimensionDelta[]>> = {
     // common option keys for "I'll review first" vs "go ahead":
     'review-first': [{ dim: 'autonomy', delta: -0.05 }],
     proceed: [{ dim: 'autonomy', delta: +0.05 }],
-    // /investigate-style: "agent applies fix" vs "show me the diff first"
+    // debugging-style: "agent applies fix" vs "show me the diff first"
     'apply-fix': [{ dim: 'autonomy', delta: +0.04 }],
     'show-diff': [{ dim: 'autonomy', delta: -0.04 }],
   },

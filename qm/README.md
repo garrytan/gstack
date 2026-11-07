@@ -1,6 +1,6 @@
 # gstack for QM
 
-Three gstack skills in QM's own skill format: `gstack-investigate` (find and prove a bug's root cause before fixing it), `gstack-review` (review a branch before merge) and `gstack-plan` (review a feature plan before building it).
+Two gstack skills in QM's own skill format: `gstack-review` (review a branch before merge) and `gstack-plan` (review a feature plan before building it).
 
 QM lists each skill by name and description and loads the body only when it's needed, so nothing goes into the org SOUL and nothing is installed. Each file stays under 15,000 characters so QM's `read` and `skill` tools return it whole, and every command a skill names is a POSIX utility, `git`, or a POSIX `sh` script shipped inside the skill. QM's sandbox images have no bun and no gstack checkout.
 

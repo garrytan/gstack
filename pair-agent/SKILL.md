@@ -272,7 +272,7 @@ If the value is not `on`, ask via AskUserQuestion (one-way-door posture —
 this opens a path from the internet to the local browser):
 
 > "Remote pairing runs an ngrok tunnel from the internet to this machine's
-> browser (locked to a 26-command allowlist + scoped token, but still an
+> browser (locked to a 25-command allowlist + scoped token, but still an
 > exposure). Enable pair-agent on this machine?"
 
 Options: A) Enable — run `~/.claude/skills/gstack/bin/gstack-config set pair_agent on`, confirm it reads back `on`, and continue. B) No — stop here; local pairing (option A above) still works.
@@ -379,21 +379,24 @@ side panel if you have GStack Browser open."
 
 Default access is read+write+admin+meta. The trust boundary is the pairing
 ceremony, not the scope:
-- Navigate to URLs, click elements, fill forms, take screenshots
+- Navigate to http(s) URLs, click elements, fill forms, take screenshots
 - Read page content (text, HTML, snapshot)
 - Create new tabs (each agent gets its own)
-- Execute JavaScript via `eval`
 - Cannot stop or restart the browser, or disconnect headed mode (needs --control)
 
-Remote agents go through the tunnel command allowlist: `eval` works, but the
-`js`, `cookies`, and `storage` commands are not dispatchable over the tunnel
-even with admin scope. Agents paired with `--local` get all four.
+Remote agents go through the tunnel command allowlist, so they can't read local
+files, can't choose a path on this machine's disk, and can't make the daemon
+save screenshot or snapshot images: `goto`/`newtab` take http(s) URLs only,
+`screenshot` needs `--base64` and cannot name an output path, `snapshot`
+refuses `-a`, `-H` and `-o`, and
+`eval`, `js`, `cookies`, and `storage` are not dispatchable over the tunnel
+even with admin scope. Agents paired with `--local` get all of them.
 
 With --restrict (`--restrict read`, `--restrict "read,write"`):
 - Sandboxed sessions: read-only, or read+write with no JS, cookie, or storage
   access. Pair this way when the remote agent will read untrusted web content:
   a trusted agent can be prompt-injected by pages it reads, and scope caps the
-  blast radius (eval works over the tunnel).
+  blast radius.
 - `--restrict` never grants `control`; that scope stays behind --control.
 - To tighten an agent that is ALREADY paired, re-pair it with the **same
   `--client` name** and the narrower `--restrict`/`--domain`. A reducing re-pair

@@ -36,7 +36,7 @@ describe('codex CI access scope', () => {
     for (const file of [...CODEX_CI_FILES, ...Object.keys(CODEX_CI_CASES)]) expect(fs.existsSync(path.join(ROOT, file)), file).toBe(true);
     const reaches = (id: string) => caseFiles(id).some(file => CODEX_CI_FILES.includes(file) || CODEX_CI_CASES[file]?.includes(id));
     for (const id of ['codex-review', 'codex-review-findings', 'codex-discover-skill', 'outside-voice-codex-to-claude-code',
-      'outside-voice-claude-code-to-codex', 'outside-plan-disabled-no-fallback', 'codex-sol-scope-termination']) {
+      'outside-voice-claude-code-to-codex', 'outside-plan-disabled-no-fallback']) {
       expect(E2E_TIERS[id], id).toBe('periodic');
       expect(reaches(id), `${id} cannot reach the CI Codex`).toBe(true);
     }

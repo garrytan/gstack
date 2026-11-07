@@ -63,7 +63,7 @@ export function trainFixture(policy: Record<string, unknown> = TRAIN_POLICY, pre
   fs.writeFileSync(path.join(dir, 'shim.js'), shimSource());
   fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\nexec node "${path.join(dir, 'shim.js')}" "${dataFile}" "$@"\n`, { mode: 0o755 });
   const state = path.join(repo.root, 'state');
-  const env = { PATH: `${dir}:${process.env.PATH ?? ''}`, GSTACK_STATE_ROOT: state, GSTACK_SHIP_QUEUE_POLL_MS: '20', GSTACK_EVAL_BG_POLL_MS: '20', GSTACK_SHIP_QUEUE_NOW: '2026-10-18T12:00:00Z' };
+  const env = { PATH: `${dir}:${process.env.PATH ?? ''}`, GSTACK_STATE_ROOT: state, GSTACK_SHIP_QUEUE_POLL_MS: '20', GSTACK_GH_POLL_FLOOR_MS: '0', GSTACK_EVAL_BG_POLL_MS: '20', GSTACK_SHIP_QUEUE_NOW: '2026-10-18T12:00:00Z' };
   const read = () => JSON.parse(fs.readFileSync(dataFile, 'utf8')) as ShimData;
   const write = (fn: (d: ShimData) => void) => { const d = read(); fn(d); fs.writeFileSync(dataFile, JSON.stringify(d)); };
   return { repo, state, dataFile, env, read, write };

@@ -350,7 +350,7 @@ Three escalating modes:
   every command tick through in real time.
 - **Pair-agent over a tunnel**. Daemon binds a second listener that ngrok
   forwards. A remote agent (Codex, OpenClaw, Hermes, anything that can speak
-  HTTP) drives your local browser through a 26-command allowlist with a
+  HTTP) drives your local browser through a 25-command allowlist with a
   scoped, single-use token.
 
 ---
@@ -1195,7 +1195,7 @@ resets once — a one-time in-product notice explains this.
 
 Remote AI agents (Codex, OpenClaw, Hermes, anything that speaks HTTP) can
 drive your local browser through an ngrok tunnel. The whole flow is gated
-by a 26-command allowlist, scoped tokens, and a denial log.
+by a 25-command allowlist, scoped tokens, and a denial log.
 
 ### How it works
 
@@ -1215,22 +1215,30 @@ When `pair-agent` activates, the daemon binds **two HTTP listeners**:
   forwarded by ngrok. Used by your Claude Code, the Side Panel, anything
   on your machine.
 - **Tunnel listener** (`127.0.0.1:TUNNEL_PORT`). Locked allowlist —
-  `/connect`, `/command` (scoped tokens + 26-command browser-driving
+  `/connect`, `/command` (scoped tokens + 25-command browser-driving
   allowlist), `/sidebar-chat`. ngrok forwards only this port.
 
 Root tokens sent over the tunnel return 403. SSE endpoints use a 30-minute
 HttpOnly `gstack_sse` cookie (never valid against `/command`).
 
-### The 26-command tunnel allowlist
+### The 25-command tunnel allowlist
 
-Defined in `browse/src/server.ts` as `TUNNEL_COMMANDS`. Pure gate function
-`canDispatchOverTunnel(command)` is exported for unit testing. Set:
+Defined in `browse/src/routes/commands.ts` as `TUNNEL_COMMANDS`. Pure gate
+function `canDispatchOverTunnel(command, args)` is exported for unit testing. Set:
 
 ```
 goto, click, text, screenshot, html, links, forms, accessibility,
-attrs, media, data, scroll, press, type, select, wait, eval,
+attrs, media, data, scroll, press, type, select, wait,
 newtab, tabs, back, forward, reload, snapshot, fill, url, closetab
 ```
+
+The gate also reads the args, so over the tunnel a paired agent can't read
+local files, can't choose a path on the daemon's disk, and can't make the
+daemon save screenshot or snapshot images: `goto`/`newtab` take http(s) URLs only, `screenshot` needs
+`--base64` (it returns the image) and cannot name an output path, `snapshot`
+refuses `-a`/`--annotate`, `-H`/`--heatmap` and `-o`, and `--out` is
+refused everywhere. `eval` is absent because it runs a file from the
+daemon's disk.
 
 Notably absent: `pair`, `unpair`, `cookies`, `setup`, `launch`, `restart`,
 `stop`, `tunnel-start`, `token-mint`, `state`, `connect`, `disconnect`. A

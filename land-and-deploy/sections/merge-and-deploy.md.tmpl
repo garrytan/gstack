@@ -162,7 +162,7 @@ merge queue is in use. Explain which is observed; an auto request alone does not
 prove a queue. A queue reruns CI against the proposed merge. Record `MERGE_PATH=queue`
 only when `mergeQueueEntry` was observed, otherwise `auto`.
 
-Set `WAITED=true`. Repeat the readback every 30 seconds, up to 30 minutes; report progress every 2 minutes.
+Set `WAITED=true`. Repeat the readback every 60 seconds, up to 30 minutes; report progress every 2 minutes.
 While OPEN with an active auto request **or** queue entry, keep waiting. Once waiting
 has begun, never dispatch START or DIRECT: OPEN with confirmed absence of **both**
 means removal/cancellation, so **STOP** and point to GitHub's checks/queue page.

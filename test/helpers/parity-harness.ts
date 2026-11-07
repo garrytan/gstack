@@ -214,8 +214,6 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
   // cso is now carved — its invariant is generated from CARVE_GUARDS below.
   // review, codex, land-and-deploy (w1), autoplan (w2), qa (w3) carved in token-reduction Phase 4
   // wave 1 (v1.69.x branch) — their invariants generate from CARVE_GUARDS too.
-  // investigate carved in the multi-agent wave (PR D3, 2026-10-10): its 1.12
-  // cap moved to CARVE_GUARDS.investigate.maxSizeRatio with the union measured.
 ];
 
 /**

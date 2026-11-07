@@ -14,12 +14,25 @@
  * else cwd) is never a candidate or the place the block names: the review's
  * own methodology sections are not its output.
  */
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { git, repoRoot } from './investigate-gate';
 import { isPlaceholder, sameSkill, skillLoads, type SkillLoad, type Transcript } from './skill-contract';
 import { remainingMs } from './skill-gates';
 import { resolveStateRoot } from './state-root';
+
+const GIT_TIMEOUT_MS = 3000;
+
+function git(root: string, args: string[]): { ok: boolean; out: Buffer } {
+  const r = spawnSync('git', args, { cwd: root, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, timeout: Math.min(GIT_TIMEOUT_MS, remainingMs()), maxBuffer: 64 * 1024 * 1024 });
+  return { ok: r.status === 0, out: (r.stdout as Buffer) ?? Buffer.alloc(0) };
+}
+
+function repoRoot(cwd: string): string | null {
+  if (!fs.existsSync(cwd)) return null;
+  const r = git(cwd, ['rev-parse', '--show-toplevel']);
+  return r.ok ? fs.realpathSync(r.out.toString('utf8').trim()) : null;
+}
 
 export const SKILL = 'plan-ceo-review';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -78,7 +91,7 @@ export interface OutputContext { cwd: string; since: number; envOutput: string |
 
 function changedMarkdown(root: string | null, since: number): string[] {
   if (!root) return [];
-  const list = (args: string[]) => git(root, args, { allowFail: true }).out.toString('utf8').split('\0').filter(Boolean);
+  const list = (args: string[]) => git(root, args).out.toString('utf8').split('\0').filter(Boolean);
   const rels = [...new Set([...list(['diff', 'HEAD', '--name-only', '-z', '--no-renames', '--', '*.md']), ...list(['ls-files', '-o', '--exclude-standard', '-z', '--', '*.md'])])];
   return newest(rels.map(r => path.join(root, r)), since);
 }
