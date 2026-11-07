@@ -1,4 +1,4 @@
 {
-  "bytes": -8,
-  "why": "Outside reviews ask for a last VERDICT line; the structured Codex review runs codex exec"
+  "bytes": -15,
+  "why": "Pin the Codex structured review to the appended base diff and fold its prompt line into the request"
 }

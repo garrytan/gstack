@@ -245,7 +245,9 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
       expect({ gate, ...see(read('no-findings.txt'), gate, '\nVERDICT: CLEAN') }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
       for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', 'Verdict: NO_FINDINGS', 'Verdict: `NO_FINDINGS`', 'Verdict: ready. The `[P1]` from round 1 is fixed.'])
         expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate, '\nVERDICT: CLEAN') }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
-      expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate, '\nVERDICT: CLEAN') }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
+      // GST-1821 fix round (Captain ruling): VERDICT: CLEAN beside unlabeled numbered items is a contradiction, so it is not clean.
+      expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate, '\nVERDICT: CLEAN') }).toEqual(gate === 'execution'
+        ? { gate, verdict: 'clean', reason: null, unlabeled: 2 } : { gate, verdict: 'unverified', reason: 'untagged_review', unlabeled: 2 });
     }
     // Without the verdict line no prose sentence vouches for the list, so an execution reply counts its numbered items.
     expect(see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 2 });

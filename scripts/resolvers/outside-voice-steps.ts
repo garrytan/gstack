@@ -171,13 +171,9 @@ function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): str
 
 ${isShip ? 'On \`DISPATCH: outside-voice\`, if' : 'If'} \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
 
-Prepare a structured review prompt (boundary first) for \`git diff $(git merge-base <base> HEAD)\`: committed and working-tree changes.
-
 ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: isShip ? 'dispatched' : true, gate: 'structured', diffCommand: 'DIFF_BASE=$(git merge-base <base> HEAD) && git diff "$DIFF_BASE"' })}
 
-${outsideVoiceFor(ctx).id === 'codex' ? 'Codex runs `codex exec` read-only and reads that diff itself.' : 'The Claude Code backend receives the parent-captured base diff, including committed and working-tree changes, because review mode cannot execute git.'}
-
-Present output under \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (code review):\` inside a \`tool-output\` fence.
+${outsideVoiceFor(ctx).id === 'codex' ? '' : 'The Claude Code backend receives the parent-captured base diff, including committed and working-tree changes, because review mode cannot execute git.\n\n'}Present output under \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (code review):\` inside a \`tool-output\` fence.
 Only a completed response ending with its \`VERDICT:\` line establishes the gate. P0/P1 findings (\`[P0]\`/\`[P1]\` or native \`P0:\`/\`P1:\` labels; \`VERDICT: findings\`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or \`OUTSIDE_STATUS: unverified\` → GATE: MISSING COVERAGE; no fix question.
 
 If GATE is FAIL, use AskUserQuestion:

@@ -24,7 +24,7 @@ export interface OutsideReviewInput {
 
 export interface OutsideReviewClassification {
   execution: { state: 'ran' } | { state: 'unavailable'; reason: GateReason; detail?: string };
-  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line; set only when non-zero. */
+  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line or ending `VERDICT: CLEAN`; set only when non-zero. */
   findings: { highest: Severity | null; unlabeled?: number };
   verdict: OutsideVerdict;
   /** Set for every verdict except clean/findings. */
@@ -149,7 +149,8 @@ type VerdictToken = 'CLEAN' | 'FINDINGS';
 function verdictLine(text: string): { token?: VerdictToken; body: string } {
   const lines = text.trimEnd().split(/\r?\n/);
   const last = lines.length - 1;
-  const token = VERDICT_LINE.exec(plainReview(withoutCode(text).split('\n')[last] ?? '').trim())?.[1] as VerdictToken | undefined;
+  const outsideCode = withoutCode(text).split('\n')[last]?.trim();
+  const token = outsideCode ? VERDICT_LINE.exec(plainReview(lines[last]!).trim())?.[1] as VerdictToken | undefined : undefined;
   return token ? { token, body: lines.slice(0, last).join('\n') } : { body: text };
 }
 
@@ -247,7 +248,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
   const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
-  const unlabeled = reviewed && verdicts[1] !== undefined && token !== 'CLEAN'
+  const unlabeled = reviewed && (verdicts[1] !== undefined || token === 'CLEAN')
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
   const ran = execution(input);
@@ -276,6 +277,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   if (input.gate === 'structured' || input.gate === 'review') {
     if (!token) return result('unverified', 'missing_verdict');
     if (token === 'FINDINGS' && !findings.highest) return result('unverified', 'untagged_review', 'VERDICT: FINDINGS with no readable severity');
+    if (token === 'CLEAN' && findings.unlabeled) return result('unverified', 'untagged_review', 'VERDICT: CLEAN beside numbered items with no readable severity');
   }
   return result('clean');
 }

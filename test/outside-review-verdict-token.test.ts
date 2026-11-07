@@ -5,6 +5,10 @@
  * GST-1808 and GST-1821 reads unverified without the token.
  */
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { classifyOutsideReview, type OutsideGate } from '../lib/outside-review-result';
 
 const check = (text: string, gate: OutsideGate = 'structured') => classifyOutsideReview({ text, gate });
@@ -63,6 +67,7 @@ describe('the verdict line is the only evidence for clean', () => {
     ['the line inside a closed code fence', 'No issues.\n```\nVERDICT: CLEAN\n```'],
     ['the line after an unclosed code fence', 'No issues.\n```\nVERDICT: CLEAN'],
     ['the line inside a sentence', 'My answer is VERDICT: CLEAN'],
+    ['inline code after the value', 'No issues.\nVERDICT: CLEAN `except auth.ts`'],
   ];
   for (const [name, text] of malformed) {
     test(`a malformed line reads unverified: ${name}`, () => {
@@ -109,10 +114,13 @@ describe('findings and not-ready signals outrank the verdict line', () => {
     expect(result.reason).toBe('unverified_verdict');
   });
 
-  test('under VERDICT: CLEAN a numbered list of what was checked is not a finding', () => {
-    const result = check('I checked:\n1. the retry path\n2. every caller\nVerdict: ready\nVERDICT: CLEAN');
-    expect(result.verdict).toBe('clean');
-    expect(result.findings.unlabeled).toBeUndefined();
+  test('VERDICT: CLEAN beside numbered items with no severity reads unverified', () => {
+    for (const text of ['1. Auth bypass in the admin check.\nVERDICT: CLEAN', 'I checked:\n1. the retry path\n2. every caller\nVerdict: ready\nVERDICT: CLEAN']) {
+      const result = check(text);
+      expect(result.verdict).toBe('unverified');
+      expect(result.reason).toBe('untagged_review');
+    }
+    expect(check('1. [P2] The helper name is vague.\nVERDICT: CLEAN').verdict).toBe('clean');
   });
 
   test('an earlier ready verdict agrees with the line', () => {
@@ -134,5 +142,37 @@ describe('gates that never read prose for clean are unchanged', () => {
   });
   test('the execution gate checks execution only', () => {
     expect(check('Here is my analysis of the design.', 'execution').verdict).toBe('clean');
+  });
+});
+
+describe('/codex review never sends Codex a prompt without its diff', () => {
+  // Value: protects=a failed git diff stops /codex review before Codex runs; fails_when=the prompt build ignores git's exit status and
+  //   Codex reviews an empty DIFF block it can call clean; why_new=GST-1821 fix-check (outside-voice#1); seam=the rendered prompt-build
+  //   lines in codex/sections/review-mode.md; no_claim=Codex's own reading of the diff
+  const section = fs.readFileSync(path.join(import.meta.dir, '..', 'codex/sections/review-mode.md'), 'utf8');
+  const build = section.slice(section.indexOf('_DIFF_FAILED=\n'), section.indexOf('\n', section.indexOf('[ -z "$_DIFF_FAILED" ]')));
+  const run = (gitDiff: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-diff-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'bin'));
+      fs.writeFileSync(path.join(dir, 'bin', 'git'), `#!/bin/sh\n${gitDiff}\n`, { mode: 0o755 });
+      const prompt = path.join(dir, 'prompt');
+      const r = spawnSync('bash', ['-c', `FOCUS_NAME=none DIFF_BASE=abc _PROMPT_FILE=${prompt}\n${build}\necho BUILT`], {
+        env: { PATH: `${path.join(dir, 'bin')}${path.delimiter}${process.env.PATH}` }, encoding: 'utf8', timeout: 5_000 });
+      return { status: r.status, stdout: r.stdout, stderr: r.stderr, prompt: fs.existsSync(prompt) ? fs.readFileSync(prompt, 'utf8') : null };
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test('a failing git diff stops before Codex and removes the prompt', () => {
+    expect(build).toContain('git diff "$DIFF_BASE" || _DIFF_FAILED=1');
+    const r = run('exit 1');
+    expect([r.status, r.stdout, r.prompt]).toEqual([1, '', null]);
+    expect(r.stderr).toContain('not running codex on a missing diff');
+  });
+
+  test('a working git diff lands between the markers', () => {
+    const r = run("printf '%s\\n' '+changed line'");
+    expect([r.status, r.stdout]).toEqual([0, 'BUILT\n']);
+    expect(r.prompt).toContain('DIFF_START\n+changed line\n\nDIFF_END');
   });
 });
