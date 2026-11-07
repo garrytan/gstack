@@ -20,14 +20,14 @@ describe('canDispatchOverTunnel — closed allowlist', () => {
     }
   });
 
-  test('TUNNEL_COMMANDS contains the 26-command closed set', () => {
+  test('TUNNEL_COMMANDS contains the 25-command closed set', () => {
     // Mirror the source-level guard in dual-listener.test.ts. If this ever
     // disagrees with the literal in server.ts, one of them is wrong.
     const expected = new Set([
       'goto', 'click', 'text', 'screenshot',
       'html', 'links', 'forms', 'accessibility',
       'attrs', 'media', 'data',
-      'scroll', 'press', 'type', 'select', 'wait', 'eval',
+      'scroll', 'press', 'type', 'select', 'wait',
       'newtab', 'tabs', 'back', 'forward', 'reload',
       'snapshot', 'fill', 'url', 'closetab',
     ]);
@@ -100,30 +100,111 @@ describe('canDispatchOverTunnel — --out writes are never tunnel-dispatchable',
   // `--out` turns an otherwise-readable command into a local-disk WRITE. The
   // tunnel surface never grants disk-write to remote paired agents, so any
   // --out invocation must be 403'd even when the bare command is allowlisted.
-  test('bare eval dispatches, but eval --out does not', () => {
-    expect(canDispatchOverTunnel('eval', ['/tmp/x.js'])).toBe(true);
-    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--out', '/tmp/o.png'])).toBe(false);
+  test('bare html dispatches, but html --out does not', () => {
+    expect(canDispatchOverTunnel('html', ['main'])).toBe(true);
+    expect(canDispatchOverTunnel('html', ['main', '--out', '/tmp/o.html'])).toBe(false);
   });
 
   test('--out= form is rejected too (no parser-shape bypass)', () => {
-    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--out=/tmp/o.png'])).toBe(false);
+    expect(canDispatchOverTunnel('html', ['main', '--out=/tmp/o.html'])).toBe(false);
   });
 
   test('--out anywhere in args is caught regardless of ordering', () => {
-    expect(canDispatchOverTunnel('eval', ['--out', '/tmp/o.png', '/tmp/x.js'])).toBe(false);
+    expect(canDispatchOverTunnel('html', ['--out', '/tmp/o.html', 'main'])).toBe(false);
   });
 
   test('args without --out still dispatch', () => {
     expect(canDispatchOverTunnel('goto', ['https://example.com'])).toBe(true);
-    expect(canDispatchOverTunnel('eval', ['/tmp/x.js'])).toBe(true);
+    expect(canDispatchOverTunnel('html', ['main'])).toBe(true);
   });
 
   test('omitting args preserves the old command-only behavior', () => {
-    expect(canDispatchOverTunnel('eval')).toBe(true);
+    expect(canDispatchOverTunnel('goto')).toBe(true);
   });
 
   test('a lookalike flag (--output) is NOT treated as --out', () => {
     // hasOutArg matches '--out' exactly or '--out='; '--output' must not trip it.
-    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--output', '/tmp/o'])).toBe(true);
+    expect(canDispatchOverTunnel('html', ['main', '--output', '/tmp/o'])).toBe(true);
+  });
+});
+
+describe('canDispatchOverTunnel — tunnel agents stay off the daemon filesystem', () => {
+  test('goto and newtab accept http(s) URLs', () => {
+    for (const cmd of ['goto', 'newtab']) {
+      expect(canDispatchOverTunnel(cmd, ['https://example.com/a?b=c#d'])).toBe(true);
+      expect(canDispatchOverTunnel(cmd, ['http://localhost:3000/'])).toBe(true);
+      expect(canDispatchOverTunnel(cmd, ['HTTPS://EXAMPLE.COM'])).toBe(true);
+    }
+  });
+
+  test('goto and newtab refuse every non-http(s) URL', () => {
+    const refused = [
+      'file:///etc/hosts', 'file://./.env', 'file://~/notes.txt', 'FILE:///tmp/x.html',
+      ' file:///tmp/x.html', 'view-source:file:///tmp/x.html', 'data:text/html,hi',
+      'javascript:alert(1)', 'chrome://version', 'about:blank', 'not a url', '',
+    ];
+    for (const cmd of ['goto', 'newtab']) {
+      for (const url of refused) expect(canDispatchOverTunnel(cmd, [url])).toBe(false);
+    }
+  });
+
+  test('newtab with no URL still dispatches', () => {
+    expect(canDispatchOverTunnel('newtab', [])).toBe(true);
+  });
+
+  test('newtab gates the URL its handler opens, skipping --json', () => {
+    expect(canDispatchOverTunnel('newtab', ['--json'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['--json', 'https://example.com'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['https://example.com', '--json'])).toBe(true);
+    expect(canDispatchOverTunnel('newtab', ['--json', 'file:///etc/hosts'])).toBe(false);
+  });
+
+  test('eval (runs a file from the daemon disk) is not reachable over the tunnel', () => {
+    expect(TUNNEL_COMMANDS.has('eval')).toBe(false);
+    expect(canDispatchOverTunnel('eval', ['script.js'])).toBe(false);
+  });
+
+  test('screenshot with --base64 and no output path dispatches', () => {
+    const allowed = [
+      ['--base64'], ['--viewport', '--base64'], ['@e3', '--base64'], ['#main', '--base64'],
+      ['--selector=.hero', '--base64'], ['--clip', '0,0,10,10', '--base64'],
+    ];
+    for (const args of allowed) expect(canDispatchOverTunnel('screenshot', args)).toBe(true);
+  });
+
+  test('screenshot without --base64 is refused (it would write a temp file)', () => {
+    const refused = [[], ['--viewport'], ['@e3'], ['--selector', '.hero'], ['--clip', '0,0,10,10']];
+    for (const args of refused) expect(canDispatchOverTunnel('screenshot', args)).toBe(false);
+  });
+
+  test('screenshot naming an output path is refused', () => {
+    const refused = [
+      ['/tmp/s.png'], ['assets/logo.png'], ['shot'], ['@e3', 'out.png'],
+      ['--base64', '/tmp/s.png'], ['--clip', '0,0,10,10', 'clip.png'],
+    ];
+    for (const args of refused) expect(canDispatchOverTunnel('screenshot', args)).toBe(false);
+  });
+
+  test('snapshot naming an output path is refused', () => {
+    expect(canDispatchOverTunnel('snapshot', ['-i'])).toBe(true);
+    expect(canDispatchOverTunnel('snapshot', ['-a', '-o', '/tmp/a.png'])).toBe(false);
+    expect(canDispatchOverTunnel('snapshot', ['--heatmap', '{"@e1":"green"}', '--output', 'heat.png'])).toBe(false);
+  });
+
+  test('annotated and heatmap snapshots are refused (they write temp images)', () => {
+    for (const args of [['-a'], ['--annotate'], ['-i', '-a'], ['-H', '{"@e1":"green"}'], ['--heatmap', '{"@e1":"green"}']]) {
+      expect(canDispatchOverTunnel('snapshot', args)).toBe(false);
+    }
+  });
+
+  test('args that are not an array are refused', () => {
+    expect(canDispatchOverTunnel('goto', { 0: 'file:///etc/hosts' } as unknown as string[])).toBe(false);
+  });
+
+  test('null args and non-string elements are refused, not treated as omitted', () => {
+    expect(canDispatchOverTunnel('screenshot', null as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('goto', [5] as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('newtab', ['--json', null] as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('click', ['@e1', { x: 1 }] as unknown as string[])).toBe(false);
   });
 });
