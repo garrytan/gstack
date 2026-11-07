@@ -3,12 +3,12 @@ name: autoplan
 preamble-tier: 3
 version: 1.0.0
 description: |
-  Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk
-  and runs them sequentially with auto-decisions using 6 decision principles. Surfaces
-  taste decisions (close approaches, borderline scope, outside-review disagreements) at a final
-  approval gate. One command, fully reviewed plan out.
-  Use when asked to "auto review", "autoplan", "run all reviews", "review this plan
-  automatically", or "make the decisions for me". (gstack)
+  Auto-review pipeline — runs the CEO, design, eng (architecture, edge cases, failure
+  modes, tests) and DX reviews in order, auto-deciding by 6 principles. Surfaces
+  taste decisions (close approaches, borderline scope, outside-review disagreements) at
+  one approval gate. Use when asked to "auto review", "autoplan", "run all reviews",
+  "review this plan automatically", "review the architecture", "engineering review", or
+  "make the decisions for me". (gstack)
 codex_default_prompt: "Use $gstack-autoplan to run the CEO, design, DX and eng reviews over this plan in one pass, decide the routine questions itself, and stop at a single approval gate."
 voice-triggers:
   - "auto plan"
@@ -254,7 +254,7 @@ Read skills/sections only at their triggers, never prefetch future phases. Load
 the tasks aggregator at Phase 4. Run every applicable skill and lazy section fully.
 
 **Section skip list — when following a loaded skill file, SKIP these sections
-(they are already handled by /autoplan):**
+(/autoplan handles them):**
 - Preamble (run first)
 - Scope gate (the plan under review is already the target)
 - AskUserQuestion Format
@@ -264,7 +264,8 @@ the tasks aggregator at Phase 4. Run every applicable skill and lazy section ful
 - Step 0: Detect platform and base branch
 - Review Readiness Dashboard
 - Plan File Review Report
-- Prerequisite Skill Offer (BENEFITS_FROM)
+- Prerequisite Skill Offer
+- Next Steps — Review Chaining
 - Outside Voice — Independent Plan Challenge
 - Design Outside Voices (independent)
 

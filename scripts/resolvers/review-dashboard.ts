@@ -58,7 +58,7 @@ and outside_status; retain partial coverage. These details do not clear Eng Revi
 
 **3. Choose the historical verdict.** CLEARED requires the selected Eng Review
 to be \`clean\`, within 7 days and fresh under step 2. Otherwise report NOT CLEARED
-and its missing, stale or open-issue reason.${ctx.skillName === 'ship' ? ` With no Eng Review record, say "no saved Eng Review: run the \`PERSIST:\` line a read-only /plan-eng-review printed, or rerun it" (docs/troubleshooting.md#plan-eng-review-not-persisted).` : ''} If \`skip_eng_review\` is true, show
+and its missing, stale or open-issue reason.${ctx.skillName === 'ship' ? ` With no Eng Review record, say "no saved Eng Review: run the \`PERSIST:\` line a read-only eng review printed, or rerun /autoplan" (docs/troubleshooting.md#plan-eng-review-not-persisted).` : ''} If \`skip_eng_review\` is true, show
 "SKIPPED (global)" for Eng Review and CLEARED for this dashboard.
 ${ctx.skillName === 'ship' ? 'This verdict never skips Step 9 or its finding, approval and convergence gates. Continue Step 1 even when history is NOT CLEARED.' : 'Eng Review is required by default; `gstack-config set skip_eng_review true` disables that requirement.'}
 
@@ -164,7 +164,7 @@ ${conditionalWrites ? 'Display `clean` as CLEAR and `issues_open` as ISSUES OPEN
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \\\`/plan-ceo-review\\\` | Scope & strategy | {runs} | {status} | {findings} |
 | Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
-| Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | {runs} | {status} | {findings} |
+| Eng Review | \\\`${ctx.skillName === 'plan-eng-review' ? '/plan-eng-review' : '/autoplan'}\\\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \\\`/plan-devex-review\\\` | Developer experience gaps | {runs} | {status} | {findings} |
 \\\`\\\`\\\`

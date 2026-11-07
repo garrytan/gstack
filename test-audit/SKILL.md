@@ -102,7 +102,7 @@ telemetry — it never blocks the workflow.
 Find existing tests that cost more than they protect, prove it with evidence, and
 retire them only in approved batches. Optimize for confidence, not deletion count;
 a few well-evidenced candidates beat a large speculative list, and none is a valid
-result. `/review`, `/ship`, `/qa` and `/plan-eng-review` apply the same bar to new
+result. `/review`, `/ship`, `/qa` and `/autoplan` apply the same bar to new
 tests in a diff; this skill is the whole-repo sweep for tests that already exist.
 
 Usage: `/test-audit [path ...] [--since <ref>] [--max-candidates N]` (default: whole

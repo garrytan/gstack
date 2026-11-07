@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
+import { RETIRED_SKILLS } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ALLOWLIST_FILE = 'test/fixtures/skill-md-size-allowlist.json';
@@ -81,6 +82,11 @@ function renderAllHosts(outDir: string): Record<string, number> {
       if (!fs.existsSync(file)) continue;
       if (host.name === 'claude' && !fs.existsSync(`${file}.tmpl`)) continue;
       sizes[`${host.name}/${dir === '.' ? 'gstack' : dir}`] = countChars(fs.readFileSync(file, 'utf-8'));
+    }
+    // A retired skill's methodology ships beside /autoplan; it keeps its pin.
+    for (const skill of RETIRED_SKILLS) {
+      const file = path.join(skillsRoot, 'gstack-autoplan', `${skill}.md`);
+      if (host.name !== 'claude' && fs.existsSync(file)) sizes[`${host.name}/gstack-${skill}`] = countChars(fs.readFileSync(file, 'utf-8'));
     }
   }
   return sizes;

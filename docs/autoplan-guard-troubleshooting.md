@@ -22,8 +22,7 @@ Each code has one of four dispositions:
 
 **The fallback** (printed in every fallback denial):
 
-1. Run the reviews by hand: `/plan-ceo-review`, then `/plan-devex-review`,
-   then `/plan-eng-review`.
+1. Run the reviews by hand: `/plan-ceo-review`, then `/plan-devex-review`.
 2. Or move to a fresh session and keep your work: `/context-save`, start a new
    Claude Code session in the project (not `--resume`), `/context-restore`,
    then `/autoplan <plan path>`.

@@ -85,7 +85,7 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
-  r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /plan-eng-review or /autoplan' : ''}`);
+  r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /autoplan' : ''}`);
   const pr = hostedOrigin(cwd) ? gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty']) : null;
   const n = pr?.stdout.trim() ?? '';
   if (!pr) r.add('PR: not checked (origin is a local path, not a hosted remote gh can map; Step 0 uses git-native commands)');

@@ -156,7 +156,7 @@ describe('Autoplan hook journal-root verdicts', () => {
       const reason: string = output.hookSpecificOutput.permissionDecisionReason;
       expect(reason).toContain(`code ${code}`);
       expect(reason).toContain('Claude Code 2.1.284');
-      expect(reason).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
+      expect(reason).toContain('/plan-ceo-review, then /plan-devex-review by hand');
       expect(reason).toContain('docs/autoplan-guard-troubleshooting.md');
       expect(reason).not.toContain('no missing-publication conclusion');
       const records = fs.readFileSync(s.log, 'utf8').trim().split('\n').map(line => JSON.parse(line));

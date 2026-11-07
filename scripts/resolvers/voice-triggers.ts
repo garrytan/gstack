@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { TemplateContext } from './types';
-import { discoverTemplates, includesSkill } from '../discover-skills';
+import { discoverTemplates, includesSkill, RETIRED_SKILLS } from '../discover-skills';
 import { getHostConfig } from '../../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
@@ -51,7 +51,7 @@ export function generateVoiceTriggerRouting(ctx: TemplateContext): string {
   // Sorted so the render doesn't depend on filesystem iteration order.
   const skillDirs = discoverTemplates(ROOT).map(t => path.dirname(t.tmpl)).sort();
   for (const skillDir of skillDirs) {
-    if (skillDir === '.' || !includesSkill(hostConfig, skillDir)) continue;
+    if (skillDir === '.' || RETIRED_SKILLS.includes(skillDir) || !includesSkill(hostConfig, skillDir)) continue;
     const content = fs.readFileSync(path.join(ROOT, skillDir, 'SKILL.md.tmpl'), 'utf-8').replace(/\r\n/g, '\n');
     const triggers = extractVoiceTriggers(content);
     if (triggers.length === 0) continue;

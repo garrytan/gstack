@@ -2,7 +2,7 @@
 name: autoplan
 preamble-tier: 3
 version: 1.0.0
-description: Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles. (gstack)
+description: Auto-review pipeline — runs the CEO, design, eng (architecture, edge cases, failure modes, tests) and DX reviews in order, auto-deciding by 6 principles. (gstack)
 triggers:
   - run all reviews
   - automatic review pipeline
@@ -472,7 +472,7 @@ Read skills/sections only at their triggers, never prefetch future phases. Load
 the tasks aggregator at Phase 4. Run every applicable skill and lazy section fully.
 
 **Section skip list — when following a loaded skill file, SKIP these sections
-(they are already handled by /autoplan):**
+(/autoplan handles them):**
 - Preamble (run first)
 - Scope gate (the plan under review is already the target)
 - AskUserQuestion Format
@@ -482,7 +482,8 @@ the tasks aggregator at Phase 4. Run every applicable skill and lazy section ful
 - Step 0: Detect platform and base branch
 - Review Readiness Dashboard
 - Plan File Review Report
-- Prerequisite Skill Offer (BENEFITS_FROM)
+- Prerequisite Skill Offer
+- Next Steps — Review Chaining
 - Outside Voice — Independent Plan Challenge
 - Design Outside Voices (independent)
 

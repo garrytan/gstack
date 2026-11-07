@@ -181,8 +181,8 @@ The agent should:
 4. Verify with a test spawn
 
 **Native skills or ACP.** `./setup --host openclaw` (or `./setup` run inside an
-OpenClaw session) gives OpenClaw's own agent gstack's skills: the five task
-skills (review, investigate, qa, ship, plan-eng-review) listed directly and one
+OpenClaw session) gives OpenClaw's own agent gstack's skills: the four task
+skills (review, investigate, qa, ship) listed directly and one
 `gstack` router skill for the rest in `$OPENCLAW_STATE_DIR/skills`, rendered
 with OpenClaw's tool names and pointing at the installed gstack, so the agent runs gstack's
 workflows and helpers itself. Use ACP when the work should happen in a Claude
@@ -190,7 +190,7 @@ Code session with the full install (hooks, Claude tool names); use native
 skills when the OpenClaw agent should do it. Both can be installed together.
 OpenClaw serves a registered skill's `SKILL.md` whole or refuses it, and its
 limit is 32,768 bytes when it does not know the model's context window
-(32,000 characters with a 100K-200K-token one), so a skill over 32,000 bytes (review, investigate, ship and plan-eng-review among the five) is
+(32,000 characters with a 100K-200K-token one), so a skill over 32,000 bytes (review, investigate and ship among the four) is
 registered as a short entry that tells the agent to read the skill's full
 `SKILL.md` in `gstack/skills/`, a plain copy of every skill that OpenClaw
 reads in pages (`.gstack-skills/` under `--skills all`).

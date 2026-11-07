@@ -77,7 +77,7 @@ describe('A2: the guard decides on a journal larger than its shrunk bounds', () 
     const output = await bounded(() => f.hook(input), RECORD, 4 * 1024);
     expect(codeOf(output)).toBe('oversized_invocation');
     expect(denial(output)).toContain('retained-data bound');
-    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
+    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review by hand');
     expect(f.log().at(-1)).toMatchObject({ decision: 'deny', disposition: 'fallback', code: 'oversized_invocation' });
     await bounded(() => expect(ownedRetainedLimit()).toBe(OWNED_RETAINED_MAX_BYTES), RECORD, OWNED_RETAINED_MAX_BYTES * 4);
   });
@@ -157,7 +157,7 @@ describe('A2: append-tolerant reads with prefix identity', () => {
   test('a journal that shrinks between two reads is an identity denial', async () => {
     const { output } = await twoReads(file => fs.truncateSync(file, Math.floor(fs.statSync(file).size / 2)));
     expect(codeOf(output)).toBe('identity');
-    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
+    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review by hand');
   });
 
   test('the reader itself: a changed prefix is rewritten, fewer bytes than the prefix is identity', () => {
