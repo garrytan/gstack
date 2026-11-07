@@ -5,7 +5,7 @@ gstack's advisory skills say what a careful agent does; a gate makes one rule ho
 | Gate | Switch | What it holds |
 |---|---|---|
 | /plan-ceo-review | `ceo_review_gate` | After /plan-ceo-review loads, the final stop (of the session or of a review subagent) waits until the review's output file ranks the top risks |
-| /autoplan | `autoplan_gate` | After /autoplan loads, the session's final stop waits until every applicable phase has published its report and the Final Approval Gate is written (GST-1666) |
+| /autoplan | `autoplan_gate` | After /autoplan loads, each phase publishes only in phase order after its own report (GST-1814), and the session's final stop waits until every applicable phase has published and the Final Approval Gate is written (GST-1666) |
 
 ## Turn a gate on
 
@@ -16,7 +16,7 @@ The switch resolves like the contract hook's, and the first one set wins:
 3. Config: `gstack-config set ceo_review_gate on|off` or `gstack-config set autoplan_gate on|off`.
 4. The default, `SWITCH_DEFAULT` in `lib/skill-route.ts`: off for both.
 
-Setup registers a gate's shims in `~/.claude/settings.json` when its switch is on (Stop and SubagentStop for /plan-ceo-review; Stop for /autoplan) and removes them when it is off. The hooks also read the switch on every call, so `gstack-config set ceo_review_gate off` takes effect on the next stop.
+Setup registers a gate's shims in `~/.claude/settings.json` when its switch is on (Stop and SubagentStop for /plan-ceo-review; Stop, and PreToolUse on Bash for the publish check, for /autoplan) and removes them when it is off. The hooks also read the switch on every call, so `gstack-config set ceo_review_gate off` takes effect on the next stop.
 
 ### Headless runs
 
@@ -66,18 +66,20 @@ Once a session loads /autoplan (the Skill tool, a typed `/autoplan`, or a Read o
 **What meets it.** One run is the transcript from the load to the next /autoplan load. A full run is complete when:
 
 1. Phase 0 ran scope: a successful `gstack-autoplan-snapshot init` (its `scope` field) or `scope` result with `uiRequired` and `dxRequired`. It decides the applicable phases: CEO and Eng always, Design when `uiRequired`, DX when `dxRequired`.
-2. Every applicable phase published, as `sections/phase-close.md` step 6 says: assistant text with its `Phase N complete` line, then a successful Bash no-op `true autoplan-published <phase>`. A no-op with no report since the previous one, or a failed one, does not count.
+2. Every applicable phase published, in phase order, as `sections/phase-close.md` step 6 says: assistant text with its `Phase N complete` line, then a successful Bash no-op `true autoplan-published <phase>`. A no-op counts only when that report came after the previous no-op and every earlier applicable phase already counted. A no-op with no report, one for a phase that is not due yet, or a failed one does not count, and a later report does not make it count: the phase publishes again after its report.
 3. The Phase 4 Final Approval Gate is written: a successful `gstack-gate render` call, or a Write or Edit of a `gate.json`.
 
 A `--ceo-only` run needs Phase 1 published and the `GSTACK_RESULT: skill=autoplan status=reviewed` end line from `sections/ceo-only.md`.
 
 Claude Code can fire Stop before it writes the turn's last lines to the transcript (the smoke run saw a scope call and a phase publication land about 200 ms late), so the hook re-reads the transcript until it holds the stop's `last_assistant_message`, for at most 2 seconds or half its deadline, and judges what is there then.
 
+**The publish check (GST-1814).** In GEVA-2's E2 eval (3 told Opus 5.5 sessions, 1 exposed) every failure was in the report step: sessions ran the publish no-ops with no reports, published Eng's report before CEO's, and wrote reports only after Stop blocks. So the gate also checks each `true autoplan-published <phase>` before it runs (PreToolUse on Bash; the `autoplan-stop-gate-publish` shim hands only that command to bun). It refuses the call, with a `blocked via=publish phase=<phase> why=no-report|out-of-order missing=<due phase>` marker as the reason's first line, when the phase is not the next applicable phase to publish, or when no report for it was sent since the previous publish no-op (the report in the same message counts). The reason's next line is `Next due: the Phase N (<name>) report.`, then what to send. A phase that already counted, a phase scope makes inapplicable, a runner-mode run and a subagent's call are never refused; before scope is known only the report and forward order are checked. Claude Code can run the hook before it writes the call to the transcript, so the hook waits up to 2 seconds for the call's own record; if it never appears the call runs with a `skipped reason=unsettled` marker and the Stop check still applies.
+
 **What it never holds.** A stop while a native reviewer launched in the background has not reported back (autoplan's "Waiting for <agent ID>" barrier); the next final stop after the notification is checked. A run that drives the `gstack-autoplan` runner (`next`, `submit`, `answer` or `export`), which keeps its own record (docs/unattended.md): it gets one `skipped reason=runner` marker and is never blocked.
 
-**The block.** Its reason starts with the `blocked via=stop missing=<step> published=<phases>` marker and names the next step: run Phase 0 (`missing=scope`), continue at a phase's driver Read when it has not started, finish a started phase's close and publish its report (`missing=ceo|design|dx|eng`), write and render the gate (`missing=gate`), or end a `--ceo-only` run (`missing=end`). It lists the applicable and published phases and never names the off switch.
+**The block.** Its reason starts with the `blocked via=stop missing=<step> published=<phases>` marker; for a phase step the next line is `Next due: the Phase N (<name>) report.` Then it names the next step: run Phase 0 (`missing=scope`), continue at a phase's driver Read when it has not started, finish a started phase's close and publish its report (`missing=ceo|design|dx|eng`), write and render the gate (`missing=gate`), or end a `--ceo-only` run (`missing=end`). It lists publish no-ops that did not count and why (`no report before it`, `out of order: <phase> was due`), the applicable and published phases, and never names the off switch.
 
-**The cap and the record.** As for /plan-ceo-review: at most 3 blocks per run, then the next final stop goes through with `exhausted missing=<step>`; `stop_hook_active` does not skip the check. The session record keeps each run's `phases` and `published` as of its last final stop, so `gstack-skill-gates report --session <id> --expect armed --json` says per session whether /autoplan armed, how often it was held, and whether it was released or exhausted. An eval can read exposure from that record instead of from the model's wording.
+**The cap and the record.** A Stop block counts against the step it names, at most 3 per step; the count resets when the step advances, and blocks before the run's first phase report count against no step (E2 spent all 3 blocks of the old per-run cap on `missing=ceo` before any work, GST-1814). After 3 blocks at one step, or 12 blocks in the run whatever the step, the next final stop goes through with `exhausted missing=<step>`; `stop_hook_active` does not skip the check. The session record keeps each run's `phases`, `published`, `step` and `step_blocks` as of its last final stop and its `denied` publish count, so `gstack-skill-gates report --session <id> --expect armed --json` says per session whether /autoplan armed, how often it was held, and whether it was released or exhausted. An eval can read exposure from that record instead of from the model's wording.
 
 ## Markers
 
@@ -87,16 +89,16 @@ Every decision is one marker line:
 
 | Event | When | Fields |
 |---|---|---|
-| `fired` | the gate armed for a skill run (once per run; for /plan-ceo-review and /autoplan, its first final stop) | `skill`, `on` (the hook event) |
-| `blocked` | each refusal | `skill`, `via=stop`, `files` (for /plan-ceo-review's `via=stop`, the candidate files checked, or `none`), `missing` and `published` (/autoplan: the next missing step and the phases published so far), `n` (blocks so far in this run) |
+| `fired` | the gate armed for a skill run (once per run; for /plan-ceo-review, its first final stop; for /autoplan, its first final stop or refused publish) | `skill`, `on` (the hook event) |
+| `blocked` | each refusal | `skill`, `via=stop` or `via=publish` (/autoplan's publish check), `files` (for /plan-ceo-review's `via=stop`, the candidate files checked, or `none`), `missing` and `published` (/autoplan: the next missing step and the phases published so far), `phase` and `why` (`via=publish`: the refused phase and `no-report` or `out-of-order`), `n` (stop blocks, or refused publishes for `via=publish`, so far in this run) |
 | `released` | an output file ranks the top risks, or the /autoplan run is complete (once per run) | `skill`, `file` (the output file's name) or `phases` (the phases /autoplan published), `blocked` |
-| `exhausted` | /plan-ceo-review and /autoplan: a fourth final stop after 3 blocks, which goes through | `skill`, `missing` (/autoplan), `blocked` |
-| `skipped` | the gate could not arm (once per session and reason), or an /autoplan run drives the gstack-autoplan runner (once per run) | `skill`, `reason=no-git|no-head|runner` |
+| `exhausted` | /plan-ceo-review: a fourth final stop after 3 blocks; /autoplan: a final stop after 3 blocks at one step once a report exists, or after 12 in the run; it goes through | `skill`, `missing` (/autoplan), `blocked` |
+| `skipped` | the gate could not arm (once per session and reason), or an /autoplan run drives the gstack-autoplan runner (once per run) | `skill`, `reason=no-git|no-head|runner|unsettled` (`unsettled`: /autoplan's publish check never saw its call in the transcript, so the call ran) |
 | `error` | a hook error; the call or stop went through | `code`, `why` |
 
 Where each one lands:
 
-- **Session record** (the count source): `$GSTACK_STATE_ROOT/skill-gates/<session id>/record.json`, mode 0600, written atomically under the session lock. Per gate and skill run it holds `fired_at`, `released_at`, `file`, `blocked`, `exhausted_at`, `agent` (a subagent's run), `phases` and `published` (/autoplan), plus the gate's `errors` and `skipped` reasons. `gstack-skill-gates report` reads these.
+- **Session record** (the count source): `$GSTACK_STATE_ROOT/skill-gates/<session id>/record.json`, mode 0600, written atomically under the session lock. Per gate and skill run it holds `fired_at`, `released_at`, `file`, `blocked`, `exhausted_at`, `agent` (a subagent's run), `phases`, `published`, `step`, `step_blocks` and `denied` (/autoplan), plus the gate's `errors` and `skipped` reasons. `gstack-skill-gates report` reads these.
 - **Trace log**: `$GSTACK_STATE_ROOT/hooks/ceo-review-gate.log` and `hooks/autoplan-gate.log`, one line per marker in the contract hook's shape (`<time> session=<id> event=<event> key=value ...`). It rotates at 1 MiB, so count from the record.
 - **Transcript**: a block puts the marker on the first line of its reason, which Claude Code shows the model (a `hook_blocking_error` attachment for Stop and SubagentStop). `fired`, `released`, `exhausted` and `error` ride `systemMessage`, which the transcript records as a `hook_system_message` attachment and the model never sees, so counting them does not change the session.
 
@@ -139,4 +141,4 @@ Tested with Claude Code 2.1.318 through `claude -p --settings` only: a Stop hook
 
 ## Headless smoke
 
-`bun scripts/skill-gates-smoke.ts` runs the real Claude Code CLI against a local stand-in for the Anthropic Messages API that plays two scripted sessions. The first loads /plan-ceo-review, writes `plan.md` with no Findings and ends its turn (the Stop is blocked), then appends a ranked Findings section through a Bash heredoc and ends again (released). The second loads /autoplan, runs Phase 0 scope, publishes Phase 1 and ends its turn (the Stop is blocked with `missing=eng`), then publishes Phase 3, writes `gate.json` and ends again (released). No model is called and nothing is spent. It fetches the pinned CLI (`CLAUDE_CODE_VERSION` in the script, verified at 2.1.318) with npm into a temp directory at run time and never stores it; `--claude <path>` uses one you have. It checks the record, the trace log, the transcript attachments, that `systemMessage` markers never reach a request, and that the CEO review was released by `plan.md`. Run it after a Claude Code upgrade.
+`bun scripts/skill-gates-smoke.ts` runs the real Claude Code CLI against a local stand-in for the Anthropic Messages API that plays two scripted sessions. The first loads /plan-ceo-review, writes `plan.md` with no Findings and ends its turn (the Stop is blocked), then appends a ranked Findings section through a Bash heredoc and ends again (released). The second loads /autoplan, runs Phase 0 scope, tries to publish Eng early and CEO with no report (both refused at PreToolUse), publishes Phase 1 and ends its turn (the Stop is blocked with `missing=eng`), then publishes Phase 3, writes `gate.json` and ends again (released). No model is called and nothing is spent. It fetches the pinned CLI (`CLAUDE_CODE_VERSION` in the script, verified at 2.1.318) with npm into a temp directory at run time and never stores it; `--claude <path>` uses one you have. It checks the record, the trace log, the transcript attachments, that `systemMessage` markers never reach a request, and that the CEO review was released by `plan.md`. Run it after a Claude Code upgrade.

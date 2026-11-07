@@ -12,6 +12,7 @@
  * fail open. Native Stop payloads against throwaway transcripts.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { checkRun } from '../lib/autoplan-stop-gate';
@@ -330,7 +331,7 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
   test('sequence 2: Eng\'s report first is refused at publish, and back-filling CEO and DX does not make the early Eng count', () => {
     const d = denied(publishTry([...WORKED, report('eng')], 'eng'));
     expect(d.permissionDecision).toBe('deny');
-    expect(d.permissionDecisionReason).toStartWith('Next due: the Phase 1 (CEO) report.');
+    expect(d.permissionDecisionReason.split('\n').slice(0, 2)).toEqual(['GSTACK_GATE autoplan-gate blocked session=sess-1 skill=autoplan via=publish phase=eng why=out-of-order missing=ceo n=1', 'Next due: the Phase 1 (CEO) report.']);
     expect(d.permissionDecisionReason).toContain('Phase 3 (Eng) cannot publish before Phase 1 (CEO) and Phase 2.5 (DX)');
     expect(d.permissionDecisionReason).toContain('true autoplan-published ceo');
     const backfilled = [...WORKED, ...publish('eng'), ...publish('ceo'), ...publish('dx'), ...GATE, DONE];
@@ -344,12 +345,12 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
   test('sequence 3: publishes with no report are refused one by one, naming the report each one needs', () => {
     const d = denied(publishTry(WORKED, 'ceo'));
     expect(d.permissionDecision).toBe('deny');
-    expect(d.permissionDecisionReason).toStartWith('Next due: the Phase 1 (CEO) report.');
+    expect(d.permissionDecisionReason.split('\n')[1]).toBe('Next due: the Phase 1 (CEO) report.');
     expect(d.permissionDecisionReason).toContain('Phase 1 (CEO) cannot publish without its report');
     expect(d.permissionDecisionReason).toContain('**Phase 1 complete.**');
     const bare = [...WORKED, ...noop('ceo'), ...noop('dx'), ...noop('eng')];
     expect(check([...bare, DONE])).toMatchObject({ published: [], missing: 'ceo' });
-    expect(denied(publishTry(bare, 'dx')).permissionDecisionReason).toStartWith('Next due: the Phase 1 (CEO) report.');
+    expect(denied(publishTry(bare, 'dx')).permissionDecisionReason.split('\n')[1]).toBe('Next due: the Phase 1 (CEO) report.');
     expect(publishTry([...bare, report('ceo')], 'ceo').stdout.trim()).toBe('');
     expect(log()).toMatch(/event=blocked skill=autoplan via=publish phase=ceo why=no-report missing=ceo n=1/);
     expect(runs()[0]).toMatchObject({ denied: 2, blocked: 0 });
@@ -384,6 +385,21 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
     expect(publishTry(runner, 'eng').stdout.trim()).toBe('');
     const sub = { session_id: 'sess-1', transcript_path: transcript(WORKED), cwd: work, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'sub', agent_id: 'agent-1', tool_input: { command: 'true autoplan-published eng' } };
     expect(runHook(HOOK, JSON.stringify(sub), baseEnv()).stdout.trim()).toBe('');
+  });
+
+  test('the PreToolUse shim hands only a publish no-op to the hook, and fails open without bun', () => {
+    const shim = path.join(ROOT, 'hosts', 'claude', 'hooks', 'autoplan-stop-gate-publish');
+    const run = (input: string, env: Record<string, string> = baseEnv()) => spawnSync(shim, [], { input, env, encoding: 'utf8', timeout: 20_000 });
+    const noBun = { PATH: '/usr/bin:/bin' };
+    const ls = run(JSON.stringify({ session_id: 'sess-1', transcript_path: '/nonexistent', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'ls', tool_input: { command: 'ls' } }), noBun);
+    expect(ls).toMatchObject({ status: 0, stdout: '' });
+    const withBun = { ...baseEnv(), PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ''}` };
+    expect(run('{"tool_input":{"command":"ls"}}', withBun)).toMatchObject({ status: 0, stdout: '' });
+    const payload = { session_id: 'sess-1', transcript_path: transcript([...WORKED, tool('s1', 'Bash', { command: 'true autoplan-published eng' })]), cwd: work, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 's1', tool_input: { command: 'true autoplan-published eng' } };
+    const r = run(JSON.stringify(payload), withBun);
+    expect(r.status).toBe(0);
+    expect(json(r.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(run(JSON.stringify(payload), noBun)).toMatchObject({ status: 0, stdout: '' });
   });
 
   test('a publish whose own tool call never reaches the transcript is let through (fail open)', () => {

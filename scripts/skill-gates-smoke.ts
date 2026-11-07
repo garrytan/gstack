@@ -8,8 +8,9 @@
  * markers in the session record, the hook log and the transcript JSONL.
  * Two scenarios share the server: the /plan-ceo-review gate (Stop blocked
  * until the output file ranks the top risks, written through Bash) and the
- * /autoplan gate (Stop blocked after Phase 1 until Eng publishes and the
- * Final Approval Gate is written).
+ * /autoplan gate (Eng's publish before CEO and a report-less CEO publish
+ * refused at PreToolUse, then Stop blocked after Phase 1 until Eng publishes
+ * and the Final Approval Gate is written).
  *
  *   bun scripts/skill-gates-smoke.ts [--claude <path to claude>] [--keep]
  *
@@ -87,6 +88,8 @@ const SCENARIOS: Scenario[] = [
     script: repo => [
       [{ type: 'text', text: 'Loading /autoplan.' }, { type: 'tool_use', id: 'toolu_a1', name: 'Skill', input: { skill: 'autoplan' } }],
       [{ type: 'tool_use', id: 'toolu_a2', name: 'Bash', input: { command: `bun --no-env-file --config=/dev/null "${path.join(ROOT, 'bin', 'gstack-autoplan-snapshot.ts')}" scope PLAN.md`, description: 'Phase 0 scope' } }],
+      [{ type: 'text', text: '**Phase 3 complete.**\nOutside review: unavailable. Native subagent: completed: 1 issue.\nPassing to the Final Approval Gate.' }, { type: 'tool_use', id: 'toolu_d1', name: 'Bash', input: { command: 'true autoplan-published eng', description: 'Publish Phase 3 early' } }],
+      [{ type: 'tool_use', id: 'toolu_d2', name: 'Bash', input: { command: 'true autoplan-published ceo', description: 'Publish Phase 1 with no report' } }],
       [{ type: 'text', text: '**Phase 1 complete.**\nOutside review: unavailable. Native subagent: completed: 2 issues.\nPassing to Phase 3.' }, { type: 'tool_use', id: 'toolu_a3', name: 'Bash', input: { command: 'true autoplan-published ceo', description: 'Publish Phase 1' } }],
       [{ type: 'text', text: 'Review complete.' }],
       [{ type: 'text', text: '**Phase 3 complete.**\nOutside review: unavailable. Native subagent: completed: 1 issue.\nPassing to the Final Approval Gate.' }, { type: 'tool_use', id: 'toolu_a4', name: 'Bash', input: { command: 'true autoplan-published eng', description: 'Publish Phase 3' } }],
@@ -100,13 +103,16 @@ const SCENARIOS: Scenario[] = [
         ['claude -p exited 0', s.code === 0],
         ['record: one run, fired', !!run0 && typeof run0.fired_at === 'string'],
         ['record: blocked once (Stop after Phase 1)', run0?.blocked === 1],
+        ['record: two publishes refused (Eng early, CEO with no report), the reported in-order ones never', run0?.denied === 2],
+        ['log: refused via=publish out-of-order for eng and no-report for ceo', /event=blocked .*via=publish phase=eng why=out-of-order missing=ceo n=1/.test(s.log) && /event=blocked .*via=publish phase=ceo why=no-report missing=ceo n=2/.test(s.log)],
+        ['requests: the model saw each refusal name the CEO report as due', (s.requests.match(/Next due: the Phase 1 \(CEO\) report\./g) ?? []).length >= 2],
         ['record: released with phases ceo,eng published', typeof run0?.released_at === 'string' && JSON.stringify(run0?.published) === '["ceo","eng"]' && JSON.stringify(run0?.phases) === '["ceo","eng"]'],
         ['record: no hook errors', (h?.errors ?? []).length === 0],
         ['log: fired, blocked missing=eng published=ceo, released phases=ceo,eng', /event=fired/.test(s.log) && /event=blocked .*via=stop missing=eng published=ceo n=1/.test(s.log) && /event=released .*phases=ceo,eng/.test(s.log)],
         ['transcript: the Stop block carries the blocked via=stop marker (hook_blocking_error)', /hook_blocking_error[^\n]*GSTACK_GATE autoplan-gate blocked [^"]*via=stop/.test(s.transcript)],
         ['transcript: fired and released ride hook_system_message', /hook_system_message[^\n]*GSTACK_GATE autoplan-gate fired/.test(s.transcript) && /hook_system_message[^\n]*GSTACK_GATE autoplan-gate released/.test(s.transcript)],
         ['requests: fired/released systemMessage markers never reach the model', !/autoplan-gate (fired|released)/.test(s.requests)],
-        ['requests: the model saw the block reason naming Phase 3', /autoplan-gate blocked [^"]*missing=eng/.test(s.requests) && s.requests.includes('Phase 3 (Eng) has not run')],
+        ['requests: the model saw the block reason naming Phase 3', /autoplan-gate blocked [^"]*missing=eng/.test(s.requests) && s.requests.includes('Next due: the Phase 3 (Eng) report.')],
       ];
     },
   },

@@ -36,7 +36,8 @@ const GATES = {
   skill_contracts: 'GSTACK_SKILL_CONTRACTS Stop "$2/hosts/claude/hooks/skill-contract-stop-hook" gstack-skill-contract 10 "contract check"',
   ceo_review_gate: 'GSTACK_CEO_REVIEW_GATE Stop "$2/hosts/claude/hooks/ceo-review-gate-stop" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" "ceo review gate" ""'
     + ' SubagentStop "$2/hosts/claude/hooks/ceo-review-gate-subagent-stop" ""',
-  autoplan_gate: 'GSTACK_AUTOPLAN_GATE Stop "$2/hosts/claude/hooks/autoplan-stop-gate-stop" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" "autoplan gate" ""',
+  autoplan_gate: 'GSTACK_AUTOPLAN_GATE Stop "$2/hosts/claude/hooks/autoplan-stop-gate-stop" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" "autoplan gate" ""'
+    + ' PreToolUse "$2/hosts/claude/hooks/autoplan-stop-gate-publish" Bash',
 };
 
 /** Run one gate once from the checkout at root: mode is the flag value ("" = none). */
@@ -329,8 +330,9 @@ describe('setup: the ceo_review_gate switch (GST-1461) registers Stop and Subage
   });
 });
 
-describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
+describe('setup: the autoplan_gate switch (GST-1666) registers Stop, and PreToolUse on Bash for the publish check (GST-1814)', () => {
   const ours = () => registered('Stop').filter(e => e.hooks.some(h => h.command.includes('autoplan-stop-gate')));
+  const publish = () => registered('PreToolUse').filter(e => e.hooks.some(h => h.command.includes('autoplan-stop-gate'))) as Array<{ matcher?: string; hooks: Array<{ command: string; timeout?: number }> }>;
 
   test('flags parse, appear in --help and the typo list, and the shim has a KNOWN_HOOKS row with its event', () => {
     for (const flag of ['--autoplan-gate)', '--no-autoplan-gate)', '--autoplan-gate=*)']) expect(setupSrc).toContain(`    ${flag}`);
@@ -342,15 +344,22 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
     expect(row).toContain('source: "gstack-autoplan-gate"');
     expect(row).toContain('event: "Stop"');
     expect(row).toContain('matcher: ""');
+    expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/autoplan-stop-gate-publish ||');
+    expect(setupSrc).toContain('  PreToolUse "$AUTOPLAN_GATE_PUBLISH" Bash');
+    const pub = settingsHookSrc.slice(settingsHookSrc.indexOf('"autoplan-stop-gate-publish":'), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf('"autoplan-stop-gate-publish":')));
+    expect(pub).toContain('source: "gstack-autoplan-gate"');
+    expect(pub).toContain('event: "PreToolUse"');
+    expect(pub).toContain('matcher: "Bash"');
   });
 
   test('pin: autoplan_gate defaults to off, so with no flag, env or config nothing registers', () => {
     expect(SWITCH_DEFAULT.autoplan_gate).toBe('off');
     expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
     expect(ours()).toEqual([]);
+    expect(publish()).toEqual([]);
   });
 
-  test('flag on: persists and registers Stop; a re-run is quiet; off removes it', () => {
+  test('flag on: persists and registers Stop and PreToolUse; a re-run is quiet; off removes both', () => {
     const first = gate('on', {}, 0, ROOT, 'autoplan_gate');
     expect(first.code).toBe(0);
     expect(first.out).toContain('registered Stop hook: autoplan gate (on via flag; turn off: gstack-config set autoplan_gate off, or ./setup --no-autoplan-gate');
@@ -360,9 +369,14 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
     expect(entries[0].matcher ?? undefined).toBeUndefined();
     expect(entries[0].hooks[0].command).toEndWith('hosts/claude/hooks/autoplan-stop-gate-stop');
     expect(entries[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
+    expect(publish()).toHaveLength(1);
+    expect(publish()[0].matcher).toBe('Bash');
+    expect(publish()[0].hooks[0].command).toEndWith('hosts/claude/hooks/autoplan-stop-gate-publish');
+    expect(publish()[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
     expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
     gate('off', {}, 0, ROOT, 'autoplan_gate');
     expect(ours()).toEqual([]);
+    expect(publish()).toEqual([]);
   });
 
   test('gstack-config knows the key and its default', () => {

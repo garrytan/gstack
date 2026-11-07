@@ -36,7 +36,7 @@ const HOOKS: Record<string, { env: string; source: GateHook; events: Array<{ eve
   '--autoplan': {
     env: 'GSTACK_AUTOPLAN_GATE',
     source: 'autoplan-gate',
-    events: [{ event: 'Stop', shim: 'autoplan-stop-gate-stop' }],
+    events: [{ event: 'Stop', shim: 'autoplan-stop-gate-stop' }, { event: 'PreToolUse', shim: 'autoplan-stop-gate-publish', matcher: 'Bash' }],
   },
 };
 
