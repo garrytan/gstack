@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { rankedRisksGap } from '../lib/ceo-review-gate';
 import { ROOT, hookEnv, result, runHook, say, skillsDir, tmpDir, tool, user } from './helpers/skill-contract-fixture';
 
@@ -217,6 +218,31 @@ describe('final turns only', () => {
 
   test('last_assistant_message counts as the final text when the file does not hold it yet', () => {
     expect(stop([...LOADED], { last_assistant_message: 'Which mode do you want: expansion or hold?' }).stdout).toBe('');
+  });
+
+  test('a Stop that fires before the CLI flushes the turn waits for the final message: a review written outside the repo is released, not held', async () => {
+    const plan = put(path.join(work, 'plans', 'checkout.md'), RANKED);
+    const file = transcript(LOADED);
+    const payload = { session_id: 'sess-1', transcript_path: file, cwd: repo, hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'Review complete.' };
+    const proc = Bun.spawn([process.execPath, ...bunIsolationArgs(), HOOK], { stdin: new Blob([JSON.stringify(payload)]), env: baseEnv(), stdout: 'pipe', timeout: 20_000 });
+    await Bun.sleep(300);
+    fs.appendFileSync(file, `${[...wrote(plan), DONE].join('\n')}\n`);
+    const out = json(await new Response(proc.stdout).text());
+    expect(await proc.exited).toBe(0);
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage).toMatch(/^GSTACK_GATE ceo-review-gate released session=sess-1 skill=plan-ceo-review file=checkout.md blocked=0$/m);
+  });
+
+  test('a Stop that fires before the CLI flushes the load itself still judges the run once the final message lands', async () => {
+    const file = transcript([user('review my plan')]);
+    const payload = { session_id: 'sess-1', transcript_path: file, cwd: repo, hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'Review complete.' };
+    const proc = Bun.spawn([process.execPath, ...bunIsolationArgs(), HOOK], { stdin: new Blob([JSON.stringify(payload)]), env: baseEnv(), stdout: 'pipe', timeout: 20_000 });
+    await Bun.sleep(300);
+    fs.appendFileSync(file, `${[...LOADED.slice(1), DONE].join('\n')}\n`);
+    const out = json(await new Response(proc.stdout).text());
+    expect(await proc.exited).toBe(0);
+    expect(out?.decision).toBe('block');
+    expect(out.reason.split('\n')[0]).toBe('GSTACK_GATE ceo-review-gate blocked session=sess-1 skill=plan-ceo-review via=stop files=none n=1');
   });
 
   test('no /plan-ceo-review load, or the switch off: no output and no log', () => {
