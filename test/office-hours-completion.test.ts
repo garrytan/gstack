@@ -39,7 +39,7 @@ Observe Lee reconcile an event unaided and time the existing workflow.
 Disposition: CONCERNS_RECORDED
 The reviewer completed one round. Two unresolved reviewer concerns remain: pricing and the source-only default.
 ## Handoff
-Lee's missing-booking worry gives this pilot a concrete correctness test. Next: /plan-eng-review after observing the workflow. The user declined launching it now and will run a review later.
+Lee's missing-booking worry gives this pilot a concrete correctness test. Next: /autoplan after observing the workflow. The user declined launching it now and will run a review later.
 `;
 function completed(): OfficeHoursCompletionEvidence {
   return {
@@ -390,6 +390,19 @@ describe('office-hours fixture completion', () => {
     expect(() => validateOfficeHoursCompletion({ ...completed(), output })).toThrow('next-skill recommendation');
     const noDecline = report.replace('The user declined launching it now and will run a review later.', 'The design is ready for that next review.');
     expect(() => validateOfficeHoursCompletion({ ...completed(), output: noDecline })).toThrow('declined downstream launch');
+  });
+
+  test('accepts every next skill the handoff menu offers and rejects the retired /plan-eng-review', () => {
+    // #4108 moved the default recommendation to /autoplan; run 42371706491 failed a
+    // correct /autoplan handoff against the old list.
+    const menu = fs.readFileSync(path.join(import.meta.dir, '..', 'office-hours', 'sections', 'design-and-handoff.md'), 'utf8');
+    const offered = [...menu.matchAll(/^[A-C]\) Run (\/[\w-]+) now/gm)].map(match => match[1]);
+    expect(offered).toEqual(['/autoplan', '/plan-ceo-review', '/plan-design-review']);
+    for (const skill of offered) {
+      expect(() => validateOfficeHoursCompletion({ ...completed(), output: report.replace('Next: /autoplan', `Next: ${skill}`) })).not.toThrow();
+    }
+    const retired = report.replace('Next: /autoplan', 'Next: /plan-eng-review');
+    expect(() => validateOfficeHoursCompletion({ ...completed(), output: retired })).toThrow('next-skill recommendation');
   });
 });
 
@@ -850,7 +863,7 @@ describe('office-hours mechanical review evidence', () => {
     const { evidence, artifacts } = structured();
     evidence.output = evidence.output.replace('<!-- gstack:office-hours:report:start -->', '## Relationship Closing\nYou prioritize clear demand evidence.\n\n<!-- gstack:office-hours:report:start -->');
     expect(() => checkArtifacts(evidence, artifacts)).not.toThrow();
-    evidence.output = evidence.output.replace('/plan-eng-review', 'another discussion');
+    evidence.output = evidence.output.replace('/autoplan', 'another discussion');
     expect(() => validateOfficeHoursCompletion(evidence)).toThrow('next-skill recommendation');
   });
 
@@ -917,7 +930,7 @@ You prioritize accounting for missing bookings over adding features; observe Lee
 ## Approval
 The actual selected approval is APPROVED with reviewer concerns recorded, not claimed fixed.
 ## Handoff
-Next: /plan-eng-review after observing the workflow. The user declined launching it now and will run a review later.
+Next: /autoplan after observing the workflow. The user declined launching it now and will run a review later.
 `;
       fs.mkdirSync(path.dirname(evidence.designPath), { recursive: true });
       fs.writeFileSync(evidence.designPath, evidence.designContent);

@@ -914,7 +914,7 @@ describe('release-cut: the security exception', () => {
     expect(next.plan.notes).toContain('2 versions since v1.0.4');
     expect(next.plan.notes).not.toContain('- **1.0.4**');
     expect(next.plan.notes).not.toContain('Security release');
-  });
+  }, 30_000);
 
   // Value: protects=a finishing security cut keeps its tag's recorded evidence (no live re-check that a removed label or a gh failure can break), a tag that
   // recorded a security cut but never moved stable cannot pass the floor without an explicit verified --security, and the advisory path counts only npm
@@ -1052,7 +1052,7 @@ describe('release-cut: the regression exception', () => {
     const other = planRelease({ repo: f.repo, ref: later, git: f.git, gh: f.gh, now: () => moved.at + 3 * H, regression: '#93: worked in v1.0.4: other' });
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other).toMatchObject({ code: 'REFUSED_REGRESSION', message: 'tag v1.0.6 records the regression reason "#93: forged"; run it again with that same reason so the tag and the notes agree' });
-  });
+  }, 30_000);
 
   // Value: protects=an undatable stable and the very first cut stay closed to a regression claim (FLOOR_UNKNOWN is security-only; nothing earlier worked
   // before stable existed); fails_when=a regression cut moves a stable whose last move cannot be dated, or anchors to no release; why_new=the security

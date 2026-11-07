@@ -712,6 +712,35 @@ function reused(file: string, label: string, cmdSha: string, maxAgeHours: number
   return true;
 }
 
+/** record-ci's record line, the one lib/ci-carry.ts recordCiResult reads. */
+const recordedCiLine = (r: EvidenceRecord): string =>
+  `gstack-evidence: recorded label=${r.label} exit=0 tests_ran=${r.tests_ran}${r.tests_unit ? ` unit=${r.tests_unit}` : ""} log=- source=ci runs=${r.runs!.join(",")} policy=${r.policy}${r.skipped_here ? ` skipped_here=${r.skipped_here.files.length} tests_ran_here=${r.skipped_here.tests_ran}${r.skipped_here.not_owed ? ` not_owed_here=${r.skipped_here.not_owed.length}` : ""}` : ""}`;
+
+/**
+ * record-ci's reuse (GST-1795): the label's newest ledger row stands only when it is the CI row this record-ci would write again
+ * (every `want` field equal: commit, clean tree, command, verified runs, profiles, jobs, base policy, count, unit, not-owed reason),
+ * it grades FRESH, it carries no test-lane exception, and its per_file remainder is the same files, each file's newest local run at
+ * this tree written before that row (the run the row was validated from) and a pass under this runtime. Anything else records afresh.
+ * The caller has already verified the run itself live.
+ */
+function reusableCiRow(label: string, want: Partial<EvidenceRecord>, remainder: string[], perFile: string | undefined): EvidenceRecord | null {
+  let rows: EvidenceRecord[] = [];
+  try { rows = readJsonl<EvidenceRecord>(ledgerPath().file); } catch { return null; }
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const at = rows.findLastIndex((x) => x.label === label);
+  const r = rows[at];
+  if (!r || r.source !== "ci" || r.exception || r.dirty !== false || r.tree !== want.wtree) return null;
+  if (!Object.entries(want).every(([k, v]) => same(r[k as keyof EvidenceRecord], v))) return null;
+  if (gradeRecord(r, { maxAgeHours: DEFAULT_MAX_AGE_HOURS, allowPaths: [], wtreeNow: want.wtree }).verdict !== "FRESH") return null;
+  if (!same(r.skipped_here?.files ?? [], remainder)) return null;
+  const identity = identityDigest();
+  const passedHere = (file: string) => {
+    const i = rows.findLastIndex((x) => x.label === `${label}.skipped` && x.source === undefined && x.cmd_sha256 === sha256(perFileCommand(perFile!, [file])) && x.wtree === want.wtree);
+    return i >= 0 && i < at && rows[i]!.exit === 0 && rows[i]!.identity === identity;
+  };
+  return remainder.every(passedHere) ? r : null;
+}
+
 /**
  * `record-ci`: carry a lane from CI. Its command must be a key of the base branch's ship_lanes_from; the run is found and
  * verified here (lib/ci-carry.ts) at HEAD's clean tree, so no caller supplies run ids, a test count or a tree. Never runs the lane;
@@ -772,6 +801,14 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     return 0;
   }
   if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !atHead.length && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
+  const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
+  const prior = v.excepted?.length ? null : reusableCiRow(label, { commit: head, wtree: tree, cmd_sha256: sha256(command), runs, profiles: m.profiles, policy: loaded.label, jobs: m.jobs, tests_ran: v.tests, tests_unit: v.unit, not_owed: v.notOwed }, v.remainder ?? [], m.per_file);
+  if (prior) {
+    console.error(recordedCiLine(prior));
+    if (prior.not_owed) console.error(`gstack-evidence: not owed: ${prior.not_owed}`);
+    console.error(`CI_RECORD_REUSED: label=${label} runs=${runs.join(",")} tree=${tree.slice(0, 12)} policy=${loaded.label} (the ledger's CI row for this exact tree, run and selection; nothing ran here)`);
+    return 0;
+  }
   let exception: BoundLaneException | undefined;
   const grant = atHead.find((g) => g.approval === v.exceptedBy);
   if (v.excepted?.length && grant) {
@@ -826,13 +863,12 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
     console.error(`gstack-evidence record-ci: ledger setup failed (${e?.message ?? e}); nothing recorded`);
     return 1;
   }
-  const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
     commit: head, tree, dirty: false, wtree: tree, tests_ran: testsRan, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
-  console.error(`gstack-evidence: recorded label=${label} exit=0 tests_ran=${testsRan}${v.unit ? ` unit=${v.unit}` : ""} log=- source=ci runs=${runs.join(",")} policy=${loaded.label}${here ? ` skipped_here=${here.files.length} tests_ran_here=${here.tests_ran}${here.not_owed ? ` not_owed_here=${here.not_owed.length}` : ""}` : ""}`);
+  console.error(recordedCiLine(rec));
   if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
   if (exception) console.error(`TEST_LANE_EXCEPTION: ${testLaneExceptionText(exception)}`);
   return 0;

@@ -599,7 +599,8 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(args(f).trim().split('\n')).toEqual(SIX.map(([p]) => './' + p));
     const ci = rows(f).find(r => r.source === 'ci');
     expect(ci).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: SIX.map(([p]) => p), tests_ran: 0, not_owed: SIX.map(([p]) => p) } });
-    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=6 file(s) tests_ran_here=0 not_owed_here=6');
+    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toMatch(/^LANE: free carried run=7\/1 tests_ran=1 \(files\) skipped_here=6 file\(s\) tests_ran_here=0 not_owed_here=6 \(reused the CI record at tree [0-9a-f]{12}\)$/);
+    expect(args(f).trim().split('\n')).toHaveLength(SIX.length);
   });
 
   test('GST-1314: a remainder that mixes a file that ran here with one that registers no test still refuses', () => {
