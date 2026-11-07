@@ -198,22 +198,26 @@ the readiness dashboard and the PR body, and never count it as a pass.
   `gstack-outside-voice run`); the verdict still comes from the rules above.
 - **No findings.** A review with no tag and no label is `clean` only when its
   conclusion says so: the last sentence (or its last ", and" clause), or the
-  `because` clause of its `Recommendation:` line, opens with `NO_FINDINGS`,
-  "No issues found", "I found no actionable regressions", "I did not find
-  any bugs" or "The changes introduce no regressions", with no "but",
-  "however", "while", "whereas", "except", "other than" or "elsewhere". Closing sentences that
-  only report passing checks ("Tests, lint, and build all pass.") sign the
-  review off and are skipped, so the sentence before them is the conclusion;
-  a check sentence that quotes code, fails, is cut off, continues a wrapped
-  line, follows a colon or is the reply's only sentence is never skipped.
-  When other prose comes first, anything after that statement except a
-  predicate ("were found", "is evident") or a colon explanation must scope it
-  to the change as a whole ("in this change", "in the staged changes"); "No
-  issues in the parser." does not conclude the review, and neither does a
-  clause joined after that scope ("No issues in the diff, so it is safe.").
-  A statement with the change as its subject ("The changes introduce no
-  regressions") is held to this scope rule even as the reply's only sentence. A "no issues" phrase
-  anywhere else in the reply does not count. Otherwise the review is
+  `because` clause of its `Recommendation:` line, is a complete no-findings
+  sentence and nothing more. It may open with "Overall," or "After reviewing
+  the patch,", then states `NO_FINDINGS`, "No issues found", "I found no
+  actionable regressions", "I did not find any bugs" or "The changes introduce
+  no regressions", then may add "were found" or "is evident", then may name the
+  whole change ("in this change", "in the diff", "in the changed files", "in
+  the staged, unstaged, or untracked changes", "in the change as a whole",
+  "in the changes on this branch", "in the diff against main"), and ends
+  there with at most one `.`, `!` or `;`. Anything else makes the
+  review `unverified`: a clause after the scope ("No issues in the diff, so
+  it is safe.", "No issues in the diff: the fallback swallows ENOENT."), an
+  exception ("with the exception of", "save for"), a question ("No issues in
+  the diff?"), or a scope that names part of the change ("No issues in the
+  parser.", "in changed.ts"), whether it is the reply's only sentence or not.
+  Closing sentences that only report passing checks ("Tests, lint, and build
+  all pass.") sign the review off and are skipped, so the sentence before
+  them is the conclusion; a check sentence that quotes code, fails, is cut
+  off, continues a wrapped line, follows a colon or is the reply's only
+  sentence is never skipped. A "no issues" phrase anywhere else in the reply
+  does not count. Otherwise the review is
   `unverified` (see below), never `clean`. A `/codex` consult
   answer with no severity labels at all is not a review summary and stays
   `clean`.

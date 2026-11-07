@@ -1,5 +1,5 @@
 I read the diff, ran `bun test test/retry.test.ts`, and checked every caller of
-`retry()`. No findings: the cap is enforced and the tests cover the boundary.
+`retry()`. The cap is enforced and the tests cover the boundary. No findings.
 
 Recommendation: ship because the change is covered and correct.
 

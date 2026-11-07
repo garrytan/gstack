@@ -137,54 +137,41 @@ function severityWords(text: string): Severity[] {
   return SEVERITY_LABELS.flatMap(re => [...text.matchAll(re)].map(m => SEVERITY_WORDS[m[1]!.toLowerCase()]!));
 }
 /**
- * A no-findings statement opening a sentence: NO_FINDINGS (its underscore is
- * gone after plainReview), "No issues found", "I found no actionable
- * regressions", "I did not find any bugs", "The changes introduce no definite,
- * actionable regressions" (the whole change as subject). Never a phrase inside
- * another clause ("renaming the flag is no problem for callers, but ...").
+ * The review's conclusion says it found nothing when its last prose sentence or
+ * ", and" clause (a wrapped line that continues in lowercase joined), or the
+ * because-clause of its Recommendation line, is one closed sentence (GST-1808):
+ * an optional lead ("Overall," or "After reviewing the patch,"), a no-findings
+ * statement (NO_FINDINGS, its underscore gone after plainReview; "No issues
+ * found"; "I did not find any bugs"; "The changes introduce no definite,
+ * actionable regressions"), an optional predicate ("were found", "is evident"),
+ * an optional scope that names the whole change ("in the diff", "in the changed
+ * files", "while reviewing the staged, unstaged, or untracked changes", "in the
+ * change as a whole", "in the changes on this branch", "in the diff against main"), then
+ * at most one ".", "!" or ";". Nothing else may follow: a clause after the scope,
+ * an exception, a colon explanation or a question never concludes, and a scope
+ * that names part of the change ("in the parser") says nothing about the rest of
+ * it, even as the reply's only sentence.
  */
 const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete|definite),?\\s+){0,2}(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
-const NO_FINDINGS_LEAD = '(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:reviewing|reading|checking|inspecting|reviewed|read|checked|inspected)\\b[^,.;]{0,80},\\s+)?';
-const CHANGE_SUBJECT = '(?:the|this|these)\\s+(?:changes?|diffs?|patch(?:es)?)\\s+(?:introduces?|adds?|contains?|ha(?:s|ve))\\s+';
-const NO_FINDINGS = new RegExp(`^${NO_FINDINGS_LEAD}(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+|${CHANGE_SUBJECT})?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`, 'i');
-/** The whole change as subject is held to the scope rule even as the reply's only sentence. */
-const CHANGE_SUBJECT_STATEMENT = new RegExp(`^${NO_FINDINGS_LEAD}${CHANGE_SUBJECT}`, 'i');
+const CHANGE_NOUN = '(?:change(?:s|sets?)?|diffs?|patch(?:es)?|branch|commits?|pull\\s+request|PR|(?:changed|modified|touched)\\s+(?:files?|code|lines))';
+const CHANGE_KIND = '(?:staged|unstaged|untracked|committed|uncommitted|current|proposed|submitted|pending|whole|entire|full|complete|combined|new|latest|recent|local|read-only|code|branch)';
+const WHOLE_CHANGE = `(?:(?:the|this|these|your|both|all(?:\\s+(?:of\\s+)?the)?)\\s+)?(?:${CHANGE_KIND}(?:(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s*\\/\\s*|\\s+(?:and|or)\\s+)${CHANGE_KIND})*\\s+)?${CHANGE_NOUN}(?:\\s+as\\s+a\\s+whole)?(?:\\s+(?:on|in)\\s+(?:this|the)\\s+branch)?(?:\\s+against\\s+(?:the\\s+)?(?:base(?:\\s+branch)?|(?:origin\\/)?(?:main|master)))?`;
+const READING = '(?:reviewing|reading|checking|inspecting)';
+const NO_FINDINGS_LEAD = `(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:${READING}|reviewed|read|checked|inspected)\\s+${WHOLE_CHANGE},\\s+)?`;
+const NO_FINDINGS_STATEMENT = `(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+|(?:the|this|these)\\s+(?:changes?|diffs?|patch(?:es)?)\\s+(?:introduces?|adds?|contains?|ha(?:s|ve))\\s+)?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`;
+const NO_FINDINGS_PREDICATE = '(?:\\s+(?:(?:was|were|is|are|has been|have been)\\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report))?';
+const NO_FINDINGS_SCOPE = `(?:\\s+(?:in|within|across|throughout|with|from|for|(?:while|when|after|on|upon)\\s+${READING})\\s+${WHOLE_CHANGE})?`;
+const NO_FINDINGS_CONCLUSION = new RegExp(`^${NO_FINDINGS_LEAD}${NO_FINDINGS_STATEMENT}${NO_FINDINGS_PREDICATE}${NO_FINDINGS_SCOPE}[.!;]?$`, 'i');
 /**
  * A whole sentence that only reports passing checks ("Tests, lint, and build all
  * pass."). Closing the reply, it signs the review off and never replaces its conclusion (#3469).
  */
 const CHECK_NAME = '(?:(?:unit|existing|targeted|full)\\s+)?(?:tests?|test suite|lint(?:ing)?|build|typecheck|type[- ]check|format check)';
 const CHECK_RESULTS = new RegExp(`^(?:the\\s+|all\\s+)?${CHECK_NAME}(?:(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${CHECK_NAME})*\\s+(?:all\\s+|both\\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|(?:is|are)\\s+green)[.!]$`, 'i');
-/** A contrast or exception qualifies the claim, so the sentence does not conclude that nothing was found. */
-const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|whereas|while(?!\s+(?:reviewing|reading|checking|inspecting)\b)|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
-const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report)?/i;
-const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b/i;
-/** A list of change kinds ("the staged, unstaged, or untracked changes") is one scope; any other joiner starts a clause the scope does not cover. */
-const SCOPE_LIST_JOIN = /(?:,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)(?=(?:staged|unstaged|untracked|committed)\b)/gi;
-const SCOPE_CLAUSE_BREAK = /[,;()[\]{}\u2012-\u2015]|--|\s[-/]\s|\b(?:and|or|plus|so|since|because|as|while|whereas|despite|then|which|that|where|when|though|but|yet|until|unless|if)\b/i;
-
-/**
- * The review's conclusion says it found nothing: its last prose sentence or
- * ", and" clause (a wrapped line that continues in lowercase joined), or the because-clause of its
- * Recommendation line, is an unqualified no-findings statement. When other
- * prose precedes it, anything after the statement other than a predicate
- * ("were found", "is evident") or a colon explanation must scope it to the
- * change as a whole: "No issues in the parser." or "No regressions were found
- * by the tests." says nothing about the rest of the reply. The conclusion is
- * read from `concluding`, the reply without its closing check-results
- * sentences, while the sentence count comes from the whole reply, so dropping
- * a sign-off never makes a scoped claim the reply's only sentence.
- */
-function concludesNoFindings(code: string, concluding: string): boolean {
-  const all = reviewProse(code), { sentences, because } = reviewProse(concluding);
-  const total = all.sentences.length + (all.because ? 1 : 0);
-  return [sentences.at(-1), because].some(conclusion => {
-    const statement = conclusion?.match(NO_FINDINGS)?.[0];
-    if (!conclusion || !statement || NO_FINDINGS_EXCEPTION.test(conclusion)) return false;
-    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!;]+$/, '').trim();
-    return (total === 1 && !CHANGE_SUBJECT_STATEMENT.test(conclusion)) || !qualifier || qualifier.startsWith(':')
-      || (WHOLE_CHANGE_SCOPE.test(qualifier) && !SCOPE_CLAUSE_BREAK.test(qualifier.replace(SCOPE_LIST_JOIN, ' ')));
-  });
+/** The conclusion is read from the reply without its closing check-results sentences, so a sign-off never stands in for it. */
+function concludesNoFindings(concluding: string): boolean {
+  const { sentences, because } = reviewProse(concluding);
+  return [sentences.at(-1), because].some(conclusion => conclusion !== undefined && NO_FINDINGS_CONCLUSION.test(conclusion));
 }
 
 /**
@@ -317,7 +304,7 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const code = withoutCode(input.text), plainCode = plainReview(code);
   const read = withoutCode(input.text, true), plainRead = plainReview(read);
   const marked = recommendationHeading(code);
-  const concludes = concludesNoFindings(marked, recommendationHeading(withoutCode(withoutClosingCheckResults(input.text))));
+  const concludes = concludesNoFindings(recommendationHeading(withoutCode(withoutClosingCheckResults(input.text))));
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);

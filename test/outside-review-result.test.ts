@@ -28,7 +28,7 @@ function cli(args: string[]) {
 }
 
 // A clean review states that it found nothing; an untagged finding is unverified (DX-11).
-const RECOMMEND = 'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.';
+const RECOMMEND = 'No issues found in this change.\nRecommendation: approve because changed.ts keeps its data.';
 const UNTAGGED = 'Recommendation: fix the guard because changed.ts loses data.';
 
 // A model may write the completion recommendation as a Markdown section instead of an inline line (#3980).
@@ -258,6 +258,94 @@ describe('a closing check-results sentence keeps the no-findings conclusion (#34
       'No issues found. Tests pass `only if the regression is skipped`.', 'No issues found. `Not all`\ntests pass.',
       '```\ntests pass.\n```\nNo issues found.\n`Not all` tests pass.', 'No issues found in this patch, provided that:\nTests pass.',
       'No issues found. Not all tests pass.', 'No issues found. Some tests pass.']) unverified(text);
+  });
+});
+
+// GST-1808: the no-findings conclusion is one closed sentence: an optional lead
+// ("Overall," or "After reviewing the patch,"), the statement, an optional predicate
+// ("were found") and an optional scope naming the whole change, then at most one
+// "." "!" or ";". Anything after that, a question, or a scope naming only part of
+// the change leaves the review unverified, as the reply's only sentence, its last
+// sentence or its Recommendation because-clause alike.
+describe('the no-findings conclusion is a closed sentence (GST-1808)', () => {
+  const FINDING = 'the fallback path now swallows ENOENT.';
+  const verdictOf = (text: string, gate: OutsideGate) => {
+    const r = classifyOutsideReview({ text, gate });
+    return { text, gate, verdict: r.verdict, reason: r.reason };
+  };
+  const unverified = (text: string, gate: OutsideGate = 'structured') =>
+    expect(verdictOf(text, gate)).toEqual({ text, gate, verdict: 'unverified', reason: 'untagged_review' });
+  const clean = (text: string, gate: OutsideGate = 'structured') =>
+    expect(verdictOf(text, gate)).toEqual({ text, gate, verdict: 'clean', reason: undefined });
+
+  test('a Recommendation-only reply is held to the same rule as any other conclusion', () => {
+    for (const text of ['Recommendation: Ship because no issues in the diff, so the change disables auth.',
+      'Recommendation: ship because no issues, so the change disables auth.',
+      'Recommendation: ship because I found no regressions in this change, which now disables auth.',
+      'Recommendation: ship because no issues in the diff\nso the change disables auth.']) unverified(text, 'review');
+  });
+
+  test('an exception after the statement or its whole-change scope is not a conclusion', () => {
+    for (const tail of ['with the exception of the auth change', 'outside of the auth path', 'save for the auth change',
+      'after the change removed the auth check', 'bar the auth path', 'excepting the auth path']) {
+      for (const text of [`No issues in the diff ${tail}.`, `I reviewed the parser.\nNo issues in the diff ${tail}.`,
+        `No issues found ${tail}.`, `I reviewed the parser.\nNo actionable regressions were found in this change ${tail}.`]) unverified(text);
+    }
+  });
+
+  test('a question is not a conclusion', () => {
+    for (const text of ['Prose here. No issues in the diff?', 'No issues in the diff?', 'No issues?', 'NO_FINDINGS?',
+      'I reviewed the parser.\nNo issues in the diff?!', 'I reviewed the parser.\nNo issues found in this change?\nTests pass.']) unverified(text);
+    unverified('Recommendation: ship because no issues remain?', 'review');
+  });
+
+  test('a joiner after the scope starts a clause the conclusion does not cover, with or without a sign-off (fc3#1)', () => {
+    for (const joiner of [': ', ' & ', ' + ', ' -> ', ' \u2192 ', ' | ', '\u2026 ', '/', ' ~ ', ' \u2010 ', ' \u2212 ', '- ', ' with ', ' now ', '. so ']) {
+      for (const signoff of ['', ' Tests pass.']) unverified(`I reviewed the parser.\nNo issues in the diff${joiner}${FINDING}${signoff}`);
+    }
+    for (const text of [`No issues found: ${FINDING}`, `I reviewed the parser.\nNo issues found: ${FINDING}`, `NO_FINDINGS: ${FINDING}`]) unverified(text);
+  });
+
+  test('a scope that names only part of the change does not conclude, even as the only sentence', () => {
+    for (const text of ['No issues in the parser.', 'I found no issues in the retry helper.', 'After reviewing the parser, I found no issues.',
+      'I reviewed the parser.\nNo issues in the auth module of this change.', 'No issues in the diff against the auth module.',
+      // Former fixtures that read clean only through the lax scope and colon rules (RECOMMEND, GST-436's NO_ISSUES, prose-negative.txt,
+      // codex-3105/p1-in-code.txt and codex-3105/no-findings.txt).
+      'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.', 'No issues found in the changed helpers.',
+      'Reviewed the parser.\n\nNo issues found in the changed parser.',
+      'I read the diff and checked every caller.\nNo findings: the cap is enforced and the tests cover the boundary.']) unverified(text, text.includes('Recommendation:') ? 'review' : 'structured');
+  });
+
+  test('real clean conclusions stay clean (negative controls)', () => {
+    for (const text of [
+      // #3469's two clean tails (codex review --base main, codex-cli 0.163.0-alpha, gpt-6-luna), with and without their sign-off.
+      'No actionable regressions were identified in the diff. Tests, lint, and build all pass.',
+      'The changes introduce no definite, actionable regressions. Tests, lint, and build all pass.',
+      'No actionable regressions were identified in the diff.', 'The changes introduce no definite, actionable regressions.',
+      // #3294's reply and the codex-cli 0.160.0 captures.
+      'I found no actionable regressions in the staged, unstaged, or untracked changes.',
+      'The change validates the retry limit before execution. No actionable regression was found.',
+      'The change validates `max` before retrying. No affected callers or tests are present in the repository, and no actionable regression is evident.',
+      'NO_FINDINGS', '**NO_FINDINGS**', 'No issues found.', 'No issues found!', 'There are no actionable regressions.', 'I did not find any defects.',
+      'Overall, no issues found.', 'After reviewing the patch, I found no issues.', 'Having reviewed the diff, I found no issues.',
+      'No issues found while reviewing the diff.', 'I found no issues in this read-only change.', 'No issues to report in this PR.',
+      'Reviewed the retry helper.\n\nNo issues found in this change.', 'No regressions were found in the change as a whole.',
+      'No issues found across the committed and uncommitted changes.', 'No issues found in the staged / unstaged changes.', 'No issues found in the changed files.',
+      'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
+    ]) clean(text);
+    for (const text of ['Recommendation: ship because I found no regressions in this change.', 'Recommendation: proceed because no findings remain.',
+      'The change adds a retry cap.\nRecommendation: ship because no issues remain.', '## Recommendation\n\nApprove because I found no issues.']) clean(text, 'review');
+  });
+
+  test('a whole-change scope may name the branch or the base it is diffed against, and nothing more', () => {
+    for (const text of ['No issues found in the changes on this branch.', 'I found no actionable regressions in the branch diff.',
+      'No issues found in the diff against main.', 'No issues found in the diff against the base branch.',
+      'No issues found in the changes on this branch against origin/main.', 'After reviewing the changes on this branch, I found no issues.']) clean(text);
+    clean('Recommendation: ship because no issues in the changes on this branch.', 'review');
+    for (const text of ['No issues found in the changes on this branch, except the auth path.', 'No issues found in the diff against main, so ship it.',
+      'No issues found in the changes on this branch?', 'No issues found in the diff against the auth module.',
+      'No issues found in the branch diff against main except the auth path.', 'No issues found in the diff against origin/main-except-the-auth-path.',
+      'No issues found in the diff against origin/feature/auth-only.']) unverified(text);
   });
 });
 
