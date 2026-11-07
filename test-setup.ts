@@ -58,8 +58,9 @@ for (const name of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABA
 // repositories as a reader's fetch, and this afterAll, which Bun runs once after
 // the last file even when a test timed out before its own cleanup, removes it.
 // Bun's test runner fires no process exit event; a killed run keeps the marker.
-// A `bun test` a test spawns inside an outer run's root keeps the TMPDIR it was
-// handed: the outer marker already covers it and the outer afterAll removes it.
+// A `bun test` whose TMPDIR already sits under a marked directory (an outer
+// run's root, or a shard sandbox from scripts/lib/shard-engine.ts) keeps the
+// TMPDIR it was handed: that marker covers it and its owner removes it.
 const markedAncestor = (dir: string): string | null => {
   for (let d = dir; ; d = path.dirname(d)) {
     if (fs.existsSync(path.join(d, FIXTURE_MARKER))) return d;

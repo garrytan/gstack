@@ -16,10 +16,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 describe('the per-process test fixture root (GST-1695)', () => {
   // Value: protects=os.tmpdir() in a test process, and so every fixture helper that makes a git repository there (ship-bin's fake https://github.com/fx/fx.git origin included), resolves inside one root that carries the fixture marker;
   //   fails_when=fixtures land straight in the OS temp dir with nothing marking them, so /ship's fetch sweep reads a concurrent test run's repositories as a reader's fetch; why_new=GST-1695 (FETCH_RERUN_BLOCKED on /tmp/ship-bin-YUgvjd); seam=test-setup.ts; no_claim=that a test which sets its own TMPDIR stays inside the root
-  test('os.tmpdir() and a ship-bin fixture live under the marked per-process root', () => {
+  test('os.tmpdir() and a ship-bin fixture live under the marked root (this process\'s, or the shard sandbox\'s)', () => {
     const root = process.env.GSTACK_TEST_TMP ?? '';
     expect(root).not.toBe('');
-    expect(os.tmpdir()).toBe(root);
+    expect(path.relative(root, os.tmpdir()).startsWith('..')).toBe(false);
     expect(fs.statSync(path.join(root, FIXTURE_MARKER)).isFile()).toBe(true);
     const fx = shipFixture();
     try {
