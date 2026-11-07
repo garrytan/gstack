@@ -18,9 +18,10 @@
  * environment and has no per-process opt-out, so there the land process's environment stays readable to the checks.
  * The checks also run as land's user, so they can write the checkout's git directory, whose config and hooks land's
  * later git calls (the lock push, the merge check) read with land's environment. Land records the config and hooks of
- * the checkout's git directories (and the commondir and gitdir files and the checkout's `.git` that say where git finds
- * them) before the checks, puts back anything the checks changed or added, and refuses; and no queue git call runs a
- * hook (lib/ship-queue-gate's git()).
+ * the checkout's git directories, the commondir and gitdir files and the checkout's `.git` that say where git finds
+ * them, and every hop of a symlink among them, before the checks; when any changed it refuses, makes no further git
+ * call there and leaves the land lock held for a person to inspect. No queue git call runs a hook (lib/ship-queue-gate's
+ * git()), and land's own git calls in the merged tree run with the checks' environment.
  */
 import { dlopen, FFIType } from 'bun:ffi';
 import { spawnSync } from 'node:child_process';
@@ -47,64 +48,42 @@ const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'
 
 /** The paths in a git directory that decide what programs git runs or where it reads them: config, hooks, commondir, gitdir. */
 const GIT_GUARDED = ['config', 'config.worktree', 'hooks', 'commondir', 'gitdir'];
-type GitEntry = { mode: number; link?: string; data?: Buffer; other?: true };
+type GitEntry = { mode: number; link?: string; data?: Buffer };
 
-/** The guarded paths: each git directory's GIT_GUARDED entries, the checkout's `.git` and the target of every guarded symlink. */
+/** The guarded paths: the checkout's `.git`, each git directory's GIT_GUARDED entries, and every hop of a guarded symlink. */
 function gitTops(root: string, dirs: string[]): string[] {
-  const tops = [path.join(root, '.git'), ...dirs.flatMap(d => GIT_GUARDED.map(n => path.join(d, n)))];
-  for (const t of [...tops]) try { if (fs.lstatSync(t).isSymbolicLink()) tops.push(fs.realpathSync(t)); } catch {}
-  return [...new Set(tops)];
+  const tops = dirs.flatMap(d => GIT_GUARDED.map(n => path.join(d, n)));
+  for (let p of [...tops]) {
+    for (let hop = 0; hop < 40; hop++) {
+      try { p = path.resolve(fs.realpathSync(path.dirname(p)), fs.readlinkSync(p)); } catch { break; }
+      tops.push(p);
+    }
+  }
+  return [path.join(root, '.git'), ...new Set(tops)];
 }
 
-/** Every path under `tops` (parents before children) with its mode and bytes or symlink target; the checkout's `.git` directory is recorded without its contents, and a FIFO, socket or device is never read. */
+/** Every path under `tops` with its mode (type bits included) and bytes or symlink target; the checkout's `.git` directory is recorded without its contents, and a FIFO, socket or device is never read. */
 function gitState(root: string, tops: string[]): Map<string, GitEntry> {
   const state = new Map<string, GitEntry>();
   const walk = (p: string, deep: boolean) => {
     let st: fs.Stats;
     try { st = fs.lstatSync(p); } catch { return; }
-    if (st.isSymbolicLink()) return void state.set(p, { mode: st.mode, link: fs.readlinkSync(p) });
+    const entry: GitEntry = { mode: st.mode };
+    state.set(p, entry);
     try {
-      if (st.isFile()) return void state.set(p, { mode: st.mode, data: fs.readFileSync(p) });
-      if (st.isDirectory()) { const names = deep ? fs.readdirSync(p) : []; state.set(p, { mode: st.mode }); for (const name of names) walk(path.join(p, name), true); return; }
+      if (st.isSymbolicLink()) entry.link = fs.readlinkSync(p);
+      else if (st.isFile()) entry.data = fs.readFileSync(p);
+      else if (st.isDirectory() && deep) for (const name of fs.readdirSync(p)) walk(path.join(p, name), true);
     } catch {}
-    state.set(p, { mode: st.mode, other: true });
   };
   for (const top of tops) walk(top, top !== path.join(root, '.git'));
   return state;
 }
 
-/** Put every guarded path back as `before` recorded it: directories opened (u+rwx) parents first, added entries removed, links and files rewritten, modes reset children first. Returns the paths that had changed and those it could not put back. */
-function restoreGitState(root: string, tops: string[], before: Map<string, GitEntry>): { changed: string[]; unrepaired: string[] } {
-  const after = gitState(root, tops);
-  const kind = (e: GitEntry) => e.link !== undefined ? 'link' : e.data ? 'file' : e.other ? 'other' : 'dir';
+/** The guarded paths whose entry `after` differs from `before` (added, removed, retyped, rewritten, repointed or re-moded). */
+function changedGitPaths(before: Map<string, GitEntry>, after: Map<string, GitEntry>): string[] {
   const same = (a?: GitEntry, b?: GitEntry) => !!a && !!b && a.mode === b.mode && a.link === b.link && (a.data && b.data ? a.data.equals(b.data) : a.data === b.data);
-  const changed = [...new Set([...before.keys(), ...after.keys()])].filter(p => !same(before.get(p), after.get(p))).sort();
-  const unrepaired = new Set<string>();
-  const attempt = (p: string, fn: () => void) => { try { fn(); } catch { unrepaired.add(p); } };
-  const opened = new Set<string>();
-  const open = (d: string) => attempt(d, () => { const st = fs.lstatSync(d); if (st.isDirectory() && (st.mode & 0o700) !== 0o700) { fs.chmodSync(d, (st.mode | 0o700) & 0o7777); opened.add(d); } });
-  for (const p of changed) { open(path.dirname(p)); if (after.get(p) && kind(after.get(p)!) === 'dir') open(p); }
-  for (const p of [...changed].reverse()) {
-    const b = before.get(p), a = after.get(p);
-    if (a && (!b || kind(a) !== kind(b))) attempt(p, () => fs.rmSync(p, { recursive: true, force: true }));
-  }
-  for (const p of changed) {
-    const e = before.get(p);
-    if (!e) continue;
-    const exists = (() => { try { fs.lstatSync(p); return true; } catch { return false; } })();
-    if (e.link !== undefined) {
-      const cur = (() => { try { return fs.readlinkSync(p); } catch { return undefined; } })();
-      if (cur !== e.link) attempt(p, () => { if (exists) fs.rmSync(p, { recursive: true, force: true }); fs.symlinkSync(e.link!, p); });
-    }
-    else if (e.data) attempt(p, () => { const tmp = `${p}.gstack-land-${process.pid}`; fs.writeFileSync(tmp, e.data!); fs.renameSync(tmp, p); });
-    else if (!exists && !e.other && p !== path.join(root, '.git')) attempt(p, () => fs.mkdirSync(p));
-    else if (!exists) unrepaired.add(p);
-  }
-  for (const p of [...new Set([...changed, ...opened])].sort().reverse()) {
-    const e = before.get(p);
-    if (e && e.link === undefined && !unrepaired.has(p)) attempt(p, () => fs.chmodSync(p, e.mode & 0o7777));
-  }
-  return { changed, unrepaired: [...unrepaired] };
+  return [...new Set([...before.keys(), ...after.keys()])].filter(p => !same(before.get(p), after.get(p))).sort();
 }
 
 export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line.';
@@ -123,9 +102,9 @@ export function landPolicyErrors(raw: unknown): PolicyError[] {
 }
 
 /** `setup`: land could not run the checks at all (git failed, or the merged tree's dependencies differ from the linked node_modules): the lane's code is not at fault. */
-/** Checkouts whose git directory land could not put back after land.merged_checks: no further git call there may push through it (ship-queue-land-direct skips the lock release). */
-export const unrestoredCheckouts = new Set<string>();
 export type MergedRun = { ok: true; tree: string } | { ok: false; conflict: boolean; setup?: boolean; tree?: string; detail: string };
+/** Checkouts whose guarded git paths land.merged_checks changed: land makes no further git call there, so ship-queue-land-direct skips the lock release. */
+export const changedCheckouts = new Set<string>();
 const LOCKFILES = ['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
 const DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'workspaces', 'overrides'];
 const read = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -182,14 +161,12 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
     const linux = process.platform === 'linux';
     const open = linux ? closeLandProc() : null;
     if (open) return { ok: false, conflict: false, setup: true, tree, detail: `cannot close land's /proc environment to the checks (${open}), so they did not run` };
-    const where = () => git(root, [...NO_HOOKS, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir']).out;
-    const located = where();
-    const gitDirs = [...new Set(located.split('\n').filter(Boolean))];
+    const gitDirs = [...new Set(git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir']).out.split('\n').filter(Boolean))];
     if (!gitDirs.length) return { ok: false, conflict: false, setup: true, tree, detail: 'cannot find the checkout\'s git directory, so the checks did not run' };
     const tops = gitTops(root, gitDirs);
     const saved = gitState(root, tops);
     let failed = '', setup = false;
-    let restored: { changed: string[]; unrepaired: string[] } = { changed: [], unrepaired: [] };
+    let touched: string[] = [];
     try {
       for (const cmd of checks) {
         const group = process.platform !== 'win32';
@@ -211,16 +188,17 @@ export function runMergedChecks(root: string, base: string, pin: string, checks:
       else if (status?.out) failed = `the checks changed tracked files on the merged tree ${tree.slice(0, 12)}, so it was not the tree they passed: ${status.out.split('\n').slice(0, 6).join(', ')}`;
       if (linux && !killStrays()) failed ||= `git on the merged tree ${tree.slice(0, 12)} left processes running that land could not stop`;
     } finally {
-      restored = restoreGitState(root, tops, saved);
+      touched = changedGitPaths(saved, gitState(root, tops));
+      if (touched.length) changedCheckouts.add(root);
     }
-    const names = (ps: string[]) => ps.slice(0, 6).map(p => path.relative(root, p)).join(', ');
-    const lost = restored.unrepaired.length ? `land could not put back ${names(restored.unrepaired)}` : where() !== located ? 'land could not put back where git finds it' : '';
-    if (lost) { unrestoredCheckouts.add(root); return { ok: false, conflict: false, tree, detail: `the checks changed ${names(restored.changed)} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}, and ${lost}; repair it by hand, then rerun land to release its lock` }; }
-    if (restored.changed.length) return { ok: false, conflict: false, tree, detail: `the checks changed ${names(restored.changed)} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}; land put them back` };
+    if (touched.length) {
+      const named = touched.slice(0, 20).map(p => p.startsWith(root + path.sep) ? path.relative(root, p) : p).join(', ') + (touched.length > 20 ? ` and ${touched.length - 20} more` : '');
+      return { ok: false, conflict: false, tree, detail: `the checks changed ${named} in the checkout's git directory on the merged tree ${tree.slice(0, 12)}, so land made no further git call there and left the land lock held; inspect each path and restore it from a trusted copy (delete a hook the checks added) before any git command in this checkout, then release the lock as the LOCK line says` };
+    }
     if (failed) return { ok: false, conflict: false, setup, tree, detail: failed };
     return { ok: true, tree };
   } finally {
-    if (!unrestoredCheckouts.has(root)) git(root, [...NO_HOOKS, 'worktree', 'remove', '--force', dir]);
+    if (!changedCheckouts.has(root)) git(root, [...NO_HOOKS, 'worktree', 'remove', '--force', dir]);
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 }
