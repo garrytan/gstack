@@ -485,22 +485,17 @@ any gbrain client. The helper creates a `git worktree` of `~/.gstack/`,
 registers it as a federated source via `gbrain sources add --path
 --federated`, and runs an initial `gbrain sync`. Local-stdio paths only.
 
-Capture the database URL out of `~/.gbrain/config.json` first and pass it
-explicitly so the wireup is robust against any other process rewriting
-`~/.gbrain/config.json` mid-sync (e.g., concurrent `gbrain init` runs
-elsewhere on the machine):
+The helper reads the database URL from `~/.gbrain/config.json` once at
+startup and pins it for every `gbrain` call it makes, so another process
+rewriting that file mid-sync (e.g., a concurrent `gbrain init`) can't redirect
+it. Don't pass the URL as an argument: it holds the database password, and
+arguments are visible to other local users in `ps`. Clear
+`GBRAIN_DATABASE_URL` and `DATABASE_URL` for the call: the helper ranks both
+above `config.json`, and a shell's `DATABASE_URL` often points at an app's
+own database.
 
 ```bash
-GBRAIN_URL=$(python3 -c "
-import json, os, sys
-try:
-    c = json.load(open(os.path.expanduser('~/.gbrain/config.json')))
-    print(c.get('database_url', ''))
-except Exception:
-    pass
-")
-~/.claude/skills/gstack/bin/gstack-gbrain-source-wireup --strict \
-  ${GBRAIN_URL:+--database-url "$GBRAIN_URL"}
+GBRAIN_DATABASE_URL= DATABASE_URL= ~/.claude/skills/gstack/bin/gstack-gbrain-source-wireup --strict
 ```
 
 `--strict` exits non-zero on missing prereqs (gbrain not installed, < 0.18.0,
