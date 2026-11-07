@@ -104,3 +104,26 @@ test("the published board URL carries the secret and its same-origin page reques
   expect(index.status).toBe(200);
   expect(await index.text()).toContain(`/${daemon.token}/boards/${published.id}/`);
 });
+
+test("a request without a Host header is refused, not answered with a server error", async () => {
+  const { connect } = await import("net");
+  const statusLine = await new Promise<string>((resolve, reject) => {
+    const socket = connect(daemon.port, "127.0.0.1", () => socket.write(`GET /${daemon.token}/ HTTP/1.0\r\n\r\n`));
+    let data = "";
+    socket.on("data", (chunk) => (data += chunk));
+    socket.on("end", () => resolve(data.split("\r\n")[0] ?? ""));
+    socket.on("error", reject);
+  });
+  expect(statusLine).toContain(" 403");
+});
+
+test("a board page requested with a stale secret shows the expired page without the current secret", async () => {
+  const published = await publishBoard({ port: daemon.port, token: daemon.token, html: makeBoardHtml(boardDir("stale")) });
+  const res = await fetch(`${base()}/${"0".repeat(64)}/boards/${published.id}/`);
+  expect(res.status).toBe(401);
+  const body = await res.text();
+  expect(body).toContain("Board expired");
+  expect(body).not.toContain(daemon.token);
+  const progress = await fetch(`${base()}/${"0".repeat(64)}/boards/${published.id}/api/progress`);
+  expect(progress.status).toBe(401);
+});

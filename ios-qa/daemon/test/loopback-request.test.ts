@@ -82,3 +82,14 @@ test('local clients naming the loopback address still reach the device', async (
   expect(sameOrigin.status).toBe(200);
   expect(deviceRequests).toEqual(['GET /screenshot', 'GET /screenshot', 'GET /screenshot']);
 });
+
+test('a cross-site or same-site browser request without an Origin is refused before the device is contacted', async () => {
+  deviceRequests.length = 0;
+  for (const site of ['cross-site', 'same-site']) {
+    for (const route of ['/screenshot', '/healthz']) {
+      const res = await fetch(base() + route, { headers: { 'Sec-Fetch-Site': site, 'Sec-Fetch-Mode': 'no-cors' } });
+      expect({ site, route, status: res.status }).toEqual({ site, route, status: 403 });
+    }
+  }
+  expect(deviceRequests).toEqual([]);
+});

@@ -391,8 +391,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 /**
  * Loopback handler — full surface for the spawning agent. No bearer: the
- * loopback bind plus the Host and Origin checks are the boundary, so only
- * local clients that address the bound port directly are served.
+ * loopback bind plus the Host, Origin and Sec-Fetch-Site checks are the
+ * boundary, so only local clients that address the bound port directly are
+ * served.
  */
 async function handleLoopback(ctx: HandlerCtx): Promise<void> {
   const { req, res, tokenStore, getTunnel, invalidateTunnel, refreshTunnel } = ctx;
@@ -404,6 +405,13 @@ async function handleLoopback(ctx: HandlerCtx): Promise<void> {
     const refusal = loopbackRequestRefusal(req.headers.host, req.headers.origin, req.socket.localPort ?? 0);
     if (refusal) {
       sendJson(res, 403, { error: refusal });
+      return;
+    }
+    // Browsers omit Origin on no-cors GETs (an <img> tag) but always send
+    // Sec-Fetch-Site; local agent clients send neither.
+    const fetchSite = req.headers['sec-fetch-site'];
+    if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
+      sendJson(res, 403, { error: 'cross_site' });
       return;
     }
 

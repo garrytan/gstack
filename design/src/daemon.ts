@@ -467,14 +467,14 @@ async function handleBoardReload(board: Board, req: Request): Promise<Response> 
   return Response.json({ reloaded: true });
 }
 
-function boardExpiredHtml(id: string): string {
+function boardExpiredHtml(id: string, indexLink = true): string {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Board expired — gstack</title>
 <style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;color:#1a1a1a;text-align:center}
 h1{font-size:20px}.id{font-family:ui-monospace,monospace;color:#888;font-size:13px}
 a{color:#0070f3;text-decoration:none}a:hover{text-decoration:underline}</style></head><body>
 <h1>Board expired</h1>
 <p>Board <span class="id">${escapeHtml(id)}</span> is no longer hosted by this daemon (evicted or the daemon restarted).</p>
-<p><a href="${ROUTE_PREFIX}/">← see active boards</a></p>
+${indexLink ? `<p><a href="${ROUTE_PREFIX}/">← see active boards</a></p>` : ""}
 </body></html>`;
 }
 
@@ -483,6 +483,8 @@ a{color:#0070f3;text-decoration:none}a:hover{text-decoration:underline}</style><
 const BOARD_RE = /^\/boards\/([A-Za-z0-9_-]+)(\/.*)?$/;
 
 export async function fetchHandler(req: Request): Promise<Response> {
+  // Without a Host header Bun's req.url is a bare path; refuse it before parsing.
+  if (!URL.canParse(req.url)) return Response.json({ error: "host_not_loopback" }, { status: 403 });
   const url = new URL(req.url);
   const refusal = loopbackRequestRefusal(url.host, req.headers.get("origin"), serverRef?.port ?? Number(url.port));
   if (refusal) return Response.json({ error: refusal }, { status: 403 });
@@ -492,6 +494,15 @@ export async function fetchHandler(req: Request): Promise<Response> {
   const presented = Buffer.from(secret);
   const expected = Buffer.from(DAEMON_TOKEN);
   if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    // A board page opened from before a daemon restart carries the old
+    // secret: show the expired page, minus the link that would carry this one.
+    const stale = `/${rest.join("/")}`.match(BOARD_RE);
+    if (req.method === "GET" && stale && (stale[2] ?? "/") === "/") {
+      return new Response(boardExpiredHtml(stale[1]!, false), {
+        status: 401,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   const pathname = `/${rest.join("/")}`;
