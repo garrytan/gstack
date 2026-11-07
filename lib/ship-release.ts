@@ -509,14 +509,15 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
 /** GST-1772: a base Step 3 may leave unmerged (base_merge) must still merge cleanly after the release commit, since a VERSION or CHANGELOG write can make it conflict; checked against a fresh fetch that leaves origin/<base> where Step 1 put it. */
 function baseStillMerges(cwd: string, base: string, policy: Record<string, any> | null, r: Report): boolean {
   if (policy?.queue_mode === 'stamp-at-merge' || git(cwd, ['merge-base', '--is-ancestor', `origin/${base}`, 'HEAD']).status === 0) return true;
-  if (!baseMergeSkips(cwd, base, policy?.base_merge ?? 'auto').via) return true;
+  const skip = baseMergeSkips(cwd, base, policy?.base_merge ?? 'auto');
+  if (!skip.via && !skip.note) return true;
   const fetched = git(cwd, ['fetch', '--quiet', '--refmap=', 'origin', `refs/heads/${base}`], 300_000).status === 0;
   const tip = fetched ? git(cwd, ['rev-parse', 'FETCH_HEAD']).stdout.trim() : `origin/${base}`;
   const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', '--name-only', 'HEAD', tip]);
   const where = fetched ? `origin/${base} at ${tip.slice(0, 12)}` : `origin/${base} (fetch failed; Step 1's copy)`;
   if (m.status === 0) { r.add(`BASE_MERGE: ${where} still merges clean with HEAD (left unmerged at Step 3)`); return true; }
   if (m.status !== 1) { r.add(`BASE_MERGE: not checked (merge-tree failed: ${firstLine(m.stderr) || `exit ${m.status}`})`); return true; }
-  r.stop(`${where}, left unmerged at Step 3, now conflicts with HEAD in ${short(m.stdout.split('\n').slice(1).filter(Boolean), 8)}: git merge origin/${base} under Step 3's conflict rules, commit, then run Steps 5-16 again`);
+  r.stop(`${where}, left unmerged at Step 3, now conflicts with HEAD in ${short(m.stdout.split('\n').slice(1).filter(Boolean), 8)}: git fetch origin ${base} && git merge origin/${base} under Step 3's conflict rules, commit, then run Steps 5-16 again`);
   return false;
 }
 

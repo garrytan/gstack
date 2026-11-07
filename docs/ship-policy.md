@@ -2199,6 +2199,8 @@ the moved base with `git merge-tree` first:
 - It merges cleanly: nothing is merged and the preflight prints
   `MERGE: skipped (origin/<base> is N commit(s) ahead and merges clean; …)`.
 - It conflicts: Step 3 merges and stops on the conflicted files, as before.
+- It changed `VERSION` or a versioned manifest: Step 3 merges, because Step 12
+  reads the branch's version against `origin/<base>`, and a `BASE_MERGE:` line says so.
 - `auto` cannot tell (a local origin, a failed or empty gh answer) or
   merge-tree fails: Step 3 merges, and a `BASE_MERGE:` line says why.
   `on-conflict` skips the check.
@@ -2207,8 +2209,11 @@ The release commit can make a skipped base conflict (a claim-at-open VERSION or
 CHANGELOG write), so when `base_merge` would skip, `gstack-ship-release finish`
 rechecks a head that lacks `origin/<base>` against a fresh fetch of the base,
 without moving `origin/<base>`: `BASE_MERGE: … still merges clean`, or a STOP that names the
-conflicted files and sends the run back to Step 3's conflict rules and Steps
-5-16. The receipt records `base_merge: { base, behind, mergeable }` whenever the
+conflicted files and sends the run back to Step 3's conflict rules (fetch the
+base first) and Steps 5-16. A head that lacks its base cannot carry a
+`pull_request` CI run, whose merge-commit tree is not the head's
+(`tree_mismatch`, [docs/pregate.md](pregate.md)): dispatch the free-tests
+workflow on the branch for the carry. The receipt records `base_merge: { base, behind, mergeable }` whenever the
 head lacks `origin/<base>`. A stacked child whose base has no queue merges its
 parent as before unless the policy sets `on-conflict`.
 

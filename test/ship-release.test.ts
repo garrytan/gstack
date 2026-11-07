@@ -485,7 +485,7 @@ describe('finish after a skipped base merge (GST-1772)', () => {
     f.write({ VERSION: '1.0.0.1\n' });
     const stopped = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
     expect(stopped.status).toBe(3);
-    expect(stopped.stdout).toMatch(/STOP: origin\/main at [0-9a-f]{12}, left unmerged at Step 3, now conflicts with HEAD in VERSION: git merge origin\/main under Step 3's conflict rules/);
+    expect(stopped.stdout).toMatch(/STOP: origin\/main at [0-9a-f]{12}, left unmerged at Step 3, now conflicts with HEAD in VERSION: git fetch origin main && git merge origin\/main under Step 3's conflict rules/);
     expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(step1);
     const g = fx(policy);
     g.advanceBase({ 'docs/new.md': '# new\n' });
@@ -495,5 +495,20 @@ describe('finish after a skipped base merge (GST-1772)', () => {
     g.write({ VERSION: '1.0.0.1\n' });
     const clean = g.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed2, '--docs-post', post2, '--lane', LANE]);
     expect(lineOf(clean.stdout, 'BASE_MERGE')).toMatch(/^BASE_MERGE: origin\/main at [0-9a-f]{12} still merges clean with HEAD \(left unmerged at Step 3\)$/);
+  });
+
+  // Value: protects=under auto, a base Step 3 skipped on a detected queue is still rechecked when finish's own queue check fails;
+  //   fails_when=a failed second gh answer makes finish return without the merge-tree recheck; why_new=pass-1 review of GST-1772 (finish trusted a second gh call); seam=gh api graphql; no_claim=GitHub's queue semantics
+  test('auto: a failed queue check at finish still rechecks a base Step 3 skipped', () => {
+    const f = fx();
+    f.gh('case "$*" in *mergeQueue*) echo true ;; esac');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    expect(lineOf(f.run(PREFLIGHT, ['--base', 'main']).stdout, 'MERGE')).toMatch(/^MERGE: skipped \(origin\/main is 1 commit/);
+    const reviewed = wtree(f);
+    const post = snapshot(f);
+    f.gh('case "$*" in *mergeQueue*) echo "HTTP 502" >&2; exit 1 ;; esac');
+    f.write({ VERSION: '1.0.0.1\n' });
+    const r = f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
+    expect(lineOf(r.stdout, 'BASE_MERGE')).toMatch(/^BASE_MERGE: origin\/main at [0-9a-f]{12} still merges clean with HEAD \(left unmerged at Step 3\)$/);
   });
 });

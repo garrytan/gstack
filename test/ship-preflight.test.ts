@@ -160,6 +160,10 @@ describe('gstack-ship-preflight', () => {
     expect(auto(queue('true'), 'always')).toEqual([0, 'MERGE: merged origin/main at <sha>', '']);
     expect(auto('case "$*" in *mergeQueue*) echo "HTTP 401: Bad credentials" >&2; exit 1 ;; esac')).toEqual([0, 'MERGE: merged origin/main at <sha>',
       'BASE_MERGE: auto, merge queue check failed (HTTP 401: Bad credentials): merging; set base_merge: on-conflict to skip a clean merge without the check']);
+    const bumped = fx(policy('on-conflict'));
+    bumped.advanceBase({ VERSION: '1.0.1.0\n' });
+    const r = bumped.run(PREFLIGHT, ['--base', 'main']);
+    expect([r.status, lineOf(r.stdout, 'MERGE').replace(/[0-9a-f]{12}$/, '<sha>'), lineOf(r.stdout, 'BASE_MERGE')]).toEqual([0, 'MERGE: merged origin/main at <sha>', 'BASE_MERGE: origin/main changed VERSION, which Step 12 reads against origin/main: merging']);
   });
 
   // Value: protects=a local origin/HEAD naming neither the base nor the remote's default branch is named with its fix, without stopping (the GBrain machine whose ready read another PR's review_exclude policy);

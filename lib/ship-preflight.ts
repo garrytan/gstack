@@ -15,7 +15,7 @@ import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { baseMergeSkips, bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { baseMergeSkips, bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short, VERSIONED_MANIFESTS } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -203,6 +203,8 @@ function cleanBaseSkip(cwd: string, base: string, mode: string): { skip?: string
   const m = git(cwd, ['merge-tree', '--write-tree', '--no-messages', 'HEAD', `origin/${base}`]);
   if (m.status === 1) return {};
   if (m.status !== 0) return { note: `merge-tree failed (${firstLine(m.stderr) || `exit ${m.status}`}): merging` };
+  const versioned = git(cwd, ['diff', '--name-only', `HEAD...origin/${base}`, '--', 'VERSION', ...VERSIONED_MANIFESTS]).stdout.split('\n').filter(Boolean);
+  if (versioned.length) return { note: `origin/${base} changed ${short(versioned, 4)}, which Step 12 reads against origin/${base}: merging` };
   const behind = git(cwd, ['rev-list', '--count', `HEAD..origin/${base}`]).stdout.trim();
   return { skip: `origin/${base} is ${behind} commit(s) ahead and merges clean; ${via}, so Step 3 merges only on a conflict` };
 }
