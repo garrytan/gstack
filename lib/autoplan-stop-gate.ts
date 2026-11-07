@@ -153,11 +153,13 @@ export function checkRun(t: Transcript, load: SkillLoad): RunCheck {
 
 /**
  * The phase that may publish next: the first applicable phase not yet published.
- * Before scope is known, any phase later in PHASE_ORDER than every published one
- * may (returned as `p` itself), so an unread scope never refuses a publication.
+ * Before scope is known, CEO (which always applies) comes first; after it any
+ * phase later in PHASE_ORDER than every published one may (returned as `p`
+ * itself), so an unread scope never refuses a later phase.
  */
 function dueNext(phases: Phase[] | null, published: Phase[], p: Phase): Phase | undefined {
   if (phases) return phases.find(q => !published.includes(q));
+  if (!published.includes('ceo')) return 'ceo';
   return published.every(q => PHASE_ORDER.indexOf(q) < PHASE_ORDER.indexOf(p)) ? p : published.at(-1);
 }
 
@@ -175,7 +177,7 @@ export function publishCheck(c: RunCheck, p: Phase): { why: 'no-report' | 'out-o
   if (c.mode === 'runner' || c.published.includes(p) || (c.phases && !c.phases.includes(p))) return null;
   const due = dueNext(c.phases, c.published, p) ?? p;
   if (due !== p) {
-    const before = (c.phases ?? PHASE_ORDER).slice(0, (c.phases ?? PHASE_ORDER).indexOf(p)).filter(q => !c.published.includes(q)).map(label);
+    const before = (c.phases ? c.phases.slice(0, c.phases.indexOf(p)).filter(q => !c.published.includes(q)) : [due]).map(label);
     return { why: 'out-of-order', due, reason: [dueLine(due),
       `/autoplan publishes phases in order (${(c.phases ?? PHASE_ORDER).join(', ')}): ${label(p)} cannot publish before ${before.join(' and ')}.`,
       `When ${label(due)}'s review is finished, send ${howToPublish(due)}`].join('\n') };

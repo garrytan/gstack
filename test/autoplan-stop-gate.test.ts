@@ -315,6 +315,16 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
     expect(json(stop(partial).stdout).systemMessage).toBe('GSTACK_GATE autoplan-gate exhausted session=sess-1 skill=autoplan missing=dx blocked=3');
   });
 
+  test('an exhausted run no longer refuses publishes', () => {
+    const partial = [...DXRUN, ...phase('ceo'), DONE];
+    const early = [...DXRUN, ...phase('ceo'), report('eng')];
+    expect(denied(publishTry(early, 'eng'))?.permissionDecision).toBe('deny');
+    for (let n = 1; n <= 3; n++) expect(json(stop(partial).stdout).decision).toBe('block');
+    expect(json(stop(partial).stdout).systemMessage).toContain('autoplan-gate exhausted');
+    expect(denied(publishTry(early, 'eng'))).toBeUndefined();
+    expect(runs()[0].denied).toBe(1);
+  });
+
   test('sequence 1: the 12-block ceiling ends a run that never reports', () => {
     const idle = [...DXRUN, DONE];
     for (let n = 1; n <= 12; n++) expect(json(stop(idle).stdout).decision).toBe('block');
@@ -340,6 +350,15 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
     expect(out.reason.split('\n')[0]).toBe('GSTACK_GATE autoplan-gate blocked session=sess-1 skill=autoplan via=stop missing=eng published=ceo,dx n=1');
     expect(out.reason.split('\n')[1]).toBe('Next due: the Phase 3 (Eng) report.');
     expect(out.reason).toContain('true autoplan-published eng (out of order: Phase 1 (CEO) was due)');
+  });
+
+  test('before scope is known, CEO publishes first and later phases follow in forward order', () => {
+    const d = denied(publishTry([...LOADED, report('eng')], 'eng'));
+    expect(d.permissionDecisionReason.split('\n').slice(0, 2)).toEqual(['GSTACK_GATE autoplan-gate blocked session=sess-1 skill=autoplan via=publish phase=eng why=out-of-order missing=ceo n=1', 'Next due: the Phase 1 (CEO) report.']);
+    expect(d.permissionDecisionReason).toContain('Phase 3 (Eng) cannot publish before Phase 1 (CEO).');
+    expect(check([...LOADED, ...publish('eng')])).toMatchObject({ phases: null, published: [], uncounted: [{ phase: 'eng', why: 'out-of-order', due: 'ceo' }] });
+    expect(denied(publishTry([...LOADED, report('ceo')], 'ceo'))).toBeUndefined();
+    expect(denied(publishTry([...LOADED, ...phase('ceo'), report('eng')], 'eng'))).toBeUndefined();
   });
 
   test('sequence 3: publishes with no report are refused one by one, naming the report each one needs', () => {

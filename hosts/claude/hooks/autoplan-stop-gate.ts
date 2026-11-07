@@ -7,6 +7,7 @@
  *
  *   PreToolUse: a Bash `true autoplan-published <phase>` in the session that
  *     loaded /autoplan, once the transcript holds that call (else it runs)
+ *     -> a released or exhausted run? it runs
  *     -> lib/autoplan-stop-gate.ts publishCheck: the phase is the one due and
  *        its report was sent since the previous publish no-op? it runs
  *     -> otherwise denied: blocked via=publish why=<no-report|out-of-order>,
@@ -77,7 +78,8 @@ function onPublish(p: GatePayload): HookOutput | undefined {
   const check = checkRun(t, load);
   const refusal = publishCheck(check, phase);
   if (!refusal) return undefined;
-  return withRun(p, load, (_run, open, save) => {
+  return withRun(p, load, (existing, open, save) => {
+    if (existing?.released_at || existing?.exhausted_at) return undefined;
     const sys: string[] = [];
     const run = open(sys);
     run.phases = check.phases ?? undefined;
