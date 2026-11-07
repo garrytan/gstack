@@ -1,1 +1,1 @@
-{"blob":"507e219536d4cbd4e28b0d76a5f9ee471e0a2176","since":6,"nonBehavioral":"GST-1717 scoped fix: a changed prompt file counts as deleted only when it is absent from disk, so an untracked prompt on disk still needs full validation (stricter selection); no case's prompt, runner or grading changes, so no verdict can change"}
+{"blob":"43da2135a2f909f202d3ecda582029f805ff768d","since":6,"nonBehavioral":"test-pr-profile lists the new plain-title workflow as one no PR-gate case reads; no case's verdict can change"}
