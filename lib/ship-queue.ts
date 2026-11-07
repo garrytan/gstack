@@ -35,6 +35,7 @@ import type { ResultCodeName } from './result-codes';
 import { extractReceipt, readyTailLines } from './ship-receipt';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { isUnavailable, loadPolicyFromBase, type LoadedPolicy } from './ship-policy';
+import { readyPlan } from './plan-record';
 import {
   QUEUE_DIR_REL, applyStampPatch, commitForTree, currentAttempt, git, listAttempts, recomputeMergeTree, sha256, writeJsonAtomic,
   type AttemptRecord, type QueueFailure,
@@ -287,10 +288,14 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (!pregateOk) return fail({ code: 'QUEUE_NOT_READY', message: `the pregate result is not a current pass: ${pregateLine}` }, lines, run);
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
+  const changed = git(ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
+  const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir });
+  if (plan.line) lines.push(plan.line);
+  if (plan.failure) return fail(plan.failure, lines, run);
   if (!policy.policy.train && policy.policy.changelog_fragments) {
     const repo = repoIdentity(ctx.repoRoot);
     const now = nowIso();
-    const p = persist(ctx.repoRoot, [{ schema: 1, kind: 'ready', repo_key: repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now }], { remote: ctx.remote ?? 'origin' });
+    const p = persist(ctx.repoRoot, [{ schema: 1, kind: 'ready', repo_key: repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now, ...(plan.record ? { plan: plan.record } : {}) }], { remote: ctx.remote ?? 'origin' });
     lines.push(`READY_RECEIPT: ${readyPath(repo.key, o.pr, head)} (${p.detail})`);
   }
   return { ok: true, lines, run };

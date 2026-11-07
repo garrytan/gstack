@@ -1,0 +1,4 @@
+{
+  "bytes": 48,
+  "why": "GST-1751: Step 8 plan discovery skips the Plan record line (case-insensitive, whitespace split); Step 16 names finish --plan"
+}

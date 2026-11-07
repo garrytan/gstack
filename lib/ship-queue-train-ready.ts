@@ -32,6 +32,7 @@ import { extractReceipt } from './ship-receipt';
 import { loadReady, nowIso, persist, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
 import { baseOverlap, fetchBase, mergeCommit, outOk, outPending, outRefused, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { checkWavePin } from './ship-queue-wave';
+import { readyPlan } from './plan-record';
 
 const Q = 'gstack-ship-queue';
 
@@ -182,6 +183,14 @@ const screenLine = (c: ScreenChoice) => `screen: ${c.choice}${c.policy ? ` polic
  * records it; train build seats the PR only behind its fixer at slot 1 of a train with gates, every prefix is gated
  * with nothing excluded, and train land merges it only through an update commit whose own checks are green.
  */
+/** The brief's Plan line resolved at ready, as non-train ready does (docs/ship-policy.md#plan-record); the receipt carries the record train land reads. */
+function trainPlan(env: TrainEnv, body: string, baseSha: string, head: string, lines: string[]) {
+  const changed = git(env.ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
+  const plan = readyPlan({ cwd: env.ctx.repoRoot, env: process.env, body, policyValue: env.policy.policy.plan_record, changed, fragmentsDir: env.policy.policy.changelog_fragments?.dir });
+  if (plan.line) lines.push(plan.line);
+  return plan;
+}
+
 function conditionalReady(env: TrainEnv, o: ReadyOptions, lines: string[]): TrainOut {
   const { ctx } = env;
   const head = git(ctx.repoRoot, ['rev-parse', 'HEAD']).out;
@@ -197,9 +206,11 @@ function conditionalReady(env: TrainEnv, o: ReadyOptions, lines: string[]): Trai
   const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${env.remote}/${ctx.base}`, info.body, o.pr, [head], true);
   lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []));
   if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, lines, `run /ship on ${head.slice(0, 12)}, then ready again`, 'none');
+  const plan = trainPlan(env, info.body, baseSha, head, lines);
+  if (plan.failure) return outRefused(plan.failure, lines, plan.failure.fix, 'none');
   const now = nowIso();
   const base_red = { cases: red.cases, fixer: o.baseRed!.fixer!, base: red.base, expires_at: red.expires_at };
-  const receipt: ReadyReceipt = { schema: 1, kind: 'ready', repo_key: env.repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now, base_red };
+  const receipt: ReadyReceipt = { schema: 1, kind: 'ready', repo_key: env.repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now, base_red, ...(plan.record ? { plan: plan.record } : {}) };
   lines.unshift(`READY #${o.pr} ${head} CONDITIONAL`, 'screen: no-screen');
   lines.push(`BASE_RED: ${red.cases.join(', ')} base=${red.base.slice(0, 12)} fixer=#${base_red.fixer} expires=${red.expires_at} (CI and the pregate ran on the broken base; the train gates every prefix and lands this PR only through an update commit with green checks)`);
   if (o.dryRun) return outOk([...lines, 'DRY-RUN: no READY receipt written'], `${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${base_red.fixer}`, 'none');
@@ -271,6 +282,8 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
     return outRefused({ code: 'READY_SCREEN_CHOICE_REQUIRED', message: `the base policy runs merge trains; choose --screen or --no-screen (recommended: --${rec})` }, lines,
       `${Q} ready --pr ${o.pr} --${rec}`, 'none');
   }
+  const plan = trainPlan(env, info.body, baseSha, head, lines);
+  if (plan.failure) return outRefused(plan.failure, lines, plan.failure.fix, 'none');
   let choice: ScreenChoice = { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null };
   if (o.screen === 'screen') {
     const merge = screenMerge(env, o, head, baseSha);
@@ -283,7 +296,7 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
   }
   lines.splice(lines.findIndex(l => l.startsWith('READY ')) + 1, 0, screenLine(choice));
   const now = nowIso();
-  const receipt: ReadyReceipt = { schema: 1, kind: 'ready', repo_key: env.repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: prior?.ready_at ?? now, screen: choice, updated_at: now, ...(o.fixesBaseRed ? { fixes_base_red: o.fixesBaseRed } : {}) };
+  const receipt: ReadyReceipt = { schema: 1, kind: 'ready', repo_key: env.repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: prior?.ready_at ?? now, screen: choice, updated_at: now, ...(o.fixesBaseRed ? { fixes_base_red: o.fixesBaseRed } : {}), ...(plan.record ? { plan: plan.record } : {}) };
   if (o.fixesBaseRed) lines.push(`FIXES_BASE_RED: ${o.fixesBaseRed.join(', ')} (T0 may be red on exactly these gate cases while this PR rides at slot 1)`);
   if (o.dryRun) return outOk([...lines, 'DRY-RUN: no READY receipt written, nothing dispatched'], `${Q} ready --pr ${o.pr} --${o.screen}${o.broad ? ' --broad' : ''}`, 'none');
   const p = persist(ctx.repoRoot, [receipt], { remote: env.remote });

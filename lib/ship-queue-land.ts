@@ -22,6 +22,7 @@ import { acquireLandLock, lockLabel, readLock, writeLock, type LandLockPhase } f
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { QUEUE_DIR_REL, git, writeJsonAtomic, type QueueFailure } from './ship-queue-gate';
+import { landPlan } from './plan-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { TERMINAL_STATES, freezeLockCleared, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from './ship-queue-train-record';
 
@@ -347,7 +348,13 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   if (!policy.changelog_fragments) return fail(lines, { code: 'QUEUE_NOT_READY', message: 'the base policy has changelog_fragments off; land merges only under the key, where ready records the READY receipt it checks' }, run);
   const keys = repoIdentity(root).keys;
   if (!loadReady(keys, o.pr, pin)) rebuildFromNotes(root, ctx.remote ?? 'origin');
-  if (!loadReady(keys, o.pr, pin)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY receipt for #${o.pr} at the pin ${pin.slice(0, 12)}; ready checks the pregate and full_e2e evidence land merges on`, fix: `run gstack-ship-queue ready --pr ${o.pr}` }, run);
+  const readyNote = loadReady(keys, o.pr, pin);
+  if (!readyNote) return fail(lines, { code: 'QUEUE_NOT_READY', message: `no READY receipt for #${o.pr} at the pin ${pin.slice(0, 12)}; ready checks the pregate and full_e2e evidence land merges on`, fix: `run gstack-ship-queue ready --pr ${o.pr}` }, run);
+  if (!mergedResume) {
+    const plan = landPlan({ env: process.env, policyValue: policy.plan_record, record: readyNote.plan, body: info.body ?? '' });
+    if (plan.line) lines.push(plan.line);
+    if (plan.failure) return fail(lines, plan.failure, run);
+  }
   if (!j) {
     const ci = ciAtHead(ctx, pin);
     lines.push(`CI: ${ci.line}`);

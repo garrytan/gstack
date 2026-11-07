@@ -662,7 +662,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 it. Content changes during or after verification restart at
 stage 1 and complete all five stages before Step 17. Content-preserving commits keep evidence valid.
 
-**One call for stages 1–4:** `$GSTACK_ROOT/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>'`
+**One call for stages 1–4:** `$GSTACK_ROOT/bin/gstack-ship-release finish --base <base> --reviewed-tree <tree> --reviewed-base <mb> --docs-post <audit-id>-post.json --lane <label>=<Step 5 command>... [--build <cmd>]... --trailer '<trailer>' [--plan "<Plan line>"]`
 also makes Step 15's item-3 commit and runs the pregate (`--docs-rechecked`,
 `--no-lanes-approved` record stage 2.2 and Step 5's approval).
 

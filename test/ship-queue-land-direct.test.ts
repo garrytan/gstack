@@ -536,6 +536,39 @@ describe('land --pin: refusals (nothing merged)', () => {
     expect(r.err).toContain('gstack-ship-queue ready --pr 16');
   }, 90_000);
 
+  // Value: protects=under GSTACK_PLAN_RECORD=require land refuses a READY note with no plan or another line than the PR body, lands a matching one, and a merged rerun skips the check; fails_when=landPlan's wiring in landDirect is dropped or runs after the merge; why_new=plan-record.test.ts covers landPlan only; seam=none; no_claim=ready's resolution (the note is written directly)
+  test('QUEUE_PLAN_MISMATCH under GSTACK_PLAN_RECORD=require: no plan on the READY note or a stale line refuses and merges nothing; a matching note lands; a merged rerun skips the check', () => {
+    const fx = setup();
+    const pin = openPr(fx, '26');
+    const body = shippedBody('26', pin) + '\nPlan: exempt: bug fix\n';
+    fx.write(d => { d.prs['26'].body = body; });
+    const req = (extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '26', '--pin', pin, '--base', 'main', ...extra], { ...fx.env, GSTACK_PLAN_RECORD: 'require' });
+    const bare = req();
+    refused(fx, bare, 'QUEUE_PLAN_MISMATCH');
+    expect(bare.err).toContain('carries no plan record');
+    const notePlan = (line: string) => {
+      const prior = process.env.GSTACK_STATE_ROOT;
+      process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'ready-state');
+      try {
+        const now = new Date().toISOString();
+        persist(fx.repo.work, [{ schema: 1, kind: 'ready', repo_key: repoIdentity(fx.repo.work).key, pr: '26', head: pin, base_sha: fx.repo.git('rev-parse', 'origin/main'), ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now, plan: { line, state: 'exempt', reason: line.replace('Plan: exempt: ', ''), resolver: 1 } } as any]);
+      } finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    };
+    notePlan('Plan: exempt: docs only');
+    const stale = req();
+    refused(fx, stale, 'QUEUE_PLAN_MISMATCH');
+    expect(stale.err).toContain('but the PR body now says "Plan: exempt: bug fix"');
+    notePlan('Plan: exempt: bug fix');
+    const ok = req();
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toContain('PLAN: exempt bug fix (from the READY note)');
+    fx.write(d => { d.prs['26'].body = shippedBody('26', pin); });
+    const again = req();
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toContain('already merged');
+    expect(again.out).not.toContain('QUEUE_PLAN_MISMATCH');
+  }, 120_000);
+
   test('QUEUE_LAND_CHECKS: a red check, a pending check, and a required check GitHub never scheduled', () => {
     const fx = setup();
     const pin = openPr(fx, '17');

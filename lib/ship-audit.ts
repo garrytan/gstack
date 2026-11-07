@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
+import { parsePlanLine } from './plan-record';
 import { resolveStateRoot } from './state-root';
 import { bin, gh, git, hostedOrigin, Report, short } from './ship-bin-common';
 
@@ -36,11 +37,14 @@ export function todosHits(text: string, touched: readonly string[]): string[] {
   return out;
 }
 
+/** The PR body's plan-file binding: the first `Plan:` line that is not a plan record line (lib/plan-record.ts parsePlanLine). */
+export const planBinding = (body: string) => [...body.replace(/[\r`]/g, '').matchAll(/^[ \t]*Plan:[ \t]*(\S+).*$/gm)].find(m => !parsePlanLine(m[0]))?.[1];
+
 /** Step 8's discovery: the PR body's Plan: binding, docs/designs/ files this branch changed or that name it, then personal plan files naming it. */
 function planCandidates(cwd: string, fork: string, branch: string): string[] {
   const found: string[] = [];
   if (hostedOrigin(cwd)) {
-    const bound = /^\s*Plan:\s*(\S+)/m.exec(gh(cwd, ['pr', 'view', '--json', 'body', '-q', '.body']).stdout.replace(/[\r`]/g, ''))?.[1];
+    const bound = planBinding(gh(cwd, ['pr', 'view', '--json', 'body', '-q', '.body']).stdout);
     if (bound) found.push(`PLAN_BINDING: ${bound}`);
   }
   const designs = new Set([

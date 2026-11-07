@@ -65,6 +65,20 @@ describe('stamped trains: build and land', () => {
     void h2;
   }, 300_000);
 
+  // Value: protects=under GSTACK_PLAN_RECORD=require train land refuses a slot whose READY receipt has no plan record before pushing a stamp; fails_when=slotPlan's wiring in landUpdate is dropped or runs after the push; why_new=ship-queue-train tests cover train ready only, not train land; seam=none; no_claim=landDirect/stamp-commit slotPlan paths and a matching-plan land (train-built receipts carry no plan)
+  test('under GSTACK_PLAN_RECORD=require train land refuses a READY receipt with no plan record and pushes nothing', () => {
+    const { fx, nonce } = stampedTrain();
+    expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
+    const before = fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-1');
+    const refused = queue(fx, ['train', 'land', '--train', nonce, '--pr', '1', '--no-wait'], { GSTACK_PLAN_RECORD: 'require' });
+    expect(refused.status).toBe(EXIT.refused);
+    expect(refused.err).toContain('(QUEUE_PLAN_MISMATCH)');
+    expect(refused.out).toContain('PLAN: refused the READY note carries no plan record');
+    expect(refused.out).not.toMatch(/^PUSHED: /m);
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-1')).toBe(before);
+    expect(fx.read().prs['1']).not.toMatchObject({ state: 'MERGED' });
+  }, 300_000);
+
   test('a foreign push to the PR branch is never overwritten; a merge outside the train freezes the queue', () => {
     const { fx, nonce } = stampedTrain();
     expect(queue(fx, ['train', 'verdict', '--train', nonce]).status).toBe(EXIT.ok);
