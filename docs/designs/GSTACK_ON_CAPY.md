@@ -83,10 +83,11 @@ skips the crew step and gets a defined result instead.
 - **One signal.** "Crew loaded" means a Capy machine (`CAPY_MACHINE_CONFIG` set
   or `~/.capy/system` present: `gstack_on_capy` in
   `bin/gstack-install-registry.sh`, `onCapyMachine` in
-  `scripts/discover-skills.ts`) and a `crew/` folder in the checkout. Nothing
+  `scripts/discover-skills.ts`, both added by #4143) and a `crew/` folder in
+  the checkout. Nothing
   else turns crew steps on: not `GSTACK_CAPY`, not `.gstack/ship-policy.json`.
   Tests force either answer with a temporary HOME, as
-  `test/crew-skills-on-capy.test.ts` does today.
+  `test/crew-skills-on-capy.test.ts` (also from #4143) does.
 - **Prose calls go through one wrapper.** A new `bin/gstack-crew-step <step> --
   <command…>` runs the command when crew is loaded. Otherwise it runs nothing,
   prints `CREW_STEP: <step> skipped (not a Capy machine)` and exits 0. Skill
