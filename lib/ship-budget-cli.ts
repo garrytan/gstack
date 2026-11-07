@@ -110,7 +110,7 @@ function dispatchedOpt(o: Opts, lastBefore: number | null): { at: number; reader
  * (the pass program passes both for runs started without it, which ignore the file), and the
  * readers it names are measured from their own rows, not a before/after pair.
  */
-function useThread(l: Ledger, o: Opts, taskTitle: string | undefined): { lines: string[]; readers?: { n: number; tokens: number; credits: number } } {
+function useThread(l: Ledger, o: Opts, taskTitle: string | undefined, rebind = false): { lines: string[]; readers?: { n: number; tokens: number; credits: number } } {
   const file = str(o, 'thread');
   if (!l.ship_meter) return { lines: [] };
   if (!file) {
@@ -118,7 +118,7 @@ function useThread(l: Ledger, o: Opts, taskTitle: string | undefined): { lines: 
     return { lines: [] };
   }
   const n = str(o, 'readers');
-  const t = threadReading(l, file, taskTitle);
+  const t = threadReading(l, file, taskTitle, rebind);
   o.reading = String(t.reading);
   o.credits = String(Math.round(t.credits * 1e4) / 1e4);
   for (const k of ['prior-reading', 'dispatched-at', 'dispatched-credits', 'readers']) delete o[k];
@@ -506,7 +506,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
   }
   const out = mutateLedger(file, ctx.env, l => {
     if (l.ship_meter && (source !== undefined || o['rebuild-from-record'] === true)) throw usageError('a --thread run resumes on its own thread with --thread <file>; --meter-source and --rebuild-from-record take --reading readings');
-    const scope = useThread(l, o, ctx.env.GSTACK_SHIP_TASK_TITLE || undefined).lines;
+    const scope = useThread(l, o, ctx.env.GSTACK_SHIP_TASK_TITLE || undefined, Boolean(str(o, 'approved-by') && str(o, 'words'))).lines;
     const meter = pickMeter(o) ?? l.meter.contract.meter;
     const successor = source !== undefined && source !== l.meter.source;
     if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);

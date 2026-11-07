@@ -54,9 +54,12 @@ the row titled `GSTACK_SHIP_TASK_TITLE` when the brief names one, else the paren
 run created. The pass program adds `dispatched` (its readers' titles) to the file it notes with, and
 the ledger keeps every title per run. Reader titles repeat across /ship runs in one lane, so only rows
 absent from the run's first snapshot count as its readers, and a task title that matches no row falls
-through to the readers' parent. A `note`, `close` or `resume` whose `GSTACK_SHIP_TASK_TITLE` names a
-row other than the run's is refused: a replacement /ship subagent starts its own run, so the cap
-never reads a finished predecessor's row.
+through to the readers' parent. A run that stored a task title takes `note`, `close` and `resume`
+only under that title, or from a pass note whose readers sit under its row; an untitled run adopts the
+first title it sees while its row is unknown. RECOVER runs in a new /ship subagent under a new title:
+its owner-approved `resume --approved-by <who> --words <their words> --thread <file>` rebinds the
+run to that title (`METER_REBIND:`), so `used=` so far carries and the new row is metered from that
+snapshot. Any other new title is refused, so the cap never reads a finished predecessor's row.
 
 Once the row is found, `used=` and the cap count that row from its cost at the run's first snapshot,
 so spend counted on the tree before it drops out, and every cost line prints

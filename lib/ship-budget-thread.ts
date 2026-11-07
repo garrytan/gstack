@@ -10,7 +10,7 @@
  * /ship on the root thread itself, a truncated list) the run meters the tree, labelled.
  */
 import * as fs from 'node:fs';
-import { budgetError, usageError, type Ledger } from './ship-budget';
+import { budgetError, newEpoch, usageError, type Ledger } from './ship-budget';
 
 interface Row { label: string; title: string; tokens: number; credits: number }
 interface Snapshot { tokens: number; credits: number; rows: Row[]; total: number; dispatched: string[] }
@@ -74,25 +74,54 @@ function resolve(m: ShipMeter, s: Snapshot): { label?: string; reason?: string }
 }
 
 /**
+ * Who may note on this run. A run that stored a task title takes a command only under that title,
+ * or from a pass whose readers sit under its row; a run with no title adopts the first one it sees
+ * while its row is unknown. An owner-approved resume under a new title (RECOVER runs in a new /ship
+ * subagent) rebinds the run to that title: used= so far carries in a closed epoch and the new row
+ * is metered from this snapshot.
+ */
+function owner(l: Ledger, m: ShipMeter, s: Snapshot, taskTitle: string | undefined, rebind: boolean): string[] {
+  const stored = m.task_title ?? (taskTitle && m.label ? s.rows.find(r => r.label === m.label)?.title : undefined);
+  if (stored === undefined) {
+    if (taskTitle && !m.label) m.task_title = taskTitle;
+    return [];
+  }
+  if (taskTitle === undefined) {
+    const parents = new Set(newRows(m, s).filter(r => s.dispatched.includes(r.title)).map(r => r.label.replace(/\.\d+$/, '')));
+    const own = m.label ?? s.rows.find(r => r.title === stored)?.label;
+    if (parents.size === 1 && own !== undefined && parents.has(own)) return [];
+    throw usageError(`run ${l.run} meters /ship task "${stored}": run this command with GSTACK_SHIP_TASK_TITLE set to that title (a pass note proves the row by its readers instead)`);
+  }
+  if (taskTitle === stored) return [];
+  if (!rebind) throw usageError(`run ${l.run} meters /ship task "${stored}", not "${taskTitle}": a replacement /ship subagent resumes it with the owner's approval (gstack-ship-budget resume --approved-by <who> --words <their words> --thread <file>), which rebinds the run to its own row`);
+  newEpoch(l, l.meter.contract, s.tokens, { source: l.meter.source ?? 'this', credits: s.credits });
+  m.task_title = taskTitle;
+  delete m.label;
+  m.dispatched = [];
+  m.start_rows = Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }]));
+  return [`METER_REBIND: run ${l.run} now meters /ship task "${taskTitle}" (was "${stored}"); used= so far carries`];
+}
+
+/**
  * Turn a snapshot into this command's reading: /ship's own row once found, else the tree. The
  * first time the row is found, the run's meter is rebased onto that row's cost at the run's first
  * snapshot, so tree spend counted before it (the lane's work included) drops out of used=.
  */
-export function threadReading(l: Ledger, file: string, taskTitle?: string): { reading: number; credits: number; lines: string[]; readers?: Cost & { n: number } } {
+export function threadReading(l: Ledger, file: string, taskTitle?: string, rebind = false): { reading: number; credits: number; lines: string[]; readers?: Cost & { n: number } } {
   const s = readSnapshot(file);
   const fresh = !l.ship_meter;
   const m: ShipMeter = l.ship_meter ??= {
     dispatched: [], start_rows: Object.fromEntries(s.rows.map(r => [r.label, { tokens: r.tokens, credits: r.credits }])),
     tree: { baseline: s.tokens, last: s.tokens, credits: s.credits }, ...(taskTitle ? { task_title: taskTitle } : {}),
   };
-  if (!fresh && taskTitle && taskTitle !== (m.task_title ?? s.rows.find(r => r.label === m.label)?.title ?? taskTitle)) throw usageError(`run ${l.run} meters /ship task "${m.task_title ?? m.label}", not "${taskTitle}": a replacement /ship subagent starts its own run (gstack-ship-budget start --thread), so the cap reads the row that is spending`);
+  const lines: string[] = [];
+  if (!fresh) lines.push(...owner(l, m, s, taskTitle, rebind));
   if (s.tokens < m.tree.last) throw budgetError('BUDGET_READING_REJECTED', `--thread ${file}: tree reading ${s.tokens} is below the run's last tree reading ${m.tree.last}`);
   const prevTree = { tokens: m.tree.last, credits: m.tree.credits ?? s.credits };
   m.tree.last = s.tokens;
   m.tree.credits = s.credits;
   for (const t of s.dispatched) if (!m.dispatched.includes(t)) m.dispatched.push(t);
   const readers = s.dispatched.length ? newRows(m, s).filter(r => s.dispatched.includes(r.title)).reduce((a, r) => ({ n: a.n + 1, tokens: a.tokens + r.tokens, credits: Math.round((a.credits + r.credits) * 100) / 100 }), { n: 0, tokens: 0, credits: 0 }) : undefined;
-  const lines: string[] = [];
   if (!m.label) {
     const found = resolve(m, s);
     if (found.label) {

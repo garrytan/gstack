@@ -82,7 +82,7 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     expect(s.out).toContain('BUDGET_DEFAULT_CAP: 100M');
     expect(s.out).toContain('METER: ship (task row Subagent 3');
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const note = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 180_000_000, [['Subagent 3', title, 3_000_000], ['Subagent 1', 'lane fix', 120_000_000]])]);
+    const note = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 180_000_000, [['Subagent 3', title, 3_000_000], ['Subagent 1', 'lane fix', 120_000_000]])], { GSTACK_SHIP_TASK_TITLE: title });
     expect(field(note.out, 'NOTE', 'used')).toBe(2_000_000);
     expect(field(note.out, 'NOTE', 'tree')).toBe(80_000_000);
   });
@@ -122,16 +122,16 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '12M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 5_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(s.code, s.out + s.err).toBe(0);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
-    const seen = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 9_000_000]])]);
+    const seen = h.sb(['note', '--run', run, '--step', '6', '--thread', snap(h, 110_000_000, [['Subagent 1', SHIP, 9_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(field(seen.out, 'NOTE', 'used')).toBe(4_000_000);
-    const missing = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 115_000_000, [['Subagent 2', 'lane suite', 1]])]);
+    const missing = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 115_000_000, [['Subagent 2', 'lane suite', 1]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(missing.code, missing.out + missing.err).toBe(0);
     expect(missing.out).toContain('METER_ROW_MISSING: Subagent 1');
     expect(field(missing.out, 'NOTE', 'used')).toBe(9_000_000);
-    const back = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 116_000_000, [['Subagent 1', SHIP, 10_000_000]])]);
+    const back = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 116_000_000, [['Subagent 1', SHIP, 10_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(back.code, back.out + back.err).toBe(0);
     expect(field(back.out, 'NOTE', 'used')).toBe(9_000_000);
-    const over = h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 121_000_000, [['Subagent 2', 'lane suite', 1]])]);
+    const over = h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 121_000_000, [['Subagent 2', 'lane suite', 1]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
     expect(field(over.out, 'NOTE', 'used')).toBe(14_000_000);
     expect(over.code).toBe(3);
     expect(over.out).toMatch(/^STOP: reason=budget_exhausted /m);
@@ -190,9 +190,49 @@ describe('/ship meters its own tasks row, not the tree (GST-1699)', () => {
     for (const cmd of [['note', '--run', run, '--step', '9', '--thread', next], ['resume', '--run', run, '--thread', next]]) {
       const out = h.sb(cmd, { GSTACK_SHIP_TASK_TITLE: '/ship PR #4098 retry' });
       expect(out.code, cmd[0] + out.out).toBe(2);
-      expect(out.err).toContain('a replacement /ship subagent starts its own run');
+      expect(out.err).toContain('a replacement /ship subagent resumes it with the owner\'s approval');
     }
     expect(h.sb(['note', '--run', run, '--step', '9', '--thread', next], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(0);
+  });
+
+  // Value: protects=RECOVER after a budget stop, which runs in a new /ship subagent under a new title, rebinds the run to that subagent's row and keeps the usage so far; fails_when=the approved resume is refused, or the rebound run drops used= or keeps reading the finished row;
+  //   why_new=/ship fix-check grant a-c2fde7b5d8d2 on #4107 (review-p2b/red-team#1): the round-1 guard refused every RECOVER; seam=none; no_claim=a resume with no task title, which has no row to bind
+  test('an owner-approved resume under a new task title rebinds the run and carries used=', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '8M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const stop = h.sb(['note', '--run', run, '--step', '9', '--thread', snap(h, 120_000_000, [['Subagent 1', SHIP, 11_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    expect(stop.code, stop.out + stop.err).toBe(3);
+    const next = 'ship #4107 at da2ab1e r2d2';
+    const resume = h.sb(['resume', '--run', run, '--token-cap', '60M', '--approved-by', 'garry', '--words', 'do it', '--thread',
+      snap(h, 125_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 500_000]])], { GSTACK_SHIP_TASK_TITLE: next });
+    expect(resume.code, resume.out + resume.err).toBe(0);
+    expect(resume.out).toContain(`METER_REBIND: run ${run} now meters /ship task "${next}"`);
+    const note = h.sb(['note', '--run', run, '--step', '10', '--thread', snap(h, 160_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 6_500_000]])], { GSTACK_SHIP_TASK_TITLE: next });
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(field(note.out, 'NOTE', 'used')).toBe(16_000_000);
+    expect(h.sb(['note', '--run', run, '--step', '11', '--thread', snap(h, 161_000_000, [['Subagent 1', SHIP, 11_000_000], ['Subagent 2', next, 7_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(2);
+  });
+
+  // Value: protects=a titled run takes a note or close only under its title or from a pass whose readers sit under its row, and an untitled run adopts the first title it sees; fails_when=a caller with no title, or a new title on a run that stored none, keeps noting on the run;
+  //   why_new=/ship fix-check grant a-c2fde7b5d8d2 on #4107 (review-p2b/red-team#2, specialist-batched#1); seam=none; no_claim=an untitled run noted only by untitled callers
+  test('a note or close with no title, or under a title the run did not adopt, is refused unless a pass proves the row', () => {
+    const h = fresh();
+    const s = h.sb(['start', '--record', h.record(), '--mode', 'observe', '--token-cap', '50M', '--thread', snap(h, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP });
+    const run = h.field(s.out, 'BUDGET_RUN', 'id');
+    const bare = snap(h, 110_000_000, [['Subagent 1', SHIP, 2_000_000]]);
+    for (const cmd of ['note', 'close']) {
+      const out = h.sb(cmd === 'note' ? ['note', '--run', run, '--step', '9', '--thread', bare] : ['close', '--run', run, '--thread', bare]);
+      expect(out.code, cmd + out.out).toBe(2);
+      expect(out.err).toContain('run this command with GSTACK_SHIP_TASK_TITLE set to that title');
+    }
+    const pass = h.sb(['note', '--run', run, '--step', '9', '--readers', '1', '--thread', snap(h, 120_000_000, [['Subagent 1', SHIP, 4_000_000], ['Subagent 1.1', P1, 1_000_000]], [P1])]);
+    expect(pass.code, pass.out + pass.err).toBe(0);
+    const u = fresh();
+    const us = u.sb(['start', '--record', u.record(), '--mode', 'observe', '--token-cap', '50M', '--thread', snap(u, 100_000_000, [['Subagent 1', SHIP, 1_000_000]])]);
+    const urun = u.field(us.out, 'BUDGET_RUN', 'id');
+    expect(u.sb(['note', '--run', urun, '--step', '6', '--thread', snap(u, 105_000_000, [['Subagent 1', SHIP, 2_000_000]])], { GSTACK_SHIP_TASK_TITLE: SHIP }).code).toBe(0);
+    expect(u.sb(['note', '--run', urun, '--step', '7', '--thread', snap(u, 106_000_000, [['Subagent 1', SHIP, 2_000_000], ['Subagent 2', '/ship retry', 1]])], { GSTACK_SHIP_TASK_TITLE: '/ship retry' }).code).toBe(2);
   });
 
   // Value: protects=the RECOVER cap covers every step still to run, not only Step 22 and the stop reserve; fails_when=an observe stop at a labelled step (9.2, judge) names used + Step 22 + reserve;
