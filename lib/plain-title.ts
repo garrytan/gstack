@@ -95,8 +95,8 @@ function scan(text: string, policy: PlainTitlePolicy, normalize: (s: string) => 
   return hits;
 }
 
-/** A match as it may be printed: a credential the title or branch carries is masked before any line shows it. */
-const shown = (match: string): string => redactFindingSpans(match) ?? match;
+/** A match as it may be printed: a credential the title or branch carries is masked before any line shows it, and a match the redactor cannot mask in place prints as a fixed placeholder. */
+const shown = (match: string): string => redactFindingSpans(match) ?? '<REDACTED>';
 
 const toFindings = (code: Code, hits: Hit[]): PlainFinding[] => hits.map(h => ({
   code, kind: h.kind, match: shown(h.match),

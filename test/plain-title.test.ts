@@ -96,6 +96,13 @@ describe('checkTitle', () => {
     expect(f?.match).not.toContain(key);
   });
 
+  test('a credential the redactor cannot mask in place prints as a fixed placeholder, never the raw match', () => {
+    const header = '-----BEGIN ' + 'PRIVATE KEY-----';
+    const [f] = checkTitle(`fix(${header}): explain setup`, policy);
+    expect(f?.kind).toBe('scope-prefix');
+    expect(f?.match).toBe('<REDACTED>');
+  });
+
   test('the titles gstack generates pass', () => {
     expect(checkTitle('v1.98.0.0 release', policy)).toEqual([]);
     expect(checkTitle('Add a changelog entry for changes merged by hand next to #4122', policy)).toEqual([]);
