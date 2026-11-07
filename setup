@@ -4017,6 +4017,21 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       fi
       _copy_skill_md "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
       _record_skill_copies "$target_dir" || true
+      # Generated siblings of SKILL.md (gstack-autoplan/plan-eng-review.md, the
+      # Phase 3 methodology) travel with it; user files next to them survive.
+      for extra_file in "$skill_dir"/*.md; do
+        [ -f "$extra_file" ] || continue
+        [ "$(basename "$extra_file")" = "SKILL.md" ] && continue
+        extra_dest="$target_dir/$(basename "$extra_file")"
+        if [ -L "$extra_dest" ]; then
+          extra_target="$(_gstack_link_target_abs "$extra_dest")"
+          _gstack_target_is_ours "$extra_target" "$SOURCE_GSTACK_DIR" || continue
+        elif [ -e "$extra_dest" ] && ! _gstack_generated_header "$extra_dest"; then
+          echo "  kept $skill_name/$(basename "$extra_file"): existing file is not gstack-managed" >&2
+          continue
+        fi
+        _link_or_copy "$extra_file" "$extra_dest"
+      done
       # Native sections already contain Kiro paths/provider markers. Refresh
       # generated files individually so user assets next to them survive.
       if [ -d "$skill_dir/sections" ]; then

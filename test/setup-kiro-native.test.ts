@@ -39,6 +39,7 @@ describe.skipIf(process.platform === 'win32')('native Kiro setup installation', 
           if (name !== 'gstack') put(path.join(root, name.replace(/^gstack-/, ''), 'SKILL.md.tmpl'), `name: ${name}`);
         }
         put(path.join(generated, 'gstack-autoplan/sections/ceo.md'), `${banner}\nKiro native phase`);
+        put(path.join(generated, 'gstack-autoplan/plan-eng-review.md'), `${banner}\nKiro Phase 3 methodology`);
         put(path.join(installed, 'gstack-autoplan/SKILL.md'), skill('gstack-autoplan', 'old Codex output'));
         put(path.join(installed, 'gstack-autoplan/sections/ceo.md'), `${banner}\nold Codex phase`);
         put(path.join(installed, 'gstack-autoplan/sections/notes.md'), 'user notes');
@@ -68,6 +69,7 @@ describe.skipIf(process.platform === 'win32')('native Kiro setup installation', 
         expect(fs.readFileSync(path.join(installed, 'gstack/office-hours/SKILL.md'), 'utf8')).toContain('kiro native');
         expect(fs.readFileSync(path.join(installed, 'gstack-autoplan/sections/ceo.md'), 'utf8')).toContain('Kiro native phase');
         expect(fs.readFileSync(path.join(installed, 'gstack-autoplan/sections/notes.md'), 'utf8')).toBe('user notes');
+        expect(fs.readFileSync(path.join(installed, 'gstack-autoplan/plan-eng-review.md'), 'utf8')).toContain('Kiro Phase 3 methodology');
         expect(fs.readFileSync(path.join(installed, 'gstack-review/SKILL.md'), 'utf8')).toBe('a foreign review skill');
         expect(fs.existsSync(path.join(installed, 'gstack/bin/tool'))).toBe(true);
         expect(fs.existsSync(path.join(installed, 'gstack/lib/helper.ts'))).toBe(true);
