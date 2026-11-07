@@ -349,6 +349,50 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   fi
 done
 
+# Template UI (GST-1718): a screen written as a tagged template inside a .ts or
+# .js file (Lit, lit-html, htm, uhtml) is frontend when a changed line in that
+# file carries markup. qm#3186 rendered its persona page this way and read
+# SCOPE_FRONTEND=false, so /ship's design checks skipped it silently. This arm
+# sets FRONTEND only; the backend arm above already counted the file, so a Lit
+# edit reads both, as .dart does. lib/frontend-scope.ts stays path-only (the
+# design detector scans paths). A template file holds a tagged template at the
+# head or the base (a deleted screen counts); a markup line is a tagged template,
+# an element tag not preceded by an identifier (Promise<void> is not markup),
+# class= or style=. Every git call tolerates failure under set -e.
+TEMPLATE_TAG_RE='(^|[^A-Za-z0-9_$.])(html|css|svg)`'
+MARKUP_LINE_RE="${TEMPLATE_TAG_RE}|(^|[^A-Za-z0-9_$])</?[a-z][a-z0-9-]*([[:space:]/>]|$)|(^|[^A-Za-z0-9_-])(class|style)="
+if [ "$FRONTEND" = false ]; then
+  TPL_CANDIDATES=()
+  for f in "${FILES_LIST[@]}"; do
+    case "$f" in
+      *.test.*|*.spec.*|test/*|tests/*|spec/*|__tests__/*|cypress/*|e2e/*) continue ;;
+      *.ts|*.js|*.mjs|*.cjs|*.mts|*.cts) [[ "$f" =~ $TEST_PATH_RE ]] || TPL_CANDIDATES+=("$f") ;;
+    esac
+  done
+  if [ "${#TPL_CANDIDATES[@]}" -gt 0 ]; then
+    _root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    _g() { git --literal-pathspecs -C "$_root" "$@" 2>/dev/null || true; }
+    _mb=$(git merge-base "$BASE_SHA" "${HEAD_REF:-HEAD}" 2>/dev/null || echo "$BASE_SHA")
+    TPL_FILES=()
+    if [ -n "$HEAD_REF" ]; then
+      while IFS= read -r f; do [ -n "$f" ] && TPL_FILES+=("${f#"$HEAD_REF":}"); done < <(_g grep -l -E -e "$TEMPLATE_TAG_RE" "$HEAD_REF" -- "${TPL_CANDIDATES[@]}")
+    else
+      while IFS= read -r f; do [ -n "$f" ] && TPL_FILES+=("$f"); done < <(_g grep -l -E --untracked -e "$TEMPLATE_TAG_RE" -- "${TPL_CANDIDATES[@]}")
+    fi
+    while IFS= read -r f; do [ -n "$f" ] && TPL_FILES+=("${f#"$_mb":}"); done < <(_g grep -l -E -e "$TEMPLATE_TAG_RE" "$_mb" -- "${TPL_CANDIDATES[@]}")
+    if [ "${#TPL_FILES[@]}" -gt 0 ]; then
+      if [ -n "$HEAD_REF" ]; then
+        _d=$(_g diff -U0 "$BASE_SHA...$HEAD_REF" -- "${TPL_FILES[@]}")
+      else
+        _d=$(_g diff -U0 "$_mb" -- "${TPL_FILES[@]}")
+        [ -n "$(_g ls-files --others --exclude-standard -- "${TPL_FILES[@]}")" ] && FRONTEND=true
+      fi
+      _changed=$(grep -E '^[+-]' <<<"$_d" | grep -v -E '^(\+\+\+|---) (a/|b/|/dev/null)' || true)
+      if [ "$FRONTEND" = false ] && [ -n "$_changed" ] && grep -q -E -e "$MARKUP_LINE_RE" <<<"$_changed"; then FRONTEND=true; fi
+    fi
+  fi
+fi
+
 _print_flags
 
 # Changed files but ZERO category matches (#2526): a classifier bug, an

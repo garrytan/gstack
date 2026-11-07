@@ -5,6 +5,9 @@
 // SCOPE_FRONTEND); test/frontend-scope.test.ts pins the two against the same
 // sample paths so they cannot drift. bin/gstack-design-detect.ts uses this to
 // derive `scan --changed <base>` targets without consuming a shell-split list.
+// The bash script's template-UI content arm (GST-1718: Lit or htm templates in
+// .ts/.js) reads file contents and is not mirrored here; the detector scans
+// paths, so its targets stay path-only.
 
 const EXTENSIONS = new Set([
   '.css', '.scss', '.less', '.sass', '.pcss',
