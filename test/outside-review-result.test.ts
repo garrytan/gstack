@@ -344,7 +344,8 @@ describe('the no-findings conclusion is a closed sentence (GST-1808)', () => {
     clean('Recommendation: ship because no issues in the changes on this branch.', 'review');
     for (const text of ['No issues found in the changes on this branch, except the auth path.', 'No issues found in the diff against main, so ship it.',
       'No issues found in the changes on this branch?', 'No issues found in the diff against the auth module.',
-      'No issues found in the branch diff against main except the auth path.']) unverified(text);
+      'No issues found in the branch diff against main except the auth path.', 'No issues found in the diff against origin/main-except-the-auth-path.',
+      'No issues found in the diff against origin/feature/auth-only.']) unverified(text);
   });
 });
 
