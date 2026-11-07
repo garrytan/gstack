@@ -124,7 +124,7 @@ const smokeFixture = () => path.join(OUTPUT_TMP_DIR, `make-pdf-smoke-${process.p
 // ─── [1/5] browser check ──────────────────────────────────────────────────────
 
 describe("runSetup [1/5]: no browser at all", () => {
-  test("Aside absent and no browse binary: FAIL, the NO_BROWSER text with both remedies, exit 4, never reaches [2/5]", async () => {
+  test("Aside absent and no browse binary: FAIL, the NO_BROWSER text with this platform's remedies, exit 4, never reaches [2/5]", async () => {
     pickEngine(true, { probe: noAside, resolveBin: () => null });
     const run = await captureRun(() => runSetup());
     expect(run.error).toBeUndefined();
@@ -156,7 +156,7 @@ describe.skipIf(isWin)("runSetup [2/5]: render smoke through gstack's own browse
     expect(run.stderr).toContain("[2/5] Rendering through gstack browser... FAIL");
     expect(run.stderr).toContain("gstack browser could not render a page: unexpected page text: not-the-smoke-page");
     expect(run.stderr).toContain(`To fix: ${NO_BROWSER_HELP}`);
-    expect(run.stderr).toContain("open the Aside app");
+    expect(run.stderr.includes("open the Aside app")).toBe(process.platform === "darwin");
     expect(run.stderr).toContain("./setup");
     expect(run.stderr).not.toContain("[3/5]");
     expect(smokeDirs(stage)).toEqual(before); // finally { rmSync(smokeDir) } ran despite the exit

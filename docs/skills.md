@@ -467,7 +467,7 @@ Not every page needs the full Pretext engine. The skill reads the design and pic
 ### The refinement loop
 
 1. Reads the approved mockup from `approved.json`, plus any page archetype and section outline you picked on the board, which it builds as given instead of asking again
-2. Uses GPT-4o vision to extract implementation spec (colors, typography, layout)
+2. Extracts an implementation spec (colors, typography, layout) with the provider's vision model (OpenAI gpt-5.5, or Gemini when only a Gemini key is set; `GSTACK_DESIGN_MODEL` overrides)
 3. Generates self-contained HTML with Pretext inlined (15KB, zero network dependency)
 4. Spins up a live-reload server so you see changes instantly
 5. Screenshots at 3 viewports (mobile, tablet, desktop) to verify layout

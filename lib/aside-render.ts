@@ -678,7 +678,12 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
 // ─── Engine choice ───────────────────────────────────────────────────────────
 
 export const NO_BROWSER = 'no browser available';
-export const NO_BROWSER_HELP = "open the Aside app (macOS 15+, aside.com), or run ./setup in the gstack repo to build gstack's own headless browser (or point GSTACK_BROWSE_BIN at a browse binary)";
+/** Recovery advice for a missing browser. Aside ships only for macOS, so other platforms get only the bundled-browser remedies. */
+export function noBrowserHelp(platform: NodeJS.Platform = process.platform): string {
+  const aside = platform === 'darwin' ? 'open the Aside app (macOS 15+, aside.com), or ' : '';
+  return `${aside}run ./setup in the gstack repo to build gstack's own headless browser (or point GSTACK_BROWSE_BIN at a browse binary)`;
+}
+export const NO_BROWSER_HELP = noBrowserHelp();
 
 export type EngineChoice =
   | { engine: 'aside'; version: string }
