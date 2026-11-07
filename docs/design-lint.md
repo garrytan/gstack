@@ -21,7 +21,11 @@ every finalized page and /design-review on each audited page.
 
 ```
 gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>] [--scope page|component] [--job <job>] [--json] [--rules]
+gstack-design-lint --scope app (--url <http://…> ... | --state-file <states.json>) --within <selector> [--viewport WxH ...] [--wait-for <selector>] [--waivers <file>] [--json] [--verbose]
 ```
+
+The second form is the render-only app profile; see
+[App profile](#app-profile---scope-app).
 
 - Reads `.html`, `.css`, `.jsx`, `.tsx`, `.vue`, `.svelte` and `.astro`.
   Tailwind class strings in components are read too, including `cn()`,
