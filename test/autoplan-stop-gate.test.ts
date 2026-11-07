@@ -361,6 +361,13 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
     expect(denied(publishTry([...LOADED, ...phase('ceo'), report('eng')], 'eng'))).toBeUndefined();
   });
 
+  test('a report written after the publish call in the same message does not count for it', () => {
+    const lines = [...DXRUN, ...enter('ceo'), tool('late', 'Bash', { command: 'true autoplan-published ceo' }), report('ceo')];
+    const payload = { session_id: 'sess-1', transcript_path: transcript(lines), cwd: work, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'late', tool_input: { command: 'true autoplan-published ceo' } };
+    const d = denied(runHook(HOOK, JSON.stringify(payload), baseEnv()));
+    expect(d.permissionDecisionReason.split('\n')[0]).toBe('GSTACK_GATE autoplan-gate blocked session=sess-1 skill=autoplan via=publish phase=ceo why=no-report missing=ceo n=1');
+  });
+
   test('sequence 3: publishes with no report are refused one by one, naming the report each one needs', () => {
     const d = denied(publishTry(WORKED, 'ceo'));
     expect(d.permissionDecision).toBe('deny');

@@ -94,8 +94,8 @@ export function settledTranscript(file: string, finalMessage: unknown, opts: { i
 }
 
 /**
- * A PreToolUse gate's transcript once it holds the tool call being decided
- * (the text sent with that call precedes it), or null when the call is not
+ * A PreToolUse gate's transcript once it holds the tool call being decided,
+ * cut after that call (the text sent with it precedes it), or null when the call is not
  * there within the settle window: the caller lets the call run (fail open).
  */
 export function transcriptWithToolUse(file: string, toolUseId: string): Transcript | null {
@@ -104,7 +104,8 @@ export function transcriptWithToolUse(file: string, toolUseId: string): Transcri
   try {
     for (;;) {
       const t = parseTranscript(readTranscriptFile(file));
-      if (t.events.some(e => e.kind === 'tool_use' && e.id === toolUseId)) return t;
+      const at = t.events.findIndex(e => e.kind === 'tool_use' && e.id === toolUseId);
+      if (at >= 0) return { ...t, events: t.events.slice(0, at + 1) };
       if (Date.now() >= until) return null;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
     }
