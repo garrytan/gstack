@@ -177,67 +177,6 @@
       "plan": "none",
       "seed": "GEVA-2, 2026-11-02: health: untested (never measured)"
     },
-    "investigate": {
-      "status": "no-effect",
-      "grandfathered": true,
-      "sources": [
-        "GST-814 (HARN-1, 2026-11-02)",
-        "org-gstack-gbrain handoffs/HARN-14/hard-follow-2026-11/decision-rule.md"
-      ],
-      "models": [
-        "claude-opus-5-5"
-      ],
-      "prompt": "preset",
-      "scope": "skill step procedure follow rate: 0 of 46 gstack sessions ran any step (0 of 30 on the claude_code preset); body loaded every time; the outcome check voided at ceiling (no-gstack fixed 8 of 8)",
-      "masked": true,
-      "r48": {
-        "verdict": "CUT-CANDIDATE",
-        "ref": "GST-938 (GSTA-251 plans hooks-or-drop)"
-      },
-      "plan": "R3 (GEVA-2, 2026-11-02): gstack-evals wiki/plans/2026-11-01-geva-101-r48-follow-ups-prereg (#112, main f0b81c0) and its amendment (open PR #133), told /investigate vs no gstack on SWE-bench Verified, preset, Opus 5.5 then GPT-6.1 Sol",
-      "prior": [
-        {
-          "ref": "gstack-evals #109 stacks round 1 TB2 (GEVA-89, GEVA-93), wiki/board/2026-11-01-geva-93-stacks-round-1-tb2-results",
-          "why": [
-            "stub",
-            "no-exposure",
-            "unmasked"
-          ],
-          "note": "Opus +3 points [-3, +9] at 1.9x cost; debug report in 0 of 111 trials; particle-1 -5 [-14, +1]"
-        },
-        {
-          "ref": "GSTA-12 Lane B quick look 2, wiki/board/2026-10-29-gsta-12-laneb-quick-2-results",
-          "why": [
-            "stub",
-            "unmasked"
-          ],
-          "note": "Opus gstack minus none -7 [-13, -2] at 1.7x cost; did not replicate"
-        },
-        {
-          "ref": "GSTA-30 Lane B quick look 3 (#89), wiki/board/2026-10-30-gsta-30-laneb-quick-3-results",
-          "why": [
-            "stub",
-            "small-tier"
-          ],
-          "note": "gstack arms on Sonnet, particle-1, DeepSeek and Haiku; Opus ran the none arm only"
-        },
-        {
-          "ref": "HARN-14 replication (harness-evals #181, unmerged)",
-          "why": [
-            "stub",
-            "small-tier"
-          ],
-          "note": "Haiku 5.5: gstack minus none +3.5 [-12.3, +20.0]"
-        }
-      ],
-      "seed": "GEVA-2, 2026-11-02: investigate: measurement under way (R3)",
-      "note": "Only Opus 5.5 (claude-opus-5-5) was measured; GPT-6.1 Sol was not, so this verdict covers one of the two frontier models ETHOS.md 9 names. L1 (gstack-evals#247, wiki/board/2026-11-06-geva-350-l1-overhaul-results) measured the after pin's untold routing package and told record completeness, not this row's procedure follow rate, so the no-effect status and its CUT-CANDIDATE stand; its three verdicts are this row's caveats. GPT-6.1 Sol has not run L1.",
-      "caveats": [
-        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), untold: the routing package (route hook, contracts and the description rewrite) helps, untold /investigate opens 17/80 vs 0/80, B1 +21.3 [+12.5, +30.0], R48 KEEP; it needs routing or contracts on, and hook vs contracts aren't split; the description rewrite alone had no effect (off-u 0/80)",
-        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), told: /investigate record completeness with the contract Stop hook is untested, B3 +10.0 [0, +20]; probe I failed its blind audit, R48 FIX-METHOD; the weak item is 'Fix names an edited file', and 5 of 7 misses were fixes written by an inline Python heredoc",
-        "L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb), pass rate: O5 +5.0 at a 65% control, MDD 18.7, descriptive only"
-      ]
-    },
     "ios-clean": {
       "status": "untested",
       "grandfathered": true,

@@ -215,7 +215,7 @@ describe('screen recommendation', () => {
   //   why_new=the existing selector test covers pr, dependents and full-fallback modes only, never the throw;
   //   seam=none; no_claim=dispatch of the screen itself (pure selection on gstack's own tree; no eval-bg run)
   test("gstack's selector on gstack's own tree: a diff it cannot select recommends --screen with the full gate selection", async () => {
-    const r = await gstackPaidSelection(ROOT, 'HEAD', ['unregistered/nested/SKILL.md'], () => false);
+    const r = await gstackPaidSelection(ROOT, 'HEAD', ['test/fixtures/context-bill/tree-a/alpha/SKILL.md'], () => false);
     expect(r.recommend).toBe('screen');
     expect(r.lines[0]).toMatch(/^SCREEN: selection \d+ e2e case\(s\) \+ \d+ judge\(s\) \(the PR profile needs full validation \(.*requires full validation.*\): the screen is the full gate selection\)$/);
     expect(r.lines[2]).toBe('SCREEN: the selector could not select → recommend --screen');

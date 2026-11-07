@@ -158,8 +158,6 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/impeccable-detect-dom-sample.json': ['test/impeccable-fixtures.test.ts'],
   'test/fixtures/impeccable-detect-help.txt': ['test/impeccable-fixtures.test.ts'],
   'test/fixtures/inventory-grandfathered.json': ['test/inventory.test.ts'],
-  'test/fixtures/investigate-owned-final-texts-opus.json': ['test/workflow-boundaries-fixture.test.ts'],
-  'test/fixtures/investigate-owned-question-39195396438.json': ['test/workflow-boundaries-fixture.test.ts'],
   'test/fixtures/judge-calibration/**': ['test/judge-calibration.test.ts'],
   'test/fixtures/judge-panel-replay-2026-10-05.json': ['test/judge-panel-median.test.ts'],
   'test/fixtures/junit/**': ['test/flaky-run.test.ts'],
