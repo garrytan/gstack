@@ -158,6 +158,20 @@ describe('fast PR coverage policy', () => {
     expect([blind.missingCoverage, blind.needsFullValidation]).toEqual([['retired-skill/SKILL.md'], true]);
   });
 
+  test('an untracked prompt file on disk still needs prompt validation (GST-1717)', () => {
+    const root = path.resolve(import.meta.dir, '..');
+    fs.mkdirSync(path.join(root, '.context'), { recursive: true });
+    const dir = fs.mkdtempSync(path.join(root, '.context', 'pr-profile-untracked-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '# new skill\n');
+      const file = path.relative(root, path.join(dir, 'SKILL.md')).split(path.sep).join('/');
+      const result = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: [file] });
+      expect([result.missingCoverage, result.needsFullValidation]).toEqual([[file], true]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a selected judge alone can cover a changed prompt with broad behavioral work deferred', () => {
     const result = select({ selectedE2E: ['ceo-periodic'], selectedJudges: ['plan-ceo-review/SKILL.md modes'] });
     expect(result.e2e).toEqual([]);

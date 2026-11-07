@@ -496,7 +496,7 @@ export function selectPrProfile(options: {
           ? `Its test file changed, but the PR lane cannot select it by name; name its Bun test '${id}' (testIfSelected) to run it on PRs`
           : 'Broad gate census/release coverage; outside the fast PR profile',
   }));
-  const noQuickCoverage = files.filter(file => isPromptFile(file) && (!derived || derived.tracked.has(file))
+  const noQuickCoverage = files.filter(file => isPromptFile(file) && (!derived || fs.existsSync(path.join(ROOT, file)))
     && !(depends(file, maps.globalTouchfiles) && (e2e.length > 0 || judges.length > 0))
     && !e2e.some(id => depends(file, maps.e2eTouchfiles[id]))
     && !judges.some(id => depends(file, maps.judgeTouchfiles[id])));
