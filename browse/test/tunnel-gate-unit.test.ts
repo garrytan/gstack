@@ -190,4 +190,11 @@ describe('canDispatchOverTunnel — tunnel agents stay off the daemon filesystem
   test('args that are not an array are refused', () => {
     expect(canDispatchOverTunnel('goto', { 0: 'file:///etc/hosts' } as unknown as string[])).toBe(false);
   });
+
+  test('null args and non-string elements are refused, not treated as omitted', () => {
+    expect(canDispatchOverTunnel('screenshot', null as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('goto', [5] as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('newtab', ['--json', null] as unknown as string[])).toBe(false);
+    expect(canDispatchOverTunnel('click', ['@e1', { x: 1 }] as unknown as string[])).toBe(false);
+  });
 });

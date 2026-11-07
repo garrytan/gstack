@@ -38,19 +38,20 @@ export const TUNNEL_COMMANDS = new Set<string>([
  * Canonicalizes the command (so aliases hit the same set) and returns false
  * for null/undefined input.
  *
- * `args` is consulted because the tunnel surface never grants the daemon's
- * local disk to remote paired agents: `--out` (a write), a screenshot or
+ * `args` is consulted so remote paired agents cannot read local files or
+ * choose where anything is written: `--out` (a write), a screenshot or
  * snapshot output path (a write), and goto/newtab to anything but an http(s)
- * URL (file: reads) are refused. `eval` is absent from the allowlist because
- * it runs a file from the daemon's disk. Omitting `args` preserves the old
- * command-only behavior; args that are not an array are refused.
+ * URL (file: reads) are refused. Fixed-name captures still go to the temp
+ * dir. `eval` is absent from the allowlist because it runs a file from the
+ * daemon's disk. Omitting `args` (undefined) preserves the old command-only
+ * behavior; null, a non-array, or an array with a non-string element is refused.
  */
 export function canDispatchOverTunnel(command: string | undefined | null, args?: string[]): boolean {
   if (typeof command !== 'string' || command.length === 0) return false;
   const cmd = canonicalizeCommand(command);
   if (!TUNNEL_COMMANDS.has(cmd)) return false;
-  if (args === undefined || args === null) return true;
-  if (!Array.isArray(args) || hasOutArg(args)) return false;
+  if (args === undefined) return true;
+  if (!Array.isArray(args) || args.some(arg => typeof arg !== 'string') || hasOutArg(args)) return false;
   if (cmd === 'goto' && args.length > 0) return isWebUrl(args[0]);
   if (cmd === 'newtab') {
     const url = args.find(arg => arg !== '--json');
@@ -171,7 +172,7 @@ export const commandRoutes: RouteEntry[] = [
       if (surface === 'tunnel' && !canDispatchOverTunnel(body?.command, body?.args)) {
         logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
         return jsonError(403, `Command '${body?.command}' is not allowed over the tunnel surface`, {
-          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot/snapshot cannot name an output path, and --out is never allowed.`,
+          hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Over the tunnel, goto/newtab take http(s) URLs only, screenshot/snapshot cannot name an output path (target an element with screenshot --selector <css>), and --out is never allowed.`,
         });
       }
       return ctx.commands.handle(body, tokenInfo);
