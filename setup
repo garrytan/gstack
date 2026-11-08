@@ -782,7 +782,17 @@ _link_or_copy() {
     # "$DST/<module>" would miss everything not in the stale subdir. Remove a
     # real (non-symlink) directory at DST first so the link lands at DST
     # itself. A symlink at DST is replaced atomically by `ln -snf` as before.
+    #
+    # Guard: never remove DST when SRC and DST resolve to the same directory
+    # (e.g. DST is already a correct link's target, or a bind/hardlinked path).
+    # Deleting it would destroy SRC and leave a self-referential dangling link.
     if [ -d "$dst" ] && [ ! -L "$dst" ]; then
+      local src_real dst_real
+      src_real=$(cd "$src" 2>/dev/null && pwd -P) || src_real=""
+      dst_real=$(cd "$dst" 2>/dev/null && pwd -P) || dst_real=""
+      if [ -n "$dst_real" ] && [ "$src_real" = "$dst_real" ]; then
+        return 0
+      fi
       rm -rf "$dst"
     fi
     ln -snf "$src" "$dst"

@@ -110,4 +110,44 @@ describe.skipIf(process.platform === 'win32')('_link_or_copy: DST becomes a syml
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  test('SRC and DST are the same path: no deletion, SRC survives (guards self-referential link)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-link-same-'));
+    try {
+      const src = mkSrc(tmp);
+      // DST === SRC: a real directory that is its own source.
+      const r = run(
+        ['set -e', 'IS_WINDOWS=0', extractFn('_link_or_copy'), `_link_or_copy "${src}" "${src}"`],
+        tmp,
+      );
+      expect(r.status).toBe(0);
+      // SRC must still exist with its contents intact — never deleted.
+      expect(fs.existsSync(path.join(src, 'jsonl-store.ts'))).toBe(true);
+      expect(fs.existsSync(path.join(src, 'other.ts'))).toBe(true);
+      // It must not have become a dangling symlink to itself.
+      expect(fs.lstatSync(src).isSymbolicLink()).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('DST resolves to SRC via a symlinked parent: no deletion, SRC survives', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-link-samevia-'));
+    try {
+      const src = mkSrc(tmp);
+      // A second path that resolves to the same real directory as SRC.
+      const aliasParent = path.join(tmp, 'alias');
+      fs.symlinkSync(path.dirname(src), aliasParent);
+      const dstViaAlias = path.join(aliasParent, path.basename(src));
+      const r = run(
+        ['set -e', 'IS_WINDOWS=0', extractFn('_link_or_copy'), `_link_or_copy "${src}" "${dstViaAlias}"`],
+        tmp,
+      );
+      expect(r.status).toBe(0);
+      expect(fs.existsSync(path.join(src, 'jsonl-store.ts'))).toBe(true);
+      expect(fs.existsSync(path.join(src, 'other.ts'))).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
