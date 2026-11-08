@@ -775,6 +775,16 @@ _link_or_copy() {
     fi
     rm -rf "$old"
   else
+    # `ln -snf SRC DST` does NOT replace DST when DST is an existing real
+    # directory: it creates the link *inside* it as DST/$(basename SRC). A
+    # prior install that left a real dir at DST (e.g. a curated lib/ subdir)
+    # would then get a nested DST/lib symlink, and scripts importing
+    # "$DST/<module>" would miss everything not in the stale subdir. Remove a
+    # real (non-symlink) directory at DST first so the link lands at DST
+    # itself. A symlink at DST is replaced atomically by `ln -snf` as before.
+    if [ -d "$dst" ] && [ ! -L "$dst" ]; then
+      rm -rf "$dst"
+    fi
     ln -snf "$src" "$dst"
   fi
 }
