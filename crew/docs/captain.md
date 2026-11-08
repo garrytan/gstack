@@ -44,6 +44,14 @@ by a daily pass; nothing is retried into green.
   runs /ship, sends one READY block, stamps on call (merging the base into its pin only
   as part of that stamp commit, or when the controller names a real-code conflict),
   writes one report, and never merges a PR.
+- **A merge lane** (optional) is one crew thread that watches PRs and CI for the controller.
+  Every Captain wake that comes more than about five minutes after its last call rewrites the
+  Captain's whole context cache at many times the warm price, so a Captain whose PRs bring
+  many check, review and merge wakes hands that watching to a merge lane and stops
+  subscribing to PRs itself. The merge lane holds the PR watches, lands verified READYs as the
+  crew's rules allow, and reports to the Captain only a landing, a red check that needs a
+  decision or a blocker. Each other lane still owns its own PR's CI and review up to READY,
+  so CI pings wake the lane that can act on them, never the Captain.
 - **The controller never commits to a lane's branch**, and a lane never pushes to another
   lane's. One committer per shared tree.
 
