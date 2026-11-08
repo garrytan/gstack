@@ -639,11 +639,12 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     return [...new Set(problems)];
   }
 
-  test('it fits the 3,450-byte budget, and every citation, heading and skill it names resolves', () => {
+  test('it fits the 3,600-byte budget, and every citation, heading and skill it names resolves', () => {
     const text = fs.readFileSync(FACTORY, 'utf8');
     // 3,300 since #3634; raised to 3,450 (the page's new size, rounded up to the next 25 bytes) for point 12's
-    // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raise it only by what a rule needs.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3450);
+    // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raised to 3,600 for point 10's
+    // GST-1455 report shape (Garry, 2026-11-05: "do it"). Raise it only by what a rule needs.
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3600);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
