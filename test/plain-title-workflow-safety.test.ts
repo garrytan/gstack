@@ -57,14 +57,20 @@ describe('plain-title.yml pull_request_target safety', () => {
     expect(runBlockLines(planted).filter(l => /\$\{\{\s*github\.event\.pull_request/.test(l.text)).length).toBe(2);
   });
 
-  test('PR text reaches files through env: and printf, and is never echoed', () => {
+  test('PR text reaches files through env: and printf, or straight from the event file, and is never echoed', () => {
     expect(content).toMatch(/PR_TITLE: \$\{\{ github\.event\.pull_request\.title \}\}/);
-    expect(content).toMatch(/PR_BODY: \$\{\{ github\.event\.pull_request\.body \}\}/);
     expect(content).toMatch(/printf '%s' "\$PR_TITLE" >/);
-    expect(content).toMatch(/printf '%s' "\$PR_BODY" >/);
     const run = runBlockLines(content).map(l => l.text).join('\n');
     expect(run).not.toMatch(/\becho\b[^\n]*\$\{?PR_/);
     expect(run).not.toMatch(/\bcat\b/);
+  });
+
+  // Value: protects=a PR body larger than one environment string (about 128 KiB) still reaches the checker, so a good
+  // title never fails on E2BIG; fails_when=the body travels through env:; why_new=review finding plain-title.yml:58;
+  // seam=the workflow text; no_claim=the runner's exact limit
+  test('the body is read from the event file, never through env:', () => {
+    expect(content).not.toMatch(/github\.event\.pull_request\.body/);
+    expect(content).toMatch(/jq -j '\.pull_request\.body \/\/ ""' "\$GITHUB_EVENT_PATH" > "\$RUNNER_TEMP\/pr-body\.txt"/);
   });
 
   test('permissions are read-only', () => {
