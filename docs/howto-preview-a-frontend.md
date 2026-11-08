@@ -34,7 +34,8 @@ files instead, with the same fixture API; gstack's own tests use that mode on
   parameters are replaced with `REDACTED`.
 - **No live backend.** Every request under the API prefix (`--api`, default
   `/api/`) is answered from a fixture or with a 501. Anything outside the
-  prefix is the app's (SPA routes still serve). An app that calls an
+  prefix is the app's (SPA routes still serve), except a path the app's own
+  dev-server proxy forwards, which gets a 501 too. An app that calls an
   absolute API URL on another origin still reaches that host, so point its
   API base at the preview. `preflight` prints `mutations=fixtures-only` only
   when the preview's own probe route, `/api/__gstack-preview`, answers at
@@ -86,11 +87,13 @@ the error and still rendered.
 | <a id="preview-unhandled"></a>`PREVIEW_UNHANDLED` | the scenario file has no route for this method and path | add the route to that file, restart the preview and start a fresh run from preflight: every 501 the preview recorded during a run keeps its receipt incomplete |
 | <a id="preview-unknown-scenario"></a>`PREVIEW_UNKNOWN_SCENARIO` | no `<scenario>.json`, or it is not JSON | add or fix the file |
 | <a id="preview-no-scenario"></a>`PREVIEW_NO_SCENARIO` | an API call with no scenario at all | open the page with `?as=<scenario>` |
+| <a id="preview-live-proxy"></a>`PREVIEW_LIVE_PROXY` | the path matches the app's `server.proxy`, a live backend | serve it under the API prefix from a fixture |
 
 Start failures print `PREVIEW: fail code=<CODE> <detail> | fix: <fix>`:
 `PREVIEW_NO_VITE` (no `node_modules/vite` at or above `--root`: install
 it in the app, or use `--static`), `PREVIEW_CONFIG` (Vite could not load
-the app's config), `PREVIEW_PORT`, `PREVIEW_HOST` and `PREVIEW_USAGE`.
+the app's config), `PREVIEW_STATE` (the state directory is a symlink or
+another user's), `PREVIEW_PORT`, `PREVIEW_HOST` and `PREVIEW_USAGE`.
 Usage and host errors exit 3, the rest 4.
 
 To use the plugin from the app's own `vite.config`:

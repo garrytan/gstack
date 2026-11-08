@@ -59,7 +59,7 @@ function lintJson(verdict: string, cov: Cov[], findings: unknown[] = []): string
   return JSON.stringify({ summary: {}, files: 0, findings, app: { verdict, code: verdict === 'clean' ? 'OK' : verdict === 'open' ? 'OPEN' : cov.find((c) => c[2] !== 'measured')?.[3] ?? 'X', codes: [], within: 'section.access', matched: 1, viewports: VPS, states, open: 0, waived: 0, notes: [] } });
 }
 const allMeasured = (names = ['owner', 'lastowner']): Cov[] => names.flatMap((n) => VPS.map((v): Cov => [n, v, 'measured', 'OK']));
-const finding = (rule: string, tier = 'ask', state = 'owner') => ({ rule, tier, grade: 'D', file: 'x', line: 0, evidence: '[owner 1440px] a 2-line row leaves 4px', fix: 'f', source: 'render', ...(tier === 'waived' ? { waiver: 'house style here' } : {}), app: { state, viewport: '1440x900', locator: 'section.access > div.row', measured: 4, threshold: 8 } });
+const finding = (rule: string, grade = 'ask', state = 'owner') => ({ rule, tier: grade === 'waived' ? 'ask' : grade, grade, file: 'x', line: 0, evidence: '[owner 1440px] a 2-line row leaves 4px', fix: 'f', source: 'render', ...(grade === 'waived' ? { waiver: 'house style here' } : {}), app: { state, viewport: '1440x900', locator: 'section.access > div.row', measured: 4, threshold: 8 } });
 
 interface RunOpts { inv?: Inventory; lint?: string | null; shots?: string[] | 'all'; rounds?: number; unhandled?: object[]; beforeReceipt?: (repo: string, runDir: string) => void; repo?: string }
 function run(o: RunOpts = {}) {
@@ -448,5 +448,74 @@ describe('preview template: the shim and the Vite plugin (T3, T21)', () => {
     used[0]!({ url: '/src/main.ts', method: 'GET', headers: {} }, {}, () => { passed = true; });
     expect(passed).toBe(true);
     expect(mod.redact('http://' + ['u', 'p'].join(':') + '@h/x?api_key=a)b&ok=1#sig=c')).toBe('http://h/x?api_key=REDACTED&ok=1#sig=REDACTED');
+  });
+});
+
+describe('the receipt binds what it measured and reads the lint and preview as they are written', () => {
+  const PORT = 40000 + (process.pid % 20000);
+  const LOCAL = (as: string) => `http://127.0.0.1:${PORT}/settings?as=${as}`;
+  function measure(repo: string, inv: Inventory, recordedStates: string[]) {
+    const runDir = tmpDir('design-build-run-');
+    plan(inv, runDir);
+    verifyStart(repo, inv, runDir);
+    fs.writeFileSync(path.join(runDir, 'lint.json'), lintJson('clean', allMeasured(recordedStates)));
+    for (const s of recordedStates) for (const v of VPS) fs.writeFileSync(path.join(runDir, 'shots', `${s}-${v}.png`), 'png');
+    return runDir;
+  }
+
+  test('an edit inside a touched directory changes the tree identity, so the receipt is TREE_CHANGED', () => {
+    const repo = fixtureRepo();
+    fs.mkdirSync(path.join(repo, 'src', 'panel'));
+    fs.writeFileSync(path.join(repo, 'src', 'panel', 'a.tsx'), 'export const a = 1;\n');
+    const r = run({ repo, inv: inventory({ touched: ['src/panel'] }), beforeReceipt: (rp) => fs.writeFileSync(path.join(rp, 'src', 'panel', 'a.tsx'), 'export const a = 2;\n') });
+    expect(r.line).toStartWith('DESIGN_BUILD: incomplete code=TREE_CHANGED');
+  });
+
+  test('an inventory edited after verify-start is never clean, and check refuses a receipt measured on another inventory', () => {
+    const repo = fixtureRepo();
+    const inv = inventory();
+    const fewer = inventory({ states: [{ name: 'owner', url: URL_OWNER, expect: '.rows .row' }] });
+    const runDir = measure(repo, inv, ['owner']);
+    const r = receipt({ repo, inv: fewer, runDir, rounds: 1, previewDir: tmpDir('design-build-preview-'), outRoot: path.join(runDir, 'out') });
+    expect(r.line).toStartWith('DESIGN_BUILD: incomplete code=INVENTORY_CHANGED linted=1/1');
+    const clean = run({ repo, inv });
+    expect(clean.line).toStartWith('DESIGN_BUILD: clean');
+    expect(check(repo, fewer, clean.file).line).toStartWith('DESIGN_BUILD: stale code=INVENTORY_CHANGED');
+    expect(check(repo, inv, clean.file).line).toBe(clean.line);
+  });
+
+  test('without --preview the receipt reads the default preview state for each loopback port, so a recorded 501 is never clean', () => {
+    const repo = fixtureRepo();
+    const inv = inventory({ states: [{ name: 'owner', url: LOCAL('owner') }, { name: 'lastowner', url: LOCAL('lastowner') }] });
+    const state = path.join(os.tmpdir(), `gstack-preview-${PORT}`);
+    fs.mkdirSync(state, { recursive: true });
+    tmp.push(state);
+    fs.writeFileSync(path.join(state, 'unhandled.jsonl'), JSON.stringify({ scenario: 'lastowner', method: 'GET', path: '/api/audit', code: 'PREVIEW_UNHANDLED' }) + '\n');
+    const runDir = measure(repo, inv, ['owner', 'lastowner']);
+    const r = receipt({ repo, inv, runDir, rounds: 1, outRoot: path.join(runDir, 'out') });
+    expect(r.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED linted=2/2');
+  });
+
+  test("a path the app's own dev proxy forwards gets a recorded 501 instead of reaching the live backend", async () => {
+    const mod = await import(PREVIEW_TEMPLATE);
+    const state = tmpDir('pv-');
+    const used: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
+    mod.gstackPreviewFixtures({ fixtures: FIXTURES, stateDir: state }).configureServer({ config: { server: { proxy: { '/graphql': 'https://staging.example.com', '^/v1/.*': {} } } }, middlewares: { use: (fn: (typeof used)[number]) => used.push(fn) } });
+    const hit = (url: string, method: string): [number, boolean] => {
+      let status = 0;
+      let passed = false;
+      used[0]!({ url, method, headers: { 'x-gstack-scenario': 'owner' }, resume() {} }, { writeHead: (s: number) => { status = s; }, end: () => {} }, () => { passed = true; });
+      return [status, passed];
+    };
+    expect([hit('/graphql', 'POST'), hit('/v1/teams/7', 'DELETE'), hit('/src/main.ts', 'GET'), hit('/api/members', 'GET')]).toEqual([[501, false], [501, false], [0, true], [200, false]]);
+    expect(fs.readFileSync(path.join(state, 'unhandled.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).code)).toEqual(['PREVIEW_LIVE_PROXY', 'PREVIEW_LIVE_PROXY']);
+  });
+
+  test('start refuses a state directory that is a symlink', () => {
+    const link = path.join(tmpDir('pv-'), 'state');
+    fs.symlinkSync(tmpDir('pv-'), link);
+    const r = runPreview(['start', '--static', '--root', PAGE, '--fixtures', FIXTURES, '--port', '0', '--state', link]);
+    expect(r.code).toBe(4);
+    expect(r.err).toStartWith('PREVIEW: fail code=PREVIEW_STATE');
   });
 });

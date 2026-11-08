@@ -14,7 +14,8 @@
 // A request under the API prefix is answered only from
 // <fixtures>/<scenario>.json; anything else under the prefix is a 501 problem
 // document naming the route and the file to edit, recorded in
-// <state>/unhandled.jsonl, never passed to a live backend. Loopback only, a
+// <state>/unhandled.jsonl, never passed to a live backend; so is a path the
+// app's own server.proxy would forward. Loopback only, a
 // port this process owns (strict), a private redacted log, a clean stop.
 //
 // Plugin use inside a repo's vite.config: import { gstackPreviewFixtures }
@@ -41,6 +42,8 @@ export const FIXES = {
   PREVIEW_NO_SCENARIO: 'open the page with ?as=<scenario>; the shim carries it to API calls',
   PREVIEW_UNKNOWN_SCENARIO: 'add <fixtures>/<scenario>.json with {"version":1,"routes":{}}',
   PREVIEW_UNHANDLED: 'add the route to the scenario file',
+  PREVIEW_LIVE_PROXY: 'serve the route under the API prefix from a fixture',
+  PREVIEW_STATE: 'pass --state <a private directory this user owns>',
 };
 
 /** Userinfo dropped and secret-looking parameter values replaced, up to the next &, # or whitespace. */
@@ -83,12 +86,10 @@ function matchRoute(routes, method, pathname) {
 }
 
 /** Connect-style middleware answering the API prefix from fixtures; everything else goes to next(). */
-export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log = () => {} }) {
+export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log = () => {}, proxied = [] }) {
   const record = (hit) => { if (stateDir) fs.appendFileSync(path.join(stateDir, 'unhandled.jsonl'), JSON.stringify(hit) + '\n', { mode: 0o600 }); };
   return (req, res, next) => {
     const url = new URL(req.url ?? '/', 'http://' + HOST);
-    if (!url.pathname.startsWith(api)) return next();
-    if (url.pathname === api + '__gstack-preview') { res.writeHead(204, { 'x-gstack-preview': 'ready', 'cache-control': 'no-store' }); return res.end(); }
     const method = (req.method ?? 'GET').toUpperCase();
     const scenario = scenarioOf(req, url);
     const fail = (code, detail, fixLine) => {
@@ -97,6 +98,10 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
       res.writeHead(501, { 'content-type': 'application/problem+json', 'x-gstack-preview': code, 'cache-control': 'no-store' });
       res.end(JSON.stringify({ type: `${DOC}#${code.toLowerCase().replace(/_/g, '-')}`, title: 'No fixture answers this request', status: 501, code, detail, fix: fixLine }));
     };
+    const live = url.pathname.startsWith(api) ? undefined : proxied.find((k) => (k.startsWith('^') ? new RegExp(k).test(req.url ?? '/') : (req.url ?? '/').startsWith(k)));
+    if (live) return fail('PREVIEW_LIVE_PROXY', `${method} ${url.pathname} matches the app's dev proxy "${live}", a live backend`, `serve it under ${api} from a fixture`);
+    if (!url.pathname.startsWith(api)) return next();
+    if (url.pathname === api + '__gstack-preview') { res.writeHead(204, { 'x-gstack-preview': 'ready', 'cache-control': 'no-store' }); return res.end(); }
     if (!scenario) return fail('PREVIEW_NO_SCENARIO', `${method} ${url.pathname} arrived with no scenario (no x-gstack-scenario header, ?as= or Referer ?as=)`, FIXES.PREVIEW_NO_SCENARIO);
     const file = path.join(fixtures, `${scenario}.json`);
     if (!SCENARIO.test(scenario) || !fs.existsSync(file)) return fail('PREVIEW_UNKNOWN_SCENARIO', `scenario "${redact(scenario)}" has no fixture file`, `add ${path.join(fixtures, '<scenario>.json')} with {"version":1,"routes":{}}`);
@@ -122,7 +127,7 @@ export function gstackPreviewFixtures({ fixtures, api = '/api/', stateDir, log }
     name: 'gstack-preview-fixtures',
     apply: 'serve',
     transformIndexHtml: () => [{ tag: 'script', attrs: { 'data-gstack-preview': '' }, children: SHIM, injectTo: 'head-prepend' }],
-    configureServer(server) { server.middlewares.use(createFixtureMiddleware({ fixtures: path.resolve(fixtures), api, stateDir, log })); },
+    configureServer(server) { server.middlewares.use(createFixtureMiddleware({ fixtures: path.resolve(fixtures), api, stateDir, log, proxied: Object.keys(server.config?.server?.proxy ?? {}) })); },
   };
 }
 
@@ -171,6 +176,10 @@ function hasLocalVite(root) {
 }
 
 const defaultState = (port) => path.join(os.tmpdir(), `gstack-preview-${port}`);
+const ownState = (dir) => {
+  const st = fs.lstatSync(dir);
+  if (st.isSymbolicLink() || !st.isDirectory() || (process.getuid && st.uid !== process.getuid())) throw new PreviewError('PREVIEW_STATE', `${dir} is a link or not a directory this user owns`);
+};
 
 async function start(o) {
   if (o.host && o.host !== HOST && o.host !== 'localhost') throw new PreviewError('PREVIEW_HOST', `--host ${o.host} is not loopback`);
@@ -182,6 +191,7 @@ async function start(o) {
   const fixtures = path.resolve(o.fixtures);
   const stateDir = path.resolve(o.state ?? defaultState(port || 'auto'));
   fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  ownState(stateDir);
   fs.chmodSync(stateDir, 0o700);
   const logFile = path.join(stateDir, 'preview.log');
   fs.writeFileSync(logFile, '', { mode: 0o600 });
@@ -239,6 +249,7 @@ async function stopCmd(o) {
   const stateDir = path.resolve(o.state ?? defaultState(o.port ?? 5300));
   const file = path.join(stateDir, 'preview.json');
   if (!fs.existsSync(file)) { console.log(`PREVIEW: stopped (nothing running for ${stateDir})`); return; }
+  ownState(stateDir);
   const { pid, port } = JSON.parse(fs.readFileSync(file, 'utf8'));
   const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
   if (alive()) process.kill(pid, 'SIGTERM');

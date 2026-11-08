@@ -19,6 +19,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { pickEngine, type EngineChoice } from './aside-render';
 import { DEFAULT_VIEWPORTS, parseViewport, redactText, redactUrl, viewportLabel } from './design-lint/app-input';
@@ -55,6 +56,8 @@ export const BUILD_FIXES: Record<string, string> = {
   PREVIEW_NO_SCENARIO: 'give the state URL an ?as=<scenario> query, restart the preview, then start a fresh run from preflight',
   NOT_SHOT: 'take the SHOT lines from plan for the named states, then rerun receipt',
   LINT_VERDICT: 'the lint result has no verdict; run the LINT_CMD line from plan unchanged',
+  INVENTORY_CHANGED: 'the inventory changed after verify-start; rerun the final verification pass from plan',
+  PREVIEW_LIVE_PROXY: `serve the route under the API prefix from a fixture (${DOC}#fixtures), restart the preview, then start a fresh run from preflight`,
 };
 
 const NAME = /^[A-Za-z0-9._-]{1,64}$/;
@@ -139,7 +142,7 @@ export function treeIdentity(repo: string, inv: Pick<Inventory, 'touched' | 'fix
   const h = createHash('sha256');
   h.update('head\0' + git(repo, ['rev-parse', 'HEAD']).trim() + '\0');
   h.update('diff\0' + git(repo, ['diff', 'HEAD', '--binary', '--no-ext-diff', '--no-textconv']) + '\0');
-  const files = [...new Set([...inv.touched, ...(inv.fixtures ? filesUnder(repo, inv.fixtures) : [])])].sort();
+  const files = [...new Set([...inv.touched.flatMap((t) => filesUnder(repo, t)), ...(inv.fixtures ? filesUnder(repo, inv.fixtures) : [])])].sort();
   for (const rel of files) {
     const abs = path.join(repo, rel);
     h.update('file\0' + rel + '\0');
@@ -154,10 +157,12 @@ export function treeIdentity(repo: string, inv: Pick<Inventory, 'touched' | 'fix
  * pass began at verify.json's own mtime, so evidence is compared on the
  * filesystem's clock, not the process's.
  */
+const inventoryHash = (inv: Inventory): string => createHash('sha256').update(JSON.stringify(inv)).digest('hex');
+
 export function verifyStart(repo: string, inv: Inventory, runDir: string): string {
   const tree = treeIdentity(repo, inv);
   fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(runDir, 'verify.json'), JSON.stringify({ tree }) + '\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(runDir, 'verify.json'), JSON.stringify({ tree, inventory: inventoryHash(inv) }) + '\n', { mode: 0o600 });
   return `VERIFY: tree=${tree.slice(0, 12)} run=${runDir}`;
 }
 
@@ -231,14 +236,13 @@ export function buildLine(i: LineInput): string {
 export interface UnhandledHit { scenario: string; method: string; path: string; code: string }
 
 /** The preview template's record of API calls it could not answer (unhandled.jsonl in its state directory). */
-export function readUnhandled(previewDir: string | undefined): UnhandledHit[] {
-  if (!previewDir) return [];
+export function readUnhandled(previewDir: string): UnhandledHit[] {
   const file = path.join(previewDir, 'unhandled.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as UnhandledHit);
 }
 
-interface LintFinding { rule: string; tier: string; evidence?: string; waiver?: string; app?: { state: string; viewport: string; locator: string; measured: number; threshold: number } }
+interface LintFinding { rule: string; tier: string; grade: string; evidence?: string; waiver?: string; app?: { state: string; viewport: string; locator: string; measured: number; threshold: number } }
 interface LintCoverage { name: string; viewport: string; status: string; code: string }
 interface LintJson { findings?: LintFinding[]; app?: { verdict?: string; code?: string; codes?: string[]; viewports?: string[]; states?: LintCoverage[] } }
 
@@ -258,12 +262,13 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
   if (!Number.isInteger(r.rounds) || r.rounds < 0 || r.rounds > MAX_ROUNDS) throw new BuildUsageError('ROUNDS', `--rounds ${r.rounds} is outside 0 to ${MAX_ROUNDS}`, `the loop stops editing after round ${MAX_ROUNDS}; report the open list instead of a fourth round`);
   const verifyFile = path.join(r.runDir, 'verify.json');
   if (!fs.existsSync(verifyFile)) throw new BuildUsageError('NO_VERIFY', `${verifyFile} is missing`, 'run verify-start right before the final verification pass');
-  const verify = { ...(JSON.parse(fs.readFileSync(verifyFile, 'utf8')) as { tree: string }), at: mtime(verifyFile) };
+  const verify = { ...(JSON.parse(fs.readFileSync(verifyFile, 'utf8')) as { tree: string; inventory?: string }), at: mtime(verifyFile) };
   const tree = treeIdentity(r.repo, r.inv);
   const codes: string[] = [];
   const details: string[] = [];
   const add = (code: string, detail: string): void => { if (!codes.includes(code)) codes.push(code); details.push(detail); };
   if (tree !== verify.tree) add('TREE_CHANGED', 'the tree changed after verify-start');
+  if (verify.inventory !== inventoryHash(r.inv)) add('INVENTORY_CHANGED', 'the inventory is not the one verify-start recorded');
 
   const urlStates = r.inv.states.filter((s) => s.mode === 'url');
   const lint = urlStates.length ? readLint(r.runDir, verify.at, add) : null;
@@ -271,7 +276,8 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
   if (lint && !['clean', 'open', 'incomplete'].includes(verdict ?? '')) add('LINT_VERDICT', 'lint.json carries no app verdict');
   if (lint && (lint.app?.viewports ?? []).join(',') !== r.inv.viewports.join(',')) add('VIEWPORTS', `linted ${(lint.app?.viewports ?? []).join(',') || 'none'}, planned ${r.inv.viewports.join(',')}`);
 
-  const hits = readUnhandled(r.previewDir);
+  const previewDirs = r.previewDir ? [r.previewDir] : [...new Set(urlStates.filter((s) => isLoopbackHost(new URL(s.url!).hostname)).map((s) => path.join(os.tmpdir(), `gstack-preview-${new URL(s.url!).port || 80}`)))];
+  const hits = previewDirs.flatMap(readUnhandled);
   const states = r.inv.states.map((s) => {
     const cov = (lint?.app?.states ?? []).filter((c) => c.name === s.name);
     const linted = s.mode === 'url' && r.inv.viewports.every((v) => cov.some((c) => c.viewport === v && c.status === 'measured'));
@@ -294,8 +300,8 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
     };
   });
   const appFindings = (lint?.findings ?? []).filter((f) => f.app);
-  const open = appFindings.filter((f) => f.tier !== 'waived');
-  const waived = appFindings.filter((f) => f.tier === 'waived');
+  const open = appFindings.filter((f) => f.grade !== 'waived');
+  const waived = appFindings.filter((f) => f.grade === 'waived');
   const counts: Counts = { planned: states.length, url: urlStates.length, linted: states.filter((s) => s.linted).length, shot: states.filter((s) => s.shots.length === r.inv.viewports.length).length, screenshotOnly: states.length - urlStates.length, open: open.length, waived: waived.length };
 
   let outcome: Outcome;
@@ -312,7 +318,7 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
   const waivers = r.waivers ? { path: r.waivers, sha256: createHash('sha256').update(fs.readFileSync(r.waivers)).digest('hex') } : null;
   const line = buildLine({ outcome, code, detail: outcome === 'incomplete' ? details.slice(0, 6).join('; ') : undefined, counts, rounds: r.rounds, viewports: r.inv.viewports, tree, receipt: file });
   const rec = {
-    version: RECEIPT_VERSION, outcome, code, codes, head, tree, measured_tree: verify.tree, rounds: r.rounds, viewports: r.inv.viewports, within: r.inv.within,
+    version: RECEIPT_VERSION, outcome, code, codes, head, tree, measured_tree: verify.tree, inventory: inventoryHash(r.inv), rounds: r.rounds, viewports: r.inv.viewports, within: r.inv.within,
     counts, states, lint: lint ? { verdict: verdict ?? null, code: lint.app?.code ?? null, codes: lint.app?.codes ?? [] } : null,
     open: open.map((f) => ({ rule: f.rule, evidence: redactText(f.evidence ?? ''), ...f.app })),
     waived: waived.map((f) => ({ rule: f.rule, reason: f.waiver ?? '', ...f.app })),
@@ -324,9 +330,10 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
 
 /** A receipt stays good only while the tree it measured is the tree on disk. */
 export function check(repo: string, inv: Inventory, receiptFile: string): { line: string; exit: number } {
-  const rec = JSON.parse(fs.readFileSync(receiptFile, 'utf8')) as { tree: string; line: string; outcome: Outcome; version: number };
+  const rec = JSON.parse(fs.readFileSync(receiptFile, 'utf8')) as { tree: string; inventory: string; line: string; outcome: Outcome; version: number };
   if (rec.version !== RECEIPT_VERSION) return { line: buildLine({ outcome: 'stale', code: 'TREE_CHANGED', detail: `receipt version ${rec.version} is not ${RECEIPT_VERSION}` }), exit: 4 };
   const now = treeIdentity(repo, inv);
+  if (rec.inventory !== inventoryHash(inv)) return { line: buildLine({ outcome: 'stale', code: 'INVENTORY_CHANGED', detail: 'the inventory is not the one the receipt measured', receipt: receiptFile }), exit: 4 };
   if (now !== rec.tree) return { line: buildLine({ outcome: 'stale', code: 'TREE_CHANGED', detail: `measured ${rec.tree.slice(0, 12)}, tree is now ${now.slice(0, 12)}`, tree: now, receipt: receiptFile }), exit: 4 };
   return { line: rec.line, exit: rec.outcome === 'clean' || rec.outcome === 'waived' ? 0 : rec.outcome === 'open' ? 1 : 4 };
 }
