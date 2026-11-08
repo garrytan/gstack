@@ -183,7 +183,7 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     for (const f of fs.readdirSync(path.join(root, '.github/workflows')).filter(f => f.endsWith('.yml'))) {
       const text = fs.readFileSync(path.join(root, '.github/workflows', f), 'utf8');
       const on = text.slice(text.search(/^on:/m), text.search(/^jobs:/m));
-      if (!/^\s+pull_request:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
+      if (!/^\s+pull_request(?:_target)?:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
       const body = text.slice(text.search(/^jobs:/m));
       for (const m of body.matchAll(/^  ([A-Za-z0-9_-]+):\n((?:    .*\n|\s*\n)*)/gm)) {
         const name = /^    name:\s*(.+)$/m.exec(m[2]!)?.[1]?.trim();

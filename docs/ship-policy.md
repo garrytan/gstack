@@ -1258,7 +1258,10 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 
 The ship receipt (`gstack-ship-receipt write … --body`) goes in the PR body's closing Agent notes
 section, written by the pr-body section of `/ship` after the body is composed; a body from before that
-layout keeps its receipt at the top and is still read.
+layout keeps its receipt at the top and is still read, including after the body gains an Agent notes
+section with no receipt in it. A receipt posted on its own with `gstack-post pr-body` to a body that has
+the section replaces the receipt inside it. A receipt block quoted in the readable part of the body stays
+where it is and is never read as the receipt.
 
 <a id="ship-receipt"></a>
 ## The ship receipt
@@ -2768,9 +2771,10 @@ Codes and fixes: [troubleshooting.md](troubleshooting.md#plain-title-refused).
 
 ### Making it a required check
 
-The rollout takes two merges. The first ships the checker, the writers and the
-workflow. Once every open PR has a "Plain title" run (an edit to its title or
-body starts one), a one-line follow-up adds `"Plain title"` to
-`changelog_fragments.required_checks`, and `gstack-ship-queue land` then
-refuses a PR whose check is red or missing. Adding it in the first merge would
-hold every open PR that has never had a run.
+The rollout took two merges. The first shipped the checker, the writers and the
+workflow. The second added `"Plain title"` to gstack's
+`changelog_fragments.required_checks`, so `gstack-ship-queue land` refuses a
+PR whose check is red or missing. A PR opened before the workflow existed has no
+run until its title or body is edited or a commit is pushed; do one of those
+before landing it. The workflow reads the PR body from the event file, not an
+environment variable, so a very long body still reaches the checker.
