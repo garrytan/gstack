@@ -254,15 +254,18 @@ describe('GST-850: security reaches outbound URLs, archives, path traversal and 
     "import cp from 'node:child_process';", "import * as cp from 'child_process';", "import cp, { spawnSync } from 'child_process';",
     "const { exec } = require('child_process');", "const cp = require('node:child_process');", "const cp = await import('node:child_process');",
     'exec(cmd, cb);', 'cp.exec(cmd);', "import { spawnSync } from 'node:child_process';", "import type { ExecOptions } from 'node:child_process';",
-    "const r = await fetch('https://api.github.com/repos');", 'r = requests.request("GET", user_url)', "http.get('http://x.example/', { hostname: req.query.t }, cb);", 'const res = await fetch(url);', "await fetch('https://' + host + '/v1');", 'https.get(target, cb);', 'await axios.get(req.query.u);', 'const body = await got(url).text();',
-    'r = requests.get(url, timeout=5)', 'urllib.request.urlopen(target)', 'const next = new URL(req.query.next, base);', "import { request } from 'undici';",
-    "const res = await fetch('https://x.example', { redirect: 'follow' });", 'maxRedirects: 10,', 'r = httpx.get("https://x.example", follow_redirects=True)', 'const p = process.env.HTTPS_PROXY;', 'const agent = new HttpsProxyAgent(p);',
+    "const r = await fetch('https://api.github.com/repos');", "http.get('http://x.example/', { hostname: req.query.t }, cb);", 'const res = await fetch(url);', "await fetch('https://' + host + '/v1');", 'https.get(target, cb);', 'await axios.get(req.query.u);', 'const body = await got(url).text();',
+    'urllib.request.urlopen(target)', 'const next = new URL(req.query.next, base);', "import { request } from 'undici';",
+    "const res = await fetch('https://x.example', { redirect: 'follow' });", 'maxRedirects: 10,', 'const p = process.env.HTTPS_PROXY;', 'const agent = new HttpsProxyAgent(p);',
     "const ALLOWED_HOSTS = ['api.example.com'];", 'hostAllowlist.push(h);',
     'await tar.x({ file, cwd: dest });', 'new AdmZip(buf).extractAllTo(dir, true);', "import yauzl from 'yauzl';", "import extract from 'extract-zip';", 'zipfile.ZipFile(p).extractall(d)',
     'tarfile.open(p).extractall(d)', 'tar -xzf "$TGZ" -C "$DIR"', 'unzip -o "$ZIP" -d "$DIR"', 'fs.writeFileSync(path.join(root, entry.path), data);', 'const dest = path.resolve(out, req.params.name);',
     "if (rel.startsWith('..')) throw new Error('escape');", "if (parts.includes('..')) return;",
   ])('%s is security', line => {
     expect(risk(['src/net.ts'], { 'src/net.ts': [line] })).toEqual(['security']);
+  });
+  test.each(['r = requests.request("GET", user_url)', 'r = requests.get(url, timeout=5)', 'r = httpx.get("https://x.example", follow_redirects=True)'])('%s in a Python file is security (GST-1888)', line => {
+    expect(risk(['src/net.py'], { 'src/net.py': [line] })).toEqual(['security']);
   });
   test('a named import split over lines is security, from either side of the diff', () => {
     const split = ['import {', '  spawnSync,', '  exec,', "} from 'node:child_process';"];
