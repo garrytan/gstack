@@ -18,7 +18,7 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { resolveStateRoot } from '../lib/state-root';
 import { runScriptSync } from '../lib/script-invocation';
-import { admit, BuildUsageError, check, parseInventory, plan, preflight, receipt, verifyStart } from '../lib/design-build';
+import { admit, BuildUsageError, check, parseInventory, plan, preflight, receipt, servedStates, verifyStart } from '../lib/design-build';
 
 const USAGE = 'usage: gstack-design-build plan|preflight|admit|verify-start|receipt|check (see docs/howto-preview-a-frontend.md#build-receipt)';
 
@@ -75,7 +75,8 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'receipt': {
       const outRoot = f.one.get('--out-root') ?? path.join(resolveStateRoot(), 'projects', slug(), 'designs');
-      const r = receipt({ repo: repoRoot(), inv: inventory(), runDir: path.resolve(need('--run-dir')), rounds: Number(need('--rounds')), previewDir: f.one.get('--preview'), waivers: f.one.get('--waivers'), outRoot });
+      const inv = inventory();
+      const r = receipt({ repo: repoRoot(), inv, runDir: path.resolve(need('--run-dir')), rounds: Number(need('--rounds')), previewDir: f.one.get('--preview'), served: await servedStates(inv), waivers: f.one.get('--waivers'), outRoot });
       console.log(r.line);
       return r.exit;
     }

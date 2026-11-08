@@ -57,6 +57,7 @@ export const BUILD_FIXES: Record<string, string> = {
   NOT_SHOT: 'take the SHOT lines from plan for the named states, then rerun receipt',
   LINT_VERDICT: 'the lint result has no verdict; run the LINT_CMD line from plan unchanged',
   INVENTORY_CHANGED: 'the inventory changed after verify-start; rerun the final verification pass from plan',
+  PREVIEW_UNRECORDED: 'start the preview template with --state <dir> (or give the plugin a stateDir), then start a fresh run from preflight',
   PREVIEW_LIVE_PROXY: `serve the route under the API prefix from a fixture (${DOC}#fixtures), restart the preview, then start a fresh run from preflight`,
 };
 
@@ -166,6 +167,19 @@ export function verifyStart(repo: string, inv: Inventory, runDir: string): strin
   return `VERIFY: tree=${tree.slice(0, 12)} run=${runDir}`;
 }
 
+/** The state directory each preview answering at a loopback state's origin names in its probe answer; null when it keeps no record. */
+export async function servedStates(inv: Inventory): Promise<Array<string | null>> {
+  const origins = [...new Set(inv.states.filter((s) => s.url && isLoopbackHost(new URL(s.url).hostname)).map((s) => new URL(s.url!).origin))];
+  const out: Array<string | null> = [];
+  for (const origin of origins) {
+    try {
+      const res = await fetch(new URL(PREVIEW_PROBE, origin), { signal: AbortSignal.timeout(10_000), redirect: 'manual' });
+      if (res.status === 204 && res.headers.get('x-gstack-preview') === 'ready') out.push(decodeURIComponent(res.headers.get('x-gstack-preview-state') ?? '') || null);
+    } catch {}
+  }
+  return [...new Set(out)];
+}
+
 export interface PreflightDeps { engine?: () => EngineChoice; reach?: (url: string) => Promise<string | null>; preview?: (url: string) => Promise<boolean> }
 
 /** The preview template answers its probe route with 204 and x-gstack-preview: ready; a redirect, a marker in the HTML or any other answer is not the preview. */
@@ -246,7 +260,7 @@ interface LintFinding { rule: string; tier: string; grade: string; evidence?: st
 interface LintCoverage { name: string; viewport: string; status: string; code: string }
 interface LintJson { findings?: LintFinding[]; app?: { verdict?: string; code?: string; codes?: string[]; viewports?: string[]; states?: LintCoverage[] } }
 
-export interface ReceiptInput { repo: string; inv: Inventory; runDir: string; rounds: number; previewDir?: string; waivers?: string; outRoot: string; now?: () => Date }
+export interface ReceiptInput { repo: string; inv: Inventory; runDir: string; rounds: number; previewDir?: string; served?: Array<string | null>; waivers?: string; outRoot: string; now?: () => Date }
 
 const mtime = (f: string): number => fs.statSync(f).mtimeMs;
 
@@ -276,7 +290,9 @@ export function receipt(r: ReceiptInput): { line: string; file: string; exit: nu
   if (lint && !['clean', 'open', 'incomplete'].includes(verdict ?? '')) add('LINT_VERDICT', 'lint.json carries no app verdict');
   if (lint && (lint.app?.viewports ?? []).join(',') !== r.inv.viewports.join(',')) add('VIEWPORTS', `linted ${(lint.app?.viewports ?? []).join(',') || 'none'}, planned ${r.inv.viewports.join(',')}`);
 
-  const previewDirs = r.previewDir ? [r.previewDir] : [...new Set(urlStates.filter((s) => isLoopbackHost(new URL(s.url!).hostname)).map((s) => path.join(os.tmpdir(), `gstack-preview-${new URL(s.url!).port || 80}`)))];
+  const served = r.served ?? [];
+  if (!r.previewDir && served.includes(null)) add('PREVIEW_UNRECORDED', 'a preview answered at a state origin but keeps no record of unanswered calls');
+  const previewDirs = r.previewDir || served.length ? [...new Set([...(r.previewDir ? [r.previewDir] : []), ...served.filter((d): d is string => !!d)])] : [...new Set(urlStates.filter((s) => isLoopbackHost(new URL(s.url!).hostname)).map((s) => path.join(os.tmpdir(), `gstack-preview-${new URL(s.url!).port || 80}`)))];
   const hits = previewDirs.flatMap(readUnhandled);
   const states = r.inv.states.map((s) => {
     const cov = (lint?.app?.states ?? []).filter((c) => c.name === s.name);

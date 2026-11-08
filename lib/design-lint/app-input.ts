@@ -37,7 +37,7 @@ function redactParams(text: string): string | null {
   return new URLSearchParams([...params.entries()].map(([k, v]) => [k, SECRET_PARAM.test(k) ? 'REDACTED' : v])).toString();
 }
 
-const USERINFO = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]*@/gi;
+const USERINFO = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi;
 const PARAM = /([?&#;])([^=&#?;\s]+)=([^&#\s]*)/g;
 
 /**
@@ -48,7 +48,8 @@ const PARAM = /([?&#;])([^=&#?;\s]+)=([^&#\s]*)/g;
  * tail through.
  */
 function redactPattern(s: string): string {
-  return s.replace(USERINFO, '$1').replace(PARAM, (all, sep: string, key: string) => (SECRET_PARAM.test(key) ? `${sep}${key}=REDACTED` : all));
+  const name = (key: string): string => { try { return decodeURIComponent(key); } catch { return key; } };
+  return s.replace(USERINFO, '$1').replace(PARAM, (all, sep: string, key: string) => (SECRET_PARAM.test(name(key)) ? `${sep}${key}=REDACTED` : all));
 }
 
 /** A URL fit to print: userinfo dropped, secret-looking query and fragment parameter values replaced with REDACTED. Navigation always uses the real URL. */

@@ -99,9 +99,9 @@ export function createFixtureMiddleware({ fixtures, api = '/api/', stateDir, log
       res.end(JSON.stringify({ type: `${DOC}#${code.toLowerCase().replace(/_/g, '-')}`, title: 'No fixture answers this request', status: 501, code, detail, fix: fixLine }));
     };
     const live = url.pathname.startsWith(api) ? undefined : proxied.find((k) => (k.startsWith('^') ? new RegExp(k).test(req.url ?? '/') : (req.url ?? '/').startsWith(k)));
-    if (live) return fail('PREVIEW_LIVE_PROXY', `${method} ${url.pathname} matches the app's dev proxy "${live}", a live backend`, `serve it under ${api} from a fixture`);
+    if (live !== undefined) return fail('PREVIEW_LIVE_PROXY', `${method} ${url.pathname} matches the app's dev proxy "${live}", a live backend`, `serve it under ${api} from a fixture`);
     if (!url.pathname.startsWith(api)) return next();
-    if (url.pathname === api + '__gstack-preview') { res.writeHead(204, { 'x-gstack-preview': 'ready', 'cache-control': 'no-store' }); return res.end(); }
+    if (url.pathname === api + '__gstack-preview') { res.writeHead(204, { 'x-gstack-preview': 'ready', 'x-gstack-preview-state': stateDir ? encodeURIComponent(stateDir) : '', 'cache-control': 'no-store' }); return res.end(); }
     if (!scenario) return fail('PREVIEW_NO_SCENARIO', `${method} ${url.pathname} arrived with no scenario (no x-gstack-scenario header, ?as= or Referer ?as=)`, FIXES.PREVIEW_NO_SCENARIO);
     const file = path.join(fixtures, `${scenario}.json`);
     if (!SCENARIO.test(scenario) || !fs.existsSync(file)) return fail('PREVIEW_UNKNOWN_SCENARIO', `scenario "${redact(scenario)}" has no fixture file`, `add ${path.join(fixtures, '<scenario>.json')} with {"version":1,"routes":{}}`);

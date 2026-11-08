@@ -15,7 +15,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
-import { admit, buildLine, check, parseInventory, plan, preflight, receipt, treeIdentity, verifyStart, type Inventory } from '../lib/design-build';
+import { admit, buildLine, check, parseInventory, plan, preflight, receipt, servedStates, treeIdentity, verifyStart, type Inventory } from '../lib/design-build';
+import { redactText } from '../lib/design-lint/app-input';
 import { PREVIEW_TEMPLATE, runPreview, startPreview, type Preview } from './helpers/preview-template';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -517,5 +518,49 @@ describe('the receipt binds what it measured and reads the lint and preview as t
     const r = runPreview(['start', '--static', '--root', PAGE, '--fixtures', FIXTURES, '--port', '0', '--state', link]);
     expect(r.code).toBe(4);
     expect(r.err).toStartWith('PREVIEW: fail code=PREVIEW_STATE');
+  });
+});
+
+describe('round 3 (granted fix-check): the proxy catch-all, the preview record without --preview, and URL userinfo', () => {
+  test("an empty-string proxy key is a catch-all proxy and still gets the recorded 501", async () => {
+    const mod = await import(PREVIEW_TEMPLATE);
+    const state = tmpDir('pv-');
+    const used: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
+    mod.gstackPreviewFixtures({ fixtures: FIXTURES, stateDir: state }).configureServer({ config: { server: { proxy: { '': 'https://production.example' } } }, middlewares: { use: (fn: (typeof used)[number]) => used.push(fn) } });
+    let status = 0;
+    let passed = false;
+    used[0]!({ url: '/graphql', method: 'POST', headers: { 'x-gstack-scenario': 'owner' }, resume() {} }, { writeHead: (s: number) => { status = s; }, end: () => {} }, () => { passed = true; });
+    expect([status, passed]).toEqual([501, false]);
+  });
+
+  test('the probe names the state directory, so the receipt finds a --state or --port 0 preview without --preview; a preview with no record is never clean', async () => {
+    const state = tmpDir('pv-');
+    const p = await startPreview(['--static', '--root', PAGE, '--fixtures', FIXTURES, '--port', '0', '--state', state]);
+    live.push(p);
+    const at = (as: string) => `${p.url}settings?as=${as}`;
+    const inv = inventory({ states: [{ name: 'owner', url: at('owner'), mode: 'url' }, { name: 'lastowner', url: at('lastowner'), mode: 'url' }] });
+    expect(await servedStates(inv)).toEqual([state]);
+    await fetch(p.url + 'api/audit?as=lastowner');
+    const repo = fixtureRepo();
+    const runDir = tmpDir('design-build-run-');
+    plan(inv, runDir);
+    verifyStart(repo, inv, runDir);
+    fs.writeFileSync(path.join(runDir, 'lint.json'), lintJson('clean', allMeasured()));
+    for (const s of inv.states) for (const v of VPS) fs.writeFileSync(path.join(runDir, 'shots', `${s.name}-${v}.png`), 'png');
+    const found = receipt({ repo, inv, runDir, rounds: 1, served: await servedStates(inv), outRoot: path.join(runDir, 'out') });
+    expect(found.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
+    const unrecorded = receipt({ repo, inv, runDir, rounds: 1, served: [null], outRoot: path.join(runDir, 'out2') });
+    expect(unrecorded.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNRECORDED');
+    const mod = await import(PREVIEW_TEMPLATE);
+    const used: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
+    mod.gstackPreviewFixtures({ fixtures: FIXTURES }).configureServer({ middlewares: { use: (fn: (typeof used)[number]) => used.push(fn) } });
+    const headers: Record<string, string> = {};
+    used[0]!({ url: '/api/__gstack-preview', method: 'GET', headers: {} }, { writeHead: (_s: number, h: Record<string, string>) => Object.assign(headers, h), end: () => {} }, () => {});
+    expect([headers['x-gstack-preview'], headers['x-gstack-preview-state']]).toEqual(['ready', '']);
+  });
+
+  test('redactText drops userinfo up to the last @ before the host and redacts a percent-encoded secret key', () => {
+    expect(redactText('fetch http://user:p@ssw0rd@db.internal/x failed')).toBe('fetch http://db.internal/x failed');
+    expect(redactText('GET http://h.test/p?%74oken=PCTSENTINEL&as=owner')).toBe('GET http://h.test/p?%74oken=REDACTED&as=owner');
   });
 });
