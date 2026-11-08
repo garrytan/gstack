@@ -21,7 +21,8 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { pickEngine, type EngineChoice } from './aside-render';
+import { launchBrowse, pickEngine, type EngineChoice } from './aside-render';
+import { sandboxFailure } from '../browse/src/chromium-sandbox';
 import { DEFAULT_VIEWPORTS, parseViewport, redactText, redactUrl, viewportLabel } from './design-lint/app-input';
 
 export const MAX_ROUNDS = 3;
@@ -44,6 +45,7 @@ export type Outcome = 'clean' | 'waived' | 'open' | 'incomplete' | 'unrendered' 
 export const BUILD_FIXES: Record<string, string> = {
   INSTALL: "run install.sh --for design-review from the lane's repo, then launch with its GSTACK_LAUNCH line",
   NO_BROWSER: 'gstack-browser-ensure, then rerun /design-review --build',
+  BROWSER_SANDBOX: 'allow unprivileged user namespaces, or set GSTACK_CHROMIUM_NO_SANDBOX=1 only if every page in the run is trusted, then rerun /design-review --build',
   NO_PREVIEW: `start the preview (${DOC}), then rerun`,
   UNAUTHORIZED_TARGET: 'serve the app on 127.0.0.1 with the preview template, or rerun with --grant-remote <host> written by the person who owns it',
   TREE_CHANGED: 'the tree moved after the final pass began; rerun the final verification pass only',
@@ -180,7 +182,10 @@ export async function servedStates(inv: Inventory): Promise<Array<{ origin: stri
   return out;
 }
 
-export interface PreflightDeps { engine?: () => EngineChoice; reach?: (url: string) => Promise<string | null>; preview?: (url: string) => Promise<boolean> }
+export interface PreflightDeps { engine?: () => EngineChoice; launch?: (engine: Exclude<EngineChoice, { engine: null }>) => Promise<string | null>; reach?: (url: string) => Promise<string | null>; preview?: (url: string) => Promise<boolean> }
+
+/** Start the engine preflight found. Choosing Aside already ran a script in it (probeAside), so only gstack's own browser needs a launch here. */
+const launchEngine = async (e: Exclude<EngineChoice, { engine: null }>): Promise<string | null> => (e.engine === 'browse' ? launchBrowse(e.bin) : null);
 
 /** The preview template answers its probe route with 204 and x-gstack-preview: ready; a redirect, a marker in the HTML or any other answer is not the preview. */
 async function previewAnswers(url: string): Promise<boolean> {
@@ -202,13 +207,18 @@ async function reachable(url: string): Promise<string | null> {
 }
 
 /**
- * Before any round: the browser engine first, then target authorization (a
- * non-loopback target needs a grant naming its host, else the run stops
- * incomplete before any page opens), then each URL state answers.
+ * Before any round: the browser engine first, started for real, then target
+ * authorization (a non-loopback target needs a grant naming its host, else the
+ * run stops incomplete before any page opens), then each URL state answers.
  */
 export async function preflight(inv: Inventory, grants: string[], deps: PreflightDeps = {}): Promise<{ lines: string[]; exit: number }> {
   const engine = (deps.engine ?? (() => pickEngine()))();
   if (!engine.engine) return { lines: [buildLine({ outcome: 'unrendered', code: 'NO_BROWSER', detail: redactText(engine.error) })], exit: 4 };
+  const failed = await (deps.launch ?? launchEngine)(engine);
+  if (failed) {
+    const sandbox = sandboxFailure(failed);
+    return { lines: [buildLine({ outcome: 'unrendered', code: sandbox ? 'BROWSER_SANDBOX' : 'NO_BROWSER', detail: redactText(sandbox ?? failed) })], exit: 4 };
+  }
   const withUrl = inv.states.filter((s) => s.url);
   const remote = withUrl.filter((s) => { const h = new URL(s.url!).hostname; return !isLoopbackHost(h) && !grants.includes(h); });
   if (remote.length) return { lines: [buildLine({ outcome: 'incomplete', code: 'UNAUTHORIZED_TARGET', detail: `${remote.map((s) => `${s.name} at ${redactUrl(s.url!)}`).join(', ')} is not on loopback and has no grant; no page was opened and no action ran` })], exit: 4 };

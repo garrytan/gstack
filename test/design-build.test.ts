@@ -193,8 +193,44 @@ describe('the receipt is bound to the measured tree (T7, T29, T37)', () => {
   });
 });
 
+describe('preflight starts the browser it found (GST-1906)', () => {
+  const RAW = '  - [pid=4242][err] [1108/102007.815666:FATAL:content/browser/zygote_host/zygote_host_impl_linux.cc:144] No usable sandbox! If you are running on Ubuntu 23.10+ or another Linux distro that has disabled unprivileged user namespaces with AppArmor, see https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md';
+  const fakeBrowse = (body: string): string => {
+    const dir = tmpDir('design-build-browse-');
+    const bin = path.join(dir, 'browse');
+    fs.writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${dir}/calls"\n${body}\n`, { mode: 0o755 });
+    return bin;
+  };
+
+  test('a Chromium that cannot start its sandbox fails preflight with the actionable sandbox error before any URL is touched', async () => {
+    const bin = fakeBrowse(`printf '%s\\n' '[browse] Starting server...' '[browse] Server failed to start:' 'browserType.launch: Target page, context or browser has been closed' '${RAW}' >&2\nexit 1`);
+    const reached: string[] = [];
+    const r = await preflight(inventory(), [], { engine: () => ({ engine: 'browse', bin }), reach: async (u) => { reached.push(u); return null; } });
+    expect(r.exit).toBe(4);
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toStartWith('DESIGN_BUILD: unrendered code=BROWSER_SANDBOX (Chromium could not start its sandbox');
+    expect(r.lines[0]).toContain('GSTACK_CHROMIUM_NO_SANDBOX=1');
+    expect(r.lines[0]).toContain('pages you trust');
+    expect(r.lines[0]).toContain('No usable sandbox!');
+    expect(reached).toEqual([]);
+  });
+
+  test('a browser that opens a tab passes preflight, and preflight closes the tab it opened', async () => {
+    const bin = fakeBrowse(`case "$1" in newtab) echo '{"tabId":7}' ;; closetab) ;; *) exit 9 ;; esac`);
+    const r = await preflight(inventory(), [], { engine: () => ({ engine: 'browse', bin }), reach: async () => null, preview: async () => false });
+    expect(r).toEqual({ lines: ['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown'], exit: 0 });
+    expect(fs.readFileSync(path.join(path.dirname(bin), 'calls'), 'utf8')).toBe('newtab --json\nclosetab 7\n');
+  });
+
+  test('any other launch failure is unrendered NO_BROWSER carrying the browser\'s own line', async () => {
+    const r = await preflight(inventory(), [], { engine: () => ({ engine: 'browse', bin: '/x/browse' }), launch: async () => 'browse newtab failed: Chromium exited with code 127', reach: async () => null });
+    expect(r).toEqual({ lines: [buildLine({ outcome: 'unrendered', code: 'NO_BROWSER', detail: 'browse newtab failed: Chromium exited with code 127' })], exit: 4 });
+  });
+});
+
 describe('preflight, authorization and install (T14, T38, T31)', () => {
   const engine = () => ({ engine: 'browse' as const, bin: '/x/browse' });
+  const launch = async () => null;
   test('the browser comes first: no engine is unrendered NO_BROWSER before any URL is touched', async () => {
     const reached: string[] = [];
     const r = await preflight(inventory(), [], { engine: () => ({ engine: null, probe: { ok: false, reason: 'NEEDS_ASIDE', detail: 't' }, error: 'no browser available: run ./setup' }) as never, reach: async (u) => { reached.push(u); return null; } });
@@ -206,18 +242,18 @@ describe('preflight, authorization and install (T14, T38, T31)', () => {
     const inv = inventory({ states: [{ name: 'prod', url: 'https://app.example.com/settings?as=owner', mode: 'url' }, { name: 'owner', url: URL_OWNER, mode: 'url' }] as Inventory['states'] });
     const reached: string[] = [];
     const reach = async (u: string) => { reached.push(u); return null; };
-    const refused = await preflight(inv, [], { engine, reach });
+    const refused = await preflight(inv, [], { engine, launch, reach });
     expect(refused.exit).toBe(4);
     expect(refused.lines[0]).toStartWith('DESIGN_BUILD: incomplete code=UNAUTHORIZED_TARGET (prod at https://app.example.com/settings?as=owner is not on loopback and has no grant; no page was opened and no action ran)');
     expect(reached).toEqual([]);
-    expect((await preflight(inv, ['other.example.com'], { engine, reach })).exit).toBe(4);
+    expect((await preflight(inv, ['other.example.com'], { engine, launch, reach })).exit).toBe(4);
     const probed: string[] = [];
-    const granted = await preflight(inv, ['app.example.com'], { engine, reach, preview: async (u) => { probed.push(u); return true; } });
+    const granted = await preflight(inv, ['app.example.com'], { engine, launch, reach, preview: async (u) => { probed.push(u); return true; } });
     expect(granted.lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=fixtures+granted']);
     expect(probed).toEqual([URL_OWNER]);
-    expect((await preflight(inv, ['app.example.com'], { engine, reach, preview: async () => false })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=unknown']);
-    expect((await preflight(inventory(), [], { engine, reach, preview: async () => true })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
-    expect((await preflight(inventory(), [], { engine, reach, preview: async (u) => !u.includes('lastowner') })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown']);
+    expect((await preflight(inv, ['app.example.com'], { engine, launch, reach, preview: async () => false })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback+granted mutations=unknown']);
+    expect((await preflight(inventory(), [], { engine, launch, reach, preview: async () => true })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=fixtures-only']);
+    expect((await preflight(inventory(), [], { engine, launch, reach, preview: async (u) => !u.includes('lastowner') })).lines).toEqual(['PREFLIGHT: ok engine=browse states=2 targets=loopback mutations=unknown']);
   });
 
   test('only the preview\'s own probe answer proves fixtures-only: a marker in the HTML or a redirect does not', async () => {
@@ -227,13 +263,13 @@ describe('preflight, authorization and install (T14, T38, T31)', () => {
     const bounce = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (req) => Response.redirect(`http://127.0.0.1:${preview.port}${new URL(req.url).pathname}`, 302) });
     try {
       const at = (port?: number) => inventory({ states: [{ name: 'owner', url: `http://127.0.0.1:${port}/settings?as=owner`, mode: 'url' }] as Inventory['states'] });
-      for (const port of [marked.port, bounce.port]) expect((await preflight(at(port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=unknown']);
-      expect((await preflight(at(preview.port), [], { engine, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=fixtures-only']);
+      for (const port of [marked.port, bounce.port]) expect((await preflight(at(port), [], { engine, launch, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=unknown']);
+      expect((await preflight(at(preview.port), [], { engine, launch, reach: async () => null })).lines).toEqual(['PREFLIGHT: ok engine=browse states=1 targets=loopback mutations=fixtures-only']);
     } finally { for (const s of [marked, preview, bounce]) s.stop(true); }
   });
 
   test('a URL that does not answer is unrendered NO_PREVIEW, redacted', async () => {
-    const r = await preflight(inventory(), [], { engine, reach: async (u) => (u.includes('lastowner') ? 'connect ECONNREFUSED ' + u : null) });
+    const r = await preflight(inventory(), [], { engine, launch, reach: async (u) => (u.includes('lastowner') ? 'connect ECONNREFUSED ' + u : null) });
     expect(r.lines[0]).toStartWith('DESIGN_BUILD: unrendered code=NO_PREVIEW (no answer from lastowner');
     expect(r.lines[0]).not.toContain('RECEIPTSENTINEL');
   });
