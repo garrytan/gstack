@@ -16,6 +16,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { resolveStateRoot } from '../lib/state-root';
+import { closeTask, listOpenTasks, sweepPrTasks, type TaskDisposition } from '../lib/tasks-lifecycle';
 import { SupersedeRefused, TASK_PHASES, addRows, finishPending, priorSet, readTaskFiles, rowsFileName, supersede, type TaskPhase } from '../lib/tasks-prior';
 
 const HELP = `gstack-tasks — a plan review's task list across reruns
@@ -68,15 +69,50 @@ function rowsDir(fallback: string): string {
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
-  if (!['prior', 'add', 'supersede'].includes(cmd)) return usage(`unknown command ${cmd}`);
-  const phase = flag(rest, '--phase') as TaskPhase | undefined;
-  if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
+  if (!['prior', 'add', 'supersede', 'open', 'close', 'sweep'].includes(cmd)) return usage(`unknown command ${cmd}`);
   const dir = path.resolve(flag(rest, '--dir') ?? path.join(resolveStateRoot(), 'projects', slug('SLUG')));
   const branch = flag(rest, '--branch') ?? (git('rev-parse', '--git-dir') ? git('branch', '--show-current') : 'unknown');
+  const branchSlug = flag(rest, '--branch') ?? slug('BRANCH');
   const json = rest.includes('--json');
   try {
+    if (cmd === 'open') {
+      const optPhase = flag(rest, '--phase') as TaskPhase | undefined;
+      if (optPhase && !TASK_PHASES.includes(optPhase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
+      const phases = optPhase ? [optPhase] : TASK_PHASES;
+      const dirs = rest.includes('--all-projects')
+        ? (fs.existsSync(path.join(resolveStateRoot(), 'projects'))
+            ? fs.readdirSync(path.join(resolveStateRoot(), 'projects')).sort().map(d => path.join(resolveStateRoot(), 'projects', d))
+            : [])
+        : [dir];
+      const rows = dirs.flatMap(d => listOpenTasks(d, phases));
+      if (json) { process.stdout.write(JSON.stringify(rows) + '\n'); return EXIT.ok; }
+      if (!rows.length) { process.stdout.write('OPEN_TASKS: none\n'); return EXIT.ok; }
+      process.stdout.write([`OPEN_TASKS: ${rows.length}`, ...rows.map(r => JSON.stringify(r))].join('\n') + '\n');
+      return EXIT.ok;
+    }
+    if (cmd === 'sweep') {
+      const pr = flag(rest, '--pr');
+      const state = flag(rest, '--state') as 'merged' | 'closed' | 'reverted' | undefined;
+      if (!pr || !state || !['merged', 'closed', 'reverted'].includes(state)) return usage('sweep needs --pr <repo#num> --state <merged|closed|reverted>');
+      const written = sweepPrTasks(dir, pr, state, branch, branchSlug, flag(rest, '--reason'));
+      if (json) process.stdout.write(JSON.stringify(written) + '\n');
+      else process.stdout.write([`SWEPT: ${written.length}`, ...written.map(w => `CLOSED: ${w.prior} disposition=${w.disposition}`)].join('\n') + '\n');
+      return EXIT.ok;
+    }
+    const phase = flag(rest, '--phase') as TaskPhase | undefined;
+    if (!phase || !TASK_PHASES.includes(phase)) return usage(`--phase must be one of ${TASK_PHASES.join(', ')}`);
+    if (cmd === 'close') {
+      const prior = flag(rest, '--prior');
+      const disposition = flag(rest, '--disposition') as TaskDisposition | undefined;
+      const reason = flag(rest, '--reason');
+      if (!prior || !disposition || !reason) return usage('close needs --phase <p> --prior <run_id>/<id> --disposition <done|dropped|pending|reopened> --reason <why>');
+      const entry = closeTask(dir, phase, branch, branchSlug, prior, disposition, reason, flag(rest, '--pr'));
+      if (json) process.stdout.write(JSON.stringify(entry) + '\n');
+      else process.stdout.write(`CLOSED: ${entry.prior} disposition=${entry.disposition}\n`);
+      return EXIT.ok;
+    }
     if (cmd === 'add') {
-      const r = addRows(dir, phase, branch, flag(rest, '--branch') ?? slug('BRANCH'), git('rev-parse', 'HEAD') || 'unknown', path.join(rowsDir(dir), rowsFileName(phase)));
+      const r = addRows(dir, phase, branch, branchSlug, git('rev-parse', 'HEAD') || 'unknown', path.join(rowsDir(dir), rowsFileName(phase)));
       process.stdout.write([`ADDED: tasks=${r.tasks} dispositions=${r.dispositions} ${r.file}`, ...r.superseded.map(f => `SUPERSEDED: ${f}`)].join('\n') + '\n');
       return EXIT.ok;
     }
@@ -85,7 +121,7 @@ function main(argv: string[]): number {
       fs.rmSync(path.join(rowsDir(dir), rowsFileName(phase)), { force: true });
       const files = readTaskFiles(dir, phase);
       for (const f of files) for (const n of f.malformed) process.stderr.write(`PRIOR_TASKS_MALFORMED: ${f.file}:${n}\n`);
-      const prior = priorSet(files, phase, branch);
+      const prior = priorSet(files, phase, branch, dir);
       if (json) { process.stdout.write(JSON.stringify(prior ?? { file: null, run_id: null, rows: [] }) + '\n'); return EXIT.ok; }
       if (!prior) { process.stdout.write('PRIOR_TASKS: none\n'); return EXIT.ok; }
       process.stdout.write([`PRIOR_TASKS: ${prior.file} run=${prior.run_id} tasks=${prior.rows.length}`, ...prior.rows.map(r => JSON.stringify(r)),

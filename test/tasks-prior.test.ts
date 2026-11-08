@@ -258,3 +258,53 @@ describe('the rendered emit block', () => {
     }
   });
 });
+
+describe('tasks-lifecycle: open, close, sweep, and carried_from state transitions (#3943)', () => {
+  test('close marks a task pending or done, open excludes closed tasks, and prior skips already-closed tasks on rerun', () => {
+    const w = world();
+    const R1 = '20261031T100000Z-1';
+    const first = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(first, [row(R1, 'T1', 'add retry', w.commit), row(R1, 'T2', 'add metrics', w.commit)].join('\n') + '\n');
+
+    const openBefore = JSON.parse(tasks(['open', '--dir', w.dir, '--json'], w.repo).stdout);
+    expect(openBefore).toHaveLength(2);
+
+    const closed = tasks(['close', '--phase', 'eng-review', '--dir', w.dir, '--prior', `${R1}/T1`, '--disposition', 'done', '--reason', w.commit], w.repo);
+    expect(closed.status).toBe(0);
+    expect(closed.stdout.trim()).toBe(`CLOSED: ${R1}/T1 disposition=done`);
+
+    const openAfter = JSON.parse(tasks(['open', '--dir', w.dir, '--json'], w.repo).stdout);
+    expect(openAfter).toHaveLength(1);
+    expect(openAfter[0].id).toBe('T2');
+
+    const priorOut = tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout;
+    expect(priorOut).toContain('tasks=1');
+    expect(priorOut).toContain('add metrics');
+    expect(priorOut).not.toContain('add retry');
+  });
+
+  test('sweep transitions pending tasks on a PR to done on merge, and reopens them on close or revert across carried_from chains', () => {
+    const w = world();
+    const R1 = '20261031T100000Z-1';
+    const R2 = '20261031T110000Z-2';
+    const first = path.join(w.dir, 'superseded-tasks-eng-review-feature-x-20261031-100000.jsonl');
+    fs.writeFileSync(first, row(R1, 'T1', 'add retry', w.commit) + '\n');
+    const second = path.join(w.dir, 'tasks-eng-review-feature-x-20261031-110000.jsonl');
+    fs.writeFileSync(second, row(R2, 'T1', 'add retry', w.commit, { carried_from: `${R1}/T1` }) + '\n');
+
+    expect(tasks(['close', '--phase', 'eng-review', '--dir', w.dir, '--prior', `${R2}/T1`, '--disposition', 'pending', '--pr', 'garrytan/gstack#3943', '--reason', 'PR #3943'], w.repo).status).toBe(0);
+    expect(tasks(['prior', '--phase', 'eng-review', '--dir', w.dir], w.repo).stdout.trim()).toBe('PRIOR_TASKS: none');
+
+    const sweptMerge = tasks(['sweep', '--dir', w.dir, '--pr', 'garrytan/gstack#3943', '--state', 'merged', '--reason', w.commit], w.repo);
+    expect(sweptMerge.status).toBe(0);
+    expect(sweptMerge.stdout).toContain(`CLOSED: ${R2}/T1 disposition=done`);
+    expect(tasks(['open', '--dir', w.dir], w.repo).stdout.trim()).toBe('OPEN_TASKS: none');
+
+    const sweptRevert = tasks(['sweep', '--dir', w.dir, '--pr', 'garrytan/gstack#3943', '--state', 'reverted'], w.repo);
+    expect(sweptRevert.status).toBe(0);
+    expect(sweptRevert.stdout).toContain(`CLOSED: ${R2}/T1 disposition=reopened`);
+    const reopened = JSON.parse(tasks(['open', '--dir', w.dir, '--json'], w.repo).stdout);
+    expect(reopened).toHaveLength(1);
+    expect(reopened[0].root_ref).toBe(`${R1}/T1`);
+  });
+});

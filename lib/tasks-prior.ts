@@ -22,6 +22,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { decidedTaskRefs, resolveRootRef, buildTaskStateMap } from './tasks-lifecycle';
 
 export const TASK_PHASES = ['ceo-review', 'design-review', 'eng-review', 'devex-review'] as const;
 export type TaskPhase = (typeof TASK_PHASES)[number];
@@ -47,16 +48,27 @@ export function readTaskFiles(dir: string, phase: TaskPhase): TaskFile[] {
 }
 
 /** The newest earlier task set for this phase and branch: the rows of the highest run_id, wherever they live. */
-export function priorSet(files: readonly TaskFile[], phase: TaskPhase, branch: string): PriorSet | undefined {
-  let best: PriorSet | undefined;
-  for (const f of files) {
-    for (const row of f.rows) {
-      if (row.phase !== phase || row.branch !== branch || typeof row.run_id !== 'string') continue;
-      if (!best || row.run_id > best.run_id) best = { file: f.file, run_id: row.run_id, rows: [] };
+export function priorSet(files: readonly TaskFile[], phase: TaskPhase, branch: string, dir?: string): PriorSet | undefined {
+  const selectForBranch = (targetBranch: string): PriorSet | undefined => {
+    let best: PriorSet | undefined;
+    for (const f of files) {
+      for (const row of f.rows) {
+        if (row.phase !== phase || row.branch !== targetBranch || typeof row.run_id !== 'string') continue;
+        if (!best || row.run_id > best.run_id) best = { file: f.file, run_id: row.run_id, rows: [] };
+      }
     }
-  }
-  if (best) for (const f of files) best.rows.push(...f.rows.filter(r => r.phase === phase && r.branch === branch && r.run_id === best!.run_id));
-  return best;
+    if (best) for (const f of files) best.rows.push(...f.rows.filter(r => r.phase === phase && r.branch === targetBranch && r.run_id === best!.run_id));
+    return best;
+  };
+  const chosen = selectForBranch(branch);
+  if (!chosen || !dir) return chosen;
+  const decided = decidedTaskRefs(dir, phase);
+  const { carriedByRef } = buildTaskStateMap(dir, phase);
+  const openRows = chosen.rows.filter(r => {
+    const ref = `${chosen.run_id}/${String(r.id)}`;
+    return !decided.has(ref) && !decided.has(resolveRootRef(ref, carriedByRef));
+  });
+  return openRows.length ? { ...chosen, rows: openRows } : undefined;
 }
 
 export function finishPending(dir: string, phase: TaskPhase): string[] {
@@ -107,7 +119,7 @@ export function addRows(dir: string, phase: TaskPhase, branch: string, branchSlu
     if (v.carried_from !== undefined && (typeof v.carried_from !== 'string' || !PRIOR_RE.test(v.carried_from))) throw new SupersedeRefused(`${at} carried_from must be <run_id>/<id>`);
     tasks.push({ phase, run_id: runId, branch, commit, ...Object.fromEntries(TASK_FIELDS.map(k => [k, v[k]])), files: v.files, ...(v.carried_from ? { carried_from: v.carried_from } : {}) });
   });
-  const prior = fs.existsSync(dir) ? priorSet(readTaskFiles(dir, phase), phase, branch) : undefined;
+  const prior = fs.existsSync(dir) ? priorSet(readTaskFiles(dir, phase), phase, branch, dir) : undefined;
   const decided = new Set([...tasks.map(t => t.carried_from), ...dispositions.map(d => d.prior)]);
   const open = (prior?.rows ?? []).map(r => `${prior!.run_id}/${String(r.id)}`).filter(id => !decided.has(id));
   if (open.length) throw new SupersedeRefused(`${rows} leaves earlier tasks undecided: ${open.join(', ')}; carry each (carried_from) or close it (a done or dropped disposition)`);
