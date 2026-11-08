@@ -113,7 +113,7 @@ hard-code:
   "changelog": "CHANGELOG.md",
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
-  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint", "Plain title"] },
   "min_gstack_version": "1.91.340.0"
 }
 ```
@@ -1257,11 +1257,13 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 | `ship: changelog_fragments <dir>: …` | Step 12 writes no version; Step 13 writes the entry as `<dir>/<branch-slug>.md` (entry text only, `bump:` front matter only when the change warrants more than the policy bump), never an `[Unreleased]` section, linted with `gstack-prose-lint <file> --gate`; `gstack-ship-queue land` assigns the version; see [changelog fragments](#changelog-fragments) |
 
 The ship receipt (`gstack-ship-receipt write … --body`) goes in the PR body's closing Agent notes
-section, written by the pr-body section of `/ship` after the body is composed; a body from before that
-layout keeps its receipt at the top and is still read, including after the body gains an Agent notes
-section with no receipt in it. A receipt posted on its own with `gstack-post pr-body` to a body that has
-the section replaces the receipt inside it. A receipt block quoted in the readable part of the body stays
-where it is and is never read as the receipt.
+section, written by the pr-body section of `/ship` after the body is composed. A body from before that
+layout keeps its receipt at the top. That receipt is still read while it opens the body, also after the
+body gains an Agent notes section with no receipt in it; once an edit or a post puts an opening paragraph
+above it, it is no longer read, and the pull request needs a fresh receipt. A receipt posted on its own
+with `gstack-post pr-body` to a body that has the section replaces the receipt inside it. In a body with
+the section, a receipt block quoted in the readable part stays where it is and is never read as the
+receipt; a body without the section is read whole, so there a quoted block can be read as the receipt.
 
 <a id="ship-receipt"></a>
 ## The ship receipt
