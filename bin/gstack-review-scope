@@ -20,7 +20,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
@@ -65,6 +67,36 @@ function git(args: string[], cwd: string): { ok: boolean; out: string; err: stri
   // quotePath off: a non-ASCII path must come back as itself, not as "caf\303\251.ts", or the hunk map never matches the finding.
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
+}
+const HUNK_LINE = /^(diff --git |--- |\+\+\+ |@@)/;
+/**
+ * `git diff <from>` reduced to the lines parseHunks reads (file headers and @@ lines). git writes the diff to a scratch file that
+ * is read back a megabyte at a time, so no pipe buffer bounds the diff's size (GST-1855: harness-evals #320's 67 MB results diff
+ * passed the 64 MB buffer and classify refused with an empty reason). A failure names git's stderr, its error code or the timeout.
+ */
+function diffHunkLines(from: string, cwd: string): { ok: boolean; out: string; err: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-review-scope-'));
+  try {
+    const file = path.join(dir, 'diff');
+    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', ...DIFF_ARGS, `--output=${file}`, from], { cwd, encoding: 'utf8', timeout: 120_000 });
+    const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+    if (r.status !== 0) return { ok: false, out: '', err: (r.stderr ?? '').trim() || (code === 'ETIMEDOUT' ? 'timed out after 120 s' : code ?? `exit ${r.status ?? r.signal}`) };
+    const keep: string[] = [];
+    const decoder = new StringDecoder('utf8');
+    const buf = Buffer.alloc(1024 * 1024);
+    const fd = fs.openSync(file, 'r');
+    let rest = '';
+    try {
+      for (let n = fs.readSync(fd, buf); n > 0; n = fs.readSync(fd, buf)) {
+        const lines = (rest + decoder.write(buf.subarray(0, n))).split('\n');
+        rest = lines.pop()!;
+        for (const l of lines) if (HUNK_LINE.test(l)) keep.push(l);
+      }
+    } finally { fs.closeSync(fd); }
+    rest += decoder.end();
+    if (HUNK_LINE.test(rest)) keep.push(rest);
+    return { ok: true, out: keep.join('\n'), err: '' };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 function gh(args: string[], cwd: string): { ok: boolean; out: string; err: string } {
   const r = spawnSync('gh', args, { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
@@ -151,7 +183,7 @@ function cmdClassify(rest: string[], json: boolean): number {
   const mergeBase = git(['merge-base', baseRef, 'HEAD'], repoRoot);
   if (!mergeBase.ok) return refuse('classify', 'REVIEW_SCOPE_RANGE', `cannot resolve the merge base of ${baseRef} and HEAD: ${mergeBase.err}`);
   // Prefixes pinned as lib/pregate/checks/secrets.ts pins them: diff.mnemonicPrefix would print c/ and w/ and nothing would match a finding.
-  const diff = git(['diff', ...DIFF_ARGS, mergeBase.out.trim()], repoRoot);
+  const diff = diffHunkLines(mergeBase.out.trim(), repoRoot);
   if (!diff.ok) return refuse('classify', 'REVIEW_SCOPE_RANGE', `git diff ${mergeBase.out.trim()} failed: ${diff.err}`);
   const untracked = git(['ls-files', '--others', '--exclude-standard'], repoRoot).out.split('\n').filter(Boolean);
   const diffHunks = parseHunks(diff.out, untracked);
@@ -162,7 +194,7 @@ function cmdClassify(rest: string[], json: boolean): number {
     if (!rangeBase) return refuse('classify', 'REVIEW_SCOPE_INPUT', '--range-base <sha> (HEAD at the start of the previous pass) is required from pass 2 on');
     const ancestor = git(['merge-base', '--is-ancestor', rangeBase, 'HEAD'], repoRoot);
     if (!ancestor.ok) return refuse('classify', 'REVIEW_SCOPE_RANGE', `--range-base ${rangeBase.slice(0, 12)} is not an ancestor of HEAD (rewritten history? start a full pass)`);
-    const range = git(['diff', ...DIFF_ARGS, rangeBase], repoRoot);
+    const range = diffHunkLines(rangeBase, repoRoot);
     if (!range.ok) return refuse('classify', 'REVIEW_SCOPE_RANGE', `git diff ${rangeBase.slice(0, 12)} failed: ${range.err}`);
     rangeHunks = parseHunks(range.out, untracked);
   }

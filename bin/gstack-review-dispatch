@@ -28,6 +28,7 @@ import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManif
 import { diffCommand, type Dispatch } from '../lib/review-depth';
 import { mayExclude, policySelection, selectFor } from '../lib/review-selection';
 import { REVIEW_PLAN_TIMEOUT_MS } from '../lib/review-collect';
+import { reviewPlanTimeoutMs } from '../lib/review-collect';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '../lib/review-targeted';
@@ -349,7 +350,7 @@ function standaloneSelection(reader: string, base: string, diffBase: string, rea
   let x: (Record<string, unknown> & { state: string }) | null = null;
   if (mayExclude(process.cwd(), base)) {
     const tail = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
-    const p = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...tail, '--json'], { encoding: 'utf8', timeout: REVIEW_PLAN_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+    const p = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...tail, '--json'], { encoding: 'utf8', timeout: REVIEW_PLAN_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
     if (p.status !== 0) throw new BriefError(`gstack-review-plan --base ${base} --json exited ${p.status ?? p.signal}, so the base policy's review selection is unknown and no brief is rendered without it: ${(p.stderr ?? '').trim().slice(-400)}`);
     x = (JSON.parse(p.stdout) as { review_exclude?: Record<string, unknown> & { state: string } }).review_exclude ?? null;
   }
@@ -387,9 +388,8 @@ function pass(): number {
     process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
-  const limit = Number(process.env.GSTACK_REVIEW_PLAN_TIMEOUT_MS);
-  const timeoutMs = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : REVIEW_PLAN_TIMEOUT_MS;
-  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+  const timeoutMs = reviewPlanTimeoutMs();
+  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
   const stopped = (r: ReturnType<typeof plan>, json: boolean) => {
     if (r.status !== null || (!r.signal && !r.error)) return false;
     const reason = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? 'timeout' : r.signal ? 'signal' : 'spawn';

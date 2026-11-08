@@ -524,3 +524,32 @@ describe('GSTA-167 part 4b: untested state-matrix cells map below the floor per 
     expect(fs.readFileSync(path.join(ROOT, 'review', 'specialists', 'state-machines.md'), 'utf8')).toContain('- **Untested cell (CRITICAL; this rule\'s High tier).**');
   });
 });
+
+describe('gstack-review-scope classify on a diff past 64 MB (GST-1855)', () => {
+  // Value: protects=a results PR whose branch diff passes 64 MB still gets its findings placed; fails_when=classify reads git diff
+  //   through a bounded pipe again and refuses harness-evals #320's 67 MB diff with an empty reason; seam=gstack-review-scope classify
+  test('classify places findings in a 70 MB branch diff', () => {
+    const repo = fixture();
+    const src = path.join(repo.work, 'src');
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, 'auth.ts'), Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
+    repo.git('add', '.'); repo.git('commit', '-qm', 'seed'); repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-qb', 'feat');
+    fs.mkdirSync(path.join(repo.work, 'results'));
+    fs.writeFileSync(path.join(repo.work, 'results', 'trials.jsonl'), `{"trial":"${'x'.repeat(1010)}"}\n`.repeat(70_000));
+    const lines = fs.readFileSync(path.join(src, 'auth.ts'), 'utf8').split('\n');
+    lines[9] = 'line 10 changed';
+    fs.writeFileSync(path.join(src, 'auth.ts'), lines.join('\n'));
+    repo.git('add', '.'); repo.git('commit', '-qm', 'results and a fix');
+    const f = path.join(repo.root, 'findings.json');
+    fs.writeFileSync(f, JSON.stringify([
+      { fingerprint: 'src/auth.ts:10:logic', path: 'src/auth.ts', line: 10, severity: 'CRITICAL', category: 'logic', summary: 'wrong' },
+      { fingerprint: 'src/auth.ts:25:logic', path: 'src/auth.ts', line: 25, severity: 'CRITICAL', category: 'logic', summary: 'neighbour' },
+      { fingerprint: 'results/trials.jsonl:3:data', path: 'results/trials.jsonl', line: 3, severity: 'INFORMATIONAL', category: 'data', summary: 'row' },
+    ]));
+    const p1 = runBin(repo, 'gstack-review-scope', ['classify', '--base', 'main', '--pass', '1', '--findings', f, '--json']);
+    expect(p1.status, p1.err).toBe(EXIT.ok);
+    expect(JSON.parse(p1.out).findings.map((x: ScopedFinding) => `${x.fingerprint}=${x.locus}`)).toEqual([
+      'src/auth.ts:10:logic=diff', 'src/auth.ts:25:logic=outside', 'results/trials.jsonl:3:data=diff']);
+  }, 120_000);
+});
