@@ -1,0 +1,89 @@
+name: Plain title
+
+# Checks that a PR's title reads in everyday words (R76, docs/ship-policy.md#plain-titles).
+# The title is refused in the front: tracker codes, project-only words and a
+# type(scope): prefix. One trailing group of references like (ABC-123) or (#4122)
+# is fine. The branch name, the PR opening and the commit subjects only warn.
+# PRs created before the policy's since date are exempt.
+#
+# WHY pull_request_target: it runs the base repository's copy of this workflow,
+# of bin/gstack-plain-title and of .gstack/plain-titles.json, so a PR cannot
+# change the rule it is checked against, and a title edit reruns the check.
+#
+# WHY this is SAFE:
+#   - The job checks out the BASE repo (no ref:) and never runs PR code.
+#   - The token is read-only (contents: read, pull-requests: read).
+#   - The title, branch, body and created_at arrive only through env: and are
+#     written to files with printf '%s'. No PR field is inlined into run:.
+#   - Only the checker's match lines reach the log; PR text is never echoed.
+# test/plain-title-workflow-safety.test.ts is the static tripwire for all of it.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  plain-title:
+    name: Plain title
+    # No job-level if: every event, a base change included, reruns the title
+    # check, because a skipped run would count as passing over a refused title.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # A newer event for the same PR cancels the older run.
+    concurrency:
+      group: plain-title-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # Base repo only: trusted code. No PR-head checkout.
+      - name: Checkout base repo (trusted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Write the PR fields to files
+        env:
+          # Attacker-controlled on fork PRs: env only, never inlined into run:.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"
+          # Commit subjects are a warning only: skip quietly when the API read fails.
+          if ! gh api --paginate "repos/$REPO/pulls/$PR_NUM/commits" \
+              --jq '.[] | select((.parents | length) < 2) | .commit.message | split("\n")[0]' \
+              > "$RUNNER_TEMP/pr-commits.txt" 2>/dev/null; then
+            : > "$RUNNER_TEMP/pr-commits.txt"
+          fi
+
+      - name: Check the title
+        env:
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+        run: |
+          set -euo pipefail
+          bun --no-env-file --config=/dev/null bin/gstack-plain-title check \
+            --title-file "$RUNNER_TEMP/pr-title.txt" --created-at "$PR_CREATED_AT" --mode refuse
+
+      - name: Check the branch name, opening and commit subjects (warnings only)
+        if: ${{ !cancelled() }}
+        env:
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+        run: |
+          set -euo pipefail
+          bun --no-env-file --config=/dev/null bin/gstack-plain-title check \
+            --branch "$PR_BRANCH" --body-file "$RUNNER_TEMP/pr-body.txt" \
+            --commits-file "$RUNNER_TEMP/pr-commits.txt" --created-at "$PR_CREATED_AT" --mode warn

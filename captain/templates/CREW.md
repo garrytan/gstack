@@ -97,8 +97,9 @@ Homes are paths in the gstack checkout the lane checked at session start.
     `docs/ship-policy.md` (Run a merge train, Carrying a receipt).
 
 15. **CHANGELOG entry under `## [Unreleased]` before READY;** version files stay at
-    `BASE`'s version; the stamp touches only `STAMP_FILES`. Home: `docs/ship-policy.md`
-    (stamp-at-merge).
+    `BASE`'s version; the stamp touches only `STAMP_FILES`. Titles, commit subjects, branch
+    names and entries are plain words, any issue code last; internal notation goes in the PR
+    body's Agent notes. Home: `docs/ship-policy.md` (stamp-at-merge, Plain titles).
 
 16. **Flaky reruns.** Once, same tree, logged in `handoffs/flaky-ledger.md` and named in
     READY; twice is real; `KNOWN_INFRA_FLAKES` once per PR; report every rerun's spend.
@@ -140,6 +141,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
     bug fix is exempt too (`gstack-autoplan next --kind fix`, R65) and carries a repro on
     current main or a failing test written first in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
     `captain/templates/brief.md`.
+
 
 ## Crew-specific rules
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://github.com/garrytan/gstack/blob/main/docs/ship-policy.md#plain-titles",
+  "codes": [
+    "\\b(?:GST|GSTA|GBRA|GEVA|FOUN|HARN|ALPH)-\\d+\\b",
+    "\\bR\\d{1,3}\\b"
+  ],
+  "terms": [
+    "voices",
+    "outside voice",
+    "pregate",
+    "fix-check",
+    "ledger",
+    "ledgers",
+    "receipt",
+    "receipts",
+    "train",
+    "trains",
+    "wave",
+    "waves",
+    "lane",
+    "lanes",
+    "restamp",
+    "no-stop",
+    "GStack Minder",
+    "Capy Workflow Improver",
+    "Captain"
+  ],
+  "allow": [
+    {
+      "text": "R2",
+      "reason": "Cloudflare R2, the storage service, not a rules number"
+    }
+  ],
+  "since": "2026-11-08",
+  "exempt_branch_prefixes": [
+    "release/",
+    "wave/",
+    "gstack-land-repair/"
+  ]
+}

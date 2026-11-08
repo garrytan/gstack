@@ -7377,3 +7377,37 @@ These codes come from `bin/gstack-clean`, which reclaims old codex scratch in `<
 ### `RUNAWAY_INPUT: file=<path> …` (gstack-runaway)
 
 **Meaning.** That thread's file is not valid JSON, or lacks `cost.tokens`, a parseable `created_at` or numeric `tasks[].cost.tokens`. The thread is skipped (never counted as OK), the rest of the sweep still runs, `SWEEP:` counts it as `unreadable`, and the exit is 1. **Fix.** Fetch that thread again with `tools.thread.get` (the whole object, not a summary) and rerun the scan.
+
+## Plain titles (gstack-plain-title)
+
+These codes come from `bin/gstack-plain-title`, which /ship, gstack-post and the "Plain title" CI check run so that PR titles, branch names, PR openings, changelog entries and commit subjects say in everyday words what changed. The rules are in [ship-policy.md](ship-policy.md#plain-titles); the word list is the repository's `.gstack/plain-titles.json`. Each finding prints as `PLAIN_TITLE: <CODE> <kind> "<match>" — <hint>`, naming only the matched words, never the whole title or body.
+
+<a id="plain-title-refused"></a>
+### `PLAIN_TITLE: PLAIN_TITLE_REFUSED <kind> "<match>" — …`
+
+**Meaning.** The front of the PR title (everything before one optional trailing group of references such as `(GST-1713)` or `(#4122)`) holds a tracker code, a word from the policy's `terms` list, or a `word(scope):` prefix. Exit 1; gstack-post posts nothing, and the CI check fails. **Fix.** Rewrite the title as a plain sentence about what changed for someone using the project, for example "Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)". Editing the title reruns the CI check.
+
+<a id="plain-branch-refused"></a>
+### `PLAIN_TITLE: PLAIN_BRANCH_REFUSED <kind> "<match>" — …`
+
+**Meaning.** The branch name holds a tracker code or a listed word before its last segment. Hyphens and underscores count as spaces, one tracker code at the very end is fine (`capy/github-rate-limit-gst-1713`), and branches gstack generates (`release/`, `wave/`, `gstack-land-repair/`) are exempt. /ship refuses it before the first push; CI only warns, since a pushed branch cannot be renamed in place. **Fix.** Name the next branch in plain words; for this one, open a new branch only if the PR has not been pushed yet.
+
+<a id="plain-opening-refused"></a>
+### `PLAIN_TITLE: PLAIN_OPENING_REFUSED <kind> "<match>" — …`
+
+**Meaning.** The readable part of the PR body (everything above the `<!-- gstack:agent-notes -->` marker) does not start with a plain paragraph: it starts with a heading, code block, list, table, HTML or image, runs past two sentences, or names a tracker code or listed word. /ship refuses it; CI only warns. **Fix.** Start the body with one or two sentences saying what changed and which goal of the project it serves. Move codes and records into the Agent notes section at the end.
+
+<a id="plain-changelog-refused"></a>
+### `PLAIN_TITLE: PLAIN_CHANGELOG_REFUSED <kind> "<match>" — …`
+
+**Meaning.** The changelog entry holds a tracker code, or its bold lead holds a listed word. Code spans, code blocks, links and quoted words are skipped. **Fix.** Drop tracker codes from the entry and rewrite the bold lead in everyday words.
+
+<a id="plain-commit-refused"></a>
+### `PLAIN_TITLE: PLAIN_COMMIT_REFUSED <kind> "<match>" — … (warning only)`
+
+**Meaning.** A commit subject on the PR breaks the title rule. This is always a warning: the squash commit on main takes the PR title, which the title check already guards. **Fix.** Write later commit subjects as plain sentences; nothing needs rewriting now.
+
+<a id="plain-policy-invalid"></a>
+### `gstack-plain-title: .gstack/plain-titles.json is not valid JSON or breaks the schema … (PLAIN_POLICY_INVALID)`
+
+**Meaning.** The policy file does not parse, has an unknown key, a `codes` entry that is not a valid regex or matches empty text, an `allow` entry without a reason, or a `since` that is not a date. Exit 3; nothing was checked. **Fix.** Fix the key the line names, then run `gstack-plain-title validate`.

@@ -69,7 +69,7 @@ When you work for a Capy Captain (a crew thread) or straight for a person, gstac
 - **These always need a fresh ask:** a product or behaviour decision, spend over a stated cap, anything published outside the repository, a change to a threshold, budget or trial count, closing someone's contribution without landing it, and anything destructive.
 - **Record every answer.** Use `gstack-approvals add --ask … --words "<their exact words>" --by … --scope …`, or after an autoplan answer, `gstack-approvals import --autoplan <run dir> --by <name>`. `gstack-approvals render` prints the `## Approvals` table for your report and the PR body. Rows are secret-scanned, and on Capy they are mirrored to the private Drive folder.
 - **Plan approvals** use `gstack-owner-brief render --captain --out <run dir>`. It prints before → after, why it matters, what caused this work, the big decisions (options, the pick, why, what would flip it) and what we need, as lettered ask lines closed by "do it". Relay it whole. Gate codes appear only on its last line, which is for you. If it exits `CAPTAIN_BRIEF_INCOMPLETE`, add the missing plan sections first.
-- **Merge asks.** /ship's PR body opens with `## What changed` (captioned before/after images from `gstack-pr-shots` or a UI screenshot, uploaded with Capy's PR asset tool), `## Why`, `## Blast radius` and `## Approvals`. Your READY report attaches the key image.
+- **Merge asks.** /ship's PR body opens with plain sentences, then `## What changed` (captioned before/after images from `gstack-pr-shots` or a UI screenshot, uploaded with Capy's PR asset tool), `## Why` and `## Blast radius`, Agent notes last (`## Approvals`). Your READY report attaches the key image.
 
 ## Before any push or pull request
 

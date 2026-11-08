@@ -1035,6 +1035,12 @@ executable and parse without syntax errors.
 
 ## Shipping your changes
 
+Write the pull request title as what changed for someone using gstack, in everyday words, for example
+"Stop gstack from hitting GitHub's rate limit while it waits on PRs". Skip `type(scope):` prefixes, and if
+you reference an issue, put it at the end in parentheses. The "Plain title" check on every pull request
+names any word it refuses; editing the title reruns it. The full rule is in
+[docs/ship-policy.md](docs/ship-policy.md#plain-titles).
+
 When you're happy with your skill edits:
 
 ```bash

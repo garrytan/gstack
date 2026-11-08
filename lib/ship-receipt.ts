@@ -1,13 +1,14 @@
 /**
  * ship-receipt — the handoff record, identifiers first (plan C5). Renders the
  * ```gstack-ship-receipt``` block from the `ship-receipt` schema in
- * lib/headless-artifacts.ts, puts it first in a PR body so truncation loses
- * prose rather than identifiers, reads it back from a PR through `gh`, and
+ * lib/headless-artifacts.ts, puts it in the PR body's Agent notes section (lib/agent-notes.ts) so
+ * the body opens with plain sentences, reads it back from a PR through `gh`, and
  * computes the P7 adoption census over merged PRs (deduplicated by run and
  * thread id against an owner-maintained thread cohort).
  */
 import { spawnSync } from 'node:child_process';
 import { ARTIFACT_SCHEMAS, checkSchema, type ShipReceipt, type ValidationError } from './headless-artifacts';
+import { agentNotesOrBody, splitAgentNotes, withAgentNotes } from './agent-notes';
 import { approvalSummary } from './approval-citations';
 import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
@@ -45,9 +46,13 @@ export function renderReceiptBlock(receipt: ShipReceipt): string {
 
 const BLOCK_RE = /```gstack-ship-receipt[ \t]*\r?\n([\s\S]*?)\r?\n```/;
 
-/** The first receipt block in a PR body, parsed; `found: false` when absent. */
+/**
+ * The receipt block a PR body carries, parsed; `found: false` when absent. A body with an Agent notes section is read
+ * there only, so a receipt fence quoted in the readable part never binds; a body without one (posted before the
+ * section existed) gives its first block anywhere.
+ */
 export function extractReceipt(body: string): { found: boolean; receipt?: ShipReceipt; raw?: string; errors: ValidationError[] } {
-  const m = BLOCK_RE.exec(body);
+  const m = BLOCK_RE.exec(agentNotesOrBody(body));
   if (!m) return { found: false, errors: [] };
   try {
     const parsed = JSON.parse(m[1]!);
@@ -105,7 +110,7 @@ export const RECEIPT_RUNS_KEPT = 30;
 const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
 export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string };
 export function receiptRuns(body: string): ReceiptRun[] {
-  const m = RUNS_RE.exec(body);
+  const m = RUNS_RE.exec(agentNotesOrBody(body));
   return m ? m[1]!.split('\n').flatMap(l => { try { const o = JSON.parse(l); return o && typeof o.head === 'string' ? [o as ReceiptRun] : []; } catch { return []; } }) : [];
 }
 export function receiptRun(r: ShipReceipt): ReceiptRun {
@@ -113,15 +118,31 @@ export function receiptRun(r: ShipReceipt): ReceiptRun {
   return JSON.parse(JSON.stringify({ head, version, gstack_version, run, review_loop, review_loop_exception, depth: r.review_depth?.depth, carried_from: r.carry?.from }));
 }
 
-/** The block becomes the first section of the body: an existing block is replaced in place at the top, prose follows; a replaced receipt joins the runs block. */
-export function placeReceiptFirst(body: string, receipt: ShipReceipt): string {
-  const prior = extractReceipt(body).receipt;
+/** Every receipt and runs block with the blank lines after it, wherever it sits. */
+const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/g;
+
+/**
+ * The receipt and its runs block go at the end of the body's Agent notes section, which is created when the body has
+ * none; the section's other content stays above them. Every receipt and runs block elsewhere in the body (a quoted
+ * example, a legacy block) is removed, so one receipt remains. A replaced receipt joins the runs block.
+ * A legacy body (a receipt and no section, as /ship posted before the section existed) keeps its layout: the block is
+ * replaced in place at the top, because its Plan and issue lines sit in the readable part and a new section holding
+ * only the receipt would hide them from the readers that prefer the section (a carry on an open PR, GST-1825).
+ */
+export function placeReceipt(body: string, receipt: ShipReceipt): string {
+  const ex = extractReceipt(body);
+  const prior = ex.receipt;
   const runs = receiptRuns(body);
   if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
   const kept = runs.slice(-RECEIPT_RUNS_KEPT);
   const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');
-  const stripped = body.replace(BLOCK_RE, '').replace(RUNS_RE, '').replace(/^\s+/, '');
-  return block + (stripped ? '\n' + stripped : '');
+  if (ex.found && splitAgentNotes(body).notes === null) {
+    const rest = body.replace(BLOCK_RE, '').replace(RUNS_RE, '').replace(/^\s+/, '');
+    return block + (rest ? '\n' + rest : '');
+  }
+  const stripped = body.replace(STRIP_RE, '');
+  const notes = (splitAgentNotes(stripped).notes ?? '').trim();
+  return withAgentNotes(stripped.replace(/^\s+/, ''), (notes ? notes + '\n\n' : '') + block);
 }
 
 /** The receipt's `issues` object from a gstack-issue-links --out or --json file (its other keys are preview-only). */

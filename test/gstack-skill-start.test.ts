@@ -433,7 +433,7 @@ describe('gstack-skill-start behavior', () => {
   }, 60_000);
 
   test('unattended /ship alone prints the UNATTENDED_SHIP status line naming the receipt file, the existing-PR body update and the result line (GSTA-88, rule 22)', () => {
-    const line = /^UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated \(pr-body section, receipt first\), else Step 18 takes the handoff section; receipt at \.gstack\/tmp\/ship-receipt\.md; end with gstack-ship-receipt result$/gm;
+    const line = /^UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated \(pr-body section, receipt in Agent notes\), else Step 18 takes the handoff section; receipt at \.gstack\/tmp\/ship-receipt\.md; end with gstack-ship-receipt result$/gm;
     const ship = runStart(['--skill', 'ship'], { GSTACK_SESSION_KIND: 'unattended' });
     expect(ship.match(line)).toHaveLength(1);
     expect((ship.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map((h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''))).toEqual(['unattended-session']);

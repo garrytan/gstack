@@ -1256,8 +1256,9 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 | `ship: review_scope …` | Step 9.4 item 0 runs `gstack-review-scope classify` on each pass's findings; see [review_scope](#review-scope) |
 | `ship: changelog_fragments <dir>: …` | Step 12 writes no version; Step 13 writes the entry as `<dir>/<branch-slug>.md` (entry text only, `bump:` front matter only when the change warrants more than the policy bump), never an `[Unreleased]` section, linted with `gstack-prose-lint <file> --gate`; `gstack-ship-queue land` assigns the version; see [changelog fragments](#changelog-fragments) |
 
-The PR body's first section is the ship receipt (`gstack-ship-receipt write … --body`),
-written by the pr-body section of `/ship` after the body is composed.
+The ship receipt (`gstack-ship-receipt write … --body`) goes in the PR body's closing Agent notes
+section, written by the pr-body section of `/ship` after the body is composed; a body from before that
+layout keeps its receipt at the top and is still read.
 
 <a id="ship-receipt"></a>
 ## The ship receipt
@@ -2678,3 +2679,98 @@ recorded predecessor head is no longer the predecessor PR's head (checked
 through `--predecessor-ref` or `gh pr view --predecessor-pr`) the receipt
 prints `PREDECESSOR MOVED <old> -> <new> — fix: gstack-restamp --after <pr>
 again (RESTAMP_PREDECESSOR_MOVED)` and refuses `eligible`.
+<a id="plain-titles"></a>
+## Plain titles: `.gstack/plain-titles.json`
+
+People outside a project read its pull requests and commit log to decide
+whether it is worth using. So PR titles (and the squash commit titles they
+become), branch names, the opening of each PR body, changelog entries and commit
+subjects say in everyday words what changed for someone using the project, for
+example "Stop gstack from hitting GitHub's rate limit while it waits on PRs".
+
+**Front for humans, end for machines.** The rule applies to the readable front.
+A title may end with one group of references, such as `(GST-1713)`,
+`(GST-1808, GST-1809)` or `(#4122)`; that group is never checked. A branch
+may end with one tracker code (`capy/github-rate-limit-gst-1713`). A PR body
+opens with one or two plain sentences (what changed and which goal of the
+project it serves) and keeps tracker codes, the ship record and other
+machine-read lines in the Agent notes section at the end, below the
+`<!-- gstack:agent-notes -->` marker. The checker skips that section.
+
+What the checker refuses in the front:
+
+- a tracker code matching one of the policy's `codes` patterns;
+- a word or phrase from `terms` (whole words, any case; in branch names a
+  hyphen or underscore counts as a space);
+- in titles and commit subjects, a `word(scope):` prefix, since the scope is
+  usually an internal module name. A bare `fix:` or `docs:` is allowed, and so
+  is a leading version such as `v1.98.0.0 release`;
+- in the PR opening, a first block that is a heading, code block, list, table,
+  HTML or image, or a paragraph longer than two sentences;
+- in a changelog entry, a tracker code anywhere, and a listed word in the bold
+  lead. Code spans, code blocks, links and quoted words are skipped.
+
+### The policy file
+
+Each repository opts in by committing `.gstack/plain-titles.json`
+(`gstack-plain-title init` writes an example; `gstack-plain-title validate`
+checks it). Without the file every check passes with
+`PLAIN_TITLE: none (no policy)`, so gstack's own word list never blocks
+another project. The keys:
+
+| Key | Meaning |
+|-----|---------|
+| `codes` | Regex patterns for tracker codes, matched in any case. Keep them narrow: `\\b(?:GST\|GSTA)-\\d+\\b`, not every `ABC-123`, so `UTF-8` stays readable. |
+| `terms` | The project's own words that mean nothing to an outside reader. |
+| `allow` | `{ "text", "reason" }` entries. A refused match inside an allowed phrase passes. Every entry says why. |
+| `since` | A date (`YYYY-MM-DD`, midnight UTC). PRs created before it are exempt, so nothing already open breaks. |
+| `exempt_branch_prefixes` | Branch prefixes that gstack's own tools generate; those branches are not checked. |
+
+gstack's own file lists its tracker prefixes (GST, GSTA, GBRA, GEVA, FOUN, HARN,
+ALPH) and R-numbers (`R76`), the crew and Captain names, and the words last
+week's titles used most: voices, outside voice, pregate, fix-check, ledger,
+receipt, train, wave, lane, restamp and no-stop, with their plurals where
+they were used. It exempts `release/` (the release PR), `wave/` (wave PRs) and
+`gstack-land-repair/` (land's repair PR). The allow list is one entry, kept short
+on purpose:
+
+| Allowed | Why |
+|---------|-----|
+| `R2` | Cloudflare R2, the storage service, not a rules number. |
+
+"merge train" is not allowed: to a reader outside the crew it still names
+gstack's own merge process, so titles say "merge several PRs together" instead.
+
+### Where it runs
+
+1. **/ship, before posting.** /ship writes a plain title and runs
+   `gstack-plain-title check` on the title, the branch (before its first
+   push), the PR opening and the changelog fragment, and rewrites anything it
+   refuses.
+2. **gstack-post, before posting.** `gstack-post pr-title` and `pr-create`
+   run the title check first and post nothing when it refuses.
+3. **The "Plain title" CI check** (`.github/workflows/plain-title.yml`). It
+   runs on every new PR, on each push, and when the title or body is edited.
+   It fails on a refused title and only warns about the branch name, the
+   opening and commit subjects, because those cannot always be fixed in place.
+   It runs on `pull_request_target` with a read-only token and the base
+   repository's checkout, so a PR is checked against the policy and checker
+   already on main and cannot change either; the PR text reaches the checker
+   only as files. The PR that first adds the workflow does not run it for the
+   same reason.
+
+`gstack-plain-title check` exits 0 when everything passes, the policy is
+missing, the PR is exempt or there are only warnings; 1 when something is
+refused; 2 on a usage error; 3 when the policy is invalid. Each finding is
+one `PLAIN_TITLE:` line naming only the matched words, and the last line is
+`PLAIN_TITLE: ok | refused=<n> | warned=<n> | exempt (created before <since>) | none (no policy)`.
+Codes and fixes: [troubleshooting.md](troubleshooting.md#plain-title-refused).
+
+### Making it a required check
+
+The rollout takes two merges. The first ships the checker, the writers and the
+workflow. Once every open PR has a "Plain title" run (an edit to its title or
+body starts one), a one-line follow-up adds `"Plain title"` to
+`changelog_fragments.required_checks`, and `gstack-ship-queue land` then
+refuses a PR whose check is red or missing. Adding it in the first merge would
+hold every open PR that has never had a run.

@@ -311,6 +311,23 @@ describe('push (Step 17)', () => {
     expect(r.stdout).toContain('STOP: non-fast-forward');
     expect(r.stdout).toContain('never force-push');
   });
+
+  // Value: protects=a never-pushed branch whose name breaks the repo's plain-words policy stops before the push, and a plain name pushes; fails_when=a coded or jargon branch name reaches origin, or a plain one is refused;
+  //   why_new=plain public record (docs/ship-policy.md#plain-titles); seam=.gstack/plain-titles.json, git ls-remote; no_claim=branches already on origin
+  test('a never-pushed branch name with a tracker code or coined term in its front stops; a plain name pushes', () => {
+    const f = fx();
+    f.write({ '.gstack/plain-titles.json': JSON.stringify({ codes: ['\\bGST-\\d+\\b'], terms: ['pregate'], allow: [], since: '2026-11-08', exempt_branch_prefixes: ['release/'] }) });
+    f.commit('policy');
+    f.git('branch', '-m', 'gst-1825-pregate-fix');
+    const r = f.run(RELEASE, ['push', '--branch', 'gst-1825-pregate-fix'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(r.status, r.stdout + r.stderr).toBe(3);
+    expect(lineOf(r.stdout, 'BRANCH')).toContain('BRANCH: refused');
+    expect(r.stdout).toContain('is not plain words');
+    f.git('branch', '-m', 'faster-checks-gst-1825');
+    const ok = f.run(RELEASE, ['push', '--branch', 'faster-checks-gst-1825'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(ok.status, ok.stdout + ok.stderr).toBe(0);
+    expect(lineOf(ok.stdout, 'PUSH')).toMatch(/^PUSH: pushed [0-9a-f]{12} to origin\/faster-checks-gst-1825$/);
+  });
 });
 
 describe('gstack-ship-release push: branch names', () => {

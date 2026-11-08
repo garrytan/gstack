@@ -430,7 +430,7 @@ function publish(env: TrainEnv, w: WaveRecord, lines: string[], dryRun: boolean)
   fs.writeFileSync(body, [`## Wave ${w.nonce}`, '', `One slot and one version for ${w.constituents.length} PRs in area \`${w.area}\`, each merged unchanged with a merge commit:`, '',
     ...w.constituents.map(c => `- #${c.pr} at ${c.head}`), '', 'Each constituent is closed with a link to this PR after it lands (`gstack-ship-queue wave settle`).', ''].join('\n'));
   return outOk([...lines, `PUSHED: ${w.branch} at ${w.head} (${saved.detail})`, `FROZEN_NOTICE: ${notices.join(' ')}`, `PR_BODY: ${body}`],
-    `open the wave PR (gh pr create --base ${env.ctx.base} --head ${w.branch} --title "wave(${w.area}): ${w.constituents.map(c => '#' + c.pr).join(' ')}" --body-file ${body}, or the host's PR tool), run /ship on it, then ${Q} ready --pr <wave pr> --screen|--no-screen`, wavePath(w.nonce));
+    `open the wave PR (gh pr create --base ${env.ctx.base} --head ${w.branch} --title "Merge ${w.constituents.length} related changes together (${w.constituents.map(c => '#' + c.pr).join(', ')})" --body-file ${body}, or the host's PR tool), run /ship on it, then ${Q} ready --pr <wave pr> --screen|--no-screen`, wavePath(w.nonce));
 }
 
 function continueWave(env: TrainEnv, w: WaveRecord, dryRun: boolean): TrainOut {

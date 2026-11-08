@@ -374,7 +374,7 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 # GSTACK_SESSION_KIND=spawned override must light this up too.
 [ "$_SESSION_KIND" = "spawned" ] && echo "SPAWNED_SESSION: true" || true
 [ "$_SESSION_KIND" = "unattended" ] && echo "UNATTENDED_SESSION: true" || true
-[ "$_SESSION_KIND" = "unattended" ] && [ "$SKILL_NAME" = "ship" ] && echo "UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated (pr-body section, receipt first), else Step 18 takes the handoff section; receipt at .gstack/tmp/ship-receipt.md; end with gstack-ship-receipt result" || true
+[ "$_SESSION_KIND" = "unattended" ] && [ "$SKILL_NAME" = "ship" ] && echo "UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated (pr-body section, receipt in Agent notes), else Step 18 takes the handoff section; receipt at .gstack/tmp/ship-receipt.md; end with gstack-ship-receipt result" || true
 
 # ---------------------------------------------------------------------------
 # Artifacts sync (the former "Artifacts Sync (skill start)" fence, verbatim

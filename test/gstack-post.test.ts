@@ -7,6 +7,9 @@
  * the real executable against stub gh/glab on POSIX.
  */
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { EXIT, attributionCallout, mergeBodySections, runPost, type PostEnv } from "../lib/gstack-post";
 
 interface Call { cmd: string; args: string[]; input?: string }
@@ -738,7 +741,7 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(() => mergeBodySections(current, RECEIPT("cccc") + "\n## A\n\nnew\n")).toThrow('holds "ship receipt" more than once');
   });
 
-  // Value: protects=the body /ship composes (lib/ship-receipt.ts placeReceiptFirst: the receipt block, one blank line, then the sections) reposts
+  // Value: protects=the body /ship composes (lib/ship-receipt.ts placeReceipt: the receipt block, one blank line, then the sections) reposts
   // idempotently: merged into a PR body of the same shape it yields the file's bytes, the receipt stays byte-first, and the stderr line reports no
   // addition; fails_when=the blank line after the receipt is read as new leading text and prepended before the receipt (one more leading newline per
   // repost, "added leading text" on every /ship re-READY), or a kept blank line is counted as added; why_new=the merge tests above post a receipt-only
@@ -774,3 +777,98 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(afterReceipt.dropped).toEqual([]);
   });
 });
+
+describe("gstack-post keeps the Agent notes section last", () => {
+  const RECEIPT = (head: string) => "```gstack-ship-receipt\n{\n  \"head\": \"" + head + "\"\n}\n```\n";
+  const NOTES = (content: string) => "<!-- gstack:agent-notes -->\n<details><summary>Agent notes</summary>\n\n" + content + "\n\n</details>\n";
+  const composed = (head: string, summary: string) => "Opening sentence.\n\n## Summary\n\n" + summary + "\n\n## Test plan\n\n- [x] bun test\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT(head).trim());
+
+  // Value: protects=the body /ship composes since GST-1825 (opening, sections, Agent notes last) reposts byte for byte and replaces the notes as one
+  // section; fails_when=the receipt inside the notes is split out as its own section, or the notes stop being last; why_new=the notes section is new;
+  // seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a full post whose notes section is last reposts byte for byte and replaces the notes, receipt included, as one section", () => {
+    const first = mergeBodySections(composed("aaaa", "old"), composed("bbbb", "new"));
+    expect(first.body).toBe(composed("bbbb", "new"));
+    expect([first.replaced, first.kept, first.added, first.dropped]).toEqual([["leading text", "Summary", "Test plan", "Agent notes"], [], [], []]);
+    expect(mergeBodySections(first.body, composed("bbbb", "new")).body).toBe(composed("bbbb", "new"));
+  });
+
+  // Value: protects=a partial post keeps the current notes and they stay last, above a Capy badge that ends the body; fails_when=a new section is
+  // appended after the notes or the badge moves above them; why_new=the notes section is new; seam=none; no_claim=the gh round trip
+  test("a partial post appends new sections above the kept notes, and a trailing Capy badge stays after them", () => {
+    const badge = "<!-- capy-badge:start -->\nB\n<!-- capy-badge:end -->\n";
+    const current = composed("aaaa", "old") + "\n" + badge;
+    const m = mergeBodySections(current, "## Why\n\nBecause.\n");
+    expect(m.body).toBe("Opening sentence.\n\n## Summary\n\nold\n\n## Test plan\n\n- [x] bun test\n\n## Why\n\nBecause.\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT("aaaa").trim()) + "\n" + badge);
+    expect(m.added).toEqual(["Why"]);
+    expect(m.kept).toContain("Agent notes");
+  });
+
+  // Value: protects=a PR posted before the notes section (receipt at the top) still merges: a partial post keeps the legacy receipt where it is, and a
+  // full post with notes last replaces it, so one receipt remains and it is the notes' one; fails_when=the legacy receipt survives a full post (two
+  // receipts, the stale one first) or a partial post drops it; why_new=the legacy layout meets the new one; seam=none; no_claim=the gh round trip
+  test("a legacy receipt-at-top body still merges: a partial post keeps it, a full post with notes last replaces it", () => {
+    const legacy = RECEIPT("aaaa") + "\n## Summary\n\nold\n\n## Approvals\n\nPlan: exempt: docs-only\n";
+    const partial = mergeBodySections(legacy, "## Summary\n\nnew\n");
+    expect(partial.body).toBe(RECEIPT("aaaa") + "\n## Summary\n\nnew\n\n## Approvals\n\nPlan: exempt: docs-only\n");
+    const full = mergeBodySections(legacy, composed("bbbb", "new"));
+    expect(full.body).toBe("Opening sentence.\n\n## Summary\n\nnew\n\n## Approvals\n\nPlan: exempt: docs-only\n\n## Test plan\n\n- [x] bun test\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT("bbbb").trim()));
+    expect(full.body.match(/```gstack-ship-receipt/g)).toHaveLength(1);
+    expect(full.replaced).toEqual(["ship receipt", "Summary"]);
+  });
+});
+
+describe("gstack-post refuses a title that is not in plain words (exit 4)", () => {
+  const repoWith = (policy: string | null) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-post-plain-"));
+    if (policy !== null) { fs.mkdirSync(path.join(root, ".gstack")); fs.writeFileSync(path.join(root, ".gstack", "plain-titles.json"), policy); }
+    return root;
+  };
+  const POLICY = JSON.stringify({ codes: ["\\bGST-\\d+\\b"], terms: ["pregate"], allow: [], since: "2026-11-08", exempt_branch_prefixes: [] });
+
+  // Value: protects=pr-title and pr-create post nothing (no title edit, no PR, no body) when the repository's plain-title policy refuses the title,
+  // print the PLAIN_TITLE lines and exit 4; a plain title with one trailing code posts; fails_when=the check runs after a post or not at all;
+  // why_new=R76 adds the check; seam=a real policy file under the fake root; no_claim=real gh
+  test("a refused title posts nothing, prints PLAIN_TITLE lines and exits 4; a plain title posts", () => {
+    const root = repoWith(POLICY);
+    try {
+      const bad = fakeEnv({ root, files: { "/t": "Make the pregate quieter\n", "/b": "Body.\n" } });
+      expect(run(["pr-title", "7", "--title-file", "/t"], bad)).toBe(EXIT.plainTitle);
+      expect(EXIT.plainTitle).toBe(4);
+      expect(bad.posts()).toEqual([]);
+      expect(bad.stdout()).toContain('PLAIN_TITLE: PLAIN_TITLE_REFUSED term "pregate"');
+      expect(bad.stdout()).toContain("PLAIN_TITLE: refused=1\n");
+      expect(bad.stderr()).toContain("nothing was posted");
+      const create = fakeEnv({ root, files: { "/t": "Fix GST-1713 retries", "/b": "Body.\n" } });
+      expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], create)).toBe(EXIT.plainTitle);
+      expect(create.calls.filter(c => c.cmd === "gh" || c.cmd === "glab")).toEqual([]);
+      const good = fakeEnv({ root, files: { "/t": "Stop gstack from hitting GitHub's rate limit (GST-1713)", "/b": "Body.\n" } });
+      expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], good)).toBe(EXIT.posted);
+      expect(good.posts()).toHaveLength(1);
+      const comment = fakeEnv({ root, files: { "/b": "The pregate passed.\n" } });
+      expect(run(["pr-comment", "7", "--body-file", "/b"], comment)).toBe(EXIT.posted);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  // Value: protects=a repository without the policy file is never checked, and an invalid policy refuses rather than posting unchecked;
+  // fails_when=the missing file refuses every title or a broken file is ignored; why_new=R76 adds the check; seam=a real file; no_claim=real gh
+  test("no policy file posts unchecked; an invalid policy file refuses with exit 4 and posts nothing", () => {
+    const none = repoWith(null);
+    const broken = repoWith("{ not json");
+    try {
+      const f = fakeEnv({ root: none, files: { "/t": "Make the pregate quieter" } });
+      expect(run(["pr-title", "7", "--title-file", "/t"], f)).toBe(EXIT.posted);
+      const g = fakeEnv({ root: broken, files: { "/t": "Make the pregate quieter" } });
+      expect(run(["pr-title", "7", "--title-file", "/t"], g)).toBe(EXIT.plainTitle);
+      expect(g.posts()).toEqual([]);
+      expect(g.stderr()).toContain("(PLAIN_POLICY_INVALID); nothing was posted");
+    } finally { fs.rmSync(none, { recursive: true, force: true }); fs.rmSync(broken, { recursive: true, force: true }); }
+  });
+
+  test("the help names exit 4", () => {
+    const f = fakeEnv();
+    expect(run(["--help"], f)).toBe(EXIT.posted);
+    expect(f.stdout()).toContain("4 the title is not plain words");
+  });
+});
+

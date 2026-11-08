@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
+import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { planRecheck, readRecheck, RECHECK_PACKET_BYTES, RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -125,7 +125,7 @@ describe('carry with a scoped re-check (CLI)', () => {
 
   test('a legacy receipt, more changed paths than the walk names, and moved base context print RECHECK: not eligible', () => {
     const legacy = reviewed();
-    fs.writeFileSync(legacy.body, placeReceiptFirst('## Summary\n', { schema_version: 1, pr: 5, head: legacy.from, base: 'main' } as any));
+    fs.writeFileSync(legacy.body, placeReceipt('## Summary\n', { schema_version: 1, pr: 5, head: legacy.from, base: 'main' } as any));
     legacy.commit({ 'src/app.ts': 'export const a = 3;\n' }, 'fix');
     expect(runBin(legacy.repo, 'gstack-ship-receipt', ['carry', '--body', legacy.body], legacy.env).err).toContain('RECHECK: not eligible (the receipt records no review_depth');
 

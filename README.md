@@ -11,6 +11,13 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 - **First-time Claude Code users** — structured roles instead of a blank prompt
 - **Tech leads and staff engineers** — rigorous review, QA, and release automation on every PR
 
+## What gstack is for
+
+- **A whole team's judgment for one builder.** Product, design, engineering, QA, security and release reviews, each from a specialist role.
+- **Catch what CI misses.** Find the bugs that pass tests but break in production, before they ship.
+- **AI-written changes you can trust.** Every change carries its tests, its review and the evidence for both, so you can merge without rereading every line.
+- **Free, open and portable.** MIT-licensed, and it runs on Claude Code and the other major coding agents.
+
 ## Quick start
 
 1. Install gstack (two pastes, about 30 seconds of setup; see below).
