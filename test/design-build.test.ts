@@ -474,7 +474,7 @@ describe('the receipt binds what it measured and reads the lint and preview as t
   test('an inventory edited after verify-start is never clean, and check refuses a receipt measured on another inventory', () => {
     const repo = fixtureRepo();
     const inv = inventory();
-    const fewer = inventory({ states: [{ name: 'owner', url: URL_OWNER, expect: '.rows .row' }] });
+    const fewer = inventory({ states: [{ name: 'owner', url: URL_OWNER, mode: 'url', expect: '.rows .row' }] });
     const runDir = measure(repo, inv, ['owner']);
     const r = receipt({ repo, inv: fewer, runDir, rounds: 1, previewDir: tmpDir('design-build-preview-'), outRoot: path.join(runDir, 'out') });
     expect(r.line).toStartWith('DESIGN_BUILD: incomplete code=INVENTORY_CHANGED linted=1/1');
@@ -486,7 +486,7 @@ describe('the receipt binds what it measured and reads the lint and preview as t
 
   test('without --preview the receipt reads the default preview state for each loopback port, so a recorded 501 is never clean', () => {
     const repo = fixtureRepo();
-    const inv = inventory({ states: [{ name: 'owner', url: LOCAL('owner') }, { name: 'lastowner', url: LOCAL('lastowner') }] });
+    const inv = inventory({ states: [{ name: 'owner', url: LOCAL('owner'), mode: 'url' }, { name: 'lastowner', url: LOCAL('lastowner'), mode: 'url' }] });
     const state = path.join(os.tmpdir(), `gstack-preview-${PORT}`);
     fs.mkdirSync(state, { recursive: true });
     tmp.push(state);

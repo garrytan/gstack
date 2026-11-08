@@ -35,7 +35,8 @@ files instead, with the same fixture API; gstack's own tests use that mode on
 - **No live backend.** Every request under the API prefix (`--api`, default
   `/api/`) is answered from a fixture or with a 501. Anything outside the
   prefix is the app's (SPA routes still serve), except a path the app's own
-  dev-server proxy forwards, which gets a 501 too. An app that calls an
+  dev-server proxy forwards, which gets a 501 too (a WebSocket upgrade does
+  not). An app that calls an
   absolute API URL on another origin still reaches that host, so point its
   API base at the preview. `preflight` prints `mutations=fixtures-only` only
   when the preview's own probe route, `/api/__gstack-preview`, answers at
