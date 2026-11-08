@@ -161,7 +161,7 @@ describe("env.kv: reading an environment variable in code names a secret without
     "MEDIUM",
     [
       String.raw`    token = opts?.env?.AGENT_API_TOKEN;`,
-      String.raw`token = ctx.env.AGENT_API_TOKEN`,
+      String.raw`token = ctx.env.AGENT_API_TOKEN;`,
       String.raw`token = env?.AGENT_API_TOKEN;`,
       String.raw`token = env.AGENT_API_TOKEN,`,
       String.raw`token = import.meta.env.VITE_API_TOKEN;`,
@@ -182,10 +182,6 @@ describe("env.kv: reading an environment variable in code names a secret without
       String.raw`token = env.AGENT_API_TOKEN||"${FAKE_KEY}"`,
       String.raw`token = process.env["AGENT_API_TOKEN"] || "${FAKE_KEY}"`,
       String.raw`token = os.getenv("AGENT_API_TOKEN", "${FAKE_KEY}")`,
-      `token = opts?.env?.AGENT_API_TOKEN ?? \`${FAKE_KEY}\``,
-      `token = process.env.AGENT_API_TOKEN || \`${FAKE_KEY}\``,
-      `token = opts?.env?.AGENT_API_TOKEN ??\n  "${FAKE_KEY}"`,
-      `token = env.AGENT_API_TOKEN\n  || "${FAKE_KEY}"`,
       String.raw`token = process.env["${FAKE_KEY}"]`,
       String.raw`token = os.environ["${FAKE_KEY}"]`,
       `token = env.${FAKE_KEY}`,
@@ -197,6 +193,34 @@ describe("env.kv: reading an environment variable in code names a secret without
     for (const input of [`AGENT_API_TOKEN=${GH}`, String.raw`token = opts?.env?.AGENT_API_TOKEN ?? "${GH}"`]) {
       expect(findings(input).some((f) => f.severity === "HIGH")).toBe(true);
     }
+  });
+});
+
+describe("env.kv: the env-read exemption needs a finished expression with no fallback; otherwise the line reads as on main (GST-1894)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const kv = (text: string) => findings(text).some((f) => f.id === "env.kv");
+  test.each([
+    ["comment after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ?? // fallback` + "\n" + String.raw`  "${FAKE_KEY}";`],
+    ["blank line after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ??` + "\n\n" + String.raw`  "${FAKE_KEY}";`],
+    ["fallback wrapped after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ??` + "\n" + String.raw`  "${FAKE_KEY}";`],
+    ["fallback on the next line", String.raw`token = opts?.env?.AGENT_API_TOKEN` + "\n" + String.raw`  ?? "${FAKE_KEY}";`],
+    ["|| on the next line", String.raw`token = env.AGENT_API_TOKEN` + "\n" + String.raw`  || "${FAKE_KEY}"`],
+    ["backtick fallback", "token = opts?.env?.AGENT_API_TOKEN ?? `" + FAKE_KEY + "`;"],
+    ["backtick concatenation", "token = ctx.env.AGENT_API_TOKEN + `" + FAKE_KEY + "`;"],
+    ["ternary", "token = opts?.env?.AGENT_API_TOKEN ? opts.env.AGENT_API_TOKEN : `" + FAKE_KEY + "`;"],
+    ["python or", String.raw`token = ctx.env.AGENT_API_TOKEN or FALLBACK_TOKEN_VALUE`],
+    ["getenv default", String.raw`token = System.getenv("AGENT_API_TOKEN", "${FAKE_KEY}");`],
+    ["call left open", String.raw`token = System.getenv("AGENT_API_TOKEN")`],
+  ])("fires as on main: %s", (_, input) => {
+    expect(kv(input)).toBe(true);
+  });
+  test.each([
+    ["multi-line call", ["client = OpenAI(", String.raw`    api_key=os.getenv("OPENAI_API_KEY"),`, String.raw`    base_url="https://api.openai.com/v1",`, ")"].join("\n")],
+    ["object property", String.raw`  token: opts?.env?.AGENT_API_TOKEN,`],
+    ["code span in a comment", "token = make_token(user)  // `process.env.AGENT_API_TOKEN` fallback"],
+    ["getenv with an empty default", String.raw`token = os.getenv("OPENROUTER_API_KEY_V2", "")`],
+  ])("still exempt, as on main: %s", (_, input) => {
+    expect(kv(input)).toBe(false);
   });
 });
 

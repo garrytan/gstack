@@ -700,26 +700,38 @@ const POSTGRES_LOOPBACK_DEFAULT =
  */
 const ENV_READ_SPAN =
   /^(?:os\.environ\[|os\.environ\.get\(|(?:[A-Za-z_$][\w$]*\.)?getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?|(?:[A-Za-z_$][\w$]*[!?]?\.)*env(?:[!?]?\.[A-Z_][A-Z0-9_]*[;,)]?|(?:\?\.)?\[))$/;
+/** The reads #2912 exempted before GST-1894; a line with a fallback keeps exactly this exemption. */
+const ENV_READ_SPAN_2912 =
+  /^(?:os\.environ\[|os\.environ\.get\(|os\.getenv\(|getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?)$/;
 /** The quoted ALL-CAPS variable name an indexed or call read opens with (`"AGENT_API_TOKEN"]`, `'DB_PASSWORD',`). */
 const ENV_NAME_ARGUMENT = /^(["'])[A-Z_][A-Z0-9_]*\1/;
+/** A fallback or default after the read: `??`, `||`, `or` or a ternary `:`, anywhere on the line. */
+const ENV_READ_FALLBACK = /\?\?|\|\||(?<![\w$])or(?![\w$])|:/;
 /**
  * The rest of the line is read from the span's end, so a quote the match took
  * is still seen: a literal fallback (`os.getenv("X", "<secret>")`) or a
  * literal used as the name (`os.environ["<secret>"]`) keeps the finding.
- * A fallback wrapped onto the next line (`?? \n "<secret>"`) is read too.
+ * GST-1894's wider reads (`opts?.env?.X`, `process.env["X"]`,
+ * `System.getenv("X")`) are exempt only when the line holds no fallback, no
+ * second argument, and ends the expression with `;`, `,` or `)`. Any other
+ * line reads exactly as #2912 did, so a fallback after a comment, a blank line
+ * or on the next line is never exempted by the wider reads. The next line is
+ * never read.
  */
-const LINE_CONTINUES = /(?:\?\?|\|\||&&|[?:(,+])\s*$/;
-const LINE_CONTINUED = /^\s*(?:\?\?|\|\||&&|[?:+)])/;
 function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
-  if (!ENV_READ_SPAN.test(span)) return false;
-  const [line, next = ""] = match.input.slice(spanBounds(match).end).split("\n", 2);
-  const rest = LINE_CONTINUES.test(line) || LINE_CONTINUED.test(next) ? `${line}\n${next}` : line;
-  return !carriesSecretLiteral(/[[(]$/.test(span) ? rest.replace(ENV_NAME_ARGUMENT, "") : rest);
+  const opensArgument = /[[(]$/.test(span);
+  const line = match.input.slice(spanBounds(match).end).split("\n", 1)[0];
+  const rest = opensArgument ? line.replace(ENV_NAME_ARGUMENT, "") : line;
+  if (ENV_READ_FALLBACK.test(rest) || (opensArgument && /^[ \t]*,/.test(rest)))
+    return ENV_READ_SPAN_2912.test(span) && !carriesSecretLiteral(rest);
+  if (!ENV_READ_SPAN.test(span) || carriesSecretLiteral(rest)) return false;
+  const after = opensArgument ? rest.replace(/^[\])]/, "") : rest;
+  return ENV_READ_SPAN_2912.test(span) || /[;,)]$/.test(span) || /^[ \t]*[;,)]/.test(after);
 }
 
-/** True when `text` holds a quoted (`"`, `'` or backtick), non-placeholder, high-entropy literal. */
+/** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
 function carriesSecretLiteral(text: string): boolean {
-  for (const [, literal] of text.matchAll(/["'`]([^\s'"`]{8,})["'`]/g))
+  for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
     if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return true;
   return false;
 }
