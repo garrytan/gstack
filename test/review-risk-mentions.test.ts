@@ -92,6 +92,18 @@ describe('GST-1888 fail-closed: code that handles money, keys, auth or a trust b
     ['a shell length expansion before a paid call', 'bin/x.sh', ['n=${#ITEMS[@]}; curl https://api.openai.com/v1/models'], ['money']],
     ['an extensionless executable', 'bin/tool', ['# no fetch( here'], ['security']],
     ['an auth path', 'src/auth/session.ts', ['// mentions only'], ['auth']],
+    ['a URL before a shell delete on a template line', 'src/a.ts', ['  curl -fsSL https://example.com/x.sh -o /tmp/x && rm -rf "$HOME/.cache"'], ['security']],
+    ['a URL before an eval on a template line', 'src/a.ts', ['  see https://x.dev && eval "$CMD"'], ['security']],
+    ['a glob before a fetch', 'src/a.ts', ['  ls src/*.ts; await fetch(u);'], ['security']],
+    ['a star-led template line with no open block comment', 'src/a.ts', [' * rm -rf "$DIR"'], ['security']],
+    ['a star-led line after a closed block comment', 'src/a.ts', ['/** done */', ' * rm -rf "$DIR"'], ['security']],
+    ['a Ruby regex holding #', 'src/a.rb', ['ok = s =~ / #/ && system(cmd); exec(cmd)'], ['security']],
+    ['a Perl substitution holding #', 'src/a.pl', ['$s =~ s/a #b//; system($cmd); exec($cmd);'], ['security']],
+    ['a per-token charge constant', 'src/models.ts', ['  charge_per_token: 0.002,'], ['money']],
+    ['a per-token credits constant', 'src/models.ts', ['  credits_per_token: 2,'], ['money']],
+    ['a billable token constant', 'src/models.ts', ['  billable_tokens: 100,'], ['money']],
+    ['a metered token constant', 'src/models.ts', ['  metered_tokens: 100,'], ['money']],
+    ['a billed token constant', 'src/models.ts', ['  tokens_billed: 0,'], ['money']],
   ] as [string, string, string[], string[]][])('%s keeps its classes', (_n, p, lines, classes) => {
     expect(risk(p, lines, true)).toEqual(classes);
   });
@@ -109,6 +121,10 @@ describe('GST-1888 fail-closed: code that handles money, keys, auth or a trust b
     ['a dynamic import of got', 'src/http.ts', ["const { default: got } = await import('got');"]],
     ['a got call', 'src/http.ts', ['const body = await got(url).json();']],
     ['a got verb call', 'src/http.ts', ['await got.post(url, { json });']],
+    ['inline Python in a TS string', 'src/run.ts', ['  python3 -c "import httpx; httpx.post(u, json=d)"']],
+    ['inline Python in a skill template', 'skills/x/SKILL.md.tmpl', ['python3 -c "import requests; requests.post(u)"']],
+    ['a requests call in a shell script', 'scripts/x.sh', ['requests.post(u)']],
+    ['a requests call in a Cython file', 'src/a.pyx', ['requests.get(u, verify=False)']],
   ] as [string, string, string[]][])('%s is security', (_n, p, lines) => {
     expect(risk(p, lines)).toEqual(['security']);
   });

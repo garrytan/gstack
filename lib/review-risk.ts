@@ -84,8 +84,8 @@ export const SECRET_LINE = [
 
 /** Sealed custody (harness-evals#237: scripts/sealed/seal.ts) and egress code are trust boundaries too (GST-1177). */
 const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'seal', 'sealed', 'custody', 'egress'];
-/** An import of Python's requests or httpx client: security on its own, and it makes the file's client calls count (PY_CLIENT_CALL). */
-export const PY_CLIENT_IMPORT = /^\s*(?:import\s{1,20}(?:requests|httpx)\b|from\s{1,20}(?:requests|httpx)(?:\.\w{1,40}){0,5}\s{1,20}import\b)/;
+/** An import of Python's requests or httpx client, at a line's start or inline (`python3 -c "import httpx; …"`): security on its own, and it makes the file's client calls count (PY_CLIENT_CALL). */
+export const PY_CLIENT_IMPORT = /(?:^|[;"'`]|\s-c\s)\s*(?:import\s{1,20}(?:requests|httpx)\b|from\s{1,20}(?:requests|httpx)(?:\.\w{1,40}){0,5}\s{1,20}import\b)/;
 /** Coarse, linear-time rules (GST-850 B+): any changed line naming the child_process module, any outbound HTTP client call; quantifiers bounded. */
 export const SECURITY_LINE = [
   /\bshell\s*:\s*true\b/, /\bshell\s*=\s*True\b/, /(?<![.\w$])exec(?:Sync)?\s*\(/, /\b(?:child_process|childProcess|cp)\.exec(?:Sync)?\s*\(/, /\bos\.system\s*\(/,
@@ -108,8 +108,7 @@ export const SECURITY_LINE = [
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */
 export const SECURITY_JOINED = [/\brm(?:Sync)?\s*\((?:[\s\S]{0,500}?recursive\s*:\s*true|[^)]{501})/];
-/** Python's requests and httpx clients (GST-1888: #387's JS `requests.filter(` read as one): a call counts in a Python file, an extensionless script, or a file whose changed lines import the client. */
-export const PY_CLIENT_PATH = /\.pyw?$|(^|\/)[^./]+$/i;
+/** Python's requests and httpx clients (GST-1888: #387's JS `requests.filter(` read as one): a call counts in any file outside the SLASH_COMMENT languages, or in a file whose changed lines import the client. */
 export const PY_CLIENT_CALL = /\b(?:requests|httpx)\.[a-z]{1,10}\s{0,20}\(/;
 /**
  * Comment syntax by extension (GST-1888: gbrain-evals#387's stub planned security from text): security reads a changed line with its
@@ -118,27 +117,37 @@ export const PY_CLIENT_CALL = /\b(?:requests|httpx)\.[a-z]{1,10}\s{0,20}\(/;
  * do not close on the line (a multi-line string or template), is read whole.
  */
 export const SLASH_COMMENT = /\.(?:[cm]?[jt]sx?|go|rs|java|kts?|swift|c|h|cc|cpp|hpp|cs|scala|dart|php)$/i;
-export const HASH_COMMENT = /\.(?:py|pyw|sh|bash|zsh|rb|pl|r|jl|gd|ps1)$/i;
-/** JSDoc and Javadoc continuation lines (` * text`); C, Go and Rust are left out, where a line can start with a dereference or an operator. */
+/** Ruby and Perl are left out: a `#` inside their regex literals would read as a comment. */
+export const HASH_COMMENT = /\.(?:py|pyw|sh|bash|zsh|r|jl|gd|ps1)$/i;
+/** JSDoc and Javadoc continuation lines (` * text`) inside a block a changed line above opened (starComments); C, Go and Rust are left out, where a line can start with a dereference or an operator. */
 export const STAR_COMMENT = /\.(?:[cm]?[jt]sx?|java|kts?|swift|cs|scala|dart|php)$/i;
 export const REGEX_LITERAL = /\.[cm]?[jt]sx?$/i;
 const REGEX_AFTER = /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\b(?:return|typeof|case|do|else|in|of|void|yield|await|delete|throw|new))\s*$/;
-/** A canned usage field (GST-1888: a model-API stub's `usage: { output_tokens: 1 }`): a token-named key set to a numeric constant, or to an object left empty once those go, four levels deep; a computed, read or summed count stays money. */
+/** A canned usage field (GST-1888: a model-API stub's `usage: { output_tokens: 1 }`): a token-named key set to a numeric constant, or to an object left empty once those go, four levels deep; a computed, read or summed count, and a key that names money (`charge_per_token: 0.002`), stays money. */
 export const CONST_TOKEN_FIELD = [/["']?\b[A-Za-z_]{0,60}tokens?[A-Za-z_]{0,60}["']?\s{0,20}:\s{0,20}-?\d{1,20}(?:\.\d{1,20})?(?=\s{0,20}[,}])/gi, /["']?\b[A-Za-z_]{0,60}tokens?[A-Za-z_]{0,60}["']?\s{0,20}:\s{0,20}\{[\s,]{0,200}\}/gi];
-const dropConstTokens = (s: string) => { for (let depth = 0; depth < 4; depth++) for (const r of CONST_TOKEN_FIELD) s = s.replace(r, ''); return s; };
+const dropConstTokens = (s: string) => { for (let depth = 0; depth < 4; depth++) for (const r of CONST_TOKEN_FIELD) s = s.replace(r, f => namesMoney(tokens(f.split(':')[0]!), MONEY_PATH_TOKENS) ? f : ''); return s; };
+/** Which lines are JSDoc continuation lines: a ` * ` line after a changed line that opened a `/*` block not yet closed. Any other ` * ` line, a template or string body included, is read as code. */
+const starComments = (p: string, lines: readonly string[]) => {
+  let open = false;
+  return lines.map(l => {
+    const star = open && STAR_COMMENT.test(p) && /^\s*\*(?:\/|\s|$)/.test(l);
+    open = star ? !l.includes('*/') : /(?:^|\s)\/\*(?!.*\*\/)/.test(l);
+    return star;
+  });
+};
 
-/** A changed line with its comments removed and its strings and regex literals kept whole; the whole line when the language is unknown or a literal does not close on it. */
-export function codeOf(p: string, line: string): string {
+/** A changed line with its comments removed and its strings and regex literals kept whole; the whole line when the language is unknown or a literal does not close on it. A `//` or `/*` opens a comment only at the line's start or after whitespace, never in `https://` or `src/*`. */
+export function codeOf(p: string, line: string, star = false): string {
   const slash = SLASH_COMMENT.test(p), hash = HASH_COMMENT.test(p);
   if (!slash && !hash) return line;
   let rest = line;
-  if (STAR_COMMENT.test(p) && /^\s*\*(?:\/|\s|$)/.test(rest)) { const end = rest.indexOf('*/'); if (end < 0) return ''; rest = rest.slice(end + 2); }
+  if (star) { const end = rest.indexOf('*/'); if (end < 0) return ''; rest = rest.slice(end + 2); }
   const out: string[] = [];
   let tail = '', seg = 0, i = 0;
   const take = (s: string) => { out.push(s); tail = (tail + s).slice(-24); };
   while (i < rest.length) {
     const c = rest[i]!, n = rest[i + 1];
-    const comment = (slash && c === '/' && (n === '/' || n === '*')) || (hash && c === '#' && (i === 0 || /\s/.test(rest[i - 1]!)));
+    const comment = (i === 0 || /\s/.test(rest[i - 1]!)) && ((slash && c === '/' && (n === '/' || n === '*')) || (hash && c === '#'));
     const regex = !comment && c === '/' && REGEX_LITERAL.test(p) && REGEX_AFTER.test((tail + rest.slice(Math.max(seg, i - 24), i)).slice(-24));
     if (!comment && !regex && c !== '"' && c !== "'" && c !== '`') { i++; continue; }
     take(rest.slice(seg, i));
@@ -206,7 +215,7 @@ export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
   SECRET_SCAN,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, PY_CLIENT_PATH: [PY_CLIENT_PATH], PY_CLIENT_CALL: [PY_CLIENT_CALL], SLASH_COMMENT: [SLASH_COMMENT], HASH_COMMENT: [HASH_COMMENT], STAR_COMMENT: [STAR_COMMENT], REGEX_LITERAL: [REGEX_LITERAL], CONST_TOKEN_FIELD, REGEX_AFTER: [REGEX_AFTER], DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, PY_CLIENT_CALL: [PY_CLIENT_CALL], SLASH_COMMENT: [SLASH_COMMENT], HASH_COMMENT: [HASH_COMMENT], STAR_COMMENT: [STAR_COMMENT], REGEX_LITERAL: [REGEX_LITERAL], CONST_TOKEN_FIELD, REGEX_AFTER: [REGEX_AFTER], DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -246,13 +255,14 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
     if (!config && t.some(x => EVAL_PATH_TOKENS.includes(x))) hit('eval', 'eval scorer path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
-    const lines = [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])];
-    const pyClient = PY_CLIENT_PATH.test(p) || lines.some(l => PY_CLIENT_IMPORT.test(l));
-    for (const line of lines) {
+    const added = i.added?.[p] ?? [], removed = i.removed?.[p] ?? [], lines = [...added, ...removed];
+    const stars = [...starComments(p, added), ...starComments(p, removed)];
+    const pyClient = !SLASH_COMMENT.test(p) || lines.some(l => PY_CLIENT_IMPORT.test(l));
+    for (const [n, line] of lines.entries()) {
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
       if (!why.has('money') && pathOnly && (PAID_MONEY_LINE.some(r => r.test(line)) || (!PRICE_KEY_EXEMPT.test(p) && MONEY_USD.some(r => r.test(line)) && PRICE_USD_KEY.test(line)))) hit('money', 'spend cap, paid call or price key: ' + p);
       if (pathOnly) continue;
-      const words = dropConstTokens(line), code = codeOf(p, line);
+      const words = dropConstTokens(line), code = codeOf(p, line, stars[n]);
       if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(words) || namesMoney(tokens(words), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(words), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
       if (!why.has('security') && (SECURITY_LINE.some(r => r.test(code)) || (pyClient && PY_CLIENT_CALL.test(code)))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);

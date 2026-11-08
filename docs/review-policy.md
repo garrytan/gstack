@@ -332,7 +332,8 @@ beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
 (GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
 `required=none`). A usage object whose token fields are numeric constants
 (`usage: { output_tokens: 1 }`, a model-API stub's canned reply) names no money;
-a computed, read or summed token count does (GST-1888). money reads comments and
+a computed, read or summed token count, or a key that names money
+(`charge_per_token: 0.002`), does (GST-1888). money reads comments and
 strings, since a comment can be the only sign that changed code handles billing. **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
 consent, escape, and sealed custody or egress: seal, sealed, custody, egress) or line (a
 redaction call, an import of a redaction or outside-voice module, a `SECRET` or `CREDENTIAL`
@@ -340,8 +341,9 @@ constant set to a regex, since that code decides what reaches an outside model, 
 raw HTML sinks, a shell run through argv, recursive deletes), any call to an
 outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, undici, urllib,
 an import of got or a `got(` or `got.<verb>(` call, an import of `requests` or
-`httpx` and their calls in a Python file, an extensionless script or a file whose
-changed lines import them, with no exemption for a literal URL), `new URL` from
+`httpx` (inline too, as in `python3 -c "import httpx; …"`) and their calls in any
+file outside the `//` comment languages or in a file whose changed lines import
+them, with no exemption for a literal URL), `new URL` from
 input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
 `unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
@@ -349,8 +351,10 @@ or removed), and any changed line that names the `child_process` or
 `node:child_process` module, in any import or require spelling. A changed SVG
 line that can run code (a script or `foreignObject` element, an event handler, a
 `javascript:` URL) is security too (GST-911). security reads a changed line with
-its comments removed in a file whose comment syntax it knows (`//`, `/* */`, a
-JSDoc ` * ` line, or a `#` after whitespace in Python, shell, Ruby and the like),
+its comments removed in a file whose comment syntax it knows (a `//` or `/* */`
+at a line's start or after whitespace, a JSDoc ` * ` line inside a block a changed
+line opened, or a `#` after whitespace in Python, shell and the like; Ruby and
+Perl are read whole),
 so a comment that names `fetch(` or `rm -rf` raises nothing; strings stay, and a
 line whose quote or regex literal does not close on it, or a file of any other
 language, is read whole (GST-1888). The GST-850
