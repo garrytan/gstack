@@ -56,7 +56,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 
 | Section | What it holds |
 |---|---|
-| Bars | one line per metric: name, pass bar, direction, what a miss means for the decision |
+| Bars | `lesson:` the public lesson the run is after, then one line per metric: name, pass bar, direction, what a miss means for the decision |
 | Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
@@ -249,6 +249,10 @@ leaves the run (a report, a READY block, a PR body), check it:
 `RESULTS: ok` lets the numbers go out. `EVAL_REPORT_NO_GSTACK_ROW` (exit 1) names the arm
 whose filled row is missing from the table that holds the others; add it and rerun. A
 preregistration with `stack: none` needs no row.
+
+The results file opens with two or three plain takeaways ("We learned X. You should do
+X."): what works first, then what didn't, with its number. Cost appears only as part of a
+lesson, and nothing is opened without a stated reason (ETHOS.md, Explain the Number).
 
 ## Tier 3, after P7 (not in this skill yet)
 

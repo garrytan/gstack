@@ -266,10 +266,27 @@ smaller than the variation is not a difference; say "no measurable change" and
 mean it. A surprising number is a lead to investigate, not a headline to post:
 the eval that jumps twenty points usually found a shortcut, not a capability.
 
+A write-up of what we learned is a gift to everyone building agents (Garry,
+2026-11-08: "this is a gift"), so it leads with what they can use. Every
+findings file, investigation write-up and results README opens with two or
+three plain bullets: the big takeaways, phrased as "We learned X. You should do
+X." What works comes first, with why it matters to a builder. What didn't work
+comes right after, stated plainly with its number, and a null becomes a useful
+lesson where the data supports one ("you don't need X; the plain model already
+does Y"). Our own mechanics (tracker codes, ledgers, receipts, gate details) go
+last. Every experiment names the public lesson it is after before it runs.
+Spend stays in the ledger and internal reports; a findings file shows cost
+only when it is part of the lesson, such as cost per correct answer between two
+setups. Private is the default: open a repo, dataset or tool only with a stated
+reason, helping builders or letting others reproduce a published finding. None
+of this bends the rules above: no number is rounded in our favour and no caveat
+is dropped.
+
 **Anti-patterns:**
 - A speedup from one run on each side.
 - A pass rate without the trial count.
 - "Faster" with no theory of what changed.
+- A results file whose lesson, or whose null, sits under a page of run ids.
 
 ---
 

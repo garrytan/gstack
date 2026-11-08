@@ -1973,6 +1973,14 @@ drops the row has not reported its result. `gstack-eval-plan results --check
 filled row for every Arms identity (`EVAL_REPORT_NO_GSTACK_ROW` otherwise), and
 no number is published before it passes.
 
+**Writing it up.** A results file, findings file or investigation write-up
+opens with two or three plain takeaways ("We learned X. You should do X."),
+what works first and what didn't right after, with its number; a null becomes
+the lesson its data supports. Run ids, ledgers and gate details go last. Cost
+appears only when it is part of the lesson, and datasets or tools are opened
+only with a stated reason. The rules and their honesty bars are in
+[ETHOS.md, Explain the Number](../ETHOS.md#8-explain-the-number).
+
 **Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
 evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
 rule paragraph deleted), and the router failure-routing evals compare
