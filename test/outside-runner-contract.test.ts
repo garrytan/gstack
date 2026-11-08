@@ -18,7 +18,7 @@ const BIN = path.join(ROOT, 'bin', 'gstack-outside-voice');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-runner-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
-const REVIEW = `INPUT: ceo abc\n\n[P2] The install check lies by omission.\n\nRecommendation: revise because the premise is unmeasured.\n`;
+const REVIEW = `INPUT: ceo abc\n\n[P2] The install check lies by omission.\n\nRecommendation: revise because the premise is unmeasured.\nVERDICT: FINDINGS\n`;
 const promptFile = path.join(TMP, 'prompt.md');
 fs.writeFileSync(promptFile, 'You are the outside CEO reviewer.\n');
 

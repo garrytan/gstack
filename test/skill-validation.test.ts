@@ -1677,7 +1677,9 @@ describe('Codex skill', () => {
     //
     //   scoped   — `codex review --base <base>` with NO prompt argument. The
     //     scope comes from the CLI, which is the only thing that actually sets
-    //     it. This is what all three files now use.
+    //     it. Every site has since moved to `codex exec` with the diff written into
+    //     the prompt, because `codex review --base` cannot be asked for the
+    //     verdict line the gate reads; no rendered `codex review` call remains.
     //   broken   — prompt-only `codex review "<text>"` describing the diff
     //     range in prose. This parses, but the CLI falls back to *uncommitted
     //     working-tree* scope, so the review silently covers the wrong changes.
@@ -1691,7 +1693,8 @@ describe('Codex skill', () => {
       const content = rel === 'ship/SKILL.md' ? readShipUnion()
         : rel === 'review/SKILL.md' ? readSkillUnion('review')
         : readSkillUnion('codex');
-      expect(content).toMatch(/codex\s+review\s+--base\b/);
+      expect(content).toMatch(/codex\s+exec\s+-\s/);
+      expect(content).toContain('git merge-base <base> HEAD');
       const offending: string[] = [];
       for (const line of content.split('\n')) {
         if (line.includes('`codex review`')) continue;

@@ -72,10 +72,11 @@ if [ -f "$SCRIPT_DIR/gstack-install-registry.sh" ]; then
   . "$SCRIPT_DIR/gstack-install-registry.sh"
   DISABLED="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
 fi
-# Retired skills (GSTACK_RETIRED_SKILLS) lose their entry the same way; only
-# the user's DISABLED list is reported and passed to the router.
+# Retired skills, and the crew skills off a Capy machine
+# (GSTACK_UNREGISTERED_SKILLS), lose their entry the same way; only the user's
+# DISABLED list is reported and passed to the router.
 OFF="$DISABLED"
-[ -z "${GSTACK_RETIRED_SKILLS:-}" ] || OFF="$(gstack_disabled_normalize "$GSTACK_RETIRED_SKILLS $DISABLED")"
+[ -z "${GSTACK_UNREGISTERED_SKILLS:-}" ] || OFF="$(gstack_disabled_normalize "$GSTACK_UNREGISTERED_SKILLS $DISABLED")"
 DISABLED_COUNT=0
 
 # #2569: rendered :user variants (brain-aware blocks) live in an UNTRACKED

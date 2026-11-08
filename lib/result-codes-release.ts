@@ -425,6 +425,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the documentation audit (/ship Step 14.5) is blocked: gstack-ship-receipt docs-caps found a declared doc cap over, or gstack-ship-receipt write was given a blocked audit with no owner exception and refused to record the ship as audited',
     fix: 'repair the audit (or trim the doc named by the DOCS_CAP: over line) and rerun Step 14.5; when the owner accepts the named risk, record it as docs.exception { accepted_by, date, via, reason } and carry the same line in the PR body\'s Documentation section',
   },
+  DOCS_RESULT_INVALID: {
+    anchor: 'docs-result-invalid',
+    summary: 'the documentation audit child\'s last line (/ship Step 14.5) does not meet the result contract: a key is missing, unknown or repeated once whitespace around keys is trimmed, a field has the wrong type or value, or documentation_section is empty or a placeholder; the audit result cannot be used, and this is a malformed reply, not a blocked audit',
+    fix: 'run the one remaining re-audit with the RETRY_NOTE: line appended to its prompt verbatim; with no attempt left, Step 14.5 stops with this code and the keys it names',
+  },
   RECEIPT_PROSE_MISMATCH: {
     anchor: 'receipt-prose-mismatch',
     summary: 'the PR body quotes a counter the ship receipt also records (review passes, deferred findings, gate case counts) with a different number, so the prose and the receipt disagree about the same run',

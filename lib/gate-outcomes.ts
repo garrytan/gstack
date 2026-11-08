@@ -58,9 +58,14 @@ export const GATE_OUTCOMES = {
     summary: 'the response lacks the markers this gate requires',
     fix: 're-run the review; a response without its required markers never counts as a pass',
   },
+  missing_verdict: {
+    state: 'ran', anchor: 'outside-review-missing-verdict',
+    summary: 'the review does not end with the required VERDICT: CLEAN or VERDICT: FINDINGS line',
+    fix: 'read the full reply above and decide; it is not a pass. Re-run the review from current skills, whose prompts ask for that line (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-missing-verdict)',
+  },
   untagged_review: {
     state: 'ran', anchor: 'outside-review-unverified',
-    summary: 'the review completed without severity tags or an explicit no-findings line',
+    summary: 'the review reports findings without a readable severity tag',
     fix: 'read the output above and decide; it is not a pass',
   },
   unparsed_severity: {

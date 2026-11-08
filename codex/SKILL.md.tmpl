@@ -204,14 +204,8 @@ Every prompt sent to Codex MUST be prefixed with this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
-This applies to Challenge mode (prompt) and Consult mode (persona prompt), and to the
-custom-instructions path of Review mode — all three use `codex exec`, which still takes
-a free-form prompt (fed on stdin with `codex exec -`, so size and quoting never break it). It does **not** apply to the default scoped `codex review`
-call in Step 2A: that command is invoked with **no prompt at all** (see "Scope
-flags exclude the prompt argument" in the Review mode section), so there is nowhere to put the preamble. That
-is acceptable — `codex review --base` hands the model a pre-computed diff rather than
-turning it loose on the filesystem, so the rabbit-hole risk the boundary guards against
-is much lower on that path. Reference this section as "the filesystem boundary" in the
+This applies to every mode: Review, Challenge and Consult all use `codex exec`, which takes
+a free-form prompt (fed on stdin with `codex exec -`, so size and quoting never break it). Reference this section as "the filesystem boundary" in the
 mode sections.
 
 ---
@@ -250,8 +244,7 @@ examples.
 ## Model & Reasoning
 
 **Model:** every Codex call passes the selection above via `{{CODEX_MODEL_CONFIG_FLAG}}`.
-Native `codex review` selects with `review` and sets both `model` and `review_model`. The
-flag also keeps installed skills out of Codex's context, so a review cannot become a
+The flag also keeps installed skills out of Codex's context, so a review cannot become a
 nested skill run.
 
 **Reasoning effort** (defaults in Step 1): `run-with-timeout --effort <default>` resolves
@@ -267,17 +260,11 @@ uses ~23x more tokens than `high` and causes 50+ minute hangs on large context t
 invocations can look up docs and APIs during review. This is OpenAI's cached index —
 fast, no extra cost. Unlike the legacy `--enable`-based spelling (deprecated by
 codex >=0.144), the `-c` form explicitly overrides any top-level
-`web_search` setting in `~/.codex/config.toml`. Note: native `codex review` disables
-web search regardless of configuration, so on the default Review path the flag is a
-harmless no-op — only exec-based modes actually search.
+`web_search` setting in `~/.codex/config.toml`.
 
 If the user specifies a model (e.g., `/codex review -m gpt-6.1-sol` or
 `/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same config
-form and replace the default model flag with `-c "model=\"<model>\""`. Native review
-also requires `-c "review_model=\"<model>\""`; replace both model values together.
-Review mode runs `codex review`, which REJECTS `-m` (`error: unexpected argument '-m' found`,
-verified on 0.147.0), while `-c model=...` is accepted by both `codex review` and
-`codex exec`.
+form and replace the default model flag with `-c "model=\"<model>\""`.
 
 ---
 
@@ -303,18 +290,9 @@ If token count is not available, display: `Tokens: unknown`
   call itself times out anyway (wrapper unavailable AND codex hung), tell the user:
   "Codex timed out. The prompt may be too large or the API may be slow. Try again or use a smaller scope."
 - **Timeout (inner `timeout` wrapper, exit 124):** If the wrapper fires first (it TERMs Codex, then KILLs it after 10s), the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 9 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
-- **`the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`:** a prompt argument
-  leaked into a scoped `codex review`. This fails instantly, before any API call, so it
-  looks like a hang-free "no output" — do not misread it as a model stall. Drop the
-  prompt: the scope flags (`--base`, `--commit`, `--uncommitted`) carry the scope on
-  their own. If the prompt was custom review instructions, run them through `codex exec`
-  instead (Step 2A, custom-instructions path). Do **not** fix it by removing `--base` and
-  keeping the prompt — that parses, but silently reviews the uncommitted working tree
-  instead of the branch diff.
-- **Review says "no changes" on a branch that clearly has changes:** the scope flag is
-  missing or wrong. A prompt-only `codex review` defaults to uncommitted changes, so a
-  clean working tree reads as an empty review even when `<base>...HEAD` is large. Confirm
-  `--base <base>` is actually on the command line.
+- **Review says "no changes" on a branch that clearly has changes:** Step 2A writes
+  `git diff $(git merge-base <base> HEAD)` into the prompt. Confirm `<base>` is the
+  branch this one forked from; the wrong base reads an empty or unrelated diff.
 - **Model not supported (HTTP 400 or 404):** stderr shows
   `The '<model>' model is not supported when using Codex with a ChatGPT account`
   (a `status: 400` / `invalid_request_error` naming a model), or

@@ -8,6 +8,7 @@
  *                                  [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
+ *   gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir>
  *   gstack-docs-candidate [snapshot|compare] --help
  *
  * snapshot saves, NUL-safely and without writing to the repository: base SHA,
@@ -46,6 +47,13 @@
  * refusal, and no audit JSON) never audited, so it is not counted, once per
  * invocation (--state, the invocation's record); a second refusal is counted
  * and stops for the install fix (GST-391, gbrain #8084).
+ *
+ * result checks the child's last nonempty line against Step 14.5's JSON contract
+ * (lib/ship-docs-result.ts), trimming whitespace around keys. On success it saves
+ * <audit-id>-result.json and the section, unchanged, as <audit-id>-documentation.md
+ * in --out-dir and prints DOCS_RESULT: ok. Otherwise it writes nothing, prints a
+ * DOCS_RESULT_INVALID line naming each bad key and a RETRY_NOTE: for the re-audit's
+ * prompt, and exits 1 (GST-1843).
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -53,6 +61,7 @@ import * as path from 'path';
 import { baseContainsHead } from '../lib/default-base';
 import { baseArg } from '../lib/gate-diff/git';
 import { resultLine } from '../lib/result-codes';
+import { checkDocsResult, docsRetryNote } from '../lib/ship-docs-result';
 import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
@@ -130,7 +139,8 @@ function one(args: string[], name: string): string {
 
 const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>] [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
        gstack-docs-candidate compare <candidate.json>
-       gstack-docs-candidate attempt <child-output> --state <attempts.json>`;
+       gstack-docs-candidate attempt <child-output> --state <attempts.json>
+       gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir>`;
 
 /** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record, read by the receipt's own parser; throws when the record is not blocked or names no complete exception. */
 function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> & { scope: string } {
@@ -196,7 +206,7 @@ function recordProblems(record: any): string[] {
 function main(argv: string[]): void {
   const [command, ...args] = argv;
   const topHelp = (command === '--help' || command === '-h') && !args.length;
-  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'attempt') && args.length === 1 && args[0] === '--help';
+  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'attempt' || command === 'result') && args.length === 1 && args[0] === '--help';
   if (topHelp || commandHelp) {
     console.log(USAGE);
     return;
@@ -296,6 +306,30 @@ function main(argv: string[]): void {
       process.exit(3);
     }
     console.log('ATTEMPT: not-counted (the audit child\'s install check refused document-release)');
+    return;
+  }
+  if (command === 'result') {
+    const [file, ...rest] = args;
+    if (!file || file.startsWith('--')) throw new Error('result takes the child output file, then --audit-id <id> --out-dir <record dir>');
+    for (let i = 0; i < rest.length; i += 2) if (!['--audit-id', '--out-dir'].includes(rest[i]!)) throw new Error(`unknown argument: ${rest[i]}`);
+    const auditId = one(rest, '--audit-id');
+    if (!/^[A-Za-z0-9._-]+$/.test(auditId) || auditId.includes('..')) throw new Error(`--audit-id ${JSON.stringify(auditId)} must be letters, digits, dot, underscore or dash, with no '..'`);
+    const outDir = path.resolve(one(rest, '--out-dir'));
+    const check = checkDocsResult(fs.readFileSync(file, 'utf8'), auditId);
+    if (check.trimmed.length) console.log(`KEYS_TRIMMED: ${check.trimmed.map(k => JSON.stringify(k)).join(' ')}`);
+    if (!check.ok) {
+      console.log(resultLine('gstack-docs-candidate result', 'DOCS_RESULT_INVALID', check.problems.join('; ')));
+      console.log(`RETRY_NOTE: ${docsRetryNote(check.problems)}`);
+      process.exit(1);
+    }
+    fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+    const resultFile = path.join(outDir, `${auditId}-result.json`);
+    const sectionFile = path.join(outDir, `${auditId}-documentation.md`);
+    fs.writeFileSync(resultFile, JSON.stringify(check.result) + '\n', { mode: 0o600 });
+    fs.writeFileSync(sectionFile, check.result.documentation_section, { mode: 0o600 });
+    console.log(`DOCS_RESULT: ok status=${check.result.status} files_updated=${check.result.files_updated.length}`);
+    console.log(`RESULT: ${resultFile}`);
+    console.log(`SECTION: ${sectionFile}`);
     return;
   }
   throw new Error(USAGE);

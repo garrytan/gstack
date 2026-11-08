@@ -19,7 +19,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { RETIRED_SKILLS } from '../scripts/discover-skills';
+import { unregisteredSkills } from '../scripts/discover-skills';
 import { bunIsolationArgs } from './bun-isolation';
 import { runBashSync } from './script-invocation';
 import { frontmatterList, routerLine } from './skill-triggers';
@@ -234,13 +234,15 @@ function skillDirs(root: string, triggersByName = new Map<string, string[]>()): 
 
 /** The skills a target's payload carries: the host render (made for this checkout as the install root) or the checkout's committed Claude render. */
 export function sourceSkills(target: Target, checkout: string, scratch: string): SkillEntry[] {
-  if (target.render === 'claude') return skillDirs(checkout).filter(s => s.name !== 'gstack' && !RETIRED_SKILLS.includes(s.name));
+  const off = unregisteredSkills();
+  const registered = (s: SkillEntry) => !off.includes(s.name.replace(/^gstack-/, ''));
+  if (target.render === 'claude') return skillDirs(checkout).filter(s => s.name !== 'gstack' && registered(s));
   const out = path.join(scratch, 'render');
   fs.rmSync(out, { recursive: true, force: true });
   const r = spawnSync(process.execPath, [...bunIsolationArgs(), 'scripts/gen-skill-docs.ts', '--host', target.name, '--install-root', checkout, '--out-dir', out],
     { cwd: checkout, encoding: 'utf8', timeout: 300_000 });
   if (r.status !== 0) throw new HarnessError('HARNESS_RENDER_FAILED', 'could not render ' + target.name + ' skills: ' + ((r.stderr || r.stdout || '').trim().split('\n').slice(-3).join(' | ')));
-  const skills = skillDirs(path.join(out, '.' + target.name, 'skills'), new Map(skillDirs(checkout).map(s => [s.name, s.triggers])));
+  const skills = skillDirs(path.join(out, '.' + target.name, 'skills'), new Map(skillDirs(checkout).map(s => [s.name, s.triggers]))).filter(registered);
   if (!skills.length) throw new HarnessError('HARNESS_RENDER_FAILED', 'the ' + target.name + ' render produced no skills');
   return skills;
 }

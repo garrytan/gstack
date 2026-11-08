@@ -26,7 +26,7 @@ describe('an unclosed fence does not hide what follows it (GST-436)', () => {
   });
 
   test('a closed fence still hides a quoted severity', () => {
-    const text = [NO_ISSUES, '```', '[P1] quoted from the diff', '```', RECOMMEND].join('\n');
+    const text = [NO_ISSUES, '```', '[P1] quoted from the diff', '```', RECOMMEND, 'VERDICT: CLEAN'].join('\n');
     const r = classifyOutsideReview({ text, gate: 'review' });
     expect(r.verdict).toBe('clean');
     expect(r.findings.highest).toBeNull();

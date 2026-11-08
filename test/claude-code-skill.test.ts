@@ -173,7 +173,7 @@ describe('complete generated Claude Code wrapper modes', () => {
   });
 
   test('an explicit clean review preserves unknown model identity', () => {
-    const result = shell('review', {RAW_CAPTURE:'{"status":"completed","result":"NO_FINDINGS"}'}, {runtime:BAD_RUNTIME});
+    const result = shell('review', {RAW_CAPTURE:'{"status":"completed","result":"NO_FINDINGS\\nVERDICT: CLEAN"}'}, {runtime:BAD_RUNTIME});
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('NO_FINDINGS');
     expect(result.stdout).toContain('Model: unknown');
