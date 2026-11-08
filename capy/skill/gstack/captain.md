@@ -152,6 +152,13 @@ Every PR you send READY on, and the READY report itself, has:
    each claim you did not check yourself and why, or `none`. You write this item; /ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
+
+**Who watches CI.** You own your PR's checks and review until READY: hold its watch yourself and fix or
+rerun what turns red, so a check never wakes your Captain. A Captain whose PRs bring many check, review and
+merge wakes hands PR and CI watching to one merge-lane thread instead of subscribing itself, because every
+wake more than about five minutes after its last call rewrites its whole context cache at many times the
+warm price. The merge lane reports to the Captain only a landing, a decision or a blocker
+(`crew/docs/captain.md` in the gstack checkout, Roles).
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
 A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
