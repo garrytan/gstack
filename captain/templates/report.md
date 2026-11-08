@@ -18,7 +18,7 @@ READY block sent: <yes, date> · SHIP_RECEIPT: pr=<n> head=<sha12 of the pin, as
 
 ## Needs
 
-<"nothing", or the owner's decisions in the ask format (gstack docs/captain.md): one lettered line each, "A1 to take recommendation">
+<"nothing", or the owner's decisions in the ask format (gstack crew/docs/captain.md): one lettered line each, "A1 to take recommendation">
 
 ## Cost
 

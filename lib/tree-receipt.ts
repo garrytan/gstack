@@ -20,7 +20,7 @@ import { parseUnifiedDiff, versionAtRef, type FileDiff, type GateAheadRecord } f
 import { branchSides, stampOnlyLine, type BranchSide } from './stamp-only';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny, type ShipPolicy } from './ship-policy';
-import { regeneratedAtBase } from './version-gate-train';
+import { regeneratedAtBase } from '../crew/lib/version-gate-train';
 
 export type HunkClass = 'stamp' | 'changed';
 export interface FileVerdict { path: string; rule: string; verdict: HunkClass; residual?: string; line?: number }

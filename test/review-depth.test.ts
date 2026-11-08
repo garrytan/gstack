@@ -395,7 +395,7 @@ describe('planReview', () => {
 
 describe('GSTA-131 pass-1 review repairs', () => {
   test('rule docs agents follow are code, and markdown inside a skill directory is code when the root is known', () => {
-    for (const p of ['docs/captain.md', 'docs/unattended.md', 'docs/pregate.md']) expect(classifyPath(p)).toBe('code');
+    for (const p of ['crew/docs/captain.md', 'docs/unattended.md', 'docs/pregate.md']) expect(classifyPath(p)).toBe('code');
     expect(classifyPath('autoplan/notes.md')).toBe('docs');
     expect(classifyPath('autoplan/notes.md', ROOT)).toBe('code');
     expect(classifyPath('docs/howto-x.md', ROOT)).toBe('docs');
@@ -504,7 +504,7 @@ describe('review depth: the matrix', () => {
     ['an edit to SMALL_DIFF_LINES', { paths: ['lib/review-depth.ts'] }],
     ['the collector', { paths: ['lib/review-collect.ts'] }],
     ['the plan CLI', { paths: ['bin/gstack-review-plan'] }],
-    ['the queue', { paths: ['lib/ship-queue-train.ts'] }],
+    ['the queue', { paths: ['crew/lib/ship-queue-train.ts'] }],
     ['the Step 9 template', { paths: ['ship/sections/review-army.md.tmpl'] }],
   ] as const)('%s is full', (_n, o) => {
     const paths = (o as any).paths ?? ['src/app.ts'];

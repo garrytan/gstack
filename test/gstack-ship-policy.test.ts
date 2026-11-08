@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, STAMP_PLACEHOLDERS_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
 import { PLAN_RECORD_KEY_VERSION } from '../lib/ship-policy-keys';
-import { fillDue } from '../lib/ship-queue-train';
+import { fillDue } from '../crew/lib/ship-queue-train';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 

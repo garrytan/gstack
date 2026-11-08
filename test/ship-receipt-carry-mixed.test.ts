@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
 import { extractReceipt } from '../lib/ship-receipt';
-import { RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
+import { RECHECK_RANGE_DIFF_CAP } from '../crew/lib/ship-recheck';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(120_000);

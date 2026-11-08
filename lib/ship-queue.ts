@@ -23,7 +23,7 @@
  *               receipt there (and for a gate-ahead record, recompute the
  *               merge with git merge-tree and rebuild the gated tree from the
  *               recorded stamp patch), so QUEUE_STAMP is never a pasted claim.
- *   gate-ahead  lib/ship-queue-gate.ts.
+ *   gate-ahead  crew/lib/ship-queue-gate.ts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -39,9 +39,9 @@ import { readyPlan } from './plan-record';
 import {
   QUEUE_DIR_REL, applyStampPatch, commitForTree, currentAttempt, git, listAttempts, recomputeMergeTree, sha256, writeJsonAtomic,
   type AttemptRecord, type QueueFailure,
-} from './ship-queue-gate';
+} from '../crew/lib/ship-queue-gate';
 import { wtreeFingerprint } from './script-invocation';
-import { nowIso, persist, readyPath, repoIdentity } from './ship-queue-train-record';
+import { nowIso, persist, readyPath, repoIdentity } from '../crew/lib/ship-queue-train-record';
 import { buildReceipt, type TreeReceipt } from './tree-receipt';
 
 export type Gh = (args: string[]) => { ok: boolean; out: string; err?: string };

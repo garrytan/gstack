@@ -30,7 +30,7 @@ export const RETIRED_SKILLS = ['plan-eng-review', 'investigate'];
 export const CREW_SKILLS = ['captain'];
 
 export function onCapyMachine(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): boolean {
-  return Boolean(env.CAPY_MACHINE_CONFIG) || fs.existsSync(path.join(home, '.capy', 'system'));
+  return Boolean(env.CAPY_MACHINE_CONFIG) || fs.existsSync(path.join(home, '.capy'));
 }
 
 /** What no host registers on this machine: the retired skills, plus the crew skills off Capy. */

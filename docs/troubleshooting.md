@@ -2141,7 +2141,7 @@ all the command prints `SHOT_PNG: unavailable (...)` and exits 0 instead.
 ### `PLAN: ... (PLAN_RECORD_MISSING)`
 
 **Meaning.** The PR body has no `Plan:` line, so the PR reads as `Plan: required`
-(docs/captain.md, Plan before build). gstack never guesses from the diff, title or
+(crew/docs/captain.md, Plan before build). gstack never guesses from the diff, title or
 changelog whether a change is a feature. Under `plan_record: warn` (the Capy crew default)
 `gstack-ship-queue ready` prints the line and continues; under `require` it refuses.
 
@@ -6457,7 +6457,7 @@ ran no slice. evals.yml's `route` job plans nothing when
 between `ready --screen` and the plan) or when the plan selects no case; the
 run then uploads no `paid-plan` artifact (or an empty manifest), every slice
 job is skipped and GitHub shows a green check. On 2026-10-26, 18 of 41 PR
-screens ended this way. The verdict is read from the run (`lib/ship-queue-screen.ts`),
+screens ended this way. The verdict is read from the run (`crew/lib/ship-queue-screen.ts`),
 so such a run is `NOT-RUN`: `verify --pr <n> --screen` prints
 `SCREEN_VERDICT: #<n> run <id> NOT-RUN (<why>)` and refuses with this code, the
 READY receipt records `screen.verdict.outcome: NOT_RUN`, `ready --screen` never
@@ -6755,7 +6755,7 @@ route (Step 1.4)`.
 can't carry as it is. When the history is linear, the base is the one the
 receipt was reviewed against, and `git range-diff` of the reviewed range
 against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
-`lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
+`crew/lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
 range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
 range-diff can clear it instead of a full second /ship. A rebased branch
 (`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no

@@ -680,11 +680,12 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     return [...new Set(problems)];
   }
 
-  test('it fits the 3,450-byte budget, and every citation, heading and skill it names resolves', () => {
+  test('it fits the 3,475-byte budget, and every citation, heading and skill it names resolves', () => {
     const text = fs.readFileSync(FACTORY, 'utf8');
     // 3,300 since #3634; raised to 3,450 (the page's new size, rounded up to the next 25 bytes) for point 12's
     // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raise it only by what a rule needs.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3450);
+    // 3,475 for the crew/ prefix on its four Captain-manual citations (GST-1833 moved docs/captain.md to crew/docs/; no rule text changed).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3475);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
@@ -700,7 +701,7 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
 
   test('negative controls: a missing file, a missing heading and an unknown skill are each caught', () => {
     expect(citationProblems('[docs/no-such-page.md: Anything]')).toEqual(['missing file docs/no-such-page.md']);
-    expect(citationProblems('[docs/captain.md: No Such Heading]')).toEqual(['missing heading docs/captain.md: No Such Heading']);
+    expect(citationProblems('[crew/docs/captain.md: No Such Heading]')).toEqual(['missing heading crew/docs/captain.md: No Such Heading']);
     expect(citationProblems('[/no-such-skill]')).toEqual(['unknown skill /no-such-skill']);
     expect(citationProblems('see capy/no-such.md')).toEqual(['missing file capy/no-such.md']);
   });

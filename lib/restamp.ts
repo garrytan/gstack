@@ -27,7 +27,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from './bun-isolation';
 import { checkChangelog, mergeChangelogs, parseChangelog, reheadChangelog } from './changelog-check';
 import { effectiveBump, foldIntoUnreleased, readFragments, type FragmentSet } from './changelog-fragments';
-import { releaseRefusal } from './restamp-release';
+import { releaseRefusal } from '../crew/lib/restamp-release';
 import { type ResultCodeName } from './result-codes';
 import { runScriptSync, wtreeFingerprint } from './script-invocation';
 import {
@@ -59,7 +59,7 @@ export interface RestampOptions {
   after?: { pr: string; ref?: string }; pr?: string; expectBase?: string; expectOrder?: string[]; was?: string;
   policyFrom: 'base' | 'head'; allowRepoCommands: boolean; dryRun: boolean; now?: Date; env?: NodeJS.ProcessEnv;
   gh?: (args: string[]) => { ok: boolean; out: string }; failAfter?: string; gateWorktree?: string; baseRef?: string;
-  /** Versions at release (lib/restamp-release.ts): fold every fragment on the base, from a clean checkout of it. */ release?: boolean;
+  /** Versions at release (crew/lib/restamp-release.ts): fold every fragment on the base, from a clean checkout of it. */ release?: boolean;
 }
 export interface RestampResult {
   status: 'stamped' | 'noop' | 'dry-run' | 'refused' | 'failed' | 'gate-ahead';

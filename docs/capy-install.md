@@ -525,6 +525,10 @@ GSTACK_LAUNCH_FILE: <verdict file without .json>.env
 The file also appends the checkout's `bin/` directory to PATH, after everything
 already there and only once, so a shell that sourced only this file runs a bare
 `gstack-ship-budget` (GSTA-167: a /ship child got `command not found`, exit 127).
+Then it appends `crew/bin/` the same way, so the crew commands that live there
+(`gstack-release-gate`, `gstack-coauthor-trailers`; see crew/README.md) keep
+their bare names on Capy. Nothing outside this launch file puts `crew/bin/` on
+PATH, so a non-Capy install never sees them.
 When the session starts from the Drive skill (a bootstrapper outside the
 checkout), the file also exports `GSTACK_PREFERENCES_FILE`, the path of
 `preferences.yaml` beside that skill's SKILL.md, which the `GSTACK_LAUNCH` line
@@ -632,7 +636,7 @@ them). The guide is
 `GSTACK_CAPY_ASKS=0` drops the block for one session. The controller's side (the
 READY contract, merge trains, the digest, the daily flaky pass, with templates for the
 crew rules file and the Captain's drive) is the `/captain` skill and
-[captain.md](captain.md).
+[captain.md](../crew/docs/captain.md).
 
 ## Raising the supported minimum
 

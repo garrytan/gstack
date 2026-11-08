@@ -14,18 +14,18 @@ import { EXIT } from '../lib/headless-artifacts';
 import { LAND_KEY_VERSION, MERGE_KEY_VERSION, RELEASE_GATE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
-import { persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { persist, repoIdentity } from '../crew/lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
-import { bumpVersion } from '../lib/version-gate-train';
+import { bumpVersion } from '../crew/lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import type { MergedRun } from '../lib/land-merged-checks';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { readLock, writeLock } from '../lib/ship-queue-land-lock';
+import { readLock, writeLock } from '../crew/lib/ship-queue-land-lock';
 import { flakyGit } from './helpers/flaky-git';
-import { runBackstop } from '../scripts/train-backstop';
-import { readTrainNotes } from '../scripts/release-cut';
-import { gitIn } from '../scripts/train-gate';
-import type { GhRunner } from '../scripts/recover-receipts';
+import { runBackstop } from '../crew/scripts/train-backstop';
+import { readTrainNotes } from '../crew/scripts/release-cut';
+import { gitIn } from '../crew/scripts/train-gate';
+import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
@@ -901,7 +901,7 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
   }, 120_000);
 });
 
-/** A backstop freeze on origin's notes (what scripts/train-backstop.ts writes on a red gate), written from another state root. */
+/** A backstop freeze on origin's notes (what crew/scripts/train-backstop.ts writes on a red gate), written from another state root. */
 function freezeMain(fx: Fx, over: Record<string, unknown> = {}): string {
   const main = remote(fx, 'main');
   const prior = process.env.GSTACK_STATE_ROOT;
@@ -923,7 +923,7 @@ const originRecords = (fx: Fx, kind: string): any[] => {
 const freezeOf = (fx: Fx) => { const all = originRecords(fx, 'freeze'); expect(all).toHaveLength(1); return all[0]; };
 
 /**
- * scripts/train-backstop.ts on main's head from its own clone (the CI runner's checkout) with a scripted gh: no green
+ * crew/scripts/train-backstop.ts on main's head from its own clone (the CI runner's checkout) with a scripted gh: no green
  * train covers it, and the gate run concludes as asked; `during` runs while the gate runs (a land meanwhile).
  */
 function backstopOn(fx: Fx, gate: 'success' | 'failure' | 'cancelled', run: number, during?: () => void) {

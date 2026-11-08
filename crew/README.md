@@ -10,7 +10,7 @@ gstack works exactly as it does without it.
 - **Captains.** `/captain` runs many agent threads from one controller: lanes
   send a READY block and never merge, the controller keeps the digest, relays
   approvals in a fixed shape and runs a daily flaky-test pass
-  ([docs/captain.md](../docs/captain.md)).
+  ([docs/captain.md](docs/captain.md)).
 - **A merge queue.** `gstack-ship-queue` lands verified pull requests alone or
   in trains, checks the exact head before it merges, and stamps the version
   only at release time.
@@ -25,13 +25,32 @@ How the whole factory fits together: [capy/README.md](../capy/README.md).
 
 ## How it is loaded
 
-A Capy machine is one where `CAPY_MACHINE_CONFIG` is set or `~/.capy/system`
-exists, the same test the Capy installer (`bin/gstack-capy-install`) already
-uses. `gstack_on_capy` in `bin/gstack-install-registry.sh` is that test, and
+A Capy machine is one where `CAPY_MACHINE_CONFIG` is set (cloud machines) or
+`~/.capy` exists (cloud machines and paired devices, such as a Mac running
+Capy). Any `~/.capy` counts, so when it is unclear the crew skills install
+rather than a Capy user losing `/captain`. `gstack_on_capy` in
+`bin/gstack-install-registry.sh` is that test, and
 `GSTACK_CREW_SKILLS` there lists the crew skills. On a Capy machine setup and
 `gstack-relink` register them like any other skill; elsewhere they get no entry
 on any host, and an entry an earlier install made is removed.
 
+On Capy the session launch file (`bin/gstack-capy-install`) also puts
+`crew/bin/` on PATH, so the crew commands keep their bare names there. Public
+CI runs `crew/test/` with the rest of the free suite.
+
+## What is here
+
+| Path | What it holds |
+|---|---|
+| `bin/` | `gstack-release-gate` (the paid gate on main every 8 hours) and `gstack-coauthor-trailers` (credit for ported contributor work) |
+| `lib/` | merge trains and waves (`ship-queue-train*`, `ship-queue-wave`, the land lock, screens, rechecks), the release gate, version-gate trains and lane ownership |
+| `scripts/` | the release cut and its daily check (`release-cut`, `release-cadence`), and the paid-eval CI steps only our crews run (train gate and backstop, gate cost, gate reuse, receipt recovery, census arms, judge calibration configs) |
+| `test/` | their tests |
+| `docs/` | the manuals: [running a Captain crew](docs/captain.md) and [the recommended harness](docs/recommended-harness.md) |
+
 The crew tooling moves here in stages. Code that no public skill calls comes
 first; the steps `/ship`, `/review` and `/autoplan` take only for crews move
-after they call it through one switch.
+after they call it through one switch. Some crew tools stay outside `crew/` for
+now because public code still calls them: `/captain`'s own folder (the skill
+generator reads top-level folders), `gstack-ship-queue`, receipts, the
+pre-gate, spend caps and approvals.

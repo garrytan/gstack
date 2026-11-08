@@ -1,9 +1,9 @@
 name: Release gate
-# The release gate (docs/ship-policy.md#release-gate; bin/gstack-release-gate,
-# lib/release-gate.ts): the full paid gate on main's head every 8 hours, only
+# The release gate (docs/ship-policy.md#release-gate; crew/bin/gstack-release-gate,
+# crew/lib/release-gate.ts): the full paid gate on main's head every 8 hours, only
 # when main moved since the last gate. It records the verdict as a release
 # note in refs/notes/gstack-trains, publishes the main-backstop check run on
-# the gated commit (what scripts/release-cut.ts reads as gated), and bisects
+# the gated commit (what crew/scripts/release-cut.ts reads as gated), and bisects
 # a red gate's cases. It never writes the stable branch: release-cut is its
 # only writer, and refuses every cut while the newest gate is red. Inert (no
 # paid work, nothing written) unless main's .gstack/ship-policy.json declares
@@ -12,7 +12,7 @@ name: Release gate
 on:
   schedule:
     # Every 8 hours (RELEASE_GATE_SCHEDULE_HOURS in lib/release-gate-policy.ts;
-    # test/release-gate-workflow.test.ts pins the two together), off the hour.
+    # crew/test/release-gate-workflow.test.ts pins the two together), off the hour.
     - cron: '17 */8 * * *'
   workflow_dispatch:
     inputs:
@@ -90,12 +90,12 @@ jobs:
         # branch) publishes no check run, so it fails the job, as does a run that recorded no action (a crash).
         run: |
           rc=0
-          ./bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes 330 \
+          ./crew/bin/gstack-release-gate run --repo "$GITHUB_REPOSITORY" --budget-minutes 330 \
             --summary "$GITHUB_STEP_SUMMARY" --outputs "$GITHUB_OUTPUT" ${DRY_RUN:+--dry-run} ${IGNORE_CADENCE:+--ignore-cadence} || rc=$?
           if [ "$rc" != 0 ] && ! { grep -qE '^action=(held|failed)$' "$GITHUB_OUTPUT" && grep -qE '^sha=[0-9a-f]{40}$' "$GITHUB_OUTPUT"; }; then exit "$rc"; fi
 
   # The gated commit's check run (release_gate.check_name, main-backstop), the
-  # evidence scripts/release-cut.ts reads. Its own job with checks: write and
+  # evidence crew/scripts/release-cut.ts reads. Its own job with checks: write and
   # no repository code, as for backstop-check: only the recorded action word.
   release-check:
     runs-on: ubuntu-24.04

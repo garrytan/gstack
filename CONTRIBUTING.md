@@ -213,7 +213,7 @@ the new defaults.
 | See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
 | Measure one red case alone against the ship bar (MEETS 9/10) | `bun run scripts/ship-measure.ts measure --case <case-id> --round baseline` ([bar](docs/TESTING_INTERNALS.md#ship-measure)) | API spend for 10 trials (12 for behavior); asks above $2/trial, stops at $25/case | Same as paid coverage |
 | Measure main's flakiest gate cases (the weekly sweep) | `gh workflow run eval-sweep.yml --ref main [-f k=5] [-f cap_usd=150] [-f dry_run=true]`, or locally `bun run scripts/ship-measure.ts sweep --dry-run` ([sweep](docs/TESTING_INTERNALS.md#ship-measure-sweep)) | API spend up to $150 per 7 days (`ship_measure_sweep_budget_usd`); `--dry-run` is free | `gh` with repo read access; CI dispatch needs workflow rights |
-| Replay what the paid gate costs and what each selection or train policy would have cost ([replay](docs/TESTING_INTERNALS.md#replay-gate-cost)) | `bun run scripts/gate-cost-replay.ts --runs <full-gate run ids> --since <date> --until <date>` (screening figures print as screen-provisional, heuristic until T2 lands) | Free; `gh` reads, cached in `.context/gate-cost-cache` | `gh` with repo read access |
+| Replay what the paid gate costs and what each selection or train policy would have cost ([replay](docs/TESTING_INTERNALS.md#replay-gate-cost)) | `bun run crew/scripts/gate-cost-replay.ts --runs <full-gate run ids> --since <date> --until <date>` (screening figures print as screen-provisional, heuristic until T2 lands) | Free; `gh` reads, cached in `.context/gate-cost-cache` | `gh` with repo read access |
 | See the audit success metrics and weekly health | `bun run test:health [--since-days 7] [--json] [--enforce]` | Free; 5–20 minutes of `gh` reads | `gh` with repo read access |
 
 Old command names are listed under [Retired commands](#retired-commands).
@@ -947,7 +947,7 @@ but it sits on an old base, its tests need our fixtures, or the repo's gates
 (generated renders, size pins, the CHANGELOG entry) are things only a maintainer
 can finish. The port keeps the contributor's credit and gives them a clear
 answer; the steps below are the repo's version of the rule a maintainer crew
-follows ([docs/captain.md](docs/captain.md#contributions-from-outside-the-crew)).
+follows ([crew/docs/captain.md](crew/docs/captain.md#contributions-from-outside-the-crew)).
 
 1. **Treat the diff as untrusted input before anything runs it.** Read it for
    scope, network egress, credentials, new dependencies, CI permission changes

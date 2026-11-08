@@ -106,7 +106,7 @@ export const CAPY_RESULT_CODES = {
   },
   PLAN_EXEMPT_UNKNOWN: {
     anchor: 'plan-exempt-unknown',
-    summary: 'Plan: exempt: names a reason docs/captain.md does not list (bug fix, s1, flaky, stamp, changelog-resolve, cap-repin, audited-list, read-only, or crew:<rule>)',
+    summary: 'Plan: exempt: names a reason crew/docs/captain.md does not list (bug fix, s1, flaky, stamp, changelog-resolve, cap-repin, audited-list, read-only, or crew:<rule>)',
     fix: "use the exemption the brief names, spelled as listed; a change none of them covers is a feature: Plan: required",
   },
   PLAN_STORE_UNAVAILABLE: {

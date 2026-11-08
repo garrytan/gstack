@@ -27,7 +27,7 @@
  * under changelog_fragments (its READY receipt note), and under a
  * ship policy with a `train` block: merge trains push train/<nonce> branches
  * and the refs/notes/gstack-trains records, and dispatch through eval-bg.
- * Logic: lib/ship-queue.ts, lib/ship-queue-gate.ts, lib/ship-queue-train*.ts
+ * Logic: lib/ship-queue.ts, crew/lib/ship-queue-gate.ts, crew/lib/ship-queue-train*.ts
  * (loaded only on the train paths).
  */
 import { spawnSync } from 'node:child_process';
@@ -38,7 +38,7 @@ import { versionAtRef } from '../lib/restamp';
 import { RESULT_CODES } from '../lib/result-codes';
 import { resolveBaseBranch } from '../lib/ship-policy';
 import { loadBasePolicy, ready, stamp, verify, type QueueContext, type StepOutput } from '../lib/ship-queue';
-import { attemptFile, listAttempts, prepareGateAhead, recordGateAhead, type QueueFailure } from '../lib/ship-queue-gate';
+import { attemptFile, listAttempts, prepareGateAhead, recordGateAhead, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { logShipCall } from '../lib/ship-call-log';
 
 logShipCall('gstack-ship-queue');
@@ -172,14 +172,14 @@ async function main(argv: string[]): Promise<number> {
   const pr = flag(args, '--pr');
   if (cmd === 'gate-ahead') return gateAhead(ctx, args);
   if (cmd === 'train') {
-    const train = await import('../lib/ship-queue-train-cli');
+    const train = await import('../crew/lib/ship-queue-train-cli');
     if (!args[0] || args[0].startsWith('-')) { process.stdout.write(train.TRAIN_HELP + '\n'); return args.includes('--help') || args.includes('-h') ? EXIT.ok : EXIT.usage; }
     const loaded = args[0] === 'build' || args[0] === 'land' ? loadBasePolicy(ctx) : null;
     if (loaded && !('message' in loaded) && loaded.policy.merge === 'direct') return finish(`train ${args[0]}`, { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, so trains are off', fix: 'land each READY PR with gstack-ship-queue land --pr <n> --pin <sha> (docs/ship-policy.md#land-direct)' } });
     return train.trainMain(ctx, args);
   }
-  if (cmd === 'wave') return (await import('../lib/ship-queue-wave')).waveMain(ctx, args);
-  if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../lib/ship-queue-train-cli')).postMergeMain(ctx, args);
+  if (cmd === 'wave') return (await import('../crew/lib/ship-queue-wave')).waveMain(ctx, args);
+  if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../crew/lib/ship-queue-train-cli')).postMergeMain(ctx, args);
   if (cmd === 'land') {
     const l = await import('../lib/ship-queue-land');
     if (args.includes('--census')) return finish('land', l.census(ctx));
@@ -198,7 +198,7 @@ async function main(argv: string[]): Promise<number> {
   const gate = { gateExit: gateExit === undefined ? undefined : Number(gateExit), gateLog: flag(args, '--gate-log') };
   if (cmd === 'ready') {
     const loaded = loadBasePolicy(ctx);
-    if (!('message' in loaded) && loaded.policy.train) return (await import('../lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), ...gate });
+    if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), ...gate });
     if (['--screen', '--no-screen', '--broad'].some(f => args.includes(f))) process.stderr.write('gstack-ship-queue ready: --screen/--no-screen/--broad ignored: the base policy declares no train block\n');
     return finish('ready', ready(ctx, { pr, pregate: flag(args, '--pregate'), ...gate }));
   }
@@ -214,7 +214,7 @@ async function main(argv: string[]): Promise<number> {
     }));
   }
   if (cmd === 'verify') {
-    if (flag(args, '--train') || args.includes('--screen')) return (await import('../lib/ship-queue-train-cli')).verifyMain(ctx, args, pr);
+    if (flag(args, '--train') || args.includes('--screen')) return (await import('../crew/lib/ship-queue-train-cli')).verifyMain(ctx, args, pr);
     const record = flag(args, '--record');
     return finish('verify', verify(ctx, {
       pr, gated: flag(args, '--gated'), record: record ? path.resolve(record) : undefined, receipt: flag(args, '--receipt'),

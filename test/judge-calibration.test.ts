@@ -200,7 +200,7 @@ describe('judge calibration harness (free, stubbed provider)', () => {
 
 describe('committed calibration configurations and corpora', () => {
   test('comparison (1) changes only the JSON schema; prompts come from the eval builders', async () => {
-    const { CALIBRATION_CONFIGS } = await import('../scripts/judge-calibration-configs');
+    const { CALIBRATION_CONFIGS } = await import('../crew/scripts/judge-calibration-configs');
     expect(CALIBRATION_CONFIGS.map(config => config.id)).toEqual(['arm']);
     expect(CALIBRATION_CONFIGS.map(config => config.priority)).toEqual([1]);
     for (const config of CALIBRATION_CONFIGS) {
@@ -212,7 +212,7 @@ describe('committed calibration configurations and corpora', () => {
   });
 
   test('every corpus is 24 preregistered, second-reviewed items with a stratified held-out third', async () => {
-    const { CALIBRATION_CONFIGS } = await import('../scripts/judge-calibration-configs');
+    const { CALIBRATION_CONFIGS } = await import('../crew/scripts/judge-calibration-configs');
     for (const config of CALIBRATION_CONFIGS) {
       const raw = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'judge-calibration', config.id, 'corpus.json'), 'utf8'));
       const items = loadCorpus(config.id);
@@ -233,7 +233,7 @@ describe('committed calibration configurations and corpora', () => {
   });
 
   test('panel verdicts restate each eval pass rule', async () => {
-    const { CALIBRATION_CONFIGS } = await import('../scripts/judge-calibration-configs');
+    const { CALIBRATION_CONFIGS } = await import('../crew/scripts/judge-calibration-configs');
     const byId = Object.fromEntries(CALIBRATION_CONFIGS.map(config => [config.id, config]));
     const arm = (over_engineering: number) => ({ over_engineering, construct: over_engineering ? 'helper' : 'none', reasoning: '' });
     expect(byId.arm!.verdict([arm(0), arm(1), arm(3)])).toBe('pass');

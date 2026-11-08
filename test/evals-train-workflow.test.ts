@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { bisectArtifact } from '../lib/ship-queue-train-verdict';
+import { bisectArtifact } from '../crew/lib/ship-queue-train-verdict';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 type Step = { id?: string; name?: string; uses?: string; if?: string; run?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
@@ -201,7 +201,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(summary.permissions).toEqual({ contents: 'read' });
     expect(JSON.stringify(summary)).not.toMatch(/secrets\.|restore-deps|bun install/);
     expect(summary.steps.at(-1)!.run).toContain('--emit-plan /tmp/paid-plan/manifest.json --slices 1');
-    expect(summary.steps.at(-1)!.run).toContain('scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER"');
+    expect(summary.steps.at(-1)!.run).toContain('crew/scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER"');
   });
 
   test('a dispatched screen tests its pinned merge commit, reuses and binds as a screen, comments on its PR, and is keyed on the PR', () => {
@@ -248,7 +248,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(sim.steps('slices-report')).not.toContain("Bind this run's verdict for reuse (R2a/R2)");
     expect(sim.steps('slices-report')).toEqual(expect.arrayContaining(['Write the train record', 'Upload the train record']));
     expect(sim.checkout('slices-report')?.['fetch-depth']).toBe('0');
-    expect(sim.step('slices-report', 'Write the train record')!.run).toContain('scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA"');
+    expect(sim.step('slices-report', 'Write the train record')!.run).toContain('crew/scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA"');
     expect(sim.step('slices-report', 'Upload the train record')!.with).toMatchObject({ name: 'gstack-train-record', path: '/tmp/train-record', overwrite: true });
     expect(simulate(evals, { github: dispatch('train/t1'), inputs, outputs: { route: { ...ROUTE, ...train, mode: 'train' } }, results: { 'slices-report': 'failure' } }).jobs).not.toContain('train-check');
   });
@@ -428,7 +428,7 @@ describe.skipIf(!Bun.which('jq') || !Bun.which('bash'))('the route job reads the
     fs.rmSync(fx.dir, { recursive: true, force: true });
   });
 
-  test('a ref without scripts/train-gate.ts routes a plain dispatch as before and refuses train or screen inputs', () => {
+  test('a ref without crew/scripts/train-gate.ts routes a plain dispatch as before and refuses train or screen inputs', () => {
     const fx = fixture(undefined);
     expect(run(routeStep.run!, fx.dir, { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'old-branch' })).toEqual({ mode: 'dispatch' });
     expect(() => run(routeStep.run!, fx.dir, { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'old-branch', SCREEN_PR: '42' })).toThrow();
@@ -456,12 +456,12 @@ describe('evals-main-backstop.yml', () => {
     const gate = job.steps.find(st => st.name === 'Gate main unless a green train covers its tree')!;
     expect(gate.if).toBe("steps.policy.outputs.train == 'true'");
     expect(gate.id).toBe('gate');
-    expect(gate.run).toContain('scripts/train-backstop.ts run --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --sha "$GITHUB_SHA"');
+    expect(gate.run).toContain('crew/scripts/train-backstop.ts run --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --sha "$GITHUB_SHA"');
     expect(gate.run).toContain('--outputs "$GITHUB_OUTPUT"');
     expect(job.outputs).toEqual({ action: '${{ steps.gate.outputs.action }}' });
   });
 
-  // The weekly release (scripts/release-cut.ts) reads the per-commit verdict as
+  // The weekly release (crew/scripts/release-cut.ts) reads the per-commit verdict as
   // the main-backstop check run: a superseded push exits 0 but is neutral there.
   test('the main-backstop check run is published from its own code-free job: success for covered|gated, neutral for inert|superseded|deferred, failure otherwise', () => {
     const job = backstopWf.jobs['backstop-check']!;

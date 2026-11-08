@@ -1,7 +1,7 @@
 /**
  * gstack on Capy (crew/README.md): the crew skills (/captain) are registered
- * only on a Capy machine, the same test gstack-capy-install's bun shim uses
- * (CAPY_MACHINE_CONFIG set, or ~/.capy/system present). Everywhere else setup
+ * only on a Capy machine (CAPY_MACHINE_CONFIG set, or any ~/.capy entry, which
+ * a paired device such as a Mac running Capy has). Everywhere else setup
  * and gstack-relink treat them like a retired skill: no entry on any host, and
  * an existing gstack-owned entry is removed on the next setup or upgrade.
  */
@@ -53,6 +53,23 @@ describe('which skills stay unregistered', () => {
     expect(onCapyMachine({}, home)).toBe(true);
     expect(unregisteredSkills({}, home)).toEqual(RETIRED_SKILLS);
   });
+
+  // A paired device (a Mac running Capy) has no CAPY_MACHINE_CONFIG; Garry's two Macs
+  // both have ~/.capy/system and ~/.capy/device. Anything under ~/.capy fails toward
+  // installing the crew skills.
+  for (const [label, make] of [
+    ['a paired device (~/.capy/device, ~/.capy/system)', () => { fs.mkdirSync(path.join(home, '.capy', 'device'), { recursive: true }); onCapy(); }],
+    ['only ~/.capy/device', () => fs.mkdirSync(path.join(home, '.capy', 'device'), { recursive: true })],
+    ['an empty ~/.capy', () => fs.mkdirSync(path.join(home, '.capy'))],
+    ['~/.capy as a file', () => fs.writeFileSync(path.join(home, '.capy'), '')],
+  ] as const) {
+    test(`on ${label} with no CAPY_MACHINE_CONFIG: only the retired skills`, () => {
+      make();
+      expect(registryVar('GSTACK_UNREGISTERED_SKILLS')).toEqual(RETIRED_SKILLS);
+      expect(onCapyMachine({}, home)).toBe(true);
+      expect(unregisteredSkills({}, home)).toEqual(RETIRED_SKILLS);
+    });
+  }
 
   test('on a Capy machine (CAPY_MACHINE_CONFIG): only the retired skills', () => {
     expect(registryVar('GSTACK_UNREGISTERED_SKILLS', { CAPY_MACHINE_CONFIG: '/etc/capy/machine.json' })).toEqual(RETIRED_SKILLS);

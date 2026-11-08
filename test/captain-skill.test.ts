@@ -42,7 +42,7 @@ describe('/captain skill', () => {
     expect(read('captain/templates/report.md')).toMatch(/## Outcome\n\n<[^>]+>\n\nUnverified: <none \| [^>]+>\n\n## PR\n/);
     expect(skill).toMatch(/^\| `Unverified` \| each claim the lane did not check itself, or `none` \| never refused or staled; ask for it \|$/m);
     expect(flat).toContain('Outcome with its `Unverified:` line');
-    const docFlat = read('docs/captain.md').replace(/\s+/g, ' ');
+    const docFlat = read('crew/docs/captain.md').replace(/\s+/g, ' ');
     expect(docFlat).toContain('The `Unverified:` line is the one exception: the controller asks for a missing line in a follow-up message, never refuses or stales a READY for it');
     expect(read('capy/skill/gstack/captain.md').replace(/\s+/g, ' ')).toContain('an `Unverified:` line: each claim you did not check yourself and why, or `none`');
   });
@@ -56,7 +56,7 @@ describe('/captain skill', () => {
     for (const s of ['not from the diff alone', 'mark any item `not retained`', 'label anything else `inferred`', 'A change kept only in a crew file is a gap']) expect(pmFlat, s).toContain(s);
     expect(pm, 'no real PR numbers in the generic template').not.toMatch(/#\d{2,}/);
     expect(flat).toContain('After a revert or S1 fix of a merged crew PR, the controller writes a postmortem (`captain/templates/postmortem.md`): why did the lane and every reviewer believe it was right? Its rule change ships as a gstack PR.');
-    expect(read('docs/captain.md').replace(/\s+/g, ' ')).toContain('Each rule change it names ships as a gstack PR, because gstack holds the how');
+    expect(read('crew/docs/captain.md').replace(/\s+/g, ' ')).toContain('Each rule change it names ships as a gstack PR, because gstack holds the how');
   });
 
   test('teaches the train loop, the red-train rules and the backstop', () => {
@@ -73,7 +73,7 @@ describe('/captain skill', () => {
   });
 
   test('ships every template the skill and docs name', () => {
-    const doc = read('docs/captain.md');
+    const doc = read('crew/docs/captain.md');
     for (const t of TEMPLATES) {
       expect(fs.existsSync(path.join(ROOT, 'captain', 'templates', t)), t).toBe(true);
       expect(skill.includes('captain/templates/' + t) || doc.includes('captain/templates/' + t), t + ' is referenced').toBe(true);
@@ -89,7 +89,7 @@ describe('/captain skill', () => {
     expect(crew).toMatch(/^24\. /m);
     expect(crew).not.toMatch(/^25\. /m);
     for (let n = 1; n <= 24; n++) expect(crew, 'rule ' + n + ' names its home').toMatch(new RegExp('^' + n + '\\. \\*\\*[^]*?Home:', 'm'));
-    for (let n = 1; n <= 24; n++) expect(doc, 'docs/captain.md maps rule ' + n).toMatch(new RegExp('^\\| ' + n + ' \\| ', 'm'));
+    for (let n = 1; n <= 24; n++) expect(doc, 'crew/docs/captain.md maps rule ' + n).toMatch(new RegExp('^\\| ' + n + ' \\| ', 'm'));
     for (const h of ['## Lane discipline', '## Plan before build', '## Contributions from outside the crew']) expect(doc).toContain(h);
     expect(doc).toMatch(/## Plan before build[^]*?reports `APPROVED`[^]*?## Contributions from outside the crew/);
     const brief = read('captain/templates/brief.md');
@@ -109,7 +109,7 @@ describe('/captain skill', () => {
   });
 
   test('every copy of the plan-first exemptions names the two fix exemptions and the R65 no-review rule for other bug fixes', () => {
-    for (const rel of ['docs/captain.md', 'captain/SKILL.md', 'captain/templates/CREW.md', 'capy/skill/gstack/SKILL.md']) {
+    for (const rel of ['crew/docs/captain.md', 'captain/SKILL.md', 'captain/templates/CREW.md', 'capy/skill/gstack/SKILL.md']) {
       const text = read(rel).replace(/\s+/g, ' ');
       expect(text, rel).toMatch(/S1 emergenc(?:y|ies) \(a? ?broken install or upgrade, a? ?red main, a security bug\)/);
       expect(text, rel).toMatch(/already[- ]diagnosed,? (?:and )?audited problem list|problem list that was already diagnosed and audited/);
@@ -117,12 +117,12 @@ describe('/captain skill', () => {
       expect(text, rel).toContain('--kind feature');
       expect(text, rel).not.toContain('one-round, eng-only plan');
     }
-    expect(read('docs/captain.md')).toContain('AUTOPLAN: not needed (bug fix; R65)');
+    expect(read('crew/docs/captain.md')).toContain('AUTOPLAN: not needed (bug fix; R65)');
     expect(read('captain/templates/brief.md').replace(/\s+/g, ' ')).toContain('--kind feature');
   });
 
   test('is generic: parameters, not one crew\'s codes, names or repository', () => {
-    const files = ['captain/SKILL.md.tmpl', 'docs/captain.md', ...TEMPLATES.map(t => 'captain/templates/' + t)];
+    const files = ['captain/SKILL.md.tmpl', 'crew/docs/captain.md', ...TEMPLATES.map(t => 'captain/templates/' + t)];
     for (const f of files) {
       const text = read(f);
       expect(text, f).not.toMatch(/\b(?:GSTA|GBRA)-\d+\b/);
@@ -135,7 +135,7 @@ describe('/captain skill', () => {
     }
   });
 
-  test('the lane start card cites real SKILL.md sections, stays short, and docs/captain.md carries the lane context rules', () => {
+  test('the lane start card cites real SKILL.md sections, stays short, and crew/docs/captain.md carries the lane context rules', () => {
     const capySkill = read('capy/skill/gstack/SKILL.md');
     const card = read('capy/skill/gstack/lane-card.md');
     const headings = new Set([...capySkill.matchAll(/^## (.+)$/gm)].map(m => m[1]));
@@ -145,17 +145,17 @@ describe('/captain skill', () => {
     expect(cited.filter(h => !headings.has(h!))).toEqual([]);
     expect(capySkill).toMatch(/## Session start[^#]*?read \[lane-card\.md\]\(lane-card\.md\), not the rest of this file/);
     expect(Buffer.byteLength(card)).toBeLessThanOrEqual(6800);
-    const doc = read('docs/captain.md').replace(/\s+/g, ' ');
+    const doc = read('crew/docs/captain.md').replace(/\s+/g, ' ');
     for (const s of ['`duration_seconds: 240`', 'stops re-issuing the timer', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
     expect(read('captain/templates/brief.md')).toMatch(/^Read: <[^>]+>$/m);
   });
 
-  test('docs/captain.md links resolve and the skill is registered where skills are listed', () => {
-    const doc = read('docs/captain.md');
+  test('crew/docs/captain.md links resolve and the skill is registered where skills are listed', () => {
+    const doc = read('crew/docs/captain.md');
     const links = [...doc.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)].map(m => m[1]).filter(l => !/^https?:/.test(l));
     expect(links.length).toBeGreaterThan(5);
-    for (const l of links) expect(fs.existsSync(path.resolve(ROOT, 'docs', l)), l).toBe(true);
+    for (const l of links) expect(fs.existsSync(path.resolve(ROOT, 'crew', 'docs', l)), l).toBe(true);
     for (const f of ['README.md', 'AGENTS.md', 'docs/skills.md', 'SKILL.md.tmpl', 'docs/PROJECT_STRUCTURE.md']) expect(read(f), f).toMatch(/\/captain\b/);
-    expect(read('README.md')).toContain('docs/captain.md');
+    expect(read('README.md')).toContain('crew/docs/captain.md');
   });
 });

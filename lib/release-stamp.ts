@@ -15,7 +15,7 @@ import { effectiveBump, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef, type RestampResult } from './restamp';
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { buildReceipt } from './tree-receipt';
-import { regeneratedAtBase } from './version-gate-train';
+import { regeneratedAtBase } from '../crew/lib/version-gate-train';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth } from './version-source';
 
 export const RELEASE_BRANCH = /^release\/(\d+(?:\.\d+){2,3})$/;

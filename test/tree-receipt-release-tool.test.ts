@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadPolicyFromHead } from '../lib/ship-policy';
-import { stampMismatch } from '../lib/ship-queue-train-stamp';
+import { stampMismatch } from '../crew/lib/ship-queue-train-stamp';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];

@@ -291,7 +291,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/evals-main-backstop.yml', // The merge-train backstop on main: it dispatches evals.yml after a push to main; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/release-gate.yml', // The 8-hour release gate on main: it dispatches evals.yml on main's head; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/weekly-release.yml', // The Monday release cut (tag, stable, GitHub Release): reads check runs on main; no paid case reads it, and it never gates a PR.
-  'scripts/release-cut.ts', // The release cut's logic, run only by weekly-release.yml; covered by the free test/release-cut.test.ts.
+  'crew/scripts/release-cut.ts', // The release cut's logic, run only by weekly-release.yml; covered by the free crew/test/release-cut.test.ts.
   '.github/actionlint.yaml', // Runner labels for actionlint only.
   'scripts/ship-measure-sweep.ts', // The weekly sweep CLI; it launches paid cases, never runs inside one.
   '.github/workflows/version-gate.yml',

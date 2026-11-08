@@ -313,37 +313,41 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/gstack-ship-queue.test.ts',
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts',
   },
-  // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in test/ship-queue-train-logic.test.ts.
   {
-    file: 'test/ship-queue-train-land.test.ts',
-    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+    file: 'crew/test/release-gate-workflow.test.ts',
+    reason: 'the gate-step case splices a native temp-path stub into the step\'s bash -e script in place of crew/bin/gstack-release-gate, and on windows-latest its gated case exits non-zero (expected 0; windows-scoped-shard, run 42421330820); release-gate.yml itself runs only on ubuntu-latest',
+  },
+  // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in crew/test/ship-queue-train-logic.test.ts.
+  {
+    file: 'crew/test/ship-queue-train-land.test.ts',
+    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for crew/test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
   },
   {
-    file: 'test/ship-queue-land-lock.test.ts',
-    reason: 'drives land and train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train-land.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+    file: 'crew/test/ship-queue-land-lock.test.ts',
+    reason: 'drives land and train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for crew/test/ship-queue-train-land.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
   },
   {
-    file: 'test/ship-queue-train.test.ts',
+    file: 'crew/test/ship-queue-train.test.ts',
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
   {
-    file: 'test/ship-queue-train-bisect.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-train-bisect.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
-    file: 'test/ship-queue-train-verify.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-train-verify.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
     file: 'test/ubicloud-runner-tiers.test.ts',
     reason: 'split from test/ubicloud-runner.test.ts, excluded as a whole: runs scripts/ubicloud/ubi-runner.sh through bash with the #!/usr/bin/env bash curl, ssh and make shims test/helpers/ubi-runner-fake-vm.ts puts on a colon-joined PATH, like test/ubicloud-runner-run.test.ts',
   },
   {
-    file: 'test/ship-queue-train-freeze.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-train-freeze.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
-    file: 'test/ship-queue-train-cost.test.ts',
+    file: 'crew/test/ship-queue-train-cost.test.ts',
     reason: 'drives bin/gstack-ship-queue train verdict against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard 2 on #3478 at d5e6a7d)',
   },
   // GSTA-151 splits: parts of files the curation excluded as a whole keep that platform scope.
@@ -368,11 +372,11 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'split from test/shared-libs-checker-interface-evidence.test.ts, which spawned bin/gstack-review-log (shebang); its prerequisite checks run the same review-log commands through bash',
   },
   {
-    file: 'test/ship-queue-train-ops.test.ts',
+    file: 'crew/test/ship-queue-train-ops.test.ts',
     reason: 'drives bin/gstack-ship-queue (screen verdicts, scratch-merge screens, prune --stale, watch, forget, verify --post-merge, ready --dispatch-ci, --stack-tests) against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
-    file: 'test/ship-queue-train-generic.test.ts',
+    file: 'crew/test/ship-queue-train-generic.test.ts',
     reason: 'drives bin/gstack-ship-queue train build, verdict, land, watch, init and doctor against the same #!/bin/sh gh shim plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead (windows-free-shard 1, run 41218228855)',
   },
   {

@@ -193,7 +193,7 @@ holds its required lines plus at most 150 words; a completion report holds at
 most 300 words; a subagent brief names the files to read instead of pasting
 them. Evidence goes in files the report points to. Waits go on operations,
 never on polling wakes, except a crew lane's warm wait under about 30 minutes
-([captain.md](captain.md#lane-context)).
+([captain.md](../crew/docs/captain.md#lane-context)).
 
 ### Token caps and fresh-context handoffs
 
@@ -992,7 +992,7 @@ and `status: "pending"`, named in the handoff, never taken.
 - **Merge: never.** The run ends at a receipt bound to the pushed head
   (`SHIP_RECEIPT`, [ship-policy.md#ship-before-ready](ship-policy.md#ship-before-ready))
   or at a pending gate. Merging is the controller's act
-  ([captain.md](captain.md)); a green check list, an approval, or a prompt that
+  ([captain.md](../crew/docs/captain.md)); a green check list, an approval, or a prompt that
   says "merge when green" does not move it to the lane. The same holds for
   enabling auto-merge, adding the PR to a merge queue, or `gh pr ready` on a
   PR the run did not open.

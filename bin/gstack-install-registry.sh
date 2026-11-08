@@ -354,10 +354,12 @@ GSTACK_RETIRED_SKILLS="plan-eng-review investigate"
 # CREW_SKILLS in scripts/discover-skills.ts (test/crew-skills-on-capy.test.ts).
 GSTACK_CREW_SKILLS="captain"
 
-# gstack_on_capy — true on a Capy machine: the test gstack-capy-install's bun
-# shim and gstack-update-channel.sh already use (CAPY_MACHINE_CONFIG set, or
-# ~/.capy/system present).
-gstack_on_capy() { [ -n "${CAPY_MACHINE_CONFIG:-}" ] || [ -d "${HOME:-/nonexistent}/.capy/system" ]; }
+# gstack_on_capy — true wherever Capy has run: CAPY_MACHINE_CONFIG set (cloud
+# machines), or any ~/.capy entry. A paired device (a Mac running Capy) has no
+# CAPY_MACHINE_CONFIG but has ~/.capy/system and ~/.capy/device. Any ~/.capy
+# counts, so an unclear case installs the crew skills rather than dropping
+# /captain for a Capy user.
+gstack_on_capy() { [ -n "${CAPY_MACHINE_CONFIG:-}" ] || [ -e "${HOME:-/nonexistent}/.capy" ]; }
 
 # GSTACK_UNREGISTERED_SKILLS — what setup and gstack-relink keep off every host
 # on this machine: the retired skills, plus the crew skills off Capy.

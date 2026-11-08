@@ -81,7 +81,7 @@ skips the crew step and gets a defined result instead.
 ### The switch
 
 - **One signal.** "Crew loaded" means a Capy machine (`CAPY_MACHINE_CONFIG` set
-  or `~/.capy/system` present: `gstack_on_capy` in
+  or any `~/.capy` entry, which paired devices have too: `gstack_on_capy` in
   `bin/gstack-install-registry.sh`, `onCapyMachine` in
   `scripts/discover-skills.ts`, both added by #4143) and a `crew/` folder in
   the checkout. Nothing

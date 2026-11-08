@@ -47,7 +47,7 @@ describe('evals.yml receipt recovery (CEO-14/34, ENG-7)', () => {
     expect(checkout.with).toMatchObject({ ref: '${{ github.event.pull_request.base.sha || needs.route.outputs.screen_base || inputs.base_sha || github.event.repository.default_branch }}', 'persist-credentials': false });
     const collect = step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')!;
     expect(collect.env?.GH_TOKEN).toBe('${{ github.token }}');
-    expect(collect.run).toContain('scripts/recover-receipts.ts collect');
+    expect(collect.run).toContain('crew/scripts/recover-receipts.ts collect');
     expect(collect.run).toContain('--budget-seconds 60');
     // Never fails the run: a missing base script or a crash only turns reuse off.
     expect(collect.run).toContain('exit 0');
@@ -121,7 +121,7 @@ describe('evals.yml gate verdict reuse wiring (R2a restamp-only, R2 main moved; 
     expect(find.env).toMatchObject({ GH_TOKEN: '${{ github.token }}', HEAD_SHA: '${{ github.event.pull_request.head.sha || needs.route.outputs.screen_head }}',
       TESTED_SHA: '${{ inputs.screen_merge_sha || github.sha }}' });
     expect(find.env?.BASE_SHA).toBeUndefined();
-    expect(find.run).toContain('scripts/gate-reuse.ts find');
+    expect(find.run).toContain('crew/scripts/gate-reuse.ts find');
     // The base is the tested merge commit's first parent, never the event's base.sha.
     expect(find.run).toContain('--tested-sha "$TESTED_SHA"');
     expect(find.run).not.toContain('--base-sha');

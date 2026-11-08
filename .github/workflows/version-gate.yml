@@ -27,7 +27,7 @@ jobs:
           # reads below fail loudly when a fetch fails (.github/scripts/history-read.sh).
           filter: blob:none
           ref: ${{ github.event.pull_request.head.sha }}
-          # The head's release_tool runs inside the gate (lib/version-gate-train.ts);
+          # The head's release_tool runs inside the gate (crew/lib/version-gate-train.ts);
           # no token may sit in the checkout it stages. The base fetch below is public.
           persist-credentials: false
 

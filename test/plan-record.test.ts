@@ -1,6 +1,6 @@
 /**
  * The plan-record check (lib/plan-record.ts, GST-1751): the PR body's Plan line, resolved against every branch's
- * approval rows, the exemptions docs/captain.md lists, the warn and require modes, and land's READY-note check.
+ * approval rows, the exemptions crew/docs/captain.md lists, the warn and require modes, and land's READY-note check.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { buildRow, locate, type ApprovalRow } from '../lib/approval-record';
 import { exemptReason, finishPlan, landPlan, parsePlanLine, planMode, planRecordId, publicPlanLine, readyPlan, resolvePlan } from '../lib/plan-record';
 import { planBinding } from '../lib/ship-audit';
-import { loadReady, persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { loadReady, persist, repoIdentity } from '../crew/lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const dirs: string[] = [];
@@ -52,7 +52,7 @@ describe('parsePlanLine', () => {
     expect(parsePlanLine('Plan: /home/u/plan.md\nPlan: approved: ap-1')).toMatchObject({ kind: 'approved', token: 'ap-1' });
   });
 
-  test('exemptions are the docs/captain.md list or crew:<rule>, with a trailing parenthetical ignored', () => {
+  test('exemptions are the crew/docs/captain.md list or crew:<rule>, with a trailing parenthetical ignored', () => {
     expect(exemptReason('bug fix (R65)')).toBe('bug fix');
     expect(exemptReason('Flaky')).toBe('flaky');
     expect(exemptReason('crew: rule 31')).toBe('crew:rule 31');

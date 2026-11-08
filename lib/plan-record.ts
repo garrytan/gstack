@@ -1,5 +1,5 @@
 /**
- * plan-record — whether a crew PR had its plan step (GST-1751, docs/captain.md#plan-before-build). The brief's
+ * plan-record — whether a crew PR had its plan step (GST-1751, crew/docs/captain.md#plan-before-build). The brief's
  * `Plan:` line travels in the PR body (gstack-approvals render --plan writes it) and says which case applies:
  *
  *   Plan: approved: <token>    an owner-approved plan: `a-<12 hex>` is an approval row id; a path is an autoplan
@@ -8,7 +8,7 @@
  *   Plan: approved (record r-<12 hex>)
  *                              the public-repo form render --plan writes (GST-1774): an opaque id of one approval row
  *                              (planRecordId), so no run id or path reaches public PR text or the READY note
- *   Plan: exempt: <reason>     one of the exemptions docs/captain.md lists, or `crew:<rule>` for a crew's own
+ *   Plan: exempt: <reason>     one of the exemptions crew/docs/captain.md lists, or `crew:<rule>` for a crew's own
  *   Plan: required             the plan step has not finished
  *
  * The resolver reads every branch's file in the repository's approval store (the state root and each mirror this
@@ -159,7 +159,7 @@ export function resolvePlan(decl: PlanDecl | null, o: { cwd: string; env: Env; c
   if (decl.kind === 'required') return { ok: false, failure: { code: 'PLAN_NOT_APPROVED', message: `${decl.line}: the plan step has not finished`, fix: 'run /autoplan (--kind feature), relay the gate, answer the owner\'s words into the run and gstack-approvals import --autoplan <run dir>, then set Plan: approved: <run id>' } };
   if (decl.kind === 'exempt') {
     const reason = exemptReason(decl.reason);
-    if (!reason) return { ok: false, failure: { code: 'PLAN_EXEMPT_UNKNOWN', message: `${decl.line}: "${decl.reason}" is not an exemption docs/captain.md lists (${EXEMPT_REASONS.join(', ')}, or crew:<rule>)`, fix: 'name a listed exemption from the brief, or plan the change: Plan: required' } };
+    if (!reason) return { ok: false, failure: { code: 'PLAN_EXEMPT_UNKNOWN', message: `${decl.line}: "${decl.reason}" is not an exemption crew/docs/captain.md lists (${EXEMPT_REASONS.join(', ')}, or crew:<rule>)`, fix: 'name a listed exemption from the brief, or plan the change: Plan: required' } };
     return { ok: true, record: { line: decl.line, state: 'exempt', reason, resolver: PLAN_RESOLVER_VERSION }, summary: `exempt ${reason}` };
   }
   try { return resolveApproved(decl, o); } catch (e: any) {

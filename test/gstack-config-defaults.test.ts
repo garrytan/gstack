@@ -121,7 +121,7 @@ function keysReadInTree(root = ROOT): string[] {
  */
 const PROSE_ONLY_KEYS: Record<string, string> = {};
 
-const READER_DIRS = ['bin', 'lib', 'scripts', 'browse/src', 'hosts'];
+const READER_DIRS = ['bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts', 'browse/src', 'hosts'];
 const READER_FILES = ['setup'];
 
 /**

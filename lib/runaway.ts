@@ -65,7 +65,7 @@ function waitArgs(item: Item): { ops: string; seconds: number | null } | null {
 /**
  * Turns from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
  * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports. A warm-wait
- * check-in (docs/captain.md, Warm waits; GST-1597) is not a turn: one whose only call re-issues a wait on the
+ * check-in (crew/docs/captain.md, Warm waits; GST-1597) is not a turn: one whose only call re-issues a wait on the
  * operations the previous turn waited on, or a 240-second timer naming those operations or none, within 30 minutes
  * of the wait that started the run. Any turn that closes on such a wait keeps the run's start, so a status read
  * between check-ins counts but never restarts the 30 minutes.

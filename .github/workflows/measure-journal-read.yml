@@ -35,5 +35,5 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Measure one guarded read (3 runs per journal)
         run: |
-          bun scripts/measure-journal-read.ts --runs 3 | tee "$RUNNER_TEMP/measure.md"
+          bun crew/scripts/measure-journal-read.ts --runs 3 | tee "$RUNNER_TEMP/measure.md"
           cat "$RUNNER_TEMP/measure.md" >> "$GITHUB_STEP_SUMMARY"

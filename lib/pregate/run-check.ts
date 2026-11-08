@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { ghArtifactDeps, ghRunDeps, runInventory, type RunProfile } from '../run-evidence';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
-import { normalizeRemoteUrl } from '../ship-queue-train-record';
+import { normalizeRemoteUrl } from '../../crew/lib/ship-queue-train-record';
 import { REMOTE_GATE_LANE } from './checks/lanes';
 import { PREGATE_CONFIG_PATH, isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from './config';
 import type { RunCheck } from './index';

@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { buildChain } from '../lib/ship-queue-train';
+import { buildChain } from '../crew/lib/ship-queue-train';
 import { DEFAULT_POLICY } from '../lib/ship-policy';
 import { CARVE_GUARDS } from './helpers/carve-guards';
 import { PARITY_INVARIANTS, checkSkillParity, readSkillForParity } from './helpers/parity-harness';

@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { SHIP_QUEUE_KEYS_VERSION } from '../lib/ship-policy';
 import { receiptDigest } from '../lib/ship-queue';
-import { applyStampPatch } from '../lib/ship-queue-gate';
+import { applyStampPatch } from '../crew/lib/ship-queue-gate';
 import type { TreeReceipt } from '../lib/tree-receipt';
 import { BASE_POLICY, BIN, cleanup, makeFixtureRepo, makePr, mergeMain, mergeToMain, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { coordinatorClone, ghQueueShim } from './helpers/ship-queue-fixture';

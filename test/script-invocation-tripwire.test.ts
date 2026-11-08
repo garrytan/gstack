@@ -48,9 +48,10 @@ function productionFiles(): string[] {
   };
   walk('lib');
   walk('hosts');
-  for (const e of fs.readdirSync(path.join(ROOT, 'bin'), { withFileTypes: true })) {
+  walk('crew/lib');
+  for (const dir of ['bin', 'crew/bin']) for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
     if (!e.isFile()) continue;
-    const rel = `bin/${e.name}`;
+    const rel = `${dir}/${e.name}`;
     if (rel.endsWith('.ts') || /^#!.*\bbun\b/.test(fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n')[0] ?? '')) out.push(rel);
   }
   return out.sort();

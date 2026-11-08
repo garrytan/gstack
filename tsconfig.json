@@ -24,6 +24,7 @@
     "make-pdf/src/**/*.ts",
     "design/src/**/*.ts",
     "bin/**/*.ts",
+    "crew/**/*.ts",
     "autoplan/bin/**/*.ts",
     "hosts/**/*.ts",
     "ios-qa/daemon/src/**/*.ts",

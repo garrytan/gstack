@@ -156,6 +156,7 @@ export const TEST_ROOTS = [
   'ios-qa/daemon/test',
   'ios-qa/scripts',
   'browser-skills',
+  'crew/test',
 ] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 

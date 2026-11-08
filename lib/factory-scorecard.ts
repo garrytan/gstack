@@ -1,7 +1,7 @@
 /**
  * factory-scorecard — one window of a repository's shipping numbers, read from
  * GitHub through `gh` (bin/gstack-factory-scorecard; /retro Step 7.5;
- * docs/recommended-harness.md#the-factory-scorecard). Every line prints its
+ * crew/docs/recommended-harness.md#the-factory-scorecard). Every line prints its
  * counting rule next to the number, and a line whose input cannot be read says
  * so ("unavailable: <reason>") instead of printing 0.
  *
@@ -394,7 +394,7 @@ export function fmtHours(h: number | null): string {
 const pct = (num: number, den: number) => (den === 0 ? 'n/a' : `${Math.round((num / den) * 100)}%`);
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
-/** What one of the best software factories would show on each line; the honest comparison lives in docs/recommended-harness.md. */
+/** What one of the best software factories would show on each line; the honest comparison lives in crew/docs/recommended-harness.md. */
 export const BENCHMARKS: Record<string, string> = {
   merged: 'several merges a day, every day; outside contributions land in the same week',
   lead_time: 'median under 24h, p90 under 3 days (DORA elite: change lead time under a day)',

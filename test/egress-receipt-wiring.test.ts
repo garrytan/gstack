@@ -177,7 +177,7 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'served-page JS talking to its own loopback server (same-origin relative fetch)',
   'design/src/compare.ts':
     'served-page JS talking to its own loopback server (relative ./api fetch)',
-  'scripts/gate-cost-replay.ts':
+  'crew/scripts/gate-cost-replay.ts':
     'developer-invoked read-only measurement (GSTA-49 T0): git fetch of gstack\'s own origin by SHA (old PR heads and tested merge commits) so past PR gates can be replayed; a download only, no gstack or user state leaves the machine',
   'scripts/ubicloud':
     'developer-invoked test infrastructure: Ubicloud API calls (VM create/show/destroy) with the developer\'s own token, the checkout streamed over SSH to that developer\'s own ephemeral VM, and toolchain downloads run on the VM; no installed-gstack user state is sent',
@@ -425,7 +425,7 @@ describe('egress receipt wiring tripwire', () => {
   });
 
   test('NEW-SINK SCANNER: every outbound network op in the tree is wired or reasoned-exempt', () => {
-    const SWEEP = ['bin', 'lib', 'scripts', 'design/src', 'browse/src', 'hosts'];
+    const SWEEP = ['bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts', 'design/src', 'browse/src', 'hosts'];
     const offenders: string[] = [];
     for (const dirRel of SWEEP) {
       const dir = path.join(ROOT, dirRel);

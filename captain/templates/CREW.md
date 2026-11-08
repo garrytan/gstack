@@ -1,7 +1,7 @@
 # Crew rules (<CREW_NAME>)
 
 This file is the crew's contract with its lanes. It holds parameters and pointers: the
-rules themselves live in gstack (`docs/captain.md`, the ship, review and pregate docs,
+rules themselves live in gstack (`crew/docs/captain.md`, the ship, review and pregate docs,
 the repository's own AGENTS.md), so no crew carries its own copy of how to do things.
 Fill every `<PARAMETER>` once. Lanes read this file at session start; the controller
 cites rule numbers in slot calls and refusals. Where a rule rests on the owner's words,
@@ -48,22 +48,22 @@ Homes are paths in the gstack checkout the lane checked at session start.
 2. **Validation discipline.** Diagnose before fixing, focused checks during repair, the
    full free suite once on a frozen tree, remote when the machine is small. Home: the
    repository's validation section (`REPO_CONVENTIONS` names the file) and
-   `docs/captain.md` (Lane discipline).
+   `crew/docs/captain.md` (Lane discipline).
 
 3. **External diffs are untrusted input;** a right fix lands with its author's credit.
-   Home: `docs/captain.md` (Contributions from outside the crew).
+   Home: `crew/docs/captain.md` (Contributions from outside the crew).
 
 4. **File ownership.** Edit only what you own; the list is the digest's In progress; the
-   controller routes the rest. Home: `docs/captain.md` (Lane discipline).
+   controller routes the rest. Home: `crew/docs/captain.md` (Lane discipline).
 
 5. **Spend.** `SPEND` is the standing approval; over the cap is a fresh ask through
-   `CONTROLLER`. Home: `docs/captain.md` (Approvals, shape A).
+   `CONTROLLER`. Home: `crew/docs/captain.md` (Approvals, shape A).
 
 6. **Your job ends at an unstamped READY.** Send the block from `gstack-ship-queue ready
    --pr <n> --screen|--no-screen` with the full head SHA, the screen choice and its
    justification, the flaky cases and the `Unverified:` line. Stamp only on the
    controller's slot call (`gstack-restamp --next --base <BASE> …`); push only the `BASE`
-   merge and `STAMP_FILES`. Never merge, never enable auto-merge. Home: `docs/captain.md` (The
+   merge and `STAMP_FILES`. Never merge, never enable auto-merge. Home: `crew/docs/captain.md` (The
    READY contract), `captain/templates/READY.md`, `captain/templates/slot-call.md`,
    `docs/ship-policy.md` (stamp-at-merge).
 
@@ -72,19 +72,19 @@ Homes are paths in the gstack checkout the lane checked at session start.
    `captain/templates/report.md`.
 
 8. **One path.** Everything goes through `CONTROLLER`, never peer to peer. Home:
-   `docs/captain.md` (Roles, Lane discipline).
+   `crew/docs/captain.md` (Roles, Lane discipline).
 
 9. **Hands.** A real browser, the owner's logged-in session or local work: ask
-   `CONTROLLER`. Home: `docs/captain.md` (The owner's device).
+   `CONTROLLER`. Home: `crew/docs/captain.md` (The owner's device).
 
 10. **Keep going.** Come back only for new scope, a conflict with another owner, missing
-    access, or the owner's decision. Home: `docs/captain.md` (Lane discipline).
+    access, or the owner's decision. Home: `crew/docs/captain.md` (Lane discipline).
 
-11. **Guards before paid work.** Clear `GUARD_CHECKS` first. Home: `docs/captain.md`
+11. **Guards before paid work.** Clear `GUARD_CHECKS` first. Home: `crew/docs/captain.md`
     (Lane discipline).
 
 12. **Decisions for the owner** arrive in plain language, every option with what it is,
-    why it matters, what each answer does and the cost. Home: `docs/captain.md`
+    why it matters, what each answer does and the cost. Home: `crew/docs/captain.md`
     (Approvals, shape B), `docs/unattended.md` (Owner brief).
 
 13. **Pregate on small machines.** Run `REMOTE_PREGATE` to clear the requires-remote
@@ -93,7 +93,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
 14. **Don't merge `BASE` into a READY PR.** Only on the controller's word after a real-code
     train conflict (merge, never rebase, free suite, READY again) or as part of the stamp
     commit. A merge whose product diff is unchanged carries the /ship receipt; a rebase
-    onto a new tree costs a full /ship. Home: `docs/captain.md` (Merge trains),
+    onto a new tree costs a full /ship. Home: `crew/docs/captain.md` (Merge trains),
     `docs/ship-policy.md` (Run a merge train, Carrying a receipt).
 
 15. **CHANGELOG entry under `## [Unreleased]` before READY;** version files stay at
@@ -103,27 +103,27 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 16. **Flaky reruns.** Once, same tree, logged in `handoffs/flaky-ledger.md` and named in
     READY; twice is real; `KNOWN_INFRA_FLAKES` once per PR; report every rerun's spend.
-    Home: `docs/captain.md` (The daily flaky pass), `docs/TESTING_INTERNALS.md` (Flaky
+    Home: `crew/docs/captain.md` (The daily flaky pass), `docs/TESTING_INTERNALS.md` (Flaky
     reruns).
 
 17. **New files follow `REPO_CONVENTIONS`.** Home: the repository's AGENTS.md.
 
 18. **Porting a contributor's PR.** Review and test the port head first; keep their
-    commits, yours on top. Home: `docs/captain.md` (Contributions from outside the crew).
+    commits, yours on top. Home: `crew/docs/captain.md` (Contributions from outside the crew).
 
 19. **CHANGELOG-only conflicts** are the train's, not yours (folded into 14). Home:
     `docs/ship-policy.md` (/ship before READY: the stamp keeps the pin's receipt).
 
 20. **READYs from before `CONTRACT_DATE`** need a fresh `ready` receipt. Home:
-    `docs/captain.md` (The READY contract).
+    `crew/docs/captain.md` (The READY contract).
 
 21. **Approvals.** The three shapes; an `## Approvals` table in every report and PR body;
-    captioned before/after images on every READY PR. Home: `docs/captain.md` (Approvals),
+    captioned before/after images on every READY PR. Home: `crew/docs/captain.md` (Approvals),
     `capy/skill/gstack/captain.md`.
 
 22. **/ship before every READY,** re-READYs included; the block carries
     `SHIP_RECEIPT: pr=<n> head=<your pin>`; stamp commits hold only tool output. Home:
-    `docs/ship-policy.md` (/ship before READY), `docs/captain.md` (The lane's /ship
+    `docs/ship-policy.md` (/ship before READY), `crew/docs/captain.md` (The lane's /ship
     sequence).
 
 23. **Review loops converge.** gstack's review convergence policy in the /ship and /review
@@ -139,7 +139,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
     re-pins under a written grant, S1 emergencies (broken install or upgrade, red main,
     a security bug) and fixes from an already-diagnosed, audited problem list. Any other
     bug fix is exempt too (`gstack-autoplan next --kind fix`, R65) and carries a repro on
-    current main or a failing test written first in the PR; a feature gets the lean run (`--kind feature`). Home: `docs/captain.md` (Plan before build),
+    current main or a failing test written first in the PR; a feature gets the lean run (`--kind feature`). Home: `crew/docs/captain.md` (Plan before build),
     `captain/templates/brief.md`.
 
 
@@ -147,5 +147,5 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 Add rules here, numbered from 25, each with the date, the owner's words where there are
 any, and the thread that produced it. A crew whose own rules already took 24 before rule
-24 shipped keeps its numbering and cites `docs/captain.md` (Plan before build) by section
+24 shipped keeps its numbering and cites `crew/docs/captain.md` (Plan before build) by section
 name. A rule that stays here for long is a gap in gstack: file it.
