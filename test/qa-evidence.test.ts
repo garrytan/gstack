@@ -569,3 +569,47 @@ test('materialize accepts a single limits string as a one-item list', () => {
   expect(report.status, report.stderr).toBe(0);
   expect(JSON.parse(fs.readFileSync(path.join(f.root, 'evidence.json'), 'utf8')).limits).toEqual(['One probe only.']);
 });
+
+function refusedGroupKill(f: { root: string }) {
+  const preload = path.join(f.root, 'refused-group-kill.ts');
+  const refused = path.join(f.root, 'refused-group-kill');
+  fs.writeFileSync(preload, `import { appendFileSync } from 'node:fs';
+if (process.argv[1] === ${JSON.stringify(CLI)}) {
+  const kill = process.kill.bind(process);
+  process.kill = (pid, signal) => {
+    if (pid >= 0) return kill(pid, signal);
+    appendFileSync(${JSON.stringify(refused)}, String(signal ?? 'SIGTERM') + '\\n');
+    throw Object.assign(new Error('kill EPERM'), { code: 'EPERM', errno: -1, syscall: 'kill' });
+  };
+}`);
+  return { preload, refused };
+}
+
+test.skipIf(process.platform === 'win32')('a refused group kill after the command exits still records a complete capture once the group is empty', () => {
+  const f = fixture();
+  const stub = refusedGroupKill(f);
+  const result = spawnSync(process.execPath, ['--preload', stub.preload, CLI, 'capture', f.root, '001', '--timeout-ms', '4000', '--', process.execPath, '-e', 'console.log("{}")'],
+    { cwd: f.root, encoding: 'utf8', timeout: 10_000 });
+  expect(fs.readFileSync(stub.refused, 'utf8')).toContain('SIGKILL');
+  expect(result.status, result.stderr).toBe(0);
+  expect(receipt(result.stdout)).toMatchObject({ status: 'complete', exitCode: 0 });
+});
+
+test.skipIf(process.platform === 'win32')('a refused group kill fails closed while the group still has a live member', () => {
+  const f = fixture();
+  const stub = refusedGroupKill(f);
+  const marker = path.join(f.root, 'member.pid');
+  const program = `const member = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(member.pid)); member.unref(); console.log('{}');`;
+  let pid = 0;
+  try {
+    const result = spawnSync(process.execPath, ['--preload', stub.preload, CLI, 'capture', f.root, '001', '--timeout-ms', '4000', '--', process.execPath, '-e', program],
+      { cwd: f.root, encoding: 'utf8', timeout: 10_000 });
+    pid = Number(fs.readFileSync(marker, 'utf8'));
+    expect(fs.readFileSync(stub.refused, 'utf8')).toContain('SIGKILL');
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    expect(result.status).not.toBe(0);
+    expect(receipt(result.stdout)).toMatchObject({ status: 'incomplete', exitCode: 2 });
+  } finally {
+    if (pid > 0) try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+});
