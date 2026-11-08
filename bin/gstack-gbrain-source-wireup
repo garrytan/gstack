@@ -12,7 +12,7 @@
 #   gstack-gbrain-source-wireup --uninstall [--source-id <id>]
 #                               [--database-url <url>]
 #   gstack-gbrain-source-wireup --probe
-#   gstack-gbrain-source-wireup --advance-only   # daily unattended worktree advance (#2516)
+#   gstack-gbrain-source-wireup --advance-only   # unattended worktree advance at the end of each brain-sync drain (#2516)
 #   gstack-gbrain-source-wireup --help
 #
 # Exit codes:
@@ -57,9 +57,9 @@ fi
 PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"
 GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 
-# Git writes to $GSTACK_HOME (worktree add/prune/remove, the daily advance)
+# Git writes to $GSTACK_HOME (worktree add/prune/remove, the drain advance)
 # take the drain lock every gstack writer shares. A caller that already holds
-# it (the drain's daily advance, gstack-brain-restore) passes it down.
+# it (the drain's end-of-run advance, gstack-brain-restore) passes it down.
 . "$SCRIPT_DIR/gstack-brain-lock.sh"
 trap 'gstack_brain_lock_release' EXIT
 take_drain_lock() {
@@ -388,7 +388,7 @@ do_wireup() {
 }
 
 do_advance_only() {
-  # Daily unattended advance (#2516): the brain worktree gbrain indexes only
+  # Unattended advance (#2516), run at the end of each brain-sync drain: the brain worktree gbrain indexes only
   # moved when setup-gbrain / sync-gbrain / brain-restore ran, so brains
   # silently served stale code. This mode is git-only (no gbrain prereqs) and
   # SAFE for a cron cadence: it refuses dirty worktrees and NEVER runs
