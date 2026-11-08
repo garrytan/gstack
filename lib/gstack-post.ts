@@ -31,7 +31,7 @@ import { scan, type Finding, type RepoVisibility } from "./redact-engine";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
-import { RECEIPT_FENCE, extractReceipt } from "./ship-receipt";
+import { RECEIPT_FENCE, extractReceipt, placeReceipt } from "./ship-receipt";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
@@ -271,11 +271,20 @@ function splitSections(body: string): Section[] {
  * The Agent notes section, the current one or the file's, always ends the
  * merged body, above a Capy badge that ends it. Any other file (`## `
  * sections with no receipt above them, or no `## ` section) merges as
- * described above, so the text under the receipt is kept too.
+ * described above, so the text under the receipt is kept too. A receipt the
+ * file brings outside an Agent notes section, posted to a body that has one,
+ * goes into that section through placeReceipt, so it replaces the receipt
+ * there instead of landing beside it while the old one still binds.
  */
 export function mergeBodySections(current: string, incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
   const now = splitSections(current);
   const next = splitSections(incoming).filter(n => !(n.key.startsWith("text:") && n.text.trim() === ""));
+  const lone = next.find(n => n.key === "receipt");
+  const intoNotes = lone && now.some(s => s.key === NOTES_KEY) && !next.some(n => n.key === NOTES_KEY) ? extractReceipt(lone.text).receipt : undefined;
+  if (intoNotes) {
+    const m = mergeBodySections(current, incoming.replace(lone!.text, ""));
+    return { ...m, body: placeReceipt(m.body, intoNotes), replaced: [...m.replaced, "ship receipt"] };
+  }
   const ambiguous = next.filter(n => now.filter(s => s.key === n.key).length > 1).map(n => `"${n.label}"`);
   if (ambiguous.length) throw new UsageError(`the PR's current body holds ${[...new Set(ambiguous)].join(", ")} more than once, so the file's copy matches no single section; nothing was posted. Rerun with --replace and the whole body`);
   const preamble = (list: Section[]) => {

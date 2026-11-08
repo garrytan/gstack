@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EXIT, attributionCallout, mergeBodySections, runPost, type PostEnv } from "../lib/gstack-post";
+import { extractReceipt, receiptRuns } from "../lib/ship-receipt";
 
 interface Call { cmd: string; args: string[]; input?: string }
 
@@ -807,6 +808,18 @@ describe("gstack-post keeps the Agent notes section last", () => {
   // Value: protects=a PR posted before the notes section (receipt at the top) still merges: a partial post keeps the legacy receipt where it is, and a
   // full post with notes last replaces it, so one receipt remains and it is the notes' one; fails_when=the legacy receipt survives a full post (two
   // receipts, the stale one first) or a partial post drops it; why_new=the legacy layout meets the new one; seam=none; no_claim=the gh round trip
+  // Value: protects=a receipt posted on its own to a body whose Agent notes hold one replaces that receipt, so the new one binds and the old one
+  // joins the runs block; fails_when=the posted receipt lands outside the notes while the old one stays authoritative; why_new=review finding
+  // gstack-post.ts:212; seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a receipt posted on its own replaces the one in the notes, so the new receipt binds", () => {
+    const m = mergeBodySections(composed("aaaa", "old"), RECEIPT("bbbb"));
+    expect(extractReceipt(m.body).receipt!.head).toBe("bbbb");
+    expect(m.body.match(/```gstack-ship-receipt/g)).toHaveLength(1);
+    expect(receiptRuns(m.body).map(r => r.head)).toEqual(["aaaa"]);
+    expect(m.body).toStartWith("Opening sentence.\n\n## Summary\n\nold\n\n## Test plan\n\n- [x] bun test\n\n<!-- gstack:agent-notes -->");
+    expect(m.replaced).toContain("ship receipt");
+  });
+
   test("a legacy receipt-at-top body still merges: a partial post keeps it, a full post with notes last replaces it", () => {
     const legacy = RECEIPT("aaaa") + "\n## Summary\n\nold\n\n## Approvals\n\nPlan: exempt: docs-only\n";
     const partial = mergeBodySections(legacy, "## Summary\n\nnew\n");
