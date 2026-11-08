@@ -368,8 +368,31 @@ describe('gstack-artifacts-init idempotency', () => {
     makeFakeGh({});
     const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']);
     expect(r.status).toBe(0);
-    // gh auth was checked (still useful for provider detection) but no repo create.
     expect(readCalls(ghCallLog).some((c) => c.startsWith('gh repo create'))).toBe(false);
+  });
+
+  // `glab auth status` with no glab config can block for ~30s, which made
+  // every --remote init (and every test that runs one) wait on it.
+  test('--remote <url> never asks gh or glab for their auth status', () => {
+    makeFakeGh({});
+    makeFakeGlab({});
+    const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']);
+    expect(r.status).toBe(0);
+    expect(readCalls(ghCallLog).some((c) => c.startsWith('gh auth'))).toBe(false);
+    expect(readCalls(glabCallLog).some((c) => c.startsWith('glab auth'))).toBe(false);
+  });
+
+  test('a re-run that reuses the existing remote never asks gh or glab for their auth status', () => {
+    makeFakeGh({});
+    makeFakeGlab({});
+    expect(run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']).status).toBe(0);
+    fs.rmSync(ghCallLog, { force: true });
+    fs.rmSync(glabCallLog, { force: true });
+    const r = run([]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('Using existing remote');
+    expect(readCalls(ghCallLog).some((c) => c.startsWith('gh auth'))).toBe(false);
+    expect(readCalls(glabCallLog).some((c) => c.startsWith('glab auth'))).toBe(false);
   });
 
   test('explicit HTTPS --remote stays HTTPS even when gh prefers SSH', () => {
