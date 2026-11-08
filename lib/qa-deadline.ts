@@ -120,6 +120,11 @@ export interface QaCommandCapture {
   spawn?: { cwd?: string; env?: Record<string, string> };
 }
 
+/** A group kill that found nothing left. macOS answers EPERM, not ESRCH, while an exited group is still being torn down. */
+export function processGroupAlreadyGone(code: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  return code === 'ESRCH' || (code === 'EPERM' && platform === 'darwin');
+}
+
 export async function runQaDeadlineCommand(file: string, command: string, args: string[], emit: Emit, capture?: QaCommandCapture): Promise<number> {
   if (!['linux', 'darwin', 'win32'].includes(process.platform)) throw new QaDeadlineError('Process containment is unavailable on this platform');
   let status = qaDeadlineStatus(readQaDeadline(file));
@@ -152,7 +157,7 @@ export async function runQaDeadlineCommand(file: string, command: string, args: 
         if (process.platform === 'win32') child.kill('SIGKILL');
         else process.kill(-child.pid, 'SIGKILL');
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') outcome = 2;
+        if (!processGroupAlreadyGone((error as NodeJS.ErrnoException).code)) outcome = 2;
       }
     };
     const finish = (code: number, signal: NodeJS.Signals | null = null, completed = false) => {

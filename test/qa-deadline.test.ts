@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { processGroupAlreadyGone } from '../lib/qa-deadline';
 
 const CLI = path.resolve(import.meta.dir, '../bin/gstack-qa-deadline');
 const ROOT = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-deadline-'));
@@ -547,3 +548,15 @@ test.skipIf(process.platform !== 'win32')('abrupt Windows wrapper exit closes th
     await runner.result;
   }
 }, 15_000);
+
+test('a process group that already exited on macOS is not a containment failure', () => {
+  expect(processGroupAlreadyGone('ESRCH', 'linux')).toBe(true);
+  expect(processGroupAlreadyGone('ESRCH', 'darwin')).toBe(true);
+  expect(processGroupAlreadyGone('EPERM', 'darwin')).toBe(true);
+});
+
+test('a refused group kill still fails closed off macOS and for any other error', () => {
+  expect(processGroupAlreadyGone('EPERM', 'linux')).toBe(false);
+  expect(processGroupAlreadyGone('EINVAL', 'darwin')).toBe(false);
+  expect(processGroupAlreadyGone(undefined, 'darwin')).toBe(false);
+});
