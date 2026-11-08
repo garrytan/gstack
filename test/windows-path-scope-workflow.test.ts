@@ -130,10 +130,10 @@ function prRepo(files: string[], lines: Record<string, string> = {}) {
 }
 
 describe('windows-smoke stays on every pull request', () => {
-  test('no paths filter, no job condition, one job', () => {
+  test('no paths filter, no job condition, one test job beside the Trunk observer', () => {
     expect(smoke.on.pull_request).toEqual({ branches: ['main'] });
     expect(smoke.on.push).toEqual({ branches: ['main'] });
-    expect(Object.keys(smoke.jobs)).toEqual(['windows-smoke']);
+    expect(Object.keys(smoke.jobs)).toEqual(['trunk-dynamic-ci', 'windows-smoke']);
     expect(smoke.jobs['windows-smoke'].if).toBeUndefined();
     expect(smoke.jobs['windows-smoke'].needs).toBeUndefined();
   });
@@ -159,7 +159,7 @@ describe('Windows Setup E2E runs by install path', () => {
     const scope = setupE2e.jobs['windows-scope'];
     expect(scope['runs-on']).toBe('ubuntu-24.04');
     expect(scope.steps[0].with).toEqual({ 'fetch-depth': 2, 'persist-credentials': false });
-    const windowsJobs = Object.keys(setupE2e.jobs).filter(name => name !== 'windows-scope');
+    const windowsJobs = Object.keys(setupE2e.jobs).filter(name => name !== 'windows-scope' && name !== 'trunk-dynamic-ci');
     expect(windowsJobs).toEqual(['windows-setup', 'held-install-journey']);
     for (const name of windowsJobs) {
       expect([name, setupE2e.jobs[name]['runs-on'], setupE2e.jobs[name].needs, setupE2e.jobs[name].if])
@@ -198,12 +198,12 @@ describe('Windows Setup E2E runs by install path', () => {
 });
 
 describe('the path-scoped Windows shard on pull requests', () => {
-  test('every pull request runs the cheap scope job; a dispatch names its files; read-only and secretless', () => {
+  test('every pull request runs the cheap scope job; a dispatch names its files; read-only and secretless outside the Trunk observer', () => {
     expect(Object.keys(scoped.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
     expect(scoped.on.pull_request).toEqual({ branches: ['main'] });
     expect(scoped.on.workflow_dispatch.inputs.files).toMatchObject({ type: 'string', required: true });
     expect(scoped.permissions).toEqual({ contents: 'read' });
-    expect(scopedText).not.toContain('secrets.');
+    expect(scopedText.match(/secrets\s*(?:\.|\[)\s*['"]?[A-Za-z0-9_-]*|toJSON\(\s*secrets\b/gi)).toEqual(['secrets.TRUNK_API_TOKEN']);
     expect(scopedText).not.toContain('pull_request_target');
     expect(scoped.concurrency.group).toBe('windows-scoped-tests-${{ github.event.pull_request.number || github.run_id }}');
     const scope = scoped.jobs['windows-scope'];
