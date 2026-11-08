@@ -706,16 +706,20 @@ const ENV_NAME_ARGUMENT = /^(["'])[A-Z_][A-Z0-9_]*\1/;
  * The rest of the line is read from the span's end, so a quote the match took
  * is still seen: a literal fallback (`os.getenv("X", "<secret>")`) or a
  * literal used as the name (`os.environ["<secret>"]`) keeps the finding.
+ * A fallback wrapped onto the next line (`?? \n "<secret>"`) is read too.
  */
+const LINE_CONTINUES = /(?:\?\?|\|\||&&|[?:(,+])\s*$/;
+const LINE_CONTINUED = /^\s*(?:\?\?|\|\||&&|[?:+)])/;
 function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
   if (!ENV_READ_SPAN.test(span)) return false;
-  const rest = match.input.slice(spanBounds(match).end).split("\n", 1)[0];
+  const [line, next = ""] = match.input.slice(spanBounds(match).end).split("\n", 2);
+  const rest = LINE_CONTINUES.test(line) || LINE_CONTINUED.test(next) ? `${line}\n${next}` : line;
   return !carriesSecretLiteral(/[[(]$/.test(span) ? rest.replace(ENV_NAME_ARGUMENT, "") : rest);
 }
 
-/** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
+/** True when `text` holds a quoted (`"`, `'` or backtick), non-placeholder, high-entropy literal. */
 function carriesSecretLiteral(text: string): boolean {
-  for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
+  for (const [, literal] of text.matchAll(/["'`]([^\s'"`]{8,})["'`]/g))
     if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return true;
   return false;
 }
