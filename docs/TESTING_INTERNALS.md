@@ -1704,8 +1704,8 @@ whether it would have run or skipped `free-suite` and
 free-suite shards share one verdict. The verdicts show up in the job summary,
 on the pull request's Dynamic CI tab and at app.trunk.io/dynamic-ci.
 
-Trunk keys verdicts by workflow file: it answers only for jobs in the workflow
-that ran the action. So since GST-1847, the other costly pull-request
+Trunk keys verdicts by workflow file, so it answers only for jobs in the
+workflow that ran the action. So since GST-1847, the other costly pull-request
 workflows carry the same observer job, each named "Trunk Dynamic CI (learning
 only, <workflow>)":
 
@@ -1722,7 +1722,7 @@ Everything below holds for every observer.
 
 It never skips anything. No job needs the observer, no condition reads its
 verdicts, and it exports no outputs. Switching Trunk to enforcement in its
-dashboard would still skip nothing, because nothing in this workflow reads
+dashboard would still skip nothing, because nothing in its workflow reads
 the verdicts. Every test runs, and every required check keeps its name and
 its result. Merge evidence never reads Trunk: the `free-tests` aggregate,
 the CI reuse profile, `gstack-ci-carry`, the pregate, the train gate
@@ -1754,13 +1754,17 @@ through its GitHub App.
 **Review date: one week after it merges (2026-11-12 if it merges on
 2026-11-05).** Compare Trunk's would-skip verdicts with what the jobs it
 would have skipped actually found, and look hardest at any would-skip on a run
-where that job failed. Leave out runs where `reuse` skipped the suite: Trunk
-still records a verdict there, but there is no result to compare it with.
-Trunk's `required-check` vote treats both jobs as not
-required, because branch protection names the `free-tests` aggregate and
+where that job failed. Leave out runs where the workflow itself skipped the
+observed job, because Trunk still records a verdict there but there is no
+result to compare it with: `reuse` skipping the Free Tests suite,
+`windows-scope` skipping the scoped-test and setup Windows jobs on a pull
+request that touches no Windows path (`windows-smoke` always runs), and `eval-slices` on pull-request pushes, which run evals.yml
+in its screening-summary mode and plan no slices.
+In free-tests.yml, Trunk's `required-check` vote treats both observed jobs as
+not required, because branch protection names the `free-tests` aggregate and
 not the jobs under it. But `free-tests` needs both jobs and every shard
-receipt, so discount that vote when you judge the would-skip rate. Any skip
-added later also has to pass the aggregate's receipt check. Turning on
+receipt, so discount that vote when you judge their would-skip rate. Any skip
+added there later also has to pass the aggregate's receipt check. Turning on
 skipping is a separate decision for Garry, made after that review.
 
 ### Windows free lane
