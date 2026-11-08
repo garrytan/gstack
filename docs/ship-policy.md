@@ -113,7 +113,7 @@ hard-code:
   "changelog": "CHANGELOG.md",
   "history": "squash-ok",
   "stamp_sensitive_gates": ["tests"],
-  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint"] },
+  "changelog_fragments": { "dir": "changelog.d", "required_checks": ["free-tests", "windows-smoke", "Check VERSION is not stale vs queue", "quality", "check-freshness", "actionlint", "Plain title"] },
   "min_gstack_version": "1.91.340.0"
 }
 ```
@@ -1257,8 +1257,13 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 | `ship: changelog_fragments <dir>: …` | Step 12 writes no version; Step 13 writes the entry as `<dir>/<branch-slug>.md` (entry text only, `bump:` front matter only when the change warrants more than the policy bump), never an `[Unreleased]` section, linted with `gstack-prose-lint <file> --gate`; `gstack-ship-queue land` assigns the version; see [changelog fragments](#changelog-fragments) |
 
 The ship receipt (`gstack-ship-receipt write … --body`) goes in the PR body's closing Agent notes
-section, written by the pr-body section of `/ship` after the body is composed; a body from before that
-layout keeps its receipt at the top and is still read.
+section, written by the pr-body section of `/ship` after the body is composed. A body from before that
+layout keeps its receipt at the top. That receipt is still read while it opens the body, also after the
+body gains an Agent notes section with no receipt in it; once an edit or a post puts an opening paragraph
+above it, it is no longer read, and the pull request needs a fresh receipt. A receipt posted on its own
+with `gstack-post pr-body` to a body that has the section replaces the receipt inside it. In a body with
+the section, a receipt block quoted in the readable part stays where it is and is never read as the
+receipt; a body without the section is read whole, so there a quoted block can be read as the receipt.
 
 <a id="ship-receipt"></a>
 ## The ship receipt
@@ -2768,9 +2773,10 @@ Codes and fixes: [troubleshooting.md](troubleshooting.md#plain-title-refused).
 
 ### Making it a required check
 
-The rollout takes two merges. The first ships the checker, the writers and the
-workflow. Once every open PR has a "Plain title" run (an edit to its title or
-body starts one), a one-line follow-up adds `"Plain title"` to
-`changelog_fragments.required_checks`, and `gstack-ship-queue land` then
-refuses a PR whose check is red or missing. Adding it in the first merge would
-hold every open PR that has never had a run.
+The rollout took two merges. The first shipped the checker, the writers and the
+workflow. The second added `"Plain title"` to gstack's
+`changelog_fragments.required_checks`, so `gstack-ship-queue land` refuses a
+PR whose check is red or missing. A PR opened before the workflow existed has no
+run until its title or body is edited or a commit is pushed; do one of those
+before landing it. The workflow reads the PR body from the event file, not an
+environment variable, so a very long body still reaches the checker.

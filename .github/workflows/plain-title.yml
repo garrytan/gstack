@@ -54,14 +54,14 @@ jobs:
         env:
           # Attacker-controlled on fork PRs: env only, never inlined into run:.
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
-          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"
+          # The body comes from the event file: a large body overflows one environment string (E2BIG).
+          jq -j '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/pr-body.txt"
           # Commit subjects are a warning only: skip quietly when the API read fails.
           if ! gh api --paginate "repos/$REPO/pulls/$PR_NUM/commits" \
               --jq '.[] | select((.parents | length) < 2) | .commit.message | split("\n")[0]' \
