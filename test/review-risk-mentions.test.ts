@@ -76,7 +76,7 @@ describe('GST-1888 fail-closed: code that handles money, keys, auth or a trust b
     ['a shell key header to a paid API', 'bin/call.sh', ['curl -H "x-api-key: $ANTHROPIC_API_KEY" https://api.anthropic.com/v1/messages # paid'], ['money', 'secret']],
     ['an auth header on a fetch', 'src/gh.ts', ['await fetch(url, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}` } }); // "paid" call'], ['secret', 'security']],
     ['an API key header', 'src/llm.ts', ["headers['x-api-key'] = process.env.ANTHROPIC_API_KEY; // see the \"billing\" docs"], ['secret']],
-    ['an exec beside a quoted comment', 'src/run.ts', ['const out = execSync(cmd); // "never" runs untrusted input'], ['security']],
+    ['an exec beside a quoted comment', 'src/run.ts', ['const out = execSync(cmd, { timeout: 30_000 }); // "never" runs untrusted input'], ['security']],
     ['a recursive delete before a block comment', 'src/run.ts', ['fs.rmSync(dir, { recursive: true, force: true }); /* clean up */'], ['security']],
     ['a fetch after a block comment', 'src/run.ts', ['const a = 1; /* no fetch( here */ await fetch(u);'], ['security']],
     ['a fetch after a regex holding //', 'src/run.ts', ['if (/\\/\\//.test(u)) await fetch(u);'], ['security']],
