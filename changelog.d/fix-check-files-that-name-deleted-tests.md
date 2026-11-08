@@ -1,0 +1,1 @@
+- **Deleting a test no longer skips checks for files that still name it.** Removing or renaming a test also runs the checks for remaining files that name it, even when the removed path already maps to another test. Intentional dependency-map keys remain valid, while uncovered references still stop the check. Contributed by @szsunyuan.

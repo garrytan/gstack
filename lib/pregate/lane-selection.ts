@@ -149,13 +149,33 @@ function namedBy(ctx: PregateContext, file: string): string[] {
   const stem = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
   const r = spawnSync('git', ['grep', '--untracked', '-l', '-F', '-e', stem, '--', '.', ':(exclude)*.md', ':(exclude)*.mdx'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env: ctx.env });
   if (r.status === 1) return [];
-  return r.status === 0 ? (r.stdout ?? '').split('\n').filter(Boolean) : ['(git grep failed)'];
+  if (r.status !== 0) return ['(git grep failed)'];
+  return (r.stdout ?? '').split('\n').filter(Boolean).filter(n => {
+    if (n !== PREGATE_CONFIG_PATH) return true;
+    // Dependency keys intentionally map removed paths; keep their test values and every other policy reference in the scan.
+    try {
+      const policy = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, n), 'utf8'));
+      if (!policy?.dependencies || typeof policy.dependencies !== 'object' || Array.isArray(policy.dependencies)) return true;
+      return JSON.stringify({ ...policy, dependencies: Object.values(policy.dependencies) }).includes(stem);
+    } catch { return true; }
+  });
 }
 
 /** Test languages whose importers the graph resolves file by file; a Go or Ruby test may define helpers its package still uses. */
 const RESOLVED_IMPORTS = /\.(?:[cm]?[jt]sx?|py|dart)$/;
 
 const shown = (files: readonly string[]) => `${files.slice(0, 8).join(' ')}${files.length > 8 ? ` … +${files.length - 8} more` : ''}`;
+
+/** Remaining namers' tests, independent of whether the removed test already has a mapping or qualifies for a waiver. */
+function namerCoverage(ctx: PregateContext, graph: Graph, gone: ReadonlySet<string>, file: string): { suite: Set<string>; refused: string | null } {
+  const suite = new Set<string>();
+  const uncovered = namedBy(ctx, file).filter(f => !gone.has(f)).filter(n => {
+    const m = testsFor(graph, n, ctx.config.dependencies);
+    for (const t of m.tests) suite.add(t);
+    return !m.tests.length && !m.declaredNone;
+  });
+  return { suite, refused: uncovered.length ? `removed, but still named by ${shown(uncovered)}, which no test covers` : null };
+}
 
 /**
  * Why a removed test no remaining test selects owes no lane, and the tests it selects, or `refused` when it must fail closed as
@@ -172,13 +192,8 @@ function removedPath(ctx: PregateContext, graph: Graph, gone: ReadonlySet<string
   const edges = [...graph.reverse].filter(([k]) => k === file || (k.endsWith('/**') && file.startsWith(k.slice(0, -2)))).flatMap(([, list]) => list);
   const importers = [...new Set(edges.map(e => e.from))].filter(f => !gone.has(f)).sort();
   if (importers.length) return { refused: `removed, but still imported by ${shown(importers)}` };
-  const namerSuite = new Set<string>();
-  const uncovered = namedBy(ctx, file).filter(f => !gone.has(f)).filter(n => {
-    const m = testsFor(graph, n, ctx.config.dependencies);
-    for (const t of m.tests) namerSuite.add(t);
-    return !m.tests.length && !m.declaredNone;
-  });
-  if (uncovered.length) return { refused: `removed, but still named by ${shown(uncovered)}, which no test covers` };
+  const { suite: namerSuite, refused } = namerCoverage(ctx, graph, gone, file);
+  if (refused) return { refused };
   const namerNote = namerSuite.size ? `files naming it run: ${shown([...namerSuite].sort())}` : '';
   const renamedTo = ctx.touched.find(t => t.renamedFrom === file)?.path;
   if (renamedTo && isTestFile(renamedTo)) return { removed: { file, note: [`old name of ${renamedTo}`, namerNote].filter(Boolean).join('; '), lostCoverage: [] }, suite: [...namerSuite] };
@@ -236,6 +251,12 @@ export function selectLanes(ctx: PregateContext): Selection {
     const m = testsFor(graph, file, ctx.config.dependencies);
     for (const t of m.tests) tests.add(t);
     provenance.push(...m.provenance.map(p => `${p} [${why}]`));
+    if (m.tests.length && goneSet.has(file) && isTestFile(file)) {
+      const namers = namerCoverage(ctx, graph, goneSet, file);
+      for (const t of namers.suite) tests.add(t);
+      if (namers.refused) { noLane.push(file); provenance.push(`${file}: ${namers.refused}; no lane until declared`); }
+      else if (namers.suite.size) provenance.push(`${file}: files naming it run: ${shown([...namers.suite].sort())}`);
+    }
     if (m.tests.length || why.startsWith('generated')) continue;
     // An explicit `[]` already cleared the file. A removed test still runs its owning suite; label the rest docs/no-tests only when it is that class.
     if (m.declaredNone) {

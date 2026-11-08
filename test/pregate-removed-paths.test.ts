@@ -229,6 +229,66 @@ describe('removed paths in lanes (#3529)', () => {
       expect(r.removed[0]).toContain('files naming it run: test/curation.test.js');
     });
 
+    describe('mapped removed tests (#3536)', () => {
+      // Value: protects=mapped removals still run a stale curation list's test without losing the original selection;
+      //   fails_when=the mapped-test fast path skips namer coverage; why_new=existing curation cases have no mapping; seam=none
+      test.each([
+        ['dependencies', 'deleted'],
+        ['dependencies', 'renamed'],
+        ['remaining test', 'deleted'],
+        ['remaining test', 'renamed'],
+      ] as const)('a %s mapping does not hide a %s test from curation checks', (mapping, change) => {
+        const mapped = mapping === 'dependencies' ? 'test/retry.test.js' : 'test/referrer.test.js';
+        const referrer = "const test = require('node:test');\nconst assert = require('node:assert');\nconst retired = ['test/util.test.js'];\ntest('records retired test paths', () => assert.strictEqual(retired.length, 1));\n";
+        const repo = fixture({
+          pregate: { ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, ...(mapping === 'dependencies' ? { 'test/util.test.js': [mapped] } : {}) } },
+          baseFiles: { 'scripts/curation.js': CURATION, 'test/curation.test.js': CURATION_TEST, ...(mapping === 'remaining test' ? { [mapped]: referrer } : {}) },
+        });
+        if (change === 'deleted') commit(repo, { 'test/util.test.js': null });
+        else move(repo, 'test/util.test.js', 'test/util2.test.js');
+        const r = lanes(repo);
+        expect(r.ran).toContain(mapped);
+        expect(r.ran).toContain('test/curation.test.js');
+        expect(r.status).toBe(1);
+        expect(r.check.code).toBe('PREGATE_LANE_FAILED');
+      });
+
+      // Value: protects=ignoring dependency keys never hides a policy runner's or dependency target's removed-test reference;
+      //   fails_when=the whole policy file or its dependency values are exempted; why_new=mappings name removed tests in that same file; seam=none
+      test.each(['runner', 'dependency target'] as const)('a mapped deletion keeps a policy %s reference uncovered', reference => {
+        const repo = fixture({ pregate: {
+          ...BASE_PREGATE,
+          ...(reference === 'runner' ? { runner: 'node --test test/util.test.js {files}' } : {}),
+          dependencies: { ...BASE_PREGATE.dependencies, 'test/util.test.js': ['test/retry.test.js'], ...(reference === 'dependency target' ? { 'lib/retry.js': ['test/util.test.js'] } : {}) },
+        } });
+        commit(repo, { 'test/util.test.js': null });
+        const r = lanes(repo);
+        expect(r.check.code).toBe('PREGATE_NO_LANE');
+        expect(r.ran).toBe('');
+      });
+
+      // Value: protects=mapped removals refuse uncovered namers but honor explicit no-test declarations;
+      //   fails_when=namers are ignored or declaredNone is discarded; why_new=existing refusals use unmapped removals; seam=none
+      test.each([['without', false], ['with', true]] as const)('a mapped deletion %s a namer no-test declaration keeps its contract', (_label, declaredNone) => {
+        const repo = fixture({
+          pregate: { ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, 'test/util.test.js': ['test/retry.test.js'], ...(declaredNone ? { 'scripts/skip-list.txt': [] } : {}) } },
+          baseFiles: { 'scripts/skip-list.txt': 'test/util.test.js\n' },
+        });
+        commit(repo, { 'test/util.test.js': null });
+        const r = lanes(repo);
+        if (declaredNone) {
+          expect(r.check.status).toBe('pass');
+          expect(r.ran).toContain('test/retry.test.js');
+        } else {
+          expect(r.status).toBe(1);
+          expect(r.check.code).toBe('PREGATE_NO_LANE');
+          const why = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--explain']);
+          expect(why.out + why.err).toContain('scripts/skip-list.txt');
+          expect(r.ran).toBe('');
+        }
+      });
+    });
+
     test.each([
       ['an extensionless path in package.json', 'test/util.test.js', { 'package.json': '{ "name": "fixture", "scripts": { "smoke": "node --test test/util.test" } }\n' }],
       ['a dotted module name in a Makefile', 'tests/test_alpha.py', { 'tests/__init__.py': '', 'tests/test_alpha.py': 'import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n', 'Makefile': 'smoke:\n\tpython3 -m unittest tests.test_alpha\n' }],
