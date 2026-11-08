@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **/autoplan no longer stops after a phase with `publication_missing` when Claude Code saves the phase report as a summary that opens with another sentence.** Claude Code can save the prose between tool calls as a paraphrased summary. When the report started with a check sentence, the summary read "I checked the packet... Phase 1 is complete with 9 native issues and no outside review, so the work moves on to Phase 2." The guard only counted a phase declaration at the start of a line, so the run died after Phase 1. It now also counts one that starts a sentence in plain prose. A declaration inside quotes or inline code, one after an example or template introduction on the same line, a negated or future one, a list item, a heading and another phase's number still don't count. A "with" result may now mention "no outside review" after its counts; one that opens with "no" still doesn't count. Thanks to @mstormo for finding the cause in #4155.

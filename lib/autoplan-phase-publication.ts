@@ -5,6 +5,8 @@ export interface AutoplanPhaseHit {
   ts: number;
 }
 
+const exampleIntroduction = /\b(?:example|sample|quote(?:d)?|source|template|instruction|marker|expected\s+(?:output|announcement))\b/i;
+
 function phaseDeclaration(text: string): RegExpExecArray | null {
   const declaration = String.raw`Phase[ \t]+(1|2(?:\.5)?|3)(?:[ \t]+\(([^()]*)\))?[ \t]+(?:is[ \t]+)?(?:complete(?:d)?|done|finished|wrapped[ \t]+up)`;
   const plain = text.replace(new RegExp(String.raw`^\*\*(${declaration}[.:]?)\*\*`, 'i'), '$1');
@@ -16,7 +18,7 @@ function phaseDeclaration(text: string): RegExpExecArray | null {
     // supply the missing phase declaration.
     const recap = new RegExp(String.raw`^${declaration}(?:[ \t]*[—–][ \t]*|[ \t]+(?<withResult>with)[ \t]+)(.+)$`, 'i').exec(plain);
     const tail = recap?.[4]?.trim();
-    if (tail && !/^["“'‘>]|\?|\b(?:if|unless|when|once|pending|maybe|perhaps|would|could|will|source|example|sample|quote(?:d)?|historical|earlier|previous(?:ly)?|template|not|no|never|superseded|provided|rejected|incomplete|unfinished|withdrawn|retracted|cancelled|canceled)\b/i.test(tail)) match = recap;
+    if (tail && !/^(?:["“'‘>]|no\b)|\?|\b(?:if|unless|when|once|pending|maybe|perhaps|would|could|will|source|example|sample|quote(?:d)?|historical|earlier|previous(?:ly)?|template|not|never|superseded|provided|rejected|incomplete|unfinished|withdrawn|retracted|cancelled|canceled)\b/i.test(tail)) match = recap;
     if (match?.groups?.withResult && /\bhypothetic(?:al|ally)\b/i.test(tail!)) match = null;
   }
   // Optional phase names are metadata, and must agree with the phase number.
@@ -28,6 +30,25 @@ function phaseDeclaration(text: string): RegExpExecArray | null {
   };
   if (match?.[2] !== undefined && !names[match[1]!]!.test(match[2])) return null;
   return match;
+}
+
+/**
+ * A narration summary can fold a preface sentence into the report, so the
+ * declaration starts a sentence inside the line (#4155). Only plain prose
+ * lines qualify, and a sentence inside quotes or inline code is quoted text.
+ */
+function sentenceDeclaration(line: string): RegExpExecArray | null {
+  if (/^(?:[#>|"“'‘`[+-]|\*(?!\*)|\d+[.)][ \t])/.test(line) || /\bEmit\s+phase-transition\s+summary\s*:/i.test(line)) return null;
+  for (const boundary of line.matchAll(/[.!?]["”’)]?[ \t]+(?=(?:\*\*)?Phase[ \t])/g)) {
+    const before = line.slice(0, boundary.index! + boundary[0].length);
+    if (exampleIntroduction.test(before)) return null;
+    const count = (pattern: RegExp) => before.match(pattern)?.length ?? 0;
+    if (count(/"/g) % 2 || count(/`/g) % 2 || count(/“/g) > count(/”/g) ||
+        count(/(?:^|[\s(])['‘]/g) > count(/['’](?=[\s.,;:!?)]|$)/g)) continue;
+    const match = phaseDeclaration(line.slice(before.length));
+    if (match) return match;
+  }
+  return null;
 }
 
 /** An explicit current withdrawal in the same announcement cancels a new with-result claim. */
@@ -93,7 +114,7 @@ export function autoplanPhaseCompletions(
       if (fence) continue;
       // Accept a plain/bold declaration, never a heading, quoted source,
       // table cell, checklist, or a sentence promising future completion.
-      let match = phaseDeclaration(text);
+      let match = phaseDeclaration(text) ?? sentenceDeclaration(text);
       if (/^>\s/.test(text)) {
         // The skill's transition summary itself is a blockquote. Accept a
         // filled-in single-phase summary with concrete consensus counts;
@@ -107,7 +128,7 @@ export function autoplanPhaseCompletions(
           !/\[[^\]]*\]|\{\{/.test(block.join('\n'));
         if (concreteSummary) match = phaseDeclaration(text.replace(/^>\s?/, ''));
       }
-      const introducedExample = /\b(?:example|sample|quote(?:d)?|source|template|instruction|marker|expected\s+(?:output|announcement))\b.*[:：]\s*$/i.test(previousLine) ||
+      const introducedExample = new RegExp(String.raw`${exampleIntroduction.source}.*[:：]\s*$`, 'i').test(previousLine) ||
         (!!match?.groups?.withResult && /\b(?:example|sample|quote(?:d)?|source|historical|earlier|previous|archived|hypothetical|template)\b.*[:：]\s*$/i.test(previousLine.replace(/\*\*/g, '')));
       // Keep an example introduction across all its marker/quoted lines,
       // rather than allowing its second marker to look like real completion.
