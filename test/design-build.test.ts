@@ -539,7 +539,7 @@ describe('round 3 (granted fix-check): the proxy catch-all, the preview record w
     live.push(p);
     const at = (as: string) => `${p.url}settings?as=${as}`;
     const inv = inventory({ states: [{ name: 'owner', url: at('owner'), mode: 'url' }, { name: 'lastowner', url: at('lastowner'), mode: 'url' }] });
-    expect(await servedStates(inv)).toEqual([state]);
+    expect(await servedStates(inv)).toEqual([{ origin: new URL(p.url).origin, state }]);
     await fetch(p.url + 'api/audit?as=lastowner');
     const repo = fixtureRepo();
     const runDir = tmpDir('design-build-run-');
@@ -549,7 +549,7 @@ describe('round 3 (granted fix-check): the proxy catch-all, the preview record w
     for (const s of inv.states) for (const v of VPS) fs.writeFileSync(path.join(runDir, 'shots', `${s.name}-${v}.png`), 'png');
     const found = receipt({ repo, inv, runDir, rounds: 1, served: await servedStates(inv), outRoot: path.join(runDir, 'out') });
     expect(found.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
-    const unrecorded = receipt({ repo, inv, runDir, rounds: 1, served: [null], outRoot: path.join(runDir, 'out2') });
+    const unrecorded = receipt({ repo, inv, runDir, rounds: 1, served: [{ origin: new URL(p.url).origin, state: null }], outRoot: path.join(runDir, 'out2') });
     expect(unrecorded.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNRECORDED');
     const mod = await import(PREVIEW_TEMPLATE);
     const used: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
@@ -562,5 +562,32 @@ describe('round 3 (granted fix-check): the proxy catch-all, the preview record w
   test('redactText drops userinfo up to the last @ before the host and redacts a percent-encoded secret key', () => {
     expect(redactText('fetch http://' + ['user', 'p@ssw0rd'].join(':') + '@db.internal/x failed')).toBe('fetch http://db.internal/x failed');
     expect(redactText('GET http://h.test/p?%74oken=PCTSENTINEL&as=owner')).toBe('GET http://h.test/p?%74oken=REDACTED&as=owner');
+  });
+});
+
+describe('round 4 (granted fix-check): a stopped preview on another origin keeps its default record', () => {
+  test('when one origin answers the probe, a loopback origin that does not answer still has its default gstack-preview-<port> record read', async () => {
+    const state = tmpDir('pv-');
+    const p = await startPreview(['--static', '--root', PAGE, '--fixtures', FIXTURES, '--port', '0', '--state', state]);
+    live.push(p);
+    const gone = Bun.serve({ port: 0, fetch: () => new Response('') });
+    const stoppedPort = gone.port;
+    gone.stop(true);
+    const stoppedDir = path.join(os.tmpdir(), `gstack-preview-${stoppedPort}`);
+    fs.mkdirSync(stoppedDir, { recursive: true });
+    fs.writeFileSync(path.join(stoppedDir, 'unhandled.jsonl'), JSON.stringify({ scenario: 'lastowner', method: 'GET', path: '/api/audit', code: 'PREVIEW_UNHANDLED' }) + '\n');
+    try {
+      const inv = inventory({ states: [{ name: 'owner', url: `${p.url}settings?as=owner`, mode: 'url' }, { name: 'lastowner', url: `http://127.0.0.1:${stoppedPort}/settings?as=lastowner`, mode: 'url' }] });
+      const repo = fixtureRepo();
+      const runDir = tmpDir('design-build-run-');
+      plan(inv, runDir);
+      verifyStart(repo, inv, runDir);
+      fs.writeFileSync(path.join(runDir, 'lint.json'), lintJson('clean', allMeasured()));
+      for (const s of inv.states) for (const v of VPS) fs.writeFileSync(path.join(runDir, 'shots', `${s.name}-${v}.png`), 'png');
+      const r = receipt({ repo, inv, runDir, rounds: 1, served: await servedStates(inv), outRoot: path.join(runDir, 'out') });
+      expect(r.line).toStartWith('DESIGN_BUILD: incomplete code=PREVIEW_UNHANDLED');
+    } finally {
+      fs.rmSync(stoppedDir, { recursive: true, force: true });
+    }
   });
 });

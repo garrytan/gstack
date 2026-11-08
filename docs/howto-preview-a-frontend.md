@@ -134,7 +134,7 @@ code:
 | `admit <saved gstack-skill-start output>` | maps a refused design-review start to `DESIGN_BUILD: unrendered code=INSTALL` |
 | `plan --inventory <f> --run-dir <d> [--waivers <f>]` | writes the lint's state file and prints the exact `LINT_CMD:` (carrying `--waivers` when given; a `waived` receipt needs it) and one `SHOT:` path per state and viewport |
 | `verify-start --inventory <f> --run-dir <d>` | records the tree identity right before the read-only final pass |
-| `receipt --inventory <f> --run-dir <d> --rounds <n> [--preview <state dir>] [--waivers <f>]` | writes `receipt.json` (0600) under `$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-<head>-<tree>/` and prints the one `DESIGN_BUILD:` line; without `--preview` it reads the state directory a running preview names, and a preview that keeps no record (the plugin without `stateDir`) makes the run `incomplete` (`PREVIEW_UNRECORDED`) |
+| `receipt --inventory <f> --run-dir <d> --rounds <n> [--preview <state dir>] [--waivers <f>]` | writes `receipt.json` (0600) under `$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-<head>-<tree>/` and prints the one `DESIGN_BUILD:` line; it reads `--preview`, the state directory each running preview names, and the default per-port directory of any loopback origin where no preview answers; without `--preview`, a preview that keeps no record (the plugin without `stateDir`) makes the run `incomplete` (`PREVIEW_UNRECORDED`) |
 | `check --inventory <f> --receipt <file>` | reprints the line while the tree is unchanged, else `DESIGN_BUILD: stale code=TREE_CHANGED` |
 
 ```
