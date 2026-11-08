@@ -2,7 +2,7 @@
 name: design-review
 preamble-tier: 4
 version: 2.0.0
-description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them. (gstack)"
+description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them; --build checks UI while you build it. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -16,6 +16,7 @@ triggers:
   - visual design audit
   - design qa
   - fix design issues
+  - check the UI I am building
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -160,6 +161,8 @@ bun --no-env-file --config=/dev/null run $HOME/.claude/skills/gstack/bin/gstack-
 ```
 
 `DESIGN_MD_FORMAT: spec`: the front matter is normative. Run `bun --no-env-file --config=/dev/null run $HOME/.claude/skills/gstack/bin/gstack-design-md.ts tokens DESIGN.md` and calibrate against the flat token map: a value present there is never a finding, and a finding that departs from a token names the token. `legacy` or `unknown`: read the file as prose. The `DESIGN_MD_MARKER` line is the user's persisted format choice; respect it and never offer a conversion here (that is /design-consultation's question). `missing`: calibrate against the code tokens captured above, or universal principles when there are none.
+
+**`--build`:** skip the clean-tree check; run **Check the Aside browser**, then its STOP in Phases 1-6, not the audit.
 
 **Check for clean working tree:**
 
@@ -975,9 +978,13 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 | When | Read this section |
 |------|-------------------|
+| a --build run | `sections/build-loop.md` |
 | a craft, Persuade or redesign audit | `sections/craft-audit.md` |
 | the outside-voice pass that precedes Phase 7 triage (Codex availability, consent, both voices and synthesis) | `sections/outside-voices.md` |
 | writing a Phase 8e.5 regression test with no known test command (detect the framework, or offer to bootstrap one) | `sections/test-bootstrap.md` |
+
+> **STOP.** Before a --build run, Read `~/.claude/skills/gstack/design-review/sections/build-loop.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
 
 > **STOP.** Before a craft, Persuade or redesign audit, Read `~/.claude/skills/gstack/design-review/sections/craft-audit.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
@@ -990,18 +997,18 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ```
 $GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
-├── design-audit-{domain}.md                  # Structured report
+├── design-audit-{domain}.md  # Structured report
 ├── screenshots/
-│   ├── first-impression.jpg                  # Phase 1
-│   ├── {page}-annotated.png                  # Per-page annotated
-│   ├── {page}-mobile.jpg                     # Responsive
+│   ├── first-impression.jpg  # Phase 1
+│   ├── {page}-annotated.png  # Per-page annotated
+│   ├── {page}-mobile.jpg  # Responsive
 │   ├── {page}-tablet.jpg
 │   ├── {page}-desktop.jpg
-│   ├── finding-001-before.png                # Before fix
-│   ├── finding-001-target.png                # Target mockup (if generated)
-│   ├── finding-001-after.png                 # After fix
+│   ├── finding-001-before.png  # Before fix
+│   ├── finding-001-target.png  # Target mockup (if generated)
+│   ├── finding-001-after.png  # After fix
 │   └── ...
-└── design-baseline.json                      # For regression mode
+└── design-baseline.json  # For regression mode
 ```
 
 ---

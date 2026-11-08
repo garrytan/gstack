@@ -267,6 +267,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [Privacy & Telemetry](docs/privacy.md) | What is sent, what never is, the update check, outside reviews, egress receipts |
 | [Uninstall](docs/uninstall.md) | The uninstall script and manual removal |
 | [Diagrams & Document Formats](docs/howto-diagrams-and-formats.md) | Mermaid/excalidraw fences in PDFs, image sizing and safety defaults, `--to html\|docx`, `/diagram` triplets |
+| [Preview a frontend](docs/howto-preview-a-frontend.md) | The loopback preview with canned API answers that `/design-review --build` checks, its fixtures, the state inventory, and the `gstack-design-build` receipt |
 | [First Production Deploy](docs/howto-bring-up-a-first-deploy.md) | What to do when `/setup-deploy` says nothing is deployed yet: hosting, env and secrets, DNS, checking it works, then back to `/setup-deploy` |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
 | [GBrain quick tour](docs/gbrain-quick-tour.md) | The four setup paths, MCP registration, the per-repo trust policy, memory sync, Conductor env vars |

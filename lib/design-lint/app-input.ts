@@ -37,10 +37,25 @@ function redactParams(text: string): string | null {
   return new URLSearchParams([...params.entries()].map(([k, v]) => [k, SECRET_PARAM.test(k) ? 'REDACTED' : v])).toString();
 }
 
+const USERINFO = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi;
+const PARAM = /([?&#;])([^=&#?;\s]+)=([^&#\s]*)/g;
+
+/**
+ * Redaction by pattern, for text that is not a parseable URL: userinfo after
+ * any scheme is dropped, and the value of every query or fragment parameter
+ * with a secret-looking name becomes REDACTED. A value ends only at &, # or
+ * whitespace, so punctuation inside it (a parenthesis, a colon) never lets its
+ * tail through.
+ */
+function redactPattern(s: string): string {
+  const name = (key: string): string => { try { return decodeURIComponent(key); } catch { return key; } };
+  return s.replace(USERINFO, '$1').replace(PARAM, (all, sep: string, key: string) => (SECRET_PARAM.test(name(key)) ? `${sep}${key}=REDACTED` : all));
+}
+
 /** A URL fit to print: userinfo dropped, secret-looking query and fragment parameter values replaced with REDACTED. Navigation always uses the real URL. */
 export function redactUrl(raw: string): string {
   let u: URL;
-  try { u = new URL(raw); } catch { return raw.replace(/\/\/[^/@\s]*@/, '//'); }
+  try { u = new URL(raw); } catch { return redactPattern(raw); }
   u.username = '';
   u.password = '';
   const search = redactParams(u.search.slice(1));
@@ -50,8 +65,8 @@ export function redactUrl(raw: string): string {
   return u.toString();
 }
 
-/** Every http(s) URL inside free text (an error message, a stack) redacted. */
-export const redactText = (s: string): string => s.replace(/https?:\/\/[^\s"'<>)]+/g, (u) => redactUrl(u));
+/** Free text (an error message, a stack) with every URL's userinfo and secret-looking parameter values redacted. */
+export const redactText = redactPattern;
 
 /** A state's name when only its URL is given: its path and query, redacted. */
 export function stateNameOf(url: string): string {

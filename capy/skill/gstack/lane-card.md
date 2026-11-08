@@ -18,6 +18,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 - /ship runs at the final pushed head before any READY; `SHIP_RECEIPT: pr=<n> head=<head>` names that head, and a later push needs a new /ship.
 - After dispatching /ship, end your turn and hold no PR watch until it completes. Then subscribe to the PR, read its checks and comments once, stop the /ship subagent and run `gstack-ship-queue ready`.
 - Never merge. The controller merges on a recorded standing approval.
+- UI work (recommended, never a READY prerequisite): once the change renders, run `install.sh --check --for design-review` and `gstack-browser-ensure`, launch with the printed `GSTACK_LAUNCH` line, then `/design-review --build <preview url>`, and paste its one `DESIGN_BUILD:` line in READY. A start that prints `GSTACK_RESULT: skill=design-review status=refused` is `DESIGN_BUILD: unrendered code=INSTALL` (`gstack-design-build admit <saved start output>` prints it). `incomplete` does not count as having run it.
 
 ## Under a Captain
 

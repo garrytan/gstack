@@ -4,7 +4,7 @@ preamble-tier: 4
 version: 2.0.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
-  AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
+  AI slop patterns, and slow interactions — then fixes them; --build checks UI while you build it. Iteratively fixes issues
   in source code, committing each fix atomically and re-verifying with before/after
   screenshots. For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish". (gstack)
@@ -21,6 +21,7 @@ triggers:
   - visual design audit
   - design qa
   - fix design issues
+  - check the UI I am building
 ---
 
 {{PREAMBLE}}
@@ -51,6 +52,8 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 Look for `DESIGN.md`, `design-system.md`, or similar in the repo root, then for the tokens the code ships: `:root` CSS custom properties, `tailwind.config.*`, and theme or tokens files. Read what exists; Phase 2 adds what the page renders. All design decisions are calibrated against this system, and deviations from it are higher severity. Use universal design principles only when the project has neither a design doc nor code tokens, and offer to create a DESIGN.md from the inferred system.
 
 {{DESIGN_MD_CHECK:calibrate}}
+
+**`--build`:** skip the clean-tree check; run **Check the Aside browser**, then its STOP in Phases 1-6, not the audit.
 
 **Check for clean working tree:**
 
@@ -113,6 +116,8 @@ Remember `RUN_ID` and restate it literally in later blocks (each bash block is a
 
 {{SECTION_INDEX:design-review}}
 
+{{SECTION:build-loop}}
+
 {{SECTION:craft-audit}}
 
 Record baseline design score and AI slop score at end of Phase 6.
@@ -123,18 +128,18 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 ```
 $GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
-├── design-audit-{domain}.md                  # Structured report
+├── design-audit-{domain}.md  # Structured report
 ├── screenshots/
-│   ├── first-impression.jpg                  # Phase 1
-│   ├── {page}-annotated.png                  # Per-page annotated
-│   ├── {page}-mobile.jpg                     # Responsive
+│   ├── first-impression.jpg  # Phase 1
+│   ├── {page}-annotated.png  # Per-page annotated
+│   ├── {page}-mobile.jpg  # Responsive
 │   ├── {page}-tablet.jpg
 │   ├── {page}-desktop.jpg
-│   ├── finding-001-before.png                # Before fix
-│   ├── finding-001-target.png                # Target mockup (if generated)
-│   ├── finding-001-after.png                 # After fix
+│   ├── finding-001-before.png  # Before fix
+│   ├── finding-001-target.png  # Target mockup (if generated)
+│   ├── finding-001-after.png  # After fix
 │   └── ...
-└── design-baseline.json                      # For regression mode
+└── design-baseline.json  # For regression mode
 ```
 
 ---

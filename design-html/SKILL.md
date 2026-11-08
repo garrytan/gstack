@@ -597,6 +597,8 @@ Use AskUserQuestion:
 > B) Iterate more — keep refining
 > C) Done — I'll use this as a reference
 
+After A, recommend (opt-in, never required) `/design-review --build <preview url>` once the component renders in the app, with each state on a loopback preview (`docs/howto-preview-a-frontend.md`); run `install.sh --check --for design-review` and `gstack-browser-ensure` first.
+
 ---
 
 ## Important Rules
