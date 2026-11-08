@@ -16,6 +16,8 @@ import { generateLlmsTxt } from './gen-llms-txt';
 import { generateAgentsDigest, DIGEST_RELPATH, DIGEST_BYTE_BUDGET } from './gen-agents-digest';
 import { DOCTOR_COMPONENTS_RELPATH } from './gen-doctor-components';
 import { renderDoctorComponentsSh } from '../lib/doctor-components';
+import { toYamlInlineScalar } from '../lib/yaml-scalar';
+export { toYamlInlineScalar };
 import { generateDesignChecklistMd } from './resolvers/design-checklist';
 import { DOM_DUMP_SCRIPT, DOM_DUMP_FILE } from '../lib/dom-dump-script';
 import * as fs from 'fs';
@@ -367,29 +369,6 @@ export function buildTrimmedDescription(parts: CatalogParts): string {
   const lead = parts.lead.trim();
   const suffix = parts.hasGstackTag ? ' (gstack)' : '';
   return `${lead}${suffix}`;
-}
-
-/**
- * Render a string as a YAML inline scalar value (the text after `key: `),
- * quoting only when a plain scalar would be invalid or ambiguous.
- *
- * The bug this guards (#1778): a description like "Ship workflow: detect..."
- * emitted as a plain scalar has an interior ": " that a strict YAML parser
- * (Codex/OpenAI skill loading) reads as a nested mapping and rejects with
- * "mapping values are not allowed in this context". When quoting is needed we
- * fall back to JSON.stringify, which produces a double-quoted scalar that YAML
- * accepts verbatim (YAML is a superset of JSON for flow scalars). Strings that
- * are already valid plain scalars pass through unchanged to keep regen diffs small.
- */
-export function toYamlInlineScalar(s: string): string {
-  const needsQuote =
-    s.length === 0 ||
-    s !== s.trim() ||                       // leading/trailing whitespace
-    /:(\s|$)/.test(s) ||                    // "foo: bar" / trailing colon → mapping ambiguity
-    /\s#/.test(s) ||                        // " #" → inline comment
-    /\.\.\./.test(s) ||                     // "..." → document-end marker; strict parsers reject mid-scalar (catalog-trim truncation appends it)
-    /^[\s>|&*!%@`"'#,\[\]{}?-]/.test(s);    // leading YAML indicator char
-  return needsQuote ? JSON.stringify(s) : s;
 }
 
 /**

@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   BLOCK_BEGIN, BLOCK_END, CONTEXT_BLOCK_MAX, DOT_SKILLS_DIR, HARNESS_CODES, HYBRID_SKILLS, HarnessError, OPENCLAW_ALL_TEXTS, OPENCLAW_INSTRUCTION_MAX, ROUTER_DESCRIPTION, ROUTER_DESCRIPTION_MAX, TARGETS,
-  contextBlock, contextScope, detect, listLedgers, readLedger, refresh, register, sourceSkills, unregister, type RegisterOptions,
+  contextBlock, contextScope, detect, flatFrontmatter, listLedgers, readLedger, refresh, register, sourceSkills, unregister, type RegisterOptions,
 } from '../lib/harness-register';
 import { RETIRED_SKILLS } from '../scripts/discover-skills';
 import { QM_PACK_LIMITS, qmRequest, registerQm, removeQmPack } from '../lib/harness-qm';
@@ -139,6 +139,26 @@ describe('gstack-harness register and unregister (skill folders)', () => {
       expect(fs.statSync(md).size).toBeLessThanOrEqual(256 * 1024);
     }
   }, 60_000);
+
+  test('generic: the router frontmatter is a strict-YAML-legal scalar — ROUTER_DESCRIPTION carries ": "', () => {
+    const d = tmp();
+    const r = register(opts(d, 'generic', { skillsDir: path.join(d, 'skills') }));
+    const md = fs.readFileSync(path.join(r.dest, 'gstack', 'SKILL.md'), 'utf8');
+    const line = md.split('\n').find(l => l.startsWith('description: ')) ?? '';
+    const value = line.slice('description: '.length);
+    // A plain scalar with an interior ": " is a nested mapping to a YAML loader, and a
+    // harness that parses frontmatter as YAML (Pi) then drops the skill as malformed.
+    expect(ROUTER_DESCRIPTION).toContain(': ');
+    expect(JSON.parse(value)).toBe(ROUTER_DESCRIPTION);
+  }, 60_000);
+
+  test('flat frontmatter quotes only the descriptions a plain scalar cannot carry', () => {
+    const d = tmp();
+    const quoted = flatFrontmatter('---\nname: x\ndescription: Set up gbrain: install the CLI\n---\nbody\n', 'x');
+    expect(quoted).toContain('description: "Set up gbrain: install the CLI"');
+    const plain = flatFrontmatter('---\nname: x\ndescription: Simple description here\n---\nbody\n', 'x');
+    expect(plain).toContain('description: Simple description here');
+  });
 
   test('Claude-render targets (dots, generic) never register a retired skill; /autoplan still carries its methodology', () => {
     const d = tmp();
