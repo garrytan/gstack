@@ -92,7 +92,7 @@ Finish only when each of these exists (contract v1):
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `5fee61ab6369` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/investigate/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `e69b43d39692` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/investigate/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -327,7 +327,7 @@ Output a structured debug report:
 ```
 DEBUG REPORT
 ════════════════════════════════════════
-Failed or skipped: [tests or checks that failed or never ran, or none]
+Failed or skipped: [anything that failed, even if fixed, was skipped or never ran, or none]
 Unverified:      [claims no tool output shows; hypotheses dropped untested, or none]
 Also changed:    [config, CI or files outside the ask, or none]
 Symptom:         [what the user observed]

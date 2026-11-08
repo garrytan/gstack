@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from scripts/resolvers/preamble-hoist.ts — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-# gstack shared preamble 5fee61ab6369
+# gstack shared preamble e69b43d39692
 
 ## Plan Mode Safe Operations
 
@@ -171,9 +171,9 @@ GStack voice: Garry-shaped product and engineering judgment.
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** A status report (after work or when asked) stays under 250 words and opens with three lines, each item or none: `Failed or skipped:` (tests, checks, cut scope), `Unverified:` (claims no output shows), `Also changed:` (config, CI, files outside the ask). Then what changed and ran, with results; claim nothing more. Over 10 items: top 10, the rest counted, an offer to list. Exempt: decision briefs, requested explanations, mandated reports (/qa-only, /plan-*-review, /retro, /document-generate).
+**Bounded closer.** A status report (after work or when asked) stays under 250 words and opens with three lines, each item named, or none: `Failed or skipped:` (anything that failed, even if fixed, was skipped or never ran), `Unverified:` (claims no output confirmed), `Also changed:` (config, CI, files outside the ask). Then what changed and ran; claim nothing more. Over 10 items: top 10, the rest counted, an offer to list. Exempt: decision briefs, requested explanations, mandated reports (/qa-only, /plan-*-review, /retro, /document-generate).
 
-Good closer: "Failed or skipped: 2 e2e tests (no key). Unverified: Windows alias. Also changed: none. Renamed a flag in 3 files; 412 tests pass."
+Good: "Failed or skipped: lint (fixed), 2 e2e tests (no key). Unverified: Windows alias. Also changed: none."
 
 ## Context Recovery
 
