@@ -330,10 +330,11 @@ metering, metered, charge, charged, billable, billed, credits) and three
 pairs: usage beside a token or cost word, proxy beside billing, and a client
 beside a cost or charge word, so a CLI's usage text and a plain proxy stay out
 (GST-850, from gbrain-evals #289, whose metering proxy and billing clients read
-`required=none`). A usage object whose token fields are numeric constants
+`required=none`). A usage object whose usage-count fields (input, output, total, prompt,
+completion, cached, reasoning and cache tokens) are numeric constants
 (`usage: { output_tokens: 1 }`, a model-API stub's canned reply) names no money;
-a computed, read or summed token count, or a key that names money
-(`charge_per_token: 0.002`), does (GST-1888). money reads comments and
+a computed, read or summed count, a cap (`max_output_tokens`) or a price or
+`_usd` key does (GST-1888). money reads comments and
 strings, since a comment can be the only sign that changed code handles billing. **security** is a trust-boundary path (trust, redact, sanitize, neutralize,
 consent, escape, and sealed custody or egress: seal, sealed, custody, egress) or line (a
 redaction call, an import of a redaction or outside-voice module, a `SECRET` or `CREDENTIAL`
@@ -350,14 +351,11 @@ and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`
 or removed), and any changed line that names the `child_process` or
 `node:child_process` module, in any import or require spelling. A changed SVG
 line that can run code (a script or `foreignObject` element, an event handler, a
-`javascript:` URL) is security too (GST-911). security reads a changed line with
-its comments removed in a file whose comment syntax it knows (a `//` or `/* */`
-at a line's start or after whitespace, a JSDoc ` * ` line inside a block a changed
-line opened, or a `#` after whitespace in Python, shell and the like; Ruby and
-Perl are read whole),
-so a comment that names `fetch(` or `rm -rf` raises nothing; strings stay, and a
-line whose quote or regex literal does not close on it, or a file of any other
-language, is read whole (GST-1888). The GST-850
+`javascript:` URL) is security too (GST-911). security skips a changed line that
+is only a comment: `//` first in a `//`-comment language, or `#` first in Python,
+shell and the like (Ruby and Perl are read whole). A trailing comment, a block or
+JSDoc comment and a string are read with the code, so they still count
+(GST-1888). The GST-850
 rules are coarse on purpose and parse no import clause or call arguments;
 `test/review-risk-linear.test.ts` holds each of them under 100 ms on
 200,000-character hostile lines, its anchor followed by a long run of the
