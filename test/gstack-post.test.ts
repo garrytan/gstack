@@ -820,6 +820,20 @@ describe("gstack-post keeps the Agent notes section last", () => {
     expect(m.replaced).toContain("ship receipt");
   });
 
+  // Value: protects=the PR's own opening paragraph and run history when a receipt posted with text or a runs block after it goes into the notes;
+  // fails_when=the text after the receipt replaces the opening, or the file's runs block lands in the readable part; why_new=review finding
+  // gstack-post.ts:283 (adversarial-native#1, outside-voice#1); seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a receipt posted with text and a runs block after it keeps the opening paragraph and the notes' run history", () => {
+    const runs = "\`\`\`gstack-receipt-runs\n" + JSON.stringify({ head: "cccc" }) + "\n\`\`\`\n";
+    const m = mergeBodySections(composed("aaaa", "old"), RECEIPT("bbbb") + runs + "\nNote under receipt.\n");
+    expect(m.body).toStartWith("Opening sentence.\n\n");
+    expect(m.replaced).not.toContain("leading text");
+    expect(m.body).toContain("Note under receipt.");
+    expect(extractReceipt(m.body).receipt!.head).toBe("bbbb");
+    expect(m.body.match(/```gstack-receipt-runs/g)).toHaveLength(1);
+    expect(receiptRuns(m.body).map(r => r.head)).toEqual(["aaaa"]);
+  });
+
   test("a legacy receipt-at-top body still merges: a partial post keeps it, a full post with notes last replaces it", () => {
     const legacy = RECEIPT("aaaa") + "\n## Summary\n\nold\n\n## Approvals\n\nPlan: exempt: docs-only\n";
     const partial = mergeBodySections(legacy, "## Summary\n\nnew\n");

@@ -31,7 +31,7 @@ import { scan, type Finding, type RepoVisibility } from "./redact-engine";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
-import { RECEIPT_FENCE, extractReceipt, placeReceipt } from "./ship-receipt";
+import { RECEIPT_FENCE, RUNS_FENCE, extractReceipt, placeReceipt } from "./ship-receipt";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
@@ -281,10 +281,16 @@ export function mergeBodySections(current: string, incoming: string): { body: st
   const next = splitSections(incoming).filter(n => !(n.key.startsWith("text:") && n.text.trim() === ""));
   const lone = next.find(n => n.key === "receipt");
   const intoNotes = lone && now.some(s => s.key === NOTES_KEY) && !next.some(n => n.key === NOTES_KEY) ? extractReceipt(lone.text).receipt : undefined;
-  if (intoNotes) {
-    const m = mergeBodySections(current, incoming.replace(lone!.text, ""));
-    return { ...m, body: placeReceipt(m.body, intoNotes), replaced: [...m.replaced, "ship receipt"] };
-  }
+  if (!intoNotes) return mergeSplit(now, next, incoming);
+  const after = next[next.indexOf(lone!) + 1];
+  const rest = next.filter(n => n !== lone).map(n => n !== after || !n.key.startsWith("text:") ? n : { ...n, key: "text:after-receipt", text: n.text.replace(RUNS_BLOCK_RE, "") });
+  const m = mergeSplit(now, rest.filter(n => !(n.key.startsWith("text:") && n.text.trim() === "")), incoming);
+  return { ...m, body: placeReceipt(m.body, intoNotes), replaced: [...m.replaced, "ship receipt"] };
+}
+
+const RUNS_BLOCK_RE = new RegExp("^```" + RUNS_FENCE + "[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```[ \\t]*(?:\\r?\\n|$)", "m");
+
+function mergeSplit(now: Section[], next: Section[], incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
   const ambiguous = next.filter(n => now.filter(s => s.key === n.key).length > 1).map(n => `"${n.label}"`);
   if (ambiguous.length) throw new UsageError(`the PR's current body holds ${[...new Set(ambiguous)].join(", ")} more than once, so the file's copy matches no single section; nothing was posted. Rerun with --replace and the whole body`);
   const preamble = (list: Section[]) => {
