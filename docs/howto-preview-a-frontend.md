@@ -29,8 +29,9 @@ files instead, with the same fixture API; gstack's own tests use that mode on
   (`PREVIEW_PORT`) instead of moving. `--port 0` picks a free one and the
   ready line names it.
 - **A private, redacted log.** `<state>/preview.log` (mode 0600, directory
-  0700) has one line per request; a URL's userinfo and the values of
-  token-like parameters are replaced with `REDACTED`.
+  0700) has one line per API request (and, under `--static`, per page or
+  asset request); a URL's userinfo and the values of token-like
+  parameters are replaced with `REDACTED`.
 - **No live backend.** Every request under the API prefix (`--api`, default
   `/api/`) is answered from a fixture or with a 501. Anything outside the
   prefix is the app's (SPA routes still serve). An app that calls an
@@ -127,7 +128,7 @@ code:
 |---------|------|
 | `preflight --inventory <f> [--grant-remote <host>]` | browser first, then target authorization (loopback, or a host named in a grant), then that each URL answers; prints `PREFLIGHT: ok …` or the run's final `DESIGN_BUILD:` line (`NO_BROWSER`, `UNAUTHORIZED_TARGET`, `NO_PREVIEW`) |
 | `admit <saved gstack-skill-start output>` | maps a refused design-review start to `DESIGN_BUILD: unrendered code=INSTALL` |
-| `plan --inventory <f> --run-dir <d>` | writes the lint's state file and prints the exact `LINT_CMD:` and one `SHOT:` path per state and viewport |
+| `plan --inventory <f> --run-dir <d> [--waivers <f>]` | writes the lint's state file and prints the exact `LINT_CMD:` (carrying `--waivers` when given; a `waived` receipt needs it) and one `SHOT:` path per state and viewport |
 | `verify-start --inventory <f> --run-dir <d>` | records the tree identity right before the read-only final pass |
 | `receipt --inventory <f> --run-dir <d> --rounds <n> [--preview <state dir>] [--waivers <f>]` | writes `receipt.json` (0600) under `$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-<head>-<tree>/` and prints the one `DESIGN_BUILD:` line |
 | `check --inventory <f> --receipt <file>` | reprints the line while the tree is unchanged, else `DESIGN_BUILD: stale code=TREE_CHANGED` |

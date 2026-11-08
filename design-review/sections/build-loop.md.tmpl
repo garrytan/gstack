@@ -19,7 +19,7 @@ never asks when unattended (record NEEDS INPUT instead).
 | 7 | Nothing overflows at 375 | `section-overflow` |
 
 For items 3 and 5 the repo's house style wins: judge against a sibling
-section, not fixed sizes.
+section.
 
 ### 1. Inventory
 
@@ -30,8 +30,7 @@ RUN="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-run-$(date -u +%Y%m%
 mkdir -p "$RUN" && chmod 700 "$RUN" && echo "RUN: $RUN"
 ```
 
-Each block is a fresh shell, so below, `<run-dir>` is the printed `RUN:`
-path. Write `<run-dir>/inventory.json` from the spec and the diff: every
+Each block is a fresh shell: `<run-dir>` is the printed `RUN:` path. Write `<run-dir>/inventory.json` from the spec and the diff: every
 scenario × overlay × busy, success, error and empty that the change can show.
 
 ```json
@@ -82,7 +81,8 @@ editing after round 3, or earlier once a round is clean.
 
 ### 4. Final verification (read-only) and the receipt
 
-After the last permitted edit, one pass that changes nothing:
+After the last permitted edit, one pass that changes nothing (to waive
+findings, add `--waivers <file>` to `plan` and `receipt`):
 
 ```bash
 {{BIN_DIR}}/gstack-design-build plan --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final"
@@ -90,8 +90,7 @@ After the last permitted edit, one pass that changes nothing:
 ```
 
 Run its `LINT_CMD:` line and every `SHOT:` line, then (`N`: rounds you edited
-in; add `--preview <dir>` if the preview template served it, `--waivers
-<file>` if the lint used one):
+in; add `--preview <dir>` if the preview template served it):
 
 ```bash
 N=
