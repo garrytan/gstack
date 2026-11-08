@@ -343,7 +343,7 @@ raw HTML sinks, a shell run through argv, recursive deletes), any call to an
 outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, undici, urllib,
 an import of got or a `got(` or `got.<verb>(` call, an import of `requests` or
 `httpx` (inline too, as in `python3 -c "import httpx; …"`) and their calls in any
-file outside the `//` comment languages or in a file whose changed lines import
+file outside the C-syntax languages (JavaScript, TypeScript, Go, Java and the like) or in a file whose changed lines import
 them, with no exemption for a literal URL), `new URL` from
 input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
@@ -351,11 +351,7 @@ and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`
 or removed), and any changed line that names the `child_process` or
 `node:child_process` module, in any import or require spelling. A changed SVG
 line that can run code (a script or `foreignObject` element, an event handler, a
-`javascript:` URL) is security too (GST-911). security skips a changed line that
-is only a comment: `//` first in a `//`-comment language, or `#` first in Python,
-shell and the like (Ruby and Perl are read whole). A trailing comment, a block or
-JSDoc comment and a string are read with the code, so they still count
-(GST-1888). The GST-850
+`javascript:` URL) is security too (GST-911). The GST-850
 rules are coarse on purpose and parse no import clause or call arguments;
 `test/review-risk-linear.test.ts` holds each of them under 100 ms on
 200,000-character hostile lines, its anchor followed by a long run of the

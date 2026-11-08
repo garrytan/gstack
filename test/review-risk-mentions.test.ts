@@ -1,8 +1,9 @@
 /**
  * GST-1888: gbrain-evals#387, an eval write-up whose only code is a local stub standing in for a model API, planned the
- * full panel as risk:money and risk:security. A whole-line comment that names a trust-boundary call or a credential, a doc
- * that mentions money or keys, and a canned usage object of numeric constants raise neither class on their own, and a JS
- * variable named requests or got is not the Python requests or got HTTP client. Money still reads comments and strings
+ * full panel as risk:money and risk:security. A comment that names a credential in plain words, a doc that mentions money
+ * or keys, and a canned usage object of numeric usage counts raise neither class on their own, and a JS variable named
+ * requests or got is not the Python requests or got HTTP client. A comment that names a call still reads as security
+ * (Captain ruling, a listed fail-closed note: no comment syntax is skipped). Money still reads comments and strings
  * (Captain ruling A: a comment can be the only sign that changed code handles billing, gbrain-evals#289). Code that reads
  * keys, sends auth headers, meters tokens, calls a paid provider or crosses a trust boundary classifies exactly as before,
  * comments and strings beside it included.
@@ -15,15 +16,14 @@ const risk = (p: string, lines: string[], scopeAuth = false): string[] => [...ma
 
 const STUB_TS = [
   '// Stands in for the model API: the real harness reads an API key from the environment and sends a bearer token.',
-  '// The stub never calls fetch( or eval(, never spawns through child_process and never runs rm -rf on a credentials file;',
-  '  // the API key, the bearer token and the auth headers are never read.',
+  '  // The API key, the bearer token and the auth headers are never read, and no credentials file is opened.',
   'const usage = { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };',
   'const delta = { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } };',
   'const openai = { usage: { input_tokens: 1, input_tokens_details: { cached_tokens: 0 }, output_tokens: 1, total_tokens: 2 } };',
   "export const reply = (text: string) => ({ content: [{ type: 'text', text }], usage, delta, openai });",
 ];
 const STUB_PY = [
-  '# Stands in for the API; requests.get( and subprocess with shell=True are never called, and no API key is read.',
+  '# Stands in for the API; no API key or bearer token is read.',
   'def reply(text):',
   '    return {"usage": {"input_tokens": 1, "output_tokens": 1}, "text": text}',
 ];
@@ -36,7 +36,7 @@ const STUB_DOC = [
 describe('GST-1888: mentions and canned usage name no money or security', () => {
   // Value: protects=an eval write-up with a model-API stub plans light, as R51 says; fails_when=a comment, a prose string, a
   //   doc or a canned usage object raises money or security; why_new=GST-1888 (gbrain-evals#387); seam=matchRisk + classifyDiff
-  test('a stub whose line comments name trust-boundary calls and credentials, with canned usage objects and a doc that mentions money and keys, has no risk class', () => {
+  test('a stub whose comments name credentials, with canned usage objects and a doc that mentions money and keys, has no risk class', () => {
     expect(risk('bench/capture-server.ts', STUB_TS)).toEqual([]);
     expect(risk('bench/stub.py', STUB_PY)).toEqual([]);
     const paths = ['bench/capture-server.ts', 'bench/stub.py', 'docs/bench.md'];
@@ -137,12 +137,12 @@ describe('GST-1888 fail-closed: code that handles money, keys, auth or a trust b
   });
 });
 
-describe('GST-1888: the comment reader and the canned-usage rule run in linear time', () => {
-  // Value: protects=gstack-review-plan never stalls on one hostile added line; fails_when=the comment reader or the canned-usage
-  //   rule goes quadratic on deep nesting, repeated division, unclosed comments or quotes; why_new=GST-1888; seam=matchRisk
+describe('GST-1888: the canned-usage rule runs in linear time', () => {
+  // Value: protects=gstack-review-plan never stalls on one hostile added line; fails_when=the canned-usage rule goes quadratic on
+  //   deep nesting, or matchRisk slows on repeated division, comments or quotes; why_new=GST-1888; seam=matchRisk
   test.each([
-    ['nested token objects', '{a_tokens:'.repeat(10_000) + '1' + '}'.repeat(10_000)],
-    ['nested empty token objects', 'x = ' + 'a_tokens: {'.repeat(9_000) + '}'.repeat(9_000)],
+    ['nested token objects', '{input_tokens:'.repeat(10_000) + '1' + '}'.repeat(10_000)],
+    ['nested empty token objects', 'x = ' + 'input_tokens: {'.repeat(9_000) + '}'.repeat(9_000)],
     ['repeated division', 'x = ' + 'a / '.repeat(25_000)],
     ['repeated division after spaces', 'x = a' + ' '.repeat(50_000) + '/ b /'.repeat(10_000)],
     ['unclosed block comments', '/*'.repeat(50_000)],
@@ -157,23 +157,22 @@ describe('GST-1888: the comment reader and the canned-usage rule run in linear t
 });
 
 describe('GST-1888: listed fail-closed notes', () => {
-  // Value: protects=the Captain-ruled notes stay fail-closed, never fail-open; fails_when=a block, JSDoc or trailing comment that
-  //   names a call stops reading as security, or a whole-line comment starts reading as one; why_new=GST-1888 (grant a-5db8daa2655f);
-  //   seam=matchRisk
+  // Value: protects=the Captain-ruled notes stay fail-closed, never fail-open; fails_when=a line, block, JSDoc or trailing comment that
+  //   names a call stops reading as security; why_new=GST-1888 (Captain rulings on grant a-5db8daa2655f and the park); seam=matchRisk
   test.each([
     ['a block comment naming a call', 'src/a.ts', ['/* never fetch( here */']],
     ['a JSDoc line naming a call', 'src/a.ts', ['/**', ' * never fetch( here', ' */']],
     ['a trailing comment naming a call', 'src/a.ts', ['const x = 1; // never fetch( here']],
+    ['a slash line comment naming a call', 'src/a.ts', ['    // never fetch( or exec( here']],
+    ['a hash line comment naming a call', 'scripts/a.py', ['  # never requests.get( or eval( here']],
+    ['a shell line comment naming a delete', 'bin/a.sh', ['# rm -rf "$DIR" is never run']],
+    ['a go:generate directive', 'tools/gen.go', ['//go:generate rm -rf ./out']],
+    ['a PHP line comment closed by ?>', 'web/a.php', ['// note ?><?php exec($c); ?>']],
+    ['a JSX text line', 'src/A.tsx', ['  // {eval(userInput)}']],
+    ['a template body line', 'src/a.ts', ['// ${await fetch(u)}']],
     ['a Vue file reading requests.filter(', 'src/A.vue', ['const posts = requests.filter((r) => r.ok);']],
     ['a Svelte file reading requests.filter(', 'src/A.svelte', ['const posts = requests.filter((r) => r.ok);']],
   ] as [string, string, string[]][])('%s still reads as security (a listed note)', (_n, p, lines) => {
     expect(risk(p, lines)).toEqual(['security']);
-  });
-  test.each([
-    ['a slash line comment', 'src/a.ts', ['    // never fetch( or exec( here']],
-    ['a hash line comment', 'scripts/a.py', ['  # never requests.get( or eval( here']],
-    ['a shell line comment', 'bin/a.sh', ['# rm -rf "$DIR" is never run']],
-  ] as [string, string, string[]][])('%s names no security', (_n, p, lines) => {
-    expect(risk(p, lines)).toEqual([]);
   });
 });
