@@ -283,6 +283,9 @@ function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt
   return { baseSha, c, scope: scopeOfRange(root, BIN_DIR, baseRev, head, merged), x: exclusionAt(root, baseRef, baseSha.ok ? baseSha.out : null, head, c, tagged, 'gstack-ship-queue') };
 }
 
+/** The targeted classes of the head's range under the exclusion its review read: excluded paths name no class, as gstack-review-plan reads them (GST-1900). */
+const targetedAt = (at: HeadInputs, gateTagged: number | null) => targetedClasses({ ...at.c, scope: at.scope, gateTagged, ...(at.x.state === 'active' ? { excluded: at.x.excluded } : {}) });
+
 /** The selection's list hash over the PR's files; the empty list's when the base declares no pattern or none matches (GST-1408). */
 const listOf = (x: Exclusion) => (x.state === 'active' ? x.record.list_sha256 : EMPTY_LIST_SHA256);
 type RecordedExclude = Partial<Pick<ExcludeRecord, 'patterns_sha256' | 'list_sha256' | 'digest'>>;
@@ -510,9 +513,7 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   if (mismatch) return { ok: false, code: 'RECEIPT_INVALID', message: mismatch, line: b.line };
   const d = receiptDepthVerdict(root, baseRef, b.receipt, b.head, at);
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
-  const x = at.x.state === 'active' ? at.x.excluded : null;
-  const without = <T,>(rec: Record<string, T>) => (x ? Object.fromEntries(Object.entries(rec).filter(([p]) => !x.has(p))) : rec);
-  const t = receiptTargetedVerdict(targetedClasses({ ...at.c, ...(x ? { paths: at.c.paths.filter(p => !x.has(p)), added: without(at.c.added), removed: without(at.c.removed) } : {}), scope: at.scope, gateTagged }).classes, b.receipt);
+  const t = receiptTargetedVerdict(targetedAt(at, gateTagged).classes, b.receipt);
   if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine: t.line };
   if (!t.ok) return { ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', message: `${t.message}; the receipt is unchanged; run /ship on ${b.head.slice(0, 12)}`, line: b.line, depthLine: d.line, targetedLine: t.line };
   return { ...b, depthLine: d.line, targetedLine: t.line };
@@ -594,8 +595,9 @@ function ownChangeSince(root: string, base: string, from: string, head: string, 
  * The targeted classes of what the PR's own change did from `from` to `head` against origin/<base> (ownChangeSince), with
  * gstack-gate-diff run over that change whenever a non-docs path moved (a test edit that skips a case is gate class); null when
  * `from` is not an ancestor of `head`, the change cannot be built, the gate scan did not run, or a class input is unreadable.
+ * `excluded` is the head's active review_exclude_paths selection (receiptReviewAtHead): those paths name no class (GST-1900).
  */
-export function targetedClassesSince(root: string, from: string, head: string, base: string): readonly TargetedClass[] | null {
+export function targetedClassesSince(root: string, from: string, head: string, base: string, excluded?: ReadonlySet<string>): readonly TargetedClass[] | null {
   if (!git(root, ['merge-base', '--is-ancestor', from, head]).ok) return null;
   const since = productChangeSince(root, base, from, head)?.since;
   if (!since) return null;
@@ -607,7 +609,7 @@ export function targetedClassesSince(root: string, from: string, head: string, b
     if (g.status !== 0 || !m) return null;
     gateTagged = m[1]!.split(',').reduce((n, kv) => n + (Number(kv.split(':')[1]) || 0), 0);
   }
-  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged, ...(excluded ? { excluded } : {}) });
   return t.errors.length ? null : t.classes;
 }
 
@@ -708,9 +710,9 @@ const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'ca
  * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
  */
 export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
-  const at = headInputs(root, baseRef, head);
+  const at = headInputs(root, baseRef, head, r);
   const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
-  const t = targetedClasses({ ...at.c, scope: at.scope, gateTagged });
+  const t = targetedAt(at, gateTagged);
   const v = receiptTargetedVerdict(t.classes, r);
   return v.ok || !t.errors.length ? v : { ok: true, line: `${v.line} (unchecked: ${t.errors.join('; ')}; the queue decides at ready)` };
 }

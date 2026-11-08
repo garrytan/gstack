@@ -240,7 +240,7 @@ function main(): number {
         : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
     }
   }
-  const targeted = targetedClasses({ ...collected, ...(active ? { paths: paths.filter(p => !active.excluded.has(p)), added: kept(added), removed: kept(collected.removed) } : {}), scope, gateTagged });
+  const targeted = targetedClasses({ ...collected, scope, gateTagged, ...(active ? { excluded: active.excluded } : {}) });
   const patch = collected.mergeBase ? targetedPatchId(process.cwd(), collected.mergeBase) : 'none';
   const brief = targetedBriefSha();
   const ran = !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch;

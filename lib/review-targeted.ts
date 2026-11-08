@@ -9,7 +9,8 @@
  *
  * Matching reads added and deleted lines, so removing a cap, a check or a redaction
  * counts. Path and identifier signals are token-bounded: `costume` never names cost.
- * Docs and tests paths never trigger. Any input the classifier cannot read fails
+ * Docs and tests paths never trigger, nor do paths an active review_exclude_paths
+ * selection excludes (`excluded`), which no reader reads. Any input the classifier cannot read fails
  * closed to all four classes, as a depth error fails the depth closed to full.
  *
  * The gate class is the gate scan's tagged hunks (a relaxed threshold, a skipped test, a
@@ -50,11 +51,16 @@ export interface TargetedInput {
   /** The collector's consumer scan and drawings (ClassInput): a data file no code reads names no money. */
   consumed?: ClassInput['consumed'];
   drawings?: ClassInput['drawings'];
+  /** Paths an active review_exclude_paths selection leaves out (lib/review-exclude.ts): no reader reads them, so they name no class (GST-1900). */
+  excluded?: ReadonlySet<string>;
 }
 export interface TargetedResult { classes: TargetedClass[]; reasons: string[]; errors: string[]; rules: string }
 
 /** The classes a diff touches, in TARGETED_CLASSES order, with one reason per class; any input error returns all four. */
-export function targetedClasses(i: TargetedInput): TargetedResult {
+export function targetedClasses(input: TargetedInput): TargetedResult {
+  const x = input.excluded;
+  const kept = <T,>(rec?: Record<string, T>) => (x && rec ? Object.fromEntries(Object.entries(rec).filter(([p]) => !x.has(p))) : rec);
+  const i = x ? { ...input, paths: input.paths.filter(p => !x.has(p)), added: kept(input.added), removed: kept(input.removed) } : input;
   const errors = (i.errors ?? []).map(e => `${e.code} (${e.input})`);
   const s = i.scope;
   if (!s) errors.push('scope unavailable (gstack-diff-scope did not run)');
