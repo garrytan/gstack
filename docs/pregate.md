@@ -222,7 +222,7 @@ Two stages with separate clocks, both printed:
 - `strays`: a new file at the repository root, a new top-level directory, or a
   scratch name (`zz-*`, or `tmp` or `scratch` as the whole name stem, optionally
   numbered: `tmp.js`, `tmp2.js`, `tmp_1.txt`, `scratch.md`, but not
-  `tmp-watch.js`, `tmpfs-mount.js` or `scratchpad.ts`) or editor leftover (`*.orig`,
+  `tmp-watch.js`, `tmpfs-mount.js`, `scratchpad.ts` or `tmp-repro.ts`) or editor leftover (`*.orig`,
   `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`, `.DS_Store`, `Thumbs.db`)
   anywhere.
 - `literals`: for every changed exported constant or named timeout/retry

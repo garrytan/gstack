@@ -549,18 +549,18 @@ describe('gstack-pregate (bin)', () => {
   // Value: protects=real modules whose names only start with tmp/scratch (tmp-watch.js, tmpfs-mount.js, scratchpad.ts) pass strays; fails_when=STRAY_NAME treats tmp or scratch as a bare prefix again
   //   why_new=GST-1211 covers zz-*, probe.py and temporal-*, never a tmp- or scratch-prefixed real module (GST-1944, ALPH-74); seam=none
   test('GST-1944: tmp and scratch match as a whole stem only; tmp-watch.js, tmpfs-mount.js and scratchpad.ts are not scratch names', () => {
-    for (const name of ['tmp-watch.js', 'tmpfs-mount.js', 'tmpl.ts', 'scratchpad.ts', 'scratch-card.tsx', 'tmp_cleanup.py']) expect([name, STRAY_NAME.test(name)]).toEqual([name, false]);
+    for (const name of ['tmp-watch.js', 'tmpfs-mount.js', 'tmpl.ts', 'scratchpad.ts', 'scratch-card.tsx', 'tmp_cleanup.py', 'tmp-repro.ts', 'scratch-probe.sh']) expect([name, STRAY_NAME.test(name)]).toEqual([name, false]);
     for (const name of ['tmp', 'tmp.js', 'tmp2.js', 'tmp_1.txt', 'tmp-1.js', 'TMP.js', 'Tmp.md', 'scratch', 'scratch.md', 'scratch2.ts', 'scratch_3.py', 'SCRATCH.txt', 'zz-anything', 'zz-watch.js', 'notes.tmp', 'util.js.orig']) expect([name, STRAY_NAME.test(name)]).toEqual([name, true]);
     const repo = fixture({ pregate: { ...BASE_PREGATE, warn: [] } });
     commit(repo, { 'lib/server/disk-space/tmp-watch.js': 'module.exports = 1;\n', 'lib/server/disk-space/tmpfs-mount.js': 'module.exports = 2;\n', 'lib/scratchpad.js': 'module.exports = 3;\n' });
     const ok = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
     expect(ok.status).toBe(EXIT.ok);
     expect(ok.out).toMatch(/^preflight {2}strays {4}pass /m);
-    commit(repo, { 'lib/tmp.js': 'x\n', 'lib/tmp2.js': 'x\n', 'lib/tmp_1.txt': 'x\n', 'lib/TMP.js': 'x\n', 'docs/scratch.md': 'x\n', 'lib/scratch2.ts': 'x\n', 'lib/zz-anything': 'x\n', 'lib/tmp': 'x\n' });
+    commit(repo, { 'lib/tmp.js': 'x\n', 'lib/tmp2.js': 'x\n', 'lib/tmp_1.txt': 'x\n', 'docs/TMP.js': 'x\n', 'docs/scratch.md': 'x\n', 'lib/scratch2.ts': 'x\n', 'lib/zz-anything': 'x\n', 'lib/tmp': 'x\n' });
     const r = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
     expect(r.status).toBe(EXIT.fail);
     expect(r.out).toMatch(/^preflight {2}strays {4}fail .*8 stray file\(s\)/m);
-    for (const f of ['lib/tmp.js', 'lib/tmp2.js', 'lib/tmp_1.txt', 'lib/TMP.js', 'docs/scratch.md', 'lib/scratch2.ts', 'lib/zz-anything', 'lib/tmp']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
+    for (const f of ['lib/tmp.js', 'lib/tmp2.js', 'lib/tmp_1.txt', 'docs/TMP.js', 'docs/scratch.md', 'lib/scratch2.ts', 'lib/zz-anything', 'lib/tmp']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
     expect(r.out).not.toContain('tmp-watch.js: scratch name');
     expect(r.out).not.toContain('tmpfs-mount.js: scratch name');
     expect(r.out).not.toContain('scratchpad.js: scratch name');
