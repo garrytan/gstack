@@ -55,11 +55,16 @@ export const offersDriveOption = (text: string): boolean => letteredOptions(text
  * mark this step as blocked on you."), never as a drive option's "I wait while you sign in": the phrase must open the
  * option or a sentence and end it, and the option must not be a browser drive, so "I wait for now while you sign in",
  * "wait for now and do it yourself" and "I drive it in Aside. I wait for now." do not count.
+ * The contract's own defer outcome also counts, whatever the option calls itself: a lettered option that is neither a
+ * browser drive nor manual steps and marks the step as blocked or waiting on the user (gate 42431616220: "D) Do it
+ * later. I'll mark this step as waiting on you.").
  */
 export const offersDefer = (text: string): boolean => letteredOptions(text).some(option =>
   /\b(?:defer\w*|postpone\w*|put (?:this|it)(?: step)? off|skip (?:this|it)(?: step)? for now|come back to (?:this|it)(?: step)? later|leave (?:this|it)(?: step)? for (?:now|later))\b/i.test(option)
   || !/drive|browse|Aside/i.test(option)
-    && /(?:^|[.!?;:]\s+)(?:(?:we|I|let['\u2019]s) )?(?:wait|hold off)(?: on (?:this|it)(?: step)?)? for now\b(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i.test(option));
+    && (/(?:^|[.!?;:]\s+)(?:(?:we|I|let['\u2019]s) )?(?:wait|hold off)(?: on (?:this|it)(?: step)?)? for now\b(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i.test(option)
+      || !offersManualSteps(option)
+        && /\b(?:(?:mark|leave|keep)\w* (?:this|the|it)(?: step)? (?:marked )?(?:as )?|(?:step|it) (?:stays|remains|is) (?:marked )?(?:as )?)(?:blocked|waiting) on you\b(?=\s*(?:[.!?;:,)]|[-\u2013\u2014]|$|until\b))/i.test(option)));
 
 /** The manual option: "manual", or one sentence offering instructions or steps the user follows themselves. */
 export function offersManualSteps(text: string): boolean {

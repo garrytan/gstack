@@ -250,6 +250,31 @@ describe('gstack-hook-check: what fails', () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain('missing hosts/claude/hooks/timeline-stop-hook');
   });
+
+  // Free Tests 42327570347 shard 8: Bun segfaulted in the bundle probe, and setup
+  // reported four healthy hooks as "do not parse". A crash makes the check
+  // unavailable (exit 3, like a missing bun); a bun that exits normally without
+  // a report still fails every entry it did not report.
+  test.skipIf(process.platform === 'win32')('a bun killed by a signal makes the check unavailable instead of failing hooks', () => {
+    const root = tmpBase();
+    fixtureTree(root);
+    const fake = (name: string, body: string) => {
+      const file = path.join(tmpBase(), name);
+      fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      return file;
+    };
+    const run = (bun: string) => {
+      const r = spawnSync('bash', [CHECK, root], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_HOOK_CHECK_BUN: bun } });
+      return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+    };
+    const crashed = run(fake('bun-segv', 'kill -SEGV $$'));
+    expect(crashed.code).toBe(3);
+    expect(crashed.stderr).toContain('bun was killed by signal 11 while bundling the TypeScript hook entries, so they cannot be checked');
+    expect(crashed.stdout).not.toContain('fail ');
+    const silent = run(fake('bun-exit-1', 'exit 1'));
+    expect(silent.code).toBe(1);
+    expect(silent.stdout).toContain('bun could not bundle the TypeScript entry');
+  });
 });
 
 describe('setup: registers the hooks that parse, refuses the rest, exits non-zero', () => {

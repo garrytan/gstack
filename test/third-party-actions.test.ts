@@ -574,6 +574,25 @@ describe('Opus consent renders (gate captures)', () => {
       expect(offersDefer(option), option).toBe(true);
   });
 
+  // Gate 42431616220 slice 15 (main 892c3b13): the red tpa-present render. Its D) names the contract's defer outcome
+  // (the step marked as waiting on the user) in other words; the in-run rerun's "D) Defer." passed.
+  test('an option that marks the step blocked or waiting on the user is the defer option', () => {
+    const options = [
+      "- **A) I do it in your Aside browser (recommended).** This uses your real browser, where you're probably already signed in to Acme. If a password, CAPTCHA or identity check comes up, you handle it in the Aside window and tell me when you're done.",
+      "- **B) I do it in gstack's own visible browser.** You won't be signed in there, so I'll hand control to you to sign in, then take over again once you tell me you're done.",
+      '- **C) Manual instructions.** I give you step-by-step instructions and you create the token yourself.',
+      "- **D) Do it later.** I'll mark this step as waiting on you.",
+    ];
+    expect(offersDefer(options.join('\n'))).toBe(true);
+    expect(offersDefer(options.slice(0, 3).join('\n'))).toBe(false);
+    for (const option of ["D) Not now. I'll leave the step blocked on you.", 'D) Later. The step stays waiting on you until you say go.',
+      "D) Another time; I'll keep this step marked as blocked on you."]) expect(offersDefer(option), option).toBe(true);
+    for (const option of ["A) I drive it in your Aside browser; I'll mark the step as waiting on you while you sign in.",
+      "C) Manual instructions. You do it yourself and I'll mark this step as blocked on you.",
+      "C) I create the token myself; the step is waiting on you to approve it.", 'D) Do it now. The step is not blocked on you.',
+      "I'll mark this step as waiting on you.\nA) I drive it in your Aside browser"]) expect(offersDefer(option), option).toBe(false);
+  });
+
   test('defer counts only as a lettered option', () => {
     const present = renders('tpa-present').find(render => render.run === '39157502890')!.assistantText;
     const withoutD = present.split('\n').filter(line => !/^\W*D\)/.test(line.replaceAll('**', ''))).join('\n');
