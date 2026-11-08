@@ -755,7 +755,7 @@ function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean 
  * `*_test.go`). Outside a test file, without a path, or with a digit, an
  * uppercase letter or no credential word, the value is checked as before.
  */
-const TEST_SOURCE = /(?:^|[\\/])(?:[^\\/]+[._-](?:test|spec)|test_[^\\/]+)\.(?:[cm]?[jt]sx?|py|go|rb|dart)$/;
+const TEST_SOURCE = /(?:^|[\\/])(?:[^\\/]+(?:\.test|\.spec|_test)\.(?:[cm]?[jt]sx?|py|go|rb|dart)|test_[^\\/]+\.py)$/;
 const FIXTURE_LABEL = /^[a-z]+(?:[-_][a-z]+)+$/;
 const FIXTURE_CREDENTIAL_WORD = /(?:^|[-_])(?:secret|token|password|passwd|key|credential)s?(?:[-_]|$)/;
 function isTestFixtureLabel(span: string, sourcePath: string | undefined): boolean {

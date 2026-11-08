@@ -216,6 +216,10 @@ describe("env.kv: a lowercase fixture label that names itself a secret, in a tes
     ["memory-registry-pg.test.ts", '      clientSecret: "secretive-horse",'],
     ["memory-registry-pg.test.ts", '      clientSecret: "Zx9Qw8Er7Ty6Ui5Op4As3Df2",'],
     ["memory-registry-pg.test.ts.bak", '      clientSecret: "personal-secret",'],
+    ["src/ab-test.ts", '      clientSecret: "personal-secret",'],
+    ["scripts/load-test.ts", '      clientSecret: "personal-secret",'],
+    ["src/test_helpers.ts", '      clientSecret: "personal-secret",'],
+    ["spec/auth_spec.rb", '      clientSecret: "personal-secret",'],
   ])("still MEDIUM in %s: %s", (file, input) => {
     expect(kv(input, file)).toBe(true);
   });
