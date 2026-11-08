@@ -1,0 +1,133 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-plain-title — check that a PR title, branch name, PR opening,
+ * changelog entry and commit subjects read in everyday words (R76,
+ * docs/ship-policy.md#plain-titles). Rules: lib/plain-title.ts; policy:
+ * .gstack/plain-titles.json; codes PLAIN_* in docs/troubleshooting.md.
+ * Prints one `PLAIN_TITLE: <CODE> <kind> "<match>" — <hint>` line per finding
+ * (never the whole title or body) and a last summary line.
+ */
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, type PlainFinding, type PlainTitlePolicy } from '../lib/plain-title';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-plain-title — check that titles, branch names, PR openings and changelog entries read in plain words (docs/ship-policy.md#plain-titles)
+
+  check [--title <t> | --title-file <f>] [--branch <b>] [--body-file <f>] [--changelog <f>]
+        [--commits-file <f>] [--created-at <iso>] [--mode refuse|warn] [--json]
+        check each input against ${PLAIN_TITLE_POLICY_PATH}; --commits-file holds one commit
+        subject per line and only ever warns; a PR created before the policy's since date is exempt
+  validate              check ${PLAIN_TITLE_POLICY_PATH} against its schema
+  init [--force]        write an example ${PLAIN_TITLE_POLICY_PATH}
+
+Last line: PLAIN_TITLE: ok | refused=<n> | warned=<n> | exempt (created before <since>) | none (no policy)
+Exit codes: 0 ok, none, exempt or warnings only · 1 refused · 2 usage · 3 invalid policy`;
+
+const EXAMPLE = {
+  $schema: 'https://github.com/garrytan/gstack/blob/main/docs/ship-policy.md#plain-titles',
+  codes: ['\\bPROJ-\\d+\\b'],
+  terms: ['an-internal-word'],
+  allow: [{ text: 'PROJ-1 SDK', reason: 'a public product name that contains a code' }],
+  since: new Date().toISOString().slice(0, 10),
+  exempt_branch_prefixes: ['release/'],
+};
+
+const VALUE_FLAGS = ['--title', '--title-file', '--branch', '--body-file', '--changelog', '--commits-file', '--created-at', '--mode'];
+
+function usage(message: string): number {
+  process.stderr.write(`gstack-plain-title: ${message}\n${HELP}\n`);
+  return 2;
+}
+
+function repoRoot(): string {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 15_000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : process.cwd();
+}
+
+function loadPolicy(root: string, context: string): PlainTitlePolicy | null | 'invalid' {
+  try { return loadPlainTitlePolicy(root); } catch (e: any) {
+    process.stderr.write(resultLine(context, 'PLAIN_POLICY_INVALID', e.message) + '\n');
+    return 'invalid';
+  }
+}
+
+const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f"]/g, ' ').slice(0, 80);
+
+function check(args: string[]): number {
+  const opts: Record<string, string> = {};
+  let json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--json') { json = true; continue; }
+    if (!VALUE_FLAGS.includes(a)) return usage(`unknown flag ${a}`);
+    const v = args[++i];
+    if (v === undefined) return usage(`${a} needs a value`);
+    opts[a] = v;
+  }
+  if (opts['--title'] !== undefined && opts['--title-file'] !== undefined) return usage('pass --title or --title-file, not both');
+  if (!['--title', '--title-file', '--branch', '--body-file', '--changelog', '--commits-file'].some(f => opts[f] !== undefined)) return usage('nothing to check; pass a title, branch, body, changelog or commits file');
+  const mode = opts['--mode'] ?? 'refuse';
+  if (mode !== 'refuse' && mode !== 'warn') return usage(`--mode must be refuse or warn, not ${clean(mode)}`);
+  const createdAt = opts['--created-at'];
+  if (createdAt !== undefined && Number.isNaN(Date.parse(createdAt))) return usage(`--created-at is not a date: ${clean(createdAt)}`);
+  const read: Record<string, string> = {};
+  for (const f of ['--title-file', '--body-file', '--changelog', '--commits-file']) {
+    if (opts[f] === undefined) continue;
+    try { read[f] = fs.readFileSync(path.resolve(opts[f]!), 'utf8'); } catch (e: any) { return usage(`cannot read ${f} ${opts[f]}: ${e.code ?? e.message}`); }
+  }
+
+  const policy = loadPolicy(repoRoot(), 'gstack-plain-title check');
+  if (policy === 'invalid') return 3;
+  const done = (status: string, findings: Array<PlainFinding & { severity: string }> = []) => {
+    const refused = findings.filter(f => f.severity === 'refused').length;
+    process.stdout.write(json ? JSON.stringify({ status, refused, warned: findings.length - refused, findings }) + '\n' : `PLAIN_TITLE: ${status}\n`);
+    return refused ? 1 : 0;
+  };
+  if (!policy) return done('none (no policy)');
+  if (createdAt !== undefined && Date.parse(createdAt) < Date.parse(policy.since)) return done(`exempt (created before ${policy.since})`);
+
+  const title = opts['--title'] ?? read['--title-file']?.replace(/\r?\n+$/, '');
+  const severity = mode === 'warn' ? 'warned' : 'refused';
+  const findings = [
+    ...(title !== undefined ? checkTitle(title, policy) : []),
+    ...(opts['--branch'] !== undefined ? checkBranch(opts['--branch'], policy) : []),
+    ...(read['--body-file'] !== undefined ? checkOpening(read['--body-file'], policy) : []),
+    ...(read['--changelog'] !== undefined ? checkChangelogEntry(read['--changelog'], policy) : []),
+  ].map(f => ({ ...f, severity }));
+  for (const line of (read['--commits-file'] ?? '').split(/\r?\n/)) {
+    if (line.trim()) findings.push(...checkCommitSubject(line, policy).map(f => ({ ...f, severity: 'warned' })));
+  }
+  if (!json) for (const f of findings) process.stdout.write(`PLAIN_TITLE: ${f.code} ${f.kind} "${clean(f.match)}" — ${f.hint}${f.severity === 'warned' ? ' (warning only)' : ''}\n`);
+  const refused = findings.filter(f => f.severity === 'refused').length;
+  const warned = findings.length - refused;
+  return done(refused ? `refused=${refused}${warned ? ` warned=${warned}` : ''}` : warned ? `warned=${warned}` : 'ok', findings);
+}
+
+function main(argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP + '\n'); return 0; }
+  const [cmd, ...rest] = argv;
+  if (cmd === 'check') return check(rest);
+  if (cmd === 'validate') {
+    if (rest.length) return usage(`validate takes no arguments`);
+    const policy = loadPolicy(repoRoot(), 'gstack-plain-title validate');
+    if (policy === 'invalid') return 3;
+    process.stdout.write(policy
+      ? `PLAIN_TITLE: valid ${PLAIN_TITLE_POLICY_PATH} (codes=${policy.codes.length} terms=${policy.terms.length} allow=${policy.allow.length} since=${policy.since})\n`
+      : 'PLAIN_TITLE: none (no policy)\n');
+    return 0;
+  }
+  if (cmd === 'init') {
+    if (rest.some(a => a !== '--force')) return usage('init takes only --force');
+    const file = path.join(repoRoot(), PLAIN_TITLE_POLICY_PATH);
+    if (fs.existsSync(file) && !rest.includes('--force')) { process.stderr.write(`gstack-plain-title: ${PLAIN_TITLE_POLICY_PATH} exists (pass --force to overwrite)\n`); return 1; }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(EXAMPLE, null, 2) + '\n');
+    process.stdout.write(`PLAIN_TITLE: wrote ${PLAIN_TITLE_POLICY_PATH}; list your tracker codes and project-only words, then run gstack-plain-title validate\n`);
+    return 0;
+  }
+  return usage(cmd ? `unknown command ${clean(cmd)}` : 'no command');
+}
+
+process.exitCode = main(process.argv.slice(2));

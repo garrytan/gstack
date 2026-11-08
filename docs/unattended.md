@@ -159,7 +159,7 @@ waiting on the base, not failed ([base_red](ship-policy.md#base-red)).
 
 The one publication the unattended rules allow: when an open PR for the branch
 exists and HEAD is its pushed head, Step 18 takes the pr-body section's
-existing-PR path and posts the body (receipt first) and title through
+existing-PR path and posts the body (receipt in its Agent notes section) and title through
 `gstack-post`. It never runs `pr-create`, never pushes a commit and never runs
 `gh pr ready`; a branch with no open PR, or whose PR head is not HEAD, takes
 the handoff section. When the run committed anything (a CHANGELOG entry,

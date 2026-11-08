@@ -141,7 +141,7 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     const r = land(fx, '7', pin);
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin, '--subject', 'PR 7 (#7)']);
     const main = remote(fx, 'main');
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(base);
     expect(r.out).toContain('MERGED: #7 as ' + main);
@@ -580,6 +580,7 @@ describe('land --pin: refusals (nothing merged)', () => {
     const missing = land(fx, '17', pin);
     refused(fx, missing, 'QUEUE_LAND_CHECKS');
     expect(missing.err).toContain('Check VERSION is not stale vs queue');
+    expect(missing.out + missing.err).toContain('cannot be dispatched, so edit the PR title or body to rerun it');
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: GitHub does not report the PR mergeable and clean', () => {
@@ -658,7 +659,7 @@ describe('land --pin: fail closed and merge methods', () => {
     fx.write(d => { d.prs['25'].baseRefName = 'main'; });
     const r = land(fx, '25', pin);
     expect(r.err).toBe('');
-    expect(fx.read().mergeArgs).toEqual(['25', '--merge', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(['25', '--merge', '--match-head-commit', pin, '--subject', 'PR 25 (#25)']);
   }, 90_000);
 
   test('land reads the policy after fetching the base: a required check main added since the last fetch is enforced', () => {
@@ -961,7 +962,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
     expect(r.out).toMatch(/^FREEZE: warn only: train backstop froze main \(backstop red on main [0-9a-f]{12}: .*\); the base policy declares release_gate/m);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin, '--subject', 'PR 7 (#7)']);
     expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: null, cleared_at: null });
   }, 90_000);
 
@@ -996,7 +997,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
     expect(r.out).toContain(`REPAIR: #7@${pin7.slice(0, 12)} admitted under the land lock`);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7, '--subject', 'PR 7 (#7)']);
     expect(fx.read().lockAtMerge).toMatchObject({ pr: '7', journal: 'land-pin:' + pin7 });
     expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: { pr: '7', head: pin7, train: null }, cleared_at: null, cleared_by: null });
     expect(landNotes(fx)).toEqual([expect.objectContaining({ pr: '7', pin: pin7, merge_sha: remote(fx, 'main') })]);
@@ -1004,7 +1005,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(second.err).toContain('(QUEUE_TRAIN_FROZEN)');
     expect(second.err).toContain(`repair #7@${pin7.slice(0, 12)}`);
     expect(land(fx, '8', pin8).err).toContain('(QUEUE_TRAIN_FROZEN)');
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7, '--subject', 'PR 7 (#7)']);
   }, 120_000);
 
   test('a recorded repair that never merged at its pin gives way to the next --repair; a repair train holding the freeze does not', () => {

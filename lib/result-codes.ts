@@ -18,6 +18,7 @@ import { PLAN_RESULT_CODES } from './result-codes-plan';
 import { AUTOPLAN_RESULT_CODES } from './result-codes-autoplan';
 import { BROWSE_RESULT_CODES } from './result-codes-browse';
 import { CLEAN_RESULT_CODES } from './result-codes-clean';
+import { PLAIN_RESULT_CODES } from './result-codes-plain';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -770,6 +771,7 @@ export const RESULT_CODES = {
   ...AUTOPLAN_RESULT_CODES,
   ...BROWSE_RESULT_CODES,
   ...CLEAN_RESULT_CODES,
+  ...PLAIN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

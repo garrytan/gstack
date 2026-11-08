@@ -327,7 +327,7 @@ describe('wiring', () => {
     expect(summary).not.toContain('/investigate');
     expect(prBody).toContain('names what the user gets, not the mechanism');
     const capy = read('ship/sections/capy-pr.md.tmpl');
-    expect(capy).toContain('`## Why`, `## Blast radius` and `## Approvals`');
+    expect(capy).toContain('`## What changed`, `## Why` and `## Blast radius`');
     expect(capy).toMatch(/\*\*`## Why`:\*\* two or three sentences\. The first states the problem in the person's words/);
     expect(capy).toMatch(/BAD "[\s\S]+" GOOD "/);
     expect(capy).toContain("**`## Blast radius`:** the body template's item, written once");

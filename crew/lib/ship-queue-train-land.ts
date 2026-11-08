@@ -133,7 +133,7 @@ function chooseMode(ctx: QueueContext, s: Slot, mainSha: string, conditional: bo
   return { mode: 'update', why: `the pin's own checks are not green (${ci.line}${missing.length ? `; missing ${missing.join(', ')}` : ''}); they ran against an older base` };
 }
 
-/** Merge with the policy's method at an exact head, then confirm main's tree is the slot's prefix. */
+/** Merge with the policy's method at an exact head, the PR title as the commit subject (a rebase has none), then confirm main's tree is the slot's prefix. */
 async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): Promise<TrainOut> {
   const pr = s.t.slots[s.i]!.pr;
   const method = s.env.train.land?.merge_method ?? 'squash';
@@ -146,7 +146,10 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   const moved = lockPhase(s, 'merging');
   if (moved) return outFailed(moved, s.lines, s.rerun, s.run);
   s.lock.effect = true;
-  const m = ctx.gh(['pr', 'merge', pr, `--${method}`, '--match-head-commit', head]);
+  const viewed = method === 'rebase' ? null : ctx.gh(['pr', 'view', pr, '--json', 'title']);
+  let title = '';
+  try { title = viewed?.ok ? String(JSON.parse(viewed.out).title ?? '').trim() : ''; } catch {}
+  const m = ctx.gh(['pr', 'merge', pr, `--${method}`, '--match-head-commit', head, ...(title ? ['--subject', `${title} (#${pr})`] : [])]);
   if (!m.ok) return outFailed({ code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
   main = mainNow(ctx, s.env);
   if ('error' in main) return outPending({ code: 'QUEUE_PROOF_MISSING', message: `merged; ${main.error}` }, s.lines, s.rerun, s.run);

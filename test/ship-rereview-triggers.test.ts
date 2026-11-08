@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
 import { STAMP_PLACEHOLDERS_KEY_VERSION } from '../lib/ship-policy';
-import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
+import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -354,7 +354,7 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     write(repo.work, 'lib/rows.js', src({ 6: 'exports.v6 = 600;' })); repo.git('commit', '-qam', 'feat: v6');
     const reviewed = repo.git('rev-parse', 'HEAD');
     const body = path.join(repo.root, 'body.md');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";' })); repo.git('commit', '-qam', 'main: v5'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
@@ -382,7 +382,7 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     const guard = (text: string, after: string) => text.replace('authorize();\n', '').replace(after + '\n', after + '\nauthorize();\n');
     const rows = () => fs.readFileSync(path.join(repo.work, 'lib/rows.js'), 'utf8');
     write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v2 = 2;')); repo.git('commit', '-qam', 'feat: guard v2');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
     write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v4 = 4;')); repo.git('commit', '-qam', 'feat: move the guard');
     const moved = carry();
     expect(moved.status).toBe(EXIT.refused);
@@ -408,7 +408,7 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     write(repo.work, 'lib/rows.js', src({ 6: 'exports.v6 = 600;' })); write(repo.work, 'plugin/b.json', json('b2')); repo.git('commit', '-qam', 'feat: v6, b2');
     const reviewed = repo.git('rev-parse', 'HEAD');
     const body = path.join(repo.root, 'body.md');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";' })); write(repo.work, 'plugin/b.json', json('b2')); write(repo.work, 'plugin/a.json', json('a2'));
     repo.git('commit', '-qam', 'main: v5, b2 landed, a2'); repo.git('push', '-q', 'origin', 'main');
@@ -418,7 +418,7 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     expect([gap.status, gap.out.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
     write(repo.work, 'plugin/b.json', json('b')); write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) + Array.from({ length: 220 }, (_, i) => `exports.w${i} = ${i};\n`).join(''));
     repo.git('commit', '-qam', 'feat: many rows');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "5";' })); repo.git('commit', '-qam', 'main: v5 again'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
@@ -595,7 +595,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)');
@@ -616,7 +616,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f);
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toMatch(/^CARRY: would carry/);
@@ -634,7 +634,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main', '--dry-run']);
     expect([r.status, lineOf(r.stdout, 'CARRY')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);

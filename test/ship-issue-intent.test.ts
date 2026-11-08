@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { splitAgentNotes } from '../lib/agent-notes';
 import { EXIT } from '../lib/headless-artifacts';
 import { lineSources, mentionsIn, promotionCandidates, relatedPrs, renderIssueLines, resolveLinks, selectFlakes, type ClosingPr, type IssueRow } from '../lib/issue-links';
 import { cleanup, commit, ghShim, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -240,7 +241,8 @@ describe('gstack-issue-links (bin): related PRs, flake validation, lookup failur
     const ok = runBin(repo, 'gstack-ship-receipt', args, env);
     expect(ok.status).toBe(EXIT.ok);
     expect(JSON.parse(ok.out).issues).toEqual({ fixes: [14], refs: [30], flakes: [], related: [{ pr: 7, author: 'alice', closes: [14] }] });
-    expect(fs.readFileSync(body, 'utf8').startsWith('```gstack-ship-receipt')).toBe(true);
+    expect(fs.readFileSync(body, 'utf8').startsWith('## Summary')).toBe(true);
+    expect(splitAgentNotes(fs.readFileSync(body, 'utf8')).notes).toStartWith('```gstack-ship-receipt');
   });
 });
 

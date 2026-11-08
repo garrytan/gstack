@@ -303,7 +303,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
       pushed = remote[0]!;
       lines.push(`branch: ${branch} already on origin at ${pushed.slice(0, 12)} (an earlier --repair pushed it); opening or finding its PR`);
     }
-    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Release entry for the merge outside land beside #${j.pr}`, '--body', `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`]);
+    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Add a changelog entry for changes merged by hand next to #${j.pr}`, '--body', `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`]);
     const n = /\/pull\/(\d+)/.exec(`${pr.out}\n${pr.err ?? ''}`)?.[1];
     if (!n) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr create failed: ${(pr.err ?? pr.out).trim().slice(0, 160)}` }, run);
     j.repair_pr = n; writeJsonAtomic(file, j);

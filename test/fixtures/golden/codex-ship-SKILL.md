@@ -647,8 +647,8 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
    migrations may stand alone. Under 50 lines across fewer than 4 files may be one commit.
 2. Order dependencies first: infrastructure → models/services → controllers/views.
    Each commit works alone (no broken imports or missing code).
-3. Use `<type>: <summary>` (feat/fix/chore/refactor/docs) and a brief body; fixing a
-   user-named issue adds a `Fixes: #<n>` trailer. Leave VERSION, CHANGELOG/fragment, TODOS.md
+3. Subject: the change for a user in plain words, issue code last; brief body;
+   trailers last (a user-named issue: `Fixes: #<n>`). Leave VERSION, CHANGELOG/fragment, TODOS.md
    and the digest uncommitted: Step 16's `finish` commits them last with
    `--trailer 'Co-Authored-By: OpenAI Codex <noreply@openai.com>'`. Do not add a Git tag.
 

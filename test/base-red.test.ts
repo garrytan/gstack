@@ -14,7 +14,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyBaseRed, parseEvidence, pausePath, readPause, receiptBaseRed, shellRunner, waitBaseGreen, writePause, type FailureEvidence, type Runner } from '../lib/base-red';
 import { EXIT } from '../lib/headless-artifacts';
-import { bindReceipt, extractReceipt, placeReceiptFirst, receiptSummaryLine } from '../lib/ship-receipt';
+import { bindReceipt, extractReceipt, placeReceipt, receiptSummaryLine } from '../lib/ship-receipt';
 import { BASE_RED_KEY_VERSION, validatePolicy, type BaseRedPolicy } from '../lib/ship-policy';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -121,7 +121,7 @@ describe('pause, receipt and wait', () => {
     if (typeof pause === 'string') throw new Error(pause);
     expect(pause.expires_at).toBe('2026-10-30T00:00:00.000Z');
     const head = git('rev-parse', 'HEAD');
-    const body = placeReceiptFirst('## Summary\n', { schema_version: 1, pr: 7, head, base: 'main', base_red: receiptBaseRed(pause) } as any);
+    const body = placeReceipt('## Summary\n', { schema_version: 1, pr: 7, head, base: 'main', base_red: receiptBaseRed(pause) } as any);
     expect(extractReceipt(body).errors).toEqual([]);
     const refused = bindReceipt(body, '7', [head]);
     expect(refused.ok ? 'bound' : refused.code).toBe('QUEUE_RECEIPT_CONDITIONAL');
@@ -141,7 +141,7 @@ describe('pause, receipt and wait', () => {
     if (typeof pause === 'string') throw new Error(pause);
     const head = git('rev-parse', 'HEAD');
     const bodyFile = path.join(root, 'body.md');
-    fs.writeFileSync(bodyFile, placeReceiptFirst('## Summary\n', { schema_version: 1, pr: 7, head, base: 'main', base_red: receiptBaseRed(pause) } as any));
+    fs.writeFileSync(bodyFile, placeReceipt('## Summary\n', { schema_version: 1, pr: 7, head, base: 'main', base_red: receiptBaseRed(pause) } as any));
     const res = bin('gstack-ship-receipt', ['result', '--body', bodyFile, '--head', head, '--out', path.join(root, 'run')]);
     expect(res.status).toBe(EXIT.fail);
     expect(res.stdout.trim()).toBe(`GSTACK_RESULT: skill=ship status=incomplete head=${head} run=${path.join(root, 'run')}`);

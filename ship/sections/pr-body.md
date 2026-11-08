@@ -20,12 +20,20 @@ Write the text into each printed file with your file-write tool (Claude Code's W
    gh pr view <pr-number> --json title -q .title | ~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh <new-version> --stdin > "$TITLE_FILE" || exit 1
    ```
    GitLab reads `glab mr view <pr-number> --output json | jq -r .title` into the same pipe.
-2. For a new PR/MR, write `v<NEW_VERSION> <type>: <summary>` into the file with your file-write tool;
-   `<summary>` names what the user gets, not the mechanism.
+2. For a new PR/MR, write `v<NEW_VERSION> <plain change>` into the file with your file-write tool, adding
+   ` (<issue code>)` at the end when the work has one. The front says in everyday words what changed for
+   someone using the project ("Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)")
+   and names what the user gets, not the mechanism; no `<type>(<scope>):` prefix, no tracker code, lane or Captain name, and none of the repository's
+   coined terms before that trailing group (docs/ship-policy.md#plain-titles).
 3. Every created or updated title MUST start with `v$NEW_VERSION `; check the file with
    `grep -Eq '^v<new-version>( |$)' "$TITLE_FILE"` and never publish an unprefixed title.
 4. **NO_VERSION:** replaces items 1-3: keep an existing title (the platform title
-   piped straight into the file), or write `<type>: <summary>`; no version prefix.
+   piped straight into the file), or write `<plain change>[ (<issue code>)]`; no version prefix.
+5. **Plain title:** run `~/.claude/skills/gstack/bin/gstack-plain-title check --title-file "$TITLE_FILE"`. On
+   `refused=<n>`, rewrite the file's front in everyday words (each `PLAIN_TITLE:` line names the word) and
+   rerun until `ok`, `exempt` or `none`; an existing PR's title is rewritten the same way. Then
+   `gstack-plain-title check --branch "$(git branch --show-current)" --mode warn` and print its last line;
+   a pushed branch is never renamed.
 
 Save the title file name for Step 19.
 
@@ -68,12 +76,18 @@ The completion message lists unpromoted candidates, `Related:` lines and any `IS
 ### Capy
 
 Run `[ "${GSTACK_CAPY:-}" = 1 ] && echo 'CAPY_PR: on' || echo 'CAPY_PR: off'`. On `CAPY_PR: on`, read
-`~/.claude/skills/gstack/ship/sections/capy-pr.md` now: the body opens with its `## What changed`,
-`## Why` and `## Approvals` before the sections below. On `CAPY_PR: off`, skip it.
+`~/.claude/skills/gstack/ship/sections/capy-pr.md` now: `## What changed`, `## Why` and `## Blast radius`
+lead; `## Approvals` goes into the Agent notes. On `CAPY_PR: off`, skip it.
 
-The PR/MR body should contain these sections (never reuse a prior run's body):
+The PR/MR body should contain these sections (never reuse a prior run's body). The front is for people,
+the end is for machines: the body opens with one or two plain sentences (what changed for someone using
+the project, and which goal from the project's README it serves; with no stated goals, the user-visible
+benefit), with no heading above them. Tracker codes, receipts, approval and Plan lines, review-loop and
+gate lines and every other machine-read line go only in the closing Agent notes section, never above it.
 
 ```
+<One or two plain sentences: what changed for a user, and the README goal it serves.>
+
 ## Summary
 <Open with the problem in the user's words (what they hit, saw or asked), then the fix
 and what they get now; themes from `git log origin/<base>..HEAD --oneline` after that,
@@ -175,6 +189,15 @@ the receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>
 - [x] <Each executed test lane's command>: <observed passing summary>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+<!-- gstack:agent-notes -->
+<details><summary>Agent notes</summary>
+
+<Machine-read lines, last: `Refs <issue codes>`, the `## Approvals` output (Capy) with its Plan line,
+and the Pre-Landing Review section's `REVIEW_LOOP:`, `Gate edits:`, `Ruled note:`, `Review-loop exception:`
+and exception lines. `gstack-ship-receipt write` adds the receipt here; never type it.>
+
+</details>
 ```
 
 #### Compose the body, then publish through gstack-post
@@ -187,7 +210,7 @@ WARN-degrades the example credentials those tools quote instead of blocking the 
 (a live-format credential inside the fence still blocks).
 
 Write the body from above into two private files: the first through the
-`## Documentation` heading line, the second from `## Test plan` on.
+`## Documentation` heading line, the second from `## Test plan` on, ending with the Agent notes section.
 
 ```bash
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
@@ -210,6 +233,7 @@ BODY_TOP_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<
 BODY_REST_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-rest-file-name>"
 [ -s "$BODY_TOP_FILE" ] && [ -s "$BODY_REST_FILE" ] || { echo "Not composed: $BODY_TOP_FILE or $BODY_REST_FILE is empty, so the body was never written. Write both, then rerun." >&2; exit 1; }
 ~/.claude/skills/gstack/bin/gstack-prose-lint "$BODY_TOP_FILE" --sections 'Why,Summary,Blast radius' --gate >&2 || { echo "Not composed: fix what gstack-prose-lint printed above (a PROSE: line is a sentence to rewrite in the draft; a usage line means the draft lost a heading), then rerun." >&2; exit 1; }
+~/.claude/skills/gstack/bin/gstack-plain-title check --body-file "$BODY_TOP_FILE" >&2 || { echo "Not composed: rewrite the opening the PLAIN_TITLE: lines above name (one or two plain sentences, no heading or code above them), then rerun." >&2; exit 1; }
 { awk 1 "$BODY_TOP_FILE" && cat -- "$DOCS_SECTION_FILE" && echo && awk 1 "$BODY_REST_FILE"; } > "$PR_BODY_FILE" || exit 1
 rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
@@ -301,6 +325,8 @@ With open gate findings the same command carries `--draft` before `--title-file`
 
 Branch on the exit code of either block:
 - **0** posted. Remove `$PR_BODY_FILE` and the title file.
+- **4** `PLAIN_TITLE_REFUSED`: nothing was posted, body included. Rewrite the title file's front the way
+  each `PLAIN_TITLE:` line says (Step 18 item 5) and rerun the same block.
 - **1** HIGH finding: BLOCKED — do not publish. Rotate and redact at the source, then
   compose fresh files.
 - **2** MEDIUM findings, printed as `RULE:` lines with a `TOKEN:`. AskUserQuestion per

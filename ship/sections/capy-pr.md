@@ -6,9 +6,9 @@ Read only when Step 19 printed `CAPY_PR: on`. Under Capy a person decides the me
 the READY report, through a Captain, so the body shows what changed in pictures, why, and who
 approved what. Guide: `captain.md` beside the Capy `gstack` skill's SKILL.md.
 
-**Order.** The `gstack-ship-receipt` block stays first when Step 19 writes one. Then `## What changed`,
-`## Why`, `## Blast radius` and `## Approvals`, then the standard sections below. Keep `## Summary` to
-commit themes; do not repeat the captions.
+**Order.** The plain opening sentences come first, then `## What changed`, `## Why` and `## Blast radius`,
+then the standard sections below. `## Approvals` goes inside the closing Agent notes section, where
+`gstack-ship-receipt write` also puts the receipt. Keep `## Summary` to commit themes; do not repeat the captions.
 
 1. **Pick the evidence:** one to three before/after pairs, highest-signal first. The first is the
    key image.
@@ -38,7 +38,7 @@ commit themes; do not repeat the captions.
    a lint and a CI step." GOOD "'The review loop is too overzealous.' Pass 2 now reads only pass 1's range."
 6. **`## Blast radius`:** the body template's item, written once, here: what else the change touches and
    the one fact that makes that safe, with the evidence-ladder rung it reached (file:line read, walked failure path, script ran, repro).
-7. **`## Approvals`:** the output of `~/.claude/skills/gstack/bin/gstack-approvals render --plan "<the brief's Plan line>"`, verbatim. It
+7. **`## Approvals`** (inside Agent notes): the output of `~/.claude/skills/gstack/bin/gstack-approvals render --plan "<the brief's Plan line>"`, verbatim. It
    escapes its cells, and the receipt never reads it as an approval citation. A public repo (or unknown
    visibility) gets only `Approved: yes|no (record <id>)` and `Plan: approved (record r-<id>)`; never pass `--full` for a PR body. If render
    refuses with a `PLAN_*` code, it printed nothing: run the fix it names and render again. On

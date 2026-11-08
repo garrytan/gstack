@@ -62,6 +62,7 @@ describe('stamped trains: build and land', () => {
     expect(trainJson(fx, nonce)).toMatchObject({ state: 'merged' });
     expect(fx.read().prs['2']).toMatchObject({ state: 'MERGED' });
     expect((fx.read() as any).labels).toEqual({ 1: 'evals-no-debounce', 2: 'evals-no-debounce' });
+    expect((fx.read() as any).mergeArgs['1']).toEqual(['--squash', '--match-head-commit', stamp, '--subject', 'Change from #1 (#1)']);
     void h2;
   }, 300_000);
 

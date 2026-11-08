@@ -8,7 +8,8 @@
  * moved past the pin's merge base, the checks at the pin never saw the tree that would land (GST-1316), so land builds
  * the pin merged onto the base tip and runs the base policy's land.merged_checks there (lib/land-merged-checks.ts;
  * repo commands, so only under --allow-repo-commands and never under --dry-run), refusing on a conflict or a failure;
- * with no list it prints a STALE_BASE: warn line and lands. Then gh pr merge --squash --match-head-commit <pin>, a check
+ * with no list it prints a STALE_BASE: warn line and lands. Then gh pr merge --squash --match-head-commit <pin> with the
+ * PR title as the commit subject (`--subject "<title> (#<n>)"`, so the checked title is main's history title), a check
  * that the merge commit's tree is the pin merged onto that commit's parent (its merged checks rerun when that parent is
  * neither the base land checked nor in the pin), a land note on refs/notes/gstack-trains, and the lock's release. A
  * rerun after GitHub merged goes straight to the tree check.
@@ -26,13 +27,13 @@ import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from '../crew/lib/ship-queue-train-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
 
-interface DirectPr { state: string; baseRefName?: string; headRefName: string; headRefOid: string; isCrossRepository: boolean; body: string; mergeable?: string; mergeStateStatus?: string; mergeCommit?: { oid: string } | null }
+interface DirectPr { state: string; baseRefName?: string; headRefName: string; headRefOid: string; isCrossRepository: boolean; body: string; title?: string; mergeable?: string; mergeStateStatus?: string; mergeCommit?: { oid: string } | null }
 export interface DirectOptions { pr: string; pin: string; dryRun?: boolean; allowRepoCommands?: boolean; breakLock?: boolean; repair?: boolean; now?: () => Date }
 
 const isSha = (s: string | undefined) => /^[0-9a-f]{40,64}$/.test(s ?? '');
 
 function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
-  const r = ctx.gh(['pr', 'view', pr, '--json', 'state,baseRefName,headRefName,headRefOid,isCrossRepository,body,mergeable,mergeStateStatus,mergeCommit']);
+  const r = ctx.gh(['pr', 'view', pr, '--json', 'state,baseRefName,headRefName,headRefOid,isCrossRepository,body,title,mergeable,mergeStateStatus,mergeCommit']);
   try { return JSON.parse(r.out) as DirectPr; } catch { return { code: 'QUEUE_NOT_READY', message: `gh pr view ${pr} failed: ${(r.err ?? r.out).trim().slice(0, 160)}` }; }
 }
 
@@ -191,7 +192,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (!ci.green) return fail(lines, { code: 'QUEUE_LAND_CHECKS', message: `checks are ${ci.line}`, fix: `wait for pending checks (gstack-pr-wait ${o.pr} --until green), or fix the red one at a new head; then rerun land` });
   const passed = new Set([...ci.checks.filter(c => c.conclusion === 'success').map(c => c.name), ...ci.contexts.filter(c => c.state === 'success').map(c => c.name)]);
   const missing = (policy.changelog_fragments?.required_checks ?? []).filter(n => !passed.has(n));
-  if (missing.length) return fail(lines, { code: 'QUEUE_LAND_CHECKS', message: `required check(s) ${missing.join(', ')} did not pass at the pin ${o.pin.slice(0, 12)}`, fix: `dispatch them on the branch (gh workflow run <workflow> --ref ${info.headRefName}) and rerun land once they pass` });
+  if (missing.length) return fail(lines, { code: 'QUEUE_LAND_CHECKS', message: `required check(s) ${missing.join(', ')} did not pass at the pin ${o.pin.slice(0, 12)}`, fix: `dispatch them on the branch (gh workflow run <workflow> --ref ${info.headRefName}) and rerun land once they pass; a check that runs on pull_request_target (such as Plain title) cannot be dispatched, so edit the PR title or body to rerun it` });
   if (info.mergeable !== 'MERGEABLE' || info.mergeStateStatus !== 'CLEAN') return fail(lines, { code: 'QUEUE_LAND_NOT_CLEAN', message: `GitHub reports #${o.pr} mergeable=${info.mergeable ?? 'unknown'} mergeStateStatus=${info.mergeStateStatus ?? 'unknown'}`, fix: info.mergeable === 'CONFLICTING' ? `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` : 'UNKNOWN means GitHub is still computing: rerun land in a minute; BLOCKED or BEHIND names the branch rule to meet first' });
   let held: HeldLandLock | undefined;
   if (!o.dryRun) {
@@ -200,6 +201,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if ('failure' in got) return fail(lines, got.failure);
     held = got.held;
   }
+  const subject = info.title?.trim() ? ['--subject', `${info.title.trim()} (#${o.pr})`] : [];
   const locked = (): StepOutput => {
     if (held && !git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot re-fetch origin/${ctx.base} under the land lock`, fix: 'fix the fetch, then rerun land' });
     const tip = git(root, ['rev-parse', `origin/${ctx.base}`]).out;
@@ -221,7 +223,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
         lines.push(`MERGED_CHECKS: pass tree=${mc.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
       }
     }
-    if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --squash --match-head-commit ${o.pin})`] };
+    if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} ${policy.history === 'merge-only' ? '--merge' : '--squash'} --match-head-commit ${o.pin}${subject.length ? ` --subject ${JSON.stringify(subject[1])}` : ''})`] };
     if (o.repair) {
       if (!rebuildFromNotes(root, remote).fetched) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch refs/notes/gstack-trains under the land lock, so the freeze's repair slot cannot be read; nothing merged`, fix: 'fix the fetch, then rerun land' });
       const frozen = activeFreeze(keys);
@@ -239,7 +241,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     const method = policy.history === 'merge-only' ? '--merge' : '--squash';
     const lost = held!.set('merging');
     if (lost) return fail(lines, lost);
-    const m = ctx.gh(['pr', 'merge', o.pr, method, '--match-head-commit', o.pin]);
+    const m = ctx.gh(['pr', 'merge', o.pr, method, '--match-head-commit', o.pin, ...subject]);
     let merge: string | undefined;
     for (let i = 0; i < (m.ok ? 3 : 1) && !isSha(merge); i++) {
       if (i) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs(MIN_POLL_MS));

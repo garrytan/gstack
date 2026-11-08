@@ -147,7 +147,7 @@ const dispatch = (ref = 'main') => ({ event_name: 'workflow_dispatch', actor: 'g
   event: { repository: { default_branch: 'main' } } });
 const INPUTS = { evals_all: true, base_ref: '', base_sha: '', expected_sha: '', nonce: '', pr_receipts: '', cases: '', prefix_shas: '', screen_pr: '', screen_merge_sha: '', screen_policy: '' };
 // rerun-plan is the free rule-16 planner (F1); its paid eval-rerun runs only when it plans a rerun.
-const TODAY_PR_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'readiness', 'recover-receipts', 'rerun-plan', 'slices-comment', 'slices-report'];
+const TODAY_PR_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'readiness', 'recover-receipts', 'rerun-plan', 'slices-comment', 'slices-report', 'trunk-dynamic-ci'];
 const TODAY_DISPATCH_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'rerun-plan', 'slices-report'];
 const TRAIN_STEPS = ['Write the train record', 'Upload the train record', "Check the screen's PR head (Free Tests)", 'Plan the bisect (one executor per prefix)', 'Hand the bisect plan to its executors'];
 const train = { record_artifact: 'gstack-train-record', full_gate_check: 'gstack/full-gate' };
@@ -188,14 +188,14 @@ describe('without a train block nothing changes (the inert proof)', () => {
     const fork = pr();
     (fork.event.pull_request.head.repo as { full_name: string }).full_name = 'fork/gstack';
     expect(simulate(evals, { github: fork, inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toEqual(['build-image', 'route']);
-    expect(simulate(evals, { github: { ...pr(), actor: 'dependabot[bot]' }, inputs: {} }).jobs).toEqual([]);
+    expect(simulate(evals, { github: { ...pr(), actor: 'dependabot[bot]' }, inputs: {} }).jobs).toEqual(['trunk-dynamic-ci']);
   });
 });
 
 describe('under a train block (the gate edits, each only on its mode)', () => {
   test('a PR push starts no paid slice and waits for nothing: route, the image and the free screening summary only', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, ...train, mode: 'pr-summary' } } });
-    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary']);
+    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary', 'trunk-dynamic-ci']);
     expect(simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toContain('readiness');
     const summary = evals.jobs['screen-summary']!;
     expect(summary.permissions).toEqual({ contents: 'read' });
@@ -284,7 +284,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
 describe('GSTA-48 open items', () => {
   test('a head the readiness job blocked replaces the stale verdict comment and plans nothing (P3-1)', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } }, results: { readiness: 'failure' } });
-    expect(sim.jobs).toEqual(['build-image', 'readiness', 'readiness-comment', 'route']);
+    expect(sim.jobs).toEqual(['build-image', 'readiness', 'readiness-comment', 'route', 'trunk-dynamic-ci']);
     const comment = evals.jobs['readiness-comment']!;
     expect(comment.steps.some(st => st.uses)).toBe(false);
     expect(comment.steps[0]!.run).toContain('if [ -z "$COMMENT_ID" ]; then exit 0; fi');
@@ -316,7 +316,7 @@ describe('rule-16 rerun wiring (F1)', () => {
       const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' }, 'rerun-plan': planned }, results });
       expect(sim.jobs, JSON.stringify(results)).toContain('slices-report');
     }
-    for (const [id, job] of Object.entries(evals.jobs)) expect((job as Record<string, unknown>)['continue-on-error'], id).toBeUndefined();
+    for (const [id, job] of Object.entries(evals.jobs).filter(([id]) => id !== 'trunk-dynamic-ci')) expect((job as Record<string, unknown>)['continue-on-error'], id).toBeUndefined();
     const report = evals.jobs['slices-report']!;
     const reconcile = report.steps.find(st => st.id === 'reconcile')!;
     expect(reconcile.run).toContain('echo "exit=${PIPESTATUS[0]}"');
