@@ -37,7 +37,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
   return `# ${title}
 
 ## Bars
-<!-- One line per metric: name, the pass bar, the direction, and what a miss means for the decision. -->
+<!-- \`lesson:\` the public lesson the run is after, then one line per metric: name, the pass bar, the direction, and what a miss means for the decision. -->
 
 ## Arms
 <!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. Models under test are frontier models (today \`claude-opus-5-5\`, \`gpt-6.1-sol\`) plus at most one named low-cost primary; a Haiku or Sonnet arm only with a stated tier question. -->
