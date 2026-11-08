@@ -85,7 +85,7 @@ export const SECRET_LINE = [
 /** Sealed custody (harness-evals#237: scripts/sealed/seal.ts) and egress code are trust boundaries too (GST-1177). */
 const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'seal', 'sealed', 'custody', 'egress'];
 /** An import of Python's requests or httpx client, at a line's start or inline (`python3 -c "import httpx; …"`): security on its own, and it makes the file's client calls count (PY_CLIENT_CALL). */
-export const PY_CLIENT_IMPORT = /(?:^|[;"'`]|\s-c\s)\s*(?:import\s{1,20}(?:[\w.]{1,40}\s{0,5},\s{0,5}){0,8}(?:requests|httpx)\b|from\s{1,20}(?:requests|httpx)(?:\.\w{1,40}){0,5}\s{1,20}import\b)/;
+export const PY_CLIENT_IMPORT = /(?:^|[;"'`]|\\[nrt]|\s-c\s)\s*(?:import\s{1,20}(?:[\w.]{1,40}\s{0,5},\s{0,5}){0,8}(?:requests|httpx)\b|from\s{1,20}(?:requests|httpx)(?:\.\w{1,40}){0,5}\s{1,20}import\b)/;
 /** Coarse, linear-time rules (GST-850 B+): any changed line naming the child_process module, any outbound HTTP client call; quantifiers bounded. */
 export const SECURITY_LINE = [
   /\bshell\s*:\s*true\b/, /\bshell\s*=\s*True\b/, /(?<![.\w$])exec(?:Sync)?\s*\(/, /\b(?:child_process|childProcess|cp)\.exec(?:Sync)?\s*\(/, /\bos\.system\s*\(/,
@@ -108,9 +108,11 @@ export const SECURITY_LINE = [
 ];
 /** A recursive delete split across lines (a formatter puts `recursive: true` on its own line), read over a file's changed lines joined. */
 export const SECURITY_JOINED = [/\brm(?:Sync)?\s*\((?:[\s\S]{0,500}?recursive\s*:\s*true|[^)]{501})/];
-/** Python's requests and httpx clients (GST-1888: #387's JS `requests.filter(` read as one): a call counts in any file outside the C_SYNTAX languages, or in a file whose changed lines import the client. */
+/** Python's requests and httpx clients (GST-1888: #387's JS `requests.filter(` read as one): any of their calls counts outside the C_SYNTAX languages or in a file whose changed lines import the client; elsewhere only the client's own API (PY_CLIENT_API) counts. */
 export const PY_CLIENT_CALL = /\b(?:requests|httpx)\.[a-z]{1,10}\s{0,20}\(/;
-/** JavaScript, TypeScript and the other C-syntax languages, where `requests` is an ordinary name: a Python client call there counts only beside an import of the client (GST-1888). */
+/** The requests and httpx module calls themselves (`requests.post(`, `httpx.stream(`): security in every file, so Python embedded in a C-syntax file still counts when its import line is unchanged. */
+export const PY_CLIENT_API = /\b(?:requests|httpx)\.(?:get|head|post|put|patch|delete|options|request|session|stream)\s{0,20}\(/;
+/** JavaScript, TypeScript and the other C-syntax languages, where `requests` is an ordinary name: there only the client's own API counts unless the changed lines import the client (GST-1888). */
 export const C_SYNTAX = /\.(?:[cm]?[jt]sx?|go|rs|java|kts?|swift|c|h|cc|cpp|hpp|cs|scala|dart|php)$/i;
 /** A model API's usage-count key (`input_tokens`, `cacheReadInputTokens`, `output_token_count`, `input_tokens_details`); a cap, a price or a _usd name never matches. */
 const USAGE_KEY = String.raw`["']?(?<![\w$])(?:input|output|total|prompt|completion|cached|reasoning|cache_?creation_?input|cache_?read_?input)_?tokens?(?:_?count|_?details)?(?![\w$])["']?`;
@@ -166,7 +168,7 @@ export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
   SECRET_SCAN,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, PY_CLIENT_CALL: [PY_CLIENT_CALL], C_SYNTAX: [C_SYNTAX], CONST_TOKEN_FIELD, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, PY_CLIENT_CALL: [PY_CLIENT_CALL], PY_CLIENT_API: [PY_CLIENT_API], C_SYNTAX: [C_SYNTAX], CONST_TOKEN_FIELD, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -214,7 +216,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
       if (pathOnly) continue;
       const words = dropConstTokens(line);
       if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(words) || namesMoney(tokens(words), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(words), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
-      if (!why.has('security') && (SECURITY_LINE.some(r => r.test(line)) || (pyClient && PY_CLIENT_CALL.test(line)))) hit('security', 'security line: ' + p);
+      if (!why.has('security') && (SECURITY_LINE.some(r => r.test(line)) || PY_CLIENT_API.test(line) || (pyClient && PY_CLIENT_CALL.test(line)))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
     }
     if (!why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SECURITY_JOINED.some(r => r.test(l.join('\n'))))) hit('security', 'security lines: ' + p);

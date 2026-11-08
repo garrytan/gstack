@@ -48,6 +48,7 @@ describe('GST-1888: mentions and canned usage name no money or security', () => 
   //   collision raises security again; why_new=GST-1888 (#387's run.ts); seam=matchRisk
   test('a JS variable named requests or got is not an HTTP client', () => {
     expect(risk('bench/run.ts', ['const posts = requests.filter((r) => r.method === "POST");'])).toEqual([]);
+    expect(risk('bench/run.ts', ['const note = "x\\nimportant requests";'])).toEqual([]);
     expect(risk('bench/run.ts', ['const stem = got.replace("…", "").trimEnd();', 'expect(got.trim()).toBe(want);'])).toEqual([]);
   });
 });
@@ -132,6 +133,9 @@ describe('GST-1888 fail-closed: code that handles money, keys, auth or a trust b
     ['a requests call in a shell script', 'scripts/x.sh', ['requests.post(u)']],
     ['a requests call in a Cython file', 'src/a.pyx', ['requests.get(u, verify=False)']],
     ['a comma import in inline Python', 'src/run.ts', ['  python3 -c "import os, requests; requests.get(u)"']],
+    ['an import after an escaped newline in a TS string', 'tools/run.ts', ['const PY = "import os\\nimport requests\\n";']],
+    ['an embedded Python call whose import line is unchanged', 'tools/gen.ts', ['  r = requests.post(url, json=body)']],
+    ['a generated httpx call', 'tools/gen.ts', ['lines.push("    resp = httpx.post(URL, json=body)");']],
   ] as [string, string, string[]][])('%s is security', (_n, p, lines) => {
     expect(risk(p, lines)).toEqual(['security']);
   });

@@ -344,7 +344,8 @@ outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, undici, urlli
 an import of got or a `got(` or `got.<verb>(` call, an import of `requests` or
 `httpx` (inline too, as in `python3 -c "import httpx; …"`) and their calls in any
 file outside the C-syntax languages (JavaScript, TypeScript, Go, Java and the like) or in a file whose changed lines import
-them, with no exemption for a literal URL), `new URL` from
+them, and the clients' own calls (`requests.post(`, `httpx.stream(` and the other module
+functions) in every file, so Python embedded in a C-syntax string still counts, with no exemption for a literal URL), `new URL` from
 input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
 `unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
