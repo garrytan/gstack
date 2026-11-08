@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ALL_HOST_CONFIGS } from '../hosts';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -118,6 +119,31 @@ describe.skipIf(process.platform === 'win32')('Codex global install: the freeze 
       expect(set.stdout).toContain(`FREEZE_DIR=${fs.realpathSync(project)}`);
       const clear = run(fence('gstack-unfreeze', 'freeze-state.sh" clear'));
       expect(clear.status, clear.stderr).toBe(0);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  // protects: bin and lib import crew/lib since the crew/ move, so a root whose bin and lib are
+  // copies (Windows) must carry crew/lib too. fails_when: crew/lib leaves _link_runtime_dists and
+  // the copied gstack-ship-receipt and gstack-pregate die on "Cannot find module '../crew/lib/...'".
+  test('a copied runtime root carries crew/lib, so its root bins still start', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-copy-'));
+    try {
+      const home = path.join(sandbox, 'home');
+      const rootDir = path.join(home, '.codex', 'skills', 'gstack');
+      const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_copy_skill_md', '_gstack_generated_header', 'create_codex_runtime_root']
+        .filter(name => SETUP_SRC.includes(`\n${name}() {`)).map(extractFunction).join('\n');
+      const built = spawnSync('bash', ['-c', `IS_WINDOWS=1\n_CODEX_RENDER_ROOT="${renderDir}"\n${functions}\ncreate_codex_runtime_root "${ROOT}" "${rootDir}"`],
+        { encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } });
+      expect(built.status, built.stderr).toBe(0);
+      expect(fs.lstatSync(path.join(rootDir, 'lib')).isSymbolicLink()).toBe(false);
+      for (const bin of ['gstack-ship-receipt', 'gstack-pregate']) {
+        const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(rootDir, 'bin', bin), '--help'],
+          { cwd: sandbox, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } });
+        expect(r.stderr, bin).not.toContain('Cannot find module');
+        expect(r.status, `${bin}: ${r.stderr}`).toBe(0);
+      }
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true });
     }

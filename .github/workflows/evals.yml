@@ -1136,7 +1136,10 @@ jobs:
           EVALS_JOBS: "1"
           EVALS_CONCURRENCY: "1"
           SLICE: ${{ matrix.slice }}
-        run: EVALS_TIER=gate bun --no-env-file --config=/dev/null run crew/scripts/train-gate.ts bisect-prefix --plan /tmp/train-bisect/bisect.json --index "$SLICE" --out /tmp/train-bisect/out
+        run: |
+          # A prefix from before the crew/ move (GST-1833) has the executor at scripts/train-gate.ts.
+          gate=crew/scripts/train-gate.ts; [ -f "$gate" ] || gate=scripts/train-gate.ts
+          EVALS_TIER=gate bun --no-env-file --config=/dev/null run "$gate" bisect-prefix --plan /tmp/train-bisect/bisect.json --index "$SLICE" --out /tmp/train-bisect/out
 
       - name: Upload the prefix record
         if: always() && steps.prefix.outputs.short != ''
