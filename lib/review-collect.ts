@@ -259,7 +259,7 @@ function shebangCandidates(root: string, rev: string, paths: readonly string[]):
   for (let i = 0; i < paths.length;) {
     const chunk: string[] = [];
     for (let bytes = 0; i < paths.length && (!chunk.length || bytes + paths[i]!.length <= CONSUMER_SCAN_PATHSPEC_BYTES); i++) { chunk.push(paths[i]!); bytes += paths[i]!.length; }
-    const r = git(root, ['--literal-pathspecs', 'grep', '-a', '-l', '-z', '--no-color', '-e', '^#!', rev, '--', ...chunk]);
+    const r = git(root, ['--literal-pathspecs', 'grep', '-a', '-G', '-l', '-z', '--no-color', '-e', '^#!', rev, '--', ...chunk]);
     if (r.status !== 0 && r.status !== 1) return null;
     for (const f of r.out.split('\0')) {
       if (!f) continue;

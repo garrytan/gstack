@@ -380,4 +380,12 @@ describe('executables at a commit cost a few git calls, not one per data file (G
     expect(c.executables).toEqual(['results/logs/prune']);
     expect(fs.readFileSync(log, 'utf8').split('\n').filter(l => / cat-file blob /.test(` ${l}`)).length).toBe(2);
   });
+  // Value: protects=a "#!" script under results/ stays code when the repository's git config sets grep.patternType=fixed;
+  //   fails_when=the shebang scan's git grep takes its pattern type from config again; seam=collectCommit on a fixture repo
+  test('a fixed-string grep.patternType in the repository config still finds the shebang', () => {
+    const r = repo({});
+    r.git('config', 'grep.patternType', 'fixed');
+    const head = r.commit({ 'results/t.json': '{"i":1}\n', 'results/logs/prune': '#!/bin/sh\nrm -rf "$1"\n' });
+    expect(collectCommit(r.dir, r.baseSha, head).executables).toEqual(['results/logs/prune']);
+  });
 });
