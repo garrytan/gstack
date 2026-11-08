@@ -16,6 +16,7 @@ Key routing rules:
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
+- Building UI → once it renders, invoke /design-review --build <preview url> (opt-in)
 - Ship/deploy/PR → invoke /ship (merge + deploy: the user types /land-and-deploy)
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore

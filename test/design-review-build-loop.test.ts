@@ -46,7 +46,7 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
 
   test('preflight before any round, at most three editing rounds, then a read-only final pass bound by verify-start', () => {
     const at = (s: string) => { const i = SECTION.indexOf(s); expect([s, i >= 0]).toEqual([s, true]); return i; };
-    expect(at('{{BIN_DIR}}/gstack-design-build preflight')).toBeLessThan(at('--run-dir "<RUN>/round-N"'));
+    expect(at('{{BIN_DIR}}/gstack-design-build preflight')).toBeLessThan(at('--run-dir "<run-dir>/round-N"'));
     expect(at('### 3. Rounds (three at most)')).toBeLessThan(at('Stop\nediting after round 3'));
     expect(at('{{BIN_DIR}}/gstack-design-build verify-start')).toBeLessThan(at('{{BIN_DIR}}/gstack-design-build receipt'));
     expect(SECTION).toContain('There is no\nfourth editing round without a written grant.');
@@ -76,7 +76,7 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
     const others = fs.readdirSync(ROOT, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile() && /\.(md|tmpl)$/.test(d.name) && !d.parentPath.includes('node_modules') && !d.parentPath.includes('.git'))
       .map((d) => path.relative(ROOT, path.join(d.parentPath, d.name)))
-      .filter((f) => !/^design-review\/sections\/build-loop\.md(\.tmpl)?$/.test(f) && !f.startsWith('.agents/') && !f.startsWith('test/'));
+      .filter((f) => !/^design-review\/sections\/build-loop\.md(\.tmpl)?$/.test(f) && !/^\.[\w-]+\/skills\//.test(f) && !f.startsWith('test/'));
     const carriers = others.filter((f) => items.some((i) => fs.readFileSync(path.join(ROOT, f), 'utf8').includes(i)));
     expect(carriers).toEqual([]);
   });

@@ -32,10 +32,9 @@ RUN="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-run-$(date -u +%Y%m%
 mkdir -p "$RUN" && chmod 700 "$RUN" && echo "RUN: $RUN"
 ```
 
-Each bash block is a fresh shell, so below, `<RUN>` is the printed `RUN:`
-path written out literally. Write `<RUN>/inventory.json` from the spec and
-the diff: every scenario × overlay × busy, success, error and empty that the
-change can show.
+Each block is a fresh shell, so below, `<run-dir>` is the printed `RUN:`
+path. Write `<run-dir>/inventory.json` from the spec and the diff: every
+scenario × overlay × busy, success, error and empty that the change can show.
 
 ```json
 {"version":1,"within":"<section selector>","fixtures":"<repo-relative fixture dir>","touched":["<untracked files you create>"],
@@ -51,7 +50,7 @@ and is never counted as linted. Preview and fixtures:
 ### 2. Preflight (before any round)
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-design-build preflight --inventory "<RUN>/inventory.json"
+~/.claude/skills/gstack/bin/gstack-design-build preflight --inventory "<run-dir>/inventory.json"
 ```
 
 Browser first, then targets (loopback only; another host needs a
@@ -64,10 +63,10 @@ they may reach a live backend.
 ### 3. Rounds (three at most)
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<RUN>/inventory.json" --run-dir "<RUN>/round-N"
+~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/round-N"
 ```
 
-1. Run the printed `LINT_CMD:` line exactly. Read `<RUN>/round-N/lint.json`:
+1. Run the printed `LINT_CMD:` line exactly. Read `<run-dir>/round-N/lint.json`:
    `app.verdict`, `app.codes`, `app.states[]` and the findings. Never
    read the lint's exit status as the result.
 2. Take a screenshot for every `SHOT:` line at its viewport (screenshot-only
@@ -88,15 +87,17 @@ editing after round 3, or earlier once a round is clean.
 After the last permitted edit, one pass that changes nothing:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<RUN>/inventory.json" --run-dir "<RUN>/final"
-~/.claude/skills/gstack/bin/gstack-design-build verify-start --inventory "<RUN>/inventory.json" --run-dir "<RUN>/final"
+~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final"
+~/.claude/skills/gstack/bin/gstack-design-build verify-start --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final"
 ```
 
-Run its `LINT_CMD:` line and every `SHOT:` line, then (`--preview` when the
-preview template served it, `--waivers` when the lint used one):
+Run its `LINT_CMD:` line and every `SHOT:` line, then (`N`: rounds you edited
+in; add `--preview <dir>` if the preview template served it, `--waivers
+<file>` if the lint used one):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-design-build receipt --inventory "<RUN>/inventory.json" --run-dir "<RUN>/final" --rounds <rounds you edited in> [--preview <state dir>] [--waivers <file>]
+N=
+~/.claude/skills/gstack/bin/gstack-design-build receipt --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final" --rounds "${N:?}"
 ```
 
 Its `DESIGN_BUILD:` line, unchanged, is the run's last and only one. There is no
@@ -112,5 +113,5 @@ fourth editing round without a written grant.
 | `unrendered` | install, browser or preview missing | its fix line |
 | `stale` | the tree changed after the receipt | rerun the final pass |
 
-Before READY quotes it, `~/.claude/skills/gstack/bin/gstack-design-build check --inventory "<RUN>/inventory.json" --receipt <file>`
+Before READY quotes it, `~/.claude/skills/gstack/bin/gstack-design-build check --inventory "<run-dir>/inventory.json" --receipt <file>`
 must reprint it. `incomplete` never satisfies the lane card's recommendation.
