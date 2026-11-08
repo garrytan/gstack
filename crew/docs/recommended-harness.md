@@ -442,7 +442,7 @@ allowlist; no cost ceiling surfaced at autoplan gates.
 | The user-scope skill and the Captain guide | `capy/skill/gstack/SKILL.md`, `capy/skill/gstack/captain.md`, `capy/skill/gstack/scripts/install.sh` |
 | Captain templates and the Captain's day | `captain/templates/`, `crew/docs/captain.md` (ship with the `/captain` skill) |
 | Install on Capy, snapshots, the launch line | `docs/capy-install.md` |
-| Ship policy, queue and trains | `docs/ship-policy.md`, `lib/ship-queue*.ts`, `bin/gstack-ship-queue`, `bin/gstack-restamp` |
+| Ship policy, queue and trains | `docs/ship-policy.md`, `lib/ship-queue*.ts`, `crew/lib/ship-queue-*.ts` (trains and waves), `bin/gstack-ship-queue`, `bin/gstack-restamp` |
 | Pregate and lanes | `docs/pregate.md`, `bin/gstack-pregate` |
 | Flaky reruns and records | `docs/TESTING_INTERNALS.md#flaky-reruns`, `scripts/lib/paid-rerun.ts`, `scripts/lib/ci-history.ts` |
 | Stable release | `docs/releases.md`, `crew/scripts/release-cut.ts`, `.github/workflows/weekly-release.yml` |
