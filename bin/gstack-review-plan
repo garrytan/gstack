@@ -29,7 +29,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { baseNote } from '../lib/gate-diff/git';
-import { collectCommit, collectLive } from '../lib/review-collect';
+import { collectCommit, collectLive, reviewPlanTimeoutMs } from '../lib/review-collect';
 import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
 import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
@@ -235,7 +235,7 @@ function main(): number {
     else {
       const commit = collectCommit(root, resolved, 'HEAD');
       const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', 'HEAD']), gateTagged: gateTagsOf([resolved]), ...riskPaths, ...(active ? { excluded: active.excluded } : {}) });
-      fixRange = range.errors.length ? unread(range.errors.map(e => `${e.code} ${e.input}`).join('; '))
+      fixRange = range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base')
         : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
     }
@@ -298,4 +298,20 @@ function main(): number {
   return EXIT.ok;
 }
 
-process.exitCode = main();
+/**
+ * One plan's bound (GST-1855): the plan runs in a child under reviewPlanTimeoutMs, and a child that does not finish prints
+ * REVIEW_PLAN_STOPPED and exits 1 with no plan, so /ship stops on a named line instead of waiting for minutes. A caller that
+ * bounds the run itself (gstack-review-dispatch pass) sets GSTACK_REVIEW_PLAN_BOUNDED=1 and the plan runs in place.
+ */
+function bounded(): number {
+  if (process.env.GSTACK_REVIEW_PLAN_BOUNDED === '1') return main();
+  const timeoutMs = reviewPlanTimeoutMs();
+  const args = process.argv.slice(2);
+  const r = runScriptSync(Bun.fileURLToPath(import.meta.url), args, { stdio: 'inherit', timeout: timeoutMs, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
+  if (r.status !== null) return r.status;
+  const reason = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? 'timeout' : r.signal ? 'signal' : 'spawn';
+  process.stderr.write(`${resultLine('gstack-review-plan', 'REVIEW_PLAN_STOPPED', `step="gstack-review-plan ${args.join(' ')}" reason=${reason} timeout_ms=${timeoutMs} signal=${r.signal ?? 'none'}`)}\n`);
+  return EXIT.fail;
+}
+
+process.exitCode = bounded();

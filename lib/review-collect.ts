@@ -119,12 +119,17 @@ export const CONSUMER_SCAN_DEPTH = 4;
  * a plan that also scans a fix range (--range-base) runs a second scan and can still reach that limit, which fails the plan.
  */
 export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
-/** How long gstack-review-dispatch pass waits for each gstack-review-plan call (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the pass stops with REVIEW_PLAN_STOPPED. */
+/** How long one gstack-review-plan run may take, by itself or under gstack-review-dispatch pass (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the run stops with REVIEW_PLAN_STOPPED. */
 export const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 /** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 /** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
 export const CONSUMER_SCAN_OUTPUT_BYTES = 256 * 1024 * 1024;
+
+export function reviewPlanTimeoutMs(): number {
+  const v = Number(process.env.GSTACK_REVIEW_PLAN_TIMEOUT_MS);
+  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : REVIEW_PLAN_TIMEOUT_MS;
+}
 
 export function consumerScanTimeoutMs(): number {
   const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
@@ -239,23 +244,49 @@ function drawingsAmong(perPath: readonly PathLines[], classRoot: string | readon
  * The changed paths a docs, data or run-log rule could move out of code that are executables: the exec bit, a symlink, or text
  * that starts with "#!" (GSTA-258 L7). `isExec` answers for one path and fails closed (true) when it cannot read it.
  */
+const movable = (e: PathLines, classRoot: string | readonly string[]) => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot) || classifyPath(e.path, classRoot) === 'docs';
 function executablesAmong(perPath: readonly PathLines[], classRoot: string | readonly string[], isExec: (e: PathLines) => boolean): string[] {
-  return perPath.filter(e => (BINARY_DATA_PATH.test(e.path) && classifyPath(e.path, classRoot) === 'code') || dataCandidate(e.path, classRoot) || svgCandidate(e.path, classRoot) || classifyPath(e.path, classRoot) === 'docs').filter(isExec).map(e => e.path).sort();
+  return perPath.filter(e => movable(e, classRoot)).filter(isExec).map(e => e.path).sort();
+}
+
+/**
+ * The paths among `paths` whose blob at `rev` holds a line that starts with "#!", a superset of those whose text starts with it:
+ * one git grep per CONSUMER_SCAN_PATHSPEC_BYTES of literal pathspecs, so the git calls follow the pathspec bytes and not the file
+ * count (a results PR's thousands of trial files cost one blob read each before). Null when git fails or a name does not decode.
+ */
+function shebangCandidates(root: string, rev: string, paths: readonly string[]): Set<string> | null {
+  const found = new Set<string>();
+  for (let i = 0; i < paths.length;) {
+    const chunk: string[] = [];
+    for (let bytes = 0; i < paths.length && (!chunk.length || bytes + paths[i]!.length <= CONSUMER_SCAN_PATHSPEC_BYTES); i++) { chunk.push(paths[i]!); bytes += paths[i]!.length; }
+    const r = git(root, ['--literal-pathspecs', 'grep', '-a', '-G', '-l', '-z', '--no-color', '-e', '^#!', rev, '--', ...chunk]);
+    if (r.status !== 0 && r.status !== 1) return null;
+    for (const f of r.out.split('\0')) {
+      if (!f) continue;
+      if (f.includes('\uFFFD')) return null;
+      found.add(f.slice(rev.length + 1));
+    }
+  }
+  return found;
 }
 
 /**
  * The executables among the changed paths at `headSha`: tree mode 100755 or 120000 (a symlink, as collectLive sees it), or a text
- * blob whose first two bytes are "#!". A path the head tree lacks is a deletion, never an executable; an unreadable tree or blob counts as one.
+ * blob whose first two bytes are "#!" (read only for a blob shebangCandidates names, or for every one when it fails). A path the head
+ * tree lacks is a deletion, never an executable; an unreadable tree or blob counts as one.
  */
 function executablesAt(root: string, headSha: string, perPath: readonly PathLines[], classRoot: readonly string[]): string[] {
   const tree = git(root, ['ls-tree', '-r', '-z', headSha]);
   const entries = new Map(tree.out.split('\0').flatMap(rec => { const m = /^(\d+) blob ([0-9a-f]+)\t(.*)$/s.exec(rec); return m ? [[m[3]!, { mode: m[1]!, sha: m[2]! }] as const] : []; }));
+  const plain = (e: PathLines) => { const mode = entries.get(e.path)?.mode; return !!mode && mode !== '100755' && mode !== '120000'; };
+  const shebang = tree.ok ? shebangCandidates(root, headSha, perPath.filter(e => !e.binary && plain(e) && movable(e, classRoot)).map(e => e.path)) : null;
   return executablesAmong(perPath, classRoot, e => {
     if (!tree.ok) return true;
     const t = entries.get(e.path);
     if (!t) return false;
     if (t.mode === '100755' || t.mode === '120000') return true;
     if (e.binary) return false;
+    if (shebang && !shebang.has(e.path)) return false;
     const r = spawnSync('git', ['cat-file', 'blob', t.sha], { cwd: root, timeout: 30_000, maxBuffer: 2 });
     const read = r.status === 0 || (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
     return !read || (r.stdout ?? Buffer.alloc(0)).subarray(0, 2).toString('latin1') === '#!';

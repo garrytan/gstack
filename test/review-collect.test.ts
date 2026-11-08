@@ -360,3 +360,32 @@ describe('GST-544: the consumer scan reads only files that can match, under one 
     expect(CONSUMER_SCAN_TIMEOUT_MS).toBeLessThanOrEqual(Math.min(...limits) - 60_000);
   });
 });
+
+describe('executables at a commit cost a few git calls, not one per data file (GST-1855)', () => {
+  // Value: protects=a results PR's thousands of data files cost a few git calls in collectCommit, not one blob read each
+  //   (harness-evals #320's fix range: 10,914 reads, about 200 s per collect); fails_when=executablesAt reads every candidate
+  //   blob with its own git process again; seam=collectCommit with a git shim on PATH that logs each call
+  test.skipIf(process.platform === 'win32')('only blobs with a line starting "#!" are read, and a shebang still lists the path', () => {
+    const r = repo({});
+    const trials = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`results/t${i}/trial.json`, `{"i":${i}}\n`]));
+    const head = r.commit({ ...trials, 'results/run.log': 'ok\n#!/bin/sh quoted in a log\n', 'results/logs/prune': '#!/bin/sh\nrm -rf "$1"\n' });
+    const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'review-collect-shim-'));
+    dirs.push(shim);
+    const log = path.join(shim, 'calls');
+    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${Bun.which('git')}' "$@"\n`, { mode: 0o755 });
+    const before = process.env.PATH;
+    process.env.PATH = `${shim}${path.delimiter}${before}`;
+    let c: ReturnType<typeof collectCommit>;
+    try { c = collectCommit(r.dir, r.baseSha, head); } finally { process.env.PATH = before; }
+    expect(c.executables).toEqual(['results/logs/prune']);
+    expect(fs.readFileSync(log, 'utf8').split('\n').filter(l => / cat-file blob /.test(` ${l}`)).length).toBe(2);
+  });
+  // Value: protects=a "#!" script under results/ stays code when the repository's git config sets grep.patternType=fixed;
+  //   fails_when=the shebang scan's git grep takes its pattern type from config again; seam=collectCommit on a fixture repo
+  test('a fixed-string grep.patternType in the repository config still finds the shebang', () => {
+    const r = repo({});
+    r.git('config', 'grep.patternType', 'fixed');
+    const head = r.commit({ 'results/t.json': '{"i":1}\n', 'results/logs/prune': '#!/bin/sh\nrm -rf "$1"\n' });
+    expect(collectCommit(r.dir, r.baseSha, head).executables).toEqual(['results/logs/prune']);
+  });
+});
