@@ -271,6 +271,13 @@ describe('gstack-hook-check: what fails', () => {
     expect(crashed.code).toBe(3);
     expect(crashed.stderr).toContain('bun was killed by signal 11 while bundling the TypeScript hook entries, so they cannot be checked');
     expect(crashed.stdout).not.toContain('fail ');
+    expect(crashed.stdout).not.toContain('ok hosts/claude/hooks/timeline-stop-hook');
+    const helper = path.join(root, 'careful/bin/hook-extract.sh');
+    fs.appendFileSync(helper, 'if then\n');
+    const brokenShell = run(fake('bun-segv-2', 'kill -SEGV $$'));
+    expect(brokenShell.code).toBe(1);
+    expect(brokenShell.stdout).toMatch(/^fail careful\/bin\/check-careful\.sh .*: syntax error/m);
+    expect(brokenShell.stdout).not.toContain('bun could not bundle the TypeScript entry');
     const silent = run(fake('bun-exit-1', 'exit 1'));
     expect(silent.code).toBe(1);
     expect(silent.stdout).toContain('bun could not bundle the TypeScript entry');
