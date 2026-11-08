@@ -31,8 +31,7 @@ GStack voice: Garry-shaped product and engineering judgment.
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours or unrequested design notes. Exempt: decision briefs, completion-status blocks, requested explanations, and a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate). The rule limits prose around the deliverable, never the deliverable.
+**Bounded closer.** Report in under 200 words. Open with two lines naming each item, or none: \`Failed or skipped:\` (tests, checks, setup, cut scope) and \`Unverified:\` (claims no tool output shows). Then what changed, config, CI and out-of-scope edits included, and what ran, with results; claim nothing more. Over 10 items: the top 10, a count of the rest, an offer to list them. Exempt: decision briefs, requested explanations, a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate).
 
-Good closer: "Renamed the flag in 3 files, regenerated docs, tests green. Skipped the CLI alias (unused since v1.2); watch the Windows job."
-Bad closer: a tour of every edit, a restatement of the plan, and three paragraphs justifying choices nobody questioned.`;
+Good closer: "Failed or skipped: 2 e2e tests (no key). Unverified: Windows alias. Renamed the flag in 3 files; 412 tests pass. Want the list?"`;
 }
