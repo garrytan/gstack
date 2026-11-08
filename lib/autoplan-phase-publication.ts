@@ -5,6 +5,8 @@ export interface AutoplanPhaseHit {
   ts: number;
 }
 
+const exampleIntroduction = /\b(?:example|sample|quote(?:d)?|source|template|instruction|marker|expected\s+(?:output|announcement))\b/i;
+
 function phaseDeclaration(text: string): RegExpExecArray | null {
   const declaration = String.raw`Phase[ \t]+(1|2(?:\.5)?|3)(?:[ \t]+\(([^()]*)\))?[ \t]+(?:is[ \t]+)?(?:complete(?:d)?|done|finished|wrapped[ \t]+up)`;
   const plain = text.replace(new RegExp(String.raw`^\*\*(${declaration}[.:]?)\*\*`, 'i'), '$1');
@@ -39,6 +41,7 @@ function sentenceDeclaration(line: string): RegExpExecArray | null {
   if (/^(?:[#>|"“'‘`[+-]|\*(?!\*)|\d+[.)][ \t])/.test(line) || /\bEmit\s+phase-transition\s+summary\s*:/i.test(line)) return null;
   for (const boundary of line.matchAll(/[.!?]["”’)]?[ \t]+(?=(?:\*\*)?Phase[ \t])/g)) {
     const before = line.slice(0, boundary.index! + boundary[0].length);
+    if (exampleIntroduction.test(before)) return null;
     const count = (pattern: RegExp) => before.match(pattern)?.length ?? 0;
     if (count(/"/g) % 2 || count(/`/g) % 2 || count(/“/g) > count(/”/g) ||
         count(/(?:^|[\s(])['‘]/g) > count(/['’](?=[\s.,;:!?)]|$)/g)) continue;
@@ -125,7 +128,7 @@ export function autoplanPhaseCompletions(
           !/\[[^\]]*\]|\{\{/.test(block.join('\n'));
         if (concreteSummary) match = phaseDeclaration(text.replace(/^>\s?/, ''));
       }
-      const introducedExample = /\b(?:example|sample|quote(?:d)?|source|template|instruction|marker|expected\s+(?:output|announcement))\b.*[:：]\s*$/i.test(previousLine) ||
+      const introducedExample = new RegExp(String.raw`${exampleIntroduction.source}.*[:：]\s*$`, 'i').test(previousLine) ||
         (!!match?.groups?.withResult && /\b(?:example|sample|quote(?:d)?|source|historical|earlier|previous|archived|hypothetical|template)\b.*[:：]\s*$/i.test(previousLine.replace(/\*\*/g, '')));
       // Keep an example introduction across all its marker/quoted lines,
       // rather than allowing its second marker to look like real completion.
