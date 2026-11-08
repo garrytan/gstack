@@ -216,6 +216,16 @@ No filled report for the previous phase appears after its close packet Read.
 Publish it as your own assistant text in a message whose only tool call is
 `true autoplan-published <phase>`, then enter the next phase in a later message.
 
+<a id="publication-buried"></a>
+### `publication_buried`
+A completion for the previous phase appears after its close packet Read, but only
+inside a sentence ("I checked the packet… Phase 1 is complete with 9 issues"), so
+it does not count. Claude Code can journal prose between tool calls as a
+paraphrased narration summary rather than verbatim text, and the summary folds a
+preface sentence into the declaration. Send the report alone: its first line is
+`**Phase <N> complete.**` with nothing before it, and its only tool call is
+`true autoplan-published <phase>`. Then enter the next phase in a later message.
+
 <a id="publication-unflushed"></a>
 ### `publication_unflushed`
 The report shares the current call's message, or nothing journaled follows it

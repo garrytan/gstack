@@ -69,6 +69,9 @@ export const REASONS = {
   close_edits: { disposition: 'corrective', text: d => `${d.cause}. Repeat the existing close procedure.` },
   mutation_pending: { disposition: 'transient', text: () => 'An active-plan mutation is pending after the close Read. Wait for its result, then verify the current close input.' },
   publication_missing: { disposition: 'corrective', text: d => `Publish the filled Phase ${d.phase} report as your own parent assistant text now. The close packet or a saved report does not publish it. ` + PUBLISH_SEPARATELY(d) },
+  publication_buried: { disposition: 'corrective', text: d => `A Phase ${d.phase} completion appears only inside a sentence, so it does not count as the report. ` +
+    'Claude Code can journal prose between tool calls as a paraphrased narration summary, which merges any preface into the declaration. ' +
+    `Send the report alone, opening with **Phase ${d.phase} complete.** and nothing before it. ` + PUBLISH_SEPARATELY(d) },
   publication_unflushed: { disposition: 'corrective', text: d => `The Phase ${d.phase} report is not yet followed by a journaled record, so Claude Code may not have written it. ` + PUBLISH_SEPARATELY(d) },
   publication_repeat: { disposition: 'fallback', text: d => `The Phase ${d.phase} report still cannot be verified after it was published separately once in this invocation.` },
 } satisfies Record<string, Reason>;

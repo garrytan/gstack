@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { extractImplementationPlan, checkPhaseImplementation, acceptedBlocks, canonicalDestination } from '../../bin/gstack-autoplan-snapshot';
-import { autoplanPhaseCompletions } from '../../lib/autoplan-phase-publication';
+import { autoplanPhaseCompletions, buriedPhaseDeclaration } from '../../lib/autoplan-phase-publication';
 import { nativePathSpelling, ownedNativePath, sameNativePath, type ClaudeParentPublicEvent } from '../../lib/claude-journal-records';
 import { ownedRecordLimit, ownedRetainedLimit, type JournalPrefix, type OwnedRead, type OwnedReadMeasure } from '../../lib/claude-owned-journal';
 import { bashJson, readGuardJournal, textResult, DEDUP_REPLY } from './guard-journal';
@@ -471,7 +471,12 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
   if (current) verifyCloseEdits(entered, closeOrder, init, cwd);
   const reports = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
     autoplanPhaseCompletions({ status: 'ready', calls: [], assistantMessages: [e] }, 0).some(hit => hit.phase === number[phase]));
-  if (!reports.length) fail('publication_missing', { phase: number[phase] });
+  if (!reports.length) {
+    // Same denial either way; a buried declaration only names the fix.
+    if (entered.some(e => e.kind === 'message' && e.order > closeOrder && buriedPhaseDeclaration(e.text, number[phase])))
+      fail('publication_buried', { phase: number[phase] });
+    fail('publication_missing', { phase: number[phase] });
+  }
   if (!flush) return;
   // Text in the same assistant message as a guarded call can be invisible to
   // PreToolUse. A report counts only when it is outside the journaled current

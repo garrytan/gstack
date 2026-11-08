@@ -47,6 +47,10 @@ preparation does not perform them.
    statuses, in its own message whose only tool call is the Bash no-op
    `true autoplan-published <PHASE>` (no output). The guard counts a report only when a
    later record follows it, so this message is the next operation before any next-phase tool call.
+   The message starts with the report's `**Phase <report.number> complete.**` line: no
+   preface, status or verification sentence before it. Claude Code may journal prose
+   between tool calls as a paraphrased summary, and a preface gets folded into the
+   declaration so the guard cannot count it. Say anything else in an earlier message.
    Use the packet's `report` fields for this phase, the actual host's reviewer names,
    and N/A when either review voice is missing; confirmed counts require both voices.
    Include the DX metrics line only when `report.includeDxMetrics` is true. Resolve

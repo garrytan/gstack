@@ -56,6 +56,27 @@ function withResultWithdrawn(lines: string[], index: number, phase: string): boo
 }
 
 /**
+ * Diagnostic only, never a completion: true when `text` mentions that `phase`
+ * completed somewhere other than the start of a line, outside code fences.
+ * A narration summary of a report with a preface sentence looks like this
+ * ("I checked the packet… Phase 1 is complete with 9 issues"). The guard uses
+ * it to name the fix instead of reporting the report as missing.
+ */
+export function buriedPhaseDeclaration(text: string, phase: number | string): boolean {
+  const n = String(phase).replace('.', '\\.');
+  const mention = new RegExp(String.raw`\bPhase[ \t]+${n}(?![\d.])(?:[ \t]+\([^()]*\))?[ \t]+(?:is[ \t]+)?(?:complete(?:d)?|done|finished|wrapped[ \t]+up)\b`, 'i');
+  let fence = false;
+  for (const line of text.split(/\r?\n/)) {
+    const plain = line.trim().replace(/\*\*/g, '');
+    if (/^(`{3,}|~{3,})/.test(plain)) { fence = !fence; continue; }
+    if (fence) continue;
+    const at = mention.exec(plain)?.index;
+    if (at !== undefined && at > 0) return true;
+  }
+  return false;
+}
+
+/**
  * Observe actual assistant announcements from this fixture's native transcript.
  * The terminal renders Markdown bold as ANSI, and its Read output can contain
  * the same source markers. Neither rendered styling nor tool output is evidence
