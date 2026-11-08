@@ -70,12 +70,13 @@ describe('placeReceipt: the receipt lives in the Agent notes section', () => {
     expect(placeReceipt(withLines, receipt(HEAD))).toBe(withLines);
   });
 
-  test('a new receipt replaces the one in the notes, the old one joins the runs block there, and a quoted example fence in the readable part is removed', () => {
+  test('a new receipt replaces the one in the notes, the old one joins the runs block there, and a quoted example fence in the readable part stays', () => {
     const example = 'Here is what the record looks like:\n\n' + renderReceiptBlock(receipt(OTHER, 1)) + '\nMore prose.\n';
     const first = placeReceipt(example + '\n' + notes('Fixes #14'), receipt(HEAD));
     const second = placeReceipt(first, receipt(OTHER));
-    expect(second.match(/```gstack-ship-receipt/g)).toHaveLength(1);
-    expect(splitAgentNotes(second).readable).toBe('Here is what the record looks like:\n\nMore prose.\n\n');
+    expect(second.match(/```gstack-ship-receipt/g)).toHaveLength(2);
+    expect(splitAgentNotes(second).readable).toBe(example.trimEnd() + '\n\n');
+    expect(splitAgentNotes(second).notes!.match(/```gstack-ship-receipt/g)).toHaveLength(1);
     expect(extractReceipt(second).receipt!.head).toBe(OTHER);
     expect(receiptRuns(second).map(r => r.head)).toEqual([HEAD]);
     expect(splitAgentNotes(second).notes).toStartWith('Fixes #14\n\n```gstack-ship-receipt');
@@ -93,6 +94,18 @@ describe('placeReceipt: the receipt lives in the Agent notes section', () => {
 });
 
 describe('which receipt binds', () => {
+  test('a legacy receipt at the top still binds when the body gained an Agent notes section without one, and placing a new receipt moves it and its runs into the notes', () => {
+    const legacy = renderReceiptBlock(receipt(OTHER)) + '\n```gstack-receipt-runs\n' + JSON.stringify({ head: 'c'.repeat(40) }) + '\n```\n\nOpening.\n\n## Summary\n\nx\n\n' + notes('Fixes #14');
+    expect(bindReceipt(legacy, '7', [OTHER])).toMatchObject({ ok: true, head: OTHER });
+    expect(receiptRuns(legacy).map(r => r.head)).toEqual(['c'.repeat(40)]);
+    const placed = placeReceipt(legacy, receipt(HEAD));
+    expect(placed).toStartWith('Opening.');
+    expect(placed.match(/```gstack-ship-receipt/g)).toHaveLength(1);
+    expect(extractReceipt(placed).receipt!.head).toBe(HEAD);
+    expect(receiptRuns(placed).map(r => r.head)).toEqual(['c'.repeat(40), OTHER]);
+    expect(splitAgentNotes(placed).notes).toStartWith('Fixes #14\n\n```gstack-ship-receipt');
+  });
+
   test('(a) a legacy receipt at the top of a body with no section binds', () => {
     const body = renderReceiptBlock(receipt(HEAD)) + '\nOpening.\n\n## Summary\n\nx\n';
     expect(bindReceipt(body, '7', [HEAD])).toMatchObject({ ok: true, head: HEAD });
