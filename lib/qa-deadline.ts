@@ -163,7 +163,7 @@ export async function runQaDeadlineCommand(file: string, command: string, args: 
         else process.kill(-child.pid, 'SIGKILL');
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ESRCH' && !(code === 'EPERM' && processGroupEmpty(child.pid))) outcome = 2;
+        if (code !== 'ESRCH' && !(code === 'EPERM' && process.platform === 'darwin' && processGroupEmpty(child.pid))) outcome = 2;
       }
     };
     const finish = (code: number, signal: NodeJS.Signals | null = null, completed = false) => {
