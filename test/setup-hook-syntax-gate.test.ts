@@ -282,6 +282,18 @@ describe('gstack-hook-check: what fails', () => {
     expect(silent.code).toBe(1);
     expect(silent.stdout).toContain('bun could not bundle the TypeScript entry');
   });
+
+  test.skipIf(process.platform === 'win32')('a failure bun reported before it was killed still fails its hook', () => {
+    const root = tmpBase();
+    fixtureTree(root);
+    const entry = path.join(root, 'hosts/claude/hooks/timeline-stop-hook.ts');
+    const bun = path.join(tmpBase(), 'bun-fail-then-segv');
+    fs.writeFileSync(bun, `#!/bin/sh\nprintf '%s\\tfail\\t%s:3\\tSyntax error\\n' '${entry}' '${entry}'\nkill -SEGV $$\n`, { mode: 0o755 });
+    const r = spawnSync('bash', [CHECK, root], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_HOOK_CHECK_BUN: bun } });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(`fail hosts/claude/hooks/timeline-stop-hook ${entry}:3: Syntax error`);
+    expect(r.stdout).not.toContain('bun could not bundle the TypeScript entry');
+  });
 });
 
 describe('setup: registers the hooks that parse, refuses the rest, exits non-zero', () => {
