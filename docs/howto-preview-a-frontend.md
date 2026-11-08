@@ -130,7 +130,7 @@ code:
 
 | Command | Does |
 |---------|------|
-| `preflight --inventory <f> [--grant-remote <host>]` | browser first, then target authorization (loopback, or a host named in a grant), then that each URL answers; prints `PREFLIGHT: ok …` or the run's final `DESIGN_BUILD:` line (`NO_BROWSER`, `UNAUTHORIZED_TARGET`, `NO_PREVIEW`) |
+| `preflight --inventory <f> [--grant-remote <host>]` | browser first (gstack's own browser is started for real: one tab opened and closed), then target authorization (loopback, or a host named in a grant), then that each URL answers; prints `PREFLIGHT: ok …` or the run's final `DESIGN_BUILD:` line (`NO_BROWSER`, [`BROWSER_SANDBOX`](troubleshooting.md#chromium-sandbox-unavailable), `UNAUTHORIZED_TARGET`, `NO_PREVIEW`) |
 | `admit <saved gstack-skill-start output>` | maps a refused design-review start to `DESIGN_BUILD: unrendered code=INSTALL` |
 | `plan --inventory <f> --run-dir <d> [--waivers <f>]` | writes the lint's state file and prints the exact `LINT_CMD:` (carrying `--waivers` when given; a `waived` receipt needs it) and one `SHOT:` path per state and viewport |
 | `verify-start --inventory <f> --run-dir <d>` | records the tree identity right before the read-only final pass |
