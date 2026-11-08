@@ -98,6 +98,13 @@ case "$1 $2" in
 esac
 `);
     chmodSync(join(home, "bin", "gbrain"), 0o755);
+    // The real removal asks detectAutopilot, whose `pgrep -f "gbrain autopilot"`
+    // sees every process on the machine. A parallel shard's
+    // test/gbrain-guards.test.ts runs one with that command line for its
+    // live-probe case, which made the removal refuse (Free Tests 42448270551
+    // shard 3). Stub pgrep to "no match", as test/gstack-gbrain-sync.test.ts does.
+    writeFileSync(join(home, "bin", "pgrep"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(home, "bin", "pgrep"), 0o755);
   }
   function sync(args: string[]) {
     const r = spawnSync(process.execPath, [SYNC, ...args], { env, cwd: repo, encoding: "utf-8", timeout: 60_000 });
