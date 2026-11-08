@@ -126,7 +126,7 @@ function processGroupEmpty(pgid: number): boolean {
   if (listing.status !== 0) return false;
   return !listing.stdout.split('\n').some(line => {
     const [group, state = ''] = line.trim().split(/\s+/);
-    return Number(group) === pgid && !/^[ZEX]/.test(state);
+    return Number(group) === pgid && !state.startsWith('Z') && !state.includes('E');
   });
 }
 

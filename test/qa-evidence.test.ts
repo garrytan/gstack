@@ -573,17 +573,19 @@ test('materialize accepts a single limits string as a one-item list', () => {
 function refusedGroupKill(f: { root: string }, platform: NodeJS.Platform) {
   const preload = path.join(f.root, 'refused-group-kill.ts');
   const refused = path.join(f.root, 'refused-group-kill');
-  fs.writeFileSync(preload, `import { appendFileSync } from 'node:fs';
+  const group = path.join(f.root, 'refused-group');
+  fs.writeFileSync(preload, `import { appendFileSync, writeFileSync } from 'node:fs';
 if (process.argv[1] === ${JSON.stringify(CLI)}) {
   Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} });
   const kill = process.kill.bind(process);
   process.kill = (pid, signal) => {
     if (pid >= 0) return kill(pid, signal);
     appendFileSync(${JSON.stringify(refused)}, String(signal ?? 'SIGTERM') + '\\n');
+    writeFileSync(${JSON.stringify(group)}, String(-pid));
     throw Object.assign(new Error('kill EPERM'), { code: 'EPERM', errno: -1, syscall: 'kill' });
   };
 }`);
-  return { preload, refused };
+  return { preload, refused, group };
 }
 
 test.skipIf(process.platform === 'win32')('a refused group kill after the command exits still records a complete capture once the group is empty', () => {
@@ -624,3 +626,18 @@ test.skipIf(process.platform === 'win32')('a refused group kill fails closed whi
     if (pid > 0) try { process.kill(pid, 'SIGKILL'); } catch {}
   }
 });
+
+for (const [state, status, exitCode] of [['RE', 'complete', 0], ['UE', 'complete', 0], ['R', 'incomplete', 2], ['S', 'incomplete', 2], ['X', 'incomplete', 2], ['RX', 'incomplete', 2]] as const) {
+  test.skipIf(process.platform === 'win32')(`a refused macOS group kill reads a listed member in ps state ${state} as ${status}`, () => {
+    const f = fixture();
+    const stub = refusedGroupKill(f, 'darwin');
+    const bin = path.join(f.root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/sh\nprintf '%s ${state}\\n' "$(cat ${JSON.stringify(stub.group)})"\n`, { mode: 0o755 });
+    const result = spawnSync(process.execPath, ['--preload', stub.preload, CLI, 'capture', f.root, '001', '--timeout-ms', '4000', '--', process.execPath, '-e', 'console.log("{}")'],
+      { cwd: f.root, encoding: 'utf8', timeout: 10_000, env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+    expect(fs.readFileSync(stub.refused, 'utf8')).toContain('SIGKILL');
+    expect(result.status, result.stderr).toBe(exitCode);
+    expect(receipt(result.stdout)).toMatchObject({ status, exitCode });
+  });
+}
