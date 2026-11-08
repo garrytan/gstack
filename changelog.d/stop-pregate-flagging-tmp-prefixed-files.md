@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **pregate's `strays` check no longer flags real files whose names only start with `tmp` or `scratch`.** It treated `tmp` and `scratch` as name prefixes, so a real module such as `lib/server/disk-space/tmp-watch.js` failed with `PREGATE_STRAYS`, and `tmpfs-mount.js` or `scratchpad.ts` would have too. A branch can't allowlist its own strays, so nothing on the branch could clear it. `tmp` and `scratch` now count only as the whole name stem, optionally numbered: `tmp`, `tmp.js`, `tmp2.js`, `tmp_1.txt`, `TMP.js`, `scratch.md` and `scratch2.ts` are still flagged, and so is every `zz-*` name and editor leftover. The tradeoff: a stem followed by a word, such as `tmp-repro.ts` or `scratch_notes.md`, is no longer caught either, so name a scratch file `zz-*` to keep it flagged.

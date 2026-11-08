@@ -220,7 +220,9 @@ Two stages with separate clocks, both printed:
   file is read whole from disk. A file over the size limit, or whose full diff
   does not parse, is scanned on its added lines alone, without that context.
 - `strays`: a new file at the repository root, a new top-level directory, or a
-  scratch name (`zz-*`, `tmp*`, `scratch*`) or editor leftover (`*.orig`,
+  scratch name (`zz-*`, or `tmp` or `scratch` as the whole name stem, optionally
+  numbered: `tmp.js`, `tmp2.js`, `tmp_1.txt`, `scratch.md`, but not
+  `tmp-watch.js`, `tmpfs-mount.js`, `scratchpad.ts` or `tmp-repro.ts`) or editor leftover (`*.orig`,
   `*.rej`, `*.swp`, `*.swo`, `*.bak`, `*.tmp`, `*~`, `.DS_Store`, `Thumbs.db`)
   anywhere.
 - `literals`: for every changed exported constant or named timeout/retry
