@@ -154,6 +154,13 @@ Every PR you send READY on, and the READY report itself, has:
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
+**Who watches CI.** You own your PR's checks and review until READY: hold its watch yourself and fix what
+turns red (one rerun for a flake), so a check never wakes your Captain. A Captain whose PRs bring many check,
+review and merge wakes hands PR and CI watching to one merge-lane thread instead of subscribing itself, because
+every wake more than about five minutes after its last call rewrites its whole context cache at many times the
+warm price. The merge lane reports to the Captain only a landing, a decision or a blocker
+(`crew/docs/captain.md` in the gstack checkout, Roles).
+
 A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
 `ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
 take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
