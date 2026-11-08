@@ -29,12 +29,11 @@ permissions:
 jobs:
   plain-title:
     name: Plain title
-    # An edit that changes neither the title nor the body (a base change) has
-    # nothing new to check.
-    if: github.event.action != 'edited' || github.event.changes.title || github.event.changes.body
+    # No job-level if: every event, a base change included, reruns the title
+    # check, because a skipped run would count as passing over a refused title.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # Job level, so a skipped edit run never cancels a real check in progress.
+    # A newer event for the same PR cancels the older run.
     concurrency:
       group: plain-title-${{ github.event.pull_request.number }}
       cancel-in-progress: true

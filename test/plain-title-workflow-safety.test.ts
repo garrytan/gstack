@@ -33,8 +33,6 @@ describe('plain-title.yml pull_request_target safety', () => {
   test('runs on pull_request_target for the PR events that change a title, body or head', () => {
     expect(content).toMatch(/^on:\s*\n\s+pull_request_target:/m);
     expect(content).toMatch(/types:\s*\[opened, edited, synchronize, reopened, ready_for_review\]/);
-    expect(content).toMatch(/github\.event\.changes\.title/);
-    expect(content).toMatch(/github\.event\.changes\.body/);
   });
 
   test('the job is named "Plain title" and cancels older runs for the same PR', () => {
@@ -85,5 +83,14 @@ describe('plain-title.yml pull_request_target safety', () => {
     const uses = [...content.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)].map(m => m[1]!);
     expect(uses.length).toBeGreaterThan(0);
     for (const ref of uses) expect(ref).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
+  });
+
+  // Value: protects=a base-only edit reruns the title check and never posts a skipped "Plain title" run that ciAtHead and
+  // branch protection count as passing over an earlier refusal; fails_when=a job-level if: can skip the whole job;
+  // why_new=review finding plain-title.yml:34 (fail-open); seam=the workflow text; no_claim=GitHub's check ranking
+  test('the job has no job-level if:, so a skipped run never replaces a refused title', () => {
+    const job = content.split(/^  plain-title:\s*$/m)[1]!.split(/^    steps:\s*$/m)[0]!;
+    expect(job).toMatch(/name: Plain title/);
+    expect(job).not.toMatch(/^    if:/m);
   });
 });
