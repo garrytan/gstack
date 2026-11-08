@@ -141,7 +141,7 @@ describe('checkBranch', () => {
   test("the exempt prefixes are the ones gstack's own tools generate", () => {
     const src = (f: string) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     expect(src('lib/release-stamp.ts')).toContain('`release/${version}`');
-    expect(src('lib/ship-queue-wave.ts')).toContain("startsWith('wave/')");
+    expect(src('crew/lib/ship-queue-wave.ts')).toContain("startsWith('wave/')");
     expect(src('lib/ship-queue-land.ts')).toContain('`gstack-land-repair/${j.pr}`');
     expect(policy.exempt_branch_prefixes).toEqual(['release/', 'wave/', 'gstack-land-repair/']);
   });
