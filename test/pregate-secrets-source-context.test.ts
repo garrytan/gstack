@@ -165,6 +165,17 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
+  test('a test file reading an env var in code and holding a self-named fixture label passes; a literal beside the read or in a .env file still fails (GST-1894)', () => {
+    const token = '8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ';
+    const qm = 'let token: string | undefined;\nfunction start(opts?: { env?: Record<string, string> }) {\n    token = opts?.env?.AGENT_API_TOKEN;\n}\nconst brain = {\n      clientSecret: "personal-secret",\n};\n';
+    expect(repo({ 'memory-registry-pg.test.ts': qm }).secrets().status).toBe('pass');
+    const r = repo({ 'memory-registry-pg.test.ts': qm.replace('AGENT_API_TOKEN;', `AGENT_API_TOKEN ?? "${token}";`), 'agent.env': `AGENT_API_TOKEN=${token}\n` }).secrets();
+    expect(r.status).toBe('fail');
+    const kv = r.lines.filter((l) => l.includes('env.kv'));
+    expect(kv).toHaveLength(2);
+    expect(kv).toEqual(expect.arrayContaining([expect.stringContaining('agent.env, added line 1'), expect.stringContaining('memory-registry-pg.test.ts, added line 3')]));
+  });
+
   test('the same assignment in a .env file still fails, naming the file', () => {
     const f = repo({ 'deploy.env': 'API_TOKEN=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ\n' });
     const r = f.secrets();

@@ -690,12 +690,27 @@ function urlPasswordIsPlaceholder(span: string): boolean {
 const POSTGRES_LOOPBACK_DEFAULT =
   /^postgres(?:ql)?:\/\/postgres:postgres@(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?![\w.:@%-])/;
 
-/** A value span that is only an environment-variable read expression (#2912). */
+/**
+ * A value span that is only an environment-variable read expression (#2912):
+ * `process.env.X`, an `env` member of any object chain read by an ALL-CAPS
+ * name (`opts?.env?.AGENT_API_TOKEN`, `import.meta.env.VITE_X`, GST-1894),
+ * or the opening of an indexed or call read (`process.env[`, `os.environ[`,
+ * `os.getenv(`, `System.getenv(`). `env` must be a whole segment, so
+ * `myenv.X` is a value.
+ */
 const ENV_READ_SPAN =
-  /^(?:os\.environ\[|os\.environ\.get\(|os\.getenv\(|getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?)$/;
+  /^(?:os\.environ\[|os\.environ\.get\(|(?:[A-Za-z_$][\w$]*\.)?getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?|(?:[A-Za-z_$][\w$]*[!?]?\.)*env(?:[!?]?\.[A-Z_][A-Z0-9_]*[;,)]?|(?:\?\.)?\[))$/;
+/** The quoted ALL-CAPS variable name an indexed or call read opens with (`"AGENT_API_TOKEN"]`, `'DB_PASSWORD',`). */
+const ENV_NAME_ARGUMENT = /^(["'])[A-Z_][A-Z0-9_]*\1/;
+/**
+ * The rest of the line is read from the span's end, so a quote the match took
+ * is still seen: a literal fallback (`os.getenv("X", "<secret>")`) or a
+ * literal used as the name (`os.environ["<secret>"]`) keeps the finding.
+ */
 function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
   if (!ENV_READ_SPAN.test(span)) return false;
-  return !carriesSecretLiteral(match.input.slice(match.index + match[0].length).split("\n", 1)[0]);
+  const rest = match.input.slice(spanBounds(match).end).split("\n", 1)[0];
+  return !carriesSecretLiteral(/[[(]$/.test(span) ? rest.replace(ENV_NAME_ARGUMENT, "") : rest);
 }
 
 /** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
@@ -731,6 +746,20 @@ const SCHEMA_FIELD_NAME =
 const SCHEMA_FIELD_VALUE = /^[a-z][a-z0-9]*(?:[_.-][a-z][a-z0-9]*)+$/;
 function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean {
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
+}
+/**
+ * GST-1894: in a test file, a value made only of lowercase words joined by `-`
+ * or `_`, one of them a credential word (`personal-secret`,
+ * `staging-api-key`), is a fixture label that says what it stands for.
+ * Decided by the file name (`*.test.ts`, `*.spec.tsx`, `test_*.py`,
+ * `*_test.go`). Outside a test file, without a path, or with a digit, an
+ * uppercase letter or no credential word, the value is checked as before.
+ */
+const TEST_SOURCE = /(?:^|[\\/])(?:[^\\/]+[._-](?:test|spec)|test_[^\\/]+)\.(?:[cm]?[jt]sx?|py|go|rb|dart)$/;
+const FIXTURE_LABEL = /^[a-z]+(?:[-_][a-z]+)+$/;
+const FIXTURE_CREDENTIAL_WORD = /(?:^|[-_])(?:secret|token|password|passwd|key|credential)s?(?:[-_]|$)/;
+function isTestFixtureLabel(span: string, sourcePath: string | undefined): boolean {
+  return !!sourcePath && TEST_SOURCE.test(sourcePath) && FIXTURE_LABEL.test(span) && FIXTURE_CREDENTIAL_WORD.test(span);
 }
 /**
  * GST-1064: the first argument of a lookup call (`get`, `getenv`, `read`,
@@ -1482,6 +1511,7 @@ export const PATTERNS: RedactPattern[] = [
     // #2899: a function call assigned to the name is code, not a value (see
     // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
+    // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
       !isPlaceholderSpan(span) &&
@@ -1490,6 +1520,7 @@ export const PATTERNS: RedactPattern[] = [
       !isCallExpression(span, match) &&
       !isSourceExpression(span, match, opts?.sourcePath) &&
       !isSchemaFieldIdentifier(span, match) &&
+      !isTestFixtureLabel(span, opts?.sourcePath) &&
       shannonEntropy(span) >= 3.0,
   },
   {

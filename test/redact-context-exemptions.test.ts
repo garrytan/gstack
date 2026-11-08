@@ -153,6 +153,74 @@ describe("env.kv: a name-shaped literal inside a call is a file or dict key, not
   );
 });
 
+describe("env.kv: reading an environment variable in code names a secret without holding one (GST-1894)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const GH = ["ghp", "_", "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh7Jk8Lm9Np0"].join("");
+  table(
+    "env.kv",
+    "MEDIUM",
+    [
+      "    token = opts?.env?.AGENT_API_TOKEN;",
+      "token = ctx.env.AGENT_API_TOKEN",
+      "token = env?.AGENT_API_TOKEN;",
+      "token = env.AGENT_API_TOKEN,",
+      "token = import.meta.env.VITE_API_TOKEN;",
+      "token = Bun.env.AGENT_API_TOKEN;",
+      "token = this.env!.AGENT_API_TOKEN;",
+      "token = process.env.AGENT_API_TOKEN;",
+      String.raw`token = process.env["AGENT_API_TOKEN"];`,
+      String.raw`token = opts?.env?.["AGENT_API_TOKEN"];`,
+      String.raw`token = os.environ["OPENROUTER_API_KEY_V2"]`,
+      String.raw`token = os.getenv("OPENROUTER_API_KEY_V2")`,
+      String.raw`token = System.getenv("AGENT_API_TOKEN");`,
+    ],
+    [
+      String.raw`token = "${FAKE_KEY}"`,
+      `AGENT_API_TOKEN=${FAKE_KEY}`,
+      `export AGENT_API_TOKEN=${FAKE_KEY}`,
+      String.raw`token = opts?.env?.AGENT_API_TOKEN ?? "${FAKE_KEY}"`,
+      String.raw`token = env.AGENT_API_TOKEN||"${FAKE_KEY}"`,
+      String.raw`token = process.env["AGENT_API_TOKEN"] || "${FAKE_KEY}"`,
+      String.raw`token = os.getenv("AGENT_API_TOKEN", "${FAKE_KEY}")`,
+      String.raw`token = process.env["${FAKE_KEY}"]`,
+      String.raw`token = os.environ["${FAKE_KEY}"]`,
+      `token = env.${FAKE_KEY}`,
+      "token = myenv.AGENT_API_TOKEN;",
+    ],
+  );
+
+  test("a known key prefix beside an env name still reports HIGH", () => {
+    for (const input of [`AGENT_API_TOKEN=${GH}`, String.raw`token = opts?.env?.AGENT_API_TOKEN ?? "${GH}"`]) {
+      expect(findings(input).some((f) => f.severity === "HIGH")).toBe(true);
+    }
+  });
+});
+
+describe("env.kv: a lowercase fixture label that names itself a secret, in a test file only (GST-1894)", () => {
+  const kv = (text: string, sourcePath?: string) => scan(text, { repoVisibility: "private", sourcePath }).findings.some((f) => f.id === "env.kv");
+  test.each([
+    ["memory-registry-pg.test.ts", '      clientSecret: "personal-secret",'],
+    ["memory-registry-pg.test.ts", '  signingSecret: "memory-authority-signing-secret",'],
+    ["auth.spec.tsx", "    apiKey: 'staging-api-key',"],
+    ["test_auth.py", '    password = "admin_password_fixture"'],
+    ["auth_test.go", '  token: "refresh-token-value",'],
+  ])("clean in %s: %s", (file, input) => {
+    expect(kv(input, file)).toBe(false);
+  });
+  test.each([
+    ["memory-registry.ts", '      clientSecret: "personal-secret",'],
+    [undefined, '      clientSecret: "personal-secret",'],
+    ["deploy.env", "CLIENT_SECRET=personal-secret"],
+    ["memory-registry-pg.test.ts", '      clientSecret: "correct-horse-battery-staple",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "Personal-Secret-9x",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "secretive-horse",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "Zx9Qw8Er7Ty6Ui5Op4As3Df2",'],
+    ["memory-registry-pg.test.ts.bak", '      clientSecret: "personal-secret",'],
+  ])("still MEDIUM in %s: %s", (file, input) => {
+    expect(kv(input, file)).toBe(true);
+  });
+});
+
 describe("internal.hostname: per-machine config filenames are not hosts (#2962, #2740)", () => {
   table(
     "internal.hostname",
