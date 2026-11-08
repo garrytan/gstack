@@ -268,13 +268,13 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   }
   for (const [root, list] of [...dart].sort(([a], [b]) => a.localeCompare(b))) {
     const r = dartRunner(ctx.repoRoot, root, ctx.env);
-    if ('missing' in r) { missing.add(r.missing); unclaimed.push(...list.map(f => (root ? `${root}/${f}` : f))); } else groups.push({ runner: r.runner, cwd: root, files: list });
+    if ('missing' in r) { missing.add(r.missing); for (const f of list) unclaimed.push(root ? `${root}/${f}` : f); } else groups.push({ runner: r.runner, cwd: root, files: list });
   }
   for (const [, c] of [...cargo].sort(([a], [b]) => a.localeCompare(b))) {
     const r = cargoRunner(c.name, ctx.env);
     if (r && 'runner' in r) { groups.push({ runner: r.runner, cwd: c.cwd, files: c.files }); continue; }
     if (r) missing.add(r.missing);
-    unclaimed.push(...c.files.map(f => (c.cwd ? `${c.cwd}/${f}` : f)));
+    for (const f of c.files) unclaimed.push(c.cwd ? `${c.cwd}/${f}` : f);
   }
   const language = (f: string) => (/\.py$/.test(f) ? 'py' : /\.[cm]?js$/.test(f) ? 'js' : /\.[cm]?[jt]sx?$/.test(f) ? 'ts' : f);
   const parts = !rest.length ? [] : detectRunner(ctx, rest) ? [rest] : [...Map.groupBy(rest, language).values()];
@@ -284,7 +284,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     const lacking = runner === PYTEST ? pytestMissing(ctx.repoRoot, ctx.env) : null;
     if (lacking) missing.add(lacking);
     if (runner && !lacking) for (const f of part) add(byRunner, runner, f);
-    else unclaimed.push(...part);
+    else for (const f of part) unclaimed.push(f);
   }
   for (const [runner, list] of byRunner) groups.push({ runner, cwd: '', files: list });
   for (const [root, list] of [...packages].sort(([a], [b]) => a.localeCompare(b))) groups.push({ runner: (pkgRunners.get(root) as { runner: string }).runner, cwd: root, files: list });
@@ -292,7 +292,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     const pm = packageManager(ctx.repoRoot, root);
     const bin = pm === 'npm' ? 'npx' : pm;
     if (onPath(bin, ctx.env)) groups.push({ runner: `${PM_EXEC[pm]} playwright test --reporter=list {files}`, cwd: root, files: list });
-    else { missing.add(bin); unclaimed.push(...list.map(f => (root ? `${root}/${f}` : f))); }
+    else { missing.add(bin); for (const f of list) unclaimed.push(root ? `${root}/${f}` : f); }
   }
   return { groups, unclaimed: [...unclaimed, ...noPubspec], missing: [...missing].sort(), noPubspec };
 }

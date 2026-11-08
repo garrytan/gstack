@@ -28,7 +28,7 @@ function run(ctx: PregateContext): CheckResult {
   const stale = results.filter(r => r.status === 'stale');
   const failed = results.filter(r => r.status === 'failed');
   const depsMissing = results.filter(r => r.status === 'deps-missing');
-  ctx.explain.push(...results.map(r => `regen ${r.id}: selected because touched ∩ (${selected.find(e => e.id === r.id)?.inputs.join(',') || 'always'} ∪ outputs) ≠ ∅`));
+  for (const r of results) ctx.explain.push(`regen ${r.id}: selected because touched ∩ (${selected.find(e => e.id === r.id)?.inputs.join(',') || 'always'} ∪ outputs) ≠ ∅`);
   if (depsMissing.length) return { id: 'regen', stage: 'preflight', status: 'incomplete', inputs, lines, code: 'REGEN_DEPS_MISSING', detail: `dependencies missing; ${depsMissing[0]!.fix} (${depsMissing.length} entr${depsMissing.length === 1 ? 'y' : 'ies'} unverified: ${depsMissing.map(d => d.id).join(', ')})`, fix: depsMissing[0]!.fix };
   if (failed.length) return { id: 'regen', stage: 'preflight', status: 'incomplete', inputs, lines, code: 'REGEN_COMMAND_FAILED', detail: `${failed.length} regen command(s) failed: ${failed.map(f => f.id).join(', ')}`, fix: failed.map(f => f.fix).join('; ') };
   if (stale.length) return { id: 'regen', stage: 'preflight', status: 'fail', inputs, lines, code: 'REGEN_STALE', detail: `${stale.length} stale: ${stale.flatMap(s => s.changed.concat(s.outside)).join(' ')}`, fix: stale.map(s => s.fix).join('; ') };

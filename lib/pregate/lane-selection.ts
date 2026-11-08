@@ -235,7 +235,7 @@ export function selectLanes(ctx: PregateContext): Selection {
   for (const [file, why] of seeds) {
     const m = testsFor(graph, file, ctx.config.dependencies);
     for (const t of m.tests) tests.add(t);
-    provenance.push(...m.provenance.map(p => `${p} [${why}]`));
+    for (const p of m.provenance) provenance.push(`${p} [${why}]`);
     if (m.tests.length || why.startsWith('generated')) continue;
     // An explicit `[]` already cleared the file. A removed test still runs its owning suite; label the rest docs/no-tests only when it is that class.
     if (m.declaredNone) {

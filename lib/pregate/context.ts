@@ -231,7 +231,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
     const head = headPolicy(o.repoRoot, configLoad, mergeBase, base, o.knownChecks ?? []);
     if ('loosens' in head) return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: head.loosens.join('; ') } };
     configLoad = head.load;
-    explain.push(...head.explain);
+    for (const line of head.explain) explain.push(line);
   }
   if (configLoad.errors.length) return { refused: { code: 'PREGATE_CONFIG_INVALID', message: `${configLoad.label}: ${configLoad.errors.map(e => `${e.message} at ${e.path}`).join('; ')}`, errors: configLoad.errors, ...(configLoad.kind === 'user' ? { fix: `edit ${o.userConfigPath} directly at each path the message names, then rerun gstack-pregate; it lives outside the repository, so a base-branch change does not reach it` } : {}) } };
   const registryLoad = o.policyFrom === 'head' ? loadRegistryFromHead(o.repoRoot) : loadRegistryFromBase(o.repoRoot, base);

@@ -363,7 +363,7 @@ function pythonImports(rel: string, source: string): string[] {
   const code = pythonCode(source).replace(/\\\r?\n/g, ' ');
   const out: string[] = [];
   for (const m of code.matchAll(PY_IMPORT)) {
-    if (m[3]) { out.push(...pyNames(m[3])); continue; }
+    if (m[3]) { for (const name of pyNames(m[3])) out.push(name); continue; }
     const base = pyFromBase(rel, m[1]!);
     if (base === null) continue;
     if (base) out.push(base);
@@ -534,7 +534,7 @@ export function testsFor(graph: Graph, file: string, declarations: Record<string
     const { node, chain } = queue.shift()!;
     if (chain.length > maxDepth) continue;
     const edges = [...(graph.reverse.get(node) ?? [])];
-    for (const dir of dirEdges) if (node.startsWith(dir.slice(0, -3) + '/')) edges.push(...(graph.reverse.get(dir) ?? []).map(e => ({ ...e, via: e.via })));
+    for (const dir of dirEdges) if (node.startsWith(dir.slice(0, -3) + '/')) for (const e of graph.reverse.get(dir) ?? []) edges.push({ ...e, via: e.via });
     for (const e of edges) {
       if (seen.has(e.from)) continue;
       seen.add(e.from);
@@ -545,7 +545,7 @@ export function testsFor(graph: Graph, file: string, declarations: Record<string
   if (graph.tests.has(file)) { tests.add(file); provenance.push(`${file} (itself a test)`); }
   const declaredNone = tests.size === 0 && Object.entries(declarations).some(([glob, list]) => list.length === 0 && matchesAny([glob], file));
   if (declaredNone) provenance.push(`${file}: declared no lane needed (.gstack/pregate.json dependencies)`);
-  if (tests.size === 0 && !declaredNone) provenance.push(...noLaneExplanation(graph, file));
+  if (tests.size === 0 && !declaredNone) for (const line of noLaneExplanation(graph, file)) provenance.push(line);
   return { file, tests: [...tests].sort(), provenance, declaredNone };
 }
 

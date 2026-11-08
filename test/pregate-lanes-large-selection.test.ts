@@ -36,4 +36,29 @@ describe.skipIf(process.platform === 'win32')('lanes check on a selection with a
     expect(lanes).toMatchObject({ status: 'incomplete', code: 'REPO_COMMANDS_NOT_ALLOWED', detail: `${TESTS} local test file(s) selected but not run (pass --allow-repo-commands)` });
     expect(loaded.ctx.explain.filter(l => l.endsWith('[touched]')).length).toBe(SEEDS * TESTS);
   }, 300_000);
+
+  test('testsFor appends >600k directory reverse edges without overflowing the argument stack', async () => {
+    const { testsFor } = await import('../lib/pregate/import-graph');
+    const N = 650_000;
+    const dir = 'skills/**';
+    const reverseEdges = Array.from({ length: N }, (_, i) => ({
+      from: `test/skill-${i}.test.ts`,
+      kind: 'path' as const,
+      via: dir,
+      line: 1,
+    }));
+    const graph = {
+      files: new Set<string>(['skills/ship/SKILL.md', ...reverseEdges.map(e => e.from)]),
+      tests: new Set<string>(reverseEdges.map(e => e.from)),
+      reverse: new Map([[dir, reverseEdges]]),
+      forward: new Map(),
+      noneDeclarations: new Map(),
+      uncoveredAllowed: new Set<string>(),
+      importTargets: new Map(),
+      pathRefs: new Map(),
+    };
+    const res = testsFor(graph as any, 'skills/ship/SKILL.md');
+    expect(res.tests.length).toBe(N);
+    expect(res.provenance.length).toBe(N);
+  });
 });
