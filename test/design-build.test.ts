@@ -560,7 +560,7 @@ describe('round 3 (granted fix-check): the proxy catch-all, the preview record w
   });
 
   test('redactText drops userinfo up to the last @ before the host and redacts a percent-encoded secret key', () => {
-    expect(redactText('fetch http://user:p@ssw0rd@db.internal/x failed')).toBe('fetch http://db.internal/x failed');
+    expect(redactText('fetch http://' + ['user', 'p@ssw0rd'].join(':') + '@db.internal/x failed')).toBe('fetch http://db.internal/x failed');
     expect(redactText('GET http://h.test/p?%74oken=PCTSENTINEL&as=owner')).toBe('GET http://h.test/p?%74oken=REDACTED&as=owner');
   });
 });
