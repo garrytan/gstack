@@ -6493,8 +6493,9 @@ here instead of printing `notes pushed`. Before this check, ready exited 0 and
 the land failed instead (#4245). Don't send the READY block.
 
 **Fix.** The `READY_RECEIPT:` line ends with the push's error. Fix what
-refused it, then run the `NEXT:` line, which is the same `ready` command. It
-keeps the first `ready_at`, follows a screen run already dispatched at the
+refused it, then run the `NEXT:` line, which is the same `ready` command
+without `--pregate`, `--gate-exit` or `--gate-log`: add back any of those you
+passed the first time. It keeps the first `ready_at`, follows a screen run already dispatched at the
 same merge SHA, and pushes the kept receipt. To see the raw error, run
 `git push origin refs/notes/gstack-trains:refs/notes/gstack-trains`.
 

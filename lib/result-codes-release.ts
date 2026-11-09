@@ -317,7 +317,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_READY_NOTE_UNPUSHED: {
     anchor: 'queue-ready-note-unpushed',
     summary: 'ready wrote its READY receipt locally, but after three tries origin does not hold the note on refs/notes/gstack-trains (the push failed, or it exited 0 and origin read back without the note), so land would refuse the pin; the head is not READY',
-    fix: 'read the push error on the READY_RECEIPT line, fix what refused it (credentials, a hook or rule on refs/notes/*, the network), then rerun the printed gstack-ship-queue ready command; it keeps ready_at and pushes the kept receipt',
+    fix: 'read the push error on the READY_RECEIPT line, fix what refused it (credentials, a hook or rule on refs/notes/*, the network), then rerun the printed gstack-ship-queue ready command, adding back any --pregate, --gate-exit or --gate-log you passed; it keeps ready_at and pushes the kept receipt',
   },
   QUEUE_SCREEN_RED: {
     anchor: 'queue-screen-red',
