@@ -171,7 +171,7 @@ describe('finish still refuses fix-check chains that do not read the fixes (GST-
     edit(f, { 'src/x.ts': 'export const x = 4;\n', 'test/x.test.ts': TEST_V2 }, 'a second fix in x');
     link(f, b.commit, CLEAN);
     const r = finish(f, reviewed, reviewedBase);
-    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).not.toContain('src/y.ts');
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toMatch(/^FIX_CHECK: not counted \(a finding on src\/y\.ts that no later clean fix-check's range touched; fix-check at [0-9a-f]{12}, link 2 of 3\)$/);
     expect([r.status, stopLine(r.stdout)], r.stdout).toEqual([3, expect.stringMatching(/^STOP: behavior, tests or build inputs changed since review \([^)]*src\/y\.ts/)]);
   });
 
@@ -186,8 +186,23 @@ describe('finish still refuses fix-check chains that do not read the fixes (GST-
     edit(f, { 'src/x.ts': 'export const x = 4;\n', 'test/x.test.ts': TEST_V2 }, 'a second fix in x');
     link(f, b.commit, CLEAN);
     const r = finish(f, reviewed, reviewedBase);
-    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).not.toContain('src/y.ts');
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toMatch(/^FIX_CHECK: not counted \(a finding on src\/y\.ts that no later clean fix-check's range touched; fix-check at [0-9a-f]{12}, link 2 of 3\)$/);
     expect([r.status, stopLine(r.stdout)], r.stdout).toEqual([3, expect.stringMatching(/^STOP: behavior, tests or build inputs changed since review \([^)]*src\/y\.ts/)]);
+  });
+
+  // Value: protects=an earlier link's finding counts as handled only when a later clean link's range touched its file: a CRITICAL
+  //   on a file the branch never changed, a doubled ./ spelling and a directory all refuse the chain; fails_when=a finding on a path
+  //   no routing candidate holds drops out and the chain counts; seam=finish's chain walk (cross-family trail read, GSTA-425)
+  test('a finding no later clean link read refuses the chain, even on a file the branch never changed', () => {
+    for (const p of ['src/y.ts', '././src/x.ts', 'src']) {
+      const { f, t, reviewed, reviewedBase } = reviewedShape();
+      edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+      const a = link(f, t, found(p));
+      edit(f, { 'src/x.ts': 'export const x = 4;\n', 'test/x.test.ts': TEST_V2 }, 'fix fix-check 1 findings');
+      link(f, a.commit, CLEAN);
+      const r = finish(f, reviewed, reviewedBase);
+      expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, expect.stringMatching(notCountedAt(a.commit))]);
+    }
   });
 
   // Value: protects=every link needs its own approved review_loop_grant, the link that found issues included; fails_when=a link
