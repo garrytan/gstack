@@ -68,11 +68,31 @@ export function loadRegistryAt(root: string, sha: string): RegistryInfo {
   return { sha: resolved, outputs: registry.entries.filter(x => x.command !== null).flatMap(x => x.outputs) };
 }
 
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+/**
+ * A patch header's path (the text after "--- " or "+++ ") without its a/ or b/ prefix. core.quotePath=false stops git
+ * escaping non-ASCII bytes, but a name holding a quote, a backslash or a control byte is still C-quoted in patch headers
+ * (-z does not change patch output), so a quoted name is decoded byte by byte: octal escapes, \" \\ \t and the rest. git
+ * adds a tab after an unquoted name holding a space (GST-1451).
+ */
+function headerPath(rest: string): string {
+  if (!rest.startsWith('"')) return rest.replace(/\t$/, '').slice(2);
+  const src = Buffer.from(rest, 'utf8');
+  const out: number[] = [];
+  for (let k = 1; k < src.length && src[k] !== 0x22; k++) {
+    if (src[k] !== 0x5c) { out.push(src[k]!); continue; }
+    const c = String.fromCharCode(src[++k] ?? 0);
+    if (/[0-7]/.test(c)) { out.push(parseInt(src.subarray(k, k + 3).toString('latin1'), 8) & 0xff); k += 2; }
+    else out.push(C_ESCAPES[c] ?? src[k]!);
+  }
+  return Buffer.from(out).toString('utf8').slice(2);
+}
+
 /** Numstat, deletions and the -U0 patch for `range` (`[mergeBase, head]` or `[mergeBase]` for the working tree). */
 function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Collected, 'perPath' | 'deleted' | 'stampOnly' | 'created' | 'added' | 'removed'> {
   const numstat = git(root, ['diff', '--numstat', '-z', '--no-renames', ...range]);
   const status = git(root, ['diff', '--name-status', '-z', '--no-renames', '--diff-filter=D', ...range]);
-  const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...range]);
+  const patch = git(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', ...range]);
   const empty = { perPath: [], deleted: [], stampOnly: [], created: [], added: {}, removed: {} };
   for (const [r, what] of [[numstat, '--numstat'], [status, '--name-status'], [patch, '-U0']] as const) {
     if (!r.ok) { errors.push({ code: 'numstat_failed', detail: oneLine(r.err || 'git diff failed'), input: `git diff ${what} ${range.join(' ')}`, repair: 'check that both commits exist locally (git fetch origin <base>) and rerun' }); return empty; }
@@ -95,8 +115,11 @@ function readDiff(root: string, range: string[], errors: DepthError[]): Pick<Col
   for (const line of patch.out.split('\n')) {
     if (line.startsWith('diff --git ')) { inHunk = false; cur = ''; minus = ''; continue; }
     if (!inHunk) {
-      if (line.startsWith('--- ')) minus = line === '--- /dev/null' ? '' : line.slice(6).replace(/\t$/, '');
-      else if (line.startsWith('+++ ')) { cur = line === '+++ /dev/null' ? minus : line.slice(6).replace(/\t$/, ''); if (!minus && cur && !scratch(cur)) created.push(cur); }
+      if (line.startsWith('--- ')) minus = line === '--- /dev/null' ? '' : headerPath(line.slice(4));
+      else if (line.startsWith('+++ ')) {
+        cur = line === '+++ /dev/null' ? minus : headerPath(line.slice(4));
+        if (cur && !scratch(cur)) { added[cur] ??= []; if (!minus) created.push(cur); }
+      }
       else if (line.startsWith('@@')) inHunk = true;
       continue;
     }
