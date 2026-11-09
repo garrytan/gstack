@@ -1797,10 +1797,12 @@ revision, and the trailer stays `gstack: ok` with the notes above: a gap
 above the minimum is never a hard fail. The verdict records the installed
 revision, so a lane that is behind reports it (`behind=` rides every report).
 
-**Fix.** When the lane needs the newer gstack (a `floor=` note, or a fix that
-landed upstream), clear the named cause and run the fix: `bin/gstack-upgrade`
-after the refusal is resolved, or the Capy skill installer again once the
-lease holder finishes. Below the supported minimum the bootstrapper fails
+**Fix.** A `behind=` of 1 or more calls for the newer gstack before the next
+workflow: clear the named cause, then run `bin/gstack-upgrade` after a refusal
+is resolved, or the Capy skill installer again once the lease holder finishes.
+While the cause is not yours to clear (another session's lease, an open /ship
+or review run), report the trailer and work on the certified revision until it
+clears. Below the supported minimum the bootstrapper fails
 `revision` instead (`REVISION_BELOW_MINIMUM`).
 
 <a id="pin-unreasoned"></a>
@@ -1815,8 +1817,8 @@ with no recorded reason. It checked out the default branch where needed and
 fast-forwarded. A dirty or diverged checkout is still never moved, and a live
 workflow lease, eval run or open /ship or review run still defers the upgrade
 (`UPGRADE_BUSY`). On
-`--check` the trailer carries `stale=<h>h` with the install as its fix; unlike a
-bare `behind=`, run that fix before the first workflow.
+`--check` the trailer carries `stale=<h>h` with the install as its fix; run that
+fix before the next workflow, as for any `behind=` of 1 or more.
 
 **Fix.** Nothing, when the pin was not deliberate. To keep a pin, record why:
 `GSTACK_PIN_REASON=<why>` in the session's environment, or
