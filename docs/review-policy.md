@@ -854,6 +854,9 @@ and a later reader agree on what was flagged:
 Outside PRs are rewritten from main rather than ported
 ([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
 carries a contributor's lines over unchanged, the commit that carries them credits them.
+Pass the contributor's PR commits as the range, fetched as a ref and never checked out
+(`git fetch origin pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`):
+the default range holds only the rewrite's own commits and finds no co-author.
 `gstack-coauthor-trailers [<range> | --base <ref>] [--message <file>]
 [--exclude <email>]...` lists every distinct author of the range's commits
 (default `origin/<base>..HEAD`) other than the checkout's own committer
@@ -1035,7 +1038,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 - `lib/review-collect.ts`: `collectCommit` (git objects only, from any checkout) and `collectLive` (the working tree), per-path lines and the base commit's registry (`test/review-collect.test.ts`).
 - `lib/review-scope.ts`, `bin/gstack-review-scope`: `classify`, `defer`, `render`, `summary` (with `fix_checks`, `dispatches`, `est_input_tokens`, `unrecorded`, `ledgers_read`); refusals are `REVIEW_SCOPE_INPUT`, `REVIEW_SCOPE_RANGE` and `REVIEW_SCOPE_LEDGER` ([troubleshooting.md](troubleshooting.md#review-scope-input)).
 - `lib/ship-policy.ts`: the `review_scope` key and its `ship: review_scope …` consequence line.
-- `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `crew/bin/gstack-coauthor-trailers` for the contributor-credit trailers of a port.
+- `review/checklist.md`: `prereg-with-results` under Gate Integrity and `test-keyboard-count-loop` under Pass 2; `crew/bin/gstack-coauthor-trailers` for the contributor-credit trailers of a rewrite.
 - `lib/ship-receipt-prose.ts`, `gstack-ship-receipt read --check-prose`: the body's quoted counters against the receipt (`RECEIPT_PROSE_MISMATCH`, [ship-policy.md](ship-policy.md#ship-receipt)).
 - `lib/ship-receipt.ts`, `lib/headless-artifacts.ts`: the `review_loop` receipt object, its schema and the summary line.
 - `lib/no-stop.ts`, `bin/gstack-no-stop`, `lib/autoplan-carry.ts`: the [no-stop defaults](#no-stop), their ledger and the autoplan re-gate (`test/no-stop.test.ts`, `test/autoplan-carry.test.ts`).

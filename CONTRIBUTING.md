@@ -952,16 +952,19 @@ The maintainer crew follows the same rule
    egress, credentials, new dependencies, CI permission changes and weakened or
    deleted tests. Never check it out, run it or build it. A fork's green checks
    prove nothing about this checkout.
-2. **Give a verdict within 7 days.** Within a week of the PR opening, record one of
-   these on it with the reason: a real bug we'll fix, a duplicate (link it), not a
-   bug, or out of scope. Closing a PR without landing a fix is a maintainer's call,
-   never a lane's.
+2. **Give a verdict within 7 days.** Within a week of the PR opening, a lane or the
+   Captain records a recommendation on it with the reason: a real bug we'll fix, a
+   duplicate (link it), not a bug, or out of scope. An agent posts it under its bot
+   identity. "Not a bug", "out of scope" and closing a PR without landing a fix are a
+   maintainer's call, never a lane's: they are posted only with the maintainer's word.
 3. **Rewrite the fix from current main.** The lane writes the change on its own branch
    with its own tests, the repo's gates and a CHANGELOG fragment. No contributor
    commit enters the tree. A commit that carries the contributor's lines over
-   unchanged gets a `Co-authored-by:` trailer for them
-   (`crew/bin/gstack-coauthor-trailers` prints it). Never guess an email: use the
-   identity on their commits.
+   unchanged gets a `Co-authored-by:` trailer for them. Fetch their PR head as a ref
+   without checking it out (`git fetch origin pull/<n>/head:refs/contrib/<n>`), then
+   `crew/bin/gstack-coauthor-trailers origin/main..refs/contrib/<n> --message <msgfile>`
+   prints it from their commits; its default range holds only your own commits and
+   finds no co-author. Never guess an email: use the identity on their commits.
 4. **Credit them in the fix.** The PR body names the original PR and its author in
    the first paragraph and says what differs from their diff. The CHANGELOG fragment
    thanks them by handle.
