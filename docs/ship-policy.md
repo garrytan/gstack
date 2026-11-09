@@ -1985,6 +1985,11 @@ and from then on names the base it was carried to. A parent that has not landed,
 since, or a parent that landed with changes the child never merged all leave a
 different diff and refuse with `RECEIPT_CARRY_PRODUCT_CHANGED`. An older
 receipt whose parent branch is gone refuses with `RECEIPT_CARRY_REFUSED`.
+Until the carry moves it, `ready`, `land --pin` and train build refuse a
+receipt whose `base` is not the queue's base with
+`QUEUE_RECEIPT_BASE_MISMATCH` (GST-2153): a child retargeted to the base while
+its parent is still open would otherwise land the parent's commits under a
+receipt that reviewed only the child.
 
 **Stacked PRs reviewed against the base (GST-1199).** A child PR that targets
 the base while stacked has a receipt whose `base` is the base and whose

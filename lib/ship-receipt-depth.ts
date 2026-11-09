@@ -500,7 +500,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
 export function bindShippedReceipt(root: string, baseRef: string, body: string, pr: string | undefined, accepted: readonly string[], merged = false):
   | { ok: true; receipt: ShipReceipt; head: string; line: string; depthLine: string; targetedLine: string }
   | { ok: false; code: ReceiptBindingCode | 'BASE_CONTAINS_HEAD' | 'QUEUE_RECEIPT_DEPTH_RAISED' | 'QUEUE_RECEIPT_EXCEPTION_INVALID' | 'RECEIPT_INVALID' | 'QUEUE_RECEIPT_TARGETED_MISSING' | Extract<Exclusion, { state: 'refused' }>['code']; message: string; line: string; depthLine?: string; targetedLine?: string } {
-  const b = bindReceipt(body, pr, accepted);
+  const b = bindReceipt(body, pr, accepted, merged ? {} : { base: baseRef });
   if (!b.ok) return b;
   const self = merged ? null : baseContainsHead(root, baseRef, b.head);
   if (self) return { ok: false, code: 'BASE_CONTAINS_HEAD', message: self, line: b.line };
