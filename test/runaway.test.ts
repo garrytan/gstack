@@ -350,9 +350,9 @@ describe('/runaway-stopper skill', () => {
   });
   test('the fetch program marks standing threads, and only a standing thread with no open PR is rotated', () => {
     expect(skill).toContain('content: JSON.stringify({ ...doc, events, standing: standing.includes(doc.code) })');
-    expect(skill).toContain('| `FLAG: ROTATE` | A standing thread with no open PR: Step 3. |');
+    expect(skill).toContain('| `FLAG: ROTATE` | A standing thread: Step 3. |');
     expect(skill).toContain('| `FLAG: CHECK_IN` |');
-    expect(skill).toContain('no open PR (R91)');
+    expect(skill).toContain('Open or unknown PRs block rotation\n(R91)');
   });
   test('rotation stops or lists live subagents, the successor subscribes to open PRs, and archiving waits for it', () => {
     expect(skill).toContain('stop your working and waiting subagents, or list each with its run');
