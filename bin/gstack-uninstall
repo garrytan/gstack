@@ -10,9 +10,10 @@
 #                                   that have uncommitted changes
 #
 # Per-project state: git-tracked files under .gstack/ (ship policy and the
-# like) are never deleted; only the files git ignores go. A worktree under
-# .gstack-worktrees/ with uncommitted changes stops the uninstall (exit 2,
-# before anything is removed) unless --force-worktrees is given.
+# like) are never deleted; only the files git ignores go. A checkout under
+# .gstack-worktrees/ with uncommitted changes, commits no branch or tag holds,
+# or a status git cannot read stops the uninstall (exit 2, before anything is
+# removed) unless --force-worktrees is given.
 #
 # State: only the default root ~/.gstack/ is ever deleted. A state root
 # selected elsewhere (GSTACK_HOME, GSTACK_STATE_ROOT, GSTACK_STATE_DIR or
@@ -139,27 +140,33 @@ if [ "$KEEP_STATE" -eq 0 ] && [ -e "$RESOLVED_ROOT" ]; then
   fi
 fi
 # ─── Per-project worktree safety ─────────────────────────────
-# Registered worktrees under .gstack-worktrees/; git's own list, so a plain
-# directory there never makes git walk up and report the parent repository.
+# Every checkout on disk under .gstack-worktrees/ (any folder holding a .git),
+# registered or not, so a moved repo or a stale registration never hides one.
 _project_worktrees() {
-  local _base _wt
-  _base="$(_real "$_GIT_ROOT/.gstack-worktrees")"
-  [ -n "$_base" ] || return 0
-  git -C "$_GIT_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r _wt; do
-    case "$(_real "$_wt")/" in "$_base"/*) printf '%s\n' "$_wt" ;; esac
+  [ -d "$_GIT_ROOT/.gstack-worktrees" ] || return 0
+  find "$_GIT_ROOT/.gstack-worktrees" -mindepth 1 -name .git -prune -print 2>/dev/null | while IFS= read -r _git; do
+    dirname -- "$_git"
   done
+}
+# Prints why deleting checkout $1 would lose work; prints nothing when it is safe.
+_worktree_risk() {
+  local _status _head
+  _status="$(git -C "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "git cannot read its status"; return 0; }
+  [ -z "$_status" ] || { echo "it has uncommitted changes"; return 0; }
+  _head="$(git -C "$1" rev-parse -q --verify HEAD 2>/dev/null)" || return 0
+  [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
 }
 if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
   _DIRTY_WORKTREES=0
   while IFS= read -r _WT; do
     [ -n "$_WT" ] || continue
-    if ! _WT_STATUS="$(git -C "$_WT" status --porcelain 2>/dev/null)" || [ -n "$_WT_STATUS" ]; then
-      echo "gstack-uninstall: refusing to delete $_WT: it has uncommitted changes" >&2
-      _DIRTY_WORKTREES=1
-    fi
+    _WT_RISK="$(_worktree_risk "$_WT")"
+    [ -n "$_WT_RISK" ] || continue
+    echo "gstack-uninstall: refusing to delete $_WT: $_WT_RISK" >&2
+    _DIRTY_WORKTREES=1
   done < <(_project_worktrees)
   if [ "$_DIRTY_WORKTREES" -eq 1 ]; then
-    echo "fix: commit or stash the changes, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete them anyway" >&2
+    echo "fix: commit the work to a branch or stash it, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete them anyway" >&2
     exit 2
   fi
 fi
@@ -527,9 +534,13 @@ fi
 # loses only what git ignores; dirty worktrees were refused above unless
 # --force-worktrees was given.
 _remove_project_dir() {
-  local _dir="$_GIT_ROOT/$1"
+  local _dir="$_GIT_ROOT/$1" _tracked
   [ -d "$_dir" ] || return 0
-  if [ -z "$(git -C "$_GIT_ROOT" ls-files -- "$1" 2>/dev/null | head -n 1)" ]; then
+  if ! _tracked="$(git -C "$_GIT_ROOT" ls-files -- "$1" 2>/dev/null)"; then
+    echo "kept $_dir/: git could not list its tracked files" >&2
+    return 0
+  fi
+  if [ -z "$_tracked" ]; then
     rm -rf "$_dir"
     REMOVED+=("$_dir/")
     return 0

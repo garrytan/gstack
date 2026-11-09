@@ -694,6 +694,35 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(git(['worktree', 'list', '--porcelain'])).not.toContain('lane-1');
   });
 
+  test('status.showUntrackedFiles=no does not hide a new file in a worktree', () => {
+    addWorktree(true);
+    git(['config', 'status.showUntrackedFiles', 'no']);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has uncommitted changes`);
+    expect(fs.existsSync(path.join(repo, worktree, 'wip.txt'))).toBe(true);
+  });
+
+  test('a dirty worktree still stops the uninstall after the repo is moved', () => {
+    addWorktree(true);
+    const moved = path.join(tmp, 'moved');
+    fs.renameSync(repo, moved);
+    repo = moved;
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(moved, worktree)}: git cannot read its status`);
+    expect(fs.readFileSync(path.join(moved, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+  });
+
+  test('a clean worktree holding a commit no branch contains stops the uninstall', () => {
+    addWorktree(false);
+    git(['commit', '-q', '--allow-empty', '-m', 'wip'], path.join(repo, worktree));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has commits no branch or tag contains`);
+    expect(fs.existsSync(path.join(repo, worktree))).toBe(true);
+  });
+
   test('hold: a plain uninstall still removes untracked .gstack state and clean worktrees entirely', () => {
     fs.writeFileSync(path.join(repo, '.gstack', 'browse.json'), '{}\n');
     fs.mkdirSync(path.join(repo, '.gstack', 'reports'), { recursive: true });
