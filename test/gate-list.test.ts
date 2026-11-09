@@ -250,3 +250,32 @@ describe('bin/gstack-gate', () => {
     expect(pending.every(r => r.status === 'pending')).toBe(true);
   });
 });
+
+describe('the /autoplan Phase 4 gate as documented (#4181)', () => {
+  // Value: protects=the gate /autoplan tells the agent to write renders, and the documented plan-approval replies parse, through bin/gstack-gate;
+  //   fails_when=the template names a gate item id or reply token outside the gate grammar; why_new=the grammar cases build their own lists; seam=none
+  test('the template\'s plan-approval item renders and each documented reply for it parses to its option', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
+    const write_ = /Write `\$_AP\/gate\.json`.*?gstack-gate render/.exec(tmpl)?.[0] ?? '';
+    const item = /and `([^`]+)` \(approval: (a\) .*? e\) \w+)\)/.exec(write_);
+    expect(item).not.toBeNull();
+    const id = item![1]!;
+    const parts = item![2]!.split(/(?:^| )([a-e])\) /).slice(1);
+    const options = parts.flatMap((key, i) => (i % 2 ? [] : [{ key, text: parts[i + 1]! }]));
+    expect(options.map(o => o.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const gate: GateList = { schema_version: 1, run: 'autoplan-4181', gate_rev: 1, items: [
+      { id: 'uc1', title: 'User challenge', options: ab, recommended: 'a', kind: 'approval' },
+      { id: 'd1', title: 'Taste decision', options: ab, recommended: 'a', kind: 'auto' },
+      { id, title: 'Plan approval', options, recommended: 'a', kind: 'approval' },
+    ] };
+    const file = write('gate.json', gate);
+    const parseText = /Parse the reply:.*?SESSION_KIND/.exec(tmpl)?.[0] ?? '';
+    const replies = [...parseText.matchAll(/`([a-z0-9]+)`/g)].map(m => m[1]!).filter(t => t.startsWith(id) && t.length === id.length + 1);
+    expect(replies.map(t => t.slice(-1))).toEqual(['a', 'c', 'd', 'e']);
+
+    const calls = [['render', file], ...replies.map(reply => ['parse', file, '--reply', reply, '--gate-rev', '1', '--json'])];
+    const results = calls.map(args => { const r = run(args); return { args: args.filter(a => a !== file).join(' '), code: r.code, err: r.err, out: r.out }; });
+    expect(results.map(({ args, code, err }) => ({ args, code, err }))).toEqual(results.map(({ args }) => ({ args, code: EXIT.ok, err: '' })));
+    expect(results.slice(1).map(r => chosen(JSON.parse(r.out))[id])).toEqual(['a', 'c', 'd', 'e']);
+  });
+});
