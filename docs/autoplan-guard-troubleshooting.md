@@ -69,7 +69,7 @@ journal's directory is the same folder as the project, spelled differently.
 `unrecognized_shape:compaction_unreachable` means records after a Claude Code
 compaction hang from a compact boundary whose logical parent loops back
 instead of reaching the session root, in a layout gstack does not read yet
-(Claude Code 2.1.300's preserved segment is read). Earlier gstack versions
+(the preserved segments of Claude Code 2.1.300 and 2.1.317 are read). Earlier gstack versions
 dropped those records and denied the next phase with `close_incomplete`.
 Please report the detail and version.
 
