@@ -46,7 +46,8 @@ export interface DocsOnlyResult { docsOnly: boolean; files: string[]; refusals: 
  */
 export const DOCS_READER_TESTS: readonly { tree: RegExp; tests: readonly string[] }[] = [
   { tree: /^docs\//, tests: ['test/docs-config-keys.test.ts'] },
-  { tree: /./, tests: ['test/bun-entry-isolation.test.ts', 'test/gitattributes-eol.test.ts', 'test/ci-paid-coordination.test.ts', 'test/review-packets-removed.test.ts', 'test/state-root-ratchet.test.ts'] },
+  { tree: /^(?:docs\/|README\.md$)/, tests: ['test/no-stale-gstack-brain-refs.test.ts'] },
+  { tree: /./, tests: ['test/bun-entry-isolation.test.ts', 'test/gitattributes-eol.test.ts', 'test/ci-paid-coordination.test.ts', 'test/review-packets-removed.test.ts', 'test/state-root-ratchet.test.ts', 'test/codex-web-search-flag.test.ts'] },
 ];
 /** Repo-wide listers that never read an allowlisted doc, with the reason. */
 export const DOCS_READER_EXEMPT: Readonly<Record<string, string>> = {

@@ -1485,7 +1485,10 @@ owed (`CI_CARRY: accepted ci-carry tree=… not_owed=docs-only`), but only when 
 also calls the head docs-only. Without that check, the run is never evidence (`artifact_missing`).
 
 **Land.** `land.docs_only_skip` in `.gstack/ship-policy.json` names the `merged_checks` commands land
-skips for a docs-only pin. gstack skips the test list and keeps typecheck and the freshness check.
+skips for a docs-only pin, such as the test list, keeping typecheck and the freshness check. Land keeps every
+check when a non-docs file on the base tip names a changed doc, because the pin merges onto that tip. A gstack
+release older than this change refuses the key as unknown, so main's policy adds it only with `min_gstack_version`
+raised to the first release that reads it; until then land runs every merged check on a docs-only pin.
 
 ## Owner-granted flaky exception
 

@@ -190,6 +190,11 @@ jobs:
           bun-version: 1.4.2
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: Configure git identity (docs reader tests init temp repos)
+        run: |
+          git config --global user.email "free-tests-ci@gstack.test"
+          git config --global user.name "Free Tests CI"
+          git config --global init.defaultBranch main
       - name: Links on the lines this pull request added resolve
         run: git diff --name-only -z --diff-filter=AMR HEAD^1 HEAD -- '*.md' | xargs -0 -r bun run scripts/check-doc-links.ts --base HEAD^1
       - name: Run the tests that read docs by directory

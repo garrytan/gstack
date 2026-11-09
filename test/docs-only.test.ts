@@ -187,7 +187,7 @@ test('every test that reads docs by directory or lists every tracked file is reg
 });
 
 describe('land and pregate use the same class', () => {
-  test('land skips only the declared commands, and only for a docs-only pin', () => {
+  test('land skips only the declared commands, only for a docs-only pin, and never when the base it lands on gained a reader of a changed doc', () => {
     const land = { merged_checks: ['typecheck', 'tests'], docs_only_skip: ['tests'] };
     put('docs/guide.md', 'land prose\n');
     git('commit', '-qam', 'docs pin');
@@ -195,8 +195,16 @@ describe('land and pregate use the same class', () => {
     put('lib/x.ts', 'export const y = 1;\n');
     git('commit', '-qam', 'code pin');
     const codePin = git('rev-parse', 'HEAD').trim();
+    const branch = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
+    git('checkout', '-q', '--detach', 'seed');
+    put('test/reads-guide.test.ts', "export const doc = 'docs/guide.md';\n");
+    git('add', '-A');
+    git('commit', '-qm', 'base gains a reader');
+    const readerTip = git('rev-parse', 'HEAD').trim();
+    git('checkout', '-q', branch);
     try {
       expect(mergedChecksFor(repo, land, 'seed', docsPin)).toEqual(['typecheck']);
+      expect(mergedChecksFor(repo, land, readerTip, docsPin)).toEqual(['typecheck', 'tests']);
       expect(mergedChecksFor(repo, land, 'seed', codePin)).toEqual(['typecheck', 'tests']);
       expect(mergedChecksFor(repo, land, 'nope', docsPin)).toEqual(['typecheck', 'tests']);
       expect(mergedChecksFor(repo, { merged_checks: ['tests'] }, 'seed', docsPin)).toEqual(['tests']);
