@@ -11,11 +11,12 @@
  * stable reason. Applied patterns become `:(top,exclude,glob)` pathspecs on every reader,
  * and kept files under them come back through a second `:(top,literal)` command, because a
  * git exclude beats any positive pathspec. That second command is bounded by its argument
- * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES is not applied.
+ * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it is not applied.
  *
- * A file kept only for a secret line (no other reason, under an applied pattern, gate scan and consumer scan both read) is
- * also listed in `excerpt`: pass readers get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead
- * of the whole file, and readSelection counts only that excerpt.
+ * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
+ * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
+ * get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead of the whole file, readSelection counts
+ * only that excerpt, and no reader's command names it, so it does not count toward the bound (GST-1967).
  *
  * readSelection reads one reader's diff once, with a timeout, and counts its bytes;
  * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES and
@@ -28,16 +29,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
-import { secretPath } from './review-risk';
+import { scan } from './redact-engine';
+import { shannonEntropy } from './redact-patterns';
+import { KEY_NAME, SECRET_LINE, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
-import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
 
 /** The most diff bytes one reader is handed (about 500K tokens); above it the pass stops instead of truncating. */
 export const REVIEW_DIFF_MAX_BYTES = 2_000_000;
-/** The most argument bytes the kept-file command may carry across all applied patterns (under Windows' 32,767-character command line). */
+/** The most argument bytes one git command, or the kept-file command a reader runs, may carry (under Windows' 32,767-character command line). */
 export const KEEP_ARG_MAX_BYTES = 24_000;
 /** How long one reader's `git diff` may run. */
 export const REVIEW_DIFF_TIMEOUT_MS = 120_000;
@@ -81,6 +83,24 @@ export interface ExcludeInput {
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/** Every credential name on a line: SECRET_LINE, and a key name given a value (`OPENAI_API_KEY=`, `"GH_TOKEN": `). */
+const SECRET_NAMES = [...SECRET_LINE, new RegExp(String.raw`\b${KEY_NAME}['"]?\s*[=:]`)].map(r => new RegExp(r.source, `${r.flags}g`));
+/** A variable reference (`$X`, `${X}`): a name, never a value. */
+const VARIABLE_REFERENCE = /\$\{?[A-Za-z_]\w*\}?/g;
+/** An unprefixed credential-shaped run (base64, base64url, a random token): 20+ characters mixing upper case, lower case and digits. */
+const VALUE_TOKEN = /[A-Za-z0-9+/_=-]{20,}/g;
+const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').matchAll(VALUE_TOKEN)].some(([t]) => /[A-Z]/.test(t) && /[a-z]/.test(t) && /\d/.test(t) && shannonEntropy(t) >= 3.5);
+/**
+ * Whether one changed line of excludable content holds a credential value, so its file is kept (GST-1967): it names a
+ * credential, and the credential scan (the secrets check, with #4157's env-read rule) finds a secret anywhere on the line,
+ * or a credential-shaped run follows a name within 200 characters. A line that only names one (`${OPENAI_API_KEY}`,
+ * `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
+ */
+export function secretValueLine(p: string, line: string): boolean {
+  const ends = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => m.index + m[0].length));
+  return ends.length > 0 && (ends.some(e => valueToken(line.slice(e, e + 200))) || scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW'));
+}
 /** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
 export const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
 /** A recorded selection's list hash (applied patterns, excluded files, kept files with their reasons) when its digest is built from it; null otherwise. */
@@ -88,12 +108,12 @@ export const recordedList = (r: Partial<Pick<ExcludeRecord, 'patterns_sha256' | 
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
-/** `paths` in order, split so each chunk's literal pathspecs stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
-function argChunks(paths: readonly string[]): string[][] {
+/** `paths` in order, split so each chunk's literal pathspecs (`size` bytes each) stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
+function argChunks(paths: readonly string[], size = (p: string) => argBytes([p])): string[][] {
   const chunks: string[][] = [];
   let bytes = Infinity;
   for (const p of paths) {
-    const n = argBytes([p]);
+    const n = size(p);
     if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
     chunks[chunks.length - 1]!.push(p);
     bytes += n;
@@ -262,7 +282,7 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
   if (isAgentProse(p)) return 'agent-prose';
   if (isDataConfig(p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
-  if ((i.added[p] ?? []).some(secretLine)) return 'secret-line';
+  if ((i.added[p] ?? []).some(l => secretValueLine(p, l))) return 'secret-line';
   return null;
 }
 
@@ -355,6 +375,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
     else if (named.has(p)) reasons.set(p, 'named-by-code');
   }
+  const excerptable = new Set(i.gateTagged === null || named === null ? [] : secretOnly.filter(p => !named.has(p)));
   const applied: string[] = [];
   const skipped: ExcludeRecord['skipped'] = [];
   const keep = new Set<string>();
@@ -362,13 +383,13 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
     const hit = sel.byPattern.get(p) ?? [];
     if (!hit.some(f => reasons.get(f) === null)) continue;
     const kept = hit.filter(f => reasons.get(f) !== null);
-    const bytes = argBytes(new Set([...keep, ...kept]));
+    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !excerptable.has(f)));
     if (bytes > KEEP_ARG_MAX_BYTES) { skipped.push({ pattern: p, kept: kept.length, bytes }); continue; }
     applied.push(p);
     for (const f of kept) keep.add(f);
   }
   const excluded = new Set(applied.flatMap(p => (sel.byPattern.get(p) ?? []).filter(f => reasons.get(f) === null)));
-  const excerpt = i.gateTagged === null || named === null ? [] : secretOnly.filter(p => keep.has(p) && !named.has(p)).sort();
+  const excerpt = [...excerptable].filter(p => keep.has(p)).sort();
   const keptList = [...reasons].filter(([, r]) => r !== null).map(([p, r]) => ({ path: p, reason: r! })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const sortedExcluded = [...excluded].sort();
   const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0 };
@@ -406,7 +427,7 @@ export function excludeLines(x: Exclusion, base: string): string[] {
   const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${skipped}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
   if (x.kept.length > 20) out.push(`REVIEW_EXCLUDE_KEPT: +${x.kept.length - 20} more (gstack-review-plan --json lists every kept file)`);
-  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files (DIFF_KEEP still lists them whole)`);
+  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files, and DIFF_KEEP leaves them out`);
   for (const ref of x.references) out.push(`REVIEW_EXCLUDE_REFERENCE: ${ref.prefix} is named by ${ref.files.slice(0, 3).join(', ')}${ref.files.length > 3 ? ` (+${ref.files.length - 3} more)` : ''}; the files stay excluded, so readers see that code without the files it reads (REVIEW_EXCLUDE_REFERENCE)`);
   return out;
 }
@@ -441,24 +462,30 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
 
 /**
  * One reader's selection read once: `git diff <base> [-- pathspecs]`, then the kept-file command, with its bytes per top
- * directory. `excerpt` files (ActiveExclusion.excerpt) are read with `git diff --text` and count as their secret-line
+ * directory. The kept and excerpt files are read in git calls of at most KEEP_ARG_MAX_BYTES of pathspecs each, so however many
+ * there are no command passes Windows' limit. `excerpt` files (ActiveExclusion.excerpt) are read with `git diff --text` and count as their secret-line
  * excerpt, appended to `text` and returned as `excerpt`; a file the excerpt could not be built for counts whole, its
  * section joins `text` and its item is listed in `whole` for the caller's keep command.
  */
 export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], excerpt: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS): ReaderDiff {
   let text = '';
-  let ex: ReturnType<typeof excerptOf> | undefined;
-  const reads: Array<[readonly string[], string[]]> = [[pathspecs, []], ...(keep.length ? [[keep, []] as [readonly string[], string[]]] : []),
-    ...(excerpt.length ? [[excerpt, ['--text', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/']] as [readonly string[], string[]]] : [])];
+  let raw = '';
+  let full = false;
+  const size = (s: string) => Buffer.byteLength(shellQuote(s)) + 1;
+  const textFlags = ['--text', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
+  const reads: Array<[readonly string[], string[]]> = [[pathspecs, []], ...argChunks(keep, size).map(c => [c, []] as [readonly string[], string[]]),
+    ...argChunks(excerpt, size).map(c => [c, textFlags] as [readonly string[], string[]])];
   for (const [specs, flags] of reads) {
     const tail = specs.length ? (specs[0] === '--' ? specs : ['--', ...specs]) : [];
     const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', ...flags, diffBase, ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
     const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ENOBUFS') { text += r.stdout ?? ''; break; }
+    if (code === 'ENOBUFS') { text += raw + (r.stdout ?? ''); full = true; break; }
     if (code === 'ETIMEDOUT' || (r.signal && r.status === null)) return { ok: false, reason: 'timeout', exit: null, stderr: r.stderr ?? '', timeoutMs };
     if (r.status !== 0) return { ok: false, reason: 'git-exit', exit: r.status, stderr: r.stderr ?? '', timeoutMs };
-    if (flags.length) { ex = excerptOf(r.stdout, specs); text += ex.wholeText; } else text += r.stdout;
+    if (flags.length) raw += r.stdout; else text += r.stdout;
   }
+  const ex = excerpt.length && !full ? excerptOf(raw, excerpt) : undefined;
+  if (ex) text += ex.wholeText;
   const byDir = new Map<string, number>();
   const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); };
   const starts = [...text.matchAll(/^diff --git a\/(\S+)/gm)];

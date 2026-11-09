@@ -18,6 +18,8 @@ import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './he
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+/** A credential-shaped base64 value (no known key prefix) for the lines that must keep their file: a name alone keeps nothing (GST-1967). */
+const VALUE = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
 const SPEC = ':(top,exclude,glob)docs/benchmarks/**';
 const QUOTED = "'" + SPEC + "'";
 
@@ -29,7 +31,7 @@ function fixture() {
   const files: Record<string, string> = { 'lib/ship-queue-x.ts': Array.from({ length: 260 }, (_, i) => 'export const f' + i + ' = (a: number) => a + ' + i + ';').join('\n') + '\n' };
   for (let k = 0; k < 6; k++) files['docs/benchmarks/r/t' + k + '.json'] = ('{"x": "' + 'y'.repeat(200) + '"}\n').repeat(2000);
   for (let k = 0; k < 2; k++) files['docs/benchmarks/r/cap' + k + '.json'] = Array.from({ length: 400 }, (_, n) => n % 100 === 7
-    ? '  "system": "Read ${OPENAI_API_KEY_F' + k + '_L' + n + '} from the environment and never print it.",'
+    ? '  "system": "Read ${OPENAI_API_KEY_F' + k + '_L' + n + '} (value ' + VALUE + ') from the environment and never print it.",'
     : '  "line' + n + '": "' + 'x'.repeat(40) + '",').join('\n') + '\n';
   commit(repo, files);
   const mb = repo.git('merge-base', 'origin/main', 'HEAD');

@@ -1445,7 +1445,7 @@ Everything else stays in every reader's diff with one reason code:
 | `config` | it is a data-shaped config file (`package.json`, `tsconfig*.json`, `config/`, dotfiles, `scripts/harness-pins/`) |
 | `gate-tagged` | the gate scan tagged one of its hunks |
 | `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
-| `secret-line` | an added line reads a credential (the targeted pass's secret rule); for a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary). When this is the only reason, pass readers get an excerpt, not the whole file ([secret-line excerpts](#secret-line-excerpts)) |
+| `secret-line` | an added line names a credential (the targeted pass's secret rule, or a key name given a value such as `OPENAI_API_KEY=`) and carries a value: the credential scan finds a secret on the line, or a run of 20 or more base64 or token characters mixing upper case, lower case and digits follows a name within 200 characters. A line that only names a variable or a credential store (`${OPENAI_API_KEY}`, `$GH_TOKEN`, `process.env.X`, `os.environ["X"]`, a keychain command) keeps nothing (GST-1967: harness-evals #333's captured prompts kept 2,610 files that way). For a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary). When this is the only reason, pass readers get an excerpt, not the whole file ([secret-line excerpts](#secret-line-excerpts)) |
 | `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read |
 | `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
@@ -1471,7 +1471,10 @@ kept files under an applied pattern come back through a second command,
 brief names. That command is bounded by its argument bytes (24,000 across all
 patterns, under Windows' command-line limit): a pattern whose kept files would
 pass the bound is not applied, and the plan line says so as
-`skipped=<pattern>:kept=<n>:bytes=<b>`. Every brief also gets one line:
+`skipped=<pattern>:kept=<n>:bytes=<b>`. Files that reach readers as
+[secret-line excerpts](#secret-line-excerpts) are not on that command, so they
+do not count toward the bound, and gstack reads them in git calls of at most
+24,000 argument bytes each (GST-1967). Every brief also gets one line:
 `Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
 on this branch matching <patterns>. They are not in your diff; do not report on
 their absence.`
@@ -1479,7 +1482,7 @@ their absence.`
 <a id="secret-line-excerpts"></a>
 **Secret-line excerpts (GST-1447).** A kept file whose only reason is
 `secret-line` (under an applied pattern, not named by code, with the gate scan
-and the name scan both read) still appears whole in `DIFF_KEEP:`, but
+and the name scan both read) is left out of `DIFF_KEEP:`, and
 `gstack-review-dispatch pass` gives its readers an excerpt instead: every changed
 line the secret-line rule matches or the credential scanner finds a secret-shaped
 value on, with up to 3 lines of context, the path and the match counts. A line
