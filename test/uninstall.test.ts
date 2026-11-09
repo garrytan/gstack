@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -825,6 +825,132 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(r.status).toBe(2);
     expect(r.stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has commits no branch or tag contains`);
     expect(fs.existsSync(path.join(repo, worktree))).toBe(true);
+  });
+
+  test('a symlink inside .gstack-worktrees to a repo outside is only unlinked by --force --force-worktrees', () => {
+    const outside = path.join(tmp, 'outside');
+    fs.mkdirSync(outside);
+    git(['init', '-q', '-b', 'main'], outside);
+    fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep\n');
+    fs.mkdirSync(path.join(repo, '.gstack-worktrees', 'run-1'), { recursive: true });
+    fs.symlinkSync(outside, path.join(repo, '.gstack-worktrees', 'run-1', 'lane'));
+    const r = uninstall(['--force', '--force-worktrees']);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+    expect(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf-8')).toBe('keep\n');
+    expect(fs.existsSync(path.join(outside, '.git', 'HEAD'))).toBe(true);
+  });
+
+  test('a dirty worktree nested inside a clean lane stops the uninstall and keeps its edit', () => {
+    addWorktree(false);
+    const inner = path.join(repo, worktree, '.gstack-worktrees', 'run-2', 'inner');
+    git(['worktree', 'add', '-q', '--detach', inner, 'HEAD'], path.join(repo, worktree));
+    fs.writeFileSync(path.join(inner, 'README.md'), 'unsaved edit\n');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${inner}: it has uncommitted changes`);
+    expect(fs.readFileSync(path.join(inner, 'README.md'), 'utf-8')).toBe('unsaved edit\n');
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
+  });
+
+  test('a clean worktree nested inside a clean lane is removed with its registration', () => {
+    addWorktree(false);
+    const inner = path.join(repo, worktree, '.gstack-worktrees', 'run-2', 'inner');
+    git(['worktree', 'add', '-q', '--detach', inner, 'HEAD'], path.join(repo, worktree));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+    expect(git(['worktree', 'list', '--porcelain'])).not.toContain('.gstack-worktrees');
+  });
+
+  test('an initialized submodule inside a clean lane does not stop the uninstall', () => {
+    const lib = path.join(tmp, 'lib');
+    fs.mkdirSync(lib);
+    git(['init', '-q', '-b', 'main'], lib);
+    fs.writeFileSync(path.join(lib, 'lib.txt'), 'lib\n');
+    git(['add', 'lib.txt'], lib);
+    git(['commit', '-q', '-m', 'lib'], lib);
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'vendor/lib']);
+    git(['commit', '-q', '-m', 'submodule']);
+    addWorktree(false);
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'update', '-q', '--init'], path.join(repo, worktree));
+    expect(fs.existsSync(path.join(repo, worktree, 'vendor', 'lib', '.git'))).toBe(true);
+    const r = uninstall(['--force']);
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+  });
+
+  for (const flags of [['--force'], ['--force', '--force-worktrees']]) {
+    test(`a locked worktree stops ${flags.join(' ')} and is kept with its registration`, () => {
+      addWorktree(false);
+      git(['worktree', 'lock', '--reason', 'on a USB disk', worktree]);
+      const r = uninstall(flags);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it is locked`);
+      expect(r.stderr).toMatch(/^fix: .*git worktree unlock/m);
+      expect(fs.existsSync(path.join(repo, worktree, 'README.md'))).toBe(true);
+      expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${path.join(repo, worktree)}\n`);
+    });
+  }
+
+  test('a .gstack that is its own git repo is kept, with the reason, when the project tracks nothing there', () => {
+    git(['init', '-q', '-b', 'main'], path.join(repo, '.gstack'));
+    fs.writeFileSync(path.join(repo, '.gstack', 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], path.join(repo, '.gstack'));
+    git(['commit', '-q', '-m', 'unpushed notes'], path.join(repo, '.gstack'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain(`kept ${repo}/.gstack/: it holds its own git repository`);
+    expect(git(['log', '--format=%s'], path.join(repo, '.gstack'))).toBe('unpushed notes\n');
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(false);
+  });
+
+  test('a worktree edited while the prompt waits is kept: the check runs again before deleting', async () => {
+    addWorktree(false);
+    const child = spawn('bash', [UNINSTALL], {
+      cwd: repo, timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...gitEnv, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'),
+        GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    let stdout = '', stderr = '';
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.stdout.on('data', (d) => {
+      stdout += d;
+      if (stdout.includes('Continue? [y/N]') && !child.stdin.writableEnded) {
+        fs.writeFileSync(path.join(repo, worktree, 'wip.txt'), 'typed during the prompt\n');
+        child.stdin.end('y\n');
+      }
+    });
+    const status = await new Promise<number | null>((resolve) => child.on('close', resolve));
+    expect(status).toBe(2);
+    expect(stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has uncommitted changes`);
+    expect(stderr).toContain(`kept ${repo}/.gstack-worktrees/`);
+    expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('typed during the prompt\n');
+  });
+
+  test('the manual per-project cleanup in docs/uninstall.md keeps dirty and nested worktrees and tracked policy', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'uninstall.md'), 'utf-8');
+    const start = doc.indexOf('# 7. Per-project cleanup');
+    expect(start).toBeGreaterThan(-1);
+    const block = doc.slice(start, doc.indexOf('\n```', start));
+    trackPolicyAndAddBrowseState();
+    addWorktree(true);
+    const lane = path.join(repo, '.gstack-worktrees', 'run-1', 'lane-2');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD']);
+    const inner = path.join(lane, '.gstack-worktrees', 'run-2', 'inner');
+    git(['worktree', 'add', '-q', '--detach', inner, 'HEAD'], lane);
+    fs.writeFileSync(path.join(inner, 'README.md'), 'unsaved edit\n');
+    const clean = path.join(repo, '.gstack-worktrees', 'run-3', 'lane');
+    git(['worktree', 'add', '-q', '--detach', clean, 'HEAD']);
+    const r = spawnSync('bash', ['-c', block], { cwd: repo, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+    expect(fs.readFileSync(path.join(inner, 'README.md'), 'utf-8')).toBe('unsaved edit\n');
+    expect(fs.existsSync(clean)).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'ship-policy.json'))).toBe(true);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(false);
   });
 
   test('hold: a plain uninstall still removes untracked .gstack state and clean worktrees entirely', () => {
