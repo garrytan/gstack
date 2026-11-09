@@ -123,8 +123,6 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
   if (!paged) return { green: false, why: 'cannot read its check runs', pending: false };
   const pages = (Array.isArray(paged) ? paged : [paged]) as Array<{ check_runs?: CheckRun[] }>;
   const runs = pages.flatMap(p => p.check_runs ?? []);
-  const head = headCheckRows(gh, repo, sha);
-  if ('error' in head) return { green: false, why: 'cannot read its check runs', pending: false };
   let via = backstop;
   for (const name of [required, backstop]) {
     const named = runs.filter(c => c.name === name);
@@ -137,6 +135,8 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
     if (named.length === 0) return { green: false, why: `no ${name} check run`, pending: false };
     return { green: false, why: `${name} concluded ${named.map(c => c.conclusion).join(',')}`, pending: false };
   }
+  const head = headCheckRows(gh, repo, sha);
+  if ('error' in head) return { green: false, why: 'cannot read its check runs', pending: false };
   const red = [...runs.filter(c => c.status === 'completed' && RED.has(c.conclusion ?? '')).map(c => c.name), ...head.rows.filter(r => bucketClass(r.bucket) === 'fail').map(r => r.name)];
   if (red.length > 0) return { green: false, why: `red check runs: ${[...new Set(red)].join(', ')}`, pending: false };
   const running = [...runs.filter(c => c.status !== 'completed').map(c => c.name), ...head.rows.filter(r => r.bucket === 'pending').map(r => r.name)];
