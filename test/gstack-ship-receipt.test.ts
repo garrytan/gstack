@@ -800,6 +800,8 @@ describe('gstack-ship-receipt census (P7)', () => {
     expect(noCohort.adoption).toBe('2/3 (threads seen; no cohort file)');
     const publicForm = prs.map(p => ({ ...p, body: publicReceiptText(p.body).text }));
     expect(computeCensus('o/r', '2026-10-01', publicForm, ['jam_1', 'jam_2', 'jam_3']).adoption).toBe('1/3 (cohort)');
+    const mixed = computeCensus('o/r', '2026-10-01', [...prs, ...publicForm.map(p => ({ ...p, number: p.number + 100 }))], null);
+    expect(mixed).toMatchObject({ runs: ['run-a', 'run-b', 'run-c'], threads: ['jam_1', 'jam_2', 'jam_4'], consumed_threads: ['jam_1', 'jam_4'], adoption: '2/3 (threads seen; no cohort file)', unattended_prs: 2, consumed_prs: 2 });
   });
 
   test('census --repo --since reads merged PRs through gh and prints the CENSUS line', () => {

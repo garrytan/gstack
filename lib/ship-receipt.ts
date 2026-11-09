@@ -510,16 +510,16 @@ function consumedCount(value: string | undefined): number {
 
 /** Merged PRs → the adoption number: receipts deduplicated by run id and thread id, against the cohort when given. */
 export function computeCensus(repo: string, since: string, prs: CensusPr[], cohort: string[] | null): Census {
-  const runs = new Set<string>();
-  const threads = new Set<string>();
-  const consumedThreads = new Set<string>();
+  const key = (id: string) => /^anon-[0-9a-f]{12}$/.test(id) ? id : anon(id);
+  const runs = new Map<string, string>();
+  const threads = new Map<string, string>();
+  const consumedThreads = new Map<string, string>();
   const byKind: Record<string, number> = {};
   const rows: Census['prs'] = [];
   let withReceipt = 0;
   let invalid = 0;
   let unattended = 0;
   let consumed = 0;
-  const seenRuns = new Set<string>();
   for (const pr of prs) {
     const ex = extractReceipt(pr.body ?? '');
     if (!ex.found) continue;
@@ -529,17 +529,17 @@ export function computeCensus(repo: string, since: string, prs: CensusPr[], coho
     rows.push({ number: pr.number, session_kind: r.session_kind ?? null, artifacts_consumed: r.artifacts_consumed ?? null, run: r.run ?? null, thread: r.thread ?? null, valid: true });
     const kind = r.session_kind ?? 'unknown';
     byKind[kind] = (byKind[kind] ?? 0) + 1;
-    if (r.run && seenRuns.has(r.run)) continue;
-    if (r.run) { seenRuns.add(r.run); runs.add(r.run); }
-    if (r.thread) threads.add(r.thread);
+    if (r.run && runs.has(key(r.run))) continue;
+    if (r.run) runs.set(key(r.run), r.run);
+    if (r.thread && !threads.has(key(r.thread))) threads.set(key(r.thread), r.thread);
     if (kind === 'unattended') unattended += 1;
-    if (consumedCount(r.artifacts_consumed) > 0) { consumed += 1; if (r.thread) consumedThreads.add(r.thread); }
+    if (consumedCount(r.artifacts_consumed) > 0) { consumed += 1; if (r.thread && !consumedThreads.has(key(r.thread))) consumedThreads.set(key(r.thread), r.thread); }
   }
-  const cohortConsumed = cohort ? cohort.filter(t => consumedThreads.has(t) || consumedThreads.has(anon(t))).length : consumedThreads.size;
+  const cohortConsumed = cohort ? cohort.filter(t => consumedThreads.has(key(t))).length : consumedThreads.size;
   const denominator = cohort ? cohort.length : threads.size;
   return {
     repo, since, merged_prs: prs.length, with_receipt: withReceipt, invalid_receipts: invalid, unattended_prs: unattended, consumed_prs: consumed,
-    runs: [...runs], threads: [...threads], consumed_threads: [...consumedThreads], cohort, cohort_consumed: cohortConsumed,
+    runs: [...runs.values()], threads: [...threads.values()], consumed_threads: [...consumedThreads.values()], cohort, cohort_consumed: cohortConsumed,
     adoption: `${cohortConsumed}/${denominator}${cohort ? ' (cohort)' : ' (threads seen; no cohort file)'}`, durable: 'yes', by_session_kind: byKind, prs: rows,
   };
 }

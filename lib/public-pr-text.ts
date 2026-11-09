@@ -40,8 +40,6 @@ export function readRepoVisibility(run: VisibilityRunner, o: { explicit?: RepoVi
   try { return norm(String(JSON.parse(gl.stdout).visibility ?? "")) ?? "unknown"; } catch { return "unknown"; }
 }
 
-const TOKEN = /[^\s`'"()[\]<>,;=]+/g;
-const ESCAPE = /\\[ntr]/;
 const JAM_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}/g;
 const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/[^\s"'`<>)\]]+/g;
 const BADGE = /<a href="https:\/\/capy\.ai\/thread\/jam_[A-Za-z0-9]+"><picture>(?:(?!<\/a>)[\s\S]){0,800}?capy\.ai\/badge\/(?:(?!<\/a>)[\s\S]){0,800}?<\/picture><\/a>/g;
@@ -53,46 +51,67 @@ const COSTS = [
   /\b(?:[A-Za-z]+_)*(?:usd|cost|costs|credits|tokens|spend)"?\s*[:=]\s*"?[$€£]?\d/gi,
 ];
 
-/**
- * Whether one token names a home directory. Only an absolute token can: one that starts with
- * /, \\, a drive letter and a slash, or ~. It does when a segment is home or Users (users in
- * any case after a drive letter) with another segment after it, or it starts with /root/.
- * ~user/… always names a user; ~/… only when it points into gstack or Capy state or scratch
- * (.gstack…, .capy…, tmp, scratch), so a generic install path like ~/.claude/skills stays.
- */
-function isHomePath(token: string): boolean {
-  if (token.startsWith("~")) {
-    if (/^~[A-Za-z_][\w.-]*\//.test(token)) return true;
-    const first = /^~[\\/]([^\\/]*)/.exec(token)?.[1];
-    return first !== undefined && (/^\.(?:gstack|capy)/.test(first) || first === "tmp" || first === "scratch");
-  }
-  const drive = /^[A-Za-z]:[\\/]/.test(token);
-  if (!drive && !/^[\\/]/.test(token)) return false;
-  if (token.startsWith("/root/")) return true;
-  const segs = token.split(/[\\/]+/).filter(Boolean);
-  return segs.some((s, i) => i + 1 < segs.length && (s === "home" || s === "Users" || (drive && s.toLowerCase() === "users")));
-}
+const PATH_CHAR = /[A-Za-z0-9._\-+~/\\]/;
+const SEGMENT = "[^\\s\\\\/`'\"()[\\]<>,;=*|:]";
+const HOME_DIR = new RegExp(`(?<=[\\\\/])(home|root|[Uu][Ss][Ee][Rr][Ss])[\\\\/]+(?=${SEGMENT})`, "g");
+const TILDE = new RegExp(`~(?:[A-Za-z_][\\w.-]*[\\\\/]|[\\\\/](?:\\.gstack|\\.capy|(?:tmp|scratch)(?!${SEGMENT})))`, "g");
 
 /**
- * Where the home paths in text are. Text splits into tokens on whitespace and ` ' " ( ) [ ] < > , ; =;
- * a leading diff - or + is not part of a token. A token that is not a home path as a whole is
- * read again in the pieces its literal \\n, \\t and \\r escapes separate (raw JSON, a pasted log),
- * so an escape never hides a path and a Windows user name that starts with n, t or r still counts.
+ * Where the home paths in text are, as [start, end) spans. The detector anchors on the pattern itself
+ * wherever it sits: a home, Users or root folder followed by a user segment, ~user/, or ~/ into gstack or
+ * Capy state or scratch (.gstack…, .capy…, tmp, scratch), so a generic install path like ~/.claude/skills
+ * stays. Whether the path is absolute is read by looking back from the match over path characters
+ * (letters, digits, . _ - + ~ / \\) to where the path starts: it is relative only when that start is a
+ * letter, digit, ., _ or ~ (src/home/x, ./home/x, ~/x/home/y), and a URL's own path (scheme://host/home/x)
+ * is skipped, except file://. Users in any case counts only right after a drive letter (C:\\users\\x), and
+ * root only as the path's first folder. The look-back runs twice, once reading a literal \\n, \\t or \\r as
+ * an escape that ends the previous text (raw JSON, a pasted log) and once not (a Windows folder named
+ * new); either reading being absolute counts. Run starts are computed in one pass, so the scan is linear.
  */
 function homeSpans(text: string): Array<[number, number]> {
-  const spans: Array<[number, number]> = [];
-  const check = (piece: string, at: number) => {
-    const lead = /^[-+]/.test(piece) ? 1 : 0;
-    if (!isHomePath(piece.slice(lead))) return false;
-    spans.push([at + lead, at + piece.length]);
-    return true;
-  };
-  for (const m of text.matchAll(TOKEN)) {
-    if (check(m[0], m.index!)) continue;
-    let at = m.index!;
-    for (const piece of m[0].split(ESCAPE)) { check(piece, at); at += piece.length + 2; }
+  const n = text.length;
+  const plain = new Int32Array(n);
+  const escaped = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (!PATH_CHAR.test(text[i]!)) { plain[i] = escaped[i] = -1; continue; }
+    plain[i] = i > 0 && plain[i - 1]! >= 0 ? plain[i - 1]! : i;
+    const escapeEnd = i > 1 && text[i - 2] === "\\" && "ntr".includes(text[i - 1]!) && text[i - 3] !== "\\";
+    escaped[i] = i > 0 && escaped[i - 1]! >= 0 && !escapeEnd ? escaped[i - 1]! : i;
   }
-  return spans;
+  const pathEnd = (at: number) => {
+    let e = at;
+    while (e < n && PATH_CHAR.test(text[e]!)) e++;
+    return e;
+  };
+  const absoluteFrom = (rs: number, slash: number, name: string): number | undefined => {
+    if (/^[\\/]{2}/.test(text.slice(rs, rs + 2)) && text[rs] === "/" && text[rs - 1] === ":") {
+      const scheme = /[A-Za-z][A-Za-z0-9+.-]*$/.exec(text.slice(Math.max(0, rs - 32), rs - 1))?.[0];
+      if (scheme !== undefined) return scheme.toLowerCase() === "file" ? rs : undefined;
+    }
+    if (!/[\\/\-+]/.test(text[rs]!)) return undefined;
+    const drive = text[rs - 1] === ":" && /[A-Za-z]/.test(text[rs - 2] ?? "") && !/[A-Za-z0-9]/.test(text[rs - 3] ?? "");
+    if (name === "root" && rs !== slash) return undefined;
+    if (name !== "home" && name !== "root" && name !== "Users" && !drive) return undefined;
+    return drive ? rs - 2 : rs;
+  };
+  const spans: Array<[number, number]> = [];
+  for (const m of text.matchAll(HOME_DIR)) {
+    const name = m[1]!;
+    let slash = m.index! - 1;
+    while (slash > 0 && plain[slash - 1]! >= 0 && /[\\/]/.test(text[slash - 1]!)) slash--;
+    if (name === "root" && !(slash === 0 || plain[slash - 1]! < 0)) continue;
+    const at = [plain[slash]!, escaped[slash]!].map(rs => absoluteFrom(rs, slash, name)).find(a => a !== undefined);
+    if (at === undefined) continue;
+    const lead = /[-+]/.test(text[at]!) ? 1 : 0;
+    spans.push([at + lead, pathEnd(m.index!)]);
+  }
+  for (const m of text.matchAll(TILDE)) {
+    const at = m.index!;
+    const before = escaped[at] === at ? "" : text[at - 1]!;
+    if (/[A-Za-z0-9._~/\\]/.test(before)) continue;
+    spans.push([at, pathEnd(at)]);
+  }
+  return spans.sort((a, b) => a[0] - b[0]);
 }
 
 function ranges(text: string, re: RegExp): Array<[number, number]> {
@@ -109,10 +128,12 @@ function codeRanges(text: string): Array<[number, number]> {
 
 function located(text: string, hits: Array<{ rule: PublicRule; at: number }>): PublicFinding[] {
   const seen = new Set<string>();
+  let line = 1;
+  let lineStart = 0;
+  let scanned = 0;
   return hits.sort((a, b) => a.at - b.at).flatMap(h => {
-    const before = text.slice(0, h.at);
-    const line = before.split("\n").length;
-    const f = { rule: h.rule, line, col: h.at - before.lastIndexOf("\n") };
+    for (; scanned < h.at; scanned++) if (text[scanned] === "\n") { line++; lineStart = scanned + 1; }
+    const f = { rule: h.rule, line, col: h.at - lineStart + 1 };
     const key = `${f.rule}:${f.line}:${f.col}`;
     if (seen.has(key)) return [];
     seen.add(key);
@@ -178,7 +199,7 @@ function publicValue(v: unknown, key: string, depth: number, changed: Set<string
 const RECEIPT_BLOCK = /(```gstack-ship-receipt[ \t]*\r?\n)([\s\S]*?)(\r?\n```)/g;
 const RUNS_BLOCK = /(```gstack-receipt-runs[ \t]*\r?\n)([\s\S]*?)(\r?\n```)/g;
 const MACHINE_LINE = /^([ \t]*(?:[-*+][ \t]+|\d+\.[ \t]+)?`?)([A-Z][A-Z0-9_]+:)(.*)$/gm;
-const SPEND_PAIR = /[ \t]*\b[\w.-]*(?:usd|cost|credits|tokens|spend|used)=[^\s`]*/gi;
+const SPEND_PAIR = /[ \t]*\b(?:[\w.-]*[_.-])?(?:usd|costs?|credits?|tokens?|spend|used)=[^\s`]*/gi;
 const DOLLARS = /[ \t]*\$\s?\d[\d,]*(?:\.\d+)?/g;
 
 /**
@@ -187,8 +208,8 @@ const DOLLARS = /[ \t]*\$\s?\d[\d,]*(?:\.\d+)?/g;
  * become an opaque `anon-<sha256 prefix>` id (deduplication still works, the jam id or thread
  * code is gone), and home paths in any string are cut to their file name and jam ids hashed. A
  * result line led by an ALL_CAPS label (`REVIEW_LOOP:`, `BUDGET_FINAL:`, `CI_CARRY:`, after an
- * optional bullet or backtick) drops each key=value whose key ends in usd, cost, credits, tokens,
- * spend or used and each $ amount, and gets the same path and id scrub. A block that is
+ * optional bullet or backtick) drops each key=value whose key is, or ends in _ . or - and, usd, cost,
+ * credits, tokens, spend or used (so refused= and reused= stay) and each $ amount, and gets the same path and id scrub. A block that is
  * unchanged, or not JSON, keeps its bytes; privateDetails still reads whatever stays.
  */
 export function publicReceiptText(text: string): { text: string; changed: string[] } {

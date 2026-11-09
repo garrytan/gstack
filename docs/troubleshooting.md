@@ -3084,23 +3084,27 @@ such as `## Original description`, if it should stay) and post it with
 **Meaning.** The repository is public, or gstack-post could not read its
 visibility and treats it as public (GST-1955). On such a repository a PR title,
 body or comment never names a home path or a Capy jam id or `capy.ai/thread/…`
-link other than the platform's own badge. gstack-post reads the text as tokens
-(split on whitespace, quotes, brackets, `,`, `;`, `=` and the literal `\n`,
-`\t` and `\r` escapes of raw JSON, with a diff line's leading `-` or `+`
-dropped). A token is a home path when it is absolute and has a `home` or
-`Users` folder with another folder after it (`/home/<user>/…`,
-`/var/home/<user>`, `/mnt/c/Users/<user>/…`, `C:\Users\<user>\…`), starts
-with `/root/`, names a user (`~user/…`), or is a `~/` path into gstack or Capy
-state or scratch (`~/.gstack…`, `~/.capy…`, `~/tmp`, `~/scratch`). Relative
-paths such as `app/users/show.ts`, routes such as `/api/users/42` and install
-paths such as `~/.claude/skills/gstack` pass. Before scanning, gstack-post
+link other than the platform's own badge. gstack-post looks for the path
+pattern itself wherever it sits in the text, glued to `file://`, `user@host:`,
+`**`, `key:` or a raw-JSON `\n` included: a `home` or `Users` folder with
+another folder after it (`/home/<user>/…`, `/var/home/<user>`,
+`/mnt/c/Users/<user>/…`, `C:\Users\<user>\…`, `\\host\Users\<user>`), a
+path that starts with `/root/`, a user's tilde (`~user/…`), or a `~/` path into
+gstack or Capy state or scratch (`~/.gstack…`, `~/.capy…`, `~/tmp`,
+`~/scratch`). It then looks back from the match to where the path starts: a
+path that starts with a letter, digit, `.`, `_` or `~` is relative and passes
+(`src/pages/home/index.tsx`, `./home/x`), and so does a web URL's own path
+(`https://host/home/x`). Relative paths such as `app/users/show.ts`, routes
+such as `/api/users/42` and install paths such as `~/.claude/skills/gstack`
+pass. Before scanning, gstack-post
 puts what machines wrote in its public form and prints `PUBLIC_FORM: machine
 text rewritten …`: the receipt blocks lose every cost, credits or token field,
 `run` and `thread` become an opaque `anon-<12 hex>` id, and home paths are
 cut to the file name; a result line led by an ALL_CAPS label (`REVIEW_LOOP:`,
-`BUDGET_FINAL:`, `CI_CARRY:`) drops each `key=value` whose key ends in usd,
-cost, credits, tokens, spend or used and each `$` amount, with the same path
-and id scrub. A home path or Capy id left in the prose refuses the whole post,
+`BUDGET_FINAL:`, `CI_CARRY:`) drops each `key=value` whose key is usd, cost,
+credits, tokens, spend or used, or ends in one after `_`, `.` or `-`
+(`refused=` and `reused=` stay), and each `$` amount, with the same path and
+id scrub. A home path or Capy id left in the prose refuses the whole post,
 exit 1, and nothing is sent. Each line names the rule, the line in the text
 gstack-post would send (for `pr-body` the merged body, so a kept section can be
 the source) and the part, never the value. A cost, credits or token figure in

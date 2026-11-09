@@ -308,6 +308,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/gstack-ship-receipt.test.ts',
     reason: 'spawns bin/gstack-ship-receipt and bin/gstack-artifact (shebangs) plus a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts',
   },
+  {
+    file: 'test/ship-receipt-carry-public.test.ts',
+    reason: 'spawns bin/gstack-ship-receipt carry through test/helpers/restamp-fixture.ts with an extensionless #!/bin/sh gh shim on a colon-joined PATH, which windows-latest never runs, so carry reaches no stub gh and every case exits 1, the private one included (windows-scoped-shard, run 42544239075); like test/gstack-ship-receipt.test.ts. The public-form rule it guards runs on Windows in test/gstack-post-public-text.test.ts',
+  },
   // Field list 2, W1 (shared merge queue): same fixture helpers, same shebang spawns.
   {
     file: 'test/gstack-ship-queue.test.ts',

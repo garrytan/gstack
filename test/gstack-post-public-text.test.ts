@@ -133,6 +133,13 @@ describe("public repo: the receipt goes out in its public form", () => {
     expect(f.sent()).not.toContain("est_input_tokens");
   });
 
+  test("a result line keeps refused=, reused= and unused= and drops only cost and token keys", () => {
+    const line = "PREGATE: refused=1 reused=2 unused=0 used=5 credits=9 spend_usd=1.2 est_input_tokens=3 run=42544239075";
+    const f = fakeEnv({ files: { "/b": body(CLEAN + "\n\n" + line) }, ghVisibility: "PUBLIC" });
+    expect(run(["pr-body", "4180", "--body-file", "/b", "--replace"], f)).toBe(EXIT.posted);
+    expect(f.sent()).toContain("PREGATE: refused=1 reused=2 unused=0 run=42544239075");
+  });
+
   test("visibility that cannot be read uses the public form (fail closed)", () => {
     const f = fakeEnv({ files: { "/b": body(CLEAN) } });
     expect(run(["pr-body", "3964", "--body-file", "/b", "--replace"], f)).toBe(EXIT.posted);
@@ -198,6 +205,25 @@ describe("public repo: any other private detail refuses the post", () => {
     refuses("Windows user nina: C:\\Users\\nina\\x.json, lowercase C:\\users\\nina\\y", "public.home_path");
   });
 
+  test("home paths glued to a prefix: file://, user@host:, bold, key: and a JSON escape (fix-check #1 on f8d0139)", () => {
+    refuses("Open file:///Users/garry/x in a browser.", "public.home_path");
+    refuses("Copied to garry@box:/home/garry/x first.", "public.home_path");
+    refuses("The log is **/home/garry/x** now.", "public.home_path");
+    refuses("cwd:/home/garry/x", "public.home_path");
+    refuses("path:~/.gstack/x", "public.home_path");
+    refuses("ssh box:~garry/x", "public.home_path");
+    refuses('{"log":"boom\\nC:\\\\Users\\\\nina\\\\x.json"}', "public.home_path");
+    refuses('{"log":"boom\\n~/.capy/work/x"}', "public.home_path");
+    refuses("UNC share: \\\\box\\Users\\garry\\x", "public.home_path");
+  });
+
+  test("the detector stays linear on a big body full of candidates", () => {
+    const big = "/home/garry/x and src/home/y\n".repeat(20000) + "/".repeat(200000) + "home/x\n" + "a\\n".repeat(100000);
+    const t0 = performance.now();
+    expect(privateDetails(big).length).toBe(20001);
+    expect(performance.now() - t0).toBeLessThan(2000);
+  });
+
   test("Capy ids: a bare jam id, one inside a URL, a thread link that is not the badge", () => {
     refuses(`Thread ${JAM} found it.`, "public.capy_id");
     refuses(`See https://capy.ai/thread/${JAM} for the run.`, "public.capy_id");
@@ -245,6 +271,8 @@ describe("public repo: ordinary prose still posts", () => {
       "Use `awk '{print $2}'` and `$1` in the hook.",
       "Fixes GST-1955; see bin/gstack-post and lib/redact-engine.ts.",
       "Changed src/pages/home/index.tsx, app/users/show.ts and home/x; the route is GET /api/users/42.",
+      "Also **src/home/index.ts**, ./home/x, ../Users/x, (docs/home/a.md) and src\\tests\\home\\x.",
+      "Links: https://example.com/home/garry/x and http://host/Users/me/y.",
       "Install lives at ~/.claude/skills/gstack.",
       "Docs: https://github.com/garrytan/gstack/blob/main/docs/home/index.md",
       "No secrets, no costs. ~~struck~~ text.",
