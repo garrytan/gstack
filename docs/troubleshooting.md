@@ -5694,9 +5694,10 @@ release, so a PR carries only its `changelog.d` fragment. Nothing was merged.
 `git checkout $(git merge-base origin/main HEAD) -- VERSION CHANGELOG.md`
 (and sets the `package.json` version back by hand when it's named), keeps or
 adds the fragment with the entry text, and commits. That commit changes only
-release metadata, so the PR's /ship receipt carries to it: run
-`gstack-ship-receipt carry --pr <n> --base main`, then
-`gstack-ship-queue ready --pr <n> --no-screen` at the new head. A base merge
+release metadata, so the PR's /ship receipt carries to it: commit and push, run
+`gstack-pregate --allow-repo-commands` at the new head, then
+`gstack-ship-receipt carry --pr <n> --base main --pregate .gstack/tmp/pregate.json`,
+then `gstack-ship-queue ready --pr <n> --no-screen` at the new head. A base merge
 before the commit carries the same way; resolve VERSION and CHANGELOG.md
 conflicts to the base's files, and in `package.json` take only the base's
 `"version"` value and keep the PR's other changes. Run a fresh /ship only when
