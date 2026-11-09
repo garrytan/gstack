@@ -968,9 +968,10 @@ sets the defaults that keep it from coming back.
 
 - **Detect.** One program fetches each crew thread (`tools.thread.get`, with its transcript) to files, then
   `gstack-runaway scan --dir <dir>` prints a `RUNAWAY:` line per thread and a `FLAG:` line per limit crossed:
-  own tokens past 500M or active past 3 days (rotate), a subagent past 100M (stop), empty wakes past 25% of the
+  own tokens past 500M or active past 3 days (rotate, for a standing thread that wakes on every event; a crew
+  thread keeps its PR until it merges or closes and checks in with its Captain once past 1B), a subagent past 100M (stop), empty wakes past 25% of the
   last 40 turns (warm-wait check-ins are left out), and review rounds past 2 per PR. Captains are reported, never rotated.
-- **Stop.** A live subagent past 100M is stopped with its reason. A thread is rotated at a clean point through
+- **Stop.** A live subagent past 100M is stopped with its reason. A standing thread is rotated at a clean point through
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
 - **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per

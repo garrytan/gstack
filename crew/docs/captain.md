@@ -190,6 +190,16 @@ cheap:
   per-PR figure in the controller's rules), where the lane stops and asks whether the PR
   is still worth it. Spend is the
   thread's credit meter, never a token count.
+- **Keep the PR to the end.** A lane keeps its PR until it merges or closes and hands
+  off only at that boundary, never mid-PR on a token count. When its own tokens pass 1
+  billion (about $330), it checks in with the controller once, then carries on unless
+  told otherwise. Standing threads that wake on every event (merge lanes, watchers, an
+  automation's standing thread) still rotate at 500M own tokens or 3 days, and subagent
+  limits stay as they are: look at any subagent past 100M, and never reuse one across PRs
+  ([/runaway-stopper](../../runaway-stopper/SKILL.md)). Why: every handoff wakes the
+  controller, whose tokens cost about 1.7 times a lane's, and handoffs are where orphaned
+  PRs came from. One PR went through four threads in eight hours (about 103k credits) on
+  per-thread token stops and was still a draft.
 
 ## New threads join the crew
 
@@ -212,6 +222,13 @@ the work's issue.
 
 Why: a crew thread once created a thread in another project directly. That thread ran
 outside every crew, so no Captain briefed it, tracked it or could archive it.
+
+**Finish before starting.** The Captain starts no new fix thread in a repository while
+more than 10 finished PRs (green, reviewed, waiting only to merge) sit in that
+repository's queue. It merges or closes them first, closing only as landed, superseded or
+dropped ([No orphaned work](#no-orphaned-work)). Severe hotfixes are exempt: security, data
+loss, a red main or a broken install. Why: a finished PR that waits goes stale and
+conflicting, and each new fix thread adds to a queue nobody is clearing.
 
 ## No orphaned work
 
