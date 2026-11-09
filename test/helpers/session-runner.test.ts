@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseNDJSON } from './session-runner';
+import { browseNavigatedTo, parseNDJSON } from './session-runner';
+import captured_scrape_goto from '../fixtures/scrape-prototype-goto-42571575838.json';
 
 test('runSkillTest launches a child without operator credentials', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hermetic-session-'));
@@ -254,5 +255,31 @@ describe('parseNDJSON', () => {
     expect(parsed.toolCalls.map(call => call.output)).toEqual(['Parent review verdict', 'Child file content']);
     expect(parsed.toolCallCount).toBe(2);
     expect(parsed.turnCount).toBe(2);
+  });
+});
+
+describe('browseNavigatedTo', () => {
+  const trials = captured_scrape_goto.trials.map(trial => ({
+    url: `file://${trial.cwd}/fixture.html`,
+    calls: parseNDJSON(trial.events.map(event => JSON.stringify(event))).toolCalls,
+  }));
+  const bash = (command: string, output: string) => [{ tool: 'Bash', input: { command }, output }];
+
+  test('credits every captured scrape-prototype-path goto file://$PWD/fixture.html (run 42571575838)', () => {
+    expect(trials).toHaveLength(3);
+    for (const { url, calls } of trials) {
+      expect(calls.some(call => String(call.input.command).includes(url))).toBe(false);
+      expect(browseNavigatedTo(calls, url)).toBe(true);
+    }
+  });
+
+  test('a different file, an echoed URL, another path or a failed navigation is not credited', () => {
+    const { url, calls } = trials[0]!;
+    expect(browseNavigatedTo(calls, url.replace('fixture.html', 'other.html'))).toBe(false);
+    expect(browseNavigatedTo(bash(`echo "${url}"`, url), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`echo "Navigated to ${url} (200)"`, `Navigated to ${url} (200)`), url)).toBe(false);
+    expect(browseNavigatedTo(bash('$B goto file:///tmp/elsewhere/fixture.html', 'Navigated to file:///tmp/elsewhere/fixture.html (200)'), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`$B goto ${url}`, `Error: page.goto: net::ERR_FILE_NOT_FOUND at ${url}`), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`$B goto ${url}`, `Navigated to ${url} (404)`), url)).toBe(false);
   });
 });

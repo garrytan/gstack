@@ -3,7 +3,7 @@
  * sweeps tests. These checks prove the prompts carry the contract; the paid
  * cases in test/skill-e2e-test-value.test.ts carry the behavior claim.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -16,7 +16,7 @@ import {
   NO_CLAIM_EXAMPLES, VALUE_CARD_FIELDS, VALUE_CARD_OPTIONAL_FIELD,
   WEAK_REASONS, clampCardField, generateTestValueBar, renderValueCard, type TestValueBarMode,
 } from '../scripts/resolvers/test-value';
-import { recordsNonTestCallerSearch } from './helpers/test-value-fixture';
+import { createShipCoverageValueFixture, recordsNonTestCallerSearch, weakGapCovers } from './helpers/test-value-fixture';
 import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -297,3 +297,28 @@ describe('docs and registration', () => {
     });
   });
 }
+
+describe('ship-coverage-value weak_gaps grader', () => {
+  // Run 42571575838, codex-sol gate arm, t1: the ★-only refund path as a bare file:line row.
+  const captured = { path: 'src/billing.ts:11', existing_test: 'test/billing.test.ts:16', reason: 'star_one' };
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-coverage-value-'));
+  createShipCoverageValueFixture(cwd);
+  const covers = (gap: unknown) => weakGapCovers(gap, cwd, /refund/i);
+
+  test('a star_one row inside refundPayment with its smoke test counts, as does a row naming refund', () => {
+    expect(/refund/i.test(JSON.stringify(captured))).toBe(false);
+    expect(covers(captured)).toBe(true);
+    expect(covers({ path: 'src/billing.ts:refundPayment', existing_test: 'test/billing.test.ts', reason: 'star_one' })).toBe(true);
+  });
+
+  test('processPayment rows, other reasons, empty rows and the processPayment test do not count', () => {
+    expect(covers({ ...captured, path: 'src/billing.ts:4' })).toBe(false);
+    expect(covers({ ...captured, reason: 'gate_failed' })).toBe(false);
+    expect([].some(covers)).toBe(false);
+    expect(covers({})).toBe(false);
+    expect(covers({ ...captured, existing_test: 'test/billing.test.ts:6' })).toBe(false);
+    expect(covers({ ...captured, path: 'src/billing.ts:40' })).toBe(false);
+  });
+
+  afterAll(() => fs.rmSync(cwd, { recursive: true, force: true }));
+});
