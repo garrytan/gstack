@@ -680,12 +680,13 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     return [...new Set(problems)];
   }
 
-  test('it fits the 3,475-byte budget, and every citation, heading and skill it names resolves', () => {
+  test('it fits the 3,650-byte budget, and every citation, heading and skill it names resolves', () => {
     const text = fs.readFileSync(FACTORY, 'utf8');
     // 3,300 since #3634; raised to 3,450 (the page's new size, rounded up to the next 25 bytes) for point 12's
     // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raise it only by what a rule needs.
     // 3,475 for the crew/ prefix on its four Captain-manual citations (GST-1833 moved docs/captain.md to crew/docs/; no rule text changed).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3475);
+    // 3,650 for point 2's one-open-PR-per-lane rule and point 12's no-orphan and close-reason rule (GST-2077, Garry's "do it" 2026-11-09: lessons from gbrain's merge queue).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3650);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
