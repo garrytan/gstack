@@ -20,7 +20,8 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 
 test('the recorder runs weekly before test-health and on dispatch, read-only except the propose job', () => {
   expect(recorder.on.schedule).toEqual([{ cron: '0 4 * * 1' }]);
-  expect(Object.keys(recorder.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
+  expect(Object.keys(recorder.on).sort()).toEqual(['pull_request', 'schedule', 'workflow_dispatch']);
+  for (const job of ['linux', 'windows']) expect(recorder.jobs[job].if).toBe("github.event_name != 'pull_request'");
   expect(Object.keys(recorder.on.workflow_dispatch.inputs)).toEqual(['open_pr']);
   expect(load('test-health.yml').on.schedule[0].cron).toBe('0 10 * * 1');
   expect(recorder.permissions).toEqual({ contents: 'read' });
@@ -46,9 +47,9 @@ test('Linux records on the free-suite runner image, turns red on any red file, a
 });
 
 test('Windows records through the windows-free-tests record_durations path, and propose needs both complete recordings', () => {
-  expect(recorder.jobs.windows).toEqual({ uses: './.github/workflows/windows-free-tests.yml', permissions: { contents: 'read', actions: 'read' }, with: { record_durations: true } });
+  expect(recorder.jobs.windows).toEqual({ if: "github.event_name != 'pull_request'", uses: './.github/workflows/windows-free-tests.yml', permissions: { contents: 'read', actions: 'read' }, with: { record_durations: true } });
   expect(recorder.jobs.propose.needs).toEqual(['linux', 'windows']);
-  expect(recorder.jobs.propose.if).toBe('${{ !cancelled() }}');
+  expect(recorder.jobs.propose.if).toBe("${{ !cancelled() && github.event_name != 'pull_request' }}");
   const downloads = recorder.jobs.propose.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));
   expect(downloads.map((step: any) => step.with.name)).toEqual(['free-test-durations', 'free-test-durations-windows']);
   expect(downloads.every((step: any) => step['continue-on-error'] === undefined)).toBe(true);
@@ -179,4 +180,41 @@ test('the drift check counts added and removed files, so an unchanged file set p
   const drifted = run(seed('drifted.json', { 'test/a.test.ts': 100, 'test/c.test.ts': 1, 'test/d.test.ts': 2 }));
   expect(drifted.status, drifted.stderr).toBe(0);
   expect(drifted.stdout.trim()).toBe('"2 1"');
+});
+
+test('a seed PR closed unmerged raises one blocker issue and a red run; a merged seed PR clears it (GST-2193)', () => {
+  expect(recorder.on.pull_request).toEqual({ types: ['closed'], branches: ['main'],
+    paths: ['scripts/free-test-durations.json', 'scripts/free-test-durations-windows.json'] });
+  expect(recorder.concurrency.group).toContain("format('free-durations-seed-pr-{0}', github.event.pull_request.number)");
+  const job = recorder.jobs['seed-pr-closed'];
+  expect(job.if).toBe("github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'bot/free-duration-seeds' && github.event.pull_request.head.repo.full_name == github.repository");
+  expect(job.permissions).toEqual({ issues: 'write' });
+  expect(job.steps.some((step: any) => step.uses?.startsWith('actions/checkout@'))).toBe(false);
+  const step = job.steps[0];
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'seed-blocker-'));
+  dirs.push(dir);
+  const run = (merged: boolean, existing: string) => {
+    const log = path.join(dir, `gh-${merged}-${existing || 'none'}.log`);
+    writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\necho "$*" >> "${log}"\nif [ "$1 $2" = "issue list" ]; then echo "${existing}"; fi\n`, { mode: 0o755 });
+    const result = spawnSync('bash', ['-c', step.run], { encoding: 'utf8', timeout: 10_000,
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'garrytan/gstack', MERGED: String(merged), PR_NUMBER: '3835' } });
+    const calls = (() => { try { return readFileSync(log, 'utf8').trim().split('\n'); } catch { return []; } })();
+    return { status: result.status, stdout: result.stdout, calls };
+  };
+  const raised = run(false, '');
+  expect(raised.status).toBe(1);
+  expect(raised.stdout).toContain('::error::Seed PR #3835 closed unmerged');
+  expect(raised.calls[1]).toBe(`issue create --repo garrytan/gstack --title Blocker: free-suite duration seed PR closed unmerged --body-file ${dir}/blocker.md`);
+  const body = readFileSync(path.join(dir, 'blocker.md'), 'utf8');
+  expect(body).toContain('Seed PR #3835 was closed without merging');
+  expect(body).toContain('`gh workflow run free-durations-record.yml --ref main`');
+  const again = run(false, '41');
+  expect(again.status).toBe(1);
+  expect(again.calls[1]).toBe(`issue comment 41 --repo garrytan/gstack --body-file ${dir}/blocker.md`);
+  const cleared = run(true, '41');
+  expect(cleared.status).toBe(0);
+  expect(cleared.calls[1]).toBe('issue close 41 --repo garrytan/gstack --comment Seed PR #3835 merged, so the seed is current again.');
+  const quiet = run(true, '');
+  expect(quiet.status).toBe(0);
+  expect(quiet.calls).toHaveLength(1);
 });

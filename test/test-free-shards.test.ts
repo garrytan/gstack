@@ -19,6 +19,7 @@ import {
   DEFAULT_WALL_TIMEOUT_MS,
   PER_FILE_WALL_MS,
   wallTimeoutForShard,
+  FLAKY_RETRY_CAP,
   recordingWallTimeoutMs,
   parseCliOptions,
   KNOWN_WINDOWS_INCOMPATIBLE,
@@ -1121,6 +1122,61 @@ describe('test-free-shards: duration-aware packing (full-suite LPT)', () => {
     const plan = createFreeCiPlan(['a.test.ts', 'b.test.ts'], 2, { 'a.test.ts': 750_000, 'b.test.ts': 1_000 }, 'rev');
     expect(ciPlanMatrix(plan)).toEqual({ shard: [1, 2] });
     expect(ciPlanMatrix(plan, 300)).toEqual({ include: [{ shard: 1, timeout_minutes: 49 }, { shard: 2, timeout_minutes: 17 }] });
+  });
+
+  test('unseeded files never push a shard past the job cap; their packed share is cut to fit (GST-2193)', () => {
+    // A stale seed packs every unseeded file at the seed's 99th percentile. On
+    // 2026-11-09 196 unseeded files put each shard at 77 of the 90-minute cap,
+    // and about 60 more would have failed every PR's plan. Recorded durations
+    // keep their full weight; only the unseeded estimate gives way.
+    const durations: Record<string, number> = { 'test/slow.test.ts': 1_200_000 };
+    for (let i = 0; i < 99; i += 1) durations[`test/s${i}.test.ts`] = 1_000;
+    const files = [...Object.keys(durations), 'test/new-a.test.ts', 'test/new-b.test.ts'];
+    expect(() => ciPlanMatrix(createFreeCiPlan(files, 1, durations, 'rev'), 300)).toThrow(/FREE_JOB_TIMEOUT_OVER_CAP/);
+    const plan = createFreeCiPlan(files, 1, durations, 'rev', 1, 300);
+    validateFreeCiPlan(plan, files, 'rev');
+    expect(plan.shards[0].files).toEqual([...files].sort());
+    expect(ciPlanMatrix(plan, 300)).toEqual({ include: [{ shard: 1, timeout_minutes: MAX_CI_JOB_TIMEOUT_MINUTES }] });
+    const neededMs = wallTimeoutForPackedShard(plan.shards[0].predictedMs, WALL_BASE_MS, files.length) + wallTimeoutForShard(FLAKY_RETRY_CAP) + 300_000;
+    expect(neededMs).toBeLessThanOrEqual(MAX_CI_JOB_TIMEOUT_MINUTES * 60_000);
+    expect(plan.shards[0].predictedMs).toBeGreaterThanOrEqual(1_299_000);
+  });
+
+  test('a plan under the job cap is unchanged by the unseeded cap (GST-2193 hold)', () => {
+    const seeded = { 'test/a.test.ts': 750_000, 'test/b.test.ts': 1_000 };
+    const plain = createFreeCiPlan(Object.keys(seeded), 2, seeded, 'rev');
+    expect(createFreeCiPlan(Object.keys(seeded), 2, seeded, 'rev', 1, 300)).toEqual(plain);
+    expect(ciPlanMatrix(plain, 300)).toEqual({ include: [{ shard: 1, timeout_minutes: 49 }, { shard: 2, timeout_minutes: 17 }] });
+    const partly = { 'test/a.test.ts': 600_000 };
+    const files = ['test/a.test.ts', 'test/b.test.ts'];
+    const plainPartly = createFreeCiPlan(files, 1, partly, 'rev');
+    expect(plainPartly.shards[0].predictedMs).toBe(1_200_000);
+    expect(createFreeCiPlan(files, 1, partly, 'rev', 1, 300)).toEqual(plainPartly);
+    expect(ciPlanMatrix(plainPartly, 300)).toEqual({ include: [{ shard: 1, timeout_minutes: 71 }] });
+  });
+
+  test('recorded durations over the job cap still fail the plan; only the unseeded share is cut (GST-2193 hold)', () => {
+    const durations = { 'test/slow.test.ts': 1_700_000, 'test/b.test.ts': 99_000 };
+    const plan = createFreeCiPlan([...Object.keys(durations), 'test/new.test.ts'], 1, durations, 'rev', 1, 300);
+    expect(plan.shards[0].predictedMs).toBe(1_799_000 + 1_700_000);
+    expect(() => ciPlanMatrix(plan, 300)).toThrow(/FREE_JOB_TIMEOUT_OVER_CAP: CI shard 1/);
+  });
+
+  test('--ci-plan with a stale seed keeps every job under the cap instead of failing the plan (GST-2193)', () => {
+    const committed = loadFreeTestDurations() ?? {};
+    const kept = Object.keys(committed).sort().filter((_, index) => index % 4 === 0);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'free-seed-stale-'));
+    try {
+      const seedPath = path.join(dir, 'seed.json');
+      fs.writeFileSync(seedPath, JSON.stringify({ version: 1, durations: Object.fromEntries(kept.map(file => [file, committed[file]])) }));
+      const planned = Bun.spawnSync([process.execPath, path.join(ROOT, 'scripts/test-free-shards.ts'), '--ci-plan', path.join(dir, 'plan.json'),
+        '--shards', '10', '--shard-jobs', '4', '--job-setup-seconds', '300'], { env: { ...process.env, GSTACK_FREE_TEST_DURATIONS: seedPath }, timeout: 10_000 });
+      expect(planned.exitCode, planned.stderr.toString()).toBe(0);
+      const matrix = JSON.parse(planned.stdout.toString()) as { include: Array<{ timeout_minutes: number }> };
+      expect(matrix.include.length).toBeGreaterThan(0);
+      expect(matrix.include.every(entry => entry.timeout_minutes <= MAX_CI_JOB_TIMEOUT_MINUTES)).toBe(true);
+      expect(planned.stderr.toString()).toMatch(/WARNING: \d+ free test files have no recorded duration/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
   test('--job-setup-seconds is a --ci-plan flag with whole seconds from 1 to 3600', () => {

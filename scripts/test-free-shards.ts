@@ -460,16 +460,34 @@ const runsSerialUnderJobs = (file: string) => file in TREE_MUTATING || file in S
 const planDigest = (plan: Omit<FreeCiPlan, 'id'>): string =>
   createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 
-/** One immutable plan is shared by isolated CI machines; never repack per job. */
-export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1): FreeCiPlan {
+/**
+ * The largest packed prediction whose CI job still fits MAX_CI_JOB_TIMEOUT_MINUTES
+ * (inverse of ciShardJobTimeoutMinutes's prediction term).
+ */
+export function maxPredictedMsUnderJobCap(setupSeconds: number): number {
+  return Math.floor(((MAX_CI_JOB_TIMEOUT_MINUTES * 60 - setupSeconds) * 1000 - wallTimeoutForShard(FLAKY_RETRY_CAP)) / 3);
+}
+
+/**
+ * One immutable plan is shared by isolated CI machines; never repack per job.
+ * With setupSeconds (--ci-plan --job-setup-seconds), a shard whose 99th-percentile
+ * estimates for unseeded files would push its job past the cap has its prediction
+ * cut back to the cap (GST-2193): a stale seed lengthens the job up to the cap and
+ * never fails the plan. Recorded durations are never cut, so a shard whose seeded
+ * files alone pass the cap still fails it.
+ */
+export function createFreeCiPlan(files: string[], count: number, durations: Record<string, number>, revision: string, shardJobs = 1, setupSeconds?: number): FreeCiPlan {
   const readers = files.filter(file => !(file in TREE_MUTATING));
   const exclusive = files.filter(file => file in TREE_MUTATING).sort();
   const packed = packShardsByDuration(readers, count, durations);
   const planned = packed.shards.map((files, index) => ({ files, predictedMs: packed.predictedMs[index] }));
   if (exclusive.length) planned.push({ files: exclusive, predictedMs: exclusive.reduce((ms, file) => ms + (durations[file] ?? 0), 0) });
+  const limitMs = setupSeconds === undefined ? Infinity : maxPredictedMsUnderJobCap(setupSeconds);
+  const seededMs = (shardFiles: string[]) => shardFiles.reduce((ms, file) => ms + (durations[normalizeRelativePath(file)] ?? 0), 0);
   const shards = planned.map(({ files, predictedMs }, index) => {
     const jobs = plannedShardJobs(files, shardJobs, runsSerialUnderJobs);
-    return { shard: index + 1, files, predictedMs, ...(jobs ? { jobs } : {}) };
+    const capped = predictedMs > limitMs && seededMs(files) <= limitMs ? limitMs : predictedMs;
+    return { shard: index + 1, files, predictedMs: capped, ...(jobs ? { jobs } : {}) };
   });
   const body = { version: 1 as const, revision, shards };
   return { ...body, id: planDigest(body) };
@@ -2036,7 +2054,7 @@ async function main(): Promise<number> {
         appendStepSummary(line);
       }
       warnUnseededFreeFiles(ciFiles, durations);
-      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs);
+      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs, options.jobSetupSeconds);
       validateFreeCiPlan(plan, ciFiles, revision);
       const matrix = ciPlanMatrix(plan, options.jobSetupSeconds);
       if ('include' in matrix) {
