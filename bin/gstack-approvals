@@ -52,7 +52,7 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           whose visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
           its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private;
           --redacted prints the public form on any repository (a private repo that may go public); the two conflict;
-          the rows show each local path in Covers as …/<file name> (list keeps the path);
+          the rows show each local path in Asked, Covers and Still pending as …/<file name> (list keeps the path);
           --plan "<the brief's Plan line>" adds that line and its check, which gstack-ship-queue ready reads (lib/plan-record.ts);
           redacted, an approval prints as "Plan: approved (record r-<id>)" with no run or row id, and one that does not
           resolve refuses with no output

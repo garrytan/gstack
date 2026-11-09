@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { parseCitations } from '../lib/approval-citations';
-import { APPROVALS_TABLE_HEADER, branchKey, buildRow, cell, importAutoplan, readRecord, renderRecord, type StoreLocation } from '../lib/approval-record';
+import { APPROVALS_TABLE_HEADER, branchKey, buildRow, cell, importAutoplan, pathLabels, readRecord, renderRecord, type StoreLocation } from '../lib/approval-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const dirs: string[] = [];
@@ -242,6 +242,32 @@ describe('public repositories get no identifying approval text (GST-1160)', () =
         expect(r.out).toBe('');
         expect(r.err).toContain('--redacted and --full conflict');
       }
+    });
+
+    test('Asked and Still pending get the same labels as Covers; Exact words stays verbatim', () => {
+      const cwd = repo(); const state = tmp('appr-state-');
+      expect(bin(['add', '--ask', `Raise the cap in ${LEDGER}?`, '--words', 'do it', '--by', 'Garry', '--scope', 'spend cap', '--pending', `settle file:///home/dana/ledger.json`], { cwd, env: { GSTACK_STATE_ROOT: state } }).status).toBe(0);
+      const r = bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PRIVATE') } });
+      expect(r.status, r.err).toBe(0);
+      expect(r.out).toContain('Raise the cap in …/ledger.jsonl?');
+      expect(r.out).toContain('settle …/ledger.json');
+      expect(r.out).not.toContain('garry-tan');
+      expect(r.out).not.toContain('dana');
+    });
+
+    test.each([
+      ['see https://github.com/acme/widget/pull/12', 'see https://github.com/acme/widget/pull/12'],
+      ['lib/approval-record.ts and 3/4 done', 'lib/approval-record.ts and 3/4 done'],
+      ['/home/dana', '~'],
+      ['~/.gstack/plans/fix.md.', '…/fix.md.'],
+      ['~dana/notes/x.md', '…/x.md'],
+      ['$HOME/.capy/drive/project-user-acme-dana/l.json', '…/l.json'],
+      ['.capy/drive/project-user-acme-dana/l.json', '…/l.json'],
+      ['file:///Users/dana/a/b.json', '…/b.json'],
+      ['\\\\server\\share\\dana\\x.md', '…/x.md'],
+      ['%USERPROFILE%\\dana\\a.md', '…/a.md'],
+    ])('pathLabels(%p) is %p', (input, label) => {
+      expect(pathLabels(input)).toBe(label);
     });
   });
 });

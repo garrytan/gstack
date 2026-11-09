@@ -256,20 +256,23 @@ export function renderMode(visibility: RepoVisibility, full: boolean, redacted =
   return visibility === 'private' || (full && visibility === 'unknown') ? 'full' : 'redacted';
 }
 
-const LOCAL_PATH = /(?<![\w.~:/\\-])(?:(?:~|[A-Za-z]:)[\\/][^\s|,;'"()<>]+|\/[^\s/\\|,;'"()<>]+\/[^\s|,;'"()<>]*)/g;
-const HOME_DIR = /^(?:~[\\/]?|\/(?:home|Users)\/[^/]+\/?|[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]?)$/i;
+const LOCAL_PATH = /(?<![\w.~:/\\-])(?:file:\/\/[^\s|,;'"()<>]+|(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%|[A-Za-z]:)[\\/][^\s|,;'"()<>]+|\\\\[^\s\\|,;'"()<>]+\\[^\s|,;'"()<>]+|(?:[\w.-]+[\\/])*\.capy[\\/]drive[\\/][^\s|,;'"()<>]+|\/[^\s/\\|,;'"()<>]+\/[^\s|,;'"()<>]*)/g;
+const HOME_DIR = /^(?:(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%)[\\/]?|\/(?:home|Users)\/[^/]+\/?|[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]?)$/i;
 
 /**
- * A Covers cell with each absolute, home or Windows-drive path replaced by `…/<file name>` (a bare home directory by
- * `~`). The file name tells a reader what the approval counted; the directories above it name the machine, the user
- * and the Drive scope (`project-user-<project>-<person>`), so a Drive-relative token would still identify them.
- * `gstack-approvals list` keeps the full path.
+ * A table cell with each local path replaced by `…/<file name>` (a bare home directory by `~`): absolute, home
+ * (`~`, `~user`, `$HOME`, `%USERPROFILE%`), Windows-drive, UNC and `file://` paths, and Drive-relative ones
+ * (`.capy/drive/…`). The file name tells a reader what the approval counted; the directories above it name the
+ * machine, the user and the Drive scope (`project-user-<project>-<person>`). A path cut by a space keeps the words
+ * after the space. `gstack-approvals list` keeps the full path.
  */
 export function pathLabels(text: string): string {
   return text.replace(LOCAL_PATH, m => {
     const tail = /[.:]*$/.exec(m)![0];
-    const p = m.slice(0, m.length - tail.length);
-    return (HOME_DIR.test(p) ? '~' : `…/${p.split(/[\\/]/).filter(Boolean).pop()}`) + tail;
+    const p = m.slice(0, m.length - tail.length).replace(/^file:\/\/(?:localhost)?/i, '');
+    if (HOME_DIR.test(p)) return '~' + tail;
+    const name = p.split(/[\\/]/).filter(Boolean).pop();
+    return name ? `…/${name}${tail}` : m;
   });
 }
 
@@ -285,7 +288,7 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
   for (const r of read.rows) {
     const outcome = r.outcome === 'standing' ? 'standing approval' : r.outcome;
-    lines.push(`| ${r.date} | ${cell(r.ask)} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(pathLabels(r.scope))} | ${cell(r.pending)} |`);
+    lines.push(`| ${r.date} | ${cell(pathLabels(r.ask))} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(pathLabels(r.scope))} | ${cell(pathLabels(r.pending))} |`);
   }
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
 }
