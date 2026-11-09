@@ -8,15 +8,20 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseAddedLineNumbers, parseAddedLines } from '../lib/pregate/checks/secrets';
+import { parseAddedLineNumbers, parseAddedLines, secretsCheck } from '../lib/pregate/checks/secrets';
+import type { PregateContext } from '../lib/pregate/types';
 import { cleanup, commit, makeFixtureRepo, runBin, BASE_PREGATE, type FixtureRepo } from './helpers/pregate-fixture';
 
 const PREGATE = path.resolve(import.meta.dir, '..', 'bin', 'gstack-pregate');
 const AWS = 'AKIA' + 'ZQ3XN7P2LM4RT8WV';
+const PAT = ['ghp', 'Zq8Lm2Xv7Nc4Rt9Wy1Kp6Hd3Fs5Gb0Jx8Ue2'].join('_');
+const utf16 = (text: string, bigEndian = false) => { const le = Buffer.from(`\uFEFF${text}`, 'utf16le'); return bigEndian ? le.swap16() : le; };
+/** Every file this checkout stores as binary (PNG, JPEG, GIF, ICNS): real assets, not synthetic noise. */
+const BINARY_ASSETS = spawnSync('git', ['ls-files', '--eol'], { cwd: path.resolve(import.meta.dir, '..'), encoding: 'utf8', timeout: 30_000 }).stdout.split('\n').filter(l => l.startsWith('i/-text')).map(l => l.split('\t').pop()!);
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true }); });
 
-function repo(files: Record<string, string>) {
+function repo(files: Record<string, string | Buffer>) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pregate-secrets-')));
   roots.push(root);
   const dir = path.join(root, 'work');
@@ -37,7 +42,7 @@ function repo(files: Record<string, string>) {
   git('push', '-q', 'origin', 'main');
   git('fetch', '-q', 'origin');
   git('checkout', '-qb', 'feat');
-  for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, rel), text);
+  for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); }
   git('add', '.');
   git('commit', '-qm', 'feat');
   const secrets = () => {
@@ -45,10 +50,18 @@ function repo(files: Record<string, string>) {
     const check = JSON.parse(r.stdout).checks.find((c: { id: string }) => c.id === 'secrets');
     return { status: check.status as string, detail: check.detail as string, lines: (check.lines ?? []) as string[] };
   };
-  return { dir, git, secrets };
+  return { root, dir, git, env, secrets };
 }
 
 describe('pregate secrets: source context and diff integrity', () => {
+  // Value: protects=a large added diff (a binary read with --text) parses in linear time; fails_when=each added line copies the file's earlier lines; why_new=GST-2195 review; seam=pure parser; no_claim=git's own speed
+  test('parseAddedLines reads 200,000 added lines in one file quickly (GST-2195)', () => {
+    const diff = 'diff --git a/big.bin b/big.bin\n+++ b/big.bin\n@@ -0,0 +1,200000 @@\n' + '+x\n'.repeat(200_000);
+    const started = performance.now();
+    expect(parseAddedLines(diff).get('big.bin')?.length).toBe(200_000);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test('parseAddedLines groups by file and keeps a "+++" content line inside a hunk', () => {
     const diff = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -0,0 +1,2 @@', '+one', '+++two', 'diff --git a/b.env b/b.env', '--- /dev/null', '+++ b/b.env', '@@ -0,0 +1 @@', '+three'].join('\n');
     expect([...parseAddedLines(diff)]).toEqual([['a.ts', ['one', '++two']], ['b.env', ['three']]]);
@@ -223,5 +236,67 @@ describe('pregate secrets: source context and diff integrity', () => {
     fs.writeFileSync(driver, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     f.git('config', 'diff.external', driver);
     expect(f.secrets().status).toBe('fail');
+  });
+
+  // Value: protects=a token in a file git calls binary fails the never-downgradable secrets check like the same token in plain text;
+  //   fails_when=a NUL byte, a -diff line the branch itself adds to .gitattributes, or UTF-16 text passes the check unscanned; why_new=GSTA-461 item 5 reached GitHub with both guards green; seam=fixture repo; no_claim=UTF-16 outside the ASCII range
+  test('a token in a file git calls binary fails like plain text: a NUL byte, a -diff attribute the branch adds, UTF-16LE and UTF-16BE (GST-2195)', () => {
+    const r = repo({ 'plain.txt': `token ${PAT}\n`, 'nul.txt': `\0token ${PAT}\n`, '.gitattributes': '*.jsonl -diff\n', 'out.jsonl': `{"token":"${PAT}"}\n`, 'le.txt': utf16(`token ${PAT}\r\n`), 'be.txt': utf16(`token ${PAT}\n`, true) }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['plain.txt', 'nul.txt', 'out.jsonl', 'le.txt', 'be.txt']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 1\\)$`)));
+  });
+
+  // Value: protects=a token in UTF-16 text that is mostly outside the ASCII range is still found; fails_when=Cyrillic or CJK text around the token makes its NUL bytes read as spaces;
+  //   why_new=GST-2195 review: localized UTF-16 files (Localizable.strings, .rc) passed the check; seam=fixture repo; no_claim=UTF-32
+  test('a token in UTF-16 text that is mostly Cyrillic or CJK fails like plain text (GST-2195)', () => {
+    const ru = Array(8).fill('Привет мир, это файл настроек').join('\r\n');
+    const zh = Array(8).fill('这是一个本地化的字符串文件内容').join('\r\n');
+    const r = repo({ 'ru.strings': utf16(`${ru}\r\ntoken ${PAT}\r\n`), 'zh.strings': utf16(`${zh}\r\ntoken ${PAT}\r\n`), 'zh-be.strings': utf16(`${zh}\ntoken ${PAT}\n`, true) }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['ru.strings', 'zh.strings', 'zh-be.strings']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 9\\)$`)));
+  });
+
+  // Value: protects=a UTF-16 token right beside a CJK character is found, and so is a plain token beside a run of character-and-NUL pairs; fails_when=the CJK character's bytes glue onto the token, or padding the run cuts the plain token;
+  //   why_new=GST-2195 review (outside voice): U+4E2D before a token read as "-N" glued to it; seam=fixture repo; no_claim=UTF-32
+  test('a token right beside a CJK character in UTF-16, or beside a NUL run in binary content, fails like plain text (GST-2195)', () => {
+    const r = repo({ 'le.strings': utf16(`中${PAT}中文\r\n`), 'be.strings': utf16(`中${PAT}中文\n`, true), 'run.bin': Buffer.from(`\x89\0\0\x01${PAT}\0x\0y\0z\0\n`, 'latin1') }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['le.strings', 'be.strings', 'run.bin']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 1\\)$`)));
+  });
+
+  // Value: protects=a plain token in binary content stays whole when a NUL-flanked byte sits beside it; fails_when=reading the bytes as UTF-16 glues that byte to the token or cuts its edge character off;
+  //   why_new=GST-2195 review: the UTF-16 reading hid tokens the plain reading found; seam=fixture repo; no_claim=tokens split by a NUL inside them
+  test.each([
+    ['a NUL terminator, then a little-endian integer', PAT + '\0' + '1\0\0\0'],
+    ['a one-character string after it', '\0' + PAT + '\0x\0'],
+    ['a one-character string before it', '\0x\0' + PAT + '\0'],
+    ['a uint16 length before it', '\0\0' + '4\0' + PAT],
+    ['UTF-16 runs on both sides', 'A\0B\0' + PAT + '\0C\0D\0'],
+  ])('a token in binary content beside %s fails like plain text (GST-2195)', (_, body) => {
+    const r = repo({ 'blob.bin': Buffer.concat([Buffer.from([0x89, 0, 0, 1]), Buffer.from(body, 'latin1')]) }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines).toContainEqual(expect.stringMatching(/^HIGH github\.pat .*\(blob\.bin, added line 1\)$/));
+  });
+
+  // Value: protects=reading binary files does not turn real images into findings; fails_when=a PNG, JPEG, GIF or ICNS from this repo warns or fails the check;
+  //   why_new=GST-2195 scans binary content that was skipped before; seam=fixture repo; no_claim=compiled executables (the repo stores none)
+  test('the real binary assets this repo stores add no finding, and the pass names how many files it read (GST-2195)', () => {
+    expect(BINARY_ASSETS.length).toBeGreaterThanOrEqual(10);
+    const root = path.resolve(import.meta.dir, '..');
+    const r = repo(Object.fromEntries(BINARY_ASSETS.map(rel => [rel, fs.readFileSync(path.join(root, rel))]))).secrets();
+    expect({ status: r.status, lines: r.lines }).toEqual({ status: 'pass', lines: [] });
+    expect(r.detail).toContain(`in ${BINARY_ASSETS.length} files (${BINARY_ASSETS.length} binary)`);
+  });
+
+  // Value: protects=a diff git could not produce in full never reads as a clean scan; fails_when=a failed, killed or truncated merge-base diff passes as "no added lines";
+  //   why_new=the pre-push hook fails closed here (#1946) and pregate did not; seam=check run on a real repo with an unreadable merge base; no_claim=the 60 s timeout itself
+  test('a merge-base diff git could not finish is PREGATE_ENVIRONMENT, never a clean scan (GST-2195)', async () => {
+    const f = repo({ 'a.txt': `token ${PAT}\n` });
+    const scratch = path.join(f.root, 'scratch');
+    fs.mkdirSync(scratch);
+    const ctx = { repoRoot: f.dir, mergeBase: '0'.repeat(40), wtree: 'w', head: 'h', baseRef: 'origin/main', baseSha: '0'.repeat(40), touched: [], config: { allowlist: [] }, scratch, timeoutMs: 60_000, env: f.env } as unknown as PregateContext;
+    const check = await secretsCheck.run(ctx);
+    expect({ status: check.status, code: check.code }).toEqual({ status: 'incomplete', code: 'PREGATE_ENVIRONMENT' });
+    expect(check.detail).toContain('git diff');
   });
 });

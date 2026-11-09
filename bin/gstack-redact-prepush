@@ -5,8 +5,10 @@
  *
  * THIS IS A GUARDRAIL, NOT ENFORCEMENT. `git push --no-verify` bypasses it, as
  * does `GSTACK_REDACT_PREPUSH=skip`. It catches accidental credential pushes,
- * the most common real-world leak. It does NOT scan history, binary/LFS/submodule
- * files, or non-added lines. History scanning is /cso's job.
+ * the most common real-world leak. It does NOT scan history, LFS-stored or
+ * submodule content, or non-added lines. History scanning is /cso's job. Files
+ * git calls binary (a NUL byte, UTF-16, a `-diff` attribute) are diffed with
+ * --text, read through scannableText and held to credential findings (GST-2195).
  *
  * Git pre-push interface: refs are read from STDIN, one per line:
  *   <local ref> <local sha> <remote ref> <remote sha>
@@ -42,6 +44,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
+import { scannableText } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -254,7 +257,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
     // gitStrict: a failed diff must never read as "nothing added" (#1946).
     // Collected per commit so a finding names the commit whose file line it is.
     out.push(...collectAddedLines(gitStrict([
-      "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+      "show", "--text", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
       "--src-prefix=a/", "--dst-prefix=b/", "--cc", "--format=", sha,
     ]), sha));
   }
@@ -267,7 +270,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
  * `text`, read from the hunk headers; `commit` is set when the lines came from
  * one commit's diff rather than the net diff of the pushed range.
  */
-interface AddedFile { file: string; text: string; lines: number[]; commit?: string }
+interface AddedFile { file: string; text: string; lines: number[]; commit?: string; binary?: boolean }
 
 /** Return the added lines for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
@@ -295,8 +298,11 @@ function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
   // secrets. Reachable from ordinary user config, not hypothetical. (#2498)
   // --no-textconv: a .gitattributes textconv driver can likewise rewrite
   // content before we ever see it. (#2498)
+  // --text: without it a file git calls binary (a NUL byte, UTF-16, a
+  // `-diff` attribute the push itself can add) prints "Binary files differ"
+  // and no added lines, so its credentials pushed unscanned. (GST-2195)
   const diff = gitStrict([
-    "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+    "diff", "--text", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
     "--src-prefix=a/", "--dst-prefix=b/", range,
   ]);
   return collectAddedLines(diff);
@@ -323,7 +329,9 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
   let nextLine = 0;
   const flush = () => {
     const lines = releaseVersionExempt(file, fileLines);
-    if (lines.length) added.push({ file, text: lines.join("\n"), lines: lineNumbers, ...(commit ? { commit } : {}) });
+    const text = lines.join("\n");
+    const binary = text.includes("\0");
+    if (lines.length) added.push({ file, text: binary ? scannableText(text) : text, lines: lineNumbers, ...(commit ? { commit } : {}), ...(binary ? { binary } : {}) });
     fileLines = [];
     lineNumbers = [];
   };
@@ -700,6 +708,7 @@ function main() {
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
       : null;
     for (const f of findings) {
+      if (part.binary && f.category !== "secret") continue;
       if (kept && !kept.has(findingKey(f))) {
         if (f.severity === "HIGH" || f.severity === "MEDIUM") allowed.push(`  ${f.severity}  ${f.id}  ${findingWhere(f, part)}\n`);
         continue;
