@@ -140,7 +140,8 @@ there is refused with the usual `--for <skill>` fix.
    than 24 hours old, the trailer adds `stale=<h>h` after `behind=`. Either
    way the agent runs the fix before the next workflow: `behind=1` or more
    always calls for it, and `stale=` adds that a pin with no recorded reason
-   no longer holds.
+   no longer holds. A `fix:` that starts `unset GSTACK_CAPY_` lifts a pin:
+   skip it while the pin has a recorded reason.
    A pin (`GSTACK_CAPY_SELF_UPGRADE=off`, `GSTACK_CAPY_AUTO_UPGRADE=0`, a
    detached HEAD or another branch) then holds only with a recorded reason:
    `GSTACK_PIN_REASON=<why>`, `git -C <root> config gstack.pinReason <why>`,
