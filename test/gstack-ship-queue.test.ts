@@ -361,6 +361,23 @@ describe('ready', () => {
     expect(queue(repo, ['ready', '--pr', '1'], shim(moved, green)).err).toMatch(/uncommitted tracked changes: pr-a\.txt.*\(QUEUE_NOT_READY\)/);
   }, 180_000);
 
+  test('QUEUE_RECEIPT_BASE_MISMATCH: a #3570 child retargeted to main while its parent is open is refused; a GST-1199 child whose receipt names main READYs', () => {
+    const repo = fixture();
+    makePr(repo, 'parent');
+    repo.git('push', '-q', 'origin', 'HEAD:refs/heads/parent');
+    fs.writeFileSync(path.join(repo.work, 'child.txt'), 'child\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'child');
+    const head = repo.git('rev-parse', 'HEAD');
+    const pregate = pregateFor(repo, head);
+    const shim = (base: string) => ghQueueShim(repo, { prs: { '2': { headRefOid: head, url: 'https://github.com/o/r/pull/2', baseRefName: 'main', body: shippedBody('2', head, { base }) } }, checks: { [head]: green } });
+    const retargeted = queue(repo, ['ready', '--pr', '2', '--pregate', pregate], shim('parent'));
+    expect(retargeted.status).toBe(EXIT.refused);
+    expect(retargeted.out).toContain(`SHIP_RECEIPT: pr=2 head=${head.slice(0, 12)} version=- base=parent`);
+    expect(retargeted.err).toMatch(/PR #2's ship receipt was reviewed against parent, not main.*\(QUEUE_RECEIPT_BASE_MISMATCH/);
+    for (const base of ['main', 'origin/main']) expect(queue(repo, ['ready', '--pr', '2', '--pregate', pregate], shim(base)).status).toBe(EXIT.ok);
+  }, 120_000);
+
   test('STAMP_VERSION is unstamped for a PR whose own diff leaves VERSION alone after main moved to a newer version, and the stamp for one that changes it (GST-770 follow-up)', () => {
     const repo = fixture();
     const head = makePr(repo, 'pr-a');
