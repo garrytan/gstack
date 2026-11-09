@@ -474,7 +474,6 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_LAND_STAMPED` | lane | run the printed `git checkout $(git merge-base origin/main HEAD) -- …`, keep the fragment, commit, /ship and `ready` again |
 | `QUEUE_LAND_PIN_MOVED` | lane | /ship and `ready` at the new head, new READY |
 | `QUEUE_RECEIPT_MISSING` / `QUEUE_RECEIPT_STALE` | lane | /ship at the pin |
-| `QUEUE_RECEIPT_BASE_MISMATCH` | lane | the receipt names the parent branch: land the parent, merge main, `gstack-ship-receipt carry --pr <n> --base main` (or /ship against main), then `ready` again |
 | `QUEUE_NOT_READY` | lane, or Captain | no READY note: `ready --pr <n> --no-screen` at the pin; `merge: train`: use the train; closed or retargeted PR: as named |
 | `QUEUE_LAND_CHECKS` | Captain, then lane | pending: `gstack-pr-wait <n> --until green` and rerun; red: back to the lane (rule 16 rerun for a flaky case); missing: dispatch the workflow on the branch |
 | `QUEUE_LAND_MERGED_CHECKS` | lane | a `land.merged_checks` command failed on the pin merged onto main: the lane merges main (rule 19), fixes it, /ship, `ready`, new READY |
