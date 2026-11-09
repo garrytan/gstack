@@ -8,7 +8,9 @@ If gstack is installed on your machine:
 ~/.claude/skills/gstack/bin/gstack-uninstall
 ```
 
-This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the opt-in [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
+This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the opt-in [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics; it now also keeps the repo's `.gstack/` and `.gstack-worktrees/`. Use `--force` to skip confirmation.
+
+A plain uninstall keeps the git-tracked files under `.gstack/` (such as ship policy) and removes only the ones git ignores. It stops with exit 2, before removing anything, when a checkout under `.gstack-worktrees/` has uncommitted changes, has commits no branch or tag holds, or is not a worktree this repo registered. Pass `--force-worktrees` to delete those checkouts anyway.
 
 ## Option 2: Manual removal (no local repo)
 
