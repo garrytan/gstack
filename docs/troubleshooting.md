@@ -4643,7 +4643,8 @@ minutes in the future. Old reads can miss a PR or issue the thread picked up sin
 **Meaning.** A part of the reads (named in the line: `reads`, `read_at`, `thread` or
 `issues`) is missing, empty, truncated or holds something the check does not know: no
 `States:` header in the issue text, no `pull_requests` array, `pull_requests_total`
-larger than the list, an unrecognized line or a state the header does not name. An empty
+larger than the list, an issue list with neither a row nor `No issues match.`, an
+unrecognized line or a state the header does not name. An empty
 read looks like "no work", so the check refuses instead of guessing.
 
 **Fix.** Write the tool results raw, unedited. When the issue list has more pages, read

@@ -127,6 +127,14 @@ describe('archive check (reads and verdict)', () => {
   });
 
   // Value: protects=the issue grammar is checked against the States header and fails closed (gate D); fails_when=an unknown line or state is skipped
+  // Value: protects=a read cut off before its first issue row never archives; fails_when=header-only issue text parses as an empty list
+  test('issue text with headers but no rows and no "No issues match." is unparsed', () => {
+    for (const text of [STATES, STATES + '\nLabels: none']) {
+      const r = checkThread(reads({ issues: text }), opts());
+      expect([r.verdict, r.failure?.code]).toEqual(['unreadable', 'ARCHIVE_READS_UNPARSED']);
+    }
+  });
+
   test('issue lines: unknown states and unknown lines are unparsed', () => {
     expect(parseIssueList(issues('- GST-1 · Doing · @GSTA-1 · x · 1m'))).toMatchObject({ code: 'ARCHIVE_READS_UNPARSED' });
     expect(parseIssueList(issues('Next page: cursor abc'))).toMatchObject({ code: 'ARCHIVE_READS_UNPARSED' });
@@ -157,6 +165,12 @@ describe('landed (issue close on land)', () => {
   });
 
   // Value: protects=no code means nothing to close, said plainly; fails_when=a title without a group prints nothing or an error
+  // Value: protects=a lowercase policy pattern still closes the PR's issues, as plain-title.ts reads it; fails_when=landed compiles policy codes case-sensitively
+  test('policy code patterns match case-insensitively', () => {
+    const r = landedIssues({ pr: 1, gh: gh({ title: 'Fix x (GST-12)' }), policy: { ...policy, codes: ['\\bgst-\\d+\\b'] } });
+    expect(r.codes).toEqual(['GST-12']);
+  });
+
   test('a title with no tracker code prints none', () => {
     expect(landedIssues({ pr: 1, gh: gh({ title: 'Fix the thing' }), policy }).lines).toEqual(['ISSUE_CLOSE: none (the title names no tracker code)']);
   });

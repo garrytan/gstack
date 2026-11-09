@@ -60,9 +60,11 @@ export function parseIssueList(text: unknown): IssueList | ArchiveFailure {
   const open = names(openPart!);
   const closed = names(closedPart);
   const issues: IssueRow[] = [];
+  let none = false;
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || line === header.trim() || line.startsWith('Labels:') || line === 'No issues match.') continue;
+    if (line === 'No issues match.') { none = true; continue; }
+    if (!line || line === header.trim() || line.startsWith('Labels:')) continue;
     const parts = line.startsWith('- ') ? line.slice(2).split(/\s+·\s+/) : [];
     const [code, state] = parts;
     if (!code || !ISSUE_CODE.test(code) || !state) return unparsed('issues', 'unrecognized line ' + JSON.stringify(line.slice(0, 80)));
@@ -70,6 +72,7 @@ export function parseIssueList(text: unknown): IssueList | ArchiveFailure {
     const at = parts.map(p => p.startsWith('@')).lastIndexOf(true);
     issues.push({ code, state, title: at >= 0 && at + 1 < parts.length - 1 ? parts[at + 1]! : '' });
   }
+  if (!issues.length && !none) return unparsed('issues', 'no issue rows and no "No issues match." line, so the list may be cut off');
   return { open, closed, issues };
 }
 
@@ -167,7 +170,7 @@ export function landedIssues(o: { pr: number; repo?: string; gh: Gh; policy: Pla
   if (j.state !== 'MERGED') return fail(1, { code: 'ARCHIVE_PR_NOT_MERGED', message: repo + '#' + o.pr + ' is ' + String(j.state) });
   const merge = String((j.mergeCommit as { oid?: unknown } | null)?.oid ?? '').slice(0, 12);
   const refs = splitTitle(typeof j.title === 'string' ? j.title : '').refs?.split(/[\s,]+/) ?? [];
-  const patterns = (o.policy?.codes ?? []).map(c => new RegExp(c));
+  const patterns = (o.policy?.codes ?? []).map(c => new RegExp(c, 'i'));
   const codes = [...new Set(refs.map(x => x.toUpperCase()).filter(x => ISSUE_CODE.test(x) && (!patterns.length || patterns.some(p => p.test(x)))))];
   const lines = codes.length ? codes.map(c => 'ISSUE_CLOSE: ' + c + ' pr=' + repo + '#' + o.pr + ' merge=' + merge) : ['ISSUE_CLOSE: none (the title names no tracker code)'];
   return { exit: 0, lines, codes, json: { pr: o.pr, repo, merge, codes } };
