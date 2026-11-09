@@ -11,7 +11,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EXIT, attributionCallout, mergeBodySections, runPost, type PostEnv } from "../lib/gstack-post";
-import { extractReceipt, receiptRuns } from "../lib/ship-receipt";
+import { extractReceipt, orderReceipt, placeReceipt, receiptRuns } from "../lib/ship-receipt";
+import type { ShipReceipt } from "../lib/headless-artifacts";
 
 interface Call { cmd: string; args: string[]; input?: string }
 
@@ -289,6 +290,60 @@ describe("gstack-post owns the redaction scan", () => {
       const f = fakeEnv({ files: { "/b": body + "\n" }, visibility: "public" });
       expect([body, run(["pr-comment", "12", "--body-file", "/b"], f)]).toEqual([body, EXIT.confirm]);
       expect(f.stdout()).toContain("RULE: pii.phone.e164 LINE: 1 PART: body");
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
+  // Value: protects=a ship receipt the writer renders (lib/ship-receipt.ts placeReceipt) posts through pr-body without a pii.phone.e164 confirmation
+  //   when its run-id fields (ci_carried[].run, flaky_exception[].runs, issues.flakes[].run) hold GitHub Actions run ids (GST-2047), while a phone
+  //   number in prose, beside the block, in any other receipt field, or inside a forged, hand-written or malformed receipt block still needs one;
+  //   fails_when=every ship tail with carried CI holds once per carried run, or the exemption reaches past the run-id values of a writer-rendered,
+  //   schema-valid block (a run id copied into prose, a non-run-id key, a fake block); why_new=the run-word and runs= tests read prose, and the
+  //   receipt's JSON puts a quote between the key and the id; seam=fake run; no_claim=real gh
+  test("run ids in a writer-rendered receipt's run-id fields are not phone numbers; the same number anywhere else, or in a fake block, still is", () => {
+    const CARRIED = [42574388503, 42574388504, 42574391177, 42574402011];
+    const receipt = (extra: Partial<ShipReceipt> = {}) => orderReceipt({
+      schema_version: 1, pr: 4200, head: "68b1d0560a3f4e2b9c7d1e5f8a2b3c4d5e6f7a8b", base: "main",
+      ci_carried: CARRIED.map((run, i) => ({ lane: ["free-tests", "windows-smoke", "e2e-gate", "llm-judge"][i]!, run, attempt: i === 1 ? 2 : 1, tree: "9f2c4e1a7b3d5c8e0f6a2b4d6e8f0a1c3e5b7d9f" })),
+      ...extra,
+    });
+    const body = (r: ShipReceipt, prose = "Narrows one false positive.") => placeReceipt(`## What changed\n\n${prose}\n`, r);
+    const post = (text: string) => {
+      const f = fakeEnv({ files: { "/b": text }, visibility: "public" });
+      return { code: run(["pr-body", "4200", "--replace", "--body-file", "/b"], f), phones: f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.phone.e164 ")), f };
+    };
+    const lineOf = (text: string, needle: string) => text.split("\n").findIndex(l => l.includes(needle)) + 1;
+
+    const flaky = { flaky_exception: [{ lane: "free-tests", runs: ["42574388503/1", "42574388511/2"], cases: ["test/retry.test.ts::retries"], grant: "a-1", by: "Garry" }], issues: { fixes: [4100], refs: [], flakes: [{ issue: 4101, run: "42574388519" }] } };
+    for (const text of [body(receipt()), body(receipt(flaky))]) {
+      expect(extractReceipt(text)).toMatchObject({ found: true, errors: [] });
+      const { code, phones, f } = post(text);
+      expect([phones, code]).toEqual([[], EXIT.posted]);
+      expect(f.posts()).toHaveLength(1);
+    }
+
+    const holds: Array<[string, string, string]> = [
+      ["E.164 in prose", body(receipt(), "Call +14155552671 for the on-call."), "+14155552671"],
+      ["bare 11-digit in prose", body(receipt(), "Call 14155552671 for the on-call."), "14155552671"],
+      ["a carried run id copied into prose", body(receipt(), "Call 42574388503 after five."), "Call 42574388503"],
+      ["thread field", body(receipt({ thread: "14155552671" })), "\"thread\": \"14155552671\""],
+      ["ci_carried attempt", body(receipt({ ci_carried: [{ lane: "free-tests", run: 42574388503, attempt: 14155552671, tree: "9f2c4e1a7b3d" }] })), "\"attempt\": 14155552671"],
+      ["ci_carried lane", body(receipt({ ci_carried: [{ lane: "+14155552671", run: 42574388503, attempt: 1, tree: "9f2c4e1a7b3d" }] })), "\"lane\": \"+14155552671\""],
+      ["issues.flakes issue", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 14155552671, run: "42574388519" }] } })), "\"issue\": 14155552671"],
+      ["line before the block", body(receipt()).replace("```gstack-ship-receipt\n", "14155552671\n```gstack-ship-receipt\n"), "14155552671"],
+      ["line after the block", body(receipt()).replace(/\n```\n/, "\n```\n+14155552671\n"), "+14155552671"],
+    ];
+    const forgedRun = (json: string) => "## What changed\n\nNarrows one false positive.\n\n```gstack-ship-receipt\n" + json + "\n```\n";
+    const valid = receipt({ ci_carried: [{ lane: "free-tests", run: 14155552671, attempt: 1, tree: "9f2c4e1a7b3d" }] });
+    holds.push(
+      ["schema-invalid block", forgedRun(JSON.stringify({ schema_version: 1, ci_carried: valid.ci_carried }, null, 2)), "14155552671"],
+      ["hand-written one-line block", forgedRun(JSON.stringify(valid)), "14155552671"],
+      ["malformed JSON block", forgedRun(JSON.stringify(valid, null, 2).replace(/\n}$/, ",\n}")), "14155552671"],
+      ["unclosed block", forgedRun(JSON.stringify(valid, null, 2)).replace(/\n```\n$/, "\n"), "14155552671"],
+    );
+    for (const [name, text, needle] of holds) {
+      const { code, phones, f } = post(text);
+      expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(text, needle)} PART: body`], EXIT.confirm]);
       expect(f.posts()).toEqual([]);
     }
   });
