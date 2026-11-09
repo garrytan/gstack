@@ -256,12 +256,12 @@ export function renderMode(visibility: RepoVisibility, full: boolean, redacted =
   return visibility === 'private' || (full && visibility === 'unknown') ? 'full' : 'redacted';
 }
 
-const LOCAL_PATH = /(?<![\w.~:/\\-])(?:file:\/\/[^\s|,;'"()<>]+|(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%|[A-Za-z]:)[\\/][^\s|,;'"()<>]+|\\\\[^\s\\|,;'"()<>]+\\[^\s|,;'"()<>]+|(?:[\w.-]+[\\/])*\.capy[\\/]drive[\\/][^\s|,;'"()<>]+|\/[^\s/\\|,;'"()<>]+\/[^\s|,;'"()<>]*)/g;
+const LOCAL_PATH = /(?<![\w.~/\\])(?:file:\/{1,2}[^\s|,;'"()<>]+|(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%|[A-Za-z]:)[\\/][^\s|,;'"()<>]+|\\\\[^\s\\|,;'"()<>]+\\[^\s|,;'"()<>]+|(?:[\w.-]+[\\/])*\.capy[\\/]drive[\\/][^\s|,;'"()<>]+|\/[^\s/\\|,;'"()<>]+\/[^\s|,;'"()<>]*)/gi;
 const HOME_DIR = /^(?:(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%)[\\/]?|\/(?:home|Users)\/[^/]+\/?|[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]?)$/i;
 
 /**
  * A table cell with each local path replaced by `…/<file name>` (a bare home directory by `~`): absolute, home
- * (`~`, `~user`, `$HOME`, `%USERPROFILE%`), Windows-drive, UNC and `file://` paths, and Drive-relative ones
+ * (`~`, `~user`, `$HOME`, `%USERPROFILE%`), Windows-drive, UNC and `file:` paths, also glued onto a `:` or `-` (a `://` scheme prefix is never a path), and Drive-relative ones
  * (`.capy/drive/…`). The file name tells a reader what the approval counted; the directories above it name the
  * machine, the user and the Drive scope (`project-user-<project>-<person>`). A path cut by a space keeps the words
  * after the space. `gstack-approvals list` keeps the full path.
@@ -269,7 +269,7 @@ const HOME_DIR = /^(?:(?:~[\w.-]*|\$HOME|\$\{HOME\}|%USERPROFILE%)[\\/]?|\/(?:ho
 export function pathLabels(text: string): string {
   return text.replace(LOCAL_PATH, m => {
     const tail = /[.:]*$/.exec(m)![0];
-    const p = m.slice(0, m.length - tail.length).replace(/^file:\/\/(?:localhost)?/i, '');
+    const p = m.slice(0, m.length - tail.length).replace(/^file:\/*(?:localhost)?(?=\/)/i, '');
     if (HOME_DIR.test(p)) return '~' + tail;
     const name = p.split(/[\\/]/).filter(Boolean).pop();
     return name ? `…/${name}${tail}` : m;

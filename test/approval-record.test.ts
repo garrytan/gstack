@@ -255,8 +255,27 @@ describe('public repositories get no identifying approval text (GST-1160)', () =
       expect(r.out).not.toContain('dana');
     });
 
+    test('paths glued onto a colon or dash and file: in any case are labelled, and gstack-post finds no internal.user_path', () => {
+      const GLUED = ['ledger:/home/u/.capy/drive/project-user-x-y/x.md', 'garry@host:/home/u/x.md', 'file:/home/u/x', 'FILE:///home/u/a/b', 'run-/home/u/a.md'];
+      const cwd = repo(); const state = tmp('appr-state-');
+      for (const [i, scope] of [...GLUED, 'see https://github.com/o/r'].entries()) expect(bin(['add', '--ask', `Glued path ${i}`, '--words', 'do it', '--by', 'Garry', '--scope', scope], { cwd, env: { GSTACK_STATE_ROOT: state } }).status).toBe(0);
+      const r = bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PRIVATE') } });
+      expect(r.status, r.err).toBe(0);
+      for (const label of ['ledger:…/x.md', 'host:…/x.md', '…/x', '…/b', 'run-…/a.md', 'see https://github.com/o/r']) expect(r.out).toContain(label);
+      expect(r.out).not.toContain('/home/u');
+      const posted = post(r.out);
+      expect(posted.status, posted.err).toBe(0);
+      expect(posted.err).not.toContain('internal.user_path');
+    });
+
     test.each([
       ['see https://github.com/acme/widget/pull/12', 'see https://github.com/acme/widget/pull/12'],
+      ['https://github.com/o/r', 'https://github.com/o/r'],
+      ['ledger:/home/u/.capy/drive/project-user-x-y/x.md', 'ledger:…/x.md'],
+      ['garry@host:/home/u/x.md', 'garry@host:…/x.md'],
+      ['file:/home/u/x', '…/x'],
+      ['FILE:///home/u/a/b', '…/b'],
+      ['run-/home/u/a.md', 'run-…/a.md'],
       ['lib/approval-record.ts and 3/4 done', 'lib/approval-record.ts and 3/4 done'],
       ['/home/dana', '~'],
       ['~/.gstack/plans/fix.md.', '…/fix.md.'],
