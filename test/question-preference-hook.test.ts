@@ -278,6 +278,25 @@ describe('enforces never-ask preferences', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
   });
 
+  test('an uppercase marker reads the same lowercase id the log hook records', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 's5u',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-5u',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:Ship-Pre-Landing-Review-Fix> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('ship-pre-landing-review-fix → A) Fix now');
+  });
+
   test('one-way door → pass-through even with never-ask (safety override)', () => {
     writeProjectPref('ship-test-failure-triage', 'never-ask');
     const r = runHook({
