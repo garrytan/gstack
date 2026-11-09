@@ -1,0 +1,1 @@
+- Document and test Gradle per-class JUnit reports (`build/test-results/<task>/TEST-*.xml`) in `gstack-flaky` (#4183).

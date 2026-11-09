@@ -44,6 +44,7 @@ the run before anyone reads the ledger.
 | Playwright | `npx playwright test --reporter=line,junit` with `PLAYWRIGHT_JUNIT_OUTPUT_NAME=<file>` | `gstack-flaky` sets `PLAYWRIGHT_JUNIT_INCLUDE_RETRIES=1` so Playwright's own `retries` are reported; with retries configured, those attempts stand and nothing is rerun again. |
 | bun | `bun test --reporter=junit --reporter-outfile=<file>` | |
 | jest, vitest, pytest (`--runner generic`) | your command, writing JUnit | Always reruns the whole command, even with `--rerun-scope test`. |
+| Gradle (`build/test-results/<task>/TEST-*.xml`, `--runner generic`) | `bash -c 'rm -rf build/test-results/test && ./gradlew test --rerun-tasks; rc=$?; shopt -s nullglob; files=(build/test-results/test/TEST-*.xml); ((${#files[@]})) && cat "${files[@]}" >"$1"; exit "$rc"' _ <file>` | Cleans stale `TEST-*.xml` files before each attempt, preserves Gradle's exit status, and concatenates the per-class `<testsuite>` files into `--junit <file>` (`gstack-flaky` parses concatenated `<?xml …?><testsuite>` documents directly). `--rerun-tasks` keeps Gradle from skipping the whole-command rerun as `UP-TO-DATE`. |
 
 The command after `--` runs without a shell. When it needs one, wrap it as
 `bash -c '<script> "$@"' _` so a targeted rerun's selection arguments reach

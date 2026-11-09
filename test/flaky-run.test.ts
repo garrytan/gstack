@@ -64,6 +64,31 @@ describe('JUnit reader', () => {
     expect(r.tests[0]!.id).toBe('tests/test_a.py::::test_x[a&b]');
     expect(r.tests[0]!.attempts).toEqual(['fail']);
   });
+
+  test('one-file-per-class runners (Gradle): concatenated <?xml ...?><testsuite> documents parse as one report', () => {
+    const concatenated = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<testsuite name="com.example.AlphaTest" tests="1" skipped="0" failures="0" errors="0">',
+      '  <properties/>',
+      '  <testcase name="passes()" classname="com.example.AlphaTest" time="0.01"/>',
+      '  <system-out><![CDATA[]]></system-out>',
+      '  <system-err><![CDATA[]]></system-err>',
+      '</testsuite>',
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<testsuite name="com.example.BetaTest" tests="1" skipped="0" failures="1" errors="0">',
+      '  <properties/>',
+      '  <testcase name="flakes()" classname="com.example.BetaTest" time="0.02">',
+      '    <failure message="org.opentest4j.AssertionFailedError: expected true">stack</failure>',
+      '  </testcase>',
+      '</testsuite>',
+    ].join('\n');
+    const r = parseJunit(concatenated);
+    expect(r.runner).toBe('generic');
+    expect(r.tests.map(t => [t.id, t.attempts.join(',')])).toEqual([
+      ['com.example.AlphaTest::::passes()', 'pass'],
+      ['com.example.BetaTest::::flakes()', 'fail'],
+    ]);
+  });
 });
 
 describe('rerun selection', () => {
