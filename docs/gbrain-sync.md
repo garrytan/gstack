@@ -150,6 +150,22 @@ your machine. Blocked patterns include:
 - PEM blocks (`-----BEGIN …-----`)
 - JWTs (`eyJ…`)
 - Bearer tokens in JSON (`"authorization": "…"`, `"api_key": "…"`, etc.)
+- Stripe live secret and restricted keys (`sk_live_…`, `rk_live_…`)
+- Slack tokens (`xoxb-…`, `xoxp-…` and the other `xox?-` forms)
+- npm tokens (`npm_…`)
+- Database URLs with a password (`postgres://user:pass@host`, and the
+  same for MySQL, MongoDB, Redis and AMQP)
+
+The last four follow gstack's redaction rules, so placeholders such as
+`sk_live_EXAMPLE…`, `${DB_PASSWORD}` or `postgres:postgres@localhost` are
+not held.
+
+The scan reads only the lines a commit adds. A line that is already in the
+repository (an unchanged line shown around an edit, or a line the edit
+removes) never holds the file, so you can delete an old row that the scan
+would flag today. Each added line is scanned as written and again with its
+JSON strings decoded, so a secret written with `\u` escapes or inside an
+escaped JSON string is still caught.
 
 If a scan hits, only the flagged file is held back (with any file coupled
 to it); everything else syncs. The held file stays queued and is re-scanned
@@ -169,7 +185,10 @@ To remediate:
 3. Otherwise, edit the file to remove the secret; the next skill run syncs it.
 
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
-runs the same scan if you manually `git commit` against the repo.
+runs the same scanner (`bin/gstack-brain-secret-scan.py`) if you manually
+`git commit` against the repo. `gstack-artifacts-init` and
+`gstack-brain-restore` install it. A hook written by an older gstack checks
+only the first six patterns; rerun `gstack-artifacts-init` to refresh it.
 
 Separately (v1.63.0.0+), every push writes a tamper-evident receipt to the
 egress ledger (`~/.gstack/security/egress.jsonl`) *before* anything is
