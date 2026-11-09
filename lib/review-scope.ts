@@ -97,7 +97,7 @@ export function parseHunks(diff: string, untracked: readonly string[] = []): Hun
   return map;
 }
 
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\.\//, '');
 }
 

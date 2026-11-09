@@ -23,7 +23,7 @@ import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { reviewFreshness } from './review-evidence';
 import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
-import { fingerprintPath } from './review-scope';
+import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
@@ -306,7 +306,7 @@ function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: st
   const flagged = (l: FixLink): string[] | null => {
     const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
     const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint))
-      .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint));
+      .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
     const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
     const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);
     return bound && accounted && onBranch(l.commit) && onBranch(l.from) && paths.every(p => !!p && git(cwd, ['cat-file', '-e', `${l.commit}:${p}`]).status === 0) ? paths as string[] : null;

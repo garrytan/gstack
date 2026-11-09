@@ -175,6 +175,21 @@ describe('finish still refuses fix-check chains that do not read the fixes (GST-
     expect([r.status, stopLine(r.stdout)], r.stdout).toEqual([3, expect.stringMatching(/^STOP: behavior, tests or build inputs changed since review \([^)]*src\/y\.ts/)]);
   });
 
+  // Value: protects=a finding path written ./src/y.ts names the same file as git's src/y.ts, so it still masks the earlier read;
+  //   fails_when=finish compares the reviewer's raw path to git's root-relative paths and counts src/y.ts; seam=flagged()'s paths
+  test('a finding path written with a leading ./ still names the file a later clean link must read', () => {
+    const { f, t, reviewed, reviewedBase } = reviewedShape();
+    edit(f, { 'src/y.ts': 'export const y = 2;\n' }, 'fix the round-2 blocker in y');
+    const a = link(f, t, CLEAN);
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'a fix in x');
+    const b = link(f, a.commit, found('./src/y.ts'));
+    edit(f, { 'src/x.ts': 'export const x = 4;\n', 'test/x.test.ts': TEST_V2 }, 'a second fix in x');
+    link(f, b.commit, CLEAN);
+    const r = finish(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).not.toContain('src/y.ts');
+    expect([r.status, stopLine(r.stdout)], r.stdout).toEqual([3, expect.stringMatching(/^STOP: behavior, tests or build inputs changed since review \([^)]*src\/y\.ts/)]);
+  });
+
   // Value: protects=every link needs its own approved review_loop_grant, the link that found issues included; fails_when=a link
   //   with findings rides on the clean link's grant; seam=finish's per-link grant assignment
   test('a link with findings and no grant of its own refuses the chain', () => {
@@ -196,6 +211,8 @@ describe('finish still refuses fix-check chains that do not read the fixes (GST-
       found('src/x.ts', { completed: false, status: 'unavailable' }),
       found('src/x.ts', { findings: [{ fingerprint: 'p2/adversarial-native#1', severity: 'CRITICAL', action: 'deferred', blocking: true, raised_by: 'adversarial-native' }], issues_found: 1, informational: 0 }),
       found('src/x.ts', { issues_found: 5 }),
+      found('src/x.ts', { critical: 2 }),
+      found('src/gone.ts'),
     ];
     for (const row of rows) {
       const { f, t, reviewed, reviewedBase } = reviewedShape();
