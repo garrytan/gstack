@@ -937,7 +937,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    can't tell a finding's own fields from another subject's. Otherwise lead judgment can fold it only into a finding
    at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
-   reverted that. Each prose finding's line also
+   reverted that. A reply that says `NO FINDINGS` keeps only its structured findings (GST-2122). Those are JSON objects
+   (malformed JSON included), lead labels, label headings, numbered finding headings, `Severity` fields, `Blocks: yes`,
+   the native voice's FIXABLE or INVESTIGATE tag, and anything naming a file:line, which still collect at their label.
+   Its other prose collects nothing. Outside such a reply prose collects as described above. A denial that a change
+   introduced a severity ("No fix introduced a CRITICAL defect") is a no-defect clause too, and a line led by a bold,
+   unlabelled lead ("**1. Coverage:** …", "- **Callers:** …") is read for those clauses after its lead. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
    a classified finding that carries `stated` shows it in its `## Deferred findings` line next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
