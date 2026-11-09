@@ -161,8 +161,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      contents: read
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       tests: ${{ steps.scope.outputs.tests }}
@@ -182,8 +180,6 @@ jobs:
     if: needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

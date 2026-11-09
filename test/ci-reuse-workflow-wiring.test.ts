@@ -19,18 +19,18 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const MAIN_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const FILES = {
-  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: ['trunk-dynamic-ci'], observer: 'trunk-dynamic-ci', manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true },
-  'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], observer: null, manual: true, reuseIf: MAIN_PUSH, pullRequest: false },
+  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: ['trunk-dynamic-ci', 'docs-scope', 'docs-lane'], observer: 'trunk-dynamic-ci', manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true, docsScope: true, skip: "steps.route.outputs.skip != 'true'" },
+  'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], observer: null, manual: true, reuseIf: MAIN_PUSH, pullRequest: false, docsScope: false, skip: "steps.route.outputs.reused != 'true'" },
 };
-const SKIP = "steps.route.outputs.reused != 'true'";
 const PROFILES = JSON.parse(read('.gstack/pregate.json')).run_profiles as Record<string, { workflow: string; jobs: string[]; artifact: string; events: string[]; os: string }>;
 
 /** Evaluate a job condition the way the runner would for one reuse outcome (status functions true: nothing cancelled). */
-function runs(cond: string, s: { result: string; reused: string; plan?: string }): boolean {
+function runs(cond: string, s: { result: string; reused: string; plan?: string; docsScope?: string; docsOnly?: string }): boolean {
   const expr = cond.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
     .replace(/!cancelled\(\)|always\(\)/g, 'true')
     .replace(/needs\.reuse\.result/g, JSON.stringify(s.result)).replace(/needs\.reuse\.outputs\.reused/g, JSON.stringify(s.reused))
-    .replace(/needs\.(free|windows)-plan\.result/g, JSON.stringify(s.plan ?? 'success')).replace(/inputs\.record_durations/g, 'false');
+    .replace(/needs\.(free|windows)-plan\.result/g, JSON.stringify(s.plan ?? 'success')).replace(/inputs\.record_durations/g, 'false')
+    .replace(/needs\.docs-scope\.result/g, JSON.stringify(s.docsScope ?? 'skipped')).replace(/needs\.docs-scope\.outputs\.docs_only/g, JSON.stringify(s.docsOnly ?? ''));
   expect(expr).not.toMatch(/needs\.|inputs\.|github\.|steps\./);
   return new Function(`return (${expr});`)() as boolean;
 }
@@ -72,6 +72,13 @@ for (const [file, spec] of Object.entries(FILES)) {
         expect([name, runs(cond, { result: 'success', reused: 'true' })]).toEqual([name, false]);
       }
       for (const name of suite.filter(n => needs(n).includes(spec.plan))) expect([name, runs(jobs[name].if, { result: 'skipped', reused: '', plan: 'failure' })]).toEqual([name, false]);
+      const docsGated = suite.filter(n => needs(n).includes('docs-scope'));
+      expect(docsGated.length > 0).toBe(spec.docsScope);
+      for (const name of docsGated) {
+        expect([name, runs(jobs[name].if, { result: 'skipped', reused: '', docsScope: 'success', docsOnly: 'true' })]).toEqual([name, false]);
+        expect([name, runs(jobs[name].if, { result: 'skipped', reused: '', docsScope: 'failure', docsOnly: 'true' })]).toEqual([name, true]);
+        expect([name, runs(jobs[name].if, { result: 'skipped', reused: '', docsScope: 'success', docsOnly: 'false' })]).toEqual([name, true]);
+      }
       expect(needs(spec.aggregate)).toContain('reuse');
       expect(runs(jobs[spec.aggregate].if, { result: 'success', reused: 'true' })).toBe(true);
     });
@@ -91,7 +98,7 @@ for (const [file, spec] of Object.entries(FILES)) {
       const steps = jobs[spec.aggregate].steps as any[];
       expect(steps[0].id).toBe('route');
       expect(steps[0].if).toBeUndefined();
-      for (const step of steps.slice(1)) expect([step.name ?? step.uses, step.if]).toEqual([step.name ?? step.uses, SKIP]);
+      for (const step of steps.slice(1)) expect([step.name ?? step.uses, step.if]).toEqual([step.name ?? step.uses, spec.skip]);
       const verify = steps.findIndex(s => s.run?.includes('--ci-verify'));
       const record = steps.findIndex(s => s.run?.includes('scripts/ci-tree-reuse.ts record'));
       const upload = steps.findIndex(s => s.with?.name === 'tested-tree');
@@ -114,18 +121,30 @@ for (const [file, spec] of Object.entries(FILES)) {
         const go = (env: Record<string, string>) => {
           const out = path.join(dir, 'out'); const summary = path.join(dir, 'summary');
           fs.writeFileSync(out, ''); fs.writeFileSync(summary, '');
-          const r = spawnSync('bash', ['-e', '-c', route.run], { env: { PATH: process.env.PATH ?? '', GITHUB_OUTPUT: shell(out), GITHUB_STEP_SUMMARY: shell(summary), GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'garrytan/gstack', REUSE_RESULT: '', REUSED: '', REUSE_RUN_ID: '', REUSE_RUN_URL: '', REUSE_TREE: '', ...env }, encoding: 'utf8', timeout: 5000 });
+          const r = spawnSync('bash', ['-e', '-c', route.run], { env: { PATH: process.env.PATH ?? '', GITHUB_OUTPUT: shell(out), GITHUB_STEP_SUMMARY: shell(summary), GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'garrytan/gstack', REUSE_RESULT: '', REUSED: '', REUSE_RUN_ID: '', REUSE_RUN_URL: '', REUSE_TREE: '', DOCS_SCOPE_RESULT: '', DOCS_ONLY: '', DOCS_LANE_RESULT: '', ...env }, encoding: 'utf8', timeout: 5000 });
           return { status: r.status, out: fs.readFileSync(out, 'utf8'), summary: fs.readFileSync(summary, 'utf8') };
         };
         const good = { REUSE_RESULT: 'success', REUSED: 'true', REUSE_RUN_ID: '123', REUSE_RUN_URL: 'https://github.com/garrytan/gstack/actions/runs/123', REUSE_TREE: 'a'.repeat(40) };
-        expect(go({ REUSE_RESULT: 'skipped', GITHUB_EVENT_NAME: 'pull_request' })).toEqual({ status: 0, out: 'reused=false\n', summary: '' });
-        expect(go({ REUSE_RESULT: 'success', REUSED: 'false' })).toEqual({ status: 0, out: 'reused=false\n', summary: '' });
-        expect(go({ ...good, REUSE_RESULT: 'failure' })).toEqual({ status: 0, out: 'reused=false\n', summary: '' });
+        const routed = (reused: boolean) => `reused=${reused}\n${spec.docsScope ? `skip=${reused}\n` : ''}`;
+        expect(go({ REUSE_RESULT: 'skipped', GITHUB_EVENT_NAME: 'pull_request' })).toEqual({ status: 0, out: routed(false), summary: '' });
+        expect(go({ REUSE_RESULT: 'success', REUSED: 'false' })).toEqual({ status: 0, out: routed(false), summary: '' });
+        expect(go({ ...good, REUSE_RESULT: 'failure' })).toEqual({ status: 0, out: routed(false), summary: '' });
         const reused = go(good);
-        expect([reused.status, reused.out]).toEqual([0, 'reused=true\n']);
+        expect([reused.status, reused.out]).toEqual([0, routed(true)]);
         expect(reused.summary).toContain('Reused https://github.com/garrytan/gstack/actions/runs/123');
         const prRun = { GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/7/merge' };
-        if (spec.pullRequest) expect(go({ ...good, ...prRun }).out).toBe('reused=true\n');
+        if (spec.pullRequest) expect(go({ ...good, ...prRun }).out).toBe(routed(true));
+        if (spec.docsScope) {
+          const docs = { ...prRun, DOCS_SCOPE_RESULT: 'success', DOCS_ONLY: 'true', DOCS_LANE_RESULT: 'success' };
+          const passed = go(docs);
+          expect([passed.status, passed.out]).toEqual([0, 'reused=false\nskip=true\n']);
+          expect(passed.summary).toContain('Docs-only pull request');
+          for (const bad of <Record<string, string>[]>[{ DOCS_LANE_RESULT: 'failure' }, { DOCS_LANE_RESULT: 'skipped' }, { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }]) {
+            const r = go({ ...docs, ...bad });
+            expect([JSON.stringify(bad), r.status === 0, r.out]).toEqual([JSON.stringify(bad), false, '']);
+          }
+          expect(go({ ...docs, DOCS_SCOPE_RESULT: 'failure', REUSE_RESULT: 'skipped' }).out).toBe(routed(false));
+        }
         for (const bad of <Record<string, string>[]>[{ REUSE_RUN_ID: '' }, { REUSE_RUN_ID: '12x' }, { REUSE_RUN_URL: 'https://github.com/other/repo/actions/runs/123' }, { REUSE_TREE: '' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_EVENT_NAME: 'workflow_dispatch' }, ...(spec.pullRequest ? [] : [prRun])]) {
           const r = go({ ...good, ...bad });
           expect([JSON.stringify(bad), r.status === 0, r.out]).toEqual([JSON.stringify(bad), false, '']);

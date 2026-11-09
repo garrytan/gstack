@@ -1469,7 +1469,9 @@ lists every tracked file. `DOCS_READER_TESTS` in `lib/docs-only.ts` names them (
 with `fetch-depth: 2` and runs the base branch's classifier (`.github/actions/docs-scope`) on
 `HEAD^1..HEAD`. That is the exact tree CI tests, and a branch can't change the classifier that judges it.
 Each suite job skips only when `docs-scope` succeeded and said docs-only, so a crashed classifier runs
-everything. `docs-lane` runs `scripts/check-doc-links.ts --base HEAD^1` and the docs reader tests. The required
+everything. A required check that is itself the suite, `windows-smoke`, always runs and skips its steps
+instead (`env.DOCS_ONLY`), because gstack's land counts only a check that concluded success, never a skipped
+one. `docs-lane` runs `scripts/check-doc-links.ts --base HEAD^1` and the docs reader tests. The required
 `free-tests` aggregator always runs. On a docs-only pull request it passes only after `docs-lane` passed, and it
 records no `tested-tree`, so a push to main never reuses that run. Use the same jobs in another
 repository: copy `.github/actions/docs-scope`, add a `docs-scope` job, and gate each suite job with

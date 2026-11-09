@@ -18,7 +18,7 @@ describe('docs-scope', () => {
     for (const jobs of [free, smoke]) {
       const s = jobs['docs-scope'];
       expect(s.if).toBe("github.event_name == 'pull_request'");
-      expect(s.permissions).toEqual({ contents: 'read' });
+      expect(s.permissions).toBeUndefined();
       expect(s.steps[0].with['fetch-depth']).toBe(2);
       expect(s.steps.at(-1).uses).toBe('./.github/actions/docs-scope');
     }
@@ -68,9 +68,13 @@ describe('free-tests', () => {
   });
 });
 
-test('windows-smoke runs unless docs-scope succeeded and said docs-only', () => {
-  expect(needs(smoke['windows-smoke'])).toEqual(['docs-scope']);
-  expect(smoke['windows-smoke'].if).toBe(`${'$'}{{ !cancelled() && ${GATE} }}`);
+test('windows-smoke always runs, so its required check concludes success, and skips its steps only when docs-scope succeeded and said docs-only', () => {
+  const job = smoke['windows-smoke'];
+  expect(needs(job)).toEqual(['docs-scope']);
+  expect(job.if).toBe(`${'$'}{{ !cancelled() }}`);
+  expect(job.env.DOCS_ONLY).toBe("${{ needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true' }}");
+  expect(job.steps[0].if).toBe("env.DOCS_ONLY == 'true'");
+  for (const s of job.steps.slice(1)) expect([s.name ?? s.uses, s.if]).toEqual([s.name ?? s.uses, expect.stringMatching(/(^|&& )env\.DOCS_ONLY != 'true'$/)]);
 });
 
 test('every job that reads docs_only uses the fail-open-to-tests gate', () => {

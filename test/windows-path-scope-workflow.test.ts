@@ -130,12 +130,12 @@ function prRepo(files: string[], lines: Record<string, string> = {}) {
 }
 
 describe('windows-smoke stays on every pull request', () => {
-  test('no paths filter, no job condition, one test job beside the Trunk observer', () => {
+  test('no paths filter, one test job beside the Trunk observer, which always runs and skips its steps only when docs-scope said docs-only (R81)', () => {
     expect(smoke.on.pull_request).toEqual({ branches: ['main'] });
     expect(smoke.on.push).toEqual({ branches: ['main'] });
-    expect(Object.keys(smoke.jobs)).toEqual(['trunk-dynamic-ci', 'windows-smoke']);
-    expect(smoke.jobs['windows-smoke'].if).toBeUndefined();
-    expect(smoke.jobs['windows-smoke'].needs).toBeUndefined();
+    expect(Object.keys(smoke.jobs)).toEqual(['trunk-dynamic-ci', 'docs-scope', 'windows-smoke']);
+    expect(smoke.jobs['windows-smoke'].if).toBe('${{ !cancelled() }}');
+    expect(smoke.jobs['windows-smoke'].needs).toBe('docs-scope');
   });
 
   test('no Windows job that can skip is a required check, and the scoped aggregate always reports', () => {
