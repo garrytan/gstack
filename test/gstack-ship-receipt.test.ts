@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { publicReceiptText } from '../lib/public-pr-text';
 import { bindReceipt, classifyCarryPath, computeCensus, extractReceipt, parseReviewLoop, placeReceipt, planCarry, receiptSummaryLine, renderReceiptBlock, stampOnlyText } from '../lib/ship-receipt';
 import { cleanup, ghShim, makeFixtureRepo, makePr, recordAndBundle, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -797,6 +798,8 @@ describe('gstack-ship-receipt census (P7)', () => {
     expect(c.prs.find(p => p.number === 6)).toMatchObject({ valid: false });
     const noCohort = computeCensus('o/r', '2026-10-01', prs, null);
     expect(noCohort.adoption).toBe('2/3 (threads seen; no cohort file)');
+    const publicForm = prs.map(p => ({ ...p, body: publicReceiptText(p.body).text }));
+    expect(computeCensus('o/r', '2026-10-01', publicForm, ['jam_1', 'jam_2', 'jam_3']).adoption).toBe('1/3 (cohort)');
   });
 
   test('census --repo --since reads merged PRs through gh and prints the CENSUS line', () => {

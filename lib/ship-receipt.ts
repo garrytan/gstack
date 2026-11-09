@@ -17,6 +17,7 @@ import { ruledNoteText } from './ruled-notes';
 import { laneExceptionBodyLines } from './test-lane-exception';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
+import { anon } from './public-pr-text';
 
 export const RECEIPT_FENCE = 'gstack-ship-receipt';
 const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
@@ -534,7 +535,7 @@ export function computeCensus(repo: string, since: string, prs: CensusPr[], coho
     if (kind === 'unattended') unattended += 1;
     if (consumedCount(r.artifacts_consumed) > 0) { consumed += 1; if (r.thread) consumedThreads.add(r.thread); }
   }
-  const cohortConsumed = cohort ? cohort.filter(t => consumedThreads.has(t)).length : consumedThreads.size;
+  const cohortConsumed = cohort ? cohort.filter(t => consumedThreads.has(t) || consumedThreads.has(anon(t))).length : consumedThreads.size;
   const denominator = cohort ? cohort.length : threads.size;
   return {
     repo, since, merged_prs: prs.length, with_receipt: withReceipt, invalid_receipts: invalid, unattended_prs: unattended, consumed_prs: consumed,

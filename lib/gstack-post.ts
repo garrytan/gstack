@@ -645,7 +645,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       if (leaks.length) {
         env.out(`REPO_VISIBILITY: ${vis}\n`);
         for (const { part, f } of leaks) env.out(`PUBLIC: ${f.rule} LINE: ${f.line} PART: ${part}\n`);
-        env.err(`gstack-post: refused, the text names a home path, a Capy thread id or a cost on a ${vis} repo (PUBLIC: lines; line numbers count the text gstack-post would send, a merged pr-body included); nothing was posted. Rewrite those lines: a repo-relative path or the file name, no Capy id but the platform badge, no dollar, credits or token figure. A private repo sets gstack-config redact_repo_visibility private.\n`);
+        env.err(`gstack-post: refused, the text names a home path, a Capy thread id or a cost on a ${vis} repo (PUBLIC: lines; line numbers count the text gstack-post would send, a merged pr-body included); nothing was posted. Rewrite those lines: a repo-relative path or the file name, no Capy id but the platform badge, no dollar, credits or token figure. A private repo whose visibility gh cannot read sets gstack-config redact_repo_visibility private.\n`);
         return EXIT.refused;
       }
     }

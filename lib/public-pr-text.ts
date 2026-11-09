@@ -39,7 +39,7 @@ export function readRepoVisibility(run: VisibilityRunner, o: { explicit?: RepoVi
   try { return norm(String(JSON.parse(gl.stdout).visibility ?? "")) ?? "unknown"; } catch { return "unknown"; }
 }
 
-const HOME_PATH = /(?:[A-Za-z]:)?[\\/](?:home|[Uu]sers)[\\/]+[^\s\\/`'"<>()[\]]+|(?<![\w.~-])\/root\/|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\//g;
+const HOME_PATH = /(?<![\w.~-])(?:[A-Za-z]:|\/[A-Za-z])?[\\/](?:home|[Uu]sers)[\\/]+[^\s\\/`'"<>()[\]]+|(?<![\w.~-])\/root\/|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\//g;
 const HTTP_URL = /https?:\/\/[^\s<>"'`)\]]+/g;
 const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/[^\s"'`<>)\]]+/g;
 const BADGE = /<a href="https:\/\/capy\.ai\/thread\/jam_[A-Za-z0-9]+"><picture>(?:(?!<\/a>)[\s\S]){0,800}?capy\.ai\/badge\/(?:(?!<\/a>)[\s\S]){0,800}?<\/picture><\/a>/g;
@@ -90,8 +90,8 @@ export function privateDetails(text: string): PublicFinding[] {
 }
 
 const COST_KEY = /(?:^|_)(?:usd|cost|costs|credits?|tokens?|spend)$/i;
-const PATH_TOKEN = /(?:[A-Za-z]:)?[\\/](?:home|[Uu]sers)[\\/][^\s"'`<>]*|(?<![\w.~-])\/root\/[^\s"'`<>]*|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\/[^\s"'`<>]*/g;
-const anon = (v: string) => `anon-${createHash("sha256").update(v).digest("hex").slice(0, 12)}`;
+const PATH_TOKEN = /(?<![\w.~-])(?:[A-Za-z]:|\/[A-Za-z])?[\\/](?:home|[Uu]sers)[\\/][^\s"'`<>]*|(?<![\w.~-])\/root\/[^\s"'`<>]*|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\/[^\s"'`<>]*/g;
+export const anon = (v: string) => `anon-${createHash("sha256").update(v).digest("hex").slice(0, 12)}`;
 
 function publicValue(v: unknown, key: string, depth: number, changed: Set<string>): unknown {
   if (typeof v === "string") {

@@ -103,6 +103,13 @@ describe("public repo: the receipt goes out in its public form", () => {
     expect(publicReceiptText(a).changed).toEqual([]);
   });
 
+  test("a repo-relative path with a home or users folder in a receipt string keeps its bytes", () => {
+    const block = "```gstack-ship-receipt\n" + JSON.stringify({ schema_version: 1, pr: 1, head: "a", requires_remote: ["x receipt=app/users/r.txt", "y receipt=/home/user/z.txt"] }) + "\n```";
+    const text = publicReceiptText(block).text;
+    expect(text).toContain("x receipt=app/users/r.txt");
+    expect(text).toContain("y receipt=z.txt");
+  });
+
   test("the REVIEW_LOOP line /ship puts in the body loses its token estimate, nothing else", () => {
     const loopLine = "REVIEW_LOOP: passes=2 blocking_found=0 deferred=1 noted=0 fixed=0 scope=diff-plus-blocking fix_checks=1 dispatches=1 est_input_tokens=3341";
     const f = fakeEnv({ files: { "/b": body(CLEAN + "\n\n`" + loopLine + "`") }, ghVisibility: "PUBLIC" });
@@ -160,6 +167,7 @@ describe("public repo: any other private detail refuses the post", () => {
     refuses("Git Bash path: /c/Users/garry/gstack", "public.home_path");
     refuses("CI trace at /home/runner/work/gstack/gstack/test/x.test.ts:112", "public.home_path");
     refuses("the state root `~garry/.gstack`", "public.home_path");
+    expect(refuses("Ran from /Users/garry/git/gstack.", "public.home_path").stderr()).toContain("whose visibility gh cannot read");
   });
 
   test("Capy ids: a bare jam id, one inside a URL, a thread link that is not the badge", () => {
@@ -200,6 +208,7 @@ describe("public repo: ordinary prose still posts", () => {
       "It took ~30 minutes and ~5/10 runs passed.",
       "Use `awk '{print $2}'` and `$1` in the hook.",
       "Fixes GST-1955; see bin/gstack-post and lib/redact-engine.ts.",
+      "Changed src/pages/home/index.tsx and app/users/show.ts; the route is GET /api/users/42.",
       "Docs: https://github.com/garrytan/gstack/blob/main/docs/home/index.md",
       "No secrets, no costs. ~~struck~~ text.",
       "A bare base64 token stays redacted.",
