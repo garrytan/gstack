@@ -38,7 +38,7 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_BASE_UNFETCHED: {
     anchor: 'queue-base-unfetched',
-    summary: 'ready or land could not fetch origin/<base>, so it did not compare the receipt with a base ref it could not refresh',
+    summary: 'ready, or the stamp path of land, could not fetch origin/<base>, so it did not compare the receipt with a base ref it could not refresh',
     fix: 'fix the fetch (git fetch origin <base>), then rerun the same command',
   },
   QUEUE_PROOF_MISSING: {

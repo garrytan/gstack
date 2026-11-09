@@ -736,8 +736,9 @@ slot. The queue enforces this at every step from the PR body alone:
   `origin/<base>` and reads the policy and every receipt field against that
   fresh ref, so a lane clone whose base is behind the remote never turns a good
   receipt into `RECEIPT_INVALID` (GST-2232); a failed fetch refuses with
-  `QUEUE_BASE_UNFETCHED` before anything is compared. `land` fetches the base
-  before its receipt check the same way.
+  `QUEUE_BASE_UNFETCHED` before anything is compared. The stamp path of `land`
+  refuses the same way; `land --pin` (`merge: direct`) refuses a failed fetch
+  with `QUEUE_NOT_READY`, as it already did.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
   `--dry-run` included.
