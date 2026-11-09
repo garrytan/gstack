@@ -15,9 +15,9 @@
  * failure. Any doubt (another runner, a listing that fails or cannot be read,
  * a file missing from disk) leaves the files to run as before.
  */
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { runBashSync } from '../script-invocation';
 
 const VITEST_RUN = /(?<![\w-])vitest\s+run(?![\w-])/;
 const JEST = /(?<![\w-])jest(?![\w-])/;
@@ -48,7 +48,7 @@ export function excludedByConfig(runner: string, cwd: string, files: readonly st
   const out = path.join(scratch, `list-${process.pid}-${Date.now()}.json`);
   const command = listCommand(runner, files, out);
   if (!command) return null;
-  const r = spawnSync('bash', ['-c', command], { cwd, env: { ...env, CI: env.CI ?? '1' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+  const r = runBashSync(command, { cwd, env: { ...env, CI: env.CI ?? '1' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
   if (r.error || r.status !== 0) return null;
   let listed: unknown;
   try { listed = JSON.parse(VITEST_RUN.test(runner) ? fs.readFileSync(out, 'utf8') : r.stdout.trim()); } catch { return null; } finally { fs.rmSync(out, { force: true }); }
