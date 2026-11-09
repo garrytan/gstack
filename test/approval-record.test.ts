@@ -174,6 +174,76 @@ describe('public repositories get no identifying approval text (GST-1160)', () =
     bin(ADD, { cwd, env: { GSTACK_STATE_ROOT: state } });
     expect(id()).not.toBe(first);
   });
+
+  describe('full rows never carry a local path in Covers (GST-2048)', () => {
+    const LEDGER = '/home/user/.capy/drive/project-user-gstack-garry-tan/ship-budget/ledger.jsonl';
+    const SCOPES = [
+      `spend cap 25000 credits, counted in ${LEDGER}`,
+      'the plan at ~/.gstack/projects/acme-widgets/plans/fix.md, and /Users/dana/work/widgets/notes.txt',
+      'the checkout /workspace/gstack/lib/approval-record.ts; C:\\Users\\dana\\gstack\\plan.md',
+    ];
+    const pathLike = /(?:^|[\s(])(?:~[\\/]|\/[^\s/|]+\/|[A-Za-z]:[\\/])/;
+    const addScoped = (cwd: string, state: string) => SCOPES.forEach((scope, i) =>
+      expect(bin(['add', '--ask', `Spend cap ${i}`, '--words', 'do it', '--by', 'Garry (via GStack Minder)', '--scope', scope], { cwd, env: { GSTACK_STATE_ROOT: state } }).status).toBe(0));
+    const post = (body: string) => {
+      const d = tmp('appr-post-'); const stubs = tmp('appr-post-gh-');
+      fs.writeFileSync(path.join(stubs, 'gitconfig'), '');
+      const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: path.join(stubs, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+      spawnSync('git', ['init', '-q'], { cwd: d, timeout: 30_000, env: gitEnv });
+      spawnSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/widget.git'], { cwd: d, timeout: 30_000, env: gitEnv });
+      fs.writeFileSync(path.join(stubs, 'gh'), '#!/bin/sh\ncat >/dev/null\nexit 0\n', { mode: 0o755 });
+      const file = path.join(d, 'body.md'); fs.writeFileSync(file, body);
+      const r = spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-post'), 'pr-body', '7', '--replace', '--repo-visibility', 'private', '--body-file', file], {
+        cwd: d, encoding: 'utf8', timeout: 60_000, env: { ...gitEnv, PATH: `${stubs}:${process.env.PATH}`, GSTACK_STATE_ROOT: tmp('appr-post-state-') },
+      });
+      return { status: r.status ?? -1, err: r.stderr ?? '' };
+    };
+
+    test('a private render labels each path by its file name, and gstack-post finds no internal.user_path in it', () => {
+      const cwd = repo(); const state = tmp('appr-state-');
+      addScoped(cwd, state);
+      const r = bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PRIVATE') } });
+      expect(r.status, r.err).toBe(0);
+      expect(r.out).toContain(APPROVALS_TABLE_HEADER);
+      const control = post(`## Approvals\n\nCovers ${LEDGER}\n`);
+      expect(control.status, control.err).toBe(0);
+      expect(control.err).toContain('internal.user_path');
+      const posted = post(r.out);
+      expect(posted.status, posted.err).toBe(0);
+      expect(posted.err).not.toContain('internal.user_path');
+      const covers = r.out.split('\n').filter(l => /^\| \d{4}-/.test(l)).map(l => l.split(' | ')[4]!);
+      expect(covers).toHaveLength(3);
+      for (const c of covers) expect(c).not.toMatch(pathLike);
+      expect(r.out).toContain('ledger.jsonl');
+      expect(r.out).toContain('fix.md');
+      expect(r.out).not.toContain('garry-tan');
+      expect(r.out).not.toContain('dana');
+      const list = bin(['list', '--json'], { cwd, env: { GSTACK_STATE_ROOT: state } });
+      expect(JSON.parse(list.out).rows.map((row: { scope: string }) => row.scope).sort()).toEqual([...SCOPES].sort());
+    });
+
+    test('--redacted on a private repository prints the same bytes as the public render', () => {
+      const cwd = repo(); const state = tmp('appr-state-');
+      addScoped(cwd, state);
+      const pub = bin(['render'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PUBLIC') } });
+      const forced = bin(['render', '--redacted'], { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PRIVATE') } });
+      expect(forced.status, forced.err).toBe(0);
+      expect(forced.out).toBe(pub.out);
+      expect(forced.out).not.toContain(APPROVALS_TABLE_HEADER);
+      expect(forced.err).toContain('APPROVALS_RENDER: redacted (--redacted');
+    });
+
+    test('--redacted with --full refuses and prints nothing', () => {
+      const cwd = repo(); const state = tmp('appr-state-');
+      addScoped(cwd, state);
+      for (const args of [['render', '--redacted', '--full'], ['render', '--full', '--redacted']]) {
+        const r = bin(args, { cwd, env: { GSTACK_STATE_ROOT: state, ...fakeGh('PRIVATE') } });
+        expect(r.status).toBe(2);
+        expect(r.out).toBe('');
+        expect(r.err).toContain('--redacted and --full conflict');
+      }
+    });
+  });
 });
 
 describe('the rendered table is display only', () => {

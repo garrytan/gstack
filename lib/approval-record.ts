@@ -246,12 +246,31 @@ export function repoVisibility(cwd: string, env: Env = process.env): RepoVisibil
 }
 
 /**
- * Full rows only where the repository is known private, or --full asks for them and GitHub does not report it public.
+ * Full rows only where the repository is known private, or --full asks for them and GitHub does not report it public;
+ * --redacted forces the redacted block anywhere, for a private repository that may go public.
  * A PR description keeps every earlier version in its edit history, so a public or unknown repository gets the
  * redacted block: whether anything was approved and an opaque id of the record (a hash of its row ids), nothing else.
  */
-export function renderMode(visibility: RepoVisibility, full: boolean): 'full' | 'redacted' {
+export function renderMode(visibility: RepoVisibility, full: boolean, redacted = false): 'full' | 'redacted' {
+  if (redacted) return 'redacted';
   return visibility === 'private' || (full && visibility === 'unknown') ? 'full' : 'redacted';
+}
+
+const LOCAL_PATH = /(?<![\w.~:/\\-])(?:(?:~|[A-Za-z]:)[\\/][^\s|,;'"()<>]+|\/[^\s/\\|,;'"()<>]+\/[^\s|,;'"()<>]*)/g;
+const HOME_DIR = /^(?:~[\\/]?|\/(?:home|Users)\/[^/]+\/?|[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]?)$/i;
+
+/**
+ * A Covers cell with each absolute, home or Windows-drive path replaced by `…/<file name>` (a bare home directory by
+ * `~`). The file name tells a reader what the approval counted; the directories above it name the machine, the user
+ * and the Drive scope (`project-user-<project>-<person>`), so a Drive-relative token would still identify them.
+ * `gstack-approvals list` keeps the full path.
+ */
+export function pathLabels(text: string): string {
+  return text.replace(LOCAL_PATH, m => {
+    const tail = /[.:]*$/.exec(m)![0];
+    const p = m.slice(0, m.length - tail.length);
+    return (HOME_DIR.test(p) ? '~' : `…/${p.split(/[\\/]/).filter(Boolean).pop()}`) + tail;
+  });
 }
 
 export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean; mode?: 'full' | 'redacted' } = {}): string {
@@ -259,14 +278,14 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   if (o.mode === 'redacted' && read.rows.length) {
     const approved = read.rows.some(r => r.outcome === 'approved' || r.outcome === 'standing');
     const id = 'r-' + createHash('sha256').update(read.rows.map(r => r.id).sort().join('\n')).digest('hex').slice(0, 12);
-    return [...head, `Approved: ${approved ? 'yes' : 'no'} (record ${id}). The full approval record stays private: this repository is public or its visibility is unknown.`, ''].join('\n');
+    return [...head, `Approved: ${approved ? 'yes' : 'no'} (record ${id}). The full approval record stays private.`, ''].join('\n');
   }
   if (read.state === 'unavailable') return [...head, `Record unavailable on this machine: no approval record for branch ${cell(loc.branch)} here, and the state root is ephemeral with no Drive mirror, so this is not proof that nothing was approved.`, ''].join('\n');
   if (!read.rows.length) return [...head, `No approvals recorded for branch ${cell(loc.branch)}.`, ''].join('\n');
   const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
   for (const r of read.rows) {
     const outcome = r.outcome === 'standing' ? 'standing approval' : r.outcome;
-    lines.push(`| ${r.date} | ${cell(r.ask)} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(r.scope)} | ${cell(r.pending)} |`);
+    lines.push(`| ${r.date} | ${cell(r.ask)} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(pathLabels(r.scope))} | ${cell(r.pending)} |`);
   }
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
 }
