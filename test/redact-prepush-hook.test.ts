@@ -838,6 +838,15 @@ describe("files git calls binary are scanned (GST-2195)", () => {
     expect({ code, listed: stderr.split("\n").filter((l) => l.includes("github.pat")).length }).toEqual({ code: 1, listed: 1 });
   });
 
+  test("an allowlisted token in one file whose name git quotes does not hide another token at the same spot in a second such file (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const other = ["ghp", "Xv7Nc4Rt9Wy1Kp6Hd3Fs5Gb0Jx8Ue2Zq8Lm2"].join("_");
+    const head = commitFiles({ "café-1.txt": `token: ${FAKE_PAT}\n`, "café-2.txt": `token: ${other}\n`, ".gstack-redact-allowlist": `${FAKE_PAT}\n` }, "quoted names");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    git(["reset", "-q", "--hard", base]);
+    expect({ code, blocked: stderr.includes("BLOCKED") }).toEqual({ code: 1, blocked: true });
+  });
+
   test("deleting a 70 MiB binary pushes clean, and adding one still blocks on the 64 MiB diff limit (GST-2261)", () => {
     const base = git(["rev-parse", "HEAD"]);
     const big = commitFiles({ "big.bin": Buffer.alloc(70 * 1024 * 1024) }, "add big binary");
