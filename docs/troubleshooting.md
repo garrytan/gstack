@@ -6238,6 +6238,26 @@ READYs, trains, carries or merges on it, except on a train with `gates`, where
 <file>`), then run `/ship --resume <record>`, which reruns Step 5 and rewrites
 the receipt without `base_red`.
 
+<a id="queue-receipt-base-mismatch"></a>
+### `QUEUE_RECEIPT_BASE_MISMATCH`
+
+**Meaning.** The PR body's ship receipt was reviewed against another branch
+than the queue's base: its `base` names a parent branch, as a
+[stacked child's receipt](ship-policy.md) does (#3570), while the PR now
+targets the base. That receipt covers only the change since the parent, so
+the parent's commits the PR carries were never reviewed under it. `ready`,
+`land --pin` and train build refuse it while the parent is open, instead of
+landing the parent's commits past the parent's own receipt and READY.
+A receipt whose `base` is the queue's base (`main` or `origin/main`),
+including a stacked child reviewed against the base (GST-1199), is
+unaffected.
+
+**Fix.** Land the parent first, merge the base into this branch and push.
+Then run `gstack-ship-receipt carry --pr <n> --base <base>`: it moves the receipt to the base when the parent fully landed
+and the child is unchanged, and from then on the receipt names the base. If
+the carry refuses, rerun /ship against the base. Then rerun
+`gstack-ship-queue ready --pr <n>`.
+
 <a id="base-red-unconfigured"></a>
 ### `BASE_RED_UNCONFIGURED`
 

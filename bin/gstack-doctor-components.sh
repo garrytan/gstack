@@ -303,6 +303,7 @@ gstack_result_anchor() {
     QUEUE_RECEIPT_MISSING) printf '%s' 'queue-receipt-missing' ;;
     QUEUE_RECEIPT_STALE) printf '%s' 'queue-receipt-stale' ;;
     QUEUE_RECEIPT_CONDITIONAL) printf '%s' 'queue-receipt-conditional' ;;
+    QUEUE_RECEIPT_BASE_MISMATCH) printf '%s' 'queue-receipt-base-mismatch' ;;
     BASE_RED_UNCONFIGURED) printf '%s' 'base-red-unconfigured' ;;
     BASE_RED_UNNAMED) printf '%s' 'base-red-unnamed' ;;
     BASE_RED_REPRO_ERROR) printf '%s' 'base-red-repro-error' ;;

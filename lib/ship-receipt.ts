@@ -71,7 +71,7 @@ export function extractReceipt(body: string): { found: boolean; receipt?: ShipRe
   }
 }
 
-export type ReceiptBindingCode = 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_STALE' | 'QUEUE_RECEIPT_CONDITIONAL';
+export type ReceiptBindingCode = 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_STALE' | 'QUEUE_RECEIPT_CONDITIONAL' | 'QUEUE_RECEIPT_BASE_MISMATCH';
 export type ReceiptBinding =
   | { ok: true; receipt: ShipReceipt; head: string; line: string }
   | { ok: false; code: ReceiptBindingCode; message: string; line: string };
@@ -87,9 +87,12 @@ export type ReceiptBinding =
  * A receipt with a `base_red` block (lib/base-red.ts) is conditional: its
  * Step 5 did not pass, so it binds only for a caller that asks for it
  * (`/ship`'s terminal line, which reports the pause) and is refused
- * everywhere else.
+ * everywhere else. With `base` (the queue's base), a receipt reviewed against
+ * another branch is refused: a #3570 child retargeted before its parent
+ * landed reviewed only its own change, and the carry rewrites `base` once the
+ * parent has landed (GST-2153).
  */
-export function bindReceipt(body: string, pr: string | undefined, accepted: readonly string[], opts: { conditional?: boolean } = {}): ReceiptBinding {
+export function bindReceipt(body: string, pr: string | undefined, accepted: readonly string[], opts: { conditional?: boolean; base?: string } = {}): ReceiptBinding {
   const subject = pr === undefined ? "the receipt's" : `PR #${pr}'s`;
   const ex = extractReceipt(body);
   if (!ex.found) return { ok: false, code: 'QUEUE_RECEIPT_MISSING', message: `${subject} body carries no ship receipt`, line: 'SHIP_RECEIPT: none in the PR body' };
@@ -105,6 +108,11 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
     return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt is for ${oneLine(r.head.slice(0, 12))}, not the head ${want} being merged`, line };
   }
   if (pr !== undefined && r.pr !== undefined && String(r.pr) !== pr) return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt names pr=${r.pr}, not this PR`, line };
+  const branch = (ref: string) => ref.replace(/^refs\/remotes\/[^/]+\//, '').replace(/^origin\//, '');
+  if (opts.base !== undefined && branch(r.base) !== branch(opts.base)) {
+    const [was, want] = [oneLine(r.base).slice(0, 120), branch(opts.base)];
+    return { ok: false, code: 'QUEUE_RECEIPT_BASE_MISMATCH', message: `${subject} ship receipt was reviewed against ${was}, not ${want}, so it covers only the change since ${was}; land the parent (${was}) first, merge ${want} into this branch and push, then gstack-ship-receipt carry --pr ${pr ?? '<n>'} --base ${want} moves the receipt to ${want}`, line };
+  }
   if (r.base_red && !opts.conditional) return { ok: false, code: 'QUEUE_RECEIPT_CONDITIONAL', message: `${subject} ship receipt is paused on a red base (${oneLine(r.base_red.cases.join(', ')).slice(0, 160)} fail at ${oneLine(r.base_red.base.slice(0, 12))}); /ship --resume rewrites it once the base passes them`, line };
   return { ok: true, receipt: r, head, line };
 }

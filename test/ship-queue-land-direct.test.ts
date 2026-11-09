@@ -530,6 +530,35 @@ describe('land --pin: refusals (nothing merged)', () => {
     refused(fx, land(fx, '15', pin), 'QUEUE_RECEIPT_MISSING');
   }, 90_000);
 
+  test('QUEUE_RECEIPT_BASE_MISMATCH: a #3570 child retargeted to main while its parent is open lands nothing; a GST-1199 child reviewed against main still lands', () => {
+    const fx = setup();
+    const { repo } = fx;
+    openPr(fx, '17');
+    const child = (pr: string, base: string): string => {
+      repo.git('checkout', '-q', 'origin/pr-17', '-B', 'pr-' + pr);
+      fs.writeFileSync(path.join(repo.work, 'pr-' + pr + '.txt'), pr + '\n');
+      fs.writeFileSync(path.join(repo.work, 'changelog.d', 'pr-' + pr + '.md'), '- #' + pr + ' change\n');
+      repo.git('add', '-A');
+      repo.git('commit', '-q', '-m', 'pr ' + pr);
+      repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-' + pr);
+      const head = repo.git('rev-parse', 'HEAD');
+      fx.write(d => { d.prs[pr] = { state: 'OPEN', baseRefName: 'main', headRefName: 'pr-' + pr, isCrossRepository: false, title: 'PR ' + pr, body: shippedBody(pr, head, { base }) }; });
+      markReady(fx, pr, head);
+      repo.git('checkout', '-q', '--detach', 'origin/main');
+      return head;
+    };
+    const before = remote(fx, 'main');
+    const retargeted = child('171', 'pr-17');
+    const r = land(fx, '171', retargeted);
+    refused(fx, r, 'QUEUE_RECEIPT_BASE_MISMATCH');
+    expect(r.err).toContain("PR #171's ship receipt was reviewed against pr-17, not main");
+    expect(remote(fx, 'main')).toBe(before);
+    const reviewedOnMain = child('172', 'origin/main');
+    const ok = land(fx, '172', reviewedOnMain);
+    expect(ok.err).toBe('');
+    expect(ok.status).toBe(EXIT.ok);
+  }, 90_000);
+
   test('QUEUE_NOT_READY: no READY note at the pin', () => {
     const fx = setup();
     const pin = openPr(fx, '16', { ready: false });
