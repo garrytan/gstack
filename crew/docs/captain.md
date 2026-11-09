@@ -282,8 +282,11 @@ from a problem list that was already diagnosed and audited, where that list is t
 Any other bug fix is exempt too (R65; the brief's reason is `bug fix (R65)`): `gstack-autoplan next --kind fix` prints
 `AUTOPLAN: not needed (bug fix; R65)` and writes nothing, and the PR carries the bug's
 proof, a repro on current main or a failing test written first. A feature gets the lean
-run, `--kind feature`: one reviewer reading the plan and the draft code together, one gate
-revision and no carry check (docs/unattended.md). `--full` brings back the full run.
+run, `--kind feature`: one reviewer reading the plan and the draft code together against
+short CEO and eng checklists (design and DX when scope has them), not those review skills'
+own methods, one gate revision and no carry check (docs/unattended.md). `--full` brings
+back a phase per area with two voices, each still working from a short brief (the native
+one also gets that phase's checklist).
 A crew may add exemptions
 in its rules file with the owner's words and date; it does not remove these. The brief
 says which applies, `Plan: required | approved: <run id or approval row id> | exempt: <reason>`, so an

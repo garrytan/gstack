@@ -77,7 +77,7 @@ DRIVER: ${driverFile()}
           --ceo-only (first next, command line only): the CEO phase alone, no gate; ends status=reviewed with <out>/ceo-review.md, never approved
           --estimate-usd: reserved per new attempt, kept for the rest of the run; with --spend-cap any run (or an unattended run on Capy) reserves a default so the cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
-          --light loads each phase's checklist plus the sections its scope needs (the unattended default); interactive kinds load everything
+          --light puts each phase's checklist in its native prompt (the unattended default); other sections are only recorded, never sent; without it an interactive kind sends no checklist
           --no-carry-forward (first next): every later gate revision goes to the owner, even one that asks nothing new
           --carry-check-cap <usd> (first next): the most one delta check may reserve before a carry (default ${DEFAULT_CARRY_CHECK_CAP_USD.toFixed(2)})
           the first next prints REVIEW_ESTIMATE: the most the review can reserve at this scope and round cap

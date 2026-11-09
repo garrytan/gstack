@@ -2,7 +2,7 @@
 name: autoplan
 preamble-tier: 3
 version: 1.0.0
-description: Auto-review pipeline — runs the CEO, design, eng (architecture, edge cases, failure modes, tests) and DX reviews in order, auto-deciding by 6 principles. (gstack)
+description: "Auto-review pipeline — runs the CEO, design, eng (architecture, edge cases, failure modes, tests) and DX reviews (lean run: one reviewer), auto-deciding. (gstack)"
 triggers:
   - run all reviews
   - automatic review pipeline
