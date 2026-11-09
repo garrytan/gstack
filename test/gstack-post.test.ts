@@ -296,7 +296,7 @@ describe("gstack-post owns the redaction scan", () => {
 
   // Value: protects=a ship receipt the writer renders (lib/ship-receipt.ts placeReceipt) posts through pr-body without a pii.phone.e164 confirmation
   //   when its run-id fields (ci_carried[].run, flaky_exception[].runs, issues.flakes[].run) hold GitHub Actions run ids (GST-2047), while a phone
-  //   number in prose, beside the block, in any other receipt field, or inside a forged, hand-written or malformed receipt block still needs one;
+  //   number in prose, beside the block, in any other receipt field, in a run-id field holding something other than a run id, or inside a forged, hand-written or malformed receipt block still needs one;
   //   fails_when=every ship tail with carried CI holds once per carried run, or the exemption reaches past the run-id values of a writer-rendered,
   //   schema-valid block (a run id copied into prose, a non-run-id key, a fake block); why_new=the run-word and runs= tests read prose, and the
   //   receipt's JSON puts a quote between the key and the id; seam=fake run; no_claim=real gh
@@ -330,6 +330,8 @@ describe("gstack-post owns the redaction scan", () => {
       ["ci_carried attempt", body(receipt({ ci_carried: [{ lane: "free-tests", run: 42574388503, attempt: 14155552671, tree: "9f2c4e1a7b3d" }] })), "\"attempt\": 14155552671"],
       ["ci_carried lane", body(receipt({ ci_carried: [{ lane: "+14155552671", run: 42574388503, attempt: 1, tree: "9f2c4e1a7b3d" }] })), "\"lane\": \"+14155552671\""],
       ["issues.flakes issue", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 14155552671, run: "42574388519" }] } })), "\"issue\": 14155552671"],
+      ["a phone-shaped issues.flakes run", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 4101, run: "call 415-555-0100" }] } })), "call 415-555-0100"],
+      ["a phone-shaped flaky_exception run", body(receipt({ flaky_exception: [{ lane: "free-tests", runs: ["call 415-555-0100"], cases: ["t"], grant: "a-1", by: "Garry" }] })), "call 415-555-0100"],
       ["line before the block", body(receipt()).replace("```gstack-ship-receipt\n", "14155552671\n```gstack-ship-receipt\n"), "14155552671"],
       ["line after the block", body(receipt()).replace(/\n```\n/, "\n```\n+14155552671\n"), "+14155552671"],
     ];

@@ -2042,10 +2042,12 @@ session, outside the lane's /ship run.
 **Meaning.** A field matched gstack's secret scanner (the same one the push guard
 uses). The line names the field and the detector rule, never the matched text. Exit 3.
 Nothing was written, locally or to the Drive mirror. `import --autoplan` skips a
-`pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id where
-import places it (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`),
-when the id has the minted shape `<name>-<14 digits>` (GST-2047); the same id
-anywhere else, and every other finding in the row, still refuses.
+`pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id's
+14-digit stamp, or the thread-code digits right before it, where import places
+the id (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`), when
+the id has the minted shape `<name>-<14 digits>` (GST-2047); a phone number in
+the rest of the directory name, the same id anywhere else, and every other
+finding in the row still refuse.
 
 **Fix.** Record the words with the secret replaced by `[redacted]`, or ask the person to
 restate them. Rotate the secret if it was real.
@@ -3020,9 +3022,10 @@ exact tokens it finds in these positions:
   `flaky_exception[].runs`, `issues.flakes[].run`) inside a
   `gstack-ship-receipt` block the receipt writer rendered: the block must
   close, pass the receipt schema and match `renderReceiptBlock`'s output byte
-  for byte. Only those value positions count, so the same number in prose,
-  beside the block, under any other key, or in a hand-written, schema-invalid
-  or malformed block still reports (GST-2047).
+  for byte. Only those values count, and only when they are run ids (a number,
+  or digits with an optional `/attempt`), so the same number in prose, beside
+  the block, under any other key, a run-id field holding other text, or a
+  hand-written, schema-invalid or malformed block still reports (GST-2047).
 
 A bare 11-digit number with none of that context, a 10-digit national number
 and an E.164 `+14155551234` still report, so the finding means the id stands

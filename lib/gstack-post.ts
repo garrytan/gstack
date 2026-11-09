@@ -510,8 +510,9 @@ function receiptDigitTokens(texts: string[]): string[] {
 /**
  * Where a ship receipt's run-id fields hold GitHub Actions run ids, which pii.phone.e164 reads as phone numbers
  * (GST-2047): the 1-based line and column span of each ci_carried[].run, flaky_exception[].runs[] and
- * issues.flakes[].run value, in every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and
- * is byte-identical to renderReceiptBlock's rendering of it. Only the receipt writer's own output qualifies, so a
+ * issues.flakes[].run value that is a run id (a number, or digits with an optional /attempt), bounded to that value, in
+ * every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
+ * renderReceiptBlock's rendering of it. Only the receipt writer's own output qualifies, so a
  * hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in prose, beside the
  * block or under any other key still reports.
  */
@@ -535,9 +536,11 @@ function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to
         for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; at += rows(c); }
         v = v[key];
       }
+      if (!(typeof v === "number" || (typeof v === "string" && /^\d{1,20}(?:\/\d{1,4})?$/.test(v)))) return;
       const t = lines[at]!;
       const key = path.at(-1);
-      spans.push({ line: at + 1, from: t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1, to: t.length });
+      const from = t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1;
+      spans.push({ line: at + 1, from, to: from + JSON.stringify(v).length - 1 });
     };
     receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
     receipt.flaky_exception?.forEach((e, i) => e.runs.forEach((_, j) => span(["flaky_exception", i, "runs", j])));

@@ -153,13 +153,15 @@ export interface NewRow { ask: string; words: string; by: string; scope: string;
 
 /** An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, then a 14-digit time stamp. */
 const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
+/** The part of a minted run id the exemption covers: the 14-digit stamp and, when the name ends in a thread code, its digits. */
+const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?\d{14}$/;
 
 /**
  * Validate and secret-scan one row; the error names the field and rule, never the text. `runId` (import only) is a
  * minted autoplan run id and the offset where the importer placed it in each field: pii.phone.e164 and pii.cc read its
- * stamp, alone or with the digits of the directory name before it, as a phone or card number (GST-2047), so a finding
- * of those two rules that starts inside the id at that offset is skipped. Anything else in the field, and the same id
- * typed anywhere else, is scanned as usual.
+ * stamp, alone or with the thread-code digits of the directory name before it, as a phone or card number (GST-2047), so
+ * a finding of those two rules that starts inside that stamp part of the id, at that offset, is skipped. Anything else
+ * in the field, the rest of the directory name included, and the same id typed anywhere else, is scanned as usual.
  */
 export function buildRow(input: NewRow, branch: string, now = new Date(), runId?: { id: string; at: Partial<Record<'ask' | 'source', number>> }): ApprovalRow | RecordError {
   const fields = { ask: input.ask, words: input.words, by: input.by, scope: input.scope, pending: input.pending ?? 'none', source: input.source ?? 'manual' };
@@ -175,7 +177,8 @@ export function buildRow(input: NewRow, branch: string, now = new Date(), runId?
   for (const [k, v] of Object.entries(fields)) {
     const s = scan(v);
     const at = runId && MINTED_RUN_ID.test(runId.id) ? runId.at[k as 'ask' | 'source'] : undefined;
-    const inRunId = (f: Finding) => at !== undefined && (f.id === 'pii.phone.e164' || f.id === 'pii.cc') && f.line === 1 && f.col - 1 >= at && f.col - 1 < at + runId!.id.length;
+    const stamp = at === undefined ? 0 : RUN_ID_STAMP.exec(runId!.id)![0].length;
+    const inRunId = (f: Finding) => at !== undefined && (f.id === 'pii.phone.e164' || f.id === 'pii.cc') && f.line === 1 && f.col - 1 >= at + runId!.id.length - stamp && f.col - 1 < at + runId!.id.length;
     const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f));
     if (s.oversize || hits.length) return { code: 'APPROVAL_RECORD_SECRET', message: `field ${k}: ${s.oversize ? 'oversize input' : [...new Set(hits.map(f => f.id))].join(', ')}` };
   }
