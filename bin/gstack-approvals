@@ -6,7 +6,7 @@
  *                        [--pending <text>] [--outcome approved|rejected|pending|standing]
  *                        [--date YYYY-MM-DD] [--source <ref>] [--branch <name>] [--json]
  *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
- *   gstack-approvals render [--no-heading] [--full] [--branch <name>] [--plan <the brief's Plan line>]
+ *   gstack-approvals render [--no-heading] [--full | --redacted] [--branch <name>] [--plan <the brief's Plan line>]
  *   gstack-approvals plan-check --plan <the brief's Plan line>
  *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
@@ -48,9 +48,11 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
           (docs/ship-policy.md#test-lane-exceptions); gstack-evidence record-ci binds it only at that head, for that exact
           set, after a local preflight of those files passes; refused inside this checkout's open /ship run
-  render  [--no-heading] [--full] the ## Approvals section for a PR body or report; a public repository, or one whose
-          visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
+  render  [--no-heading] [--full | --redacted] the ## Approvals section for a PR body or report; a public repository, or one
+          whose visibility gh cannot read, gets only "Approved: yes|no (record <id>)", because a PR description keeps
           its edit history; --full prints the rows when gh cannot read the visibility and you know the repo is private;
+          --redacted prints the public form on any repository (a private repo that may go public); the two conflict;
+          the rows show each local path in Asked, Covers and Still pending as …/<file name> (list keeps the path);
           --plan "<the brief's Plan line>" adds that line and its check, which gstack-ship-queue ready reads (lib/plan-record.ts);
           redacted, an approval prints as "Plan: approved (record r-<id>)" with no run or row id, and one that does not
           resolve refuses with no output
@@ -78,7 +80,7 @@ function parse(args: string[]): { flags: Record<string, string>; bools: Set<stri
       const v = args[i + 1];
       if (v === undefined) return { flags, bools, error: `${a} needs a value` };
       flags[a] = v; i++;
-    } else if (a === '--json' || a === '--no-heading' || a === '--full') bools.add(a);
+    } else if (a === '--json' || a === '--no-heading' || a === '--full' || a === '--redacted') bools.add(a);
     else return { flags, bools, error: `unknown argument ${a}` };
   }
   return { flags, bools };
@@ -192,6 +194,10 @@ function main(argv: string[]): number {
     if (res.mirrorError) return fail(cmd, res.mirrorError);
     return EXIT.ok;
   }
+  if (cmd === 'render' && bools.has('--redacted') && bools.has('--full')) {
+    process.stderr.write('gstack-approvals: --redacted and --full conflict: --redacted forces the public form and --full asks for the rows; pass one\n');
+    return EXIT.usage;
+  }
   if (cmd === 'render' || cmd === 'list') {
     const read = readRecord(loc);
     if (read.restored) process.stderr.write(`gstack-approvals: read the Drive mirror ${loc.mirror} (no local copy on this machine; gstack-approvals sync restores it)\n`);
@@ -201,12 +207,12 @@ function main(argv: string[]): number {
       const decl = flags['--plan'] ? parsePlanLine(planText(flags['--plan'])) : null;
       if (flags['--plan'] && !decl) { process.stderr.write(`gstack-approvals: render --plan needs "Plan: approved: <id> | exempt: <reason> | required"; ${JSON.stringify(flags['--plan'])} is none of them\n`); return EXIT.usage; }
       const visibility = repoVisibility(process.cwd());
-      const mode = renderMode(visibility, bools.has('--full'));
+      const mode = renderMode(visibility, bools.has('--full'), bools.has('--redacted'));
       const res = decl ? resolvePlan(decl, { cwd: process.cwd(), env: process.env }) : null;
       if (decl && res && !res.ok && mode === 'redacted' && decl.kind === 'approved') {
         return fail(cmd, { code: res.failure.code, message: `${res.failure.message}; on a public or unknown-visibility repository render prints no Plan line until it resolves; fix: ${res.failure.fix}` });
       }
-      if (mode === 'redacted') process.stderr.write(`APPROVALS_RENDER: redacted (repository visibility ${visibility}${bools.has('--full') ? '; --full applies only to a private repository' : ''}); gstack-approvals list shows the full record\n`);
+      if (mode === 'redacted') process.stderr.write(`APPROVALS_RENDER: redacted (${bools.has('--redacted') ? '--redacted; ' : ''}repository visibility ${visibility}${bools.has('--full') ? '; --full applies only to a private repository' : ''}); gstack-approvals list shows the full record\n`);
       process.stdout.write(renderRecord(read, loc, { heading: !bools.has('--no-heading'), mode }));
       if (decl && res) {
         const line = mode === 'redacted' ? publicPlanLine(decl, res) : decl.line;
