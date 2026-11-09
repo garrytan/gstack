@@ -753,6 +753,14 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(r.stderr).toContain(`refusing to delete ${nested}: it is not a registered worktree of this repository`);
   });
 
+  test('a .gstack-worktrees that is itself a git repo stops the uninstall and keeps its work', () => {
+    git(['init', '-q', '.gstack-worktrees']);
+    fs.writeFileSync(path.join(repo, '.gstack-worktrees', 'wip.txt'), 'unsaved work\n');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(fs.readFileSync(path.join(repo, '.gstack-worktrees', 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+  });
+
   test('a clean worktree holding a commit no branch contains stops the uninstall', () => {
     addWorktree(false);
     git(['commit', '-q', '--allow-empty', '-m', 'wip'], path.join(repo, worktree));

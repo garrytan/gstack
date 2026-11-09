@@ -146,7 +146,7 @@ fi
 # -H follows a symlinked .gstack-worktrees so its checkouts are checked too.
 _project_worktrees() {
   [ -d "$_GIT_ROOT/.gstack-worktrees" ] || return 0
-  find -H "$_GIT_ROOT/.gstack-worktrees" -mindepth 1 -type d -exec sh -c 'test -e "$1/.git"' sh {} \; -print0 -prune 2>/dev/null
+  find -H "$_GIT_ROOT/.gstack-worktrees" -mindepth 0 -type d -exec sh -c 'test -e "$1/.git"' sh {} \; -print0 -prune 2>/dev/null
 }
 # Real paths of the worktrees this repository registered.
 _registered_worktrees() {
