@@ -279,3 +279,85 @@ describe('the /autoplan Phase 4 gate as documented (#4181)', () => {
     expect(results.slice(1).map(r => chosen(JSON.parse(r.out))[id])).toEqual(['a', 'c', 'd', 'e']);
   });
 });
+
+describe('the /autoplan Phase 4 reply table agrees with gstack-gate (GST-2139)', () => {
+  // Value: protects=the reply-to-option table /autoplan acts on matches what bin/gstack-gate parse resolves for `all`, `rec` and `p1a`;
+  //   fails_when=`all`/`rec` send the run to approve-as-written while the gate took every recommended plan change, or `p1a` approves while a uc item is pending; why_new=the #4181 case proves the replies parse, not what the skill does with them; seam=none
+  const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
+  const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map(m => m[1]!);
+  const topLevel = (text: string): string[] => {
+    const out: string[] = []; let depth = 0; let code = false; let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]!;
+      if (ch === '`') code = !code;
+      else if (!code && ch === '(') depth++;
+      else if (!code && ch === ')') depth--;
+      else if (!code && depth === 0 && (ch === ';' || ch === '.') && text[i + 1] === ' ') { out.push(text.slice(start, i).trim()); start = i + 2; }
+    }
+    return [...out, text.slice(start).trim()].filter(Boolean);
+  };
+  const table = topLevel(/Parse the reply:.*?never guessed\. (.*?) Under `SESSION_KIND/.exec(tmpl)?.[1] ?? '');
+  const handling = Object.fromEntries([...tmpl.matchAll(/- ([A-E]2?): (.*?)(?= - [A-E]2?: |\*\*Starting)/g)].map(m => [m[1]!, m[2]!]));
+  const write_ = /Write `\$_AP\/gate\.json`.*?gstack-gate render/.exec(tmpl)?.[0] ?? '';
+  const p1 = /and `p1` \(approval: (a\) .*? e\) \w+)\)/.exec(write_)?.[1] ?? '';
+  const parts = p1.split(/(?:^| )([a-e])\) /).slice(1);
+  const p1Options = parts.flatMap((key, i) => (i % 2 ? [] : [{ key, text: parts[i + 1]!.replace(/ \(recommended\)$/, '') }]));
+  const p1Recommended = parts.flatMap((key, i) => (i % 2 === 0 && / \(recommended\)$/.test(parts[i + 1]!) ? [key] : []))[0]
+    ?? /recommending `([a-e])`/.exec(tmpl.slice(tmpl.indexOf(p1)))?.[1];
+  const keep = { key: 'a', text: 'keep your direction', changes_plan: false };
+  const change = { key: 'b', text: 'take the reviewers\' change', changes_plan: true };
+  const gate = (): GateList => ({ schema_version: 1, run: 'autoplan-2139', gate_rev: 1, items: [
+    { id: 'uc1', title: 'User challenge both voices raised', options: [keep, change], recommended: 'b', kind: 'approval' },
+    { id: 'd1', title: 'Taste decision', options: [keep, change], recommended: 'b', kind: 'auto' },
+    { id: 'p1', title: 'Plan approval', options: p1Options, recommended: p1Recommended ?? 'a', kind: 'approval' },
+  ] });
+
+  /** The skill's options for a reply: the first table row whose condition the gate's parse meets. */
+  function documented(reply: string, g: GateList, parsed: ReturnType<typeof parseReply>) {
+    const said = reply.toLowerCase().split(/\s+/);
+    const optionOf = (c: { id: string; chosen: string }) => g.items.find(i => i.id === c.id)!.options.find(o => o.key === c.chosen)!;
+    const changed = parsed.choices.filter(c => optionOf(c).changes_plan);
+    for (const row of table) {
+      const at = row.indexOf(' = ');
+      if (at < 0) continue;
+      const lhs = row.slice(0, at), rhs = row.slice(at + 3), names = ticks(lhs);
+      const hit = /\belse\b/.test(lhs) ? true
+        : names.includes('pending') ? parsed.pending.length > 0
+        : names.includes('changes_plan') ? changed.length > 0
+        : names.some(t => said.includes(t) || (/^[a-z]+<n>$/.test(t) && parsed.choices.some(c => c.how === 'override' && said.includes(c.id + c.chosen) && c.id.startsWith(t.slice(0, -3)))));
+      if (!hit) continue;
+      const perKind = [...rhs.matchAll(/([A-E]2?) on an? `([a-z]+)<n>`/g)];
+      const letters = perKind.length ? perKind.filter(m => changed.some(c => c.id.startsWith(m[2]!) && c.id !== 'p1')).map(m => m[1]!)
+        : /^[A-E](\/[A-E])+$/.test(rhs.trim()) ? [rhs.trim().split('/')[names.findIndex(t => said.includes(t))]!]
+        : [...rhs.replace(/`[^`]*`/g, '').replace(/\([^)]*\)/g, '').matchAll(/(?:^|[\s,])([A-E]2?)(?=$|[\s,.])/g)].map(m => m[1]!);
+      return { row, letters: [...new Set(letters)].sort() };
+    }
+    return { row: '(no row)', letters: [] as string[] };
+  }
+  const approves = (letters: string[]) => letters.filter(l => /mark APPROVED/.test(handling[l] ?? ''));
+
+  test('`all` and `rec` apply every recommended plan change, never the plan as first written', () => {
+    expect(Object.keys(handling)).toEqual(['A', 'B', 'B2', 'C', 'D', 'E']);
+    expect(p1Options.map(o => o.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const g = gate();
+    const file = write('gate.json', g);
+    const seen = ['all', 'rec'].map(reply => {
+      const r = run(['parse', file, '--reply', reply, '--gate-rev', '1', '--json']);
+      const parsed = JSON.parse(r.out) as ReturnType<typeof parseReply>;
+      const doc = documented(reply, g, parsed);
+      return { reply, code: r.code, gate: chosen(parsed), p1: p1Options.find(o => o.key === chosen(parsed).p1)?.text, letters: doc.letters, approves: approves(doc.letters), row: doc.row };
+    });
+    expect(seen.map(({ row: _row, p1, ...rest }) => ({ ...rest, p1_as_written: /as-is|as written/.test(p1 ?? '') })))
+      .toEqual(['all', 'rec'].map(reply => ({ reply, code: EXIT.ok, gate: { uc1: 'b', d1: 'b', p1: 'b' }, letters: ['B', 'B2'], approves: [], p1_as_written: false })));
+  });
+
+  test('`p1a` with a user challenge unanswered approves nothing', () => {
+    const g = gate();
+    const file = write('gate.json', g);
+    const r = run(['parse', file, '--reply', 'p1a', '--gate-rev', '1', '--json']);
+    const parsed = JSON.parse(r.out) as ReturnType<typeof parseReply>;
+    const doc = documented('p1a', g, parsed);
+    expect({ code: r.code, pending: parsed.pending, p1: chosen(parsed).p1, approves: approves(doc.letters), row_names_pending: ticks(doc.row.split(' = ')[0]!).includes('pending') })
+      .toEqual({ code: EXIT.ok, pending: ['uc1'], p1: 'a', approves: [], row_names_pending: true });
+  });
+});
