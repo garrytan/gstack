@@ -598,6 +598,46 @@ transcripts_consented() {
 # stays in the kept stash entry, which the status names with the command
 # that restores it.
 MERGE_ERR=""
+# decisions.active.json is derived from decisions.jsonl (rebuildSnapshot in
+# lib/gstack-decision.ts), so two machines' snapshots are never merged as
+# bytes (#4174). When a stopped merge's only conflicts are snapshots whose
+# logs merged cleanly and only grew on both sides, each is rebuilt from its
+# merged log and the merge is concluded. The jsonl-append driver takes the
+# union of base, ours and theirs, so a log that lost lines on one side
+# (--compact expunging a redacted decision) would get them back; that merge
+# is left to abort as before. Anything else returns 1 and the caller aborts
+# the merge, which also undoes a partial rebuild. Works without the
+# .gitattributes line, so repositories initialized before it recover too.
+rebuild_conflicted_snapshots() {
+  local -a lit=(git --literal-pathspecs -C "$GSTACK_HOME") slugs=()
+  local p slug base side
+  "${lit[@]}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 1
+  base=$("${lit[@]}" merge-base HEAD MERGE_HEAD 2>/dev/null) || return 1
+  command -v bun >/dev/null 2>&1 || return 1
+  while IFS= read -r -d '' p; do
+    case "$p" in projects/*/decisions.active.json) ;; *) return 1 ;; esac
+    slug="${p#projects/}"; slug="${slug%/decisions.active.json}"
+    case "$slug" in ''|*/*|.|..) return 1 ;; esac
+    slugs+=("$slug")
+  done < <("${lit[@]}" diff -z --name-only --diff-filter=U 2>/dev/null)
+  [ "${#slugs[@]}" -gt 0 ] || return 1
+  for slug in "${slugs[@]}"; do
+    p="projects/$slug/decisions.jsonl"
+    "${lit[@]}" cat-file -e ":0:$p" 2>/dev/null || return 1
+    "${lit[@]}" diff --quiet -- "$p" 2>/dev/null || return 1
+    if "${lit[@]}" cat-file -e "$base:$p" 2>/dev/null; then
+      for side in HEAD MERGE_HEAD; do
+        [ -z "$(LC_ALL=C comm -23 <("${lit[@]}" show "$base:$p" 2>/dev/null | LC_ALL=C sort -u) \
+          <("${lit[@]}" show "$side:$p" 2>/dev/null | LC_ALL=C sort -u))" ] || return 1
+      done
+    fi
+    GSTACK_STATE_ROOT="$GSTACK_HOME" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" \
+      "$SCRIPT_DIR/gstack-decision-log" --rebuild-snapshot "$slug" >/dev/null 2>&1 || return 1
+    "${lit[@]}" add -f -- "projects/$slug/decisions.active.json" >/dev/null 2>&1 || return 1
+  done
+  "${lit[@]}" commit -q --no-edit >/dev/null 2>&1
+}
+
 merge_origin_keeping_local_edits() {
   local branch="$1" out rc=0 p stash_before="" stash_sha=""
   local -a lit=(git --literal-pathspecs -C "$GSTACK_HOME") blocking=()
@@ -614,6 +654,7 @@ merge_origin_keeping_local_edits() {
     [ "$stash_sha" != "$stash_before" ] || stash_sha=""
   fi
   out=$("${lit[@]}" merge --no-edit "origin/$branch" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] && rebuild_conflicted_snapshots && rc=0
   if [ "$rc" -ne 0 ]; then
     MERGE_ERR=$(printf '%s\n' "$out" | grep -m1 -E '^(CONFLICT|error|fatal)' || printf '%s\n' "$out" | head -1)
     "${lit[@]}" merge --abort >/dev/null 2>&1 || true

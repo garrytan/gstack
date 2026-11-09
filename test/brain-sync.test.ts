@@ -1304,6 +1304,204 @@ describe('gstack-brain-sync per-file hold', () => {
       expect(remoteShow(LOG).stdout).toContain('"ccc"');
       expect(remoteShow(SNAP).stdout).toContain('"ccc"');
     });
+
+    describe('two machines that each log a decision between pushes (#4174)', () => {
+      const ALOG = 'projects/acme-app/decisions.jsonl';
+      const ASNAP = 'projects/acme-app/decisions.active.json';
+      const PRE_FIX_ATTRIBUTES = [
+        '# gstack-artifacts: merge drivers for cross-machine sync conflicts.',
+        '*.jsonl merge=jsonl-append',
+        'retros/*.md merge=union',
+        'projects/*/designs/**/*.md merge=union',
+        'projects/*/ceo-plans/**/*.md merge=union',
+        'projects/*/*-design-*.md merge=union',
+        'projects/*/*-test-plan-*.md merge=union',
+        '',
+      ].join('\n');
+      let proj = '';
+      let machineA = '';
+      beforeEach(() => {
+        proj = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-proj-'));
+        machineA = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-machineA-'));
+        expect(git(['init', '-q', '-b', 'main'], proj).status).toBe(0);
+        expect(git(['remote', 'add', 'origin', 'https://example.invalid/acme/app.git'], proj).status).toBe(0);
+      });
+      afterEach(() => {
+        fs.rmSync(proj, { recursive: true, force: true });
+        fs.rmSync(machineA, { recursive: true, force: true });
+      });
+      function logDecision(home: string, decision: string): string {
+        const r = spawnSync(path.join(BIN, 'gstack-decision-log'), [JSON.stringify({ decision, rationale: 'r', scope: 'repo', source: 'user' })], {
+          cwd: proj,
+          env: { ...process.env, HOME: tmpHome, GSTACK_HOME: home },
+          encoding: 'utf-8',
+          timeout: 30_000,
+        });
+        expect(r.stderr).toBe('');
+        expect(r.status).toBe(0);
+        return r.stdout.trim();
+      }
+      function setupMachineB(attributes: 'current' | 'pre-fix') {
+        init();
+        expect(git(['config', 'user.name', 'fixture']).status).toBe(0);
+        expect(git(['config', 'user.email', 'fixture@example.com']).status).toBe(0);
+        if (attributes === 'pre-fix') {
+          fs.writeFileSync(path.join(tmpHome, '.gitattributes'), PRE_FIX_ATTRIBUTES);
+          if (git(['diff', '--quiet', '--', '.gitattributes']).status !== 0) {
+            expect(git(['commit', '-qm', 'gitattributes as gstack-artifacts-init wrote it before #4174', '--', '.gitattributes']).status).toBe(0);
+            expect(git(['push', '-q', 'origin', 'HEAD']).status).toBe(0);
+          }
+        }
+        const seed = logDecision(tmpHome, 'seed');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        return seed;
+      }
+      function machineAPushesADecision(): string {
+        expect(git(['clone', '-q', bareRemote, machineA]).status).toBe(0);
+        const id = logDecision(machineA, 'decision on machine A');
+        expect(git(['add', '-f', '--', ALOG, ASNAP], machineA).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'sync A'], machineA).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], machineA).status).toBe(0);
+        return id;
+      }
+      async function expectPublishedSnapshotRebuiltFromMergedLog(ids: string[]) {
+        const { computeActive } = await import('../lib/gstack-decision');
+        const log = remoteShow(ALOG).stdout;
+        const events = log.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        expect(events.map((e) => e.id).sort()).toEqual([...ids].sort());
+        const rebuilt = JSON.stringify(computeActive(events));
+        expect(remoteShow(ASNAP).stdout).toBe(rebuilt);
+        expect(fs.readFileSync(path.join(tmpHome, ASNAP), 'utf-8')).toBe(rebuilt);
+        expect(git(['rev-list', '--left-right', '--count', 'HEAD...origin/main']).stdout.trim()).toBe('0\t0');
+        expect(mergeHead()).toBe(false);
+        expect(unmerged()).toBe('');
+      }
+      const unmerged = () => git(['ls-files', '--unmerged']).stdout.trim();
+      const mergeHead = () => fs.existsSync(path.join(tmpHome, '.git', 'MERGE_HEAD'));
+
+      for (const attributes of ['current', 'pre-fix'] as const) {
+        test(`the retry merge rebuilds the snapshot from the merged log and publishes (${attributes} .gitattributes)`, async () => {
+          const seed = setupMachineB(attributes);
+          const a = machineAPushesADecision();
+          const b = logDecision(tmpHome, 'decision on machine B');
+          expect(drain().status).toBe(0);
+          const s = statusJson();
+          expect(s.message).not.toContain('Merge conflict');
+          expect(s.status).toBe('ok');
+          await expectPublishedSnapshotRebuiltFromMergedLog([seed, a, b]);
+        });
+      }
+
+      test('a machine left holding a conflicting commit by an earlier failed merge recovers on its next drain', async () => {
+        const seed = setupMachineB('pre-fix');
+        const a = machineAPushesADecision();
+        const b = logDecision(tmpHome, 'decision on machine B');
+        const shim = gitShim('case " $* " in *" merge --no-edit "*) exit 1;; esac');
+        expect(drain(shim.env).status).toBe(0);
+        expect(statusJson().status).toBe('push_failed');
+        expect(git(['rev-list', '--left-right', '--count', 'HEAD...origin/main']).stdout.trim()).toBe('1\t1');
+        const c = logDecision(tmpHome, 'another decision on machine B');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        await expectPublishedSnapshotRebuiltFromMergedLog([seed, a, b, c]);
+      });
+
+      test('a merge that would bring back a decision the other machine redacted and compacted away still aborts', () => {
+        const seed = setupMachineB('current');
+        const x = machineAPushesADecision();
+        const b = logDecision(tmpHome, 'decision on machine B');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        expect(git(['pull', '-q', '--ff-only'], machineA).status).toBe(0);
+        for (const args of [['--redact', x], ['--compact']]) {
+          const r = spawnSync(path.join(BIN, 'gstack-decision-log'), args, {
+            cwd: proj,
+            env: { ...process.env, HOME: tmpHome, GSTACK_HOME: machineA },
+            encoding: 'utf-8',
+            timeout: 30_000,
+          });
+          expect(r.status).toBe(0);
+        }
+        expect(fs.readFileSync(path.join(machineA, ALOG), 'utf-8')).not.toContain(x);
+        expect(git(['add', '-f', '--', ALOG, ASNAP], machineA).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'redact and compact on A'], machineA).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], machineA).status).toBe(0);
+        const c = logDecision(tmpHome, 'another decision on machine B');
+        expect(drain().status).toBe(0);
+        const s = statusJson();
+        expect(s.status).toBe('push_failed');
+        expect(s.message).toContain(`Merge conflict in ${ASNAP}`);
+        expect(mergeHead()).toBe(false);
+        expect(unmerged()).toBe('');
+        expect(remoteShow(ALOG).stdout).not.toContain(x);
+        expect(remoteShow(ASNAP).stdout).not.toContain(x);
+        expect(remoteShow(ALOG).stdout).not.toContain(c);
+        expect([seed, b].every((id) => remoteShow(ALOG).stdout.includes(id))).toBe(true);
+      });
+
+      test('a decision log that stash pop brings back with an expunged decision stays held and never reaches the remote', () => {
+        setupMachineB('current');
+        const x = machineAPushesADecision();
+        logDecision(tmpHome, 'decision on machine B');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        expect(git(['pull', '-q', '--ff-only'], machineA).status).toBe(0);
+        for (const args of [['--redact', x], ['--compact']]) {
+          const r = spawnSync(path.join(BIN, 'gstack-decision-log'), args, {
+            cwd: proj,
+            env: { ...process.env, HOME: tmpHome, GSTACK_HOME: machineA },
+            encoding: 'utf-8',
+            timeout: 30_000,
+          });
+          expect(r.status).toBe(0);
+        }
+        expect(git(['add', '-f', '--', ALOG, ASNAP], machineA).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'redact and compact on A'], machineA).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], machineA).status).toBe(0);
+        const compactedSnapshot = remoteShow(ASNAP).stdout;
+        write(CLEAN, '# a plan from machine B\n');
+        const marker = path.join(tmpHome, 'late-decision-logged');
+        const late = JSON.stringify({ decision: 'decision logged during the merge', rationale: 'r', scope: 'repo', source: 'user' });
+        const shim = gitShim(
+          `case " $* " in *" push "*) [ -e '${marker}' ] || { : > '${marker}'; (cd '${proj}' && HOME='${tmpHome}' GSTACK_HOME='${tmpHome}' '${path.join(BIN, 'gstack-decision-log')}' '${late}' >/dev/null); };; esac`,
+        );
+        expect(drain(shim.env).status).toBe(0);
+        expect(fs.existsSync(marker)).toBe(true);
+        expect(fs.readFileSync(path.join(tmpHome, ALOG), 'utf-8')).toContain(x);
+        expect(drain().status).toBe(0);
+        const s = statusJson();
+        expect(s.status).not.toBe('ok');
+        expect(`${s.status} ${s.message ?? ''}`).toMatch(/held|consistent generation/);
+        expect(remoteShow(ALOG).stdout).not.toContain(x);
+        expect(remoteShow(ASNAP).stdout).toBe(compactedSnapshot);
+        expect(remoteShow(CLEAN).stdout).toContain('a plan from machine B');
+      });
+
+      test('a conflict in another file still aborts the merge and leaves the snapshot alone', () => {
+        setupMachineB('current');
+        machineAPushesADecision();
+        expect(git(['clone', '-q', bareRemote, machineA + '-x']).status).toBe(0);
+        try {
+          fs.writeFileSync(path.join(machineA + '-x', 'developer-profile.json'), '{"note":"from the peer"}\n');
+          expect(git(['add', '-f', '--', 'developer-profile.json'], machineA + '-x').status).toBe(0);
+          expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'peer profile'], machineA + '-x').status).toBe(0);
+          expect(git(['push', '-q', 'origin', 'HEAD'], machineA + '-x').status).toBe(0);
+        } finally {
+          fs.rmSync(machineA + '-x', { recursive: true, force: true });
+        }
+        logDecision(tmpHome, 'decision on machine B');
+        write('developer-profile.json', '{"note":"local"}\n');
+        const before = fs.readFileSync(path.join(tmpHome, ASNAP), 'utf-8');
+        expect(drain().status).toBe(0);
+        const s = statusJson();
+        expect(s.status).toBe('push_failed');
+        expect(s.message).toContain('Merge conflict in developer-profile.json');
+        expect(mergeHead()).toBe(false);
+        expect(unmerged()).toBe('');
+        expect(fs.readFileSync(path.join(tmpHome, ASNAP), 'utf-8')).toBe(before);
+      });
+    });
   });
 
   describe('a synced JSON file that does not parse is never committed (#3763)', () => {

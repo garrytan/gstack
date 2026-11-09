@@ -403,6 +403,9 @@ projects/*/designs/**/*.md merge=union
 projects/*/ceo-plans/**/*.md merge=union
 projects/*/*-design-*.md merge=union
 projects/*/*-test-plan-*.md merge=union
+# Derived from decisions.jsonl, so never merged as text: gstack-brain-sync
+# rebuilds a conflicted snapshot from the merged log (#4174).
+projects/*/decisions.active.json merge=binary
 EOF
 
 # ---- register merge drivers in local git config ----

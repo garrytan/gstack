@@ -109,6 +109,24 @@ describe("gstack-decision-log", () => {
       .toHaveLength(2);
   });
 
+  test("--rebuild-snapshot rewrites one project's snapshot from its log and refuses anything else", () => {
+    const stateDir = path.join(tmpDir, "rebuild-state");
+    const kept = invoke(['{"decision":"Keep this one"}'], stateDir).stdout.trim();
+    const retired = invoke(['{"decision":"Retire this one"}'], stateDir).stdout.trim();
+    expect(invoke(["--redact", retired], stateDir).status).toBe(0);
+    const snapshot = path.join(stateDir, "projects", "help-contract", "decisions.active.json");
+    fs.writeFileSync(snapshot, "<<<<<<< HEAD\n[]\n=======\n[]\n>>>>>>> origin/main\n");
+    const r = invoke(["--rebuild-snapshot", "help-contract"], stateDir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+    expect(JSON.parse(fs.readFileSync(snapshot, "utf-8")).map((d: { id: string }) => d.id)).toEqual([kept]);
+    for (const args of [["--rebuild-snapshot"], ["--rebuild-snapshot", ""], ["--rebuild-snapshot", ".."], ["--rebuild-snapshot", "help-contract/x"], ["--rebuild-snapshot", "no-such-project"]]) {
+      const bad = invoke(args, stateDir);
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("--rebuild-snapshot needs");
+    }
+  });
+
   test("help does not relax captured invalid scopes or payload validation", () => {
     const stateDir = path.join(tmpDir, "invalid-state");
     for (const [payload, message] of [

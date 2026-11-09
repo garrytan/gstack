@@ -206,6 +206,21 @@ merge can leave conflict markers in them. The sync parses every staged
 `invalid-json`) until you repair it, and `gstack-doctor` warns when a synced profile or
 decision snapshot holds conflict markers.
 
+A project's decision snapshot, `decisions.active.json`, is never merged: it
+is rebuilt from that project's `decisions.jsonl`, which merges like any other
+`.jsonl` file. When two machines each log a decision between pushes, their
+snapshots conflict; if every conflict in brain-sync's merge is such a snapshot,
+brain-sync rebuilds each one from the merged log, commits the merge and pushes,
+whether or not your `.gitattributes` predates this. The one exception is a log
+that lost lines on either side since the machines last agreed, as
+`gstack-decision-log --compact` does to redacted decisions: the merged log is
+the union of both sides, so a rebuild would bring the redacted decision back,
+and brain-sync aborts that merge as before. Repositories set up by
+`gstack-artifacts-init` also mark the snapshot `merge=binary`, so a merge you
+run by hand keeps your side without conflict markers; finish it with
+`gstack-decision-log --rebuild-snapshot <project-slug>` and `git add -f` the
+snapshot before committing.
+
 ## Cross-machine pull cadence
 
 The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
