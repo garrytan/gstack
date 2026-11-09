@@ -73,21 +73,25 @@ export function parsePostimages(diff: string): Map<string, string[]> {
 /**
  * Text the scanner can read from a file git calls binary, which the diff
  * passes through with --text (GST-2195). Text with no NUL is returned as is.
- * UTF-16 text, with or without a byte-order mark, puts a NUL beside each
- * character of its ASCII range, always on the same side, so the NULs inside
- * every run of such character-and-NUL pairs are dropped, however much of the
- * file is outside that range (Cyrillic, CJK); then each run of NUL, other
+ * Each line is read two ways. The plain reading turns each run of NUL, other
  * control bytes or bytes that are not UTF-8 (an image chunk, an executable's
- * padding) becomes one space. Line
- * breaks stay, so line numbers still hold. Callers keep only credential
+ * padding) into one space. The UTF-16 reading first drops the NULs inside
+ * every run of character-and-NUL pairs, which UTF-16 text puts beside each
+ * character of its ASCII range however much of the file is Cyrillic or CJK.
+ * When the two differ the line holds both, so a plain token that a
+ * NUL-flanked byte beside it would glue or cut in the UTF-16 reading is still
+ * found. Line breaks stay, so line numbers still hold. Callers keep only credential
  * findings from such a file: privacy patterns read its bytes as noise (a run
  * of digits in a compressed icon reads as a phone number).
  */
 export function scannableText(text: string): string {
   if (!text.includes('\0')) return text;
-  return text
-    .replace(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}|(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g, run => run.replaceAll('\0', ''))
-    .replace(/[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g, ' ');
+  const noise = /[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g;
+  return text.split('\n').map(line => {
+    const plain = line.replace(noise, ' ');
+    const utf16 = line.replace(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}|(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g, run => run.replaceAll('\0', '')).replace(noise, ' ');
+    return utf16 === plain ? plain : `${utf16} ${plain}`;
+  }).join('\n');
 }
 
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */

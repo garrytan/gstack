@@ -248,6 +248,20 @@ describe('pregate secrets: source context and diff integrity', () => {
     for (const file of ['ru.strings', 'zh.strings', 'zh-be.strings']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 9\\)$`)));
   });
 
+  // Value: protects=a plain token in binary content stays whole when a NUL-flanked byte sits beside it; fails_when=reading the bytes as UTF-16 glues that byte to the token or cuts its edge character off;
+  //   why_new=GST-2195 review: the UTF-16 reading hid tokens the plain reading found; seam=fixture repo; no_claim=tokens split by a NUL inside them
+  test.each([
+    ['a NUL terminator, then a little-endian integer', PAT + '\0' + '1\0\0\0'],
+    ['a one-character string after it', '\0' + PAT + '\0x\0'],
+    ['a one-character string before it', '\0x\0' + PAT + '\0'],
+    ['a uint16 length before it', '\0\0' + '4\0' + PAT],
+    ['UTF-16 runs on both sides', 'A\0B\0' + PAT + '\0C\0D\0'],
+  ])('a token in binary content beside %s fails like plain text (GST-2195)', (_, body) => {
+    const r = repo({ 'blob.bin': Buffer.concat([Buffer.from([0x89, 0, 0, 1]), Buffer.from(body, 'latin1')]) }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines).toContainEqual(expect.stringMatching(/^HIGH github\.pat .*\(blob\.bin, added line 1\)$/));
+  });
+
   // Value: protects=reading binary files does not turn real images into findings; fails_when=a PNG, JPEG, GIF or ICNS from this repo warns or fails the check;
   //   why_new=GST-2195 scans binary content that was skipped before; seam=fixture repo; no_claim=compiled executables (the repo stores none)
   test('the real binary assets this repo stores add no finding, and the pass names how many files it read (GST-2195)', () => {
