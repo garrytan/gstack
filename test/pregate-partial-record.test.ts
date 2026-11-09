@@ -22,7 +22,10 @@ const record = (repo: FixtureRepo) => JSON.parse(fs.readFileSync(path.join(repo.
 const ALL = CHECK_IDS.length;
 const fakePat = () => ['ghp', Array.from(randomBytes(36), b => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[b % 62]).join('')].join('_');
 
-describe('pregate verify refuses a partial record', () => {
+// Like test/pregate-remote.test.ts, this expects the Linux-host lanes verdict: on windows-latest the fixture's Linux lane is a
+// requires-remote obligation too, so the single-obligation assertions and `verify` ok do not hold there. The curation list in
+// scripts/lib/windows-curation.ts is the usual home for that; this file skips itself so the shared list is not edited here.
+describe.skipIf(process.platform === 'win32')('pregate verify refuses a partial record', () => {
   // Value: protects=a secrets failure from the full run cannot be erased by the tests-stage rerun pregate's own fix line
   // suggests, after a commit moved the tree; fails_when=verify accepts a tests-only record (the GSTA-461 audit repro:
   // PREGATE_VERIFY ok with the token still in HEAD); why_new=no test ran verify on a staged record; seam=none;
