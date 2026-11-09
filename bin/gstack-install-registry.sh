@@ -23,7 +23,8 @@
 #   render       render directory, or 'committed'
 #
 # Callers must set GSTACK_STATE_ROOT first (bin/gstack-state-root.sh). Bash 3.2
-# clean; no flock (macOS lacks it), so the lock is an atomic mkdir.
+# clean; no flock (macOS lacks it), so the lock is gstack_lock_take
+# (bin/gstack-lock.sh).
 
 # Same-path and containment checks (bin/gstack-path-spelling.sh).
 . "$(dirname "${BASH_SOURCE[0]}")/gstack-path-spelling.sh" 2>/dev/null || true

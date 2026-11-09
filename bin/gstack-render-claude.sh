@@ -1,5 +1,6 @@
 # gstack-render-claude.sh — the Claude skill render shared by ./setup and
-# `gstack-config gbrain-refresh`. Source it; it only defines functions.
+# `gstack-config gbrain-refresh`. Source it; it only defines functions, and
+# sources bin/gstack-lock.sh beside it for the render lock.
 # bash-3.2-clean and safe under `set -euo pipefail`.
 #
 # Overlay selection is opt-in: the overlay is the family of the persisted
@@ -25,6 +26,8 @@
 # Callers define `_swap_in_render` (setup and bin/gstack-config each keep
 # their tested copy) and may define `log` and `bun_cmd`; plain echo and bun
 # are used otherwise.
+
+. "$(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack: $(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 _gstack_render_say() {
   if declare -F log >/dev/null 2>&1; then log "$@"; else echo "$@"; fi
