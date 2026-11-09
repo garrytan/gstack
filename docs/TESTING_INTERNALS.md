@@ -1767,6 +1767,23 @@ receipt, so discount that vote when you judge their would-skip rate. Any skip
 added there later also has to pass the aggregate's receipt check. Turning on
 skipping is a separate decision for Garry, made after that review.
 
+### Trunk Flaky Tests (detection only)
+
+Since GST-1859, every free-suite shard keeps bun's JUnit report from each of
+its children, the flaky retry included (`--junit-dir`), and the
+`trunk-flaky-tests` job uploads them, failures included, to the Trunk test
+collection `7yDVXXE3` ("gstack free suite") on same-repository pull requests
+and main pushes. Trunk flags a test as flaky when it fails and then passes on
+the same code, or keeps failing on main, and lists it under Flaky Tests at
+app.trunk.io/garry-tan. That job is detection only: quarantine is off in the
+uploader and in the collection, nothing skips a test, no job needs or reads it,
+and an upload failure can't turn a check red. It is the only job that sees
+`TRUNK_ORG_API_TOKEN` (Trunk's v1 organization token, which the uploader
+needs), and it checks out and runs nothing of the pull request's. The [flake
+ledger](#flake-ledger), its one-rerun rule and the daily flaky pass are
+unchanged and stay the source of record.
+`test/free-tests-workflow-wiring.test.ts` locks the job's shape.
+
 ### Windows free lane
 
 Windows has minimal support ([support tiers](support-tiers.md)). The required
