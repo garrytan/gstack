@@ -4,8 +4,9 @@
  * go through bin/gstack-redact. Exit 0 is clean; 2 (MEDIUM) and 3 (HIGH)
  * fail unless the policy's `allowlist` names each finding (lib/pregate/allowlist.ts;
  * never env.value); a scanner that does not finish or exits outside its
- * contract is PREGATE_ENVIRONMENT (kind tool), never a pass. Runs regardless
- * of lint tools.
+ * contract is PREGATE_ENVIRONMENT (kind tool), never a pass, and so is a
+ * merge-base diff git did not finish. Files git calls binary are read too
+ * (scannableText). Runs regardless of lint tools.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -69,6 +70,25 @@ export function parsePostimages(diff: string): Map<string, string[]> {
   return files;
 }
 
+/**
+ * Text the scanner can read from a file git calls binary, which the diff
+ * passes through with --text (GST-2195). Text with no NUL is returned as is.
+ * UTF-16 text, with or without a byte-order mark, puts a NUL beside each
+ * character of its ASCII range, always on the same side, so those NULs are
+ * dropped; then each run of NUL, other control bytes or bytes that are not
+ * UTF-8 (an image chunk, an executable's padding) becomes one space. Line
+ * breaks stay, so line numbers still hold. Callers keep only credential
+ * findings from such a file: privacy patterns read its bytes as noise (a run
+ * of digits in a compressed icon reads as a phone number).
+ */
+export function scannableText(text: string): string {
+  if (!text.includes('\0')) return text;
+  const nuls = [0, 0];
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 0) nuls[i % 2]!++;
+  const utf16 = Math.max(...nuls) >= text.length / 4 && Math.min(...nuls) * 10 <= Math.max(...nuls);
+  return (utf16 ? text.replaceAll('\0', '') : text).replace(/[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g, ' ');
+}
+
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
 const LEXICAL_CONTEXT_SOURCE = /\.(?:dart|pyi?)$/i;
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
@@ -84,10 +104,15 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * line. One too large, or whose full diff does not parse as one hunk holding
  * its added lines, is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
- * reads as clean.
+ * reads as clean. --text keeps a file git calls binary (a NUL byte, UTF-16, a
+ * `-diff` attribute the branch itself can add) from printing "Binary files
+ * differ" in place of its added lines; each such file is marked `binary`,
+ * read through scannableText and held to its credential findings. A diff git did not finish (an exit, a kill, a
+ * full buffer) throws: its partial output is never scanned as complete.
  */
-export function addedLines(ctx: PregateContext): Array<{ file: string; text: string; keep?: number[] }> {
-  const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+export function addedLines(ctx: PregateContext): Array<{ file: string; text: string; keep?: number[]; binary?: boolean }> {
+  const diff = spawnSync('git', ['diff', '--text', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+  if (diff.error || diff.status !== 0) throw new Error(`git diff ${ctx.mergeBase.slice(0, 12)} did not finish (${diff.error?.message ?? (diff.status === null ? `killed by ${diff.signal}` : `exit ${diff.status}: ${(diff.stderr ?? '').trim().split('\n').pop() ?? ''}`)})`);
   const files = parseAddedLines(diff.stdout ?? '');
   const numbers = parseAddedLineNumbers(diff.stdout ?? '');
   const whole = new Map<string, { text: string; keep: number[] }>();
@@ -113,13 +138,19 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
       files.set(t.path, [...(files.get(t.path) ?? []), ...lines]);
     } catch { /* unreadable: skipped */ }
   }
-  return [...files].map(([file, lines]) => whole.get(file) ? { file, ...whole.get(file)! } : { file, text: lines.join('\n') }).filter(p => p.text.trim());
+  return [...files]
+    .map(([file, lines]) => whole.get(file) ? { file, ...whole.get(file)! } : { file, text: lines.join('\n') })
+    .map(p => p.text.includes('\0') ? { ...p, text: scannableText(p.text), binary: true } : p)
+    .filter(p => p.text.trim());
 }
 type Finding = { id?: string; description?: string; severity?: string; category?: string; line?: number; col?: number; file: string; fileLine?: boolean };
 type Scanned = Finding & AllowlistFinding;
 
 function run(ctx: PregateContext): CheckResult {
-  const parts = addedLines(ctx);
+  let parts: ReturnType<typeof addedLines>;
+  try { parts = addedLines(ctx); } catch (err) {
+    return environmentResult({ id: 'secrets', stage: 'preflight', status: 'incomplete', inputs: baseInputs(ctx) }, launchCause('tool', (err as Error).message), 'git diff of the added lines did not finish; an incomplete scan never passes');
+  }
   const inputs = baseInputs(ctx, { added_lines: sha256(JSON.stringify(parts)), ...(ctx.config.allowlist.length ? { allowlist: allowlistDigest(ctx.config.allowlist) } : {}) });
   if (!parts.length) return { id: 'secrets', stage: 'preflight', status: 'pass', detail: 'no added lines', inputs };
   // A run killed mid-scan under the same --run id must not keep its added-line copies: clear them before writing new ones.
@@ -141,7 +172,7 @@ function run(ctx: PregateContext): CheckResult {
       high ||= r.status === 3;
       medium ||= r.status === 2;
       const lines = part.text.split('\n');
-      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => !part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) findings.push(f); } catch { parsedAll = false; }
+      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) findings.push(f); } catch { parsedAll = false; }
     }
     // The allowlist applies only to findings the scanner reported in full; an unparsed report keeps its exit-code verdict.
     const applied = parsedAll && ctx.config.allowlist.length ? applyAllowlist(findings, ctx.config.allowlist) : { kept: findings, allowlisted: [], untested: [], missed: [] };
@@ -155,9 +186,11 @@ function run(ctx: PregateContext): CheckResult {
     // there is no user to answer gstack-redact's per-finding question here.
     const blocking = kept.filter(f => f.severity === 'HIGH' || (f.severity === 'MEDIUM' && f.category === 'secret'));
     const advisory = kept.filter(f => f.severity === 'MEDIUM' && f.category !== 'secret');
+    const binary = parts.filter(p => p.binary).length;
+    const scanned = `${parts.length} file${parts.length === 1 ? '' : 's'}${binary ? ` (${binary} binary)` : ''}`;
     const lineCount = parts.reduce((n, p) => n + (p.keep?.length ?? p.text.split('\n').length), 0);
     const fail = (lines: string[], detail: string): CheckResult => ({ ...base, status: 'fail', cause: 'diff', lines: [...lines, ...allowLines], code: 'PREGATE_SECRETS', detail: `${detail}${allowNote}`, fix: 'rotate and remove the credential from the added lines (history included); secrets cannot be downgraded (a benign finding is allowlisted by id, path and pattern in the policy, never env.value)' });
-    if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
+    if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean in ${scanned}${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
     if (blocking.length) return fail([...blocking, ...advisory].map(render), `${blocking.length} credential finding(s) in added lines (${blocking.map(f => f.id).join(', ')})`);
     if (high) return fail(kept.map(render), 'HIGH finding(s) in added lines');
     return { ...base, status: 'warn', cause: 'diff', lines: [...advisory.map(render), ...allowLines], code: 'PREGATE_SECRETS', detail: `${advisory.length} MEDIUM non-credential finding(s) in added lines (${[...new Set(advisory.map(f => f.id))].join(', ')})${allowNote}`, fix: 'read each listed line; gstack-post asks about the same findings when the PR body quotes them; a benign one is allowlisted by id or category, path and pattern in the policy' };

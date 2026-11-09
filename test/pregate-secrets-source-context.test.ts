@@ -8,15 +8,20 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseAddedLineNumbers, parseAddedLines } from '../lib/pregate/checks/secrets';
+import { parseAddedLineNumbers, parseAddedLines, secretsCheck } from '../lib/pregate/checks/secrets';
+import type { PregateContext } from '../lib/pregate/types';
 import { cleanup, commit, makeFixtureRepo, runBin, BASE_PREGATE, type FixtureRepo } from './helpers/pregate-fixture';
 
 const PREGATE = path.resolve(import.meta.dir, '..', 'bin', 'gstack-pregate');
 const AWS = 'AKIA' + 'ZQ3XN7P2LM4RT8WV';
+const PAT = ['ghp', 'Zq8Lm2Xv7Nc4Rt9Wy1Kp6Hd3Fs5Gb0Jx8Ue2'].join('_');
+const utf16 = (text: string, bigEndian = false) => { const le = Buffer.from(`\uFEFF${text}`, 'utf16le'); return bigEndian ? le.swap16() : le; };
+/** Every file this checkout stores as binary (PNG, JPEG, GIF, ICNS): real assets, not synthetic noise. */
+const BINARY_ASSETS = spawnSync('git', ['ls-files', '--eol'], { cwd: path.resolve(import.meta.dir, '..'), encoding: 'utf8', timeout: 30_000 }).stdout.split('\n').filter(l => l.startsWith('i/-text')).map(l => l.split('\t').pop()!);
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true }); });
 
-function repo(files: Record<string, string>) {
+function repo(files: Record<string, string | Buffer>) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pregate-secrets-')));
   roots.push(root);
   const dir = path.join(root, 'work');
@@ -37,7 +42,7 @@ function repo(files: Record<string, string>) {
   git('push', '-q', 'origin', 'main');
   git('fetch', '-q', 'origin');
   git('checkout', '-qb', 'feat');
-  for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, rel), text);
+  for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); }
   git('add', '.');
   git('commit', '-qm', 'feat');
   const secrets = () => {
@@ -45,7 +50,7 @@ function repo(files: Record<string, string>) {
     const check = JSON.parse(r.stdout).checks.find((c: { id: string }) => c.id === 'secrets');
     return { status: check.status as string, detail: check.detail as string, lines: (check.lines ?? []) as string[] };
   };
-  return { dir, git, secrets };
+  return { root, dir, git, env, secrets };
 }
 
 describe('pregate secrets: source context and diff integrity', () => {
@@ -223,5 +228,35 @@ describe('pregate secrets: source context and diff integrity', () => {
     fs.writeFileSync(driver, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     f.git('config', 'diff.external', driver);
     expect(f.secrets().status).toBe('fail');
+  });
+
+  // Value: protects=a token in a file git calls binary fails the never-downgradable secrets check like the same token in plain text;
+  //   fails_when=a NUL byte, a -diff line the branch itself adds to .gitattributes, or UTF-16 text passes the check unscanned; why_new=GSTA-461 item 5 reached GitHub with both guards green; seam=fixture repo; no_claim=UTF-16 outside the ASCII range
+  test('a token in a file git calls binary fails like plain text: a NUL byte, a -diff attribute the branch adds, UTF-16LE and UTF-16BE (GST-2195)', () => {
+    const r = repo({ 'plain.txt': `token ${PAT}\n`, 'nul.txt': `\0token ${PAT}\n`, '.gitattributes': '*.jsonl -diff\n', 'out.jsonl': `{"token":"${PAT}"}\n`, 'le.txt': utf16(`token ${PAT}\r\n`), 'be.txt': utf16(`token ${PAT}\n`, true) }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['plain.txt', 'nul.txt', 'out.jsonl', 'le.txt', 'be.txt']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 1\\)$`)));
+  });
+
+  // Value: protects=reading binary files does not turn real images into findings; fails_when=a PNG, JPEG, GIF or ICNS from this repo warns or fails the check;
+  //   why_new=GST-2195 scans binary content that was skipped before; seam=fixture repo; no_claim=compiled executables (the repo stores none)
+  test('the real binary assets this repo stores add no finding, and the pass names how many files it read (GST-2195)', () => {
+    expect(BINARY_ASSETS.length).toBeGreaterThanOrEqual(10);
+    const root = path.resolve(import.meta.dir, '..');
+    const r = repo(Object.fromEntries(BINARY_ASSETS.map(rel => [rel, fs.readFileSync(path.join(root, rel))]))).secrets();
+    expect({ status: r.status, lines: r.lines }).toEqual({ status: 'pass', lines: [] });
+    expect(r.detail).toContain(`in ${BINARY_ASSETS.length} files (${BINARY_ASSETS.length} binary)`);
+  });
+
+  // Value: protects=a diff git could not produce in full never reads as a clean scan; fails_when=a failed, killed or truncated merge-base diff passes as "no added lines";
+  //   why_new=the pre-push hook fails closed here (#1946) and pregate did not; seam=check run on a real repo with an unreadable merge base; no_claim=the 60 s timeout itself
+  test('a merge-base diff git could not finish is PREGATE_ENVIRONMENT, never a clean scan (GST-2195)', async () => {
+    const f = repo({ 'a.txt': `token ${PAT}\n` });
+    const scratch = path.join(f.root, 'scratch');
+    fs.mkdirSync(scratch);
+    const ctx = { repoRoot: f.dir, mergeBase: '0'.repeat(40), wtree: 'w', head: 'h', baseRef: 'origin/main', baseSha: '0'.repeat(40), touched: [], config: { allowlist: [] }, scratch, timeoutMs: 60_000, env: f.env } as unknown as PregateContext;
+    const check = await secretsCheck.run(ctx);
+    expect({ status: check.status, code: check.code }).toEqual({ status: 'incomplete', code: 'PREGATE_ENVIRONMENT' });
+    expect(check.detail).toContain('git diff');
   });
 });
