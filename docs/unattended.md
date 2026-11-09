@@ -442,7 +442,8 @@ The example above is the full run. The first `next` also takes `--kind`:
   phase alone with one native reviewer, whose prompt merges the CEO and Eng
   lenses (Design and DX only when scope detects them) and always asks "Any
   outside terms, licences or rights involved?". Each lens is short: the eng
-  lens is a five-question brief and plan-eng-review's 36-line checklist, the
+  lens is a five-question brief plus plan-eng-review's 36-line checklist when
+  the run is unattended or `--light`, the
   others a one-paragraph role and that skill's checklist (CEO 37 lines, design
   28, DX 34). The reviewer never gets those skills' own methods
   (`lib/autoplan-lean.ts` `leanPrompt`). The reviewer reads the draft
