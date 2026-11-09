@@ -741,38 +741,56 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(fs.readFileSync(path.join(repo, 'src', 'app.txt'), 'utf-8')).toBe('app\n');
   });
 
-  test('a symlinked .gstack-worktrees is checked through the link', () => {
+  const linkGone = () => {
+    try { fs.lstatSync(path.join(repo, '.gstack-worktrees')); return false; } catch { return true; }
+  };
+
+  test('a symlinked .gstack-worktrees is unlinked, never followed, even when a checkout behind it has unique commits', () => {
     const store = path.join(repo, 'worktree-store');
     fs.mkdirSync(store);
     fs.symlinkSync(store, path.join(repo, '.gstack-worktrees'));
     addWorktree(false);
     git(['commit', '-q', '--allow-empty', '-m', 'wip'], path.join(repo, worktree));
     const r = uninstall(['--force']);
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain('it has commits no branch or tag contains');
-    expect(fs.existsSync(path.join(store, 'run-1', 'lane-1'))).toBe(true);
+    expect(r.status).toBe(0);
+    expect(linkGone()).toBe(true);
+    expect(fs.existsSync(path.join(store, 'run-1', 'lane-1', 'README.md'))).toBe(true);
+    expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${path.join(store, 'run-1', 'lane-1')}\n`);
+  });
+
+  test('a .gstack-worktrees symlink to a folder inside the repo keeps the worktrees behind it and their ignored files', () => {
+    fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), '.claude/worktrees/\n.env\n');
+    const feat = path.join(repo, '.claude', 'worktrees', 'feat');
+    git(['worktree', 'add', '-q', '-b', 'feat', feat]);
+    fs.writeFileSync(path.join(feat, '.env'), 'SECRET=1\n');
+    fs.symlinkSync('.claude/worktrees', path.join(repo, '.gstack-worktrees'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(linkGone()).toBe(true);
+    expect(fs.readFileSync(path.join(feat, '.env'), 'utf-8')).toBe('SECRET=1\n');
+    expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${feat}\n`);
   });
 
   for (const flags of [['--force'], ['--force', '--force-worktrees']]) {
-    test(`a .gstack-worktrees symlink to a folder outside the repo stops ${flags.join(' ')} and keeps what it points at`, () => {
+    test(`a .gstack-worktrees symlink to a folder outside the repo is only unlinked by ${flags.join(' ')}`, () => {
       const store = path.join(tmp, 'worktree-store');
       fs.mkdirSync(store);
       git(['worktree', 'add', '-q', '-b', 'feature', path.join(store, 'feature')]);
       fs.symlinkSync(store, path.join(repo, '.gstack-worktrees'));
       const r = uninstall(flags);
-      expect(r.status).toBe(2);
-      expect(r.stderr).toContain(`refusing to delete ${path.join(repo, '.gstack-worktrees')}: it is a symlink to ${store}, outside this repository`);
+      expect(r.status).toBe(0);
+      expect(linkGone()).toBe(true);
       expect(fs.existsSync(path.join(store, 'feature', 'README.md'))).toBe(true);
       expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${path.join(store, 'feature')}\n`);
-      expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
+      expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(false);
     });
   }
 
   test('a .gstack-worktrees symlink to a folder holding the main checkout never deletes the repo', () => {
     fs.symlinkSync(tmp, path.join(repo, '.gstack-worktrees'));
     const r = uninstall(['--force']);
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain(`refusing to delete ${path.join(repo, '.gstack-worktrees')}: it is a symlink to ${tmp}, outside this repository`);
+    expect(r.status).toBe(0);
+    expect(linkGone()).toBe(true);
     expect(fs.existsSync(path.join(repo, '.git', 'HEAD'))).toBe(true);
     expect(fs.readFileSync(path.join(repo, 'README.md'), 'utf-8')).toBe('x\n');
   });

@@ -143,10 +143,10 @@ fi
 # ─── Per-project worktree safety ─────────────────────────────
 # Every checkout root on disk under .gstack-worktrees/ (a folder holding a .git),
 # registered or not, NUL-separated so no name can split into a relative path.
-# -H follows a symlinked .gstack-worktrees so its checkouts are checked too.
+# A symlinked .gstack-worktrees is never followed: uninstall removes only the link.
 _project_worktrees() {
   [ -d "$_GIT_ROOT/.gstack-worktrees" ] || return 0
-  find -H "$_GIT_ROOT/.gstack-worktrees" -mindepth 0 -type d -exec sh -c 'test -e "$1/.git"' sh {} \; -print0 -prune 2>/dev/null
+  find "$_GIT_ROOT/.gstack-worktrees" -mindepth 0 -type d -exec sh -c 'test -e "$1/.git"' sh {} \; -print0 -prune 2>/dev/null
 }
 # Real paths of the worktrees this repository registered.
 _registered_worktrees() {
@@ -177,20 +177,7 @@ _worktree_risk() {
   _head="$(_wt_git "$1" rev-parse -q --verify HEAD 2>/dev/null)" || return 0
   [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
 }
-# A symlinked .gstack-worktrees is deleted through only when it resolves inside
-# this repository; --force-worktrees does not bypass this.
-if [ "$KEEP_STATE" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -L "$_GIT_ROOT/.gstack-worktrees" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
-  _WT_LINK_REAL="$(_real "$_GIT_ROOT/.gstack-worktrees")"
-  case "$_WT_LINK_REAL" in
-    "$(_real "$_GIT_ROOT")"/*) ;;
-    *)
-      echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees: it is a symlink to $_WT_LINK_REAL, outside this repository" >&2
-      echo "fix: remove the link with rm -- '$_GIT_ROOT/.gstack-worktrees', or re-run with --keep-state; --force-worktrees does not delete through it" >&2
-      exit 2
-      ;;
-  esac
-fi
-if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
   _DIRTY_WORKTREES=0
   _REGISTERED_WORKTREES="$(_registered_worktrees)"
   while IFS= read -r -d '' _WT; do
@@ -586,7 +573,10 @@ _remove_project_dir() {
 }
 if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
   _remove_project_dir .gstack
-  if [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+  if [ -L "$_GIT_ROOT/.gstack-worktrees" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+    rm -f -- "$_GIT_ROOT/.gstack-worktrees"
+    REMOVED+=("$_GIT_ROOT/.gstack-worktrees (link only)")
+  elif [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
     while IFS= read -r -d '' _WT; do
       [ -n "$_WT" ] || continue
       _WT_REAL="$(_real "$_WT")"
