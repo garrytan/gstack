@@ -183,7 +183,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
- * A finding with no structure (JSON, lead label, label heading, Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE,
+ * A finding with no structure (JSON, lead label, label heading, numbered finding heading, Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE,
  * or a file:line on it or on the line it runs on from) is prose that only mentions a severity (GST-2122): it collects at INFORMATIONAL at
  * most, and nothing when the reply says NO FINDINGS.
  */

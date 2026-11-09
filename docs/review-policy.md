@@ -938,8 +938,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    at least as severe, and it counts toward what blocks. GST-766 skipped negated labels and lost
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Since GST-2122 a severity word rates a finding only through the finding's structure, as the reader
-   briefs ask for it: a JSON object, a lead label, a label heading, a `Severity` field, `Blocks: yes`, the native
-   voice's FIXABLE or INVESTIGATE tag, or a file:line on the finding or on the line it runs on from. A prose finding
+   briefs ask for it: a JSON object, a lead label, a label heading, a numbered finding heading, a `Severity` field,
+   `Blocks: yes`, the native voice's FIXABLE or INVESTIGATE tag, or a file:line on the finding or on the line it runs on
+   from. A prose finding
    with none of these ("No fix introduced a CRITICAL defect", "Neither fix clears the P0.") collects at INFORMATIONAL
    at most, a note lead judgment may promote, and in a reply that says `NO FINDINGS` it collects nothing; a structured
    finding in such a reply, malformed JSON included, still collects at its label. Each prose finding's line also
