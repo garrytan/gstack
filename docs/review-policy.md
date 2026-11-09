@@ -913,7 +913,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    never split off as a second record (GST-1031); the line right under the heading that carries those fields, no other
    label and no file:line joins it at the stronger label (not under a heading that names CRITICAL or P0 itself), the way an unlocated paragraph after a blank line already does. An unnumbered, unlabeled bullet with no file:line
    under a paragraph finding whose Severity or Blocks line has not come yet is that finding's detail, so the field line after it
-   lands on the finding; a numbered item is its own finding.
+   lands on the finding; a numbered item is its own finding. A native adversarial numbered list item (`1. **FIXABLE. …**`)
+   with no fields of its own keeps, after an unlabeled nested list, its indented lines and the first paragraph after a blank
+   line until its fields come, so that paragraph's `Severity` and `Blocks` bind to the item instead of forming a second record;
+   an item naming CRITICAL or P0 is never lowered, and a list item, heading, lead label, file:line, bold paragraph opener,
+   verdict line or any later paragraph starts the next finding (ALPH-93).
    A reader's own no-defect closing sentence is no finding at the label it denies (GST-435): a prose line with no
    list, heading, bold or lead label, no `Severity` or `Blocks` field, no FIXABLE or INVESTIGATE, no file:line or path
    and no exception clause, with no line above it in its paragraph that runs on (no closing period) or names an
