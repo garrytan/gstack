@@ -92,6 +92,15 @@ export function scanBrowseErrors(text: string): string[] {
   });
 }
 
+/** True when a Bash `goto` printed browse's success line for exactly this URL with a 2xx status. */
+export function browseNavigatedTo(toolCalls: Array<{ tool: string; input: any; output: string }>, url: string): boolean {
+  return toolCalls.some(call => call.tool === 'Bash' && /\bgoto\b/.test(String(call.input?.command ?? ''))
+    && String(call.output ?? '').split('\n').some(line => {
+      const match = line.trim().match(/^Navigated to (\S+) \((\d+)\)$/);
+      return match?.[1] === url && match[2]!.startsWith('2');
+    }));
+}
+
 // --- Testable NDJSON parser ---
 
 export interface ParsedNDJSON {

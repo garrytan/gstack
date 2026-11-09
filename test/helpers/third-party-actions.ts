@@ -55,11 +55,23 @@ export const offersDriveOption = (text: string): boolean => letteredOptions(text
  * mark this step as blocked on you."), never as a drive option's "I wait while you sign in": the phrase must open the
  * option or a sentence and end it, and the option must not be a browser drive, so "I wait for now while you sign in",
  * "wait for now and do it yourself" and "I drive it in Aside. I wait for now." do not count.
+ *
+ * The contract's own defer outcome also counts, whatever the option calls it: an option that is neither a browser
+ * drive nor manual steps and says the step is marked, left or kept as blocked or waiting on the user, with that clause
+ * ending at "on you" (gate 42431616220: "D) Do it later. I'll mark this step as waiting on you."). A clause starts
+ * at the option start, after sentence punctuation, after an en or em dash, or after a spaced hyphen; a mid-word hyphen
+ * ("re-mark") starts none. A negation, refusal or condition anywhere in the clause before that verb or the
+ * stays/remains/is predicate never counts, so "I will not mark this step as blocked on you", "I won't mark this step as
+ * waiting on you", "I refuse to mark this step as blocked on you", "otherwise I'll mark this step as blocked on you",
+ * "if you skip it, I'll mark this step as blocked on you", "the step is not blocked on you" and "nothing stays blocked
+ * on you" do not count, and neither does "waiting on you to approve it".
  */
+const DEFER_OUTCOME = /(?:^|[.!?;:]\s+|\s-+\s+|[\u2013\u2014]\s*)(?:(?!\b(?:not|never|no|nothing|nobody|none|neither|nor|without|cannot|refus\w*|declin\w*|avoid\w*|rather|instead|if|unless|otherwise|else)\b|n['\u2019]t\b)[^.!?;:\u2013\u2014])*?\b(?:(?:I|we)(?:['\u2019]ll| will) |I |we )?(?:(?:mark|leave|keep)\w* (?:this|it|the)(?: [\w-]+)?(?: step)? (?:as )?|(?:stays|remains|is) )(?:blocked|waiting) on you(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i;
 export const offersDefer = (text: string): boolean => letteredOptions(text).some(option =>
   /\b(?:defer\w*|postpone\w*|put (?:this|it)(?: step)? off|skip (?:this|it)(?: step)? for now|come back to (?:this|it)(?: step)? later|leave (?:this|it)(?: step)? for (?:now|later))\b/i.test(option)
   || !/drive|browse|Aside/i.test(option)
-    && /(?:^|[.!?;:]\s+)(?:(?:we|I|let['\u2019]s) )?(?:wait|hold off)(?: on (?:this|it)(?: step)?)? for now\b(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i.test(option));
+    && (/(?:^|[.!?;:]\s+)(?:(?:we|I|let['\u2019]s) )?(?:wait|hold off)(?: on (?:this|it)(?: step)?)? for now\b(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i.test(option)
+      || !offersManualSteps(option) && DEFER_OUTCOME.test(option)));
 
 /** The manual option: "manual", or one sentence offering instructions or steps the user follows themselves. */
 export function offersManualSteps(text: string): boolean {
