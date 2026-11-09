@@ -401,8 +401,14 @@ type StartTunnelResult =
  *
  * On success, sets the module tunnel state (tunnelListener / tunnelUrl /
  * tunnelServer / tunnelActive) and records the tunnel in the state file.
+ * Concurrent calls from either caller share the one in-flight start.
  */
-async function startTunnel(opts: {
+async function startTunnel(opts: Parameters<typeof openTunnel>[0]): Promise<StartTunnelResult> {
+  tunnelStarting ??= openTunnel(opts).finally(() => { tunnelStarting = null; });
+  return tunnelStarting;
+}
+
+async function openTunnel(opts: {
   fetchHandler: (req: Request, server: any) => Promise<Response>;
   authtoken: string;
   consent: string;
@@ -1788,11 +1794,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       state: () => ({ active: tunnelActive, url: tunnelUrl, hasListener: tunnelServer !== null }),
       close: closeTunnel,
       resolveAuthtoken: resolveNgrokAuthtoken,
-      start: (authtoken) => (tunnelStarting ??= startTunnel({
+      start: (authtoken) => startTunnel({
         fetchHandler: makeFetchHandler('tunnel'),
         authtoken,
         consent: 'pair_agent=on (isPairAgentEnabled gate at /tunnel/start)',
-      }).finally(() => { tunnelStarting = null; })),
+      }),
     },
     commands: {
       handle: handleCommand,

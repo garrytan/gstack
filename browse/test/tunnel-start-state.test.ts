@@ -1,6 +1,7 @@
 /**
  * POST /tunnel/start state under a mocked ngrok: two concurrent starts share
- * one session, and a start that fails after ngrok opens leaves the daemon
+ * one session, a route start that overlaps the BROWSE_TUNNEL=1 auto-start
+ * shares it too, and a start that fails after ngrok opens leaves the daemon
  * idle-stoppable. Each probe runs in a child `bun test` so the ngrok module
  * mock and the module-level tunnel state cannot leak into other shard files.
  */
@@ -27,8 +28,9 @@ mock.module(${JSON.stringify(Bun.resolveSync('@ngrok/ngrok', SRC))}, () => ({
     return { url: () => 'https://' + id + '.invalid', close: async () => { closed.push(id); } };
   },
 }));
-const { buildFetchHandler, __testInternals__ } = await import(${JSON.stringify(path.join(SRC, 'server.ts'))});
+const { buildFetchHandler, start: startDaemon, __testInternals__ } = await import(${JSON.stringify(path.join(SRC, 'server.ts'))});
 const { resolveConfig } = await import(${JSON.stringify(path.join(SRC, 'config.ts'))});
+const { __resetRegistry } = await import(${JSON.stringify(path.join(SRC, 'token-registry.ts'))});
 const stateFile = process.env.BROWSE_STATE_FILE!;
 const token = 'tunnel-start-token-0123456789';
 const handle = buildFetchHandler({
@@ -38,7 +40,7 @@ const handle = buildFetchHandler({
 const start = () => handle.fetchLocal(new Request('http://127.0.0.1:34998/tunnel/start', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }), null);
 `;
 
-async function runProbe(body: string): Promise<{ code: number; tail: string }> {
+async function runProbe(body: string, env: Record<string, string> = {}): Promise<{ code: number; tail: string }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tunnel-start-'));
   fs.writeFileSync(path.join(dir, 'probe.test.ts'), PRELUDE + body);
   try {
@@ -50,9 +52,11 @@ async function runProbe(body: string): Promise<{ code: number; tail: string }> {
         ...process.env,
         BROWSE_STATE_FILE: path.join(dir, 'state', 'browse.json'),
         GSTACK_HOME: path.join(dir, 'gstack'),
+        CHROMIUM_PROFILE: path.join(dir, 'profile'),
         GSTACK_PAIR_AGENT: 'on',
         NGROK_AUTHTOKEN: 'fake-token-for-test',
         NGROK_DOMAIN: '',
+        ...env,
       },
     });
     const timer = setTimeout(() => child.kill(), 60_000);
@@ -88,6 +92,37 @@ test('probe', async () => {
   expect(jb.url).toBe(ja.url);
 });
 `);
+  expect(result).toMatchObject({ code: 0 });
+  expect(result.tail).toContain('1 pass');
+}, 90_000);
+
+test('a route start that overlaps the BROWSE_TUNNEL=1 auto-start shares its ngrok session', async () => {
+  const result = await runProbe(`
+test('probe', async () => {
+  (process as any).exit = () => {};
+  let release!: () => void;
+  forwardGate = new Promise<void>(r => { release = r; });
+  __resetRegistry();
+  let booting = true;
+  const booted = startDaemon().finally(() => { booting = false; });
+  for (let i = 0; i < 900 && booting && opened.length === 0; i++) await new Promise(r => setTimeout(r, 50));
+  try {
+    expect(opened).toEqual(['session-1']);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    const routed = fetch('http://127.0.0.1:' + state.port + '/tunnel/start', { method: 'POST', headers: { Authorization: 'Bearer ' + state.token } });
+    await new Promise(r => setTimeout(r, 100));
+    release();
+    const [resp] = await Promise.all([routed, booted]);
+    expect(opened).toEqual(['session-1']);
+    expect(closed).toEqual([]);
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).url).toBe('https://session-1.invalid');
+  } finally {
+    release();
+    await __testInternals__.browserManager.close();
+  }
+}, 60_000);
+`, { BROWSE_TUNNEL: '1', BROWSE_PARENT_PID: '0' });
   expect(result).toMatchObject({ code: 0 });
   expect(result.tail).toContain('1 pass');
 }, 90_000);
