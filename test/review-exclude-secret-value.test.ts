@@ -138,7 +138,7 @@ describe('names git quotes under review_exclude_paths (GST-1451)', () => {
     return { repo, c, exclude };
   }
   const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-  const keptSecrets = [...QUOTED, UTF8].sort(byPath).map(p => ({ path: p, reason: 'secret-line' }));
+  const keptSecrets = [...QUOTED, UTF8].sort(byPath).map(p => ({ path: p, reason: 'secret-line' as const }));
 
   // Value: protects=the collector keys added lines by the real path for every name git quotes in a patch header, so the
   //   secret-line rule reads them; fails_when=readDiff keys added lines by the quoted header text ("b/q\"x.json");
