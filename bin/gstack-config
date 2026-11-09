@@ -314,11 +314,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   Invalid values are REJECTED (value kept).
 #
 # ─── Workspace-aware ship ────────────────────────────────────────────
-# workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
-#                           # Conductor worktrees when picking a VERSION slot.
+# workspace_root: $HOME/conductor/workspaces  # When picking a VERSION slot,
+#                           # /ship checks every git worktree of the repo,
+#                           # wherever it lives, plus <root>/<repo>/<workspace>/
+#                           # here, which also finds separate clones.
 #                           # Set to "null" to disable sibling scanning entirely.
-#                           # Non-Conductor users can point this at any directory
-#                           # that holds parallel worktrees of the same repo.
 #
 '
 
