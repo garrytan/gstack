@@ -249,4 +249,38 @@ describe('bin/gstack-gate', () => {
     const pending = run(['decisions', file]).out.trim().split('\n').map(l => JSON.parse(l));
     expect(pending.every(r => r.status === 'pending')).toBe(true);
   });
+
+  test('/autoplan Phase 4 gate instructions use valid p1 item id and reply tokens (#4181)', () => {
+    for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
+      const doc = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      expect(doc).toContain('and `p1` (approval: a) approve as-is (recommended) b) with overrides');
+      expect(doc).toContain('`all` or `p1a`');
+      expect(doc).toContain('`p1c`/`p1d`/`p1e`');
+      expect(doc).not.toContain('and `plan` (approval:');
+      expect(doc).not.toContain('`plana`');
+    }
+    const p1List: GateList = {
+      ...list,
+      items: [
+        ...list.items,
+        {
+          id: 'p1',
+          title: 'Plan approval',
+          kind: 'approval',
+          recommended: 'a',
+          options: [
+            { key: 'a', text: 'approve as-is' },
+            { key: 'b', text: 'with overrides' },
+            { key: 'c', text: 'interrogate' },
+            { key: 'd', text: 'revise' },
+            { key: 'e', text: 'reject' },
+          ],
+        },
+      ],
+    };
+    expect(validateGateList(p1List)).toEqual([]);
+    for (const tok of ['p1a', 'p1c', 'p1d', 'p1e']) {
+      expect(parseReply(tok, p1List, 1).unparsed).toEqual([]);
+    }
+  });
 });
