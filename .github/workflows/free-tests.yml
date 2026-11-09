@@ -738,6 +738,8 @@ jobs:
       # included. Only trunk-flaky-tests reads it; no verdict does.
       - name: Upload shard JUnit reports
         if: always()
+        timeout-minutes: 3
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: free-junit-${{ matrix.shard }}

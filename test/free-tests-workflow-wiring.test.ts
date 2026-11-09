@@ -237,7 +237,8 @@ describe('free-tests workflow wiring', () => {
         expect(step.run, name).toBe('npx playwright install --with-deps chromium');
       }
       expect(steps[install]['continue-on-error'], name).toBe(true);
-      expect(steps.filter((step: any) => step['continue-on-error']), name).toEqual([steps[install]]);
+      const failOpen = name === 'free-suite' ? [steps[install], steps.find((step: any) => step.name === 'Upload shard JUnit reports')] : [steps[install]];
+      expect(steps.filter((step: any) => step['continue-on-error']), name).toEqual(failOpen);
     }
   });
 
