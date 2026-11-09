@@ -346,7 +346,8 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
  * nothing); `head-only` when only the head does (a notice, never applied); `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
  * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
- * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable).
+ * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
+ * matched text file with changed lines the collector holds no added lines for (GST-1451: it is unread, so it fails closed).
  */
 export function reviewExclude(i: ExcludeInput): Exclusion {
   const load = loadPolicyAt(i.root, i.baseSha, i.ref);
@@ -365,8 +366,10 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
   const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
   const text = { ...i, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
+  const collected = new Map(i.perPath.map(e => [e.path, e]));
+  const unseen = (p: string) => { const e = collected.get(p); return !e || (!e.binary && e.lines > 0 && !(p in text.added)); };
   const reasons = new Map<string, KeptReason | null>();
-  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native));
+  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native) ?? (unseen(p) ? 'consumer-scan-unavailable' : null));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
   const named = grepFixed(i, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);

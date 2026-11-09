@@ -42,7 +42,7 @@ CI runs `crew/test/` with the rest of the free suite.
 
 | Path | What it holds |
 |---|---|
-| `bin/` | `gstack-release-gate` (the paid gate on main every 8 hours) and `gstack-coauthor-trailers` (credit for ported contributor work) |
+| `bin/` | `gstack-release-gate` (the paid gate on main every 8 hours) and `gstack-coauthor-trailers` (credit for contributor lines a rewrite carries over) |
 | `lib/` | merge trains and waves (`ship-queue-train*`, `ship-queue-wave`, the land lock, screens, rechecks), the release gate, version-gate trains and lane ownership |
 | `scripts/` | the release cut and its daily check (`release-cut`, `release-cadence`), and the paid-eval CI steps only our crews run (train gate and backstop, gate cost, gate reuse, receipt recovery, census arms, judge calibration configs) |
 | `test/` | their tests |

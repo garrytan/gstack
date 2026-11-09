@@ -120,3 +120,58 @@ describe('the argument-byte bound', () => {
     expect(x.record.skipped).toMatchObject([{ pattern: 'receipts/**', kept: COUNT }]);
   }, 120_000);
 });
+
+describe.skipIf(process.platform === 'win32')('names git quotes under review_exclude_paths (GST-1451)', () => {
+  /** Names git's patch headers C-quote even with core.quotePath=false: a quote, a backslash, a tab, a control byte, a space beside a quote. */
+  const QUOTED = ['receipts/q"x.json', 'receipts/back\\slash.json', 'receipts/tab\tx.json', 'receipts/ctl\x01x.json', 'receipts/sp ace "q".json'];
+  const UTF8 = 'receipts/r\u00e9sum\u00e9-\u6f22.json';
+  const SECRET = `{"cmd": "curl -H $OPENAI_API_KEY", "auth": "${BLOB}"}`;
+
+  function quotedBranch() {
+    const repo = makeFixtureRepo({ prefix: 'gstack-quoted-', baseFiles: { '.gstack/ship-policy.json': policyText, 'receipts/old.json': '{"a": 1}\n{"b": 2}\n', 'receipts/gone.json': '{"c": 3}\n' } }); repos.push(repo);
+    const files: Record<string, string | null> = { 'receipts/old.json': '{"a": 1}\n', 'receipts/gone.json': null, 'receipts/q"plain.json': '{"ok": true}\n', 'receipts/\u00e9-plain.json': '{"ok": true}\n', [UTF8]: SECRET + '\n' };
+    for (const p of QUOTED) files[p] = SECRET + '\n';
+    const head = commit(repo, files);
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const exclude = (added: Record<string, readonly string[]>) => reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
+    return { repo, c, exclude };
+  }
+  const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  const keptSecrets = [...QUOTED, UTF8].sort(byPath).map(p => ({ path: p, reason: 'secret-line' as const }));
+
+  // Value: protects=the collector keys added lines by the real path for every name git quotes in a patch header, so the
+  //   secret-line rule reads them; fails_when=readDiff keys added lines by the quoted header text ("b/q\"x.json");
+  //   why_new=GST-1451; seam=collectCommit
+  test('the collector keys added lines by the real path, quoted or UTF-8', () => {
+    const { c } = quotedBranch();
+    for (const p of [...QUOTED, UTF8]) expect({ p, added: c.added[p] }).toEqual({ p, added: [SECRET] });
+    expect(Object.keys(c.added).filter(k => k.includes('"b/') || k.startsWith('"') || k.endsWith('"'))).toEqual([]);
+  }, 120_000);
+
+  // Value: protects=a credential value in a data file git quotes the name of stays in every reader's diff; a quoted or UTF-8 name
+  //   with no secret is still excluded, and so are a deletion-only edit and a whole-file deletion; fails_when=a quoted name slips
+  //   past the secret-line keep rule (GST-1451 repro), or the fail-closed check keeps files the collector did read;
+  //   why_new=GST-1451; seam=reviewExclude over collectCommit, and gstack-review-plan on the live tree
+  test('a quoted or UTF-8 name with a credential value is kept; one without is excluded', () => {
+    const { repo, exclude, c } = quotedBranch();
+    const x = exclude(c.added);
+    expect(x.state === 'active' && x.kept).toEqual(keptSecrets);
+    expect(x.state === 'active' && [...x.excluded].sort()).toEqual(['receipts/gone.json', 'receipts/old.json', 'receipts/q"plain.json', 'receipts/\u00e9-plain.json'].sort());
+    const p = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--json']).out);
+    expect(p.review_exclude.kept_files).toEqual(keptSecrets);
+    expect(p.review_exclude.excluded).toBe(4);
+  }, 120_000);
+
+  // Value: protects=a matched text file the collector holds no lines for is kept as unread, never excluded unread;
+  //   fails_when=reviewExclude reads a missing added entry as "no lines" and excludes the file; why_new=GST-1451 (fail closed);
+  //   seam=reviewExclude
+  test('a matched file with changed lines but no collector entry is kept as unread', () => {
+    const { exclude, c } = quotedBranch();
+    const added = { ...c.added };
+    delete added['receipts/q"plain.json'];
+    const x = exclude(added);
+    expect(x.state === 'active' && x.kept.find(k => k.path === 'receipts/q"plain.json')).toEqual({ path: 'receipts/q"plain.json', reason: 'consumer-scan-unavailable' });
+    expect(x.state === 'active' && x.excluded.has('receipts/old.json')).toBe(true);
+  }, 120_000);
+});
