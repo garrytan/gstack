@@ -1777,7 +1777,9 @@ and main pushes. Trunk flags a test as flaky when it fails and then passes on
 the same code, or keeps failing on main, and lists it under Flaky Tests at
 app.trunk.io/garry-tan. That job is detection only: quarantine is off in the
 uploader and in the collection, nothing skips a test, no job needs or reads it,
-and an upload failure can't turn a check red. It is the only job that sees
+and an upload failure can't turn a check red. A child killed at its wall
+timeout, or one that crashes, writes no report, so Trunk does not see that
+failure; the flake ledger still records it. It is the only job that sees
 `TRUNK_ORG_API_TOKEN` (Trunk's v1 organization token, which the uploader
 needs), and it checks out and runs nothing of the pull request's. The [flake
 ledger](#flake-ledger), its one-rerun rule and the daily flaky pass are
