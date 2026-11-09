@@ -159,7 +159,7 @@ export function referencesTo(root: string, p: string, tree?: string, repo: RepoD
 }
 
 /**
- * Non-docs tracked files that name a directory holding the repo-admitted path `p` ("wiki/", 'wiki') and are tied to
+ * Non-docs tracked files that name a directory holding the repo-admitted path `p` ("wiki/", 'wiki', './wiki', root + '/wiki') and are tied to
  * none of the repository's docs_only.tests: a script that lists a directory reads every post in it, which the literal
  * scan in referencesTo cannot see. A reader is tied when it is a declared test, names one, or one names it (with or
  * without its extension). Prose files are not readers here: one that names a path pins it through referencesTo, and one
@@ -171,7 +171,7 @@ export function directoryReaders(root: string, p: string, repo: RepoDocs, tree?:
   if (!segs.length) return [];
   const dirs = segs.map((_, i) => segs.slice(0, i + 1).join('/'));
   const gen = generatedOutputs(root);
-  const readers = grepFiles(root, dirs.flatMap(d => [`${d}/`, `'${d}'`, `"${d}"`, `\`${d}\``]), tree)
+  const readers = grepFiles(root, dirs.flatMap(d => [`${d}/`, ...[`'`, `"`, '`'].flatMap(q => [`${q}${d}${q}`, `./${d}${q}`, `${q}/${d}${q}`, `}/${d}${q}`])]), tree)
     .filter(f => f !== SHIP_POLICY_PATH && !PROSE.test(f) && !repo.tests.includes(f) && pathRefusal(f, root, gen, repo) !== null);
   if (!readers.length || !repo.tests.length) return readers;
   return readers.filter(f => !grepFiles(root, repo.tests, tree, [f]).length && !grepFiles(root, [f, f.replace(/\.[^./]+$/, '')], tree, repo.tests).length);
@@ -203,7 +203,7 @@ export function classifyEntries(entries: readonly DiffEntry[], root: string, ref
   }
   if (!entries.length) refusals.push({ path: '-', reason: 'no changed paths' });
   const docsOnly = refusals.length === 0;
-  const repoTests = files.some(f => !builtIn(f)) ? repo.tests : [];
+  const repoTests = entries.some(e => !builtIn(e.path) || (e.from !== undefined && !builtIn(e.from))) ? repo.tests : [];
   const tests = docsOnly ? [...new Set([...DOCS_READER_TESTS.filter(t => files.some(f => t.tree.test(f))).flatMap(t => t.tests), ...repoTests])] : [];
   return { docsOnly, files, refusals, tests };
 }
@@ -211,6 +211,7 @@ export function classifyEntries(entries: readonly DiffEntry[], root: string, ref
 /**
  * The whole decision for base..head (commits) or base to the working tree. The docs_only block is read at `policyRef`,
  * the base tip every consumer lands on (default `base`; ci-carry and land diff from the merge base but read the tip).
+ * A docs_only.tests file the classified tree lacks refuses the change: the docs lane would otherwise pass without it.
  * Throws DocsOnlyError on any git failure.
  */
 export function classifyDocsOnly(o: { root: string; base: string; head?: string; policyRef?: string }): DocsOnlyResult {
@@ -220,5 +221,7 @@ export function classifyDocsOnly(o: { root: string; base: string; head?: string;
   const changed = new Set(entries.flatMap(e => [e.path, ...(e.from ? [e.from] : [])]));
   const outside = (f: string) => !changed.has(f) || pathRefusal(f, o.root, undefined, repo) !== null;
   const r = classifyEntries(entries, o.root, p => referencesTo(o.root, p, o.head, repo).filter(outside), repo, p => directoryReaders(o.root, p, repo, o.head).filter(outside));
-  return 'error' in policy ? { ...r, docsOnly: false, tests: [], refusals: [{ path: SHIP_POLICY_PATH, reason: policy.error }, ...r.refusals] } : r;
+  if ('error' in policy) return { ...r, docsOnly: false, tests: [], refusals: [{ path: SHIP_POLICY_PATH, reason: policy.error }, ...r.refusals] };
+  const missing = r.tests.filter(t => repo.tests.includes(t) && (o.head ? !git(o.root, ['ls-tree', '--name-only', o.head, '--', t]).trim() : !fs.existsSync(path.join(o.root, t))));
+  return missing.length ? { ...r, docsOnly: false, tests: [], refusals: missing.map(t => ({ path: t, reason: `listed in docs_only.tests at ${repo.label} but missing from this tree; restore it or correct the list` })) } : r;
 }

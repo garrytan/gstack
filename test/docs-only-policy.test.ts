@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { findCarry } from '../lib/ci-carry';
 import { classifyDocsOnly } from '../lib/docs-only';
+import { mergedChecksFor } from '../lib/land-docs-only';
 import { docsOnlyLane } from '../lib/pregate/docs-only-lane';
 import { buildRunCheck } from '../lib/pregate/run-check';
 import type { CheckResult, PregateContext } from '../lib/pregate/types';
@@ -79,6 +80,7 @@ beforeAll(() => {
   base('invalid', { docs_only: { allow: ['**'] } });
   base('broken', '{ "docs_only": { "allow": ["wiki/board/**.md"] ');
   base('future', { docs_only: { allow: ['wiki/board/**.md'], deny: ['README.md'], audience: 'humans' } });
+  base('ghost', { docs_only: { allow: ['wiki/board/**.md'], tests: [...TESTS, 'test/missing.test.ts'] } });
 });
 afterAll(() => { if (repo) fs.rmSync(repo, { recursive: true, force: true }); });
 
@@ -157,6 +159,27 @@ describe('bypasses refuse', () => {
     expect(classify('allowed', () => put('wiki/board/post.md')).docsOnly).toBe(true);
   });
 
+  test('a script that builds the directory path relatively or by concatenation is a directory reader too', () => {
+    const forms = ["'./wiki'", "path.join(__dirname, '../wiki/board')", "root + '/wiki'", '`${root}/wiki`'];
+    for (const [i, form] of forms.entries()) {
+      git('checkout', '-q', '--detach', 'allowed');
+      put('scripts/rel.ts', `export const dir = (root: string) => ${form};\n`);
+      git('add', '-A');
+      git('commit', '-qm', `relative reader ${i}`);
+      git('tag', `rel-${i}`);
+      expect([form, reasons(classify(`rel-${i}`, () => put('wiki/board/post.md')))]).toEqual([form, expect.stringContaining('its directory is read by scripts/rel.ts')]);
+    }
+  });
+
+  test('a declared docs test missing from the tree refuses a repo-allowed change instead of passing without it', () => {
+    for (const worktree of [false, true]) {
+      const r = classify('ghost', () => put('wiki/board/post.md'), worktree);
+      expect(r.docsOnly).toBe(false);
+      expect(reasons(r)).toContain('test/missing.test.ts');
+    }
+    expect(classify('ghost', () => put('docs/guide.md', 'edited\n')).docsOnly).toBe(true);
+  });
+
   test('a rename from code into an allowed path refuses, and so does an executable or a symlink there', () => {
     const r = classify('allowed', () => git('mv', 'lib/code.ts', 'wiki/board/code.md'));
     expect(r.docsOnly).toBe(false);
@@ -208,6 +231,21 @@ describe('a wiki/board post under a base-side allow is docs-only end to end', ()
     expect(classify('allowed', () => { fs.mkdirSync(path.join(repo, 'wiki/board/2026')); git('mv', 'wiki/board/old.md', 'wiki/board/2026/old.md'); }).docsOnly).toBe(true);
     expect(classify('allowed', () => { put('wiki/board/post.md', 'See wiki/board/old.md and docs/guide.md.\n'); put('docs/guide.md', 'edited\n'); }).docsOnly).toBe(true);
     expect(classify('allowed', () => put('wiki/other.md', 'edited\n')).docsOnly).toBe(false);
+    const moved = classify('allowed', () => git('mv', 'wiki/board/old.md', 'docs/old.md'));
+    expect([moved.docsOnly, moved.tests]).toEqual([true, expect.arrayContaining(TESTS)]);
+  });
+
+  test('land keeps the skipped merged checks when the base tip gained a reader of the changed directory', () => {
+    const land = { merged_checks: ['typecheck', 'tests'], docs_only_skip: ['tests'] };
+    const tip = (tag: string, change: () => void) => { git('checkout', '-q', '--detach', 'allowed'); change(); git('add', '-A'); git('commit', '-qm', tag); git('tag', tag); };
+    tip('pin', () => put('wiki/board/post.md'));
+    const pin = git('rev-parse', 'pin').trim();
+    tip('tip-reader', () => put('test/list.test.ts', "import { readdirSync } from 'node:fs';\nimport { test } from 'bun:test';\ntest('posts', () => { readdirSync('./wiki/board'); });\n"));
+    tip('tip-code', () => put('lib/other.ts', 'export const y = 2;\n'));
+    tip('tip-index', () => put('wiki/board/index.md', 'See wiki/board/post.md.\n'));
+    expect(mergedChecksFor(repo, land, 'tip-code', pin)).toEqual(['typecheck']);
+    expect(mergedChecksFor(repo, land, 'tip-index', pin)).toEqual(['typecheck']);
+    expect(mergedChecksFor(repo, land, 'tip-reader', pin)).toEqual(['typecheck', 'tests']);
   });
 
   test('the CI output: docs_only=true on a pull_request run, false on a push to main', () => {
