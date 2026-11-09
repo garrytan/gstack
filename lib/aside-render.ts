@@ -456,7 +456,9 @@ function executable(p: string): string | null {
 /**
  * Locate gstack's own browse binary: $GSTACK_BROWSE_BIN → $BROWSE_BIN →
  * <root>/browse/dist/browse → <root>/browse/bin/find-browse (per root, repo
- * then install) → `browse` on PATH. Null when nothing resolves.
+ * then install) → `browse` on PATH. Null when nothing resolves. A PATH
+ * `browse` that resolves to a file with another name is skipped: Debian and
+ * Ubuntu ship /usr/bin/browse as a link to xdg-open, which is not gstack's.
  */
 export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env, roots: string[] = BROWSE_ROOTS): string | null {
   const PATH = env.PATH ?? env.Path ?? '';
@@ -474,7 +476,13 @@ export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env, roots: st
     const found = r.status === 0 ? executable((r.stdout ?? '').trim()) : null;
     if (found) return found;
   }
-  return Bun.which('browse', { PATH }) ?? null;
+  const onPath = Bun.which('browse', { PATH });
+  if (!onPath) return null;
+  try {
+    return path.basename(fs.realpathSync(onPath)).replace(/\.(exe|cmd|bat)$/i, '') === 'browse' ? onPath : null;
+  } catch {
+    return null;
+  }
 }
 
 /** PdfStepOptions (CDP, inches) → the browse `pdf --from-file` payload (Playwright shapes, string lengths). */

@@ -51,7 +51,7 @@ import { SPAWNED_ESCAPE_SENTENCE, CONDUCTOR_SPAWNED_DENY_REASON, spawnedByEnv } 
 import { resolveStateRoot } from '../../../lib/state-root';
 import { readVersionedSlugCache } from '../../../lib/bin-context';
 import { logHookError as sharedLogHookError } from './hook-log';
-import { QID_MARKER_RE as MARKER_RE } from '../../../scripts/qid-marker';
+import { QID_MARKER_RE as MARKER_RE, parseQidMarker } from '../../../scripts/qid-marker';
 
 interface HookStdin {
   session_id?: string;
@@ -403,9 +403,9 @@ async function main(): Promise<void> {
   const contextNuggets: string[] = [];
   for (const q of questions) {
     const qText = q.question || '';
-    const marker = qText.match(MARKER_RE);
+    const marker = parseQidMarker(qText);
     if (!marker) continue;
-    const entry = registry[marker[1]];
+    const entry = registry[marker.id];
     if (!entry?.signal_key) continue;
     const hits = nuggetsForSignal(memoryNuggets, entry.signal_key);
     for (const h of hits) {
@@ -426,9 +426,9 @@ async function main(): Promise<void> {
   let fullyAutoDecidable = true;
   for (const q of questions) {
     const qText = q.question || '';
-    const marker = qText.match(MARKER_RE);
+    const marker = parseQidMarker(qText);
     if (!marker) { fullyAutoDecidable = false; break; }
-    const questionId = marker[1];
+    const questionId = marker.id;
     if ('unresolved' in project) {
       logHookError(`never-ask not applied to ${questionId}, asking instead: project identity unresolved (${project.unresolved})`);
       fullyAutoDecidable = false;
@@ -446,7 +446,7 @@ async function main(): Promise<void> {
       // regex pass over the question text; on any failure keep the default
       // (enforcement still requires an explicit stored preference).
       try {
-        if (classifyQuestion({ summary: qText.replace(MARKER_RE, '').trim() }).oneWay) {
+        if (classifyQuestion({ summary: qText.replace(MARKER_RE, (_m, _id, tail = '') => ` ${tail} `).trim() }).oneWay) {
           doorType = 'one-way';
         }
       } catch (e) {
@@ -515,14 +515,15 @@ async function main(): Promise<void> {
       for (let i = 0; i < questions.length; i++) {
         const rawText = questions[i]?.question || '';
         const qText = rawText.replace(MARKER_RE, '').trim();
+        const doorText = rawText.replace(MARKER_RE, (_m, _id, tail = '') => ` ${tail} `).trim();
         const opts = optionLabels(questions[i]?.options || []);
-        const marker = rawText.match(MARKER_RE);
-        const entry = marker ? registry[marker[1]] : undefined;
+        const marker = parseQidMarker(rawText);
+        const entry = marker ? registry[marker.id] : undefined;
         let oneWay = entry?.door_type === 'one-way';
         if (!entry) {
           const optText = opts.join(' / ');
           try {
-            oneWay = classifyQuestion({ summary: optText ? `${qText} options: ${optText}` : qText }).oneWay;
+            oneWay = classifyQuestion({ summary: optText ? `${doorText} options: ${optText}` : doorText }).oneWay;
           } catch (e) {
             logHookError(`spawned one-way classifier failed: ${(e as Error).message}`);
           }
@@ -537,7 +538,7 @@ async function main(): Promise<void> {
         // NO trace of a machine-resolved gate. Log every question.
         const { recommended } = extractRecommended(rawText, opts);
         logAutoDecided(
-          marker?.[1] ?? 'unmarked',
+          marker?.id ?? 'unmarked',
           qText,
           recommended ?? 'unrecorded',
           opts.length,

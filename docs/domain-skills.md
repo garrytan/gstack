@@ -70,6 +70,11 @@ Skills live in two places:
 
 - **Per-project**: `~/.gstack/projects/<slug>/learnings.jsonl` — same JSONL
   file the `/learn` skill uses. Domain skills are `type:"domain"` rows.
+  The daemon takes `<slug>` from `$GSTACK_PROJECT_SLUG` when set, else from the
+  `gstack-slug` in its own checkout, then the Claude Code install's copy,
+  then the git remote. Rows saved by older builds on installs without
+  `~/.claude` sit in `~/.gstack/projects/unknown/learnings.jsonl`; copy the
+  ones you want into the project's file.
 - **Global**: `~/.gstack/global-domain-skills.jsonl` — only `state:"global"`
   rows.
 

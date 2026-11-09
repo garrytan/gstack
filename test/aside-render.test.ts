@@ -187,6 +187,21 @@ describe('aside-render: browse fallback — binary resolution', () => {
     expect(resolveBrowseBin(noPath, [rootC])).toBe(builtB);
   });
 
+  test.skipIf(process.platform === 'win32')('a PATH browse that links to another program (Debian xdg-open) is not gstack\'s', () => {
+    const binDir = path.join(home, 'path-bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const xdg = fakeBin(binDir, 'xdg-open');
+    fs.symlinkSync(xdg, path.join(binDir, 'browse'));
+    expect(resolveBrowseBin({ PATH: binDir }, [empty])).toBeNull();
+    const realDir = path.join(home, 'path-real');
+    fakeBin(realDir, 'browse');
+    expect(resolveBrowseBin({ PATH: realDir }, [empty])).toBe(path.join(realDir, 'browse'));
+    const linkDir = path.join(home, 'path-link');
+    fs.mkdirSync(linkDir, { recursive: true });
+    fs.symlinkSync(builtA, path.join(linkDir, 'browse'));
+    expect(resolveBrowseBin({ PATH: linkDir }, [empty])).toBe(path.join(linkDir, 'browse'));
+  });
+
   test('directories are never "executables"', () => {
     const rootD = path.join(home, 'd');
     fs.mkdirSync(path.join(rootD, 'browse/dist/browse'), { recursive: true });
