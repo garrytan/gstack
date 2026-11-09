@@ -774,7 +774,7 @@ describe('merge: direct | train', () => {
     expect(errs({ land: { merged_checks: ['bun run typecheck'] } })).toContain('introduced in gstack ' + LAND_KEY_VERSION);
     const bad = (land: unknown) => errs({ land, min_gstack_version: LAND_KEY_VERSION });
     expect(bad({ merged_checks: [] })).toContain('land.merged_checks: must list 1 to 16 commands');
-    expect(bad({ merged_checks: ['a'], timeout: 5 })).toContain('land.timeout: unknown key');
+    expect(bad({ merged_checks: ['a'], timeout: 5 })).toBe('');
     expect(bad({ merged_checks: ['a\nb', ' '] })).toBe('land.merged_checks[0]: must be one line of at most 512 characters\nland.merged_checks[1]: must be a non-empty command');
     expect(bad(['a'])).toContain('land: must be { merged_checks } or null');
   });

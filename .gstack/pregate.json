@@ -20,7 +20,7 @@
     "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list"
   },
   "run_profiles": {
-    "ci-reuse/free-tests": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux", "skippable": { "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration"], "gate": "docs-scope", "scripts": [".github/actions/docs-scope/action.yml", "bin/gstack-docs-only", "lib/docs-only.ts", "lib/review-depth.ts", "lib/ship-policy.ts"] } },
+    "ci-reuse/free-tests": { "workflow": "free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration", "free-tests"], "artifact": "tested-tree", "os": "Linux", "skippable": { "jobs": ["free-plan", "typecheck", "quick-bun-default", "cso-macos-launcher", "macos-named-regressions", "cso-windows-launcher", "cso-docker-integration"], "gate": "docs-scope", "scripts": [".github/actions/docs-scope/action.yml", "bin/gstack-docs-only", "lib/docs-only.ts", "lib/review-depth.ts", "lib/ship-policy.ts", "lib/ship-policy-docs-only.ts"] } },
     "ci-reuse/windows-free-tests": { "workflow": "windows-free-tests.yml", "events": ["pull_request", "workflow_dispatch"], "jobs": ["windows-plan", "windows-free-tests"], "artifact": "tested-tree", "os": "Windows" }
   },
   "remote_gate_runs": {

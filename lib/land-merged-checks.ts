@@ -40,12 +40,15 @@ const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'];
 /** No hook or fsmonitor from the repository's config or the merged tree runs in the git calls around the checks. */
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
 
-export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line.';
+export const LAND_EXPLANATION = '{ merged_checks, docs_only_skip? } or null, read from the base revision only: under merge: direct, when the base moved past a pin\'s merge base, `land --pin` builds the pin merged onto the base tip in a throwaway worktree (the checkout\'s node_modules linked in) and runs each merged_checks command there (at most 16, 512 characters each, 15 minutes each); it lands only when every one exits 0, and refuses on a conflict (QUEUE_LAND_NOT_CLEAN) or a failure (QUEUE_LAND_MERGED_CHECKS). They are repo commands: land runs them only with --allow-repo-commands (else REPO_COMMANDS_NOT_ALLOWED), never under --dry-run, with PATH and locale as the only environment and a throwaway HOME. null lands a stale base unchecked with a STALE_BASE: warn line. docs_only_skip names merged_checks commands land skips for a pin lib/docs-only.ts calls human docs only (docs/pregate.md#docs-only) and needs min_gstack_version at its own introducing release. An unknown key under land is a warning, ignored.';
+
+/** The keys this gstack reads under land; any other is a warning (lib/ship-policy.ts policyWarnings), never an error. */
+export const LAND_KEYS: readonly string[] = ['merged_checks', 'docs_only_skip'];
 
 export function landPolicyErrors(raw: unknown): PolicyError[] {
   const l = raw as Record<string, unknown> | null;
   if (!l || typeof l !== 'object' || Array.isArray(l)) return [{ code: 'POLICY_INVALID', path: 'land', message: 'must be { merged_checks } or null' }];
-  const out: PolicyError[] = Object.keys(l).filter(k => k !== 'merged_checks' && k !== 'docs_only_skip').map(k => ({ code: 'POLICY_INVALID', path: `land.${k}`, message: 'unknown key' }));
+  const out: PolicyError[] = [];
   const c = l.merged_checks;
   if (!Array.isArray(c) || !c.length || c.length > MAX_CHECKS) return [...out, { code: 'POLICY_INVALID', path: 'land.merged_checks', message: `must list 1 to ${MAX_CHECKS} commands` }];
   const skip = l.docs_only_skip;

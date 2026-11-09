@@ -1445,12 +1445,15 @@ pregate, `gstack-ci-carry`, /ship's lanes and land. A path is docs only when eve
 these holds:
 
 - It is a plain file (mode 100644). Executables, symlinks, submodules and type changes refuse.
-- It is on the allowlist, matched case-sensitively: root `README.md`, `docs/**/*.md`, `changelog.d/*.md`.
+- It is on the allowlist, matched case-sensitively: root `README.md`, `docs/**/*.md`, `changelog.d/*.md`, plus the
+  repository's own globs from the base branch's `docs_only.allow` ([below](#repo-docs-paths)).
 - review-depth's `classifyPath` calls it docs, so agent prose, skill directories and policy docs stay code.
 - It matches no denylist entry. The denylist covers agent-instruction names matched case-insensitively
   (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `ETHOS.md`, `CREW.md`, `captain.md`, `factory.md`, `pregate.md`,
-  `unattended.md` and others), `*-policy.md`, preferences, `sections/`, `templates/`, `*.tmpl`, pinned
-  results (`docs/evals/`, `docs/inventory/`), preregistrations, and every output in `.gstack/generated.json`.
+  `unattended.md` and others), `*-policy.md`, preferences, `sections/`, `templates/`, `skills/`, `prompts/` and
+  `*prompt.md`, `*.tmpl`, hidden directories (`.github/`, `.gstack/`), pinned results (any `evals/` or `inventory/`
+  directory), preregistrations, every output in `.gstack/generated.json`, and the repository's `docs_only.deny`.
+  The list lives in `lib/ship-policy-docs-only.ts`, and no repository setting can override it.
 - No tracked file outside human prose names its path. A script, test, workflow or skill that reads a doc pins it.
   `CHANGELOG.md`, `TODOS.md` and other allowlisted docs don't pin. The match is a substring match, so it errs
   toward pinning.
@@ -1485,9 +1488,55 @@ also calls the head docs-only. Without that check, the run is never evidence (`a
 
 **Land.** `land.docs_only_skip` in `.gstack/ship-policy.json` names the `merged_checks` commands land
 skips for a docs-only pin, such as the test list, keeping typecheck and the freshness check. Land keeps every
-check when a non-docs file on the base tip names a changed doc, because the pin merges onto that tip. A gstack
-release older than this change refuses the key as unknown, so main's policy adds it only with `min_gstack_version`
-raised to the first release that reads it; until then land runs every merged check on a docs-only pin.
+check when a non-docs file on the base tip names a changed doc, because the pin merges onto that tip. Releases up
+to 1.98.0.0 refuse the key as unknown, so `validate` refuses it until `min_gstack_version` reaches
+`LAND_DOCS_ONLY_SKIP_KEY_VERSION` (lib/ship-policy-keys.ts). To turn it on (GST-1968), use one pull request, after a
+stable release carries the key: add `docs_only_skip`, raise `min_gstack_version` to that release, and check that
+`gstack-ship-policy validate` prints `POLICY_VALID` and a `MIN_READER` no newer than the stable release. Until
+then land runs every merged check on a docs-only pin. gstack's own policy leaves the key off.
+
+<a id="repo-docs-paths"></a>
+### Your repository's own docs paths (`docs_only`)
+
+A repository whose human docs live outside `docs/` names them in `.gstack/ship-policy.json`:
+
+```json
+"docs_only": { "allow": ["wiki/board/**.md"], "deny": ["wiki/board/drafts/**"], "tests": ["tests/wiki.test.ts"] }
+```
+
+Every check above still applies to a repo-allowed path: its mode, the built-in deny list, review-depth's
+`classifyPath` (a top-level directory holding a `SKILL.md` stays agent prose), generated outputs, renames on both sides, and
+the reference scan (a script or test naming the path pins it; a repo-allowed doc naming another does not).
+
+- **Base only.** The classifier reads the block with git from the base branch tip (CI: the merge commit's first
+  parent; pregate and `gstack-ci-carry`: `origin/<base>`; land: the tip it merges onto), while the diff still starts
+  at the merge base, so an allow the base revoked after a branch forked no longer applies. It never reads the head or
+  the working tree, and a pull request that edits `.gstack/ship-policy.json` is never docs-only,
+  so a branch can't allowlist itself.
+- **Narrow patterns.** Each `allow` entry ends in `.md` (not `.mdx`, which can import code), starts with a
+  literal directory or file name, uses only `*` and `**` as wildcards, and passes through no hidden directory and no `skills`, `templates`,
+  `sections`, `specialists`, `prompts`, `test`, `tests`, `spec`, `fixtures`, `lib`, `bin`, `scripts`, `src`,
+  `vendor`, `dist` or `build` segment. `**`, `*`, `*.md`, `**/*.md` and a pattern naming an agent file
+  (`wiki/SKILL.md`, `wiki/**/templates/**.md`) are `POLICY_INVALID` when the policy is read, with an example of a
+  narrow pattern. A path the pattern admits that still passes through one of those directories (`wiki/lib/x.md`)
+  refuses too. `deny` entries only remove paths, built-in ones included.
+- **Fail closed.** A base policy that is not valid JSON, or a `docs_only` block that fails those rules, makes every
+  change not docs-only, with the error as the refusal. An unknown key inside `docs_only` is a warning to
+  `gstack-ship-policy validate`, and the classifier then ignores `allow` (keeping `deny`), so a gstack that
+  doesn't understand a newer key never widens on it.
+- **Readers by directory.** A script that lists a directory reads every post in it, which a literal-path scan can't
+  see. So for a path only `allow` admits, any non-prose tracked file that names one of its directories (`wiki/`,
+  `'wiki'`, `"wiki/board"`) refuses the change unless it is tied to `tests`: it is one of them, names one, or one
+  names it (with or without its extension). `tests` lists up to 16 test files (`*.test.ts` and the like, never a glob);
+  the docs lane runs them, in pregate and in CI's `tests` output, whenever a repo-admitted path changed. A prose file
+  that names a directory only describes it; one that names a path still pins that path.
+
+**Turning it on.** Releases up to 1.98.0.0 refuse `docs_only` as an unknown key, and `validate` refuses the block
+until `min_gstack_version` reaches `DOCS_ONLY_KEY_VERSION`. After a stable release carries it, add the block and
+raise `min_gstack_version` to that release in the same pull request; that pull request edits the policy, so it runs
+the full suites. Pushes to the base branch always run the full suites. A repository whose CI runs an older pinned
+gstack, or has no `docs-scope` job, gets the class in pregate, /ship and land only: bump the pin first, then add the
+`docs-scope` job from [CI](#docs-only) (never gating its own docs checks), then add the block.
 
 <a id="flaky-exception"></a>
 ## Owner-granted flaky exception

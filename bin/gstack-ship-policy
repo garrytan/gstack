@@ -66,6 +66,7 @@ function load(root: string, args: string[], defaultFrom: 'base' | 'head'): Loade
 
 function printErrors(loaded: LoadedPolicy): void {
   for (const e of loaded.errors) process.stderr.write(resultLine('gstack-ship-policy', e.code, `${e.message} at ${e.path || SHIP_POLICY_PATH}`) + '\n');
+  for (const w of loaded.warnings) process.stderr.write(`gstack-ship-policy: WARN ${w.path}: ${w.message}\n`);
 }
 
 function main(argv: string[]): number {
@@ -93,10 +94,10 @@ function main(argv: string[]): number {
     const floor: ReturnType<typeof floorAgainstStable> = cmd === 'validate' && loaded.present ? floorAgainstStable(loaded.policy.min_gstack_version, newestStableRelease()) : {};
     if (floor.error) loaded.errors.push(floor.error);
     const set = POLICY_KEYS.filter(k => loaded.values[k] && loaded.values[k] !== 'default');
-    const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k]]));
+    const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'land' ? minimumReader({ land: loaded.policy.land }) : POLICY_KEY_INTRODUCED[k]]));
     const minReader = set.length ? minimumReader(Object.fromEntries(set.map(k => [k, loaded.policy[k]]))) : null;
     if (json) {
-      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, ...(cmd === 'validate' ? { stable: floor.stable ?? null, warnings: floor.warning ? [floor.warning] : [] } : {}), errors: loaded.errors }) + '\n');
+      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, ...(cmd === 'validate' ? { stable: floor.stable ?? null, warnings: [...(floor.warning ? [floor.warning] : []), ...loaded.warnings.map(w => `${w.path}: ${w.message}`)] } : {}), errors: loaded.errors }) + '\n');
       return loaded.errors.length ? EXIT.fail : EXIT.ok;
     }
     printErrors(loaded);

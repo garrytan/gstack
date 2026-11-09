@@ -21,7 +21,8 @@ import { DOCS_ONLY_KEY_VERSION, LAND_DOCS_ONLY_SKIP_KEY_VERSION, LAND_KEY_VERSIO
 const ROOT = path.resolve(import.meta.dir, '..');
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const POLICY = '.gstack/ship-policy.json';
-const WIKI = { docs_only: { allow: ['wiki/board/**.md'] } };
+const TESTS = ['test/wiki.test.ts', 'test/x.test.ts'];
+const WIKI = { docs_only: { allow: ['wiki/board/**.md'], tests: TESTS } };
 let repo = '';
 
 function git(...args: string[]): string {
@@ -62,15 +63,19 @@ beforeAll(() => {
   git('init', '-q', '-b', 'main');
   for (const f of ['README.md', 'docs/guide.md', 'docs/internal/notes-x.md', 'wiki/board/old.md', 'wiki/board/pinned.md', 'wiki/board/tested.md', 'wiki/other.md']) put(f);
   put('lib/code.ts', 'export const x = 1;\n');
-  put('scripts/post.ts', "Bun.spawn(['cat', 'wiki/board/pinned.md']);\n");
-  put('test/x.test.ts', "export const doc = 'wiki/board/tested.md';\n");
+  put('scripts/post.ts', "export const post = 'wiki/board/pinned.md';\n");
+  put('scripts/wiki.ts', "import { readdirSync } from 'node:fs';\nexport const posts = () => readdirSync('wiki');\n");
+  put('test/wiki.test.ts', "import { test } from 'bun:test';\nimport '../scripts/wiki';\nimport '../scripts/post';\ntest('wiki', () => {});\n");
+  put('test/x.test.ts', "import { test } from 'bun:test';\nexport const doc = 'wiki/board/tested.md';\ntest('x', () => {});\n");
   put(POLICY, JSON.stringify({ bump: 'patch' }));
   git('add', '-A');
   git('commit', '-q', '-m', 'plain');
   git('tag', 'plain');
   base('allowed', WIKI);
   base('broad', { docs_only: { allow: ['wiki/**.md'] } });
-  base('denied', { docs_only: { allow: ['wiki/board/**.md'], deny: ['docs/internal/**', 'README.md'] } });
+  base('denied', { docs_only: { allow: ['wiki/board/**.md'], deny: ['docs/internal/**', 'README.md'], tests: TESTS } });
+  base('unlinked', { docs_only: { allow: ['wiki/board/**.md'] } });
+  base('halflinked', { docs_only: { allow: ['wiki/board/**.md'], tests: ['test/x.test.ts'] } });
   base('invalid', { docs_only: { allow: ['**'] } });
   base('broken', '{ "docs_only": { "allow": ["wiki/board/**.md"] ');
   base('future', { docs_only: { allow: ['wiki/board/**.md'], deny: ['README.md'], audience: 'humans' } });
@@ -99,7 +104,7 @@ describe('bypasses refuse', () => {
     'SKILL.md', 'wiki/SKILL.md', 'wiki/**/SKILL.md', 'AGENTS.md', 'wiki/AGENTS.md', 'CLAUDE.md', 'wiki/CLAUDE.md', 'CREW.md', 'wiki/board/CREW.md',
     'wiki/x.tmpl', 'wiki/x.md.tmpl', 'skills/**.md', 'skills/review/notes.md', 'templates/**.md', 'wiki/templates/**.md', 'wiki/**/templates/**.md',
     'wiki/skills/**.md', 'wiki/sections/a.md', 'wiki/prompts/**.md', 'wiki/review-prompt.md', 'wiki/preferences.md', 'wiki/factory.md', 'wiki/captain.md',
-    '.github/**.md', '.gstack/x.md', 'lib/**.md', 'scripts/notes.md', 'test/**.md',
+    '.github/**.md', '.gstack/x.md', 'lib/**.md', 'scripts/notes.md', 'test/**.md', 'wiki/?kills/x.md', 'wiki/[s]kills/x.md',
   ])('an allow pattern aimed at agent prose or code is refused at parse time: %s', p => {
     expect(parse(p)).toMatch(/^docs_only\.allow\[0\]: /);
   });
@@ -120,10 +125,12 @@ describe('bypasses refuse', () => {
     expect(paths({ allow: 'wiki/board/**.md' })).toEqual(['docs_only.allow']);
     expect(paths({ allow: Array.from({ length: 17 }, (_, i) => `wiki/b${i}/**.md`) })).toEqual(['docs_only.allow']);
     expect(paths({ allow: ['wiki/board/**.md'], deny: [3, '../x'] })).toEqual(['docs_only.deny[0]', 'docs_only.deny[1]']);
+    expect(paths({ allow: ['wiki/board/**.md'], tests: ['tests/*.test.ts', 'scripts/wiki.ts', '.github/x.test.ts', '../x.test.ts', 'tests/wiki.test.ts'] })).toEqual(['docs_only.tests[0]', 'docs_only.tests[1]', 'docs_only.tests[2]', 'docs_only.tests[3]']);
   });
 
   test.each(['wiki/SKILL.md', 'wiki/AGENTS.md', 'wiki/CLAUDE.md', 'wiki/CREW.md', 'wiki/board/crew.md', 'wiki/templates/a.md', 'wiki/skills/x/a.md', 'wiki/sections/a.md',
-    'wiki/prompts/a.md', 'wiki/review-prompt.md', 'wiki/preferences.md', 'wiki/board/factory.md', 'wiki/board/run-prereg.md', 'wiki/board/x-policy.md'])(
+    'wiki/prompts/a.md', 'wiki/review-prompt.md', 'wiki/preferences.md', 'wiki/board/factory.md', 'wiki/board/run-prereg.md', 'wiki/board/x-policy.md',
+    'wiki/lib/x.md', 'wiki/scripts/x.md', 'wiki/node_modules/x.md', 'wiki/.github/x.md', 'wiki/board/evals/x.md'])(
     'the built-in deny wins over a legal repo pattern: %s', f => {
       const r = classify('broad', () => put(f));
       expect(r.docsOnly).toBe(false);
@@ -138,6 +145,16 @@ describe('bypasses refuse', () => {
   test('a repo-allowed path that a script or a test names is pinned', () => {
     expect(reasons(classify('allowed', () => put('wiki/board/pinned.md', 'edited\n')))).toContain('named by scripts/post.ts');
     expect(reasons(classify('allowed', () => put('wiki/board/tested.md', 'edited\n')))).toContain('named by test/x.test.ts');
+  });
+
+  test('a script that lists an allowed directory refuses the change unless a declared docs test is tied to it', () => {
+    const unlinked = reasons(classify('unlinked', () => put('wiki/board/post.md')));
+    expect(unlinked).toContain('its directory is read by');
+    expect(unlinked).toContain('scripts/wiki.ts');
+    const half = reasons(classify('halflinked', () => put('wiki/board/post.md')));
+    expect(half).toContain('scripts/wiki.ts');
+    expect(half).not.toContain('test/x.test.ts');
+    expect(classify('allowed', () => put('wiki/board/post.md')).docsOnly).toBe(true);
   });
 
   test('a rename from code into an allowed path refuses, and so does an executable or a symlink there', () => {
@@ -181,9 +198,14 @@ describe('bypasses refuse', () => {
 
 describe('a wiki/board post under a base-side allow is docs-only end to end', () => {
   test('the classifier, in commit and working-tree mode, for a new, edited and renamed post', () => {
-    for (const worktree of [false, true]) expect(classify('allowed', () => put('wiki/board/post.md'), worktree).docsOnly).toBe(true);
+    for (const worktree of [false, true]) {
+      const r = classify('allowed', () => put('wiki/board/post.md'), worktree);
+      expect([r.docsOnly, reasons(r)]).toEqual([true, '']);
+      expect(r.tests).toEqual(expect.arrayContaining(TESTS));
+    }
+    expect(classify('allowed', () => put('docs/guide.md', 'edited\n')).tests).not.toContain('test/wiki.test.ts');
     expect(classify('allowed', () => put('wiki/board/old.md', 'edited\n')).docsOnly).toBe(true);
-    expect(classify('allowed', () => git('mv', 'wiki/board/old.md', 'wiki/board/2026/old.md')).docsOnly).toBe(true);
+    expect(classify('allowed', () => { fs.mkdirSync(path.join(repo, 'wiki/board/2026')); git('mv', 'wiki/board/old.md', 'wiki/board/2026/old.md'); }).docsOnly).toBe(true);
     expect(classify('allowed', () => { put('wiki/board/post.md', 'See wiki/board/old.md and docs/guide.md.\n'); put('docs/guide.md', 'edited\n'); }).docsOnly).toBe(true);
     expect(classify('allowed', () => put('wiki/other.md', 'edited\n')).docsOnly).toBe(false);
   });
@@ -197,7 +219,9 @@ describe('a wiki/board post under a base-side allow is docs-only end to end', ()
       for (const [event, code, value] of [['pull_request', 0, 'true'], ['push', 1, 'false']] as const) {
         const out = path.join(repo, '..', `${path.basename(repo)}-${event}.out`);
         const r = spawnSync(path.join(ROOT, 'bin/gstack-docs-only'), ['--repo', repo, '--base', 'HEAD^1', '--head', 'HEAD', '--github-output', out], { encoding: 'utf8', env: { ...ENV, GITHUB_EVENT_NAME: event }, timeout: 30_000 });
-        expect([r.status, fs.readFileSync(out, 'utf8').split('\n')[0]]).toEqual([code, `docs_only=${value}`]);
+        const lines = fs.readFileSync(out, 'utf8').split('\n');
+        expect([r.status, lines[0]]).toEqual([code, `docs_only=${value}`]);
+        if (value === 'true') expect(lines[1]).toContain('test/wiki.test.ts');
         fs.rmSync(out, { force: true });
       }
     } finally { git('reset', '-q', '--hard', 'allowed'); }
@@ -213,6 +237,7 @@ describe('a wiki/board post under a base-side allow is docs-only end to end', ()
       const ok = docsOnlyLane(ctx, lanes)!;
       expect([ok.status, ok.remote]).toEqual(['pass', []]);
       expect(ok.detail).toContain('docs-only: 1 file(s)');
+      expect(ok.detail).toContain('2 docs reader test file(s) passed');
       git('update-ref', 'refs/remotes/origin/main', 'plain');
       expect(docsOnlyLane(ctx, lanes)).toBeNull();
     } finally {
@@ -246,6 +271,12 @@ describe('a wiki/board post under a base-side allow is docs-only end to end', ()
       expect(v.ok).toBe(true);
       if (v.ok) expect(v.receipt).toContain('not_owed=docs-only');
       expect(carry('plain').ok).toBe(false);
+      git('checkout', '-q', '--detach', 'allowed');
+      put(POLICY, JSON.stringify({ bump: 'patch' }));
+      git('commit', '-qam', 'revoke the allow on the base tip');
+      const revoked = git('rev-parse', 'HEAD').trim();
+      git('checkout', '-q', '--detach', head);
+      expect(carry(revoked).ok).toBe(false);
     } finally {
       git('remote', 'remove', 'origin');
       git('reset', '-q', '--hard', 'allowed');
@@ -277,7 +308,7 @@ describe('the policy reader', () => {
     const raw = { land: { merged_checks: ['typecheck'], retries: 2 }, docs_only: { allow: ['wiki/board/**.md'], audience: 'humans' }, min_gstack_version: DOCS_ONLY_KEY_VERSION };
     expect(codes(raw)).toEqual([]);
     const loaded = finish(JSON.stringify(raw), { kind: 'base', ref: 'origin/main', sha: 'a'.repeat(40), label: 'fixture' });
-    expect(loaded.errors).toEqual([]);
+    expect(loaded.errors.map(e => e.path)).not.toContain('land.retries');
     expect(loaded.warnings.map(w => w.path)).toEqual(['land.retries', 'docs_only.audience']);
     expect(loaded.warnings[0]!.message).toContain('ignored');
     expect(codes({ pr_count: { default_pr_count: 1, split_requires_owner: true, extra: 1 } })).toEqual(['POLICY_INVALID:pr_count.extra']);

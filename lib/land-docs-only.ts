@@ -17,7 +17,7 @@ export function mergedChecksFor(root: string, land: { merged_checks?: string[]; 
   if (!skip.length) return checks;
   const mb = spawnSync('git', ['merge-base', base, pin], { cwd: root, encoding: 'utf8', timeout: 30_000 });
   try {
-    if (mb.status !== 0 || !classifyDocsOnly({ root, base: mb.stdout.trim(), head: pin }).docsOnly) return checks;
+    if (mb.status !== 0 || !classifyDocsOnly({ root, base: mb.stdout.trim(), head: pin, policyRef: base }).docsOnly) return checks;
     const changed = readDiff(root, mb.stdout.trim(), pin).flatMap(e => [e.path, ...(e.from ? [e.from] : [])]);
     if (changed.some(p => referencesTo(root, p, base).length)) return checks;
   } catch { return checks; }

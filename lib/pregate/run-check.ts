@@ -74,7 +74,7 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
     unchanged: p => gateInputsChanged(root, base, p),
     docsOnly: head => {
       const mb = spawnSync('git', ['merge-base', `origin/${base}`, head], { cwd: root, encoding: 'utf8', timeout: 30_000 });
-      try { return mb.status === 0 && classifyDocsOnly({ root, base: mb.stdout.trim(), head }).docsOnly; } catch { return false; }
+      try { return mb.status === 0 && classifyDocsOnly({ root, base: mb.stdout.trim(), head, policyRef: `origin/${base}` }).docsOnly; } catch { return false; }
     },
     inventory: (command, tree, selected) => {
       if (!allowRepoCommands) return { error: 'the inventory command is a pin-file command; pass --allow-repo-commands' };

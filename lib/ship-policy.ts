@@ -17,12 +17,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { RELEASE_GATE_EXPLANATION, releaseGateErrors, type ReleaseGatePolicy } from './release-gate-policy';
-import { LAND_EXPLANATION, landPolicyErrors, type LandPolicy } from './land-merged-checks';
+import { LAND_EXPLANATION, LAND_KEYS, landPolicyErrors, type LandPolicy } from './land-merged-checks';
+import { DOCS_ONLY_KEYS, docsOnlyPolicyErrors, unknownKeyWarnings, type DocsOnlyPolicy, type PolicyWarning } from './ship-policy-docs-only';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
 import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers';
 import { cmpVersion, parseVersion } from './version-source';
-import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED } from './ship-policy-keys';
+import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED, LAND_DOCS_ONLY_SKIP_KEY_VERSION } from './ship-policy-keys';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
 import { bookkeepingGlobError, globError } from './ship-policy-bookkeeping';
 import { MECHANICAL_EXPLANATION, mechanicalErrors, type MechanicalConstant } from './ship-policy-mechanical';
@@ -102,6 +103,7 @@ export interface ShipPolicy {
   /** What `land --pin` runs on the pin merged onto a base that moved past its merge base (lib/land-merged-checks.ts); null lands a stale base untested with a STALE_BASE: warn line. */ land: LandPolicy | null;
   /** Seconds accept gives each `gstack-evidence record-ci` (docs/ship-policy.md#ci-record-timeout), clamped to 3600; read from the base only. */ ci_record_timeout_s: number;
   /** Whether ready and land check the PR body's Plan line (lib/plan-record.ts, docs/ship-policy.md#plan-record); read from the base only. */ plan_record: 'off' | 'warn' | 'require';
+  /** Human-docs globs beyond README.md, docs/ and changelog.d/ for the docs-only class (lib/docs-only.ts, docs/pregate.md#repo-docs-paths); read from the base only. */ docs_only: DocsOnlyPolicy | null;
 }
 
 /** `base_red`: `setup` installs dependencies in a scratch checkout (null when none are needed); `select` runs the failing test files, named by its `{files}` slot. */
@@ -194,7 +196,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   docs: null,
   base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
   release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
-  plan_record: 'off',
+  plan_record: 'off', docs_only: null,
 };
 
 export type PolicyKey = Exclude<keyof ShipPolicy, '$schema'>;
@@ -236,6 +238,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   test_code: 'Root-anchored globs of test code the built-in test names miss, never under .gstack/ or .github/, for example ["tests/**/*.gd"] for GDScript checks. /ship finish routes a matching file changed after review as test code (one scoped reader of its test hunks) instead of behavior, beside the built-in globs; shared helpers and fixtures stay behavior. Read from the base branch only. Empty (default) declares none.',
   ci_record_timeout_s: 'Seconds `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane, an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
   plan_record: 'off (default) | warn | require. Whether `gstack-ship-queue ready` and `land` check the PR body\'s `Plan:` line (approved: <run id or row id> | exempt: <reason>) against the approval store (docs/ship-policy.md#plan-record). warn prints the PLAN: line and continues; require refuses a missing, unresolved or agent-approved plan. This key is read from the base branch only; with it off, GSTACK_PLAN_RECORD, then plan_record in <state root>/config.yaml (gstack-config set plan_record warn, for a repo that commits no .gstack/), then warn in a Capy session decide. On a public repo render --plan writes Plan: approved (record r-<id>) instead of the run id.',
+  docs_only: '{ allow, deny?, tests? } or null, read from the base revision only (docs/pregate.md#repo-docs-paths). allow (1 to 16) adds human-docs globs to the docs-only allowlist (README.md, docs/**.md, changelog.d/*.md): each ends in .md, starts with a literal directory or file name and passes through no hidden, code, test or agent directory ("wiki/board/**.md"). deny (up to 64 globs) removes paths, built-in ones included. tests (up to 16 test file paths) are the repository\'s checks for those directories: the docs lane runs them, and a non-docs file that names an allowed directory ("wiki/", \'wiki\') refuses the change unless it is one of them, names one, or one names it. The built-in deny list (agent instructions, templates, prompts, preferences, tool configuration, pinned results, preregistrations, generated outputs) always wins, a path a script or test names stays pinned, and a pull request that edits this file is never docs-only. An unknown key under docs_only is a warning, and the classifier then ignores allow. Needs min_gstack_version.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
   min_gstack_version: 'The oldest gstack that may read this file. Any key newer than 1.91.98.0 set to a non-default value requires it at that key’s introducing version (validate prints each); a gstack older than it refuses the file (POLICY_GSTACK_TOO_OLD).',
 };
@@ -264,10 +267,16 @@ export function runningGstackVersion(): string {
 /** The newest introducing version among the keys a parsed policy sets: the gstack a crew needs to read it. */
 export function minimumReader(raw: Record<string, unknown>): string {
   return Object.keys(raw).filter((k): k is PolicyKey => POLICY_KEYS.includes(k as PolicyKey))
-    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'train' && genericTrainKeys(raw.train) ? TRAIN_GATES_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
+    .map(k => (k === 'bump' && raw.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'land' && landSkips(raw.land) ? LAND_DOCS_ONLY_SKIP_KEY_VERSION : k === 'train' && genericTrainKeys(raw.train) ? TRAIN_GATES_KEY_VERSION : POLICY_KEY_INTRODUCED[k])).reduce((a, b) => (newer(b, a) ? b : a), POLICY_KEY_INTRODUCED.bump);
 }
 
 export interface PolicyError { code: ResultCodeName; path: string; message: string }
+const landSkips = (land: unknown): boolean => !!land && typeof land === 'object' && 'docs_only_skip' in land;
+
+/** Unknown keys under land and docs_only: ignored with a warning so a newer gstack can add one (docs/ship-policy.md#schema-v1). */
+export function policyWarnings(raw: Record<string, unknown>): PolicyWarning[] {
+  return [...unknownKeyWarnings('land', raw.land, LAND_KEYS), ...unknownKeyWarnings('docs_only', raw.docs_only, DOCS_ONLY_KEYS)];
+}
 
 const MAX_LIST = 64, MAX_PATTERN = 256, MAX_REGEX = 512, MAX_COMMAND = 512;
 const SHA_RE = /^[0-9a-f]{7,64}$/;
@@ -437,9 +446,10 @@ function trainErrors(value: unknown, obj: Record<string, unknown>, out: PolicyEr
 }
 
 /**
- * Schema and containment check of a parsed policy object. Unknown keys are
- * errors (a typo must not silently mean "default", and a key from a newer
- * gstack must not be ignored by an older one).
+ * Schema and containment check of a parsed policy object. Unknown top-level
+ * keys are errors (a typo must not silently mean "default", and a key from a
+ * newer gstack must not be ignored by an older one); unknown keys under land
+ * and docs_only are policyWarnings, ignored.
  */
 export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = {}): PolicyError[] {
   const errors: PolicyError[] = [];
@@ -498,6 +508,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('base_red' in obj && obj.base_red !== null) baseRedErrors(obj.base_red, errors);
   if ('release_gate' in obj && obj.release_gate !== null) errors.push(...releaseGateErrors(obj.release_gate));
   if ('land' in obj && obj.land !== null) errors.push(...landPolicyErrors(obj.land));
+  if ('docs_only' in obj && obj.docs_only !== null) errors.push(...docsOnlyPolicyErrors(obj.docs_only));
   if ('stamp_paths' in obj) listErrors('stamp_paths', obj.stamp_paths, errors, globError);
   for (const key of ['changelog', 'mirror'] as const) {
     if (!(key in obj) || obj[key] === null) continue;
@@ -545,6 +556,9 @@ function compatErrors(obj: Record<string, unknown>, running: string, errors: Pol
   }
   if (genericTrainKeys(obj.train) && !(typeof min === 'string' && !newer(TRAIN_GATES_KEY_VERSION, min))) {
     errors.push({ code: 'POLICY_INVALID', path: 'train', message: `gates and land were introduced in gstack ${TRAIN_GATES_KEY_VERSION}; set min_gstack_version to ${TRAIN_GATES_KEY_VERSION} or later so an older gstack refuses this policy by name` });
+  }
+  if (landSkips(obj.land) && !(typeof min === 'string' && !newer(LAND_DOCS_ONLY_SKIP_KEY_VERSION, min))) {
+    errors.push({ code: 'POLICY_INVALID', path: 'land.docs_only_skip', message: `introduced in gstack ${LAND_DOCS_ONLY_SKIP_KEY_VERSION}; set min_gstack_version to ${LAND_DOCS_ONLY_SKIP_KEY_VERSION} or later so an older gstack refuses this policy by name` });
   }
   if (obj.bump === 'never' && !(typeof min === 'string' && !newer(BUMP_NEVER_KEY_VERSION, min))) {
     errors.push({ code: 'POLICY_INVALID', path: 'bump', message: `never was introduced in gstack ${BUMP_NEVER_KEY_VERSION}; set min_gstack_version to ${BUMP_NEVER_KEY_VERSION} or later so an older gstack refuses this policy by name` });
@@ -628,6 +642,8 @@ export interface LoadedPolicy {
   present: boolean;
   source: PolicySource;
   errors: PolicyError[];
+  /** Unknown keys under land and docs_only (policyWarnings): ignored, never errors. */
+  warnings: PolicyWarning[];
   values: Record<string, string>;
 }
 export type PolicyLoad = LoadedPolicy | { unavailable: true; base: string; detail: string };
@@ -650,13 +666,14 @@ export function resolveBaseBranch(repoRoot: string, explicit?: string): string {
 }
 
 export function finish(rawText: string | null, source: PolicySource): LoadedPolicy {
-  if (rawText === null) return { policy: mergePolicy(null, source.label).policy, present: false, source, errors: [], values: mergePolicy(null, source.label).values };
+  if (rawText === null) return { policy: mergePolicy(null, source.label).policy, present: false, source, errors: [], warnings: [], values: mergePolicy(null, source.label).values };
   let raw: unknown;
   try { raw = JSON.parse(rawText); }
-  catch (e: any) { return { policy: JSON.parse(JSON.stringify(DEFAULT_POLICY)), present: true, source, errors: [{ code: 'POLICY_INVALID', path: SHIP_POLICY_PATH, message: `not valid JSON: ${e.message}` }], values: {} }; }
+  catch (e: any) { return { policy: JSON.parse(JSON.stringify(DEFAULT_POLICY)), present: true, source, errors: [{ code: 'POLICY_INVALID', path: SHIP_POLICY_PATH, message: `not valid JSON: ${e.message}` }], warnings: [], values: {} }; }
   const errors = validatePolicy(raw);
   const merged = mergePolicy(errors.length ? null : (raw as Record<string, unknown>), source.label);
-  return { policy: merged.policy, present: true, source, errors, values: merged.values };
+  const warnings = raw && typeof raw === 'object' && !Array.isArray(raw) ? policyWarnings(raw as Record<string, unknown>) : [];
+  return { policy: merged.policy, present: true, source, errors, warnings, values: merged.values };
 }
 
 /**

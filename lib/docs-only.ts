@@ -7,37 +7,35 @@
  *
  * In gstack most Markdown is agent instructions, so the rule is an allowlist with overrides, never a "*.md" glob. A path
  * is docs only when all of these hold: its mode is a plain file (100644; executables, symlinks, submodules and type
- * changes refuse); it is on the allowlist (root README.md, docs/**.md, changelog.d/*.md, case-sensitive); review-depth's
- * classifyPath calls it docs (agent prose, skill directories, policy and rule docs are code there); it matches no
- * denylist entry (agent-prose names case-insensitively, pinned results, preregistrations, generated outputs); and no
- * tracked file outside human prose names its path (a script, test, workflow or skill that reads it pins it). A rename
- * needs both sides to pass and a deletion needs the old path to pass. Unsure, or any git failure, is never docs-only.
+ * changes refuse); it is on the allowlist (root README.md, docs/**.md, changelog.d/*.md, case-sensitive, plus the
+ * base revision's .gstack/ship-policy.json docs_only.allow, never the head's); review-depth's classifyPath calls it docs
+ * (agent prose, skill directories, policy and rule docs are code there); it matches no built-in denylist entry
+ * (lib/ship-policy-docs-only.ts: agent-prose names case-insensitively, prompts, tool configuration, pinned results,
+ * preregistrations), no generated output and no docs_only.deny glob; and no tracked file outside human prose names its
+ * path (a script, test, workflow or skill that reads it pins it). A rename needs both sides to pass and a deletion needs
+ * the old path to pass. Unsure, an unreadable base policy, or any git failure, is never docs-only.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
-import { matchesAny } from './ship-policy';
+import { matchesAny, SHIP_POLICY_PATH } from './ship-policy';
+import { CODE_DIRS, DOCS_ONLY_DENY, DOCS_ONLY_KEYS, docsOnlyPolicyErrors } from './ship-policy-docs-only';
 
 export const DOCS_ONLY_ERROR = 'DOCS_ONLY_ERROR';
 export const DOCS_ONLY_ANCHOR = 'docs/troubleshooting.md#docs-only-error';
 
 const ALLOW = [/^README\.md$/, /^docs\/(?:[^/]+\/)*[^/]+\.md$/, /^changelog\.d\/[^/]+\.md$/];
-const DENY: readonly [RegExp, string][] = [
-  [/(?:^|\/)(?:skill|agents|claude|gemini|ethos|crew|captain|factory|driver|checklist|unattended|pregate|lane-card|notes|digest|soul)\.md$/i, 'agent instructions'],
-  [/-policy\.md$/i, 'policy doc'],
-  [/(?:^|\/)preferences[^/]*$/i, 'preferences'],
-  [/(?:^|\/)(?:sections|templates|specialists|skills)\//i, 'agent instructions'],
-  [/\.tmpl$/i, 'template'],
-  [/^docs\/(?:evals|inventory)\//, 'pinned results'],
-  [/prereg/i, 'preregistration'],
-  [/^changelog\.d\/README\.md$/i, 'fragment instructions'],
-];
 const PROSE_REFERENCE = /^(?:CHANGELOG|TODOS)\.md$/;
+const PROSE = /\.(?:md|mdx|markdown|rst|txt|adoc)$/i;
 
 export interface DiffEntry { status: string; path: string; from?: string; mode: string; oldMode: string }
 export interface Refusal { path: string; reason: string }
 export interface DocsOnlyResult { docsOnly: boolean; files: string[]; refusals: Refusal[]; tests: string[] }
+/** The base revision's docs_only block (`label` names where it came from); `ignored` names unknown keys that dropped its allow list. */
+export interface RepoDocs { allow: readonly string[]; deny: readonly string[]; tests: readonly string[]; label: string; ignored?: string }
+const NO_REPO_DOCS: RepoDocs = { allow: [], deny: [], tests: [], label: '' };
+const builtIn = (p: string) => ALLOW.some(r => r.test(p));
 
 /**
  * Tests that read docs by directory or every tracked file, so a literal-path reference scan cannot see them. The docs
@@ -109,34 +107,89 @@ function generatedOutputs(root: string): string[] {
   } catch { return []; }
 }
 
+/**
+ * The base revision's docs_only block (docs/pregate.md#repo-docs-paths), read with git from `base`, never the working
+ * tree or the head. No policy file or no block adds nothing; invalid JSON or an invalid block is `{ error }`, which fails
+ * the whole change closed; an unknown key keeps deny and drops allow. Throws DocsOnlyError when git cannot read `base`.
+ */
+export function readRepoDocs(root: string, base: string): RepoDocs | { error: string } {
+  const label = `${base}:${SHIP_POLICY_PATH}`;
+  if (!git(root, ['ls-tree', '--name-only', base, '--', SHIP_POLICY_PATH]).trim()) return NO_REPO_DOCS;
+  const text = git(root, ['show', `${base}:${SHIP_POLICY_PATH}`]);
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch (e) { return { error: `${label} is not valid JSON (${(e as Error).message}), so its docs_only block cannot be read` }; }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: `${label} is not a JSON object` };
+  const block = (raw as Record<string, unknown>).docs_only;
+  if (block === undefined || block === null) return NO_REPO_DOCS;
+  const errors = docsOnlyPolicyErrors(block);
+  if (errors.length) return { error: `${label} has an invalid docs_only block: ${errors.map(e => `${e.path}: ${e.message}`).join('; ')}` };
+  const d = block as { allow: string[]; deny?: string[]; tests?: string[] };
+  const unknown = Object.keys(d).filter(k => !DOCS_ONLY_KEYS.includes(k));
+  if (unknown.length) return { allow: [], deny: d.deny ?? [], tests: [], label, ignored: unknown.map(k => `docs_only.${k}`).join(', ') };
+  return { allow: d.allow, deny: d.deny ?? [], tests: d.tests ?? [], label };
+}
+
 /** Why one path is not human docs, or null when its name and place qualify. */
-export function pathRefusal(p: string, root: string, generated: readonly string[] = generatedOutputs(root)): string | null {
-  if (!ALLOW.some(r => r.test(p))) return 'not on the docs allowlist (README.md, docs/**.md, changelog.d/*.md)';
-  for (const [r, why] of DENY) if (r.test(p)) return why;
+export function pathRefusal(p: string, root: string, generated: readonly string[] = generatedOutputs(root), repo: RepoDocs = NO_REPO_DOCS): string | null {
+  const repoOnly = !builtIn(p);
+  if (repoOnly && !(repo.allow.length && matchesAny(repo.allow, p))) {
+    const extra = repo.allow.length ? `, ${repo.allow.join(', ')} from ${repo.label}` : repo.ignored ? `; ${repo.label}'s allow is ignored while it has unknown key ${repo.ignored}` : '';
+    return `not on the docs allowlist (README.md, docs/**.md, changelog.d/*.md${extra})`;
+  }
+  for (const [r, why] of DOCS_ONLY_DENY) if (r.test(p)) return why;
+  if (repo.deny.length && matchesAny(repo.deny, p)) return `matches docs_only.deny in ${repo.label}`;
+  const codeDir = repoOnly ? p.split('/').slice(0, -1).find(s => CODE_DIRS.has(s.toLowerCase())) : undefined;
+  if (codeDir) return `passes through ${codeDir}/, which holds code, tests or agent instructions`;
   if (classifyPath(p, root) !== 'docs') return 'agent-read prose (review-depth classifyPath)';
   if (generated.length && matchesAny(generated, p)) return 'generated output';
   return null;
 }
 
-/** Tracked files outside human prose that name `p` (the caller excludes changed docs). */
-export function referencesTo(root: string, p: string, tree?: string): string[] {
-  const out = git(root, ['grep', '-l', '-z', '-F', '-I', '-e', p, ...(tree ? [tree] : []), '--'], [0, 1]);
+/** Tracked files (at `tree`, else the working tree), limited to `within` when given, that contain any of `needles`. */
+function grepFiles(root: string, needles: readonly string[], tree?: string, within: readonly string[] = []): string[] {
+  const out = git(root, ['grep', '-l', '-z', '-F', '-I', ...needles.flatMap(n => ['-e', n]), ...(tree ? [tree] : []), '--', ...within], [0, 1]);
   const prefix = tree ? `${tree}:` : '';
+  return out.split('\0').filter(Boolean).map(f => f.startsWith(prefix) ? f.slice(prefix.length) : f);
+}
+
+/** Tracked files outside human prose that name `p` (the caller excludes changed docs). */
+export function referencesTo(root: string, p: string, tree?: string, repo: RepoDocs = NO_REPO_DOCS): string[] {
   const gen = generatedOutputs(root);
-  return out.split('\0').filter(Boolean).map(f => f.startsWith(prefix) ? f.slice(prefix.length) : f)
-    .filter(f => f !== p && !PROSE_REFERENCE.test(f) && pathRefusal(f, root, gen) !== null);
+  return grepFiles(root, [p], tree).filter(f => f !== p && !PROSE_REFERENCE.test(f) && pathRefusal(f, root, gen, repo) !== null);
+}
+
+/**
+ * Non-docs tracked files that name a directory holding the repo-admitted path `p` ("wiki/", 'wiki') and are tied to
+ * none of the repository's docs_only.tests: a script that lists a directory reads every post in it, which the literal
+ * scan in referencesTo cannot see. A reader is tied when it is a declared test, names one, or one names it (with or
+ * without its extension). Prose files are not readers here: one that names a path pins it through referencesTo, and one
+ * that names a directory describes it. Built-in paths return none; their directory readers are DOCS_READER_TESTS.
+ */
+export function directoryReaders(root: string, p: string, repo: RepoDocs, tree?: string): string[] {
+  if (builtIn(p) || !repo.allow.length) return [];
+  const segs = p.split('/').slice(0, -1);
+  if (!segs.length) return [];
+  const dirs = segs.map((_, i) => segs.slice(0, i + 1).join('/'));
+  const gen = generatedOutputs(root);
+  const readers = grepFiles(root, dirs.flatMap(d => [`${d}/`, `'${d}'`, `"${d}"`, `\`${d}\``]), tree)
+    .filter(f => f !== SHIP_POLICY_PATH && !PROSE.test(f) && !repo.tests.includes(f) && pathRefusal(f, root, gen, repo) !== null);
+  if (!readers.length || !repo.tests.length) return readers;
+  return readers.filter(f => !grepFiles(root, repo.tests, tree, [f]).length && !grepFiles(root, [f, f.replace(/\.[^./]+$/, '')], tree, repo.tests).length);
 }
 
 /** Classify a parsed diff. `refs` lists the non-docs files naming a path. */
-export function classifyEntries(entries: readonly DiffEntry[], root: string, refs: (p: string) => string[]): DocsOnlyResult {
+export function classifyEntries(entries: readonly DiffEntry[], root: string, refs: (p: string) => string[], repo: RepoDocs = NO_REPO_DOCS, readers: (p: string) => string[] = () => []): DocsOnlyResult {
   const refusals: Refusal[] = [];
   const files: string[] = [];
   const gen = generatedOutputs(root);
   const check = (p: string) => {
-    const why = pathRefusal(p, root, gen);
+    const why = pathRefusal(p, root, gen, repo);
     if (why) return why;
+    const list = (xs: string[]) => `${xs.slice(0, 3).join(', ')}${xs.length > 3 ? ', …' : ''}`;
     const by = refs(p);
-    return by.length ? `named by ${by.slice(0, 3).join(', ')}${by.length > 3 ? ', …' : ''}` : null;
+    if (by.length) return `named by ${list(by)}`;
+    const rd = readers(p);
+    return rd.length ? `its directory is read by ${list(rd)}; list a test that covers it in docs_only.tests at ${repo.label}` : null;
   };
   for (const e of entries) {
     files.push(e.path);
@@ -150,13 +203,22 @@ export function classifyEntries(entries: readonly DiffEntry[], root: string, ref
   }
   if (!entries.length) refusals.push({ path: '-', reason: 'no changed paths' });
   const docsOnly = refusals.length === 0;
-  const tests = docsOnly ? [...new Set(DOCS_READER_TESTS.filter(t => files.some(f => t.tree.test(f))).flatMap(t => t.tests))] : [];
+  const repoTests = files.some(f => !builtIn(f)) ? repo.tests : [];
+  const tests = docsOnly ? [...new Set([...DOCS_READER_TESTS.filter(t => files.some(f => t.tree.test(f))).flatMap(t => t.tests), ...repoTests])] : [];
   return { docsOnly, files, refusals, tests };
 }
 
-/** The whole decision for base..head (commits) or base to the working tree. Throws DocsOnlyError on any git failure. */
-export function classifyDocsOnly(o: { root: string; base: string; head?: string }): DocsOnlyResult {
+/**
+ * The whole decision for base..head (commits) or base to the working tree. The docs_only block is read at `policyRef`,
+ * the base tip every consumer lands on (default `base`; ci-carry and land diff from the merge base but read the tip).
+ * Throws DocsOnlyError on any git failure.
+ */
+export function classifyDocsOnly(o: { root: string; base: string; head?: string; policyRef?: string }): DocsOnlyResult {
   const entries = readDiff(o.root, o.base, o.head);
+  const policy = readRepoDocs(o.root, o.policyRef ?? o.base);
+  const repo = 'error' in policy ? NO_REPO_DOCS : policy;
   const changed = new Set(entries.flatMap(e => [e.path, ...(e.from ? [e.from] : [])]));
-  return classifyEntries(entries, o.root, p => referencesTo(o.root, p, o.head).filter(f => !changed.has(f) || pathRefusal(f, o.root) !== null));
+  const outside = (f: string) => !changed.has(f) || pathRefusal(f, o.root, undefined, repo) !== null;
+  const r = classifyEntries(entries, o.root, p => referencesTo(o.root, p, o.head, repo).filter(outside), repo, p => directoryReaders(o.root, p, repo, o.head).filter(outside));
+  return 'error' in policy ? { ...r, docsOnly: false, tests: [], refusals: [{ path: SHIP_POLICY_PATH, reason: policy.error }, ...r.refusals] } : r;
 }
