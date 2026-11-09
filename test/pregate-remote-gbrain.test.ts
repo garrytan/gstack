@@ -67,6 +67,7 @@ describe('requires-remote on a gbrain-shaped repo (ci:ubicloud, UBI_OWNER)', () 
 
   test('--remote runs the package script with the caller\'s UBI_OWNER and key, and its report clears the obligation', () => {
     const repo = gbrainShaped();
+    expect(runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'preflight', '--allow-repo-commands']).status).toBe(EXIT.ok);
     const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'tests', '--remote', '--allow-repo-commands', '--spend-cap', '5'], { UBI_OWNER: 'gbra49q2', UBICLOUD_API_KEY: 'fixture-not-a-key' });
     expect(r.status).toBe(EXIT.ok);
     const file = pregateFile(repo);

@@ -21,6 +21,9 @@ import type { TreeReceipt } from '../lib/tree-receipt';
 import { BASE_POLICY, BIN, cleanup, makeFixtureRepo, makePr, mergeMain, mergeToMain, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { coordinatorClone, ghQueueShim } from './helpers/ship-queue-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../lib/pregate/index';
+
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 
 const repos: FixtureRepo[] = [];
 const fixture = (policy?: Record<string, unknown>, prefix?: string) => { const r = makeFixtureRepo({ ...(policy ? { policy } : {}), ...(prefix ? { prefix } : {}) }); repos.push(r); return r; };
@@ -251,7 +254,7 @@ describe('ready', () => {
   function pregateFor(repo: FixtureRepo, head: string): string {
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const file = path.join(repo.root, 'pregate.json');
-    fs.writeFileSync(file, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(file, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     return file;
   }
   const green = { check_runs: [{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }] };
@@ -267,7 +270,7 @@ describe('ready', () => {
     expect(lines[0]).toBe(`READY #1 ${head} STAMP_VERSION=unstamped`);
     expect(lines.slice(1, 9)).toEqual([
       'pr: https://github.com/o/r/pull/1', `head: ${head}`, 'version: unstamped', `base: origin/main@${repo.git('rev-parse', 'origin/main')}`,
-      `ci: green at ${head.slice(0, 12)} (passed=1 failed=0 pending=0 skipped=1)`, expect.stringMatching(/^PREGATE: pass tree=[0-9a-f]{12} head=[0-9a-f]{12} checks=1$/),
+      `ci: green at ${head.slice(0, 12)} (passed=1 failed=0 pending=0 skipped=1)`, expect.stringMatching(new RegExp(`^PREGATE: pass tree=[0-9a-f]{12} head=[0-9a-f]{12} checks=${CHECK_IDS.length}$`)),
       'gate: command=none full_e2e=no gate-ahead=none', `SHIP_RECEIPT: pr=1 head=${head.slice(0, 12)} version=- base=main`,
     ]);
     const unshipped = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(head, green, 'no receipt'));
@@ -294,11 +297,11 @@ describe('ready', () => {
     expect(stalePregate.status).toBe(EXIT.refused);
     expect(stalePregate.out).toMatch(/^PREGATE: pass .* \(PREGATE_STALE\)$/m);
     // A lane that cleared its pregate from a separate clone (gstack-pregate --remote cannot run in a worktree) holds the verdict under
-    // <state root>/pregate/by-tree/<tree>.json; ready reads that mirror for the current tree when its own record is stale or missing, and only a run
-    // that holds the tests stage (what `--stage tests --remote` writes: checks=[lanes]) against origin/main under a reviewed policy stands in: a
+    // <state root>/pregate/by-tree/<tree>.json; ready reads that mirror for the current tree when its own record is stale or missing, and only a
+    // complete run (every registered check, as `gstack-pregate --remote` writes) against origin/main under a reviewed policy stands in: a
     // --only timing run, another base or a head policy is named on the PREGATE line instead.
     const stateRoot = path.join(repo.root, 'state-root');
-    const complete = { base: `origin/main@${repo.git('rev-parse', 'origin/main').slice(0, 12)}`, policy: 'origin/main@abc (no .gstack/pregate.json)', checks: [{ id: 'lanes', status: 'pass' }] };
+    const complete = { base: `origin/main@${repo.git('rev-parse', 'origin/main').slice(0, 12)}`, policy: 'origin/main@abc (no .gstack/pregate.json)', checks: FULL_CHECKS };
     const fromSuffix = `(from the state root's pregate/by-tree/${'TREE'}.json, recorded by another checkout)`;
     const movedShim = ghQueueShim(repo, { prs: { '1': { headRefOid: moved, body: shippedBody('1', moved) } }, checks: { [moved]: green } });
     const movedTree = runBin(repo, 'gstack-wtree', []).out.trim();
@@ -322,13 +325,13 @@ describe('ready', () => {
     fs.writeFileSync(mirror, JSON.stringify({ schema_version: 1, tree: movedTree, head: moved, verdict: 'pass', ...complete }));
     const fromMirror = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], { ...movedShim, GSTACK_STATE_ROOT: stateRoot });
     expect([fromMirror.status, fromMirror.err]).toEqual([EXIT.ok, '']);
-    expect(line(fromMirror.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=1 ${suffix}`);
+    expect(line(fromMirror.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=${CHECK_IDS.length} ${suffix}`);
     const missingFromMirror = queue(repo, ['ready', '--pr', '1'], { ...movedShim, GSTACK_STATE_ROOT: stateRoot });
     expect([missingFromMirror.status, missingFromMirror.err]).toEqual([EXIT.ok, '']);
     expect(line(missingFromMirror.out, 'PREGATE:')).toContain(suffix);
     const current = queue(repo, ['ready', '--pr', '1', '--pregate', pregateFor(repo, moved)], { ...movedShim, GSTACK_STATE_ROOT: stateRoot });
     expect([current.status, current.err]).toEqual([EXIT.ok, '']);
-    expect(line(current.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=1`);
+    expect(line(current.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=${CHECK_IDS.length}`);
     // Value: protects=a same-tree record that only waits on a remote receipt (the small-machine run) is cleared by the clone's mirror, an
     // unreadable record falls through to the mirror, and a record whose own checks failed or stayed incomplete is never overridden by a green mirror,
     // including an incomplete check the environment caused (PREGATE_ENVIRONMENT, #3480: a secrets scanner that never finished is not a scanned diff);
@@ -339,7 +342,7 @@ describe('ready', () => {
     fs.writeFileSync(local, JSON.stringify({ schema_version: 1, tree: movedTree, head: moved, verdict: 'requires-remote', checks: [{ id: 'lanes', status: 'requires-remote' }], requires_remote: [obligation] }));
     const uncleared = queue(repo, ['ready', '--pr', '1', '--pregate', local], { ...movedShim, GSTACK_STATE_ROOT: stateRoot });
     expect([uncleared.status, uncleared.err]).toEqual([EXIT.ok, '']);
-    expect(line(uncleared.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=1 ${suffix}`);
+    expect(line(uncleared.out, 'PREGATE:')).toBe(`PREGATE: pass tree=${movedTree.slice(0, 12)} head=${moved.slice(0, 12)} checks=${CHECK_IDS.length} ${suffix}`);
     fs.writeFileSync(local, '{ not json');
     const unreadable = queue(repo, ['ready', '--pr', '1', '--pregate', local], { ...movedShim, GSTACK_STATE_ROOT: stateRoot });
     expect([unreadable.status, unreadable.err]).toEqual([EXIT.ok, '']);
@@ -530,7 +533,7 @@ describe('full_e2e gate evidence (review #3235 P1-1)', () => {
     const head = makePr(repo, 'feature');
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: { check_runs: [{ status: 'completed', conclusion: 'success' }] } } });
     const missing = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], gh);
     expect(missing.status).toBe(EXIT.refused);
@@ -552,7 +555,7 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     const head = makePr(repo, 'pr-a');
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks }, ...(statuses ? { statuses: { [head]: statuses } } : {}), ...(workflowRuns ? { workflowRuns: { [head]: workflowRuns } } : {}) });
     return { r: queue(repo, ['ready', '--pr', '1', '--pregate', pregate], gh), at: head.slice(0, 12) };
   }
@@ -714,7 +717,7 @@ describe('ready on a PR that conflicts with the base (CHANGELOG-only conflicts, 
     const head = makePr(repo, 'pr-a');
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head), mergeable, headRefName: 'pr-a', ...pr } }, checks: { [head]: checks } });
     return { r: queue(repo, ['ready', '--pr', '1', '--pregate', pregate], gh), at: head.slice(0, 12) };
   }
