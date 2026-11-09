@@ -314,6 +314,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a push workflow on the merged commit (free tests, the Windows subset, the main backstop) concluded failure, timed out or was cancelled after the train merged it; a neutral or skipped check is not red',
     fix: 'read the red run (gstack-ship-queue verify --post-merge <sha> prints one CHECK: line per workflow), repair on a new PR or roll back the merge; gstack-ship-queue train status names the freeze if the backstop filed one',
   },
+  QUEUE_READY_NOTE_UNPUSHED: {
+    anchor: 'queue-ready-note-unpushed',
+    summary: 'ready wrote its READY receipt locally, but after three tries origin does not hold the note on refs/notes/gstack-trains (the push failed, or it exited 0 and origin read back without the note), so land would refuse the pin; the head is not READY',
+    fix: 'read the push error on the READY_RECEIPT line, fix what refused it (credentials, a hook or rule on refs/notes/*, the network), then rerun the printed gstack-ship-queue ready command; it keeps ready_at and pushes the kept receipt',
+  },
   QUEUE_SCREEN_RED: {
     anchor: 'queue-screen-red',
     summary: 'the PR head’s dispatched screen run finished RED (its gate binding says so; a case that failed twice is real), so the head is not READY and a train will not seat it',

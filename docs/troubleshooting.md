@@ -6478,6 +6478,26 @@ CHANGELOG drops or renames a released heading (the message then names the
 CHANGELOG). `train prune --stale` deletes the scratch branches of merged or
 closed PRs.
 
+<a id="queue-ready-note-unpushed"></a>
+### `QUEUE_READY_NOTE_UNPUSHED`
+
+**Meaning.** `gstack-ship-queue ready` wrote the READY receipt in the local
+state root, but origin does not hold its note on `refs/notes/gstack-trains`.
+`ready` pushes the notes ref, then fetches it back and requires origin's tip
+to be the local tip or to contain it. It tries three times, fetching and
+merging origin's notes between tries. Either the push failed (a rejected ref,
+credentials, the network) or it exited 0 and origin still read back without
+the note, as when a proxy drops the update. `land --pin` reads the READY note
+on origin and refuses the pin with `QUEUE_NOT_READY` without it, so `ready` refuses
+here instead of printing `notes pushed`. Before this check, ready exited 0 and
+the land failed instead (#4245). Don't send the READY block.
+
+**Fix.** The `READY_RECEIPT:` line ends with the push's error. Fix what
+refused it, then run the `NEXT:` line, which is the same `ready` command. It
+keeps the first `ready_at`, follows a screen run already dispatched at the
+same merge SHA, and pushes the kept receipt. To see the raw error, run
+`git push origin refs/notes/gstack-trains:refs/notes/gstack-trains`.
+
 <a id="queue-screen-red"></a>
 ### `QUEUE_SCREEN_RED`
 

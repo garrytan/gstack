@@ -288,9 +288,24 @@ function addNote(repoRoot: string, r: AnyRecord): boolean {
 }
 
 /**
+ * Whether the remote's notes ref holds the local notes tip: fetched back after
+ * a push, because a push can exit 0 without the ref moving (a proxy that drops
+ * the update), and a later writer's push may have moved it past the tip.
+ */
+function remoteHoldsNotes(repoRoot: string, remote: string): { ok: boolean; detail: string } {
+  const tip = git(repoRoot, ['rev-parse', '--verify', '--quiet', NOTES_REF]).out;
+  const f = git(repoRoot, ['fetch', '--no-tags', '-q', remote, `+${NOTES_REF}:${NOTES_REMOTE_REF}`]);
+  if (!f.ok) return { ok: false, detail: /couldn't find remote ref|no such ref/i.test(f.err) ? `the push exited 0 but ${remote} has no ${NOTES_REF}` : `${remote} ${NOTES_REF} could not be read back after the push: ${f.err.slice(0, 160)}` };
+  const fetched = git(repoRoot, ['rev-parse', '--verify', '--quiet', NOTES_REMOTE_REF]).out;
+  if (tip && (fetched === tip || git(repoRoot, ['merge-base', '--is-ancestor', tip, fetched]).ok)) return { ok: true, detail: '' };
+  return { ok: false, detail: `the push exited 0 but ${remote} ${NOTES_REF} is ${fetched.slice(0, 12) || 'absent'}, which does not hold the local notes ${tip.slice(0, 12)}` };
+}
+
+/**
  * Write records locally, then as notes, then push the notes ref (fetch,
- * merge and retry on a race). A failed push leaves the local records and
- * notes for the next write to carry, and says so.
+ * merge and retry on a race) and read origin back to confirm it holds them.
+ * A failed or unconfirmed push leaves the local records and notes for the
+ * next write to carry, and says so.
  */
 export function persist(repoRoot: string, records: AnyRecord[], opts: { push?: boolean; remote?: string } = {}): { pushed: boolean; detail: string } {
   for (const r of records) writeJsonAtomic(recordPath(r), r);
@@ -300,12 +315,13 @@ export function persist(repoRoot: string, records: AnyRecord[], opts: { push?: b
   let last = '';
   for (let i = 0; i < 3; i++) {
     const p = git(repoRoot, ['push', '-q', remote, `${NOTES_REF}:${NOTES_REF}`]);
-    if (p.ok) return { pushed: true, detail: `notes pushed to ${remote} ${NOTES_REF}` };
-    last = p.err.slice(0, 160);
+    const held = p.ok ? remoteHoldsNotes(repoRoot, remote) : null;
+    if (held?.ok) return { pushed: true, detail: `notes pushed to ${remote} ${NOTES_REF}` };
+    last = held ? held.detail : p.err.slice(0, 160);
     const f = fetchNotes(repoRoot, remote);
     if (!f.ok) return { pushed: false, detail: f.detail };
   }
-  return { pushed: false, detail: `git push ${NOTES_REF} failed: ${last}` };
+  return { pushed: false, detail: `git push ${NOTES_REF} failed after 3 tries: ${last}` };
 }
 
 function newerOrMissing(r: AnyRecord): boolean {

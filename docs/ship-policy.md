@@ -787,7 +787,11 @@ narrow screen, except `setup`, which no paid run executes: a narrow screen
 derives it like any other file. The nonce key carries the purpose and
 the policy, so a repeat follows the same run and a broad screen never adopts
 a narrow one. The READY block gains `screen: …`, and the receipt is written
-locally and to the notes ref. `--dry-run` prints the dispatch without sending
+locally and to the notes ref. `READY_RECEIPT:` says `notes pushed` only after
+`ready` reads origin's notes ref back and finds the note; after three tries
+without it, `ready` refuses with
+[`QUEUE_READY_NOTE_UNPUSHED`](troubleshooting.md#queue-ready-note-unpushed),
+because `land` reads the note on origin. `--dry-run` prints the dispatch without sending
 it. Before dispatching, `ready` fetches the merge ref and requires its second
 parent to be the PR head and its first parent the current base: a missing,
 lagging or unfetchable merge ref (GitHub stops recomputing it while the PR
