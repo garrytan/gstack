@@ -6252,8 +6252,8 @@ A receipt whose `base` is the queue's base (`main` or `origin/main`),
 including a stacked child reviewed against the base (GST-1199), is
 unaffected.
 
-**Fix.** Land the parent first. Then run `gstack-ship-receipt carry --pr <n>
---base <base>`: it moves the receipt to the base when the parent fully landed
+**Fix.** Land the parent first, merge the base into this branch and push.
+Then run `gstack-ship-receipt carry --pr <n> --base <base>`: it moves the receipt to the base when the parent fully landed
 and the child is unchanged, and from then on the receipt names the base. If
 the carry refuses, rerun /ship against the base. Then rerun
 `gstack-ship-queue ready --pr <n>`.

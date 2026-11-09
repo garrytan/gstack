@@ -247,7 +247,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_RECEIPT_BASE_MISMATCH: {
     anchor: 'queue-receipt-base-mismatch',
     summary: 'the PR body’s /ship receipt was reviewed against another branch than the queue’s base (a #3570 stacked child retargeted before its parent landed), so it covers only the change since that branch',
-    fix: 'land the parent first, then gstack-ship-receipt carry --pr <n> --base <base> moves the receipt to the base (it carries only when the parent fully landed and the child is unchanged), else rerun /ship against the base; then gstack-ship-queue ready again',
+    fix: 'land the parent first, merge the base into this branch and push, then gstack-ship-receipt carry --pr <n> --base <base> moves the receipt to the base (it carries only when the parent fully landed and the child is unchanged), else rerun /ship against the base; then gstack-ship-queue ready again',
   },
   BASE_RED_UNCONFIGURED: {
     anchor: 'base-red-unconfigured',
