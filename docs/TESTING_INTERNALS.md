@@ -1738,8 +1738,9 @@ or commit disappears), the observer's own check reports failure, and
 `gstack-ship-queue ready` counts every check at the head. Rerun it once;
 if it fails again, delete the job. Fork pull requests, pushes and dispatches
 skip the job. A missing token skips only its step, so the job still fetches
-the action. Its only secret is `TRUNK_API_TOKEN` (in free-tests.yml it is
-the only job that sees any secret; evals.yml's other jobs hold their own), so
+the action. Its only secret is `TRUNK_API_TOKEN` (in free-tests.yml only it
+and the trunk-flaky-tests uploader, with `TRUNK_ORG_API_TOKEN`, see a secret;
+evals.yml's other jobs hold their own), so
 it checks out nothing and runs none of the pull request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`). At the
 pinned commit (`src/config.ts`, `src/changed-files.ts`), the action makes one
 network call: a request for verdicts to
