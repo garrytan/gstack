@@ -283,3 +283,33 @@ describe('gstack-timeline-read', () => {
     }
   }
 });
+
+// The four secret families brain sync's scanner used to miss (GST-2196).
+// Built by concatenation so this file never holds a scannable literal.
+const SECRET_FAMILIES: [string, string][] = [
+  ['stripe live key', 'sk_' + 'live_' + 'Q7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc'],
+  ['slack bot token', 'xox' + 'b-' + '2384710293-4829103847-Zr8Qm2Lx7Vn4Tb'],
+  ['database url with a password', 'postgres://app:' + 'Vq8zR2' + 'mLp7@db.internal.example.com:5432/prod'],
+  ['npm token', 'npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'],
+];
+
+describe('gstack-timeline-log refuses HIGH-tier secrets', () => {
+  for (const [name, secret] of SECRET_FAMILIES) {
+    test(`rejects a ${name} in any field and writes nothing`, () => {
+      const input = JSON.stringify({ skill: 'ship', event: 'completed', branch: 'main', outcome: `deploy failed: ${secret}` });
+      const result = runLog(input, { expectFail: true });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout).toContain('HIGH-tier secret');
+      expect(result.stdout).not.toContain(secret);
+      expect(findTimelineFile()).toBeNull();
+    });
+  }
+
+  test('ordinary events with token and password words still write', () => {
+    const input = '{"skill":"review","event":"completed","branch":"fix-token-refresh","outcome":"password reset flow reviewed; token rotation ok"}';
+    expect(runLog(input).exitCode).toBe(0);
+    const f = findTimelineFile();
+    expect(f).not.toBeNull();
+    expect(JSON.parse(fs.readFileSync(f!, 'utf-8').trim()).outcome).toBe('password reset flow reviewed; token rotation ok');
+  });
+});
