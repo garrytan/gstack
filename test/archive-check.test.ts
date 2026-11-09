@@ -85,6 +85,29 @@ describe('archive check (reads and verdict)', () => {
     expect(ci.lines.some(l => l.includes('ci=unknown'))).toBe(true);
   });
 
+  // Value: protects=only OPEN, CLOSED and MERGED are PR states, anything else fails closed; fails_when=an empty or unknown gh state is read as closed and the thread archives clean
+  test('an unknown or empty live PR state is unreadable, never closed', () => {
+    const t = thread('GSTA-1', 'idle', [pr(7)]);
+    for (const state of ['', 'DRAFT', 'open', 'UNKNOWN']) {
+      const r = checkThread(reads({ thread: t }), opts({ 'garrytan/gstack#7': { state } }));
+      expect([state, r.verdict, r.failure?.code]).toEqual([state, 'unreadable', 'ARCHIVE_PR_STATE_UNKNOWN']);
+      expect(r.failure?.message).toContain('garrytan/gstack#7');
+    }
+    for (const state of ['CLOSED', 'MERGED']) expect(checkThread(reads({ thread: t }), opts({ 'garrytan/gstack#7': { state } })).verdict).toBe('clean');
+  });
+
+  // Value: protects=a failed CI read says so on the ORPHAN line while the open PR still refuses; fails_when=the failure prints as a bare ci=unknown or clears the PR
+  test('a failed CI read is named on the ORPHAN line and the PR still blocks', () => {
+    const t = thread('GSTA-1', 'idle', [pr(7)]);
+    const thrown = checkThread(reads({ thread: t }), opts({ 'garrytan/gstack#7': { state: 'OPEN' } }, { ci: () => { throw new Error('boom'); } }));
+    expect(thrown.verdict).toBe('refused');
+    expect(thrown.lines[0]).toContain('ci=unknown (CI read failed: boom)');
+    const api = checkThread(reads({ thread: t }), opts({ 'garrytan/gstack#7': { state: 'OPEN' } }, { ci: undefined }));
+    expect(api.verdict).toBe('refused');
+    expect(api.lines[0]).toContain('ci=unknown (CI read failed: check_runs page 1 unreadable');
+    expect(api.lines[0]).toContain('HTTP 502');
+  });
+
   // Value: protects=empty, missing or truncated reads never parse as zero work (gate B); fails_when=any of them prints clean
   test('empty, missing or truncated reads are unparsed', () => {
     const bad: Array<[string, Record<string, unknown>]> = [
@@ -135,6 +158,15 @@ describe('archive check (reads and verdict)', () => {
     }
   });
 
+  // Value: protects=an issue row cut short (no assignee, title or age) never passes as a whole row; fails_when="- GST-1 · Backlog" parses as a complete issue
+  test('issue rows missing the assignee, title or age are unparsed', () => {
+    for (const row of ['- GST-1 · Backlog', '- GST-1 · In progress · @GSTA-1', '- GST-1 · In progress · @GSTA-1 · Build it', '- GST-1 · In progress · Build it · 2m', '- GST-1 · In progress · @GSTA-1 · Build it · 2']) {
+      expect([row, parseIssueList(issues(row))]).toMatchObject([row, { code: 'ARCHIVE_READS_UNPARSED' }]);
+    }
+    const whole = parseIssueList(issues('- GST-707 · Waiting · high · blocked · @GGST-1 · Plan it · 8d', '- GST-640 · Backlog · unassigned · Redo it · 9d', '- GST-9 · Todo · @GSTA-1 · A · B title · 1/2 sub-issues closed · 5h'));
+    expect(whole).toMatchObject({ issues: [{ code: 'GST-707', title: 'Plan it' }, { code: 'GST-640', title: 'Redo it' }, { code: 'GST-9', title: 'A · B title' }] });
+  });
+
   test('issue lines: unknown states and unknown lines are unparsed', () => {
     expect(parseIssueList(issues('- GST-1 · Doing · @GSTA-1 · x · 1m'))).toMatchObject({ code: 'ARCHIVE_READS_UNPARSED' });
     expect(parseIssueList(issues('Next page: cursor abc'))).toMatchObject({ code: 'ARCHIVE_READS_UNPARSED' });
@@ -182,13 +214,33 @@ describe('landed (issue close on land)', () => {
     const failed = landedIssues({ pr: 2, gh: gh('fail'), policy });
     expect([failed.exit, failed.failure?.code]).toEqual([3, 'ARCHIVE_GH_READ_FAILED']);
   });
+
+  // Value: protects=an unknown state on the land step is unreadable, not "not merged"; fails_when=an empty gh state exits 1 as if GitHub said the PR is open
+  test('an unknown PR state exits 3', () => {
+    for (const state of ['', 'merged', 'DRAFT']) {
+      const r = landedIssues({ pr: 2, gh: gh({ state, title: 'x (GST-1)' }), policy });
+      expect([state, r.exit, r.failure?.code]).toEqual([state, 3, 'ARCHIVE_PR_STATE_UNKNOWN']);
+    }
+  });
+
+  // Value: protects=a missing, invalid or empty plain-titles policy refuses with a reason instead of closing every code-shaped ref; fails_when=no policy lets ZZZ-4 through as a tracker code
+  test('a missing or empty policy refuses with ARCHIVE_POLICY_UNREADABLE', () => {
+    const title = { title: 'Fix x (GST-1, ZZZ-4)' };
+    const missing = landedIssues({ pr: 3, gh: gh(title), policy: null });
+    expect([missing.exit, missing.codes, missing.failure?.code]).toEqual([3, [], 'ARCHIVE_POLICY_UNREADABLE']);
+    expect(missing.failure?.message).toContain('.gstack/plain-titles.json');
+    const invalid = landedIssues({ pr: 3, gh: gh(title), policy: null, policyError: '.gstack/plain-titles.json is not valid JSON: x' });
+    expect(invalid.failure?.message).toContain('not valid JSON');
+    const empty = landedIssues({ pr: 3, gh: gh(title), policy: { ...policy, codes: [] } });
+    expect([empty.exit, empty.failure?.code]).toEqual([3, 'ARCHIVE_POLICY_UNREADABLE']);
+  });
 });
 
 describe('result codes', () => {
   // Value: protects=every code the check prints has a summary, fix and troubleshooting anchor; fails_when=a code prints with no recovery
   test('archive codes are registered with anchors', () => {
     const doc = fs.readFileSync(path.join(import.meta.dir, '..', 'docs', 'troubleshooting.md'), 'utf8');
-    for (const code of ['ARCHIVE_READS_STALE', 'ARCHIVE_READS_UNPARSED', 'ARCHIVE_THREAD_MISMATCH', 'ARCHIVE_PR_NOT_MERGED', 'ARCHIVE_GH_READ_FAILED'] as const) {
+    for (const code of ['ARCHIVE_READS_STALE', 'ARCHIVE_READS_UNPARSED', 'ARCHIVE_THREAD_MISMATCH', 'ARCHIVE_PR_NOT_MERGED', 'ARCHIVE_GH_READ_FAILED', 'ARCHIVE_PR_STATE_UNKNOWN', 'ARCHIVE_POLICY_UNREADABLE'] as const) {
       const row = (RESULT_CODES as Record<string, { anchor: string }>)[code];
       expect(row?.anchor).toBeTruthy();
       expect(doc).toContain('<a id="' + row!.anchor + '"></a>');
@@ -242,6 +294,11 @@ describe('gstack-archive-check (bin)', () => {
     const clean = runBin(repo, 'gstack-archive-check', ['thread', '--thread', 'GSTA-1', '--reads', file], env);
     expect([clean.status, clean.out.trim().split('\n').at(-1)]).toEqual([0, 'ARCHIVE_CHECK: clean thread=GSTA-1 prs=0 issues=0']);
     expect(runBin(repo, 'gstack-archive-check', ['thread', '--reads', file], env).status).toBe(2);
+    const unknownEnv = shim(repo, { 'garrytan/gbrain#5': { state: '' } });
+    fs.writeFileSync(file, JSON.stringify({ ...reads({ thread: thread('GSTA-1', 'idle', [pr(5, 'garrytan/gbrain')]) }), read_at: new Date().toISOString() }));
+    const unknown = runBin(repo, 'gstack-archive-check', ['thread', '--thread', 'GSTA-1', '--reads', file], unknownEnv);
+    expect(unknown.status).toBe(3);
+    expect(unknown.out).toContain('ARCHIVE_PR_STATE_UNKNOWN');
   });
 
   // Value: protects=the land step's CLI: usage guards, the merged-PR close lines and the not-merged refusal; fails_when=a bad --pr or --repo reaches gh, or an open PR prints ISSUE_CLOSE
@@ -249,6 +306,15 @@ describe('gstack-archive-check (bin)', () => {
     if (process.platform === 'win32') return;
     const repo = makeFixtureRepo(); repos.push(repo);
     const env = shim(repo, { 'garrytan/gstack#7': { state: 'MERGED', title: 'Fix x (GST-12)', mergeCommit: { oid: 'd'.repeat(40) } }, 'garrytan/gstack#8': { state: 'OPEN', title: 'Fix y (GST-13)' } });
+    const policyFile = path.join(repo.work, '.gstack', 'plain-titles.json');
+    fs.mkdirSync(path.dirname(policyFile), { recursive: true });
+    fs.rmSync(policyFile, { force: true });
+    const missing = runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'garrytan/gstack'], env);
+    expect([missing.status, missing.out]).toEqual([3, expect.stringContaining('ARCHIVE_POLICY_UNREADABLE')]);
+    fs.writeFileSync(policyFile, '{ not json');
+    const invalid = runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'garrytan/gstack'], env);
+    expect([invalid.status, invalid.out]).toEqual([3, expect.stringContaining('not valid JSON')]);
+    fs.writeFileSync(policyFile, JSON.stringify({ codes: ['\\bGST-\\d+\\b'], terms: ['lane'], since: '2026-01-01' }));
     expect(runBin(repo, 'gstack-archive-check', ['landed', '--pr', 'x'], env).status).toBe(2);
     expect(runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'bad'], env).status).toBe(2);
     const merged = runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'garrytan/gstack'], env);
