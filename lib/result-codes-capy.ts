@@ -87,7 +87,7 @@ export const CAPY_RESULT_CODES = {
   UPGRADE_SKIPPED: {
     anchor: 'upgrade-skipped',
     summary: 'the install-mode session was behind origin and its session-start fast-forward was skipped (dirty, diverged or pinned checkout, a live lease, or gstack-upgrade missing); the row is a WARN with the reason and the trailer stays ok with a behind= note, because a gap above the supported minimum is never a hard fail',
-    fix: 'run the fix the row names (bin/gstack-upgrade after clearing its refusal, or the Capy skill installer) when the lane needs the newer gstack; below the supported minimum the bootstrapper fails revision instead',
+    fix: 'run the fix the row names (bin/gstack-upgrade after clearing its refusal, or the Capy skill installer) before the next workflow, since any behind= of 1 or more calls for it; below the supported minimum the bootstrapper fails revision instead',
   },
   PLAN_RECORD_MISSING: {
     anchor: 'plan-record-missing',

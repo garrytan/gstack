@@ -629,8 +629,9 @@ EOF_SHIM
 # A checkout more than 24 hours behind (bin/gstack-capy-session exports
 # GSTACK_CAPY_STALE) adds `stale=<h>h` after `behind=`, or `stale=<h>h (pinned: <reason>)`
 # for a pin with a recorded reason; a failed fetch with no successful one in 24
-# hours adds `stale=no fetch from origin in <h>h` on its own. Unlike a bare
-# `behind=`, a `stale=` with no pin means: run the fix before the first workflow.
+# hours adds `stale=no fetch from origin in <h>h` on its own. Like any
+# `behind=` of 1 or more, a `stale=` with no pin means: run the fix before the
+# next workflow.
 # A project floor the doctor could not meet (`WARN floor`, PROJECT_FLOOR_UNMET)
 # adds `floor=<ver> (<file>)` and a `fix:` note the same way; when no release
 # meets the floor (the row says `no release meets this floor yet`), the note is

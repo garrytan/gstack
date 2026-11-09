@@ -137,8 +137,11 @@ there is refused with the usual `--for <skill>` fix.
    trailer: `behind=<n> (latest: <ver>); fix: <command>` (see the trailer
    grammar below).
    **Daily (R75).** When the oldest origin commit the checkout lacks is more
-   than 24 hours old, the trailer adds `stale=<h>h` after `behind=`, and
-   unlike a bare `behind=` the agent runs the fix before the first workflow.
+   than 24 hours old, the trailer adds `stale=<h>h` after `behind=`. Either
+   way the agent runs the fix before the next workflow: `behind=1` or more
+   always calls for it, and `stale=` adds that a pin with no recorded reason
+   no longer holds. A `fix:` that starts `unset GSTACK_CAPY_` lifts a pin:
+   skip it while the pin has a recorded reason.
    A pin (`GSTACK_CAPY_SELF_UPGRADE=off`, `GSTACK_CAPY_AUTO_UPGRADE=0`, a
    detached HEAD or another branch) then holds only with a recorded reason:
    `GSTACK_PIN_REASON=<why>`, `git -C <root> config gstack.pinReason <why>`,

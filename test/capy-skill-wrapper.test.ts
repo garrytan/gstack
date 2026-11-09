@@ -786,9 +786,9 @@ describe('capy skill: a checkout more than 24 hours behind origin (R75)', () => 
     return f;
   };
 
-  // Value: protects=a checkout whose oldest missing commit is over 24h old is flagged stale on --check with the fast-forwarding install as its fix (no longer
-  // a bare informational behind=), and the install at the workflow boundary fast-forwards it; an hour behind stays plain behind=; fails_when=--check
-  // leaves a day-old checkout informational, or the boundary install does not move it; why_new=R75; seam=C's commit date; no_claim=GitHub's main
+  // Value: protects=a checkout whose oldest missing commit is over 24h old is flagged stale on --check with the fast-forwarding install as its fix,
+  // and the install at the workflow boundary fast-forwards it; an hour behind stays plain behind=; fails_when=--check
+  // leaves a day-old checkout unflagged, or the boundary install does not move it; why_new=R75; seam=C's commit date; no_claim=GitHub's main
   test('25 hours behind: --check notes stale=25h with the install as its fix and moves nothing; the install fast-forwards; an hour behind is not stale', () => {
     const f = behindBy(25);
     const check = f.run(['--check', '--for', 'autoplan']);
