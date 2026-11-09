@@ -540,6 +540,11 @@ The example above is the full run. The first `next` also takes `--kind`:
    are then recorded as `answer_words` with `words_by`, never as
    `owner_reply`; a later gate never carries them (`CARRY: no`), and
    `gstack-approvals import` lists that row under the agent, not the owner.
+   They never settle a `uc` item (a user challenge or a round-cap approval):
+   a reply in an agent's own words that would choose one, by `rec`, `as-is`
+   or a token, is refused (`OWNER_REPLY_REQUIRED`) and nothing is applied;
+   such a reply may still answer the `d` items and leave the `uc` items to
+   the owner.
    An unattended run refuses an answer
    without `--by` (`ANSWER_BY_REQUIRED`, exit 3) and records the value as
    `answered_by` on every decision row and in the review record's gate line,

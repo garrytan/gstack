@@ -578,7 +578,7 @@ export const RESULT_CODES = {
   },
   OWNER_REPLY_REQUIRED: {
     anchor: 'owner-reply-required',
-    summary: 'an agent answered the gate (`--by agent:<id>`) without the owner\'s verbatim reply',
+    summary: 'an agent answered the gate (`--by agent:<id>`) without the owner\'s verbatim reply, or answered a user challenge in its own words (`--words-by`)',
     fix: 'pass the owner\'s words exactly with `--owner-reply "<text>"`, `--owner-reply -` (stdin) or `--owner-reply-file <path>`',
   },
   GATE_OWNER_REPLY_MISMATCH: {

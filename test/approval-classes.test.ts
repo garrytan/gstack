@@ -258,6 +258,9 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
     expect(autoplan(['next', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui']).status).toBe(0);
     runPhase(out, 'ceo');
     runPhase(out, 'eng');
+    const owners = (JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).items as Array<{ id: string; recommended: string }>).filter(i => i.id.startsWith('uc')).map(i => `${i.id}${i.recommended}`);
+    expect(owners.length).toBeGreaterThan(0);
+    expect(autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', owners.join(' ')]).stdout).toMatch(/^GATE_PENDING: p1 unanswered/m);
     const reply = recCarrying(out);
     expect(autoplan(['answer', '--by', 'agent:test', '--words-by', 'agent:test', '--owner-reply', reply, '--out', out, '--gate-rev', '1', '--reply', reply]).stdout).toMatch(/^APPROVED: gate_rev=1/m);
     const sha = (JSON.parse(fs.readFileSync(path.join(out, 'run.json'), 'utf8')).artifacts['plan.md'].sha256 as string).slice(0, 8);
