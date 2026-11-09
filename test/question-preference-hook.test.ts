@@ -409,6 +409,43 @@ describe('enforces never-ask preferences', () => {
     });
     expectPassThrough(r);
   });
+
+  test('a marker tail right against the question text still reaches the keyword net → pass-through', () => {
+    writeProjectPref('x', 'never-ask');
+    const r = runHook({
+      session_id: 's-kw-4',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-kw-4',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:x;signal=y>delete production database?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expectPassThrough(r);
+  });
+
+  test('a marker tail right against benign question text → still deny (control)', () => {
+    writeProjectPref('x', 'never-ask');
+    const r = runHook({
+      session_id: 's-kw-5',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-kw-5',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:x;signal=y>Reorganize the TODOs file?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');
+  });
 });
 
 // ----------------------------------------------------------------------

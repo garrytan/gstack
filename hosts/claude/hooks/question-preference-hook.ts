@@ -446,7 +446,7 @@ async function main(): Promise<void> {
       // regex pass over the question text; on any failure keep the default
       // (enforcement still requires an explicit stored preference).
       try {
-        if (classifyQuestion({ summary: qText.replace(MARKER_RE, (_m, _id, tail = '') => tail).trim() }).oneWay) {
+        if (classifyQuestion({ summary: qText.replace(MARKER_RE, (_m, _id, tail = '') => ` ${tail} `).trim() }).oneWay) {
           doorType = 'one-way';
         }
       } catch (e) {
@@ -515,7 +515,7 @@ async function main(): Promise<void> {
       for (let i = 0; i < questions.length; i++) {
         const rawText = questions[i]?.question || '';
         const qText = rawText.replace(MARKER_RE, '').trim();
-        const doorText = rawText.replace(MARKER_RE, (_m, _id, tail = '') => tail).trim();
+        const doorText = rawText.replace(MARKER_RE, (_m, _id, tail = '') => ` ${tail} `).trim();
         const opts = optionLabels(questions[i]?.options || []);
         const marker = parseQidMarker(rawText);
         const entry = marker ? registry[marker.id] : undefined;
