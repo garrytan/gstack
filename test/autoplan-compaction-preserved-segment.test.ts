@@ -100,6 +100,33 @@ describe('Claude Code 2.1.300 compaction with a preserved segment', () => {
     expect(await f.hook(nextPhase(f))).toEqual(OWNED_READ_APPROVAL);
   });
 
+  // Claude Code 2.1.317: the boundary's logical parent was never written to the
+  // file, the segment's tail is the last kept record in place. Every later record
+  // was dropped, so the latest "message" was a phase's methodology Read and the
+  // next phase entry was refused as cross_phase_batch on every retry.
+  const absentLogicalParent = (boundary: Row) => {
+    const { preservedSegment, preservedMessages } = boundary.compactMetadata;
+    boundary.logicalParentUuid = randomUUID();
+    preservedMessages.uuids.pop(); preservedMessages.allUuids.pop();
+    preservedSegment.tailUuid = preservedMessages.uuids.at(-1);
+  };
+
+  test('a boundary whose logical parent was never written continues from the preserved tail', () => {
+    const f = fixture(); compact300(f, { shape: absentLogicalParent });
+    expect(toolIds(f)).toEqual(['init', 'entry', 'close-head', 'close', expect.stringMatching(/^noop-/)]);
+  });
+
+  test('the next phase entry passes after a compaction whose logical parent was never written', async () => {
+    const f = fixture(); compact300(f, { shape: absentLogicalParent });
+    expect(await f.hook(nextPhase(f))).toEqual(OWNED_READ_APPROVAL);
+  });
+
+  test('a logical parent that is the unflushed tail itself still supplies no ownership yet', () => {
+    const f = fixture(); compact300(f, { shape: b => { b.logicalParentUuid = b.compactMetadata.preservedSegment.tailUuid = randomUUID();
+      b.compactMetadata.preservedMessages.uuids.push(b.logicalParentUuid); } });
+    expect(toolIds(f)).not.toContain('close');
+  });
+
   test('a preserved segment of only the tail (nothing kept in place) names no anchor and is reported as an unrecognized shape', async () => {
     const f = fixture(); compact300(f, { keep: 0 });
     expect(toolIds(f)).not.toContain('close');

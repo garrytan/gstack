@@ -248,16 +248,17 @@ const sessionStartRecord = (r: Record<string, any>): boolean => r.type === 'atta
 const PRESERVED_MAX = 1024;
 /**
  * Claude Code 2.1.300 keeps a compaction's last records in place and lists them in
- * compactMetadata.preservedMessages, ending with the segment's tail, which is also the
- * boundary's logicalParentUuid. Only such a list of native uuids is read.
+ * compactMetadata.preservedMessages, ending with the segment's tail. The tail is
+ * usually the boundary's logicalParentUuid; on 2.1.317 the logical parent can be a
+ * record that was never written to the file. Only such a list of native uuids is read.
  */
 function preservedUuids(r: Record<string, any>): readonly string[] | undefined {
   if (r.type !== 'system' || r.subtype !== 'compact_boundary' || r.parentUuid !== null || !nativeUuid(r.logicalParentUuid)) return;
   const meta = r.compactMetadata;
   if (!object(meta) || !object(meta.preservedSegment) || !object(meta.preservedMessages)) return;
   const uuids = meta.preservedMessages.uuids;
-  if (meta.preservedSegment.tailUuid !== r.logicalParentUuid || !Array.isArray(uuids) ||
-      uuids.length > PRESERVED_MAX || uuids.at(-1) !== r.logicalParentUuid || !uuids.every(nativeUuid)) return;
+  if (!Array.isArray(uuids) || !uuids.length || uuids.length > PRESERVED_MAX || !uuids.every(nativeUuid) ||
+      meta.preservedSegment.tailUuid !== uuids.at(-1)) return;
   return uuids;
 }
 
@@ -317,6 +318,9 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
   // compact summary, so the boundary's logical parent descends from the boundary itself.
   // Such a boundary continues from the last preserved record that is a node of this file
   // and not its own descendant. With none, the cycle stays and supplies no ownership.
+  // Claude Code 2.1.317 can name a logical parent the file never receives while the tail
+  // stays in place: that boundary continues the same way. A logical parent that IS the
+  // list's tail may just be unflushed, so it keeps supplying no ownership until it lands.
   const descends = (id: string | undefined, from: RecordMeta): boolean => {
     for (const visited = new Set<RecordMeta>(); id;) {
       const m = byId.get(id);
@@ -327,8 +331,9 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
     return false;
   };
   const resumed = new Map<RecordMeta, string>();
-  for (const m of nodes) if (m.preserved && descends(m.parent, m)) {
-    const anchor = m.preserved.slice(0, -1).findLast(id => byId.get(id) !== undefined && !descends(id, m));
+  for (const m of nodes) if (m.preserved && (descends(m.parent, m) ||
+    (m.parent !== undefined && byUuid.get(m.parent) === undefined && m.preserved.at(-1) !== m.parent))) {
+    const anchor = m.preserved.findLast(id => byId.get(id) !== undefined && !descends(id, m));
     if (anchor) resumed.set(m, anchor);
   }
   const parentOf = (m: RecordMeta) => resumed.get(m) ?? m.parent;
