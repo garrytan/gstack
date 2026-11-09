@@ -163,6 +163,7 @@ const max = Math.floor(240 / (pages + 1)); // threads per program, under the 256
 const cursor = undefined; // the previous program's NEXT_CURSOR, to continue a large sweep
 const dir = "/home/user/.capy/work/runaway/" + crypto.randomUUID();
 const captain = undefined; // from an automation thread: the Captain's code
+const standing = []; // codes of standing threads (merge lane, watcher, automation's standing thread); the rest are crew threads
 const list = await tools.thread.list({ ...(captain ? { captain } : { scope: "crew" }), status: ["working", "waiting", "idle"], limit: Math.min(100, max), cursor }); // org sweep: scope "all"
 await tools.capy.write({ path: `${dir}/crew.json`, content: JSON.stringify({ items: list.items.map(t => t.code) }) });
 const codes = [...list.items.map(t => t.code), ...(cursor ? [] : [captain ?? "this"])].slice(0, max);
@@ -176,7 +177,7 @@ const fetch = async code => {
       ...(i.tool === "wait" ? { input: i.input } : {}) })));
     if (!(before = transcript.beforeCursor)) break;
   }
-  await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events }) });
+  await tools.capy.write({ path: `${dir}/${doc.code}.thread.json`, content: JSON.stringify({ ...doc, events, standing: standing.includes(doc.code) }) });
 };
 const failed = [];
 for (let k = 0; k < codes.length; k += 8) (await Promise.allSettled(codes.slice(k, k + 8).map(fetch)))
@@ -190,18 +191,20 @@ it lists the whole tree, where thread.get lists 200 rows at most (`own` is then 
 
 Limits (org rule R70, amended 2026-11-09): a standing thread that wakes on every event (a merge lane, a watcher, an
 automation's standing thread) rotates past 500M own tokens (total minus subagents) or 3 days active (working,
-waiting, or a turn in the last 24 hours), warn at 400M. A crew thread keeps its PR until it merges or closes, never
-rotated mid-PR on a token count; past 1B own tokens it checks in with its Captain once. A subagent past 100M: stop and look. Empty wakes past 25% of the
+waiting, or a turn in the last 24 hours), warn at 400M; only threads in `standing` above count. A crew thread keeps its PR until it merges or closes, never
+rotated mid-PR on a token count; past 1B own tokens it checks in with its Captain once. No thread holding an open PR rotates (R91),
+and one whose `pull_requests` are missing or partial counts as holding one. A subagent past 100M: stop and look. Empty wakes past 25% of the
 last 40 turns (warm-wait check-ins left out). Review rounds past 2 per PR. Act on each line:
 
 | Line | Do |
 |---|---|
-| `FLAG: ROTATE` | A standing thread: Step 3. A crew thread holding a PR: nothing (the scan can't tell them apart). |
+| `FLAG: ROTATE` | A standing thread with no open PR: Step 3. |
+| `FLAG: CHECK_IN` | A crew thread past 1B own tokens: hear its one check-in; it keeps its PR. Never rotate or archive it for this. |
 | `FLAG: REPORT` | A Captain over a limit: report it, never rotate it (Garry decides Captain rotation). |
 | `FLAG: STOP` | Step 2. |
 | `FLAG: LOOK` | A finished subagent past 100M: find why (reused for several runs? full-depth review?) and fix that cause from Step 4. |
-| `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once; an own-tokens WARN on a crew thread holding a PR needs nothing. |
-| `DEFER:` | The thread is mid-/ship or mid-merge: act on nothing now; scan again when that work finishes. |
+| `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once. |
+| `DEFER:` | Mid-/ship or mid-merge, or a standing thread holding a PR: act on nothing now; scan again when that work finishes or every PR merges or closes. |
 | `RUNAWAY_INPUT:`, `FETCH_FAILED:` | That thread wasn't read: fetch it again and rerun; never count it as OK. |
 
 No `RUNAWAY:` or `SWEEP:` line means the scan failed, never that the crew is clean. `DEFER:` holds a rotation, and
@@ -216,7 +219,7 @@ PR stays open; a fresh subagent with the run directory picks the work up if it i
 
 ## 3. Rotate a thread
 
-Rotate only a standing thread, and only at a clean point: no `DEFER:`, no READY of that thread waiting on you, no merge in flight for its PR.
+Rotate only a standing thread, and only at a clean point: no `DEFER:`, no open PR (R91), no READY of that thread waiting on you, no merge in flight.
 1. Tell it: "Rotation (R70). Start nothing new; stop your working and waiting subagents, or list each with its run
    directory; write handoffs/<code>-rotation.md from gstack's `runaway-stopper/templates/rotation-handoff.md` and
    reply with its path."

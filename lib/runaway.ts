@@ -3,7 +3,9 @@
  * Input is what the host already returns: tools.thread.get (cost, tasks, status, created_at),
  * optionally tools.subagent.list (the whole tree) and transcript items (tools.thread.get transcript,
  * tools: true). Output is one RUNAWAY line per thread, FLAG lines, a DEFER line when the thread is
- * mid-/ship or mid-merge, and a SWEEP total for a directory. It never acts.
+ * mid-/ship or mid-merge or a standing thread holds an open PR, and a SWEEP total for a directory. It never acts.
+ * Only a thread the Captain marks `standing: true` rotates; a crew thread checks in once past 1B own tokens (R70 as
+ * amended 2026-11-09), and a thread holding an open PR, or whose PRs the file doesn't list, is never rotated (R91).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -12,6 +14,7 @@ import { isKeepalive, type TranscriptItem } from './ship-calls';
 export const LIMITS = {
   ownRotate: 500e6,
   ownWarn: 400e6,
+  ownCheckIn: 1e9,
   ageDays: 3,
   activeHours: 24,
   subagentStop: 100e6,
@@ -27,18 +30,19 @@ export interface Task { label?: string; path?: string; title?: string; status?: 
 export interface ThreadDoc {
   code?: string; id?: string; title?: string | null; status?: string; created_at?: string; updated_at?: string;
   cost?: { tokens?: number; credits?: number }; tasks?: Task[]; tasks_total?: number; captain_thread?: unknown; crew?: unknown;
-  events?: Item[];
+  events?: Item[]; standing?: boolean; pull_requests?: Array<{ number?: number; state?: string }>; pull_requests_total?: number;
 }
 export interface Item extends TranscriptItem { input?: { text?: string } | string; state?: string }
-export interface Flag { action: 'ROTATE' | 'STOP' | 'LOOK' | 'WARN' | 'REPORT'; text: string }
+export interface Flag { action: 'ROTATE' | 'STOP' | 'LOOK' | 'WARN' | 'REPORT' | 'CHECK_IN'; text: string }
 export interface Verdict {
-  code: string; verdict: 'OK' | 'LOOK' | 'WARN' | 'STOP' | 'ROTATE' | 'REPORT' | 'DEFER'; captain: boolean;
+  code: string; verdict: 'OK' | 'LOOK' | 'WARN' | 'STOP' | 'ROTATE' | 'REPORT' | 'CHECK_IN' | 'DEFER'; captain: boolean;
   own: number; ownBound: 'exact' | 'upper'; total: number; credits: number; ageDays: number; active: boolean;
   empty: { turns: number; empty: number } | null; rounds: ReturnType<typeof reviewRounds>;
-  flags: Flag[]; defer: string[];
+  flags: Flag[]; defer: string[]; held: string[];
 }
 
 const TERMINAL = new Set(['done', 'failed', 'stopped', 'draft']);
+const PR_DONE = new Set(['merged', 'closed']);
 const MID_SHIP = /\/ship|\bship\b|\bmerge\b|\btrain\b|\bstamp\b|pregate/i;
 const REVIEWISH = /reader|fix-check|cold.?read|panel|outside.?voice|specialist|red.?team|adversarial|review/i;
 
@@ -141,11 +145,31 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
     || (Number.isFinite(lastTurn) && opts.now - lastTurn < LIMITS.activeHours * 36e5);
   const captain = doc.captain_thread !== undefined || doc.crew !== undefined;
   const flags: Flag[] = [];
-  const rotate = (text: string) => flags.push({ action: captain ? 'REPORT' : 'ROTATE', text });
+  const held: string[] = [];
+  const bound = ownBound === 'upper' ? ' (upper bound)' : '';
+  const due = [
+    own > LIMITS.ownRotate && 'own_tokens ' + fmtTokens(own) + ' > ' + fmtTokens(LIMITS.ownRotate) + bound,
+    active && ageDays > LIMITS.ageDays && 'age ' + ageDays.toFixed(1) + 'd > ' + LIMITS.ageDays + 'd and active',
+  ].filter((t): t is string => !!t);
+  const warn = own <= LIMITS.ownRotate && own > LIMITS.ownWarn ? 'own_tokens ' + fmtTokens(own) + ' > ' + fmtTokens(LIMITS.ownWarn) + ' warn line' : null;
+  const prs = Array.isArray(doc.pull_requests) ? doc.pull_requests : null;
+  const openPrs = (prs ?? []).filter(p => !PR_DONE.has(p.state ?? '')).map(p => '#' + (p.number ?? '?'));
+  const unseen = !prs || (doc.pull_requests_total ?? prs.length) > prs.length;
 
-  if (own > LIMITS.ownRotate) rotate('own_tokens ' + fmtTokens(own) + ' > ' + fmtTokens(LIMITS.ownRotate) + (ownBound === 'upper' ? ' (upper bound)' : ''));
-  else if (own > LIMITS.ownWarn) flags.push({ action: 'WARN', text: 'own_tokens ' + fmtTokens(own) + ' > ' + fmtTokens(LIMITS.ownWarn) + ' warn line' });
-  if (active && ageDays > LIMITS.ageDays) rotate('age ' + ageDays.toFixed(1) + 'd > ' + LIMITS.ageDays + 'd and active');
+  if (captain) {
+    for (const text of due) flags.push({ action: 'REPORT', text });
+    if (warn) flags.push({ action: 'WARN', text: warn });
+  } else if (doc.standing === true) {
+    if (openPrs.length || unseen) {
+      if (due.length) held.push((openPrs.length ? 'holds an open PR' : "holds PRs it can't see") + '; rotate after every PR merges or closes (R91): '
+        + [...openPrs, ...(unseen ? ['unlisted'] : [])].join(' ') + '; due: ' + due.join(', '));
+    } else {
+      for (const text of due) flags.push({ action: 'ROTATE', text });
+      if (warn) flags.push({ action: 'WARN', text: warn });
+    }
+  } else if (own > LIMITS.ownCheckIn) {
+    flags.push({ action: 'CHECK_IN', text: 'own_tokens ' + fmtTokens(own) + ' > ' + fmtTokens(LIMITS.ownCheckIn) + bound + '; a crew thread checks in with its Captain once and keeps its PR (R70)' });
+  }
   for (const t of listed) {
     if (tok(t) <= LIMITS.subagentStop) continue;
     const live = !TERMINAL.has(t.status ?? '');
@@ -160,11 +184,11 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
   const shipping = listed.filter(t => MID_SHIP.test(t.title ?? '') && (t.status === 'working' || (t.status === 'waiting' && /#\d+/.test(t.title ?? ''))));
   const stopPaths = listed.filter(t => tok(t) > LIMITS.subagentStop && !TERMINAL.has(t.status ?? '')).map(pathOf);
   const stopsShipping = stopPaths.some(p => shipping.some(t => pathOf(t) === p || pathOf(t).startsWith(p + '.')));
-  const defer = shipping.map(t => pathOf(t) + ' ' + quote(t.title) + ' ' + t.status);
-  const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
+  const defer = shipping.map(t => 'mid-ship or mid-merge: ' + pathOf(t) + ' ' + quote(t.title) + ' ' + t.status + '; act at the next clean point');
+  const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'CHECK_IN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
   const holds = flags.some(f => f.action === 'ROTATE') || stopsShipping;
-  const verdict: Verdict['verdict'] = holds && defer.length ? 'DEFER' : (worst ?? 'OK');
-  return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, rounds, flags, defer };
+  const verdict: Verdict['verdict'] = holds && defer.length ? 'DEFER' : held.length && (!worst || worst === 'LOOK') ? 'DEFER' : (worst ?? 'OK');
+  return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, rounds, flags, defer, held };
 }
 
 export function render(v: Verdict): string[] {
@@ -174,7 +198,8 @@ export function render(v: Verdict): string[] {
     + ' empty_wake=' + e + ' max_rounds=' + (v.rounds?.pr ? v.rounds.rounds + '(#' + v.rounds.pr + ')' : '0')
     + ' review_subagents=' + (v.rounds?.reviewers ?? 0) + '(unattributed ' + (v.rounds?.unattributed ?? 0) + ')'];
   for (const f of v.flags) out.push('FLAG: ' + f.action + ' ' + f.text);
-  if (v.verdict === 'DEFER') for (const d of v.defer) out.push('DEFER: mid-ship or mid-merge: ' + d + '; act at the next clean point');
+  if (v.verdict === 'DEFER') for (const d of v.defer) out.push('DEFER: ' + d);
+  for (const h of v.held) out.push('DEFER: ' + h);
   return out;
 }
 
@@ -208,10 +233,13 @@ const USAGE = [
   '  scan --thread <thread.get json> [--events <transcript json>] [--subagents <subagent.list json>] [--now <iso>]',
   '  scan --dir <dir> [--now <iso>]   reads every <code>.thread.json with its <code>.events.json and <code>.subagents.json',
   '  and <dir>/crew.json (the thread.list codes, {"items": [...]}): an empty crew list is RUNAWAY_INPUT, never a clean SWEEP.',
-  'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT, DEFER, SWEEP (--dir).',
+  'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT|CHECK_IN, DEFER, SWEEP (--dir).',
   'Review rounds count only subagent titles that name the PR (#N); the rest show as unattributed.',
-  'Limits (R70): own > 500M or active > 3d rotate (warn 400M); subagent > 100M stop (LOOK when it already ended);',
-  'empty wakes > 25% of the last 40 turns (20+; warm-wait check-ins left out); review rounds > 2 per PR; Captains REPORT, never rotate.',
+  'Limits (R70 as amended 2026-11-09): only a thread file with "standing": true (a merge lane, a watcher, an automation\'s',
+  'standing thread) rotates, at own > 500M or active > 3d (warn 400M), and never while it holds an open PR or its',
+  'pull_requests are missing or partial (DEFER, R91); any other thread is a crew thread that keeps its PR and gets one',
+  'CHECK_IN past 1B own; subagent > 100M stop (LOOK when it already ended); empty wakes > 25% of the last 40 turns',
+  '(20+; warm-wait check-ins left out); review rounds > 2 per PR; Captains REPORT, never rotate.',
   'A thread file that is not valid JSON or lacks cost.tokens or created_at prints RUNAWAY_INPUT and is skipped.',
   'Exit 0 after a clean scan, 1 when any input was unreadable, 2 on a usage error.',
 ];
@@ -278,7 +306,7 @@ export function runawayMain(argv: string[]): number {
   if (dir) {
     const n = (k: Verdict['verdict']) => verdicts.filter(v => v.verdict === k).length;
     console.log('SWEEP: threads=' + verdicts.length + ' rotate=' + n('ROTATE') + ' stop=' + n('STOP') + ' defer=' + n('DEFER')
-      + ' report=' + n('REPORT') + ' warn=' + n('WARN') + ' look=' + n('LOOK') + ' ok=' + n('OK') + ' unreadable=' + unreadable);
+      + ' report=' + n('REPORT') + ' warn=' + n('WARN') + ' check_in=' + n('CHECK_IN') + ' look=' + n('LOOK') + ' ok=' + n('OK') + ' unreadable=' + unreadable);
   }
   return unreadable ? 1 : 0;
 }
