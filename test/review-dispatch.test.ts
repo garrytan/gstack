@@ -343,8 +343,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   clause of its own) is a known phantom lead judgment folds and never a dropped line (GSTA-167 S1 reverts GST-766's negation drop),
   //   except a sentence that is wholly a no-defect summary (GST-435), which is no finding; fails_when=any other negated form collects
   //   nothing or a weaker label, except under the finding's own Severity field, which decides it (GST-976); why_new=GST-766's drop lost
-  //   blockers named in exception clauses; seam=parseFindings; no_claim=that a negated line is a real finding (judge folds phantoms).
-  //   GST-2122: a negated line with no file:line and no finding structure is a note, so it collects at INFORMATIONAL
+  //   blockers named in exception clauses; seam=parseFindings; no_claim=that a negated line is a real finding (judge folds phantoms)
   test('a negated severity word still collects at its label: GEVA-92 fix-check#5 and its negated forms are known phantoms', () => {
     const fixCheck = [
       'REVIEWED_TREE: bedd511efa0fa16c9277821073c68e438dc760d2 /workspace/gstack-evals',
@@ -355,13 +354,13 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       '- The new secondary: 47/60, 15/60, 5/40, 7/40, 4/40 and 11.5/40.',
       '- The minimum p of 2^-15.',
     ].join('\n');
-    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL', 'INFORMATIONAL']);
-    const kept: Array<[string, string]> = [['Found no CRITICAL issues in the fix range.', 'INFORMATIONAL'], ['This is not CRITICAL.', 'INFORMATIONAL'],
-      ['I found zero Critical findings, and none High.', 'INFORMATIONAL'], ['The retry path is safe; without CRITICAL impact.', 'INFORMATIONAL'], ['No new CRITICAL issues introduced by the fix.', 'INFORMATIONAL'],
-      ['No remaining CRITICAL or HIGH findings.', 'INFORMATIONAL'], ['**No** CRITICAL issues found.', 'INFORMATIONAL'],
-      ['No [P1] issues remain.', 'INFORMATIONAL'], ['No CRITICAL regressions introduced by the fix.', 'INFORMATIONAL'],
-      ['There is nothing CRITICAL in the fix range.', 'INFORMATIONAL'], ['No CRITICAL — the fix is sound.', 'INFORMATIONAL'], ['Found no CRITICAL or HIGH regressions.', 'INFORMATIONAL'], ['No HIGH-risk changes.', 'INFORMATIONAL'],
-      ['Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.', 'CRITICAL'], ['No CRITICAL issues; served on localhost:3000.', 'INFORMATIONAL']];
+    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL', 'CRITICAL']);
+    const kept: Array<[string, string]> = [['Found no CRITICAL issues in the fix range.', 'CRITICAL'], ['This is not CRITICAL.', 'CRITICAL'],
+      ['I found zero Critical findings, and none High.', 'Critical'], ['The retry path is safe; without CRITICAL impact.', 'CRITICAL'], ['No new CRITICAL issues introduced by the fix.', 'CRITICAL'],
+      ['No remaining CRITICAL or HIGH findings.', 'CRITICAL'], ['**No** CRITICAL issues found.', 'CRITICAL'],
+      ['No [P1] issues remain.', 'P1'], ['No CRITICAL regressions introduced by the fix.', 'CRITICAL'],
+      ['There is nothing CRITICAL in the fix range.', 'CRITICAL'], ['No CRITICAL — the fix is sound.', 'CRITICAL'], ['Found no CRITICAL or HIGH regressions.', 'CRITICAL'], ['No HIGH-risk changes.', 'HIGH'],
+      ['Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.', 'CRITICAL'], ['No CRITICAL issues; served on localhost:3000.', 'CRITICAL']];
     for (const [prose, label] of kept) expect([prose, parseFindings('fix-check', prose).map(f => f.label)]).toEqual([prose, [label]]);
     for (const prose of ['Nothing CRITICAL or HIGH remains.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'Nothing at CRITICAL severity remains.', 'Nothing CRITICAL to report.',
       'No CRITICAL/HIGH findings.', 'No P0/P1 issues.', 'No CRITICAL, HIGH or MEDIUM issues.'])
@@ -374,7 +373,7 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('r', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.').map(f => f.label)).toEqual(['LOW', 'CRITICAL']);
     expect(parseFindings('outside-voice', '- a.ts:3 race. Severity: Low. Blocks: no\n  Separately, nothing CRITICAL about b.ts:9, but it leaks fds.\n  Severity: High').map(f => [f.label, f.raw])).toEqual([['Low', '- a.ts:3 race. Severity: Low. Blocks: no'], ['High', 'Separately, nothing CRITICAL about b.ts:9, but it leaks fds. | Severity: High']]);
     expect(parseFindings('r', '1. A CRITICAL race in queue.ts:78 that no lock covers').map(f => f.label)).toEqual(['CRITICAL']);
-    expect(parseFindings('r', '- A divide by zero CRITICAL bug in parse()').map(f => f.label)).toEqual(['INFORMATIONAL']);
+    expect(parseFindings('r', '- A divide by zero CRITICAL bug in parse()').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('adversarial-native', 'FIXABLE: no timeout on the fetch in a.ts:3').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
@@ -589,30 +588,29 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   rounds found losing its label under a negation-drop draft (an exception clause, a negated subject, "else"/"other", a blocker named in an
   //   earlier sentence), fix-check 5's table rows and INFORMATIONAL cases, and harness-evals #152's native (FIXABLE, medium) findings collect
   //   at their label (adversarial.md); fails_when=any of them collects nothing or a weaker label; why_new=GST-435's negation drops lost a
-  //   blocker in each round and were removed; seam=parseFindings; no_claim=that every kept line is a real finding (judge folds phantoms).
-  //   GST-2122: a kept line with no file:line and no finding structure collects at INFORMATIONAL, a note lead judgment may promote
+  //   blocker in each round and were removed; seam=parseFindings; no_claim=that every kept line is a real finding (judge folds phantoms)
   test('collect keeps every label at the strongest on its line: no wording drops a blocker', () => {
     const kept: Array<[string, string]> = [['| 1 | `CRITICAL` | High | token leak in log.ts:3 |', 'CRITICAL'], ['| log.ts:3 | `CRITICAL` | High | token leak |', 'CRITICAL'],
-      ['None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence', 'CRITICAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'INFORMATIONAL'],
+      ['None of the writes are atomic and are CRITICAL (queue.ts:78); High confidence', 'CRITICAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'CRITICAL'],
       ['| a.ts:3 | race | not CRITICAL, Low |', 'CRITICAL'], ['| a.ts:3 | maps `FIXABLE` to `CRITICAL` in a comment | Low |', 'CRITICAL'],
       ['Neither path checks auth so this is CRITICAL (a.ts:3)', 'CRITICAL'], ['None of the inputs are sanitized so this is CRITICAL (a.ts:3)', 'CRITICAL'],
       ['Nothing checks the token which is CRITICAL (a.ts:3)', 'CRITICAL'], ['No bounds check lets CRITICAL data leak (a.ts:3)', 'CRITICAL'],
-      ['No defects in parsing but the upload handler is CRITICAL.', 'INFORMATIONAL'], ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'],
+      ['No defects in parsing but the upload handler is CRITICAL.', 'CRITICAL'], ['1. Without auth this is CRITICAL (a.ts:3)', 'CRITICAL'],
       ['Not checking expiry at auth.ts:9 lets stale tokens through. Severity: High', 'High'], ["The lock isn't released on error (pool.ts:12): High", 'High'],
-      ['A retry storm could escalate up to CRITICAL.', 'INFORMATIONAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL'],
+      ['A retry storm could escalate up to CRITICAL.', 'CRITICAL'], ['Low: the parser now maps `FIXABLE` to `CRITICAL` in a comment (a.ts:3)', 'CRITICAL'],
       ['No input validation is CRITICAL (upload.ts:4)', 'CRITICAL'], ['No CSRF token is a CRITICAL gap at form.ts:12', 'CRITICAL'],
       ['Nothing escaped here is CRITICAL: stored XSS at view.ts:8', 'CRITICAL'], ['No timeout here is High (fetch.ts:3)', 'High'],
       ['Upgraded: not High, CRITICAL (a.ts:3)', 'CRITICAL'], ['Severity: not Medium, CRITICAL', 'CRITICAL'],
       ['Nothing else is CRITICAL except the token leak in log.ts:3.', 'CRITICAL'], ['No other issue is CRITICAL besides the auth bypass in auth.ts:9.', 'CRITICAL'],
       ['None of the other findings are CRITICAL, but the SQL injection in db.ts:12 is.', 'CRITICAL'],
-      ['Nothing here is CRITICAL apart from the unescaped query (db.ts:12).', 'CRITICAL'], ['Nothing else is CRITICAL except the token leak.', 'INFORMATIONAL'],
+      ['Nothing here is CRITICAL apart from the unescaped query (db.ts:12).', 'CRITICAL'], ['Nothing else is CRITICAL except the token leak.', 'CRITICAL'],
       ['Fix the token leak in log.ts:3 first; nothing else is CRITICAL.', 'CRITICAL'], ['The token leak in log.ts:3 blocks the merge. Nothing else is CRITICAL.', 'CRITICAL'],
-      ['1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.', 'INFORMATIONAL'], ['The token leak blocks the merge.\nNo other issue is CRITICAL.', 'INFORMATIONAL'],
+      ['1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.', 'CRITICAL'], ['The token leak blocks the merge.\nNo other issue is CRITICAL.', 'CRITICAL'],
       ['The token leak in log.ts:3 blocks the merge. None of the other findings are CRITICAL.', 'CRITICAL'],
       ['The token leak in log.ts:3 must block the merge. The other two are nits. Neither finding is CRITICAL.', 'CRITICAL'],
       ['Apart from the token leak in log.ts:3, I found two nits. Neither finding is CRITICAL.', 'CRITICAL'],
       ['Besides the auth bypass at auth.ts:9 there are three nits. None of the three findings are CRITICAL.', 'CRITICAL'],
-      ['The token leak in log.ts:3 must block the merge. Nothing here is CRITICAL.', 'CRITICAL'], ['No auth check guards the admin route, so nothing CRITICAL.', 'INFORMATIONAL']];
+      ['The token leak in log.ts:3 must block the merge. Nothing here is CRITICAL.', 'CRITICAL'], ['No auth check guards the admin route, so nothing CRITICAL.', 'CRITICAL']];
     for (const [line, label] of kept) expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, [label]]);
     const native = fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/harn15-152-p1-adversarial-native.txt'), 'utf8');
     expect(parseFindings('adversarial-native', native).map(f => f.label)).toEqual(['CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL']);
@@ -628,12 +626,11 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
   //   "Neither finding is CRITICAL.", HARN-15 ship2 p2's count summaries) is no finding at the label it denies (GST-435);
   //   fails_when=a phantom collects nothing or a weaker label, or a wholly no-defect sentence still collects its denied label;
   //   why_new=GST-435 removed the negation drop after it lost blockers in three review rounds, then narrowed it to whole summary
-  //   sentences; seam=parseFindings, collect and judge; no_claim=that a phantom is free (it stays CRITICAL in the judged set).
-  //   GST-2122: these phantoms name no file:line and use no finding format, so they now collect at INFORMATIONAL and judge accepts them
+  //   sentences; seam=parseFindings, collect and judge; no_claim=that a phantom is free (it stays CRITICAL in the judged set)
   test('known phantoms: closing summaries with a clause of their own keep their label; wholly no-defect sentences collect none', () => {
     const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
-    const replies: Array<[string, string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 'INFORMATIONAL', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 'INFORMATIONAL', 3],
-      ['fix-check', 'harn15-ship2-p2-fix-check.txt', 'INFORMATIONAL', 4], ['fix-check', 'harn15-152-p2-fix-check.txt', 'INFORMATIONAL', 2]];
+    const replies: Array<[string, string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 'CRITICAL', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 'INFORMATIONAL', 3],
+      ['fix-check', 'harn15-ship2-p2-fix-check.txt', 'INFORMATIONAL', 4], ['fix-check', 'harn15-152-p2-fix-check.txt', 'CRITICAL', 2]];
     for (const [reader, name, summary, json] of replies) {
       const found = parseFindings(reader, fixture(name));
       expect([name, found.map(f => f.label)]).toEqual([name, [summary, ...Array(json).fill('INFORMATIONAL')]]);
@@ -647,11 +644,11 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
     const phantom = collect(path.join(d, 'l2.jsonl'), 'fix-check', fixture('harn15-152-p2-fix-check.txt'), path.join(d, 'm2.jsonl'));
     fs.writeFileSync(path.join(d, 'j2.jsonl'), phantom.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
-    expect(judge(readJsonl<MergedLine>(path.join(d, 'm2.jsonl')), readJsonl(path.join(d, 'j2.jsonl'))).ok).toBe(true);
+    expect(judge(readJsonl<MergedLine>(path.join(d, 'm2.jsonl')), readJsonl(path.join(d, 'j2.jsonl'))).ok).toBe(false);
     for (const line of ['There are no CRITICAL findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
       'Neither finding is CRITICAL.', 'Nothing here is CRITICAL.', 'Neither fix is CRITICAL.', 'Nothing in this diff is CRITICAL.'])
       expect([line, parseFindings('outside-voice', line).map(f => f.label)]).toEqual([line, []]);
-    expect(parseFindings('outside-voice', 'This is not CRITICAL.').map(f => f.label)).toEqual(['INFORMATIONAL']);
+    expect(parseFindings('outside-voice', 'This is not CRITICAL.').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('outside-voice', 'Severity: Low (not High)').map(f => f.label)).toEqual(['Low']);
   });
 

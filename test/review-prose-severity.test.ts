@@ -22,7 +22,7 @@ function blockersOf(reader: string, output: string): string[] {
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 }
 
-describe('a severity word in reader prose is never a blocker (GST-2122)', () => {
+describe('a clean reply or a denial in reader prose is never a blocker (GST-2122)', () => {
   // Value: protects=a reader that returned NO FINDINGS counts no finding however its notes quote a severity: #4208's pass-2 red-team
   //   reply quoted "CRITICAL (the reviewer wrote …)" in a coverage bullet and collected as p2/red-team#1 CRITICAL, which judge may not
   //   drop, so gstack-review-plan printed NEXT: stop; fails_when=that reply collects any finding or the ledger counts a blocker;
@@ -33,11 +33,13 @@ describe('a severity word in reader prose is never a blocker (GST-2122)', () => 
     expect(blockersOf('red-team', out)).toEqual([]);
   });
 
-  // Value: protects=a fix-check sentence that names a severity with no finding structure (no JSON object, lead label, Severity or
-  //   Blocks field) is at most a note: alphaclaw #385/#386's "No fix introduced a CRITICAL defect" collected CRITICAL and stopped /ship;
-  //   fails_when=the sentence collects above INFORMATIONAL or counts a blocker, or a NO FINDINGS reply holding it collects anything;
-  //   why_new=two alphaclaw PRs stopped on it; seam=parseFindings, collect and ledgerBlockers; no_claim=that every prose shape is read
-  test("alphaclaw's fix-check sentence is a note, and nothing under NO FINDINGS", () => {
+  // Value: protects=a sentence that is wholly a denial that a change introduced a severity collects at no label: alphaclaw #385/#386's
+  //   "No fix introduced a CRITICAL defect" collected CRITICAL and stopped /ship; alone on its line it collects nothing, beside an
+  //   unlabelled sentence it stays on record at INFORMATIONAL (GST-435), and under NO FINDINGS it collects nothing; fails_when=any of
+  //   these collects above INFORMATIONAL or counts a blocker; why_new=two alphaclaw PRs stopped on it; seam=parseFindings, collect and
+  //   ledgerBlockers; no_claim=that every denial spelling is read
+  test("alphaclaw's fix-check sentence is no blocker", () => {
+    expect(labels('fix-check', fixCheck(ALPHACLAW))).toEqual([]);
     const prose = fixCheck(`I re-read each fix against its finding and the tests that cover it. ${ALPHACLAW}`);
     expect(labels('fix-check', prose)).toEqual(['INFORMATIONAL']);
     expect(blockersOf('fix-check', prose)).toEqual([]);
@@ -89,15 +91,38 @@ describe('the structured finding formats still collect at their label (GST-2122 
     for (const c of cases) expect([c, labels('red-team', fixCheck(c))]).toEqual([c, ['CRITICAL']]);
   });
 
-  // Value: protects=the bypass is bounded: prose that calls a defect CRITICAL with no finding structure and no file:line (#4075's
-  //   fix-check "Neither fix clears the P0.") stays on record as an INFORMATIONAL note lead judgment may promote, never dropped, and
-  //   naming a file:line keeps the label; fails_when=the unlocated line collects nothing or CRITICAL, or the located one collects lower;
-  //   why_new=the narrowing's one bypass, pinned; seam=parseFindings; no_claim=that an unlocated prose defect blocks
-  test('an unstructured prose defect stays on record as a note; a located one keeps its label', () => {
+  // Value: protects=outside a NO FINDINGS reply prose severity collects as before this change (fail-closed): #4075's surviving fix-check
+  //   blocker "Neither fix clears the P0." still collects P0 and counts a blocker; fails_when=it collects lower or counts none;
+  //   why_new=the Captain's narrowing of GST-2122 (a real prose blocker must not drop to a note); seam=parseFindings, collect and
+  //   ledgerBlockers; no_claim=that every prose blocker is real (judge folds phantoms)
+  test("#4075's prose blocker still blocks", () => {
+    const out = fixCheck('Neither fix clears the P0.');
+    expect(labels('fix-check', out)).toEqual(['P0']);
+    expect(blockersOf('fix-check', out)).toEqual(['fix-check#1']);
+  });
+
+  // Value: protects=the bypass is bounded to clean replies: prose with no finding structure collects at its label in a reply with no
+  //   NO FINDINGS marker and nothing in one that has it; fails_when=the unmarked reply collects lower or the marked one collects
+  //   anything; why_new=the NO FINDINGS rule's one bypass, pinned; seam=parseFindings; no_claim=that unstructured prose under NO
+  //   FINDINGS is never a real defect
+  test('unstructured prose keeps its label unless the reply says NO FINDINGS', () => {
     for (const reader of ['red-team', 'fix-check', 'outside-voice']) {
-      expect([reader, labels(reader, fixCheck('Neither fix clears the P0.'))]).toEqual([reader, ['INFORMATIONAL']]);
-      expect([reader, labels(reader, fixCheck('The handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, ['INFORMATIONAL']]);
-      expect([reader, labels(reader, fixCheck('The handler at api.ts:9 skips the auth check, which is CRITICAL.'))]).toEqual([reader, ['CRITICAL']]);
+      expect([reader, labels(reader, fixCheck('The handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, ['CRITICAL']]);
+      expect([reader, labels(reader, fixCheck('NO FINDINGS\n\nThe handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, []]);
+    }
+  });
+
+  // Value: protects=a bold-led coverage line that only denies a severity collects nothing, a numbered heading included, under NO
+  //   FINDINGS or not (the readers' negative controls on #4218 pass 2, adversarial-native#2 and red-team#1), while a bold-led line that
+  //   rates a defect keeps its label; fails_when=a denial collects anything or the rated line collects lower; why_new=numbered headings
+  //   counted as structure and brought the GST-2122 stop back for "**1. Coverage:** no fix introduced a CRITICAL defect."; seam=parseFindings;
+  //   no_claim=that every denial spelling is read
+  test('a denial after a bold lead collects nothing, headings included', () => {
+    for (const reader of ['adversarial-native', 'red-team', 'fix-check']) {
+      expect([reader, labels(reader, fixCheck('**1. Coverage:** no fix introduced a CRITICAL defect.'))]).toEqual([reader, []]);
+      expect([reader, labels(reader, fixCheck('NO FINDINGS\n\n**1. Coverage:** no fix introduced a CRITICAL defect.'))]).toEqual([reader, []]);
+      expect([reader, labels(reader, fixCheck('- **Callers:** none of the fixes introduced a High regression.'))]).toEqual([reader, []]);
+      expect([reader, labels(reader, fixCheck('- **Auth:** the token check at auth.ts:9 is CRITICAL and missing.'))]).toEqual([reader, ['CRITICAL']]);
     }
   });
 

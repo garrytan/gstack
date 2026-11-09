@@ -128,7 +128,7 @@ const SEV = `[*\`]*(?:CRITICAL|INFORMATIONAL|Critical|Informational|High|HIGH|Me
 const SEV_LIST = `${SEV}(?:\\s*(?:,|/|\\bor\\b|\\band\\b|\\bnor\\b)\\s*${SEV})*(?![A-Za-z0-9])`;
 const NOUN = '(?:issues?|findings?|defects?|bugs?|problems?|regressions?|blockers?|concerns?|items?|notes?|ones?)';
 const RATES = rates(SEV_LIST, '(?:severity|level|floor|bar|threshold)');
-const DENY = `(?<![A-Za-z])(?:(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|(?:(?:that|which)\\s+)?${RATES})`
+const DENY = `(?<![A-Za-z])(?:(?:no|neither|none\\s+of\\s+(?:the|these|them|those))(?:\\s+[A-Za-z]+){1,2}?\\s+(?:introduced|introduces|caused|causes|created|creates|added|adds|left|leaves)\\s+(?:a|an|any)\\s+${SEV_LIST}\\s+${NOUN}|(?:no|zero)\\s+${SEV_LIST}(?:\\s+${NOUN})?|(?:no|zero)\\s+${NOUN}\\s+(?:(?:that\\s+is|that's|that\\s+are|which\\s+is|which\\s+are|at|rated)\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|(?:(?:that|which)\\s+)?${RATES})`
   + `|nothing\\s+(?:at\\s+)?${SEV_LIST}(?:\\s+(?:severity|level))?|there(?:'s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+(?:still\\s+)?(?:no|zero|nothing(?:\\s+at)?)\\s+${SEV_LIST}(?:\\s+${NOUN})?`
   + `|(?:nothing|none\\s+of\\s+(?:them|these|those|the\\s+(?:findings|fixes|notes|issues|changes))|neither(?:\\s+(?:finding|fix|note|issue|change|one)|\\s+of\\s+(?:them|these|the\\s+(?:findings|fixes|notes))))`
   + `(?:\\s+(?:here|in\\s+(?:this|the)\\s+(?:diff|change|fix|patch|range|PR)))?\\s+(?:(?:is|are|was|were)\\s+(?:at\\s+)?${SEV_LIST}|${RATES}))`;
@@ -183,9 +183,9 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
- * A finding with no structure (JSON, lead label, label heading, numbered finding heading, Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE,
- * or a file:line on it or on the line it runs on from) is prose that only mentions a severity (GST-2122): it collects at INFORMATIONAL at
- * most, and nothing when the reply says NO FINDINGS.
+ * In a reply that says NO FINDINGS (GST-2122) a finding with no structure (JSON, lead label, label heading, numbered finding heading,
+ * Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE, or a file:line on it or on the line it runs on from) collects
+ * nothing; elsewhere it collects as above. A line led by a bold, unlabelled lead ("**1. Coverage:** …") is read for a closing summary after it.
  */
 function parseLabelled(reader: string, output: string, fixableRaises: boolean): Array<{ label: string; raw: string; shaped: boolean }> {
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; section?: boolean; context?: string };
@@ -205,7 +205,8 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string, continued: boolean) => {
     if (role === 'adversarial-native' && quietSummary(t)) return 'FIXABLE';
-    const summary = continued ? undefined : closingSummary(t);
+    const led = /^(?:(?:[-*+]|\d+[.)])\s+)?\*\*([^*]+?)(?::\*\*|\*\*:)\s+(.+)$/.exec(t);
+    const summary = continued ? undefined : closingSummary(led && !ANY_LABEL.test(led[1]!) ? led[2]! : t);
     if (summary) return strongestOf([...summary.labels.map(named), summary.prose ? 'INFORMATIONAL' : undefined]);
     const field = fieldOf(t);
     if (field === undefined) return strongest(t);
@@ -302,8 +303,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
 export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
   const clean = output.split('\n').some(l => /^NO FINDINGS\.?$/.test(l.trim()));
   return parseLabelled(reader, output, fixableRaises).flatMap(({ label, raw, shaped }) => {
-    if (shaped) return [{ label, raw }];
-    return clean ? [] : [{ label: (rank(label) ?? 0) > 2 ? 'INFORMATIONAL' : label, raw }];
+    return shaped || !clean ? [{ label, raw }] : [];
   });
 }
 

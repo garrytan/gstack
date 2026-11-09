@@ -50,7 +50,7 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
 
   test('a count summary keeps the label it counts and drops only the one it denies', () => {
     expect(labels('I found three INFORMATIONAL issues and nothing CRITICAL.')).toEqual(['INFORMATIONAL']);
-    expect(labels('I found one High issue and nothing CRITICAL.')).toEqual(['INFORMATIONAL']);
+    expect(labels('I found one High issue and nothing CRITICAL.')).toEqual(['High']);
     expect(labels('None of the fixes blocks landing; I found four INFORMATIONAL defects and no CRITICAL.')).toEqual(['INFORMATIONAL']);
   });
 
@@ -61,7 +61,7 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     for (const join of [' and ', ' or ', ', ', '/']) {
       const line = 'No ' + Array(40).fill('CRITICAL').join(join) + ' x';
       const t = performance.now();
-      expect(labels(line)).toEqual(['INFORMATIONAL']);
+      expect(labels(line)).toEqual(['CRITICAL']);
       expect(performance.now() - t).toBeLessThan(250);
     }
   });
@@ -76,39 +76,35 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
   // Value: protects=a real blocker keeps collecting at its label: a sentence that names a file:line or a defect, an exception clause
   //   (GST-796), an "other"/"else" quantifier that implies a blocker named elsewhere, a list item, heading, bold opener, field or
   //   Blocks: yes, or any second labelled sentence that is not itself a denial; fails_when=any of them collects nothing or a weaker
-  //   label; why_new=GST-766's negation drop lost real blockers and was reverted; seam=parseFindings; no_claim=that each is a real finding.
-  //   GST-2122: a severity word only rates a finding through its structure (JSON, lead label, label heading, Severity or Blocks: yes
-  //   field) or a file:line on the line or the line it runs on from; a named defect, quantifier or exception with neither still
-  //   collects, at INFORMATIONAL, as a note lead judgment may promote
+  //   label; why_new=GST-766's negation drop lost real blockers and was reverted; seam=parseFindings; no_claim=that each is a real finding
   test('negative controls: a locus, a named defect, an exception, a quantifier or a structured line keeps its label', () => {
     const kept: Array<[string, string]> = [['The token leak in log.ts:3 is CRITICAL.', 'CRITICAL'], ['I found nothing CRITICAL in auth.ts:9.', 'CRITICAL'],
       ['No CRITICAL issues (a.ts:3).', 'CRITICAL'], ['I found nothing CRITICAL. The token leak in log.ts:3 is CRITICAL.', 'CRITICAL'],
-      ['I found nothing CRITICAL. The retry loop never ends, which is High.', 'INFORMATIONAL'], ['No CRITICAL issues except the token leak in log.ts:3', 'CRITICAL'],
-      ['There is no CRITICAL issue other than the race in a.ts:3.', 'CRITICAL'], ['Nothing CRITICAL apart from the unescaped query.', 'INFORMATIONAL'],
-      ['No new CRITICAL findings, but the race still blocks.', 'INFORMATIONAL'], ['I found no defect that is CRITICAL, but the retry loop never ends.', 'INFORMATIONAL'],
-      ['No auth check guards the admin route, so nothing CRITICAL.', 'INFORMATIONAL'], ['There is no CRITICAL lock around the refund write, so two workers double-pay.', 'INFORMATIONAL'],
-      ['No input validation is CRITICAL.', 'INFORMATIONAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'INFORMATIONAL'], ['Nothing else is CRITICAL.', 'INFORMATIONAL'],
-      ['No other issue is CRITICAL.', 'INFORMATIONAL'], ['No remaining finding is CRITICAL.', 'INFORMATIONAL'], ['None of the blockers are CRITICAL.', 'INFORMATIONAL'], ['This is not CRITICAL.', 'INFORMATIONAL'],
-      ['Otherwise nothing CRITICAL.', 'INFORMATIONAL'], ['- No CRITICAL issues.', 'INFORMATIONAL'], ['1. No CRITICAL issues.', 'INFORMATIONAL'], ['**No CRITICAL issues.**', 'INFORMATIONAL'],
+      ['I found nothing CRITICAL. The retry loop never ends, which is High.', 'CRITICAL'], ['No CRITICAL issues except the token leak in log.ts:3', 'CRITICAL'],
+      ['There is no CRITICAL issue other than the race in a.ts:3.', 'CRITICAL'], ['Nothing CRITICAL apart from the unescaped query.', 'CRITICAL'],
+      ['No new CRITICAL findings, but the race still blocks.', 'CRITICAL'], ['I found no defect that is CRITICAL, but the retry loop never ends.', 'CRITICAL'],
+      ['No auth check guards the admin route, so nothing CRITICAL.', 'CRITICAL'], ['There is no CRITICAL lock around the refund write, so two workers double-pay.', 'CRITICAL'],
+      ['No input validation is CRITICAL.', 'CRITICAL'], ['Nothing guards the write path the failure of which is CRITICAL', 'CRITICAL'], ['Nothing else is CRITICAL.', 'CRITICAL'],
+      ['No other issue is CRITICAL.', 'CRITICAL'], ['No remaining finding is CRITICAL.', 'CRITICAL'], ['None of the blockers are CRITICAL.', 'CRITICAL'], ['This is not CRITICAL.', 'CRITICAL'],
+      ['Otherwise nothing CRITICAL.', 'CRITICAL'], ['- No CRITICAL issues.', 'CRITICAL'], ['1. No CRITICAL issues.', 'CRITICAL'], ['**No CRITICAL issues.**', 'CRITICAL'],
       ['CRITICAL: none of the writes are atomic.', 'CRITICAL'], ['No CRITICAL issues. Severity: High', 'High'], ['No CRITICAL issues. Blocks: yes', 'CRITICAL'],
-      ['{"severity":"CRITICAL","summary":"I found nothing CRITICAL"}', 'CRITICAL'], ['No CRITICAL — the upload handler drops auth.', 'INFORMATIONAL']];
+      ['{"severity":"CRITICAL","summary":"I found nothing CRITICAL"}', 'CRITICAL'], ['No CRITICAL — the upload handler drops auth.', 'CRITICAL']];
     for (const [line, label] of kept) expect([line, labels(line)]).toEqual([line, [label]]);
-    expect(labels('1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.')).toEqual(['INFORMATIONAL']);
-    expect(labels('The token leak blocks the merge.\nNo other issue is CRITICAL.')).toEqual(['INFORMATIONAL']);
+    expect(labels('1. Token leak in log.ts:3 must be fixed before landing.\n\nNothing else is CRITICAL.')).toEqual(['CRITICAL']);
+    expect(labels('The token leak blocks the merge.\nNo other issue is CRITICAL.')).toEqual(['CRITICAL']);
     expect(labels('## CRITICAL\n- No CRITICAL issues in the fix.')).toEqual(['CRITICAL']);
     expect(labels('I found nothing CRITICAL. Here is what I checked:\n- **Auth:** the token check at auth.ts:9 is CRITICAL and missing.')).toEqual(['INFORMATIONAL', 'CRITICAL']);
     expect(labels('No FIXABLE findings.', 'adversarial-native')).toEqual(['CRITICAL']);
     expect(labels('Apart from the SQL injection in db.ts:40, I found\nnothing CRITICAL.')).toEqual(['CRITICAL']);
     for (const wrap of ['Apart from the SQL injection in db.ts:40 —\nnothing CRITICAL.\nRecommendation: request changes because the SQL injection exposes the database',
-      'Apart from the SQL injection in db.ts:40\nI found nothing CRITICAL.', 'Apart from the SQL injection in `db.ts:40`\nnothing CRITICAL.',
+      'Apart from the SQL injection in db.ts:40\nI found nothing CRITICAL.', 'Apart from the SQL injection in `db.ts:40`\nnothing CRITICAL.', 'The guard was removed (see auth)\nno CRITICAL issue.',
       'Apart from the SQL injection in db.ts:40, the rest is fine.\nI found nothing CRITICAL.', '1. auth.ts:3 LOW: log line too verbose\nNo CRITICAL issues remain.'])
       expect([wrap, labels(wrap).at(-1)]).toEqual([wrap, 'CRITICAL']);
-    expect(labels('The guard was removed (see auth)\nno CRITICAL issue.')).toEqual(['INFORMATIONAL']);
     expect(labels('The rest of the diff is fine.\nI found nothing CRITICAL.')).toEqual([]);
-    expect(labels('The webhook check is gone and I found\nno CRITICAL issues.')).toEqual(['INFORMATIONAL']);
-    expect(labels('I found nothing CRITICAL and two high issues.')).toEqual(['INFORMATIONAL']);
+    expect(labels('The webhook check is gone and I found\nno CRITICAL issues.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing CRITICAL and two high issues.')).toEqual(['CRITICAL']);
     expect(labels('## Summary\nI found nothing CRITICAL.')).toEqual([]);
-    expect(labels('High risk in the retry path. No CRITICAL issues.')).toEqual(['INFORMATIONAL']);
+    expect(labels('High risk in the retry path. No CRITICAL issues.')).toEqual(['CRITICAL']);
     expect(summaryCandidate('No auth check guards the admin route, so nothing CRITICAL.')).toBe(true);
   });
 });

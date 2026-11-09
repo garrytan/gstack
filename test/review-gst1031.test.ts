@@ -52,13 +52,10 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
   //   judge lets lead judgment lower with a reason (recorded as dismissed) so it stops counting as a blocker, while it still collects at
   //   its label; fails_when=GSTA-212's "nothing is CRITICAL" or GST-986 r2's "covers the CRITICAL fix" can only be cleared by a
   //   hand-edited row, a candidate lowered without a reason passes judge, or GST-766's exception-clause line becomes a candidate;
-  //   why_new=both stopped /ship with NEXT: stop; seam=collect, judge, ledgerBlockers; no_claim=that a dismissal is right (it is on record).
-  //   GST-2122: GSTA-212's sentence has no file:line or finding structure, so it collects at INFORMATIONAL and needs no dismissal
+  //   why_new=both stopped /ship with NEXT: stop; seam=collect, judge, ledgerBlockers; no_claim=that a dismissal is right (it is on record)
   const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031s-'));
   test('the negated and the plain summary sentence are candidates; dismissed with a reason they leave the blocker count', () => {
-    const plain = 'None of these would fail a test or let a real consumer through on input the fix was about, so nothing is CRITICAL.\n';
-    expect(parseFindings('fix-check', plain).map(f => f.label)).toEqual(['INFORMATIONAL']);
-    for (const [reader, output, id] of [['fix-check', fixture('gst-1031-fix-check.txt'), 'fix-check#4']]) {
+    for (const [reader, output, id] of [['fix-check', 'None of these would fail a test or let a real consumer through on input the fix was about, so nothing is CRITICAL.\n', 'fix-check#1'], ['fix-check', fixture('gst-1031-fix-check.txt'), 'fix-check#4']]) {
       const d = dir();
       const ledger = path.join(d, 'l.jsonl');
       const merged = path.join(d, 'm.jsonl');
