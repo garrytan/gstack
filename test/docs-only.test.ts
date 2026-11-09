@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyDocsOnly, DOCS_READER_EXEMPT, DOCS_READER_TESTS, DocsOnlyError, referencesTo } from '../lib/docs-only';
-import { brokenLinks } from '../lib/doc-links';
+import { addedLines, brokenLinks } from '../lib/doc-links';
 import { mergedChecksFor } from '../lib/land-docs-only';
 import { landPolicyErrors } from '../lib/land-merged-checks';
 import { docsOnlyLane } from '../lib/pregate/docs-only-lane';
@@ -173,6 +173,23 @@ describe('link check', () => {
       expect(brokenLinks(repo, ['docs/a.md']).map(b => b.target)).toEqual(['missing.md', '#nope']);
       expect(brokenLinks(repo, ['docs/a.md'], new Map([['docs/a.md', new Set([4])]]))).toEqual([]);
     } finally { fs.rmSync(path.join(repo, 'docs/a.md')); }
+  });
+
+  test('added lines cover quoted and spaced names and untracked files, an undecodable anchor is broken, and an unknown base throws', () => {
+    const names = ['docs/café.md', 'docs/with space.md'];
+    try {
+      for (const n of names) put(n, '# T\n\n[gone](never-there.md) [pct](guide.md#100%)\n');
+      const added = addedLines(repo, 'seed', names);
+      expect(names.map(n => [...(added.get(n) ?? [])])).toEqual([[1, 2, 3, 4], [1, 2, 3, 4]]);
+      expect(brokenLinks(repo, names, added).map(b => `${b.file}:${b.target}:${b.reason}`)).toEqual(names.flatMap(n => [`${n}:never-there.md:no such file`, `${n}:guide.md#100%:undecodable anchor`]));
+      fs.appendFileSync(path.join(repo, 'docs/guide.md'), '[late](nope-late.md)\n');
+      const lines = fs.readFileSync(path.join(repo, 'docs/guide.md'), 'utf8').split('\n').length - 1;
+      expect([...(addedLines(repo, 'seed', ['docs/guide.md']).get('docs/guide.md') ?? [])]).toEqual([lines]);
+      expect(() => addedLines(repo, 'no-such-ref', ['docs/guide.md'])).toThrow('unknown revision');
+    } finally {
+      git('checkout', '-q', '--', 'docs/guide.md');
+      for (const n of names) fs.rmSync(path.join(repo, n), { force: true });
+    }
   });
 });
 

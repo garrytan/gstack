@@ -60,27 +60,42 @@ export function brokenLinks(root: string, files: readonly string[], added?: Read
         catch { broken.push({ file, line: i + 1, target, reason: 'undecodable path' }); continue; }
         if (path.relative(root, dest).startsWith('..')) { broken.push({ file, line: i + 1, target, reason: 'points outside the repository' }); continue; }
         if (!fs.existsSync(dest)) { broken.push({ file, line: i + 1, target, reason: 'no such file' }); continue; }
-        if (anchor && /\.md$/i.test(dest) && fs.statSync(dest).isFile() && !anchorsAt(dest).has(decodeURIComponent(anchor).toLowerCase()) && !anchorsAt(dest).has(anchor))
-          broken.push({ file, line: i + 1, target, reason: `no heading or <a id> for #${anchor}` });
+        if (!anchor || !/\.md$/i.test(dest) || !fs.statSync(dest).isFile()) continue;
+        let wanted: string;
+        try { wanted = decodeURIComponent(anchor).toLowerCase(); }
+        catch { broken.push({ file, line: i + 1, target, reason: 'undecodable anchor' }); continue; }
+        if (!anchorsAt(dest).has(wanted) && !anchorsAt(dest).has(anchor)) broken.push({ file, line: i + 1, target, reason: `no heading or <a id> for #${anchor}` });
       }
     });
   }
   return broken;
 }
 
-/** 1-based lines each file added since `base` (diffed against the working tree). Throws when git fails. */
+/**
+ * 1-based lines each file added since `base` (diffed against the working tree). A file absent at `base`, tracked or
+ * not, is all added. Each file is diffed on its own, so no path is parsed back out of patch headers (quoted, prefixed
+ * or tab-suffixed names). Throws when `base` does not resolve or git fails.
+ */
 export function addedLines(root: string, base: string, files: readonly string[]): Map<string, Set<number>> {
   const added = new Map<string, Set<number>>();
+  const fail = (what: string, r: ReturnType<typeof spawnSync>) => new Error(`${what}: ${(String(r.stderr ?? '') || r.error?.message || '').trim().split('\n')[0]}`);
   if (!files.length) return added;
-  const d = spawnSync('git', ['diff', '-U0', '--no-ext-diff', '--no-color', base, '--', ...files], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
-  if (d.status !== 0) throw new Error(`git diff ${base}: ${(d.stderr || d.error?.message || '').trim().split('\n')[0]}`);
-  let file = '';
-  for (const line of d.stdout.split('\n')) {
-    const f = /^\+\+\+ b\/(.+)$/.exec(line);
-    if (f) { file = f[1]!; added.set(file, new Set()); continue; }
-    const h = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (h) for (let n = 0, start = Number(h[1]); n < Number(h[2] ?? 1); n++) added.get(file)?.add(start + n);
+  const ref = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${base}^{commit}`], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  if (ref.status !== 0) throw fail(`git diff ${base}: unknown revision`, ref);
+  for (const f of files) {
+    const lines = new Set<number>();
+    added.set(f, lines);
+    if (spawnSync('git', ['cat-file', '-e', `${base}:${f}`], { cwd: root, timeout: 30_000 }).status !== 0) {
+      const abs = path.join(root, f);
+      if (fs.existsSync(abs)) fs.readFileSync(abs, 'utf8').split('\n').forEach((_, i) => lines.add(i + 1));
+      continue;
+    }
+    const d = spawnSync('git', ['diff', '-U0', '--no-ext-diff', '--no-color', base, '--', f], { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (d.status !== 0) throw fail(`git diff ${base}`, d);
+    for (const line of d.stdout.split('\n')) {
+      const h = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (h) for (let n = 0, start = Number(h[1]); n < Number(h[2] ?? 1); n++) lines.add(start + n);
+    }
   }
-  for (const f of files) if (!added.has(f) && !spawnSync('git', ['cat-file', '-e', `${base}:${f}`], { cwd: root, timeout: 30_000 }).status) added.set(f, new Set());
   return added;
 }
