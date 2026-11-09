@@ -1778,8 +1778,16 @@ those, each with its scope and its reason:
 - In Python and Dart source, a parameter or field annotation
   (`session: HttpSession,`) and a dict entry or Dart named argument that reads
   a name (`"password": request.password`) are code, not credentials, as they
-  are in TypeScript (#3630). Python's keyword form (`password=request.password`)
-  still reports. The same line inside a `"""` docstring, any other string or
+  are in TypeScript (#3630). Python's keyword form with a trailing comma
+  (`password=request.password,`) still reports. A plain `=` assignment whose
+  whole right-hand side is an unquoted dotted chain of names in snake_case,
+  camelCase, PascalCase or CONSTANT_CASE (`session = self.client.session`,
+  `token = request.auth`) is an attribute read, not a credential (#4209). The
+  check reads one line, so a last keyword argument alone on its line
+  (`password=request.password` with no comma) passes too. A quoted value, a
+  bare name, a segment of any other shape, anything after the value on the
+  line except a `;` or a comment, and every file that isn't Python or Dart
+  still report. The same line inside a `"""` docstring, any other string or
   a Dart `/* */` comment is text and still reports; allowlist it by its value.
   Code inside a Python f-string or t-string `{…}` field, or a non-raw Dart
   string's `${…}`, is read as code, and its nested strings and quotes do not
