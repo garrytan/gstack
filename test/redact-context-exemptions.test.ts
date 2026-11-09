@@ -308,6 +308,42 @@ describe("pii.ip_public: a four-part version needs a version declaration (#2784)
   );
 });
 
+describe("pii.ip_public: a four-part version beside a VERSION file or a semver is not an address (GST-2047)", () => {
+  table(
+    "pii.ip_public",
+    "MEDIUM",
+    [
+      'fs.writeFileSync(path.join(dir, "VERSION"), "1.98.0.0\\n");',
+      "echo 1.98.0.0 > VERSION",
+      "cat pkg/VERSION -> 1.98.0.0",
+      "write('1.98.0.0', 'VERSION')",
+      "bumps 1.98.0.0 (1.98.0 on npm)",
+      "from v1.97.2 to 1.98.0.0",
+      "1.98.0.0 / 1.98.0-rc.1",
+    ],
+    [
+      "resolver = 8.8.8.8",
+      'fs.writeFileSync(path.join(dir, "HOSTS"), "8.8.8.8\\n");',
+      "VERSION bumped; the DNS server 8.8.8.8 answered",
+      "8.8.8.8 is in VERSION notes",
+      "echo 8.8.8.8 > VERSIONS",
+      "cat MY_VERSION_HOST 8.8.8.8",
+      "node 22.11.0 talks to 8.8.8.8 over the egress proxy",
+      "1.1.1.1, 8.8.8.8",
+    ],
+  );
+
+  test("a VERSION file holding only a quad is a version; the same quad in any other file, or in a VERSION file with other lines, still reports", () => {
+    const ids = (text: string, sourcePath: string) => scan(text, { repoVisibility: "private", sourcePath }).findings.map((f) => f.id);
+    expect(ids("1.98.0.0\n", "VERSION")).not.toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "/repo/pkg/VERSION")).not.toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "HOSTS")).toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "NOT_VERSION")).toContain("pii.ip_public");
+    expect(ids("host 8.8.8.8\n", "VERSION")).toContain("pii.ip_public");
+    expect(scan("1.98.0.0\nupstream 8.8.8.8\n", { repoVisibility: "private", sourcePath: "VERSION" }).findings.filter((f) => f.id === "pii.ip_public").map((f) => f.line)).toEqual([1, 2]);
+  });
+});
+
 describe("pii.ip_public: a four-part version gstack names is not an address (GST-1204)", () => {
   table(
     "pii.ip_public",

@@ -348,6 +348,24 @@ describe("gstack-post owns the redaction scan", () => {
     }
   });
 
+  // Value: protects=a LOW privacy finding (a home path) is a stderr note and never holds a post, while a credential still refuses even inside a
+  //   writer-rendered receipt block, whose exemption covers only its run ids (GST-2047); fails_when=a home path needs --confirm, or a key in a
+  //   receipt field posts or only asks for confirmation; why_new=no test pinned LOW as non-holding or a key inside a generated block; seam=fake
+  //   run; no_claim=real gh
+  test("a LOW home path only notes; a key still refuses, inside a writer-rendered receipt too", () => {
+    const low = fakeEnv({ files: { "/b": "logs are under /home/garry/work/run.log\n" }, visibility: "public" });
+    expect(run(["pr-body", "12", "--replace", "--body-file", "/b"], low)).toBe(EXIT.posted);
+    expect(low.stderr()).toContain("note: LOW RULE: internal.user_path LINE: 1 PART: body");
+    const receipt = (extra: Partial<ShipReceipt>) => placeReceipt("## What changed\n\nOne fix.\n", orderReceipt({ schema_version: 1, pr: 12, head: "68b1d0560a3f4e2b9c7d1e5f8a2b3c4d5e6f7a8b", base: "main", ci_carried: [{ lane: "free-tests", run: 42574388503, attempt: 1, tree: "9f2c4e1a7b3d" }], ...extra }));
+    for (const body of [receipt({ thread: AWS }), receipt({ flaky_exception: [{ lane: "free-tests", runs: [AWS], cases: ["t"], grant: "a-1", by: "Garry" }] })]) {
+      expect(extractReceipt(body)).toMatchObject({ found: true, errors: [] });
+      const f = fakeEnv({ files: { "/b": body }, visibility: "public" });
+      expect(run(["pr-body", "12", "--replace", "--body-file", "/b"], f)).toBe(EXIT.refused);
+      expect(f.stdout()).toMatch(/^HIGH RULE: aws\./m);
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
   test("the title is scanned too, and the pusher's own email is not a finding", () => {
     const f = fakeEnv({ files: { "/t": "v1 fix for jane.roe@acme-corp.io", "/b": "body" } });
     expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], f)).toBe(EXIT.confirm);

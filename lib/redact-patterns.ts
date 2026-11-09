@@ -474,6 +474,29 @@ export function isDeclaredVersion(match: RegExpExecArray): boolean {
   return declaredAt(match.input ?? "", start, end, true);
 }
 
+/**
+ * A quad written to or read from a VERSION file, or set beside a semver (GST-2047): the file's name, alone or ending a
+ * path, or a three-part version (`v1.97.2`, `1.98.0-rc.1`) within a short gap of the quad on the same line
+ * (`path.join(dir, "VERSION"), "1.98.0.0\n"`, `echo 1.98.0.0 > VERSION`, `v1.97.2 to 1.98.0.0`). The gap holds only
+ * quotes, brackets, commas, arrows, spaces, a `\n` escape or the word `to`, so a quad set apart by any other word
+ * (`VERSION bumped; the DNS server 8.8.8.8`, `node 22.11.0 talks to 8.8.8.8`) still reports, and so does a quad
+ * next to another quad. A file named VERSION that holds only the quad is one too; a VERSION file with any other line is
+ * not a whole-file version (#2856), so each of its quads reports.
+ */
+const VERSION_GAP = String.raw`(?:[^A-Za-z0-9\n]|\\[nrt]|\bto\b){0,12}`;
+const VERSION_NEIGHBOUR = String.raw`(?:(?<![\w.-])(?:[\w.-]+\/)*VERSION(?![\w.-])|(?<![\w.])v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?(?![\w.-]))`;
+const VERSION_NEIGHBOUR_BEFORE = new RegExp(VERSION_NEIGHBOUR + VERSION_GAP + "$");
+const VERSION_NEIGHBOUR_AFTER = new RegExp("^" + VERSION_GAP + VERSION_NEIGHBOUR);
+export function isVersionContext(match: RegExpExecArray, sourcePath?: string): boolean {
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  const lineEnd = input.indexOf("\n", end);
+  const line = input.slice(lineStart, lineEnd < 0 ? input.length : lineEnd);
+  if (sourcePath && /(?:^|[\\/])VERSION$/.test(sourcePath) && input.trim() === input.slice(start, end)) return true;
+  return VERSION_NEIGHBOUR_BEFORE.test(input.slice(Math.max(lineStart, start - 80), start)) || VERSION_NEIGHBOUR_AFTER.test(line.slice(end - lineStart, end - lineStart + 80));
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -1630,7 +1653,7 @@ export const PATTERNS: RedactPattern[] = [
     category: "pii",
     description: "Public IPv4 address",
     regex: /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/,
-    validate: (span, match) => isPublicIPv4(span) && !isDeclaredVersion(match),
+    validate: (span, match, opts) => isPublicIPv4(span) && !isDeclaredVersion(match) && !isVersionContext(match, opts?.sourcePath),
   },
   {
     id: "pii.wallet",

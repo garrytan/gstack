@@ -2967,7 +2967,12 @@ release of this repository (or the post ran outside the checkout).
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
 A gstack release named right after `gstack` (`gstack 1.94.4.0`, the install
 check's `gstack: ok 1.94.4.0 for=ship`) is exempt too, but only for majors 0 to 2.
-MEDIUM findings do not block pushes.
+So is a quad a few quotes, brackets, arrows or spaces (or the word `to`) from a
+`VERSION` file name or path, or from a three-part version, on the same line
+(`path.join(dir, "VERSION"), "1.98.0.0\n"`, `echo 1.98.0.0 > VERSION`,
+`v1.97.2 to 1.98.0.0`), and a `VERSION` file that holds only the quad (GST-2047).
+Any other word between them, or another quad as the only neighbour, keeps the
+finding. MEDIUM findings do not block pushes.
 
 <a id="redact-run-id-as-phone"></a>
 ### `pii.phone.e164` MEDIUM on a receipt token or a GitHub Actions run id
