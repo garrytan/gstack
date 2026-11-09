@@ -8,6 +8,7 @@
  *   gstack-decision-log --supersede <decision-id>
  *   gstack-decision-log --redact <decision-id>
  *   gstack-decision-log --compact
+ *   gstack-decision-log --rebuild-snapshot <project-slug>
  *
  * Event-sourced (lib/gstack-decision): every call appends an event and refreshes the
  * bounded active snapshot. NON-INTERACTIVE — never prompts (agents/skills call this;
@@ -16,6 +17,7 @@
  */
 
 import { dirname } from "path";
+import { existsSync } from "fs";
 import { mkdirpSync } from "../lib/fs-utils";
 import { spawnSync } from "child_process";
 import {
@@ -39,6 +41,7 @@ const usage = `Usage:
   gstack-decision-log --supersede <decision-id> ['<replacement JSON>']
   gstack-decision-log --redact <decision-id>
   gstack-decision-log --compact
+  gstack-decision-log --rebuild-snapshot <project-slug>
   gstack-decision-log --help
 
 Decision JSON:
@@ -62,6 +65,8 @@ JSON
 Successful writes print the decision id. Invalid payloads exit 1 without a record.
 Supersede retires the old decision and optionally records a validated replacement.
 Redact accepts no replacement; compact removes redacted history and archives superseded records.
+Rebuild-snapshot rewrites one project's decisions.active.json from its decisions.jsonl
+(gstack-brain-sync runs it when a merge of two machines' snapshots conflicts).
 Help prints this schema and exits without resolving the project or writing state.
 `;
 
@@ -73,6 +78,17 @@ if (args.includes("--help")) {
 if (args.every((arg) => !arg.trim())) {
   process.stderr.write(usage);
   process.exit(1);
+}
+
+if (args.includes("--rebuild-snapshot")) {
+  const target = flagValue(args, "--rebuild-snapshot");
+  const targetPaths = target && /^[^/\\]+$/.test(target) && target !== "." && target !== ".." ? decisionPaths(target) : undefined;
+  if (!targetPaths || !existsSync(targetPaths.log)) {
+    process.stderr.write("gstack-decision-log: --rebuild-snapshot needs the slug of a project that has a decisions.jsonl\n");
+    process.exit(1);
+  }
+  rebuildSnapshot(targetPaths);
+  process.exit(0);
 }
 
 const slug = resolveSlug(`${HERE}/gstack-slug`);
