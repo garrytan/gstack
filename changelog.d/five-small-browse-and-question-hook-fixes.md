@@ -1,0 +1,1 @@
+- `browse scroll <selector>` brings the element into view again when `--wait` is absent. The flag parser treated the first argument as the `--wait` value and dropped it, so `scroll footer` and `scroll footer --times 2` scrolled to the page bottom and replied "Scrolled to bottom".

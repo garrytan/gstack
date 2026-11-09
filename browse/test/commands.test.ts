@@ -535,7 +535,15 @@ describe('Interaction', () => {
 
   test('scroll works', async () => {
     const result = await handleWriteCommand('scroll', ['footer'], bm);
-    expect(result).toContain('Scrolled');
+    expect(result).toBe('Scrolled footer into view');
+  });
+
+  test('scroll keeps its selector beside --times and --wait', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    expect(await handleWriteCommand('scroll', ['footer', '--times', '2', '--wait', '10'], bm)).toBe('Scrolled 2 times (footer) with 10ms delay');
+    expect(await handleWriteCommand('scroll', ['footer', '--times', '2'], bm)).toBe('Scrolled 2 times (footer) with 1000ms delay');
+    expect(await handleWriteCommand('scroll', ['--times', '2', 'footer'], bm)).toBe('Scrolled 2 times (footer) with 1000ms delay');
+    expect(await handleWriteCommand('scroll', ['--wait', '5', '--times', '2'], bm)).toBe('Scrolled 2 times with 5ms delay');
   });
 
   test('viewport changes size', async () => {
