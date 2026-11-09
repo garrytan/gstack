@@ -29,14 +29,12 @@ export interface TagContext {
 /** Prose files (docs, prompt templates) carry no code idioms: only the path-based RH-3 applies. */
 export const PROSE_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc|asciidoc)(?:\.tmpl)?$/i;
 /**
- * Source a test runner can execute: RH-1's skip, focus and removed-declaration idioms mean a test changed only here, in an
- * extensionless script, or in a test-floor file that is not data. Data, logs and run output quote "fit (" as English.
+ * Data, logs and run output: no test runner executes them, and they quote "fit (" as English, so RH-1's skip, focus and
+ * removed-declaration idioms skip them. Every other file keeps RH-1, as does data renamed from any other file.
  */
-const TEST_CAPABLE_EXT = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|coffee|py|go|rb|java|kt|kts|scala|groovy|swift|m|mm|exs?|rs|php|cs|fs|vb|c|cc|cpp|cxx|h|hpp|dart|pl|pm|t|lua|clj[sc]?|hs|erl|zig|nim|r|jl|ml|sh|bash|zsh|bats|ps1|feature|robot)$/i;
 const DATA_FILE = /\.(?:json|jsonl|ndjson|csv|tsv|log|out)$/i;
 function testCapable(ctx: TagContext): boolean {
-  if (ctx.floor === 'test' && !DATA_FILE.test(ctx.path)) return true;
-  return [ctx.path, ctx.oldPath ?? ctx.path].some((p) => TEST_CAPABLE_EXT.test(p) || !/\.[^./]+$/.test(p.split('/').pop() ?? ''));
+  return [ctx.path, ctx.oldPath ?? ctx.path].some((p) => !DATA_FILE.test(p));
 }
 /** Generated, vendored or minified files: unreadable as hunks, so floor inventory only. */
 export const GENERATED_FILE = /(?:^|\/)(?:dist|build|vendor|node_modules|\.yarn)\/|\.min\.(?:js|css)$|(?:^|\/)[^/]*lock(?:\.json|\.yaml|b)?$/i;

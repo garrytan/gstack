@@ -398,4 +398,15 @@ describe('RH-1 reads only files a test runner can execute (GST-2006)', () => {
     const lines = ['{"cmd": "git push --no-verify"}', '{"code": "// eslint-disable-next-line"}'];
     expect(tagsAt(run(added('results/replies.jsonl', lines)))['results/replies.jsonl']).toEqual(['RH-13', 'RH-14']);
   });
+
+  test('an HTML browser suite, an unlisted language and a test-floor file renamed to data still tag RH-1', () => {
+    const html = 'pages/browser.html';
+    expect(tagsAt(run(added(html, ['<script>', 'describe.skip("security regression", function () {});', '</script>'])))[html]).toEqual(['RH-1']);
+    const crystal = 'src/math_check.cr';
+    expect(tagsAt(run(added(crystal, ['it.only("adds") { add(1, 2).should eq 3 }'])))[crystal]).toEqual(['RH-1']);
+    const project = parseGateIntegrityBlock('## Gate Integrity\nExtra test paths: checks/**\n');
+    const decls = ["test('logs in', () => {", '  expect(1).toBe(1);', '});'];
+    expect(tagsAt(run(renamed('checks/login.check', 'results/login.jsonl', ['{"turn":1}', '{"turn":2}'], decls, []), project))).toEqual({ 'results/login.jsonl': ['RH-1'] });
+    expect(tagsAt(run(renamed('test/api.tavern.yaml', 'results/api.json', ['{"turn":1}', '{"turn":2}'], decls, [])))).toEqual({ 'results/api.json': ['RH-1'] });
+  });
 });
