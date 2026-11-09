@@ -19,6 +19,13 @@ describe('parseQidMarker (#3442)', () => {
     expect(parseQidMarker('<gstack-qid:Plan-CEO-X;signal=Scope-Appetite> q')).toMatchObject({ id: 'plan-ceo-x', signal_key: 'scope-appetite' });
   });
 
+  test('a malformed signal hint drops only the hint; the id still names the question', () => {
+    expect(parseQidMarker('Q? <gstack-qid:plan-x;signal=scope_appetite>')).toEqual({ id: 'plan-x', stripped: 'Q?' });
+    expect(parseQidMarker('Q? <gstack-qid:plan-x;signal=>')).toEqual({ id: 'plan-x', stripped: 'Q?' });
+    expect(parseQidMarker('Q? <gstack-qid:plan-x;signal=scope appetite>')).toEqual({ id: 'plan-x', stripped: 'Q?' });
+    expect(parseQidMarker('Q? <gstack-qid:plan-x;signl=scope-appetite>')).toEqual({ id: 'plan-x', stripped: 'Q?' });
+  });
+
   test('no marker returns undefined', () => {
     expect(parseQidMarker('plain question')).toBeUndefined();
   });

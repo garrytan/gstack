@@ -260,6 +260,24 @@ describe('enforces never-ask preferences', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('Fix now');
   });
 
+  test('a malformed signal hint keeps the marker, so the stored preference still applies', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 's5h',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-5h',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-pre-landing-review-fix;signal=scope_appetite> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+
   test('one-way door → pass-through even with never-ask (safety override)', () => {
     writeProjectPref('ship-test-failure-triage', 'never-ask');
     const r = runHook({
