@@ -732,7 +732,12 @@ slot. The queue enforces this at every step from the PR body alone:
   `REVIEW_TARGETED:` line) when a targeted class the head needs has no done
   targeted pass in the receipt, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an
   owner exception it records does not stand ([the ship receipt](#ship-receipt)).
-  There is no flag around it.
+  There is no flag around it. Before any of these checks, `ready` fetches
+  `origin/<base>` and reads the policy and every receipt field against that
+  fresh ref, so a lane clone whose base is behind the remote never turns a good
+  receipt into `RECEIPT_INVALID` (GST-2232); a failed fetch refuses with
+  `QUEUE_BASE_UNFETCHED` before anything is compared. `land` fetches the base
+  before its receipt check the same way.
 - `train build` refuses a pin whose PR has no current receipt with the same
   codes, naming the PR, before anything is written, pushed or dispatched,
   `--dry-run` included.
@@ -1542,7 +1547,9 @@ same one (a mixed set makes it `VERIFY: dirty`). `gstack-ship-receipt write
 --review-exclude <d>`, with that digest, records `review_exclude` (source, patterns, counts, the gate-tagged kept
 paths and three hashes). The `digest` hashes the declared patterns and the
 excluded and kept lists; `source` is provenance only. Write, carry and the queue
-each recompute the digest at the current base and compare it, so a base merge
+each recompute the digest at the current base and compare it (the queue fetches
+that base first), over the PR's own files: the diff from the head's merge base
+with that base, never a two-dot diff against the base tip, so a base merge
 or a moved base that leaves the patterns and the lists unchanged still carries
 and binds. A different digest means the digest write was given (or the receipt recorded) names another selection than the head has now:
 write refuses with `RECEIPT_INVALID field=review_exclude`, carry with
