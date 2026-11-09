@@ -187,7 +187,8 @@ To remediate:
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
 runs the same scanner (`bin/gstack-brain-secret-scan.py`) if you manually
 `git commit` against the repo. `gstack-artifacts-init` and
-`gstack-brain-restore` install it. A hook written by an older gstack checks
+`gstack-brain-restore` install it and copy the scanner next to it, so the
+hook keeps working if gstack moves. A hook written by an older gstack checks
 only the first six patterns; rerun `gstack-artifacts-init` to refresh it.
 
 Separately (v1.63.0.0+), every push writes a tamper-evident receipt to the

@@ -417,15 +417,16 @@ git -C "$GSTACK_HOME" config merge.union.name "union concat"
 # ---- install pre-commit hook (defense-in-depth) ----
 HOOK="$GSTACK_HOME/.git/hooks/pre-commit"
 mkdir -p "$(dirname "$HOOK")"
-{
-  printf '%s\n' '#!/usr/bin/env bash'
-  printf '%s\n' '# gstack-artifacts pre-commit hook: secret-scan defense-in-depth. It runs the'
-  printf '%s\n' '# scanner gstack-brain-sync runs before staging (same families, added lines'
-  printf '%s\n' '# only, JSON string values decoded), so a manual `git commit` against the'
-  printf '%s\n' '# artifacts repo is held the same way.'
-  printf 'SCAN=%q\n' "$SCRIPT_DIR/gstack-brain-secret-scan.py"
-  cat <<'HOOK_EOF'
+cp "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$(dirname "$HOOK")/gstack-brain-secret-scan.py"
+cat > "$HOOK" <<'HOOK_EOF'
+#!/usr/bin/env bash
+# gstack-artifacts pre-commit hook: secret-scan defense-in-depth. It runs a copy of the
+# scanner gstack-brain-sync runs before staging (same families, added lines
+# only, JSON string values decoded), written beside this hook by
+# gstack-artifacts-init and gstack-brain-restore, so a manual `git commit` against
+# the artifacts repo is held the same way.
 set -uo pipefail
+SCAN="$(dirname "$0")/gstack-brain-secret-scan.py"
 if [ ! -f "$SCAN" ]; then
   echo "gstack-artifacts pre-commit: refusing commit — the secret scanner $SCAN is missing; rerun gstack-artifacts-init to reinstall this hook." >&2
   exit 1
@@ -442,7 +443,6 @@ else
 fi
 exit 1
 HOOK_EOF
-} > "$HOOK"
 chmod +x "$HOOK"
 
 # ---- initial commit (idempotent) ----

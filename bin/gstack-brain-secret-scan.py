@@ -113,9 +113,23 @@ def added_lines(lines):
     return out
 
 
+def decoded_in_place(text):
+    """text with every escaped JSON string literal replaced by its decoded
+    value in quotes, so a key and its value are matched together even when
+    either is written with escapes."""
+    def decode(m):
+        if '\\' not in m.group(0):
+            return m.group(0)
+        try:
+            return '"' + json.loads(m.group(0)) + '"'
+        except ValueError:
+            return m.group(0)
+    return json_string.sub(decode, text)
+
+
 def families(lines):
     added = added_lines(lines)
-    texts = added + [s for line in added for s in decoded_strings(line)]
+    texts = added + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
     text = "\n".join(texts)
     return [name for name, rx, real in patterns
             if any(real is None or real(m) for m in rx.finditer(text))]
