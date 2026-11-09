@@ -3079,29 +3079,41 @@ such as `## Original description`, if it should stay) and post it with
 `--replace`.
 
 <a id="gstack-post-public-text"></a>
-### `PUBLIC: public.home_path|public.capy_id|public.cost LINE: <n> PART: <part>` from gstack-post
+### `PUBLIC: public.home_path|public.capy_id LINE: <n> PART: <part>` from gstack-post
 
 **Meaning.** The repository is public, or gstack-post could not read its
 visibility and treats it as public (GST-1955). On such a repository a PR title,
-body or comment never names a home path (`/home/<user>/…`, `/Users/<user>/…`,
-`/root/…`, `C:\Users\<user>\…`, `~/…` or `~user/…`, code spans included), a
-Capy jam id or `capy.ai/thread/…` link other than the platform's own badge, or a
-cost, credits or token figure (`$12.30`, `2.70 USD`, `35,000 credits`,
-`300k tokens`, `spend_usd: 2.7`, `tokens=181234`). Before scanning,
-gstack-post puts the receipt blocks /ship writes in their public form and prints
-`PUBLIC_FORM: receipt rewritten …`: no cost, credits or token field, `run` and
-`thread` as an opaque `anon-<12 hex>` id, home paths cut to the file name. Any
-detail left in the prose refuses the whole post, exit 1, and nothing is sent.
-Each line names the rule, the line in the text gstack-post would send (for
-`pr-body` the merged body, so a kept section can be the source) and the part,
-never the value. A lone `$1` inside code is a shell positional, not a price.
-`carry --pr` rewrites its receipt the same way.
+body or comment never names a home path or a Capy jam id or `capy.ai/thread/…`
+link other than the platform's own badge. gstack-post reads the text as tokens
+(split on whitespace, quotes, brackets, `,`, `;`, `=` and the literal `\n`,
+`\t` and `\r` escapes of raw JSON, with a diff line's leading `-` or `+`
+dropped). A token is a home path when it is absolute and has a `home` or
+`Users` folder with another folder after it (`/home/<user>/…`,
+`/var/home/<user>`, `/mnt/c/Users/<user>/…`, `C:\Users\<user>\…`), starts
+with `/root/`, names a user (`~user/…`), or is a `~/` path into gstack or Capy
+state or scratch (`~/.gstack…`, `~/.capy…`, `~/tmp`, `~/scratch`). Relative
+paths such as `app/users/show.ts`, routes such as `/api/users/42` and install
+paths such as `~/.claude/skills/gstack` pass. Before scanning, gstack-post
+puts what machines wrote in its public form and prints `PUBLIC_FORM: machine
+text rewritten …`: the receipt blocks lose every cost, credits or token field,
+`run` and `thread` become an opaque `anon-<12 hex>` id, and home paths are
+cut to the file name; a result line led by an ALL_CAPS label (`REVIEW_LOOP:`,
+`BUDGET_FINAL:`, `CI_CARRY:`) drops each `key=value` whose key ends in usd,
+cost, credits, tokens, spend or used and each `$` amount, with the same path
+and id scrub. A home path or Capy id left in the prose refuses the whole post,
+exit 1, and nothing is sent. Each line names the rule, the line in the text
+gstack-post would send (for `pr-body` the merged body, so a kept section can be
+the source) and the part, never the value. A cost, credits or token figure in
+the prose (`$12.30`, `35,000 credits`, `300k tokens`) does not refuse: the post
+goes out with `note: LOW PUBLIC: public.cost LINE: <n> PART: <part>` on stderr.
+A lone `$1` inside code is a shell positional, not a price. `carry --pr`
+rewrites its receipt the same way.
 
-**Fix.** Rewrite the named lines: a repo-relative path or just the file name, no
-Capy id (the badge the platform adds stays), and results without dollars,
-credits or tokens unless cost is the lesson. For a kept section, bring that
-section in the body file or post with `--replace`. A private repository whose
-visibility gh cannot read sets `gstack-config set redact_repo_visibility private`.
+**Fix.** Rewrite the named lines: a repo-relative path or just the file name, and
+no Capy id (the badge the platform adds stays). For a cost note, keep the figure
+only when cost is the lesson. For a kept section, bring that section in the body
+file or post with `--replace`. A private repository whose visibility gh cannot
+read sets `gstack-config set redact_repo_visibility private`.
 
 <a id="redact-prepush-email"></a>
 ### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook

@@ -108,6 +108,21 @@ describe("public repo: the receipt goes out in its public form", () => {
     const text = publicReceiptText(block).text;
     expect(text).toContain("x receipt=app/users/r.txt");
     expect(text).toContain("y receipt=z.txt");
+    const nested = publicReceiptText("```gstack-ship-receipt\n" + JSON.stringify({ schema_version: 1, pr: 1, head: "a", requires_remote: ["w receipt=/mnt/c/Users/garry/z.txt"] }) + "\n```").text;
+    expect(nested).toContain("w receipt=z.txt");
+    expect(nested).not.toContain("/Users/garry");
+  });
+
+  test("ALL_CAPS result lines go out in their public form instead of refusing", () => {
+    const lines = "- `BUDGET_FINAL: used=16585347 credits=4210 tokens=181234 cap=340000000`\nCI_CARRY: accepted ci-carry tree=6b87d68c160d tests=36599 receipt=/home/user/x.txt by " + JAM + "\nSpent $4.10 on the probe.";
+    const f = fakeEnv({ files: { "/b": body(CLEAN + "\n\n" + lines) }, ghVisibility: "PUBLIC" });
+    expect(run(["pr-body", "4180", "--body-file", "/b", "--replace"], f)).toBe(EXIT.posted);
+    const sent = f.sent();
+    expect(sent).toContain("- `BUDGET_FINAL: cap=340000000`");
+    expect(sent).toContain("CI_CARRY: accepted ci-carry tree=6b87d68c160d tests=36599 receipt=x.txt by anon-");
+    expect(sent).not.toMatch(/credits=|tokens=181234|used=|\/home\/user/);
+    expect(sent).toContain("Spent $4.10 on the probe.");
+    expect(f.stderr()).toContain("note: LOW PUBLIC: public.cost LINE: ");
   });
 
   test("the REVIEW_LOOP line /ship puts in the body loses its token estimate, nothing else", () => {
@@ -170,6 +185,19 @@ describe("public repo: any other private detail refuses the post", () => {
     expect(refuses("Ran from /Users/garry/git/gstack.", "public.home_path").stderr()).toContain("whose visibility gh cannot read");
   });
 
+  test("home paths nested under another folder, after an escape in raw JSON, on a diff line, and tilde state paths", () => {
+    refuses("Under WSL it wrote /mnt/c/Users/garry/gstack/x.ts", "public.home_path");
+    refuses("Silverblue: /var/home/garry/gstack", "public.home_path");
+    refuses("FreeBSD: /usr/home/garry/gstack", "public.home_path");
+    refuses("macOS data volume: /System/Volumes/Data/Users/garry/x", "public.home_path");
+    refuses('{"stderr":"boom\\n/home/garry/gstack/x.ts"}', "public.home_path");
+    refuses("-/home/garry/.gstack/x", "public.home_path");
+    refuses("State in ~/.gstack/projects/x.json", "public.home_path");
+    refuses("Scratch in ~/.capy/work/ship-1/gate.log", "public.home_path");
+    refuses("Kept at ~garry/notes.md", "public.home_path");
+    refuses("Windows user nina: C:\\Users\\nina\\x.json, lowercase C:\\users\\nina\\y", "public.home_path");
+  });
+
   test("Capy ids: a bare jam id, one inside a URL, a thread link that is not the badge", () => {
     refuses(`Thread ${JAM} found it.`, "public.capy_id");
     refuses(`See https://capy.ai/thread/${JAM} for the run.`, "public.capy_id");
@@ -178,24 +206,32 @@ describe("public repo: any other private detail refuses the post", () => {
     refuses(`<a href="https://capy.ai/thread/${JAM}">badge-shaped but no badge image</a>`, "public.capy_id");
   });
 
-  test("costs: dollars, a code span, USD, credits, tokens, spend keys", () => {
-    refuses("The run cost $12.30 in all.", "public.cost");
-    refuses("Budget used: `$12.30`.", "public.cost");
-    refuses("over this run's $10 eval cap", "public.cost");
-    refuses("The paid gate already spent $0 on them.", "public.cost");
-    refuses("about 2.70 USD", "public.cost");
-    refuses("The lane used 35,000 credits.", "public.cost");
-    refuses("It used 93.7M capy tokens against its cap.", "public.cost");
-    refuses("its last call rewrites 300-700k tokens", "public.cost");
-    refuses('`"spend_usd": 2.7`', "public.cost");
-    refuses("BUDGET_FINAL: tokens=181234 credits=4210", "public.cost");
-    refuses("cost: €4.10", "public.cost");
+  test("costs: dollars, a code span, USD, credits, tokens, spend keys post with a LOW note", () => {
+    const notes = (prose: string) => {
+      const f = fakeEnv({ files: { "/b": prose + "\n" }, ghVisibility: "PUBLIC" });
+      expect(run(["pr-comment", "12", "--body-file", "/b"], f)).toBe(EXIT.posted);
+      expect(f.sent()).toBe(prose + "\n");
+      expect(f.stderr()).toContain("note: LOW PUBLIC: public.cost LINE: 1 PART: body");
+    };
+    notes("The run cost $12.30 in all.");
+    notes("Budget used: `$12.30`.");
+    notes("over this run's $10 eval cap");
+    notes("The paid gate already spent $0 on them.");
+    notes("about 2.70 USD");
+    notes("The lane used 35,000 credits.");
+    notes("It used 93.7M capy tokens against its cap.");
+    notes("its last call rewrites 300-700k tokens");
+    notes('`"spend_usd": 2.7`');
+    notes("cost: €4.10");
   });
 
   test("the title is checked too, and pr-create and issue text go through the same rule", () => {
-    const f = fakeEnv({ files: { "/t": "Fix the $12.30 overrun", "/b": CLEAN }, ghVisibility: "PUBLIC" });
-    expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], f)).toBe(EXIT.refused);
-    expect(f.stdout()).toContain("PUBLIC: public.cost LINE: 1 PART: title");
+    const f = fakeEnv({ files: { "/t": "Fix the run that cost $12.30", "/b": CLEAN }, ghVisibility: "PUBLIC" });
+    expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], f)).toBe(EXIT.posted);
+    expect(f.stderr()).toContain("note: LOW PUBLIC: public.cost LINE: 1 PART: title");
+    const h = fakeEnv({ files: { "/t": "Fix the leak in ~/.gstack/state", "/b": CLEAN }, ghVisibility: "PUBLIC" });
+    expect(run(["pr-create", "--base", "main", "--title-file", "/t", "--body-file", "/b"], h)).toBe(EXIT.refused);
+    expect(h.stdout()).toContain("PUBLIC: public.home_path LINE: 1 PART: title");
     const g = fakeEnv({ files: { "/t": "Plain title", "/b": "Logs in /home/user/x\n" }, ghVisibility: "PUBLIC" });
     expect(run(["issue-create", "--title-file", "/t", "--body-file", "/b"], g)).toBe(EXIT.refused);
     expect(g.stdout()).toContain("PUBLIC: public.home_path LINE: 1 PART: body");
@@ -208,7 +244,8 @@ describe("public repo: ordinary prose still posts", () => {
       "It took ~30 minutes and ~5/10 runs passed.",
       "Use `awk '{print $2}'` and `$1` in the hook.",
       "Fixes GST-1955; see bin/gstack-post and lib/redact-engine.ts.",
-      "Changed src/pages/home/index.tsx and app/users/show.ts; the route is GET /api/users/42.",
+      "Changed src/pages/home/index.tsx, app/users/show.ts and home/x; the route is GET /api/users/42.",
+      "Install lives at ~/.claude/skills/gstack.",
       "Docs: https://github.com/garrytan/gstack/blob/main/docs/home/index.md",
       "No secrets, no costs. ~~struck~~ text.",
       "A bare base64 token stays redacted.",

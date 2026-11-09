@@ -2,11 +2,12 @@
  * public-pr-text — what PR text may say on a public repository (GST-1955).
  *
  * On a public repository, or one whose visibility cannot be read (fail closed),
- * PR titles, bodies and comments never carry a home path (an absolute path under
- * a home directory, or a ~ path), a Capy jam id or thread link other than the
- * platform's own badge, or a cost, credits or token figure. gstack-post rewrites
- * the receipt blocks /ship writes into their public form (publicReceiptText) and
- * refuses any other text that still says one of these (privateDetails). Private
+ * PR titles, bodies and comments never carry a home path or a Capy jam id or
+ * thread link other than the platform's own badge: privateDetails names them and
+ * gstack-post refuses. A cost, credits or token figure in prose is only a LOW note
+ * (costNotes), because a write-up may name cost when cost is the lesson. Text a
+ * machine wrote gets its public form instead of a refusal (publicReceiptText): the
+ * receipt blocks and every result line led by an ALL_CAPS label. Private
  * repositories keep today's bytes.
  */
 import { createHash } from "node:crypto";
@@ -39,8 +40,9 @@ export function readRepoVisibility(run: VisibilityRunner, o: { explicit?: RepoVi
   try { return norm(String(JSON.parse(gl.stdout).visibility ?? "")) ?? "unknown"; } catch { return "unknown"; }
 }
 
-const HOME_PATH = /(?<![\w.~-])(?:[A-Za-z]:|\/[A-Za-z])?[\\/](?:home|[Uu]sers)[\\/]+[^\s\\/`'"<>()[\]]+|(?<![\w.~-])\/root\/|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\//g;
-const HTTP_URL = /https?:\/\/[^\s<>"'`)\]]+/g;
+const TOKEN = /[^\s`'"()[\]<>,;=]+/g;
+const ESCAPE = /\\[ntr]/;
+const JAM_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}/g;
 const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/[^\s"'`<>)\]]+/g;
 const BADGE = /<a href="https:\/\/capy\.ai\/thread\/jam_[A-Za-z0-9]+"><picture>(?:(?!<\/a>)[\s\S]){0,800}?capy\.ai\/badge\/(?:(?!<\/a>)[\s\S]){0,800}?<\/picture><\/a>/g;
 const COSTS = [
@@ -50,6 +52,48 @@ const COSTS = [
   /\b\d[\d,]*(?:\.\d+)?\s?[kKmM]?\s+(?:(?:capy|input|output|prompt|completion|cached|reasoning)\s)?(?:credits?|tokens?)\b/g,
   /\b(?:[A-Za-z]+_)*(?:usd|cost|costs|credits|tokens|spend)"?\s*[:=]\s*"?[$€£]?\d/gi,
 ];
+
+/**
+ * Whether one token names a home directory. Only an absolute token can: one that starts with
+ * /, \\, a drive letter and a slash, or ~. It does when a segment is home or Users (users in
+ * any case after a drive letter) with another segment after it, or it starts with /root/.
+ * ~user/… always names a user; ~/… only when it points into gstack or Capy state or scratch
+ * (.gstack…, .capy…, tmp, scratch), so a generic install path like ~/.claude/skills stays.
+ */
+function isHomePath(token: string): boolean {
+  if (token.startsWith("~")) {
+    if (/^~[A-Za-z_][\w.-]*\//.test(token)) return true;
+    const first = /^~[\\/]([^\\/]*)/.exec(token)?.[1];
+    return first !== undefined && (/^\.(?:gstack|capy)/.test(first) || first === "tmp" || first === "scratch");
+  }
+  const drive = /^[A-Za-z]:[\\/]/.test(token);
+  if (!drive && !/^[\\/]/.test(token)) return false;
+  if (token.startsWith("/root/")) return true;
+  const segs = token.split(/[\\/]+/).filter(Boolean);
+  return segs.some((s, i) => i + 1 < segs.length && (s === "home" || s === "Users" || (drive && s.toLowerCase() === "users")));
+}
+
+/**
+ * Where the home paths in text are. Text splits into tokens on whitespace and ` ' " ( ) [ ] < > , ; =;
+ * a leading diff - or + is not part of a token. A token that is not a home path as a whole is
+ * read again in the pieces its literal \\n, \\t and \\r escapes separate (raw JSON, a pasted log),
+ * so an escape never hides a path and a Windows user name that starts with n, t or r still counts.
+ */
+function homeSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const check = (piece: string, at: number) => {
+    const lead = /^[-+]/.test(piece) ? 1 : 0;
+    if (!isHomePath(piece.slice(lead))) return false;
+    spans.push([at + lead, at + piece.length]);
+    return true;
+  };
+  for (const m of text.matchAll(TOKEN)) {
+    if (check(m[0], m.index!)) continue;
+    let at = m.index!;
+    for (const piece of m[0].split(ESCAPE)) { check(piece, at); at += piece.length + 2; }
+  }
+  return spans;
+}
 
 function ranges(text: string, re: RegExp): Array<[number, number]> {
   return [...text.matchAll(re)].map(m => [m.index!, m.index! + m[0].length]);
@@ -63,20 +107,7 @@ function codeRanges(text: string): Array<[number, number]> {
   return [...fences, ...spans];
 }
 
-/** Every home path, Capy id and cost figure in `text`, by line and column (1-based); the values are never returned. */
-export function privateDetails(text: string): PublicFinding[] {
-  const hits: Array<{ rule: PublicRule; at: number }> = [];
-  const urls = ranges(text, HTTP_URL);
-  const badges = ranges(text, BADGE);
-  const code = codeRanges(text);
-  for (const m of text.matchAll(HOME_PATH)) if (!inside(m.index!, urls)) hits.push({ rule: "public.home_path", at: m.index! });
-  for (const m of text.matchAll(CAPY_ID)) if (!inside(m.index!, badges)) hits.push({ rule: "public.capy_id", at: m.index! });
-  for (const re of COSTS) {
-    for (const m of text.matchAll(re)) {
-      if (/^\$\d$/.test(m[0]) && !/[\d.,]/.test(text[m.index! + 2] ?? "") && inside(m.index!, code)) continue;
-      hits.push({ rule: "public.cost", at: m.index! });
-    }
-  }
+function located(text: string, hits: Array<{ rule: PublicRule; at: number }>): PublicFinding[] {
   const seen = new Set<string>();
   return hits.sort((a, b) => a.at - b.at).flatMap(h => {
     const before = text.slice(0, h.at);
@@ -89,16 +120,46 @@ export function privateDetails(text: string): PublicFinding[] {
   });
 }
 
+/** Every home path and Capy id in `text` (what refuses a public post), by line and column (1-based); the values are never returned. */
+export function privateDetails(text: string): PublicFinding[] {
+  const badges = ranges(text, BADGE);
+  return located(text, [
+    ...homeSpans(text).map(([at]) => ({ rule: "public.home_path" as const, at })),
+    ...[...text.matchAll(CAPY_ID)].filter(m => !inside(m.index!, badges)).map(m => ({ rule: "public.capy_id" as const, at: m.index! })),
+  ]);
+}
+
+/** Every cost, credits or token figure in `text`: a LOW note on a public post, never a refusal. */
+export function costNotes(text: string): PublicFinding[] {
+  const code = codeRanges(text);
+  const hits: Array<{ rule: PublicRule; at: number }> = [];
+  for (const re of COSTS) {
+    for (const m of text.matchAll(re)) {
+      if (/^\$\d$/.test(m[0]) && !/[\d.,]/.test(text[m.index! + 2] ?? "") && inside(m.index!, code)) continue;
+      hits.push({ rule: "public.cost", at: m.index! });
+    }
+  }
+  return located(text, hits);
+}
+
 const COST_KEY = /(?:^|_)(?:usd|cost|costs|credits?|tokens?|spend)$/i;
-const PATH_TOKEN = /(?<![\w.~-])(?:[A-Za-z]:|\/[A-Za-z])?[\\/](?:home|[Uu]sers)[\\/][^\s"'`<>]*|(?<![\w.~-])\/root\/[^\s"'`<>]*|(?<![\w~$\\])~(?:[A-Za-z_][\w.-]*)?\/[^\s"'`<>]*/g;
 export const anon = (v: string) => `anon-${createHash("sha256").update(v).digest("hex").slice(0, 12)}`;
+
+/** Home paths cut to their file name and jam ids hashed. */
+function scrub(s: string): string {
+  let out = "";
+  let at = 0;
+  for (const [a, b] of homeSpans(s)) {
+    out += s.slice(at, a) + (s.slice(a, b).split(/[\\/]/).filter(Boolean).pop() ?? "~");
+    at = b;
+  }
+  return (out + s.slice(at)).replace(JAM_ID, j => anon(j));
+}
 
 function publicValue(v: unknown, key: string, depth: number, changed: Set<string>): unknown {
   if (typeof v === "string") {
     if (depth === 0 && (key === "run" || key === "thread") && !/^anon-[0-9a-f]{12}$/.test(v)) { changed.add(key); return anon(v); }
-    const out = v
-      .replace(PATH_TOKEN, p => p.split(/[\\/]/).filter(Boolean).pop() ?? "~")
-      .replace(/(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}/g, j => anon(j));
+    const out = scrub(v);
     if (out !== v) changed.add(`${key || "value"} path or id`);
     return out;
   }
@@ -116,14 +177,19 @@ function publicValue(v: unknown, key: string, depth: number, changed: Set<string
 
 const RECEIPT_BLOCK = /(```gstack-ship-receipt[ \t]*\r?\n)([\s\S]*?)(\r?\n```)/g;
 const RUNS_BLOCK = /(```gstack-receipt-runs[ \t]*\r?\n)([\s\S]*?)(\r?\n```)/g;
+const MACHINE_LINE = /^([ \t]*(?:[-*+][ \t]+|\d+\.[ \t]+)?`?)([A-Z][A-Z0-9_]+:)(.*)$/gm;
+const SPEND_PAIR = /[ \t]*\b[\w.-]*(?:usd|cost|credits|tokens|spend|used)=[^\s`]*/gi;
+const DOLLARS = /[ \t]*\$\s?\d[\d,]*(?:\.\d+)?/g;
 
 /**
- * The receipt and receipt-runs blocks in their public form: no cost, credits or token
- * field at any depth, the top-level `run` and `thread` as an opaque `anon-<sha256 prefix>`
- * id (deduplication still works, the jam id or thread code is gone), home paths cut to
- * their file name and jam ids hashed inside any string. A block that is unchanged, or not
- * JSON, keeps its bytes; privateDetails still reads whatever stays. The `REVIEW_LOOP:` line
- * gstack-review-scope prints for the body loses its `est_input_tokens=` count the same way.
+ * The public form of what machines write into PR text: the receipt and receipt-runs blocks
+ * lose every cost, credits or token field at any depth, their top-level `run` and `thread`
+ * become an opaque `anon-<sha256 prefix>` id (deduplication still works, the jam id or thread
+ * code is gone), and home paths in any string are cut to their file name and jam ids hashed. A
+ * result line led by an ALL_CAPS label (`REVIEW_LOOP:`, `BUDGET_FINAL:`, `CI_CARRY:`, after an
+ * optional bullet or backtick) drops each key=value whose key ends in usd, cost, credits, tokens,
+ * spend or used and each $ amount, and gets the same path and id scrub. A block that is
+ * unchanged, or not JSON, keeps its bytes; privateDetails still reads whatever stays.
  */
 export function publicReceiptText(text: string): { text: string; changed: string[] } {
   const changed = new Set<string>();
@@ -148,6 +214,11 @@ export function publicReceiptText(text: string): { text: string; changed: string
     });
     return touched ? open + lines.join("\n") + close : all;
   });
-  const loop = runs.replace(/(REVIEW_LOOP:[^\n]*?) est_input_tokens=\d+/g, (_all, kept: string) => { changed.add("REVIEW_LOOP est_input_tokens"); return kept; });
-  return { text: loop, changed: [...changed].sort() };
+  const machine = runs.replace(MACHINE_LINE, (all, lead: string, label: string, rest: string) => {
+    const out = scrub(rest.replace(SPEND_PAIR, "").replace(DOLLARS, ""));
+    if (out === rest) return all;
+    changed.add(`${label.slice(0, -1)} line`);
+    return lead + label + out;
+  });
+  return { text: machine, changed: [...changed].sort() };
 }

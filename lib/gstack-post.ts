@@ -17,8 +17,9 @@
  * `pr-title` and `pr-create` first check the title against the repository's
  * plain-title policy (lib/plain-title.ts); a refused title posts nothing.
  * The scan runs on the merged bytes, which are the bytes sent. Unless the
- * repository is private, those bytes first get the public receipt form and
- * then refuse on any home path, Capy thread id or cost (lib/public-pr-text.ts).
+ * repository is private, those bytes first get the public form for what
+ * machines wrote, then refuse on any home path or Capy thread id; a cost figure
+ * is a LOW note (lib/public-pr-text.ts).
  *
  * Exit codes: 0 posted; 1 HIGH finding, oversize input or a public-repo detail refused;
  * 2 MEDIUM findings need confirmation, printed as `RULE:` lines plus a
@@ -30,7 +31,7 @@
  */
 import { createHash } from "crypto";
 import { scan, type Finding, type RepoVisibility } from "./redact-engine";
-import { privateDetails, publicReceiptText, readRepoVisibility } from "./public-pr-text";
+import { costNotes, privateDetails, publicReceiptText, readRepoVisibility } from "./public-pr-text";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
@@ -80,9 +81,10 @@ export const USAGE = `usage: gstack-post <op> [<target>] [options]
   (gstack-plain-title) first; a repository without that file is not checked.
 
   On a public repo, or one whose visibility cannot be read, the receipt blocks
-  go out in their public form (PUBLIC_FORM:) and a home path, Capy thread id or
-  cost figure anywhere else refuses the post (PUBLIC: lines, exit 1;
-  docs/troubleshooting.md#gstack-post-public-text).
+  and ALL_CAPS result lines go out in their public form (PUBLIC_FORM:), a home
+  path or Capy thread id anywhere else refuses the post (PUBLIC: lines, exit 1),
+  and a cost figure posts with a LOW note on stderr
+  (docs/troubleshooting.md#gstack-post-public-text).
 
   Exit: 0 posted · 1 HIGH finding or public-repo detail refused · 2 MEDIUM findings need
   confirmation (RULE:/TOKEN: lines on stdout) · 3 gh/glab failed ·
@@ -635,7 +637,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
     if (body !== undefined && vis !== "private") {
       const pub = publicReceiptText(body);
       body = pub.text;
-      if (pub.changed.length) env.out(`PUBLIC_FORM: receipt rewritten for a ${vis} repo (${pub.changed.join(", ")})\n`);
+      if (pub.changed.length) env.out(`PUBLIC_FORM: machine text rewritten for a ${vis} repo (${pub.changed.join(", ")})\n`);
     }
     const parts: Array<[Part, string]> = [];
     if (title !== undefined) parts.push(["title", title]);
@@ -645,9 +647,10 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       if (leaks.length) {
         env.out(`REPO_VISIBILITY: ${vis}\n`);
         for (const { part, f } of leaks) env.out(`PUBLIC: ${f.rule} LINE: ${f.line} PART: ${part}\n`);
-        env.err(`gstack-post: refused, the text names a home path, a Capy thread id or a cost on a ${vis} repo (PUBLIC: lines; line numbers count the text gstack-post would send, a merged pr-body included); nothing was posted. Rewrite those lines: a repo-relative path or the file name, no Capy id but the platform badge, no dollar, credits or token figure. A private repo whose visibility gh cannot read sets gstack-config redact_repo_visibility private.\n`);
+        env.err(`gstack-post: refused, the text names a home path or a Capy thread id on a ${vis} repo (PUBLIC: lines; line numbers count the text gstack-post would send, a merged pr-body included); nothing was posted. Rewrite those lines: a repo-relative path or the file name, and no Capy id but the platform badge. A private repo whose visibility gh cannot read sets gstack-config redact_repo_visibility private.\n`);
         return EXIT.refused;
       }
+      for (const [part, text] of parts) for (const f of costNotes(text)) env.err(`note: LOW PUBLIC: ${f.rule} LINE: ${f.line} PART: ${part} (a cost figure on a ${vis} repo; keep it only when cost is the lesson)\n`);
     }
     const email = env.run("git", ["config", "user.email"]);
     const hasQuad = parts.some(([, text]) => /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(text));

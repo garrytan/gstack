@@ -8,8 +8,9 @@
  *
  * Scans the exact bytes it sends (lib/redact-engine.ts) and passes every value
  * to gh/glab as an argv element or on stdin, never through a shell string.
- * On a public repo (or unknown visibility) receipts go out in their public form and a
- * home path, Capy thread id or cost figure refuses (lib/public-pr-text.ts).
+ * On a public repo (or unknown visibility) receipts and ALL_CAPS result lines go out in
+ * their public form, a home path or Capy thread id refuses and a cost figure is a LOW
+ * note (lib/public-pr-text.ts).
  * Exit: 0 posted · 1 HIGH or public-repo detail refused · 2 MEDIUM needs --confirm <token> ·
  * 3 gh/glab failed · 4 title not plain words (PLAIN_TITLE: lines) · 64 usage.
  * Logic and full usage: lib/gstack-post.ts.
