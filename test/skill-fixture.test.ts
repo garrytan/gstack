@@ -371,12 +371,21 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
     const excerpt = extractCodexReviewExcerpt(ROOT);
     expect(excerpt).toContain('## Step 2A: Review Mode');
     expect(excerpt).toContain(`_CODEX_PROBE=${path.join(ROOT, 'bin', 'gstack-codex-probe')}`);
+    expect(excerpt).toContain(`${path.join(ROOT, 'lib', 'outside-review-result.ts')} --label 'Codex review'`);
+    expect(excerpt).not.toContain('.claude/skills/gstack/');
     expect(unresolvedBinRefs(excerpt, ROOT)).toEqual([]);
   });
 
   test('an install-path or missing helper stays unresolved', () => {
     expect(unresolvedBinRefs('_CODEX_PROBE=~/.claude/skills/gstack/bin/gstack-codex-probe', ROOT))
       .toEqual(['~/.claude/skills/gstack/bin/gstack-codex-probe']);
+    // /ship adversarial pass on #4223: the bin/-only rewrite left this lib/ call on the install path.
+    expect(unresolvedBinRefs("bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review'", ROOT))
+      .toEqual(['~/.claude/skills/gstack/lib/outside-review-result.ts']);
+    expect(unresolvedBinRefs('a global `~/.claude/skills/gstack/` install', ROOT)).toEqual(['~/.claude/skills/gstack/']);
+    expect(unresolvedBinRefs(`bun ${path.join(ROOT, 'lib', 'outside-review-result.ts')}`, ROOT)).toEqual([]);
+    expect(unresolvedBinRefs(`bun ${path.join(ROOT, 'lib', 'no-such-script.ts')}`, ROOT))
+      .toEqual([path.join(ROOT, 'lib', 'no-such-script.ts')]);
     const missing = path.join(ROOT, 'bin', 'gstack-no-such-helper');
     expect(unresolvedBinRefs(`X=$(${missing} probe)`, ROOT)).toEqual([missing]);
     expect(unresolvedBinRefs('see `bin/gstack-no-such-helper`.', ROOT)).toEqual(['bin/gstack-no-such-helper']);

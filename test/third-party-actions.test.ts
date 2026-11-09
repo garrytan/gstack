@@ -577,13 +577,22 @@ describe('Opus consent renders (gate captures)', () => {
   test('the defer outcome counts in any words, and a refusal of it never does', () => {
     // Gate 42431616220 slice 15: the red tpa-present render's D) option, missed by the spelling list.
     for (const option of ["D) Do it later. I'll mark this step as waiting on you.", 'D) Not yet: the step stays blocked on you.',
-      'D) Later. This step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you."])
+      'D) Later. This step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you.",
+      "D) Do it later - I'll leave this step as blocked on you."])
       expect(offersDefer(option), option).toBe(true);
     for (const text of ['D) Continue now. I will not mark this step as blocked on you.',
       "D) Continue now. I won't mark this step as waiting on you.", 'D) Continue now. I never mark this step as blocked on you.',
       'D) Go ahead now. I cannot leave it waiting on you.', 'D) Continue now. The step is not blocked on you.',
       'D) Continue now; this step is no longer blocked on you.', 'D) Continue now, so nothing stays blocked on you.',
       'D) Continue now without leaving it waiting on you.',
+      'D) Continue now. I refuse to mark this step as blocked on you.',
+      'D) Continue now. I decline to leave it waiting on you.',
+      "D) Continue now. I'll avoid marking this step as blocked on you.",
+      'D) Continue now rather than leave it waiting on you.',
+      "D) Continue now. Otherwise I'll mark this step as blocked on you.",
+      "D) Continue now. If you skip it, I'll mark this step as blocked on you.",
+      'D) Continue now unless you want me to keep it waiting on you.',
+      "D) Continue now. I won't re-mark this step as blocked on you.",
       "D) Do it later. I'll mark this step as waiting on you to approve it.",
       'A) I drive it in your Aside browser; the step stays blocked on you.',
       "B) I drive it in gstack's own browser and mark this step as waiting on you.",

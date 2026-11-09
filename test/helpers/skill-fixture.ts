@@ -321,7 +321,8 @@ export function extractDesignResearchContract(skill: string): string {
  * /codex review E2E excerpt: the skeleton's intro and setup steps plus the
  * review-mode section, skipping the Section index and STOP pointers whose
  * install paths don't exist in a temp fixture. The fixture seeds no install, so
- * helper calls point at this checkout's bin/, as review-design-lite does.
+ * every ~/.claude/skills/gstack/ path (bin/ helpers and lib/ scripts alike)
+ * points at this checkout, as review-design-lite does.
  */
 export function extractCodexReviewExcerpt(root: string): string {
   const full = fs.readFileSync(path.join(root, 'codex', 'SKILL.md'), 'utf-8');
@@ -335,11 +336,16 @@ export function extractCodexReviewExcerpt(root: string): string {
   const reviewMode = fs.readFileSync(path.join(root, 'codex', 'sections', 'review-mode.md'), 'utf-8');
   if (!reviewMode.includes('## Step 2A: Review Mode')) throw new Error('skill fixture: codex review-mode section missing');
   return [full.slice(introStart, introEnd), full.slice(stepsStart, stepsEnd), reviewMode].join('\n')
-    .replaceAll('~/.claude/skills/gstack/bin', path.join(root, 'bin'));
+    .replaceAll('~/.claude/skills/gstack/', `${root}/`);
 }
 
-/** Every gstack bin/ helper path in an excerpt that does not resolve to a file (bare bin/ resolves under root). */
+/**
+ * Every helper path in an excerpt that a fixture with no install cannot run: any path under an installed
+ * .claude/skills/gstack/ (a Capy machine or laptop may have one, a CI runner does not), and any gstack bin/ helper or
+ * lib/*.ts script that does not resolve to a file (bare bin/ and lib/ resolve under root).
+ */
 export function unresolvedBinRefs(excerpt: string, root: string): string[] {
-  const refs = new Set(excerpt.match(/[^\s`'"()=]*\bbin\/gstack-[\w.-]*\w/g) ?? []);
-  return [...refs].filter(ref => !fs.existsSync(ref.startsWith('bin/') ? path.join(root, ref) : ref));
+  const refs = new Set(excerpt.match(/[^\s`'"()=]*(?:\.claude\/skills\/gstack\/[^\s`'"()]*|\b(?:bin\/gstack-[\w.-]*\w|lib\/[\w./-]*\.ts)\b)/g) ?? []);
+  return [...refs].filter(ref => ref.includes('.claude/skills/gstack/')
+    || !fs.existsSync(/^(?:bin|lib)\//.test(ref) ? path.join(root, ref) : ref));
 }
