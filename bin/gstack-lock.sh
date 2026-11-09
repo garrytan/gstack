@@ -6,9 +6,10 @@
 #   gstack_lock_take DIR [FILE] [CONTENT]
 #     Take the lock DIR by creating DIR/FILE (default `pid`) holding CONTENT
 #     (default $$). Returns 0 when this shell took the lock, 1 when it is held
-#     (DIR already existed, or another process created FILE first), and 2 when
-#     DIR or FILE could not be created (missing or unwritable parent, read-only
-#     filesystem), which is not evidence of a competing holder.
+#     (DIR already existed, or another process created FILE first), 2 when DIR
+#     could not be created (missing or unwritable parent, read-only filesystem)
+#     and 3 when DIR was made but FILE could not be written in it (DIR is
+#     removed again). Neither 2 nor 3 is evidence of a competing holder.
 #
 # Why not `mkdir DIR && ...`: mkdir's exit status is not a lock. Rust
 # coreutils (uutils) 0.8.0, the mkdir on Ubuntu 26.04 and on GitHub's
@@ -36,5 +37,5 @@ gstack_lock_take() {
   if (set -o noclobber; printf '%s\n' "$_gl_content" > "$_gl_dir/$_gl_file") 2>/dev/null; then return 0; fi
   if [ -e "$_gl_dir/$_gl_file" ] || [ -L "$_gl_dir/$_gl_file" ] || [ ! -d "$_gl_dir" ]; then return 1; fi
   rmdir "$_gl_dir" 2>/dev/null || :
-  return 2
+  return 3
 }

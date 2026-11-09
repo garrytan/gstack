@@ -640,7 +640,8 @@ _gstack_codex_lock_acquire() {
   local _dir="$1" _tries=$(( ${2:-45} * 10 )) _stale="${3:-90}" _host _owner _pid _ohost _ts _now _i=0 _dead
   _host=$(uname -n 2>/dev/null || echo unknown)
   while :; do
-    gstack_lock_take "$_dir" owner "$$ $_host $(date +%s 2>/dev/null || echo 0)" && return 0
+    gstack_lock_take "$_dir" owner "$$ $_host $(date +%s 2>/dev/null || echo 0)"
+    case $? in 0) return 0 ;; 3) return 2 ;; esac
     if [ ! -d "$_dir" ]; then
       { [ -e "$_dir" ] || [ -L "$_dir" ]; } && return 2
       { [ -d "${_dir%/*}" ] && [ -w "${_dir%/*}" ] && [ -x "${_dir%/*}" ]; } || return 2

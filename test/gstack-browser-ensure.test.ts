@@ -35,6 +35,7 @@ function fixture(opts: { playwright?: boolean } = {}) {
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bin/gstack-browser-ensure'), path.join(root, 'bin/gstack-browser-ensure'));
   fs.chmodSync(path.join(root, 'bin/gstack-browser-ensure'), 0o755);
+  fs.copyFileSync(path.join(REPO, 'bin/gstack-lock.sh'), path.join(root, 'bin/gstack-lock.sh'));
   if (opts.playwright !== false) {
     write(path.join(root, 'node_modules/playwright/index.js'), [
       'const fs = require("fs");',

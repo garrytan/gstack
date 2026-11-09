@@ -145,6 +145,13 @@ describe('gstack_lock_take contract (real mkdir)', () => {
     expect(fs.readdirSync(path.join(d, 'elsewhere'))).toEqual([]);
   });
 
+  test('an owner file that cannot be written is 3 and leaves no directory behind', () => {
+    const d = fresh();
+    const r = bash(`. '${HELPER}'; umask 0777; gstack_lock_take "${d}/lock"; echo "rc=$?"`);
+    expect(r.out).toMatch(/^rc=(3|0)\n$/);
+    if (r.out === 'rc=3\n') expect(fs.existsSync(path.join(d, 'lock'))).toBe(false);
+  });
+
   test('a missing or unwritable parent is 2, not contention', () => {
     const d = fresh();
     const ro = path.join(d, 'ro');

@@ -129,7 +129,7 @@ gstack_lock_take() {
   if (set -o noclobber; printf '%s\n' "$_gl_content" > "$_gl_dir/$_gl_file") 2>/dev/null; then return 0; fi
   if [ -e "$_gl_dir/$_gl_file" ] || [ -L "$_gl_dir/$_gl_file" ] || [ ! -d "$_gl_dir" ]; then return 1; fi
   rmdir "$_gl_dir" 2>/dev/null || :
-  return 2
+  return 3
 }
 lock_is_expired() {
   _hb="$LOCK_DIR/pid"

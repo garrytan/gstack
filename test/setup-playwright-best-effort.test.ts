@@ -160,6 +160,8 @@ function runBlock(opts: {
     'cleanup_copied_bun() { echo cleanup >> "$MARK.exit"; }',
     'trap cleanup_copied_bun EXIT',
     '_clear_playwright_quarantine() { :; }',
+    // setup sources the shared lock helper near its top; the block takes its lock with it.
+    `. '${path.join(ROOT, 'bin', 'gstack-lock.sh')}'`,
     probeFn,
     opts.prelude ?? '',
     `BUN_CMD='${opts.bunCmd ?? 'bun'}'`,

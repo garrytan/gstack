@@ -552,7 +552,8 @@ describe('gstack-lease', () => {
   test('a lock whose owner cannot be published is removed, not left ownerless, and touch fails at once', () => {
     const { dir, leases } = checkout();
     const holder = sleeper();
-    const shim = bashEnv(dir, 'mv() { case "$*" in *".lock.claim."*) return 1 ;; esac; command mv "$@"; }\n');
+    // The owner file is created inside the new lock directory; a directory that refuses writes stands in for any failed publish.
+    const shim = bashEnv(dir, 'mkdir() { command mkdir "$@" || return; case "$*" in *"/.lock") command chmod a-w "${@: -1}" ;; esac; }\n');
     const r = run(['touch', '--root', dir, '--pid', String(holder)], { BASH_ENV: shim });
     expect(r.status, r.stdout + r.stderr).toBe(3);
     expect(r.stderr).toContain('cannot take the lease directory lock');
