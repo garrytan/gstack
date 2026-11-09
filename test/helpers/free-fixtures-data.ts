@@ -216,6 +216,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/review-design-lite-reports-ci-36633323521.json': ['test/review-finalization-budget.test.ts'],
   'test/fixtures/review-gate-integrity-opus-reports.json': ['test/gate-integrity-templates.test.ts'],
   'test/fixtures/review-wrong-tree/**': ['test/review-dispatch.test.ts'],
+  'test/fixtures/scrape-prototype-goto-42571575838.json': ['test/helpers/session-runner.test.ts'],
   'test/fixtures/screen-verdict-41662815506/**': ['crew/test/ship-queue-screen-verdict.test.ts'],
   'test/fixtures/sealed-guard-off-golden.json': ['test/sealed-guard.test.ts'],
   'test/fixtures/session-update-heartbeat.sh': ['test/session-update-heartbeat.test.ts'],
