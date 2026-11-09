@@ -9,7 +9,8 @@
  * run. Two answers, both from the runner itself rather than a parse of its
  * config, so the config's env-gated branches resolve as they would here:
  * `excludedByConfig` asks the runner which of a group's files it would run
- * (`vitest list --filesOnly`, `jest --listTests`) before the lane runs, and
+ * (`vitest list --filesOnly`, `jest --listTests`, each file argument escaped
+ * for jest, which reads it as a regex) before the lane runs, and
  * `noTestFilesFound` reads a run that still ended on that message. Either way
  * the files are not applicable here: not run, not counted as covered, never a
  * failure. Any doubt (another runner, a listing that fails or cannot be read,
@@ -19,11 +20,17 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runBashSync } from '../script-invocation';
 
-const VITEST_RUN = /(?<![\w-])vitest\s+run(?![\w-])/;
-const JEST = /(?<![\w-])jest(?![\w-])/;
+const VITEST_RUN = /(?<=^|[\s;&|(/])vitest\s+run(?=$|[\s;&|)])/;
+const JEST = /(?<=^|[\s;&|(/])jest(?=$|[\s;&|)])/;
 const NO_FILES = /^\s*(No test files found|No tests found), exiting with code 1\b.*$/m;
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+
+/** Whether `runner` runs jest, as a whole command word: `./node_modules/.bin/jest` does, `--preload ./jest.setup.ts` does not. */
+export const runsJest = (runner: string) => JEST.test(runner);
+
+/** A file argument for jest, which reads each one as a regex: escaped, so `app/[id]/page.test.js` matches that file and no other. */
+export const jestPattern = (f: string) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Files a runner's config leaves out of a run, and why. */
 export interface NotApplicable { files: string[]; reason: string }
@@ -33,9 +40,8 @@ export interface NotApplicable { files: string[]; reason: string }
  * command, jest's `--listTests --json` for a jest one; null for any other runner, which runs every file as before.
  */
 export function listCommand(runner: string, files: readonly string[], out: string): string | null {
-  const joined = files.map(quote).join(' ');
-  if (VITEST_RUN.test(runner)) return runner.replace(VITEST_RUN, `vitest list --filesOnly --json=${quote(out)}`).replace('{files}', () => joined);
-  if (JEST.test(runner) && !/--listTests\b/.test(runner)) return runner.replace(JEST, 'jest --listTests --json').replace('{files}', () => joined);
+  if (VITEST_RUN.test(runner)) return runner.replace(VITEST_RUN, `vitest list --filesOnly --json=${quote(out)}`).replace('{files}', () => files.map(quote).join(' '));
+  if (runsJest(runner) && !/--listTests\b/.test(runner)) return runner.replace(JEST, 'jest --listTests --json').replace('{files}', () => files.map(jestPattern).map(quote).join(' '));
   return null;
 }
 
@@ -51,7 +57,7 @@ export function excludedByConfig(runner: string, cwd: string, files: readonly st
   const r = runBashSync(command, { cwd, env: { ...env, CI: env.CI ?? '1' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
   if (r.error || r.status !== 0) return null;
   let listed: unknown;
-  try { listed = JSON.parse(VITEST_RUN.test(runner) ? fs.readFileSync(out, 'utf8') : r.stdout.trim()); } catch { return null; } finally { fs.rmSync(out, { force: true }); }
+  try { listed = JSON.parse(VITEST_RUN.test(runner) ? fs.readFileSync(out, 'utf8') : (r.stdout.split('\n').reverse().find(l => l.trimStart().startsWith('[')) ?? '')); } catch { return null; } finally { fs.rmSync(out, { force: true }); }
   if (!Array.isArray(listed)) return null;
   const paths = listed.map(e => (typeof e === 'string' ? e : typeof e?.file === 'string' ? e.file : null));
   if (paths.some(p => p === null)) return null;

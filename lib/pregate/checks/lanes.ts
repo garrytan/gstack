@@ -37,7 +37,7 @@ import { checkScratch } from '../run-scratch';
 import { starterPolicy } from '../starter';
 import { isDeviceDart, listRepoFiles, readRepoFile } from '../import-graph';
 import { docsOnlyLane } from '../docs-only-lane';
-import { excludedByConfig, noTestFilesFound, type NotApplicable } from '../runner-config';
+import { excludedByConfig, jestPattern, noTestFilesFound, runsJest, type NotApplicable } from '../runner-config';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
@@ -366,8 +366,8 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
 async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup, files: string[], log: string, counter: Counter): Promise<LocalRun> {
-  // playwright test reads each file argument as a case-insensitive regex: escape it and anchor it to a path segment, so `a[1].spec.ts` runs that file, not `a1.spec.ts`.
-  const args = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? files.map(f => `(?:^|/)${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : files;
+  // playwright test reads each file argument as a case-insensitive regex: escape it and anchor it to a path segment, so `a[1].spec.ts` runs that file, not `a1.spec.ts`; jest reads it as a regex too.
+  const args = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? files.map(f => `(?:^|/)${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : runsJest(g.runner) ? files.map(jestPattern) : files;
   const joined = args.map(quote).join(' ');
   const run = g.runner.replace('{files}', () => joined);
   const command = g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run;

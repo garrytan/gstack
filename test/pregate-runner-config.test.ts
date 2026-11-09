@@ -30,9 +30,12 @@ describe('the runner-config helpers', () => {
   test('listCommand rewrites vitest run and jest, keeps the prefix and flags, and leaves every other runner alone', () => {
     expect(listCommand('npx vitest run {files}', ['tests/a.test.js'], '/s/l.json')).toBe("npx vitest list --filesOnly --json='/s/l.json' 'tests/a.test.js'");
     expect(listCommand('pnpm exec vitest run --config vitest.live.config.js {files}', ['a.test.ts'], '/s/l.json')).toBe("pnpm exec vitest list --filesOnly --json='/s/l.json' --config vitest.live.config.js 'a.test.ts'");
-    expect(listCommand('npx jest {files}', ['a.test.js'], '/s/l.json')).toBe("npx jest --listTests --json 'a.test.js'");
-    expect(listCommand('./node_modules/.bin/jest --ci {files}', ['a.test.js'], '/s/l.json')).toBe("./node_modules/.bin/jest --listTests --json --ci 'a.test.js'");
-    for (const runner of ['bun test {files}', 'node --test {files}', 'npx playwright test --reporter=list {files}', 'npx vitest {files}', 'node scripts/run-tests.js {files}', 'npx jest --listTests {files}']) expect(listCommand(runner, ['a.test.js'], '/s/l.json')).toBeNull();
+    expect(listCommand('npx jest {files}', ['a.test.js'], '/s/l.json')).toBe("npx jest --listTests --json 'a\\.test\\.js'");
+    expect(listCommand('./node_modules/.bin/jest --ci {files}', ['a.test.js'], '/s/l.json')).toBe("./node_modules/.bin/jest --listTests --json --ci 'a\\.test\\.js'");
+    // jest reads each file argument as a regex: a Next.js route segment is escaped, or `[id]` would be a character class and the file never listed.
+    expect(listCommand('npx jest {files}', ['app/[id]/(group)/page.test.js'], '/s/l.json')).toBe("npx jest --listTests --json 'app/\\[id\\]/\\(group\\)/page\\.test\\.js'");
+    // A tool name inside another word or path is not the runner: bun with a jest setup file gets no jest probe.
+    for (const runner of ['bun test {files}', 'bun test --preload ./jest.setup.ts {files}', 'node --test {files}', 'npx playwright test --reporter=list {files}', 'npx vitest {files}', 'node scripts/run-tests.js {files}', 'npx jest --listTests {files}', 'npx jest-cli {files}', 'bun test --preload ./vitest.run.ts {files}']) expect(listCommand(runner, ['a.test.js'], '/s/l.json')).toBeNull();
   });
 
   // Value: protects=a run that ended on the runner's own no-files message for files on disk is read as not applicable, with the
@@ -56,12 +59,14 @@ describe('the runner-config helpers', () => {
     const dir = tempDir();
     const bin = path.join(dir, 'bin');
     fs.mkdirSync(bin);
-    fs.writeFileSync(path.join(bin, 'jest'), '#!/usr/bin/env bash\n[ -n "$JEST_SHIM_EXIT" ] && exit "$JEST_SHIM_EXIT"\n[ -n "$JEST_SHIM_TEXT" ] && { echo "$JEST_SHIM_TEXT"; exit 0; }\nprintf \'["%s"]\' "$PWD/tests/unit/b.test.js"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'jest'), '#!/usr/bin/env bash\n[ -n "$JEST_SHIM_EXIT" ] && exit "$JEST_SHIM_EXIT"\n[ -n "$JEST_SHIM_TEXT" ] && { echo "$JEST_SHIM_TEXT"; exit 0; }\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "yarn run v1.22.22"\nprintf \'["%s"]\\n\' "$PWD/tests/unit/b.test.js"\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "Done in 0.41s."\nexit 0\n', { mode: 0o755 });
     for (const f of ['tests/unit/b.test.js', 'tests/live/a.test.js']) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), ''); }
     const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
     const files = ['tests/live/a.test.js', 'tests/unit/b.test.js'];
     expect(excludedByConfig('jest {files}', dir, files, env, dir, 30_000)).toEqual({ files: ['tests/live/a.test.js'], reason: "the runner's config excludes them: `jest --listTests` does not list them in this environment" });
     expect(excludedByConfig('jest {files}', dir, ['tests/unit/b.test.js'], env, dir, 30_000)).toBeNull();
+    // A package manager's preamble and footer around jest's JSON (yarn classic) still leave the JSON line readable.
+    expect(excludedByConfig('jest {files}', dir, files, { ...env, JEST_SHIM_PREAMBLE: '1' }, dir, 30_000)?.files).toEqual(['tests/live/a.test.js']);
     expect(excludedByConfig('jest {files}', dir, files, { ...env, JEST_SHIM_EXIT: '1' }, dir, 30_000)).toBeNull();
     expect(excludedByConfig('jest {files}', dir, files, { ...env, JEST_SHIM_TEXT: 'not json' }, dir, 30_000)).toBeNull();
     expect(excludedByConfig('bun test {files}', dir, files, env, dir, 30_000)).toBeNull();
