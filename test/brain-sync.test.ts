@@ -1407,32 +1407,6 @@ describe('gstack-brain-sync per-file hold', () => {
         await expectPublishedSnapshotRebuiltFromMergedLog([seed, a, b, c]);
       });
 
-      test('a decision logged while the retry merge runs keeps the working-tree snapshot in step with the log', async () => {
-        const seed = setupMachineB('current');
-        const a = machineAPushesADecision();
-        const b = logDecision(tmpHome, 'decision on machine B');
-        const marker = path.join(tmpHome, 'late-decision-logged');
-        const late = JSON.stringify({ decision: 'decision logged during the merge', rationale: 'r', scope: 'repo', source: 'user' });
-        const shim = gitShim(
-          `case " $* " in *" push "*) [ -e '${marker}' ] || { : > '${marker}'; (cd '${proj}' && HOME='${tmpHome}' GSTACK_HOME='${tmpHome}' '${path.join(BIN, 'gstack-decision-log')}' '${late}' >/dev/null); };; esac`,
-        );
-        expect(drain(shim.env).status).toBe(0);
-        expect(fs.existsSync(marker)).toBe(true);
-        const s = statusJson();
-        expect(s.status).toBe('ok');
-        expect(s.message ?? '').not.toContain('decisions.active.json');
-        const { computeActive } = await import('../lib/gstack-decision');
-        const published = remoteShow(ALOG).stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l));
-        expect(published.map((e) => e.id).sort()).toEqual([seed, a, b].sort());
-        expect(remoteShow(ASNAP).stdout).toBe(JSON.stringify(computeActive(published)));
-        expect(mergeHead()).toBe(false);
-        expect(unmerged()).toBe('');
-        const events = fs.readFileSync(path.join(tmpHome, ALOG), 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-        expect(events.map((e) => e.decision)).toContain('decision logged during the merge');
-        expect(events).toHaveLength(4);
-        expect(fs.readFileSync(path.join(tmpHome, ASNAP), 'utf-8')).toBe(JSON.stringify(computeActive(events)));
-      });
-
       test('a merge that would bring back a decision the other machine redacted and compacted away still aborts', () => {
         const seed = setupMachineB('current');
         const x = machineAPushesADecision();
@@ -1464,6 +1438,44 @@ describe('gstack-brain-sync per-file hold', () => {
         expect(remoteShow(ASNAP).stdout).not.toContain(x);
         expect(remoteShow(ALOG).stdout).not.toContain(c);
         expect([seed, b].every((id) => remoteShow(ALOG).stdout.includes(id))).toBe(true);
+      });
+
+      test('a decision log that stash pop brings back with an expunged decision stays held and never reaches the remote', () => {
+        setupMachineB('current');
+        const x = machineAPushesADecision();
+        logDecision(tmpHome, 'decision on machine B');
+        expect(drain().status).toBe(0);
+        expect(statusJson().status).toBe('ok');
+        expect(git(['pull', '-q', '--ff-only'], machineA).status).toBe(0);
+        for (const args of [['--redact', x], ['--compact']]) {
+          const r = spawnSync(path.join(BIN, 'gstack-decision-log'), args, {
+            cwd: proj,
+            env: { ...process.env, HOME: tmpHome, GSTACK_HOME: machineA },
+            encoding: 'utf-8',
+            timeout: 30_000,
+          });
+          expect(r.status).toBe(0);
+        }
+        expect(git(['add', '-f', '--', ALOG, ASNAP], machineA).status).toBe(0);
+        expect(git(['-c', 'user.name=peer', '-c', 'user.email=peer@example.com', 'commit', '-qm', 'redact and compact on A'], machineA).status).toBe(0);
+        expect(git(['push', '-q', 'origin', 'HEAD'], machineA).status).toBe(0);
+        const compactedSnapshot = remoteShow(ASNAP).stdout;
+        write(CLEAN, '# a plan from machine B\n');
+        const marker = path.join(tmpHome, 'late-decision-logged');
+        const late = JSON.stringify({ decision: 'decision logged during the merge', rationale: 'r', scope: 'repo', source: 'user' });
+        const shim = gitShim(
+          `case " $* " in *" push "*) [ -e '${marker}' ] || { : > '${marker}'; (cd '${proj}' && HOME='${tmpHome}' GSTACK_HOME='${tmpHome}' '${path.join(BIN, 'gstack-decision-log')}' '${late}' >/dev/null); };; esac`,
+        );
+        expect(drain(shim.env).status).toBe(0);
+        expect(fs.existsSync(marker)).toBe(true);
+        expect(fs.readFileSync(path.join(tmpHome, ALOG), 'utf-8')).toContain(x);
+        expect(drain().status).toBe(0);
+        const s = statusJson();
+        expect(s.status).not.toBe('ok');
+        expect(`${s.status} ${s.message ?? ''}`).toMatch(/held|consistent generation/);
+        expect(remoteShow(ALOG).stdout).not.toContain(x);
+        expect(remoteShow(ASNAP).stdout).toBe(compactedSnapshot);
+        expect(remoteShow(CLEAN).stdout).toContain('a plan from machine B');
       });
 
       test('a conflict in another file still aborts the merge and leaves the snapshot alone', () => {

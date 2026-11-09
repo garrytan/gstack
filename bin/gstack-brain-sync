@@ -661,31 +661,17 @@ merge_origin_keeping_local_edits() {
   fi
   [ -n "$stash_sha" ] || return "$rc"
   out=$("${lit[@]}" stash pop -q 2>&1) && return "$rc"
-  local paths="" args="" failed=0 slug
-  local -a snapshots=()
+  local paths="" args="" failed=0
   while IFS= read -r -d '' p; do
     if "${lit[@]}" cat-file -e "HEAD:$p" 2>/dev/null; then
       "${lit[@]}" checkout -q HEAD -- "$p" >/dev/null 2>&1 || failed=1
     else
       { "${lit[@]}" rm -q --cached -- "$p" >/dev/null 2>&1 && rm -f -- "$GSTACK_HOME/$p"; } || failed=1
     fi
-    case "$p" in
-      projects/*/decisions.active.json)
-        slug="${p#projects/}"; slug="${slug%/decisions.active.json}"
-        case "$slug" in ''|*/*|.|..) ;; *) snapshots+=("$slug"); continue ;; esac
-        ;;
-    esac
     paths="$paths ${p}"
     args="$args $(printf '%q' "$p")"
   done < <("${lit[@]}" diff -z --name-only --diff-filter=U 2>/dev/null)
   "${lit[@]}" reset -q >/dev/null 2>&1 || failed=1
-  # A conflicted decision snapshot is rebuilt from the decisions.jsonl now in
-  # the working tree, so it matches the log the local edit was put back into.
-  for slug in ${snapshots[@]+"${snapshots[@]}"}; do
-    GSTACK_STATE_ROOT="$GSTACK_HOME" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" \
-      "$SCRIPT_DIR/gstack-decision-log" --rebuild-snapshot "$slug" >/dev/null 2>&1 || failed=1
-  done
-  [ "$failed" = 0 ] && [ -z "$paths" ] && [ "${#snapshots[@]}" -gt 0 ] && return "$rc"
   if [ -z "$paths" ] || [ "$failed" = 1 ]; then
     MERGE_ERR="local edits could not be put back after merging origin/$branch ($(printf '%s\n' "$out" | head -1)); they are saved in git -C $GSTACK_HOME stash list"
     return 1
