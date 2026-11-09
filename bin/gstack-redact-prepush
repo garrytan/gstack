@@ -707,6 +707,8 @@ function main() {
   // so the report names exactly what they suppressed.
   const allowed: string[] = [];
   const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
+  // A binary file is one part per reading; a token every reading keeps is reported once.
+  const reported = new Set<string>();
   for (const { part, allowlist } of parts) {
     const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
     const findings = scanAddedLines(part.text, opts);
@@ -715,6 +717,9 @@ function main() {
       : null;
     for (const f of findings) {
       if (part.binary && f.category !== "secret") continue;
+      const where = `${findingWhere(f, part)} ${findingKey(f)}`;
+      if (reported.has(where)) continue;
+      reported.add(where);
       if (kept && !kept.has(findingKey(f))) {
         if (f.severity === "HIGH" || f.severity === "MEDIUM") allowed.push(`  ${f.severity}  ${f.id}  ${findingWhere(f, part)}\n`);
         continue;

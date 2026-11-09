@@ -173,6 +173,7 @@ function run(ctx: PregateContext): CheckResult {
     let high = false;
     let medium = false;
     let parsedAll = true;
+    const reported = new Set<string>();
     for (const [i, part] of parts.entries()) for (const [j, text] of part.texts.entries()) {
       const file = path.join(tmp, `${i}.${j}`, (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : path.basename(part.file)) || 'added.txt');
       fs.mkdirSync(path.dirname(file), { mode: 0o700 });
@@ -183,7 +184,7 @@ function run(ctx: PregateContext): CheckResult {
       high ||= r.status === 3;
       medium ||= r.status === 2;
       const lines = text.split('\n');
-      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) findings.push(f); } catch { parsedAll = false; }
+      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) { const key = `${i}:${f.id}:${f.line}:${f.col}`; if (!reported.has(key)) { reported.add(key); findings.push(f); } } } catch { parsedAll = false; }
     }
     // The allowlist applies only to findings the scanner reported in full; an unparsed report keeps its exit-code verdict.
     const applied = parsedAll && ctx.config.allowlist.length ? applyAllowlist(findings, ctx.config.allowlist) : { kept: findings, allowlisted: [], untested: [], missed: [] };

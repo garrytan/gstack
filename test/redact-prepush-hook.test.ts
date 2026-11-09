@@ -831,6 +831,13 @@ describe("files git calls binary are scanned (GST-2195)", () => {
     expect(results).toEqual(shapes.map(([shape]) => ({ shape, code: 1, aws: true })));
   });
 
+  test("a plain token in a binary file that also holds UTF-16 text is listed once (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commitFiles({ "mixed.bin": Buffer.concat([Buffer.from(`token ${FAKE_PAT}\n`), utf16("hello world\n")]) }, "mixed binary");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect({ code, listed: stderr.split("\n").filter((l) => l.includes("github.pat")).length }).toEqual({ code: 1, listed: 1 });
+  });
+
   test("deleting a 70 MiB binary pushes clean, and adding one still blocks on the 64 MiB diff limit (GST-2261)", () => {
     const base = git(["rev-parse", "HEAD"]);
     const big = commitFiles({ "big.bin": Buffer.alloc(70 * 1024 * 1024) }, "add big binary");

@@ -265,6 +265,14 @@ describe('pregate secrets: source context and diff integrity', () => {
     for (const file of ['plain.yml', 'le.yml', 'be.yml']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH aws\\.secret_key .*\\(${file.replace('.', '\\.')}, added line \\d\\)$`)));
   });
 
+  // Value: protects=a plain token in a binary file that also holds UTF-16 text is listed once; fails_when=each reading of the file reports the same finding again;
+  //   why_new=GST-2261 review (testing specialist): a mixed binary listed one token three times; seam=fixture repo; no_claim=a UTF-16 token found at different columns in both byte orders
+  test('a plain token in a binary file that also holds UTF-16 text is listed once (GST-2261)', () => {
+    const r = repo({ 'mixed.bin': Buffer.concat([Buffer.from(`token ${PAT}\n`), utf16('hello world\n')]) }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines.filter(l => /github\.pat .*mixed\.bin/.test(l))).toHaveLength(1);
+  });
+
   // Value: protects=a UTF-16 token right beside a CJK character is found, and so is a plain token beside a run of character-and-NUL pairs; fails_when=the CJK character's bytes glue onto the token, or padding the run cuts the plain token;
   //   why_new=GST-2195 review (outside voice): U+4E2D before a token read as "-N" glued to it; seam=fixture repo; no_claim=UTF-32
   test('a token right beside a CJK character in UTF-16, or beside a NUL run in binary content, fails like plain text (GST-2195)', () => {
