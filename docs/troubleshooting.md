@@ -6845,12 +6845,13 @@ took `SAVE_VERSION := 83` under the branch's `:= 84`). The merge may have splice
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
-`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section over 200
-lines takes the full loop instead, but only the branch's own lines count toward
-that limit: the base's +/- lines, already merged at base, are shown and not
-counted (GST-1226), so a large base edit next to the branch's hunk still gets
-the scoped read. A base change over 2,000 lines in one file counts in full
-again and takes the full loop.
+`RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section with over
+200 of the branch's own +/- lines takes the full loop instead. Nothing else
+counts toward that limit: the context lines and headers of the branch's hunks,
+which a base merge can move (GST-2229), and the base's own change, already
+merged at base (GST-1226), are shown and not counted, so a large base edit next
+to the branch's hunks still gets the scoped read. A base change over 2,000 lines
+in one file counts in full again and takes the full loop.
 
 **Fix.** Dispatch one fix-check reviewer
 ([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
@@ -6884,7 +6885,7 @@ range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
 range-diff can clear it instead of a full second /ship. A rebased branch
 (`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
 `review_depth`, more than 20 changed product paths, a binary path, a moved
-base context section over 200 lines, an empty or unreadable range-diff and a
+base context section with over 200 of the branch's own +/- lines, an empty or unreadable range-diff and a
 packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
 When base context also moved next to reviewed hunks in other paths, their
 scoped-review sections join the same packet (GST-1561): the caps count the

@@ -176,20 +176,22 @@ function hunkTexts(diff: string): string[] {
   return diff.split(/^(?=@@ )/m).slice(1).map(h => h.replace(/^@@ [^@]*@@/, '@@'));
 }
 
-/** The most lines one packet section may hold; a path with a longer section takes the full loop instead. */
+/** The most branch +/- lines one packet section may hold; a path with a longer section takes the full loop instead. */
 export const PACKET_SECTION_CAP = 200;
-/** The most lines the base's change section may hold before its uncounted base lines count again (GST-1226). */
+/** The most lines the base's change section may hold before its uncounted lines count again (GST-1226). */
 export const BASE_SECTION_CEILING = 2000;
 
 /**
  * The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own
  * change; per test path, its test hunks. `over` names every path with a section past PACKET_SECTION_CAP: one reviewer
- * cannot be shown all of it, so the caller sends it to the full loop. The base's +/- lines, already merged at base, are
- * shown but do not count toward the cap (GST-1226) until that section passes BASE_SECTION_CEILING lines.
+ * cannot be shown all of it, so the caller sends it to the full loop. Only the branch's own +/- lines count toward the cap:
+ * the context lines and headers of its hunks, which a base merge can move (GST-2229, founderstar#802), and the base's change,
+ * already merged at base (GST-1226), are shown but not counted until the base's change passes BASE_SECTION_CEILING lines.
  */
 export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = [], bounded: Readonly<Record<string, BoundedKind>> = {}): { text: string; over: string[]; sha256: string } {
   const over = new Set<string>();
   let current = '';
+  const own = (line: string) => /^[+-]/.test(line);
   const fence = (label: string, body: string, counts: (line: string) => boolean = () => true) => {
     if (body.split('\n').filter(counts).length > PACKET_SECTION_CAP) over.add(current);
     return `${label}\n\`\`\`diff\n${body.trimEnd()}\n\`\`\`\n`;
@@ -206,8 +208,8 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     const b = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('');
-    parts.push(`## ${rel}\n`, ...(rel in bounded ? [fence('Changed since review', pathDiff(repoRoot, s.reviewed, s.current, rel, 3) ?? '')] : []), fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
-      fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : l => !/^[+-]/.test(l)));
+    parts.push(`## ${rel}\n`, ...(rel in bounded ? [fence('Changed since review', pathDiff(repoRoot, s.reviewed, s.current, rel, 3) ?? '')] : []), fence('Reviewed hunks', r.filter(h => !c.includes(h)).join(''), own), fence('Current hunks', c.filter(h => !r.includes(h)).join(''), own),
+      fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : () => false));
   }
   if (late.length) parts.push(`## Targeted brief (${TARGETED_CLASSES.join(', ')})\n\n${packetBrief()}\n`);
   const text = parts.join('\n');
