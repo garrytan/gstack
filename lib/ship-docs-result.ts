@@ -8,8 +8,9 @@
  * A failure of shape alone (the line is one object; only keys, types or the section are wrong) is `repairable`: the parent
  * re-asks for the line once (docsRepairPrompt) without spending an attempt, and checkDocsRepair accepts the reply only when
  * every value the first line already gave correctly is unchanged (GBEV-3: a missing section, then a misnamed key set to "x").
- * A missing or wrong audit id, a missing or unknown status, a status that contradicts the lists, or a last line that is not an
- * object is a content failure and counts: a repair may never supply the audit's identity or its outcome.
+ * A missing, wrong or repeated audit id, a missing, unknown or repeated status, a files_updated or blockers list that is present
+ * but malformed, a status that contradicts the lists, or a last line that is not an object is a content failure and counts: a
+ * repair may never supply the audit's identity or its outcome. A missing list stays repairable.
  */
 export const DOCS_RESULT_KEYS = ['schema_version', 'audit_id', 'status', 'files_updated', 'files_reviewed', 'blockers', 'decisions', 'documentation_section'] as const;
 const LISTS = ['files_updated', 'files_reviewed', 'blockers', 'decisions'] as const;
@@ -37,7 +38,7 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   for (const [raw, value] of Object.entries(parsed)) {
     const key = raw.trim();
     if (key !== raw) trimmed.push(raw);
-    if (Object.hasOwn(v, key)) { problems.push(`${shown(key)} appears twice once whitespace around keys is trimmed`); bad.add(key); }
+    if (Object.hasOwn(v, key)) { problems.push(`${shown(key)} appears twice once whitespace around keys is trimmed`); bad.add(key); if (key === 'audit_id' || key === 'status') content = true; }
     v[key] = value;
   }
   const unknown = Object.keys(v).filter(key => !(DOCS_RESULT_KEYS as readonly string[]).includes(key));
@@ -50,8 +51,9 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   for (const key of LISTS) {
     if (!Object.hasOwn(v, key)) continue;
     const list = v[key];
-    if (!Array.isArray(list) || list.some(x => typeof x !== 'string' || !x.trim())) { problems.push(`"${key}" is not a list of nonempty strings`); bad.add(key); continue; }
-    if (key.startsWith('files_') && (new Set(list).size !== list.length || list.some(badPath))) { problems.push(`"${key}" must list unique repo-relative files, not globs`); bad.add(key); }
+    const pinsOutcome = key === 'files_updated' || key === 'blockers';
+    if (!Array.isArray(list) || list.some(x => typeof x !== 'string' || !x.trim())) { problems.push(`"${key}" is not a list of nonempty strings`); bad.add(key); if (pinsOutcome) content = true; continue; }
+    if (key.startsWith('files_') && (new Set(list).size !== list.length || list.some(badPath))) { problems.push(`"${key}" must list unique repo-relative files, not globs`); bad.add(key); if (pinsOutcome) content = true; }
   }
   const section = v.documentation_section;
   const sectionProblems = problems.length;

@@ -188,6 +188,12 @@ describe('format-only repair of the final line', () => {
     expect(fs.readFileSync(path.join(fixed.out, `${ID}-documentation.md`), 'utf8')).toBe(SECTION);
   });
 
+  test('a missing blocker list stays repairable', () => {
+    const r = result(prose + without('blockers') + '\n', ID);
+    expect(r.stdout).toContain('"blockers" is missing');
+    expect(r.stdout).toMatch(/^FORMAT_REPAIR: /m);
+  });
+
   test('a valid line passes unchanged, with no repair', () => {
     const valid = line({ ...base, documentation_section: SECTION });
     const r = result(prose + valid + '\n', ID);
@@ -205,6 +211,11 @@ describe('format-only repair of the final line', () => {
     ['no audit id', without('audit_id')],
     ['no status', without('status')],
     ['a status outside the three outcomes', line({ ...base, documentation_section: SECTION, status: 'done' })],
+    ['a blocker list holding a non-string', line({ ...base, documentation_section: SECTION, blockers: ['Security instructions are missing', null] })],
+    ['a blocker given as a string', line({ ...base, documentation_section: SECTION, blockers: 'README install steps are wrong' })],
+    ['a files_updated given as a string', line({ ...base, documentation_section: SECTION, files_updated: 'README.md' })],
+    ['a status key repeated once trimmed', line({ ...base, documentation_section: SECTION, status: 'blocked', blockers: ['x y'] }).replace(/}$/, ',"  status":"blocked"}'.replace('  ', ' '))],
+    ['an audit_id key repeated once trimmed', line({ ...base, documentation_section: SECTION }).replace(/}$/, `," audit_id":${JSON.stringify(ID)}}`)],
   ])('a content failure (%s) still counts: no repair is offered', (_name, last) => {
     const r = result(prose + last + '\n', ID);
     expect(r.status).toBe(1);
