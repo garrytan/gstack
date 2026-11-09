@@ -67,7 +67,10 @@ function repairs(file: string): number {
 }
 
 function runHook(): { status: number | null; ms: number } {
-  const env: Record<string, string | undefined> = { ...process.env, GSTACK_STATE_ROOT: stateRoot };
+  // GSTACK_TIMELINE_REPAIR_CHILD=1: the hook skips the detached repair child
+  // on win32 by default (Claude Code tree-waits hook processes); the tests
+  // exercise that child path on every platform.
+  const env: Record<string, string | undefined> = { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_TIMELINE_REPAIR_CHILD: '1' };
   delete env.GSTACK_PROJECT_SLUG;
   const t0 = Date.now();
   const r = spawnSync(process.execPath, [path.join(tree, 'hosts', 'claude', 'hooks', 'timeline-stop-hook.ts')], {

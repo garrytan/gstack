@@ -209,6 +209,14 @@ async function readStopCwd(): Promise<string> {
  * that fails to resolve is not respawned every turn).
  */
 function spawnRepair(cwd: string): void {
+  // Windows: Claude Code waits on the Stop hook's whole process tree, and a
+  // detached child still counts (anthropics/claude-code#24206). The repair
+  // child runs gstack-slug for up to REPAIR_SLUG_TIMEOUT_MS, so every cache
+  // miss could hold the hook past its timeout. Skip the spawn on win32; the
+  // inline path still repairs every cache hit, and a miss just retries next
+  // Stop. GSTACK_TIMELINE_REPAIR_CHILD=1 re-enables it (tests, a Claude Code
+  // that stops tree-waiting). Remove this guard then.
+  if (process.platform === 'win32' && process.env.GSTACK_TIMELINE_REPAIR_CHILD !== '1') return;
   if (isFresh(lockPath(), LOCK_TTL_MS)) return;
   const marker = path.join(stateDir(), 'miss', createHash('sha256').update(cwd).digest('hex').slice(0, 16));
   if (isFresh(marker, MISS_TTL_MS)) return;
