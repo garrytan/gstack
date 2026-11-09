@@ -727,7 +727,8 @@ reads the newest `review-fix-check` row from `gstack-review-read`, chained back
 through earlier rows whose commit is the next row's `range_base`
 ([chained fix-checks](ship-policy.md#fix-check-chain), GST-1627). When every link
 is a completed clean read on committed content (freshness `CURRENT` against its own
-tree) whose commit is on the branch, the oldest link's `range_base` is a branch commit
+tree; a fix-check that stopped on findings the owner has since ruled notes reads
+clean, [ruled notes](ship-policy.md#ruled-notes)) whose commit is on the branch, the oldest link's `range_base` is a branch commit
 holding the reviewed tree, and for each link an approved `review_loop_grant` in
 `gstack-approvals` names a stop head inside its `range_base..commit`, each code or test path inside a link's `range_base..commit`
 that is unchanged since, or whose change against the base is still the one the

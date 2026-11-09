@@ -1668,13 +1668,22 @@ row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`) and prints each as `RULED_NOTE: <fingerprint> at <head12>
 ruled by <who> at <time>: <reason> (approval <id>)`. A ruling closes a finding on
 a `review-fix-check` row finish counts (the newest, or an earlier link of its
-[chain](#fix-check-chain); action `skipped`, `noted` or `deferred`, not a
+[chain](#fix-check-chain); action `open`, `skipped`, `noted` or `deferred`, not a
 gate finding) when its head lies inside that row's `range_base..commit`, the same
 test a `review_loop_grant` passes. So the order of ruling and fix-check doesn't
 matter, and a ruling made at an earlier /ship's head closes nothing: its
 `RULED_NOTE:` line ends `(outside this fix-check's range; not applied)`. A granted
 fix-check whose other findings are all below the floor then reads CURRENT and
-counts. A skipped CRITICAL with no ruling stays open. Nothing ruled is hidden:
+counts. That includes the usual order, where the fix-check finds a new CRITICAL,
+logs it `open` with `converged:false` and stops for the owner, and the owner rules
+afterwards: the row's `incomplete` binding still names the one tree it read, so
+once every blocking finding on it is ruled it binds at that tree as a clean read
+(harness-evals#361, GST-2251). A CRITICAL with no ruling stays open, and while one
+does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
+naming the `gstack-approvals rule` command for each
+([troubleshooting](troubleshooting.md#fix-check-open)). A review-loop exception is
+not a ruling: it accepts edits after a fix-check, never the fix-check's own
+findings. Nothing ruled is hidden:
 `gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each

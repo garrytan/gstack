@@ -6745,6 +6745,29 @@ PR whose older receipt lost its parent branch, or a depth, targeted or exception
 refusal, run /ship on the new head. When `--head` is not the checked-out HEAD,
 check it out and carry there.
 
+<a id="fix-check-open"></a>
+### `FIX_CHECK_OPEN`
+
+**Meaning.** `gstack-ship-release finish` did not count a granted fix-check
+because it still has blocking findings no owner has ruled on. The line lists
+their fingerprints and the fix-check's commit. A fix-check that found a new
+CRITICAL logs it `open` with `converged:false`, so `FIX_CHECK: not counted`
+reads `missing start capture or incomplete/nonconverged pass` until the
+rulings exist. A `--review-loop-exception` does not help here: it accepts
+edits made after `fix_check.head` (`REVIEW_LOOP_EXCEPTION: accepted none`
+when there are none), never the fix-check's own findings (harness-evals#361).
+
+**Fix.** When the owner accepts the findings as disclosed notes, the owner
+records one ruling per listed fingerprint, outside the lane's /ship run, at
+the printed commit or any head inside the fix-check's range:
+`gstack-approvals rule --finding <fingerprint> --head <commit> --reason '<why>'
+--words '<owner's exact words>' --by '<owner>'`. Then run finish again. It
+prints each `RULED_NOTE:`, and the PR body and receipt list every `Ruled
+note:` line ([ship-policy.md](ship-policy.md#ruled-notes)). A ruling at a head
+outside the range is listed as `not applied`, and a path edited after the
+fix-check still routes by the post-review rules. When the owner wants the
+findings fixed instead, fix them and ask for a grant for one more fix-check.
+
 <a id="review-loop-exception-invalid"></a>
 ### `REVIEW_LOOP_EXCEPTION_INVALID`
 
