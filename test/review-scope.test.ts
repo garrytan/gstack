@@ -189,7 +189,7 @@ describe('deferral rendering', () => {
   });
 
   test('no gstack instruction files a deferred review or /ship finding as an issue (R85)', () => {
-    const files = ['ship/sections/review-army.md.tmpl', 'ship/sections/pr-body.md.tmpl', 'captain/templates/READY.md', 'docs/review-policy.md', 'docs/ship-policy.md', 'crew/docs/captain.md', 'capy/skill/gstack/factory.md', 'lib/ship-policy.ts', 'lib/review-scope.ts', 'bin/gstack-review-scope'];
+    const files = ['ship/sections/review-army.md.tmpl', 'ship/sections/pr-body.md.tmpl', 'captain/templates/READY.md', 'docs/review-policy.md', 'docs/ship-policy.md', 'docs/unattended.md', 'crew/docs/captain.md', 'capy/skill/gstack/factory.md', 'lib/ship-policy.ts', 'lib/review-scope.ts', 'bin/gstack-review-scope'];
     const filing = /\b(fil(e|es|ed|ing)|defers?)\b[^.;:,]{0,80}\b(as|to) (a |an |one )?(github )?issues?\b|\bone issue per\b|\bdeferred[- ]issues?\b|gstack-deferred-finding/gi;
     const negated = (text: string, at: number) => /\b(never|not|no)\b[^.;:,]*$/i.test(text.slice(Math.max(0, at - 40), at));
     const hits = files.flatMap(f => fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\n\s*\n/).map(para => para.replace(/\s+/g, ' '))
