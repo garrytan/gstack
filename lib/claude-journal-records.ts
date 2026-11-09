@@ -321,6 +321,8 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
   // Claude Code 2.1.317 can name a logical parent the file never receives while the tail
   // stays in place: that boundary continues the same way. A logical parent that IS the
   // list's tail may just be unflushed, so it keeps supplying no ownership until it lands.
+  // Any other absent logical parent counts as never written: should one still land later,
+  // the boundary re-attaches to it. A boundary that opens the file stays a resumed-fork root.
   const descends = (id: string | undefined, from: RecordMeta): boolean => {
     for (const visited = new Set<RecordMeta>(); id;) {
       const m = byId.get(id);
@@ -331,8 +333,9 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
     return false;
   };
   const resumed = new Map<RecordMeta, string>();
-  for (const m of nodes) if (m.preserved && (descends(m.parent, m) ||
-    (m.parent !== undefined && byUuid.get(m.parent) === undefined && m.preserved.at(-1) !== m.parent))) {
+  const fileHead = metas.find(m => m.uuid);
+  for (const m of nodes) if (m.preserved && (m.preserved.at(-1) === m.parent ? descends(m.parent, m)
+    : m !== fileHead && m.parent !== undefined && byUuid.get(m.parent) === undefined)) {
     const anchor = m.preserved.findLast(id => byId.get(id) !== undefined && !descends(id, m));
     if (anchor) resumed.set(m, anchor);
   }

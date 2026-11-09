@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { guardFixture, section, codeOf, denial, type GuardFixture } from './helpers/autoplan-guard-fixture';
 import { readOwnedClaudePublicTranscript } from '../lib/claude-public-transcript';
 import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
+import { ownedCausalOrder, recordMeta } from '../lib/claude-journal-records';
 
 type Row = Record<string, any>;
 const fixtures: GuardFixture[] = [];
@@ -125,6 +126,39 @@ describe('Claude Code 2.1.300 compaction with a preserved segment', () => {
     const f = fixture(); compact300(f, { shape: b => { b.logicalParentUuid = b.compactMetadata.preservedSegment.tailUuid = randomUUID();
       b.compactMetadata.preservedMessages.uuids.push(b.logicalParentUuid); } });
     expect(toolIds(f)).not.toContain('close');
+  });
+
+  test('a preserved list whose last entry is not the segment tail does not continue a boundary with an absent logical parent', () => {
+    const f = fixture(); compact300(f, { shape: b => { absentLogicalParent(b); b.compactMetadata.preservedSegment.tailUuid = randomUUID(); } });
+    expect(toolIds(f)).not.toContain('close');
+  });
+
+  test('an absent logical parent with no listed record in this file supplies no ownership', () => {
+    const f = fixture(); compact300(f, { shape: b => { absentLogicalParent(b);
+      const ids = [randomUUID(), randomUUID()]; b.compactMetadata.preservedMessages.uuids = ids; b.compactMetadata.preservedSegment.tailUuid = ids[1]; } });
+    expect(toolIds(f)).not.toContain('close');
+  });
+
+  test('a cycling boundary whose list omits its logical parent is still reported as an unrecognized shape', async () => {
+    const f = fixture(); compact300(f, { shape: b => { const { preservedSegment, preservedMessages } = b.compactMetadata;
+      preservedMessages.uuids.pop(); preservedSegment.tailUuid = preservedMessages.uuids.at(-1); } });
+    expect(toolIds(f)).not.toContain('close');
+    expectUnrecognizedCompaction(f, await f.hook(nextPhase(f)));
+  });
+
+  test('a resumed fork that begins with the boundary stays a genesis root even when a listed record is in the file', () => {
+    const kept = randomUUID(), logical = randomUUID(), boundary = randomUUID(), summary = randomUUID();
+    const row = (uuid: string, parentUuid: string | null, extra: Row) => ({ uuid, parentUuid, isSidechain: false, cwd: '/w', timestamp: '2026-01-01T00:00:00.000Z', ...extra });
+    const shaped = [
+      row(boundary, null, { type: 'system', subtype: 'compact_boundary', logicalParentUuid: logical,
+        compactMetadata: { preservedSegment: { tailUuid: kept }, preservedMessages: { uuids: [kept] } } }),
+      row(kept, randomUUID(), { type: 'attachment', attachment: { type: 'reminder' } }),
+      row(summary, boundary, { type: 'user', message: { role: 'user', content: 'continued' } }),
+    ];
+    const plain = shaped.map(r => r.uuid === boundary ? { ...r, compactMetadata: undefined } : r);
+    const orderOf = (rows: Row[]) => ownedCausalOrder(rows.map((r, i) => recordMeta(r, i)), '/w');
+    expect(orderOf(plain).order?.length).toBeGreaterThan(0);
+    expect(orderOf(shaped)).toEqual(orderOf(plain));
   });
 
   test('a preserved segment of only the tail (nothing kept in place) names no anchor and is reported as an unrecognized shape', async () => {
