@@ -1432,7 +1432,6 @@ on the head (a branch dispatch) or runs every job. The usual case is a branch
 that already holds main's tip. Dispatch Free Tests on the branch, and the
 pull request run that follows reuses it instead of running the suite again.
 
-<a id="flaky-exception"></a>
 <a id="docs-only"></a>
 ## Docs-only pull requests (R81)
 
@@ -1490,6 +1489,7 @@ check when a non-docs file on the base tip names a changed doc, because the pin 
 release older than this change refuses the key as unknown, so main's policy adds it only with `min_gstack_version`
 raised to the first release that reads it; until then land runs every merged check on a docs-only pin.
 
+<a id="flaky-exception"></a>
 ## Owner-granted flaky exception
 
 A timing flake in a test file the pull request never touched can keep a remote

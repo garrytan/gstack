@@ -191,6 +191,20 @@ describe('link check', () => {
       for (const n of names) fs.rmSync(path.join(repo, n), { force: true });
     }
   });
+
+  test('scripts/check-doc-links.ts exits 0 on resolving added links, 1 on a broken one and 2 on an unknown base', () => {
+    const cli = (...args: string[]) => {
+      const r = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'scripts/check-doc-links.ts'), ...args], { cwd: repo, encoding: 'utf8', timeout: 30_000 });
+      return [r.status, (r.stdout ?? '').trim().split('\n').at(-1)];
+    };
+    try {
+      put('docs/cli.md', '[ok](guide.md)\n');
+      expect(cli('--base', 'seed', 'docs/cli.md')).toEqual([0, 'DOC_LINKS: ok (1 file(s))']);
+      put('docs/cli.md', '[gone](nope.md)\n');
+      expect(cli('--base', 'seed', 'docs/cli.md')).toEqual([1, 'DOC_LINKS: broken 1']);
+      expect(cli('--base', 'no-such-ref', 'docs/cli.md')[0]).toBe(2);
+    } finally { fs.rmSync(path.join(repo, 'docs/cli.md'), { force: true }); }
+  });
 });
 
 test('every test that reads docs by directory or lists every tracked file is registered', () => {
