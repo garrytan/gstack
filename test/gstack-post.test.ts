@@ -332,6 +332,9 @@ describe("gstack-post owns the redaction scan", () => {
       ["issues.flakes issue", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 14155552671, run: "42574388519" }] } })), "\"issue\": 14155552671"],
       ["a phone-shaped issues.flakes run", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 4101, run: "call 415-555-0100" }] } })), "call 415-555-0100"],
       ["a phone-shaped flaky_exception run", body(receipt({ flaky_exception: [{ lane: "free-tests", runs: ["call 415-555-0100"], cases: ["t"], grant: "a-1", by: "Garry" }] })), "call 415-555-0100"],
+      ["a 10-digit ci_carried run", body(receipt({ ci_carried: [{ lane: "free-tests", run: 4155552671, attempt: 1, tree: "9f2c4e1a7b3d" }] })), "\"run\": 4155552671"],
+      ["a 10-digit flaky_exception run", body(receipt({ flaky_exception: [{ lane: "free-tests", runs: ["4155552671"], cases: ["t"], grant: "a-1", by: "Garry" }] })), "\"4155552671\""],
+      ["a 10-digit issues.flakes run", body(receipt({ issues: { fixes: [], refs: [], flakes: [{ issue: 4101, run: "4155552671" }] } })), "\"run\": \"4155552671\""],
       ["line before the block", body(receipt()).replace("```gstack-ship-receipt\n", "14155552671\n```gstack-ship-receipt\n"), "14155552671"],
       ["line after the block", body(receipt()).replace(/\n```\n/, "\n```\n+14155552671\n"), "+14155552671"],
     ];

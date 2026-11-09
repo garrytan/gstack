@@ -3022,10 +3022,11 @@ exact tokens it finds in these positions:
   `flaky_exception[].runs`, `issues.flakes[].run`) inside a
   `gstack-ship-receipt` block the receipt writer rendered: the block must
   close, pass the receipt schema and match `renderReceiptBlock`'s output byte
-  for byte. Only those values count, and only when they are run ids (a number,
-  or digits with an optional `/attempt`), so the same number in prose, beside
-  the block, under any other key, a run-id field holding other text, or a
-  hand-written, schema-invalid or malformed block still reports (GST-2047).
+  for byte. Only those values count, and only when they are run ids (11 to 20
+  digits, with an optional `/attempt`), so the same number in prose, beside
+  the block, under any other key, a run-id field holding other text or a
+  10-digit number, or a hand-written, schema-invalid or malformed block still
+  reports (GST-2047).
 
 A bare 11-digit number with none of that context, a 10-digit national number
 and an E.164 `+14155551234` still report, so the finding means the id stands
