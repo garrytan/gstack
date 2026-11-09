@@ -62,4 +62,22 @@ describe('a numbered native finding keeps its closing paragraph after a nested l
     const located = native([nested(1, 'FIXABLE', 'Also lock.ts:12 leaks on restart. Severity: Low. Blocks: no.', ''), ''].join('\n'));
     expect(located.map(f => f.label)).toEqual(['CRITICAL', 'Low']);
   });
+
+  // Value: protects=the join's bounds: a bold-led margin paragraph or a second paragraph after the closing one is its own finding, so its
+  //   Severity and Blocks: no never lower the FIXABLE item; an item naming CRITICAL is never lowered, and other readers' numbered items
+  //   never join; fails_when=any of these collects as one Low record and the blocker leaves the ledger; why_new=the GST-2174 /ship review
+  //   (specialist and Red Team probes); seam=parseFindings and ledgerBlockers; no_claim=that each control is a real finding
+  test('the join ends at the first closing paragraph and never lowers a CRITICAL item', () => {
+    for (const [close, later] of [['So jobs are lost.', '**The lock file leaks on restart.** A second process cannot start. Severity: Low. Blocks: no.'],
+      ['So a queued job is lost.', 'The lock file leaks on restart. Severity: Low. Blocks: no.']]) {
+      const output = [nested(1, 'FIXABLE', close!), '', later].join('\n');
+      expect([later, native(output).map(f => f.label)]).toEqual([later, ['CRITICAL', 'Low']]);
+      expect(blockers(output).blockers).toBe(1);
+    }
+    const critical = ['1. Webhook routes skip signature validation, a CRITICAL gap.', '   - first detail', '   - second detail', '', 'The log line omits the locale. Severity: Low.'].join('\n');
+    for (const reader of ['outside-voice', 'red-team', 'specialist/testing'])
+      expect([reader, parseFindings(reader, critical).map(f => f.label)]).toEqual([reader, ['CRITICAL', 'Low']]);
+    expect(native(critical).map(f => f.label)[0]).toBe('CRITICAL');
+    expect(blockers(critical).blockers).toBe(1);
+  });
 });

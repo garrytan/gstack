@@ -179,9 +179,10 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * under it, located or listed or bold, until its fields come (GST-1031), so its Severity and Blocks never split off as a second record;
  * the line right under it that carries those fields, no other label and no file:line joins it at the stronger label, as a paragraph after
  * a blank line does (a located line there is another finding), unless the heading itself names CRITICAL or P0, whose blocker another
- * subject's Blocks: no must not lift. A numbered list item ("1. **FIXABLE. …**") with no fields of its own owns, after an unlabelled nested list,
- * its indented lines and margin paragraphs (ALPH-93), until its fields come; their Severity and Blocks bind to it as
- * a field line's do, while a list item, heading, lead label or file:line there starts the next finding.
+ * subject's Blocks: no must not lift. The native voice's numbered list item ("1. **FIXABLE. …**") with no fields of its own owns, after an
+ * unlabelled nested list, its indented lines and the first paragraph after a blank line (ALPH-93), until its fields come; their Severity
+ * and Blocks bind to it as a field line's do, except that an item naming CRITICAL or P0 is never lowered. A list item, heading, lead label,
+ * file:line, bold margin lead, verdict line or any later margin paragraph there starts the next finding.
  * A prose line that only names a severity in passing is a summary (summaryLine).
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
@@ -191,7 +192,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * nothing; elsewhere it collects as above. A line led by a bold, unlabelled lead ("**1. Coverage:** …") is read for a closing summary after it.
  */
 function parseLabelled(reader: string, output: string, fixableRaises: boolean): Array<{ label: string; raw: string; shaped: boolean }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; section?: boolean; context?: string };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; closed?: boolean; section?: boolean; context?: string };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -274,10 +275,13 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
     }
     if (current?.item && !current.fields.size && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')) {
       if (indented && LIST_ITEM.test(t) && !label && !blocks) { current.nested = true; continue; }
-      if (current.nested && (indented || afterGap) && !LIST_ITEM.test(t) && !LEAD_LABEL.test(t) && !LOCUS.test(t)) {
+      if (current.nested && (indented || (afterGap && !t.startsWith('**'))) && !(afterGap && current.closed) && !LIST_ITEM.test(t) && !LEAD_LABEL.test(t)
+        && !LOCUS.test(t) && !quietSummary(t)) {
+        const pinned = [...current.raw.split(' | ')[0]!.matchAll(ALL_LABELS)].some(m => rank(m[1]) === 4);
         current.raw += ` | ${t}`;
+        if (afterGap) current.closed = true;
         if (blocks) current.label = 'CRITICAL';
-        else if (field !== undefined && !critical(current.raw)) current.label = strongestOf([current.lead, label])!;
+        else if (field !== undefined && !critical(current.raw) && !pinned) current.label = strongestOf([current.lead, label])!;
         else if (label) current.label = stronger(current.label, label);
         if (field !== undefined) current.fields.add('severity');
         if (t.match(BLOCKS_FIELD)) current.fields.add('blocks');
@@ -294,7 +298,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
       current.section = !!inherited;
       if (continued) current.context = before;
       current.heading = !indented && NUMBERED_HEAD.test(t);
-      current.item = !indented && /^\d+[.)]\s/.test(t) && field === undefined && !t.match(BLOCKS_FIELD);
+      current.item = role === 'adversarial-native' && !indented && /^\d+[.)]\s/.test(t) && field === undefined && !t.match(BLOCKS_FIELD);
       if (!indented) head = t;
       continue;
     }
