@@ -156,6 +156,7 @@ let tunnelActive = false;
 let tunnelUrl: string | null = null;
 let tunnelListener: any = null;           // ngrok listener handle
 let tunnelServer: ReturnType<typeof Bun.serve> | null = null; // tunnel HTTP listener
+let tunnelStarting: Promise<StartTunnelResult> | null = null;
 
 export type { Surface };
 
@@ -467,6 +468,9 @@ async function startTunnel(opts: {
     try { if (tunnelListener) await tunnelListener.close(); } catch {}
     try { boundTunnel.stop(true); } catch {}
     tunnelListener = null;
+    tunnelServer = null;
+    tunnelUrl = null;
+    tunnelActive = false;
     return { ok: false, stage: 'ngrok', error: err };
   }
 }
@@ -1784,11 +1788,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       state: () => ({ active: tunnelActive, url: tunnelUrl, hasListener: tunnelServer !== null }),
       close: closeTunnel,
       resolveAuthtoken: resolveNgrokAuthtoken,
-      start: (authtoken) => startTunnel({
+      start: (authtoken) => (tunnelStarting ??= startTunnel({
         fetchHandler: makeFetchHandler('tunnel'),
         authtoken,
         consent: 'pair_agent=on (isPairAgentEnabled gate at /tunnel/start)',
-      }),
+      }).finally(() => { tunnelStarting = null; })),
     },
     commands: {
       handle: handleCommand,
