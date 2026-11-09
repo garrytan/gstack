@@ -223,9 +223,8 @@ Rotate only a standing thread, and only at a clean point: no `DEFER:`, no READY 
 2. Start the successor in your crew from `runaway-stopper/templates/successor-brief.md` (a lane asks its Captain,
    R68). Its first act subscribes to each open PR in the handoff (`tools.capy.subscribe`, a pull source), so CI,
    reviews and merges wake it instead of the old thread.
-3. Leave the old thread unarchived while it holds an open PR (R91): the successor's subscriptions route the wakes, and
-   the old thread stays, idle, until every PR it opened or carries is merged or closed. Archive it then through the
-   check in `crew/docs/captain.md` § No orphaned work, which refuses while any PR is open.
+3. Leave the old thread unarchived while it holds an open PR (R91); archive it once every PR merges or closes,
+   through `gstack-archive-check thread`.
 
 ## 4. Prevent
 
