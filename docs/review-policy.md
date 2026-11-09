@@ -78,12 +78,9 @@ incomplete coverage, which blocks until the reviewer is rerun.
    a hunk the PR changed, with three lines of context; `outside`: anything else),
    `kind`, `blocking` and `scope`. Findings in the diff are `fix`. A blocking
    finding in code the PR did not change is `defer`: `gstack-review-scope defer`
-   files it as a GitHub issue (one per finding, reused across reruns through an
-   `<!-- gstack-deferred-finding: <fingerprint> -->` marker; the issue text is
-   scanned like the PR body before anything is posted, so a finding that quotes a
-   secret is `unfiled (publication scan refused: …)`; `unfiled (<reason>)` when
-   `gh` is unavailable or its search fails; every unfiled case still exits 0)
-   and the PR body lists it under `## Deferred findings`. A finding's `cause`
+   records it for the PR and files no issue, and the PR body lists it under
+   `## Deferred findings`. Deferred findings never become issues; work someone
+   will actually do gets one issue with a named owner. A finding's `cause`
    (the changed line behind a defect reported elsewhere, a deleted file included)
    places it in the diff.
    Below-floor findings outside the diff are `note`, listed under `## Review notes`.
@@ -688,7 +685,7 @@ puts in the receipt:
 | `REVIEW_SCOPE_VOIDED:` (stderr, not a receipt field) | an abandoned pass (GBEV-3): a `pN` ledger never judged that no row names, replaced by a later `pM` ledger (M > N) that was judged or is named. Its findings are left out of every count above instead of counting as unbound and unrecorded. A fix-check ledger and the last pass are never voided |
 
 Findings bind by id first (GST-1168). A row finding that came from a dispatched reader carries `ledger_id` (`<pass dir>/<merged.jsonl id>`, such as `p2/adversarial-native#3`) and pairs with that ledger entry whatever its path:line says, so a native finding with no path:line, or a row logged after its fix moved the line, still pairs. Each fix commit names what it fixed in a `Review-Finding: <ledger_id or fingerprint> reader=<raised_by>` trailer, and a trailer counts the finding as fixed. A late defer re-logs its finding under the same id, so it counts once. Rows that record their head dedupe by kind, pass, head and finding ids, so a logger command run twice counts once. Rows and findings without an id keep the path:line pairing above. The native reader's own verdict line ("all FIXABLE, and none blocks", with no file:line, list mark, lead label or Severity/Blocks field) collects at FIXABLE, not CRITICAL; the findings it summarizes collect on their own lines.
-| `review_loop.deferred` | blocking findings in unchanged code filed as issues (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
+| `review_loop.deferred` | blocking findings in unchanged code, kept on the PR under `## Deferred findings` (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
 | `review_loop.noted` | below-floor findings listed in the PR body |
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
@@ -803,11 +800,11 @@ difference passed a scoped review.
 
 | Value | Pass 1 | Blocking finding in unchanged code | Pass 2+ | Cap |
 |---|---|---|---|---|
-| `frozen` (default) | the diff | filed as an issue, listed as deferred | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
+| `frozen` (default) | the diff | listed as deferred in the PR body | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
 | `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 3 fix cycles (Step 9.4 runs the review plan's two-round cap only under `frozen`) |
 | `all` | everything | fixed in this PR | the whole diff, every finding | 3 fix cycles |
 
-`diff-plus-blocking` is the fallback for a repository where deferred issues pile
+`diff-plus-blocking` is the fallback for a repository where deferred findings pile
 up; `all` is the loop as it ran before the key existed. A value other than
 `frozen` needs `min_gstack_version` at or past the release that added the key
 (`REVIEW_SCOPE_KEY_VERSION` in `lib/ship-policy-keys.ts`) so an older gstack refuses
@@ -935,7 +932,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    real blockers named in an exception clause ("No CRITICAL issues except the token leak in log.ts:3"); GSTA-167
    reverted that. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
-   a classified finding that carries `stated` shows it in its deferred-review issue next to the label ("CRITICAL (the
+   a classified finding that carries `stated` shows it in its `## Deferred findings` line next to the label ("CRITICAL (the
    reviewer wrote Severity: Low, Blocks: no)"). /ship's Step 9.4 does not copy `stated` into its findings file yet: that
    instruction lives in a reviewer brief that changes only after a no-loss replay. A CRITICAL whose own text writes the
    field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the

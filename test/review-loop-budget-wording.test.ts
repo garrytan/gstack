@@ -26,7 +26,7 @@ describe('review-loop budget wording', () => {
     expect(army).toContain('cut that growth before anything else');
     expect(army).toContain('(`git diff $RANGE_BASE` from pass 2 on)');
     expect(army).toContain('The gate scan (2.5) and the QA probes keep the whole candidate');
-    expect(army).toContain('and the command still exits 0: the PR body carries the reason');
+    expect(army).toContain('files no issue: a deferred finding stays on this PR');
   });
 
   test('the checklist glossary maps the three words onto the blocking floor and repeats the stop rules', () => {

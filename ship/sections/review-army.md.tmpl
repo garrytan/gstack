@@ -155,12 +155,9 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    copied from the hunk, a test name or a commit message.
 
 3.5. **Defer and note the rest.** Run
-   `~/.claude/skills/gstack/bin/gstack-review-scope defer --findings <classified> --pr <pr-number> --out <deferred.json>`
-   (omit `--pr` before a PR exists). It files one issue per `scope: defer` finding,
-   reusing an open issue that carries the finding's marker, scanning the issue text
-   as the PR body is scanned, and prints `DEFERRED:` lines; `unfiled (<reason>)`
-   keeps the finding deferred when gh cannot file it or the scan refuses the text,
-   and the command still exits 0: the PR body carries the reason.
+   `~/.claude/skills/gstack/bin/gstack-review-scope defer --findings <classified> --out <deferred.json>`.
+   It prints a `DEFERRED:` line per `scope: defer` finding and files no issue: a
+   deferred finding stays on this PR, and you never file one as an issue either.
    Then `gstack-review-scope render --deferred <deferred.json> --findings <classified>`
    prints the `## Deferred findings` and `## Review notes` sections: save them for
    Step 19's PR body. Deferred and noted findings are never edited.
@@ -168,7 +165,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    queued adversarial finding after this pass's items 5–6 were logged, append one
    row under its own skill (a tokenless `review` row would read UNVERIFIED):
    `~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review-late-defer","via":"ship","timestamp":"TIMESTAMP","status":"issues_found","issues_found":0,"critical":0,"informational":0,"pass":PASS,"review_scope":"SCOPE","findings":FINDINGS_JSON}'`
-   with `findings` holding only the deferred records (`action: "deferred"`, `issue`,
+   with `findings` holding only the deferred records (`action: "deferred"`,
    `locus`, `kind`, `blocking`, `ledger_id` as in item 6) and no `--finish` token. Log it in the
    program that decides the defer, with that moment's full ISO 8601 TIMESTAMP, never at Step 19.
 
@@ -220,7 +217,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
 - `findings`: checklist, specialist, exploratory QA and queued Steps 10–11 records with
   `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`.
   ACTION: `"auto-fixed"`, `"fixed"` (approved), `"skipped"` (explicit Skip),
-  `"deferred"` (with `issue`, the filed number or `null`) or `"noted"`. Copy
+  `"deferred"` or `"noted"`. Copy
   `locus`, `kind`, `blocking`, `raised_by` and `ledger_id` from the classified output onto every finding.
   Merge revalidated invocation decisions by identity and advisory/defect kind;
   preserve `advisory`, `evidence_paths` and `helper_target`.
