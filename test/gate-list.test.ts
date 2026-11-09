@@ -282,7 +282,7 @@ describe('the /autoplan Phase 4 gate as documented (#4181)', () => {
 
 describe('the /autoplan Phase 4 reply table agrees with gstack-gate (GST-2139)', () => {
   // Value: protects=the reply-to-option table /autoplan acts on matches what bin/gstack-gate parse resolves for `all`, `rec` and `p1a`;
-  //   fails_when=`all`/`rec` send the run to approve-as-written while the gate took every recommended plan change, or `p1a` approves while a uc item is pending; why_new=the #4181 case proves the replies parse, not what the skill does with them; seam=none
+  //   fails_when=`all`/`rec` send the run to approve-as-written while the gate took every recommended plan change, `p1a` approves while a uc item is pending, or an override of an unflagged option approves (answerGate counts it as a plan change); why_new=the #4181 case proves the replies parse, not what the skill does with them; seam=none
   const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
   const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map(m => m[1]!);
   const topLevel = (text: string): string[] => {
@@ -316,8 +316,8 @@ describe('the /autoplan Phase 4 reply table agrees with gstack-gate (GST-2139)',
   function documented(reply: string, g: GateList, parsed: ReturnType<typeof parseReply>) {
     const said = reply.toLowerCase().split(/\s+/);
     const optionOf = (c: { id: string; chosen: string }) => g.items.find(i => i.id === c.id)!.options.find(o => o.key === c.chosen)!;
-    const changed = parsed.choices.filter(c => optionOf(c).changes_plan);
     for (const row of table) {
+      const changed = parsed.choices.filter(c => c.id !== 'p1' && (optionOf(c).changes_plan ?? (/unflagged override/.test(row) && c.how === 'override')));
       const at = row.indexOf(' = ');
       if (at < 0) continue;
       const lhs = row.slice(0, at), rhs = row.slice(at + 3), names = ticks(lhs);
@@ -339,6 +339,7 @@ describe('the /autoplan Phase 4 reply table agrees with gstack-gate (GST-2139)',
   test('`all` and `rec` apply every recommended plan change, never the plan as first written', () => {
     expect(Object.keys(handling)).toEqual(['A', 'B', 'B2', 'C', 'D', 'E']);
     expect(p1Options.map(o => o.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(write_).toContain('Every `uc<n>`/`d<n>` option sets `changes_plan`');
     const g = gate();
     const file = write('gate.json', g);
     const seen = ['all', 'rec'].map(reply => {
@@ -359,5 +360,18 @@ describe('the /autoplan Phase 4 reply table agrees with gstack-gate (GST-2139)',
     const doc = documented('p1a', g, parsed);
     expect({ code: r.code, pending: parsed.pending, p1: chosen(parsed).p1, approves: approves(doc.letters), row_names_pending: ticks(doc.row.split(' = ')[0]!).includes('pending') })
       .toEqual({ code: EXIT.ok, pending: ['uc1'], p1: 'a', approves: [], row_names_pending: true });
+  });
+
+  test('an override of an unflagged option changes the plan, as answerGate counts it', () => {
+    const unflagged = [{ key: 'a', text: 'keep your direction' }, { key: 'b', text: 'the alternative' }];
+    const g: GateList = { schema_version: 1, run: 'autoplan-2139', gate_rev: 1, items: [
+      { id: 'd1', title: 'Taste decision', options: unflagged, recommended: 'a', kind: 'auto' },
+      { id: 'p1', title: 'Plan approval', options: p1Options, recommended: 'a', kind: 'approval' },
+    ] };
+    const r = run(['parse', write('gate.json', g), '--reply', 'p1a d1b', '--gate-rev', '1', '--json']);
+    const parsed = JSON.parse(r.out) as ReturnType<typeof parseReply>;
+    const doc = documented('p1a d1b', g, parsed);
+    expect({ code: r.code, d1: parsed.choices.find(c => c.id === 'd1'), letters: doc.letters, approves: approves(doc.letters) })
+      .toEqual({ code: EXIT.ok, d1: { id: 'd1', chosen: 'b', kind: 'auto', how: 'override' }, letters: ['B'], approves: [] });
   });
 });

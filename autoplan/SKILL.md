@@ -626,8 +626,9 @@ Write `$_AP/gate.json` (shape: `gstack-gate --help`): one item per User Challeng
 (`uc<n>`, approval; `why` = you said / both recommend / why / blind spots / cost if
 wrong), per taste decision (`d<n>`, auto; `why` = principle and the alternative's
 impact) and `p1` (approval: a) approve as-is b) take the recommended changes c) interrogate
-d) revise e) reject), recommending `b` if a recommended option changes the plan
-(`changes_plan: true`), else `a`. Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
+d) revise e) reject), recommending `b` if a recommended option changes the plan, else `a`.
+Every `uc<n>`/`d<n>` option sets `changes_plan` (`true` if it changes the plan,
+else `false`). Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
 and append its `decisions` output to `$_AP/decisions.jsonl`. Write the full review
 to `$_AP/review-record.md` and its Plan Summary alone to `$_AP/summary.md`:
 
@@ -642,7 +643,7 @@ findings outside this plan, or `None.`); also written above `## Implementation p
 [1-3 sentence summary]
 
 ### Decisions Made: [N] total ([M] auto-decided, [K] taste choices, [J] user challenges)
-Auto-decided: see the plan file's Decision Audit Trail; the rest are the brief's decisions.
+Auto-decided: see the plan's Decision Audit Trail.
 
 ### Review Scores
 CEO, Design, DX and Eng: phase summary plus Codex, Claude
@@ -666,14 +667,14 @@ Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json -
 unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `rec` (alias
 `all`), the one-word default, takes every recommendation, plan changes included; `as-is` keeps
 the plan as first written. First match: any `pending` id = approve nothing (bare `p1a` leaves
-each `uc<n>` pending for the owner's own words; parse their whole reply again);
-`p1c`/`p1d`/`p1e` = C/D/E; a chosen `changes_plan` option = B on a `d<n>`, B2 on a `uc<n>`;
-else = A. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
+`uc<n>` pending; re-parse the owner's whole reply);
+`p1c`/`p1d`/`p1e` = C/D/E; a chosen `changes_plan` option (or an unflagged override)
+= B on a `d<n>`, B2 on a `uc<n>`; else = A. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
 with its `GSTACK_RESULT` line and never approve.
 
 **Option handling:**
 - A: mark APPROVED, run `~/.claude/skills/gstack/bin/gstack-owner-brief close --out "$_AP" --plan <ACTIVE_PLAN>`, write review logs, suggest /ship
-- B: apply each chosen change, rerun as in D (Eng last) before re-presenting the gate; same 3-cycle cap as D.
+- B: apply each chosen change, rerun as in D before re-presenting the gate; same 3-cycle cap as D.
 - B2: apply each accepted User Challenge (rejected ones keep the user's direction), re-run Eng, re-present the gate.
 - C: answer freeform, re-present the gate
 - D: make changes, re-run affected phases (scope→1, design→2, dx→2.5, test plan→3, arch→3), then Eng; max 3 cycles.
@@ -684,7 +685,7 @@ prior accepted obligations intact. Move that phase's applied `autoplan-baseline-
 record verbatim into fenced history in Review record, keeping its original source SHA.
 Create a fresh amendment checkpoint. New baseline edits use `create`'s
 `baselineEdits.record` and `sourceSha256`; the review projection hash is not baseline
-identity. Carry forward unchanged accepted requirements. Never replay old replacements
+identity. Never replay old replacements
 or rewrite a historical source SHA. This is a new phase invocation; compaction
 resumes the existing one and its checkpoint.
 
