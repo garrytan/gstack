@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { applyReply, decisionRows, parseReply, recHash, renderGate, validateGateList, type GateList } from '../lib/gate-list';
 import { EXIT, validateFile } from '../lib/headless-artifacts';
+import { between } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-gate');
@@ -248,5 +249,23 @@ describe('bin/gstack-gate', () => {
     expect(parsed.every(r => r.status === 'approved' && r.answered_at === '2026-10-10T21:30:00Z')).toBe(true);
     const pending = run(['decisions', file]).out.trim().split('\n').map(l => JSON.parse(l));
     expect(pending.every(r => r.status === 'pending')).toBe(true);
+  });
+});
+
+describe('the /autoplan gate text (#4181)', () => {
+  // Value: protects=the plan-approval id and reply tokens /autoplan tells the agent to use are ones gstack-gate accepts;
+  //   fails_when=the template names an id or token outside the gate grammar; why_new=the grammar cases build their own lists; seam=none
+  test('its plan-approval item id validates, and each reply token for that item parses to its option', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8');
+    const id = /`([^`]+)` \(approval:/.exec(between(tmpl, 'Write `$_AP/gate.json`', 'gstack-gate render'))?.[1];
+    expect(id).toBeDefined();
+    const plan: GateList = { schema_version: 1, run: 'r', gate_rev: 1, items: [
+      { id: id!, title: 'Plan approval', options: [...'abcde'].map(key => ({ key, text: `option ${key}` })), recommended: 'a', kind: 'approval' },
+    ] };
+    expect(validateGateList(plan)).toEqual([]);
+    const tokens = [...between(tmpl, 'Parse the reply', 'SESSION_KIND').matchAll(/`([a-z0-9]+)`/g)].map(m => m[1]!)
+      .filter(t => t.length === id!.length + 1 && t.startsWith(id!));
+    expect(tokens.length).toBeGreaterThan(0);
+    for (const token of tokens) expect(chosen(parseReply(token, plan, 1))).toEqual({ [id!]: token.slice(-1) });
   });
 });
