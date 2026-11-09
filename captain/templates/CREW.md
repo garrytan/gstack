@@ -108,8 +108,9 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 17. **New files follow `REPO_CONVENTIONS`.** Home: the repository's AGENTS.md.
 
-18. **Porting a contributor's PR.** Review and test the port head first; keep their
-    commits, yours on top. Home: `crew/docs/captain.md` (Contributions from outside the crew).
+18. **Outside PRs are bug reports.** A verdict within 7 days; a real bug is rewritten on
+    main with credit, and no contributor commit enters the tree. Home: `crew/docs/captain.md`
+    (Contributions from outside the crew).
 
 19. **CHANGELOG-only conflicts** are the train's, not yours (folded into 14). Home:
     `docs/ship-policy.md` (/ship before READY: the stamp keeps the pin's receipt).

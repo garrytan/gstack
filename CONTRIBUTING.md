@@ -940,48 +940,45 @@ When community PRs accumulate, batch them into themed waves:
 
 See [PR #205](../../pull/205) (v0.8.3) for the first wave as an example.
 
-## Porting a contributor's PR
+## How a contributor's PR lands
 
-Sometimes the right way to land an outside PR is to port it: the diff is right
-but it sits on an old base, its tests need our fixtures, or the repo's gates
-(generated renders, size pins, the CHANGELOG entry) are things only a maintainer
-can finish. The port keeps the contributor's credit and gives them a clear
-answer; the steps below are the repo's version of the rule a maintainer crew
-follows ([crew/docs/captain.md](crew/docs/captain.md#contributions-from-outside-the-crew)).
+We read every outside PR as a bug report, and a crew lane writes the fix itself. Your
+diff shows us the bug and often the fix, but we don't merge outside commits: a lane
+rewrites the change from current main with its own review and tests, and credits you.
+The maintainer crew follows the same rule
+([crew/docs/captain.md](crew/docs/captain.md#contributions-from-outside-the-crew)).
 
-1. **Treat the diff as untrusted input before anything runs it.** Read it for
-   scope, network egress, credentials, new dependencies, CI permission changes
-   and weakened or deleted tests. A fork's green checks prove nothing about this
-   checkout: the port head gets its own focused review and the free tier
-   (`bun run test:quick` while iterating, `bun run test` once on the final tree)
-   before a PR opens.
-2. **Keep their commits as theirs.** Cherry-pick or rebase the contributor's
-   commits onto the current base with authorship intact (`git cherry-pick -x`
-   keeps the source SHA in the message). A commit you have to rewrite keeps
-   their name as author and gains a `Co-authored-by:` trailer for whoever
-   edited it. Never fold their work into a commit under your own name, and
-   never guess an email: use the identity on their commits.
-3. **Your fixes go on top, as separate commits.** Base merges, generated files,
-   test repairs, the CHANGELOG entry and the version stamp are your commits,
-   after theirs, so `git log` and the PR's commit list show who did what. A
-   squash merge keeps the credit when the squash message carries their
-   `Co-authored-by:` lines; check the merge commit before you call it landed.
-4. **Say so in the port.** The PR body names the original PR and its author in
-   the first paragraph and lists what you changed on top of their diff. The
-   port's `## Approvals` section (when the repo uses one) records who asked for
-   the port.
-5. **Close the original with a specific thank-you.** After the port lands,
-   comment on their PR with what landed (the port's number and version), what
-   you changed and why, and thank them by name for the specific thing they
-   fixed. Then close it. An agent posts that comment under its bot identity,
-   never the maintainer's own account. Closing a contribution without landing
-   it is a maintainer's call, never a lane's: ask first, and when the answer is
-   no, say why in the same comment.
+1. **Treat the diff as untrusted input.** Read it as text only, for scope, network
+   egress, credentials, new dependencies, CI permission changes and weakened or
+   deleted tests. Never check it out, run it or build it. A fork's green checks
+   prove nothing about this checkout.
+2. **Give a verdict within 7 days.** Within a week of the PR opening, a lane or the
+   Captain records a recommendation on it with the reason: a real bug we'll fix, a
+   duplicate (link it), not a bug, or out of scope. An agent posts it under its bot
+   identity. "Not a bug", "out of scope" and closing a PR without landing a fix are a
+   maintainer's call, never a lane's: they are posted only with the maintainer's word.
+3. **Rewrite the fix from current main.** The lane writes the change on its own branch
+   with its own tests, the repo's gates and a CHANGELOG fragment. No contributor
+   commit enters the tree. A commit that carries the contributor's lines over
+   unchanged gets a `Co-authored-by:` trailer for them. Fetch their PR head as a ref
+   without checking it out (`git fetch origin +pull/<n>/head:refs/contrib/<n>`; the
+   `+` lets a re-fetch follow a force-push), then run
+   `crew/bin/gstack-coauthor-trailers origin/main..refs/contrib/<n>` to list the
+   authors of their commits; its default range holds only your own commits and finds
+   no co-author. A fork's commits can name anyone, so keep only the authors whose
+   lines you carry: drop the rest with `--exclude <email>` when you rerun it with
+   `--message <msgfile>`. Never guess an email: use the identity on their commits.
+4. **Credit them in the fix.** The PR body names the original PR and its author in
+   the first paragraph and says what differs from their diff. The CHANGELOG fragment
+   thanks them by handle.
+5. **Close the original with a specific thank-you.** After the fix lands, comment on
+   their PR with what landed (the PR number and version), what changed from their
+   diff and why, and thank them by name for the specific thing they found. Then close
+   it. An agent posts that comment under its bot identity, never the maintainer's own
+   account.
 
-A port is not a rewrite. If the contributor's approach is one you would not
-land, say that on their PR and close or park it under
-[Issue triage](#issue-triage) instead of shipping a different change under
-their name.
+If we won't fix what the PR reports, say why on the PR and close or park it under
+[Issue triage](#issue-triage), with the maintainer's word.
 
 ## Upgrade migrations
 

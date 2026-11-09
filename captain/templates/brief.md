@@ -48,8 +48,8 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
    audit your decision trail, write Attention and send READY; after READY, handle PR events
    as usual (crew/docs/captain.md, the lane's /ship sequence).
 
-Done when: the READY block is sent at a frozen head, reports/<thread code>.md is written,
-and its Approvals table carries the plan approval row (the owner's words, the date) or the
+Done when: the READY block is sent at a frozen head, reports/<thread code>.md is written
+(its Open work line names a live owner for every open PR and issue it leaves), and its Approvals table carries the plan approval row (the owner's words, the date) or the
 Plan: exempt reason.
 ```
 

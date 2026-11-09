@@ -16,6 +16,9 @@ Unverified: <none | each claim above that the lane did not check itself, and why
 
 READY block sent: <yes, date> · SHIP_RECEIPT: pr=<n> head=<sha12 of the pin, as the tool prints it> · screen: <choice and why>
 
+Open work: <none | each open PR and issue this thread still owns, with the live thread that takes it
+or the issue that carries its trigger (crew/docs/captain.md, No orphaned work)>
+
 ## Needs
 
 <"nothing", or the owner's decisions in the ask format (gstack crew/docs/captain.md): one lettered line each, "A1 to take recommendation">
