@@ -22,6 +22,8 @@ import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { reviewFreshness } from './review-evidence';
+import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
+import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
@@ -255,8 +257,11 @@ type FixLink = { row: Record<string, any>; commit: string; from: string };
  * head inside its range_base..commit, its own commit included (the post-review flow grants each fix-check at the commit it
  * reads, GST-1676); a grant counts for one link only, assigned newest link first, so one grant naming the boundary or two
  * links' commits covers one, and the older link needs a grant of its own.
- * A range_base no earlier row ends at is a gap, and the chain does not count. A path counts as fix_checked when a link's
- * range touched it and it is unchanged since that link, or its patch against the base is still the one the link read.
+ * A range_base no earlier row ends at is a gap, and the chain does not count. A link before the newest may, instead of a clean
+ * read, be a finished read bound to its own committed content that found issues (logged converged:false, GST-1973) when its
+ * findings account for its counts and each open or blocking one names a file it read: it counts no path itself, and a path its
+ * findings name counts only through a clean link after it, and a finding no later clean link's range touched refuses the chain. A path counts as fix_checked when a clean link's range touched it and it is unchanged since that link,
+ * or its patch against the base is still the one the link read.
  */
 function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[] } | null {
   const rows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
@@ -288,31 +293,48 @@ function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: st
     if (g) used.add(g.id);
     granted[k] = g;
   }
+  const ruledOn = (l: FixLink) => new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding));
   const why = (l: FixLink) => {
-    const fresh = reviewFreshness(l.row, l.row.wtree, new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding)));
+    const fresh = reviewFreshness(l.row, l.row.wtree, ruledOn(l));
     return fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
       : l.row.tree !== l.row.wtree || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
       : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
   };
   const at = (l: FixLink) => (chain.length > 1 ? `; fix-check at ${l.commit.slice(0, 12)}, link ${chain.indexOf(l) + 1} of ${chain.length}` : '');
+  const whys = new Map(chain.map(l => [l, why(l)]));
+  const clean = new Set(chain.filter(l => !whys.get(l)));
+  const flagged = (l: FixLink): string[] | null => {
+    const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
+    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint))
+      .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
+    const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
+    const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);
+    return bound && accounted && onBranch(l.commit) && onBranch(l.from) && paths.every(p => !!p && git(cwd, ['cat-file', '-e', `${l.commit}:${p}`]).status === 0) ? paths as string[] : null;
+  };
+  const handedOn = new Map<FixLink, string[]>(chain.slice(0, -1).filter(l => !clean.has(l)).flatMap(l => (p => p ? [[l, p] as const] : [])(flagged(l))));
   const newestFirst = [...chain].reverse();
-  const stale = newestFirst.map(l => ({ l, w: why(l) })).find(x => x.w);
+  const stale = newestFirst.map(l => ({ l, w: handedOn.has(l) ? '' : whys.get(l)! })).find(x => x.w);
   const ungranted = newestFirst.find(l => !granted[chain.indexOf(l)]);
+  const ranges = new Map(chain.filter(l => clean.has(l)).map(l => [l, touchedPaths(cwd, l.from, l.commit)]));
+  const uncovered = [...handedOn].map(([d, ps]) => ({ d, p: ps.find(p => !chain.slice(chain.indexOf(d) + 1).some(j => ranges.get(j)?.has(p))) })).find(x => x.p);
   const notCounted = !chain.length ? '' : stale ? `${stale.w}${at(stale.l)}` : gap ? `${gap}${at(chain[0]!)}`
+    : uncovered ? `a finding on ${uncovered.p} that no later clean fix-check's range touched${at(uncovered.d)}`
     : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
   if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
   if (!chain.length || notCounted) return { counted: false, paths: [] };
   const read: ((p: string) => boolean)[] = [];
-  for (const l of chain) {
-    const range = touchedPaths(cwd, l.from, l.commit), after = touchedPaths(cwd, l.commit, o.now);
+  for (const [k, l] of chain.entries()) {
+    if (!clean.has(l)) continue;
+    const later = new Set(chain.slice(k + 1).flatMap(d => handedOn.get(d) ?? []));
+    const range = ranges.get(l), after = touchedPaths(cwd, l.commit, o.now);
     if (!range || !after) { r.stop(`git could not diff the fix-check range ${l.from.slice(0, 12)}..${l.commit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
     const sides = { reviewedBase: patchBase(cwd, o.baseRef, l.commit, o.parent), reviewed: l.commit, currentBase: o.currentBase ?? git(cwd, ['merge-base', o.baseRef, 'HEAD']).stdout.trim(), current: o.now };
-    read.push(p => range.has(p) && (!after.has(p) || (!!sides.reviewedBase && !!sides.currentBase && comparePath(cwd, sides, p) === 'same')));
+    read.push(p => !later.has(p) && range.has(p) && (!after.has(p) || (!!sides.reviewedBase && !!sides.currentBase && comparePath(cwd, sides, p) === 'same')));
   }
   const paths = o.candidates.filter(p => read.some(f => f(p))).sort();
   const list = paths.length ? short(paths) : 'none';
   r.add(chain.length === 1 ? `FIX_CHECK: reviewed ${list} (fix-check at ${chain[0]!.commit.slice(0, 12)}, range from ${chain[0]!.from.slice(0, 12)}, grant ${granted[0]!.id})`
-    : `FIX_CHECK: reviewed ${list} (fix-check chain of ${chain.length} from ${chain[0]!.from.slice(0, 12)}: ${chain.map((l, k) => `at ${l.commit.slice(0, 12)} grant ${granted[k]!.id}`).join('; ')})`);
+    : `FIX_CHECK: reviewed ${list} (fix-check chain of ${chain.length} from ${chain[0]!.from.slice(0, 12)}: ${chain.map((l, k) => `at ${l.commit.slice(0, 12)} grant ${granted[k]!.id}${clean.has(l) ? '' : ' (found issues)'}`).join('; ')})`);
   return { counted: true, paths };
 }
 

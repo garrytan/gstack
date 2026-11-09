@@ -97,7 +97,7 @@ export function parseHunks(diff: string, untracked: readonly string[] = []): Hun
   return map;
 }
 
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
@@ -124,7 +124,7 @@ export function locusOf(finding: ScopeFinding, diffHunks: HunkMap, rangeHunks: H
   return 'outside';
 }
 
-function fingerprintPath(fp: unknown): string | undefined {
+export function fingerprintPath(fp: unknown): string | undefined {
   if (typeof fp !== 'string' || fp.startsWith('shared-libs:')) return undefined;
   const [path] = fp.split(':');
   return path || undefined;
