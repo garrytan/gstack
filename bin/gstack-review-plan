@@ -289,7 +289,7 @@ function main(): number {
     const key = d.name.split(' ')[0];
     out.push(`DISPATCH: ${d.role} ${d.name} effort=${d.effort}${d.model ? ` model=${d.model}` : ''}${d.checklists ? ` checklists=${d.checklists.join(',')}` : ''}${d.classes ? ` classes=${d.classes.join(',')}` : ''}${d.reason ? ` reason=${d.reason}` : ''}`, `DIFF_CMD: ${key} ${diffCommand(d)}`);
     if (!d.exclude.length) out.push(`DIFF_EXCLUDE: ${key} none`);
-    const keepCmd = keepCommand(d);
+    const keepCmd = keepCommand({ ...d, keep: d.keep?.filter(k => !d.excerpt?.includes(k)) });
     if (keepCmd) out.push(`DIFF_KEEP: ${key} ${keepCmd}`);
   }
   for (const s of plan.skipped) out.push(`SKIP: ${s}`);
