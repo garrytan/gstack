@@ -309,6 +309,28 @@ describe('init + sync + restore round-trip', () => {
     }
   });
 
+  test('the pre-commit hook fails closed when its scanner is missing or fails', () => {
+    expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+    const hook = path.join(tmpHome, '.git/hooks/pre-commit');
+    const original = fs.readFileSync(hook, 'utf-8');
+    expect(original).toMatch(/^SCAN=.*$/m);
+    const failingScanner = path.join(tmpHome, '.git', 'failing-scan.py');
+    fs.writeFileSync(failingScanner, 'import sys\nsys.stdin.read()\nsys.exit(1)\n');
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'), '{"insight":"nothing secret"}\n');
+    git(['add', '-f', 'projects/p/learnings.jsonl']);
+    for (const [scan, message] of [
+      [path.join(tmpHome, 'no-such-scanner.py'), 'secret scanner'],
+      [failingScanner, 'secret scan failed (exit 1)'],
+    ] as [string, string][]) {
+      fs.writeFileSync(hook, original.replace(/^SCAN=.*$/m, `SCAN='${scan}'`));
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit']);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(message);
+      expect(git(['log', '--oneline']).stdout).not.toContain('manual commit');
+    }
+  });
+
   test('refuses init on different remote', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     const otherRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-other-'));
