@@ -154,15 +154,20 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
  * run that failed before scheduling a job), so the check-runs list never names them. Each counts as its own failed
  * check unless a later run of the same workflow at this head replaced it; that run's own checks then count (Plain
  * title on #4225 failed with no jobs and passed two minutes later; gstack-evals#303's second sealed run had no later one).
+ * A later run replaces it only once that run has check runs or has finished; while it is still queued with no jobs the
+ * failure still counts. A run cancelled before any job never ran: a concurrency group cancels a pending run when a newer
+ * one at another SHA arrives (the main backstop at 526f604f911e), so it is not counted.
  */
 export function joblessRuns(checkRuns: Array<Record<string, unknown>>, workflowRuns: Array<Record<string, unknown>>): Array<{ name: string; status: string; conclusion: string | null }> {
   const suites = new Set(checkRuns.map(r => String((r.check_suite as { id?: unknown } | null | undefined)?.id ?? '')).filter(Boolean));
   const workflow = (w: Record<string, unknown>) => String(w.workflow_id ?? w.path ?? '');
   const order = (w: Record<string, unknown>) => [Date.parse(String(w.created_at ?? '')) || 0, Number(w.id) || 0] as const;
   const newer = (a: Record<string, unknown>, b: Record<string, unknown>) => order(a)[0] > order(b)[0] || (order(a)[0] === order(b)[0] && order(a)[1] > order(b)[1]);
+  const started = (w: Record<string, unknown>) => suites.has(String(w.check_suite_id ?? ''));
+  const replaces = (o: Record<string, unknown>, w: Record<string, unknown>) => o !== w && workflow(o) === workflow(w) && newer(o, w) && (started(o) || (o.status === 'completed' && o.conclusion !== 'cancelled'));
   return workflowRuns
-    .filter(w => w.status === 'completed' && !['success', 'skipped', 'neutral'].includes(String(w.conclusion)) && !suites.has(String(w.check_suite_id ?? '')))
-    .filter(w => !workflow(w) || !workflowRuns.some(o => o !== w && workflow(o) === workflow(w) && newer(o, w)))
+    .filter(w => w.status === 'completed' && !['success', 'skipped', 'neutral', 'cancelled'].includes(String(w.conclusion)) && !started(w))
+    .filter(w => !workflow(w) || !workflowRuns.some(o => replaces(o, w)))
     .map(w => ({ name: `${String(w.name ?? w.path ?? 'workflow')} (run ${String(w.id ?? '?')}, no jobs)`, status: 'completed', conclusion: w.conclusion === undefined || w.conclusion === null ? null : String(w.conclusion) }));
 }
 

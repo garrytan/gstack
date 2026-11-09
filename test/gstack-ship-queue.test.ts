@@ -651,6 +651,22 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     const last = readyWith({ check_runs: [{ ...title, completed_at: '2026-11-09T17:30:00Z' }, free] }, undefined, { workflow_runs: [wf(42664900000, 'Plain title', 410784741, 115581108609, 'success', '2026-11-09T17:29:00Z'), jobless, startup] });
     expect(line(last.r.out, 'ci: ')).toBe(`ci: red at ${last.at} (passed=2 failed=1 pending=0 skipped=0)`);
     expect(last.r.status).toBe(EXIT.refused);
+    const queued = readyWith({ check_runs: [{ ...title, completed_at: '2026-11-09T17:30:00Z' }, free] }, undefined, { workflow_runs: [{ ...wf(42674265699, 'Plain title', 410784741, 115590000000, 'success', '2026-11-09T18:27:59Z'), status: 'queued', conclusion: null }, jobless] });
+    expect(line(queued.r.out, 'ci: ')).toBe(`ci: red at ${queued.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    expect(queued.r.status).toBe(EXIT.refused);
+    const backstop = wf(41764056397, 'Main backstop gate', 3, 115500000000, 'cancelled', '2026-11-04T02:57:38Z');
+    const superseded = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [backstop] });
+    expect(line(superseded.r.out, 'ci: ')).toBe(`ci: green at ${superseded.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(superseded.r.status).toBe(EXIT.ok);
+  }, 240_000);
+
+  // Value: protects=the workflow-runs read fails closed like the check-runs read; fails_when=ready treats an unreadable or short actions/runs list
+  // as zero jobless runs and calls the head green; seam=ciAtHead's readAllPages over actions/runs?head_sha; no_claim=GitHub's own pagination
+  test('an unreadable or short workflow-runs list is unknown, never green', () => {
+    const pass = { id: 1, name: 'free-tests', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:00:00Z', app: { id: 1 } };
+    const short = readyWith({ check_runs: [pass] }, undefined, { total_count: 5, workflow_runs: [] });
+    expect(line(short.r.out, 'ci: ')).toMatch(new RegExp(`^ci: unknown at ${short.at}`));
+    expect(short.r.status).toBe(EXIT.refused);
   }, 240_000);
 
   test('a commit-status context is never collapsed with a check run of the same name', () => {
