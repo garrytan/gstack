@@ -8,6 +8,7 @@
  * record is written locally before its note, and the note before any remote
  * effect that depends on it.
  */
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { redactFindingSpans } from '../../lib/redact-engine';
@@ -314,7 +315,7 @@ function newerOrMissing(r: AnyRecord): boolean {
   } catch { return true; }
 }
 
-function parseNote(text: string): AnyRecord | null {
+export function parseNote(text: string): AnyRecord | null {
   try {
     const r = JSON.parse(text);
     const ids = /^[A-Za-z0-9._-]{1,128}$/;
@@ -359,13 +360,32 @@ export function forgetNotes(repoRoot: string, names: string[], remote = 'origin'
   return { removed, missing, failed, pushed: p.ok, lease, detail: p.ok ? `notes pushed to ${remote} ${NOTES_REF} (lease ${lease?.slice(0, 12) ?? 'new ref'})` : `git push ${NOTES_REF} rejected: ${p.err.replace(/\s+/g, ' ').trim().slice(0, 160)}; the local notes ref was restored` };
 }
 
+/**
+ * The text of each blob, in order, from one `git cat-file --batch` process. Sizes are bytes, so the
+ * output is split as a Buffer before decoding; a missing or non-blob object yields no text.
+ */
+function readBlobs(repoRoot: string, blobs: string[]): string[] {
+  const out = spawnSync('git', ['cat-file', '--batch', '--buffer'], { cwd: repoRoot, input: blobs.join('\n') + '\n', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 }).stdout ?? Buffer.alloc(0);
+  const texts: string[] = [];
+  for (let i = 0; i < out.length;) {
+    const nl = out.indexOf(10, i);
+    if (nl < 0) break;
+    const [, type, size] = out.subarray(i, nl).toString('utf8').split(' ');
+    if (size === undefined) { i = nl + 1; continue; }
+    const end = nl + 1 + Number(size);
+    if (type === 'blob') texts.push(out.subarray(nl + 1, end).toString('utf8'));
+    i = end + 1;
+  }
+  return texts;
+}
+
 /** Rebuild local records from the notes ref: a note whose record is missing locally, or newer than the local copy, is written. */
 export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restored: number; read: number; detail: string; fetched: boolean } {
   const f = fetchNotes(repoRoot, remote);
   const list = git(repoRoot, ['notes', `--ref=${NOTES_REF}`, 'list']);
   if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail, fetched: f.ok };
-  const records = list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean)
-    .map(blob => parseNote(git(repoRoot, ['cat-file', 'blob', blob]).out)).filter((r): r is AnyRecord => !!r);
+  const records = readBlobs(repoRoot, list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean))
+    .map(parseNote).filter((r): r is AnyRecord => !!r);
   const fresh = records.filter(newerOrMissing);
   for (const r of fresh) writeJsonAtomic(recordPath(r), r);
   return { restored: fresh.length, read: records.length, detail: f.detail, fetched: f.ok };
