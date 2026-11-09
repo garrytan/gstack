@@ -1786,8 +1786,8 @@ those, each with its scope and its reason:
   check reads one line, so a last keyword argument alone on its line
   (`password=request.password` with no comma) passes too. A quoted value, a
   bare name, a segment of any other shape, anything after the value on the
-  line except a `;` or a comment, and every file that isn't Python or Dart
-  still report. The same line inside a `"""` docstring, any other string or
+  line except a `;` directly after it or a line comment (`#` in Python, `//`
+  in Dart), and every file that isn't Python or Dart still report. The same line inside a `"""` docstring, any other string or
   a Dart `/* */` comment is text and still reports; allowlist it by its value.
   Code inside a Python f-string or t-string `{…}` field, or a non-raw Dart
   string's `${…}`, is read as code, and its nested strings and quotes do not
