@@ -1113,3 +1113,50 @@ describe('a branch cannot hide code under a base pattern', () => {
   }, 180_000);
 });
 
+
+describe('the gate scan keeps code but not run data under a pattern (GST-2006)', () => {
+  // Value: protects=a results PR whose model replies say "fit (" excludes its run data and stays under the reader ceiling, while
+  //   a focused or skipped test in code under the same pattern (a test file, a non-test module, a .jsonl renamed to .ts) is
+  //   still gate-tagged and kept; fails_when=RH-1 keeps main/turns.jsonl as gate-tagged (harness-evals#333 at a229e258:
+  //   reader diff 5,120,181 B, REVIEW_DIFF_TOO_LARGE) or a code file under the pattern loses its RH-1 keep; why_new=every other
+  //   exclusion test passes --gate-tagged 0 or plants no idiom in data; seam=gstack-review-plan and gstack-review-dispatch pass
+  //   running the real gate scan; no_claim=what reviewers do with the kept files
+  test('English "fit (" in turns.jsonl leaves the file excluded; code with focus and skip markers stays gate-tagged', () => {
+    const dir = 'docs/benchmarks/2026-11-06-qm-s1-edition/main';
+    const legacy = Array.from({ length: 12 }, (_, n) => JSON.stringify({ turn: n, role: 'user', text: `question ${n}` })).join('\n') + '\n';
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-rh1-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/benchmarks/**/main/**']), [`${dir}/legacy.jsonl`]: legacy } });
+    repos.push(repo);
+    const replies = [
+      "The columns don't fit (the gap never drops below one space), so I widened the table.",
+      'Values past the limit should *not* fit (e.g. a 41-character name in a 40-character field).',
+    ];
+    const filler = 'x'.repeat(1_000);
+    const turns = Array.from({ length: 2_600 }, (_, n) => JSON.stringify({ turn: n, role: 'assistant', text: `${replies[n % 2]} ${filler}` })).join('\n') + '\n';
+    expect(Buffer.byteLength(turns)).toBeGreaterThan(2_500_000);
+    repo.git('mv', `${dir}/legacy.jsonl`, `${dir}/legacy.ts`);
+    commit(repo, {
+      [`${dir}/turns.jsonl`]: turns,
+      [`${dir}/trials/t1.json`]: '{"pass": true}\n',
+      [`${dir}/legacy.ts`]: legacy + "it.only('replays turn 3', () => {});\n",
+      [`${dir}/score.test.ts`]: "fit('scores turn 3', () => {});\n",
+      [`${dir}/report.mjs`]: "describe.skip('report', () => {});\n",
+    });
+    const p = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([
+      { path: `${dir}/legacy.ts`, reason: 'gate-tagged' },
+      { path: `${dir}/report.mjs`, reason: 'gate-tagged' },
+      { path: `${dir}/score.test.ts`, reason: 'gate-tagged' },
+    ]);
+    expect(p.review_exclude).toMatchObject({ state: 'active', excluded: 3, content: { binary: 0, data: 3, docs: 0, log: 0 } });
+    const out = path.join(repo.root, 'pass');
+    const pass = runBin(repo, 'gstack-review-dispatch', ['pass', '--base', 'main', '--out', out, '--pass', 'p1']);
+    expect({ status: pass.status, err: pass.err.split('\n').filter(l => l.includes('REVIEW_DIFF_TOO_LARGE')) }).toEqual({ status: EXIT.ok, err: [] });
+    const reader = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')).readers[0];
+    const mb = mergeBase(repo);
+    const read = spawnSync('bash', ['-c', `git diff "$DIFF_BASE" -- . ${reader.policy_exclude} && git diff "$DIFF_BASE" -- ${reader.keep.map((k: string) => `'${k}'`).join(' ')}`], { cwd: repo.work, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...repo.env, DIFF_BASE: mb } });
+    expect(read.status).toBe(0);
+    expect(read.stdout).not.toContain(`b/${dir}/turns.jsonl`);
+    expect(read.stdout).toContain(`b/${dir}/score.test.ts`);
+    expect(Buffer.byteLength(read.stdout)).toBeLessThan(2_000_000);
+  }, 180_000);
+});

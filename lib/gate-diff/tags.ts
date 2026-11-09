@@ -20,12 +20,24 @@ export const COVERAGE_TAGS = ['RH-1', 'RH-3', 'RH-4', 'RH-12', 'RH-13', 'RH-14',
 export interface TagContext {
   floor: PathClass | null;
   path: string;
+  /** The path before a rename or copy; RH-1 also reads a test renamed to data. */
+  oldPath?: string;
   /** Every changed path in the candidate (new paths), for RH-3 owner lookup. */
   allPaths: ReadonlySet<string>;
 }
 
 /** Prose files (docs, prompt templates) carry no code idioms: only the path-based RH-3 applies. */
 export const PROSE_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc|asciidoc)(?:\.tmpl)?$/i;
+/**
+ * Source a test runner can execute: RH-1's skip, focus and removed-declaration idioms mean a test changed only here, in an
+ * extensionless script, or in a test-floor file that is not data. Data, logs and run output quote "fit (" as English.
+ */
+const TEST_CAPABLE_EXT = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|coffee|py|go|rb|java|kt|kts|scala|groovy|swift|m|mm|exs?|rs|php|cs|fs|vb|c|cc|cpp|cxx|h|hpp|dart|pl|pm|t|lua|clj[sc]?|hs|erl|zig|nim|r|jl|ml|sh|bash|zsh|bats|ps1|feature|robot)$/i;
+const DATA_FILE = /\.(?:json|jsonl|ndjson|csv|tsv|log|out)$/i;
+function testCapable(ctx: TagContext): boolean {
+  if (ctx.floor === 'test' && !DATA_FILE.test(ctx.path)) return true;
+  return [ctx.path, ctx.oldPath ?? ctx.path].some((p) => TEST_CAPABLE_EXT.test(p) || !/\.[^./]+$/.test(p.split('/').pop() ?? ''));
+}
 /** Generated, vendored or minified files: unreadable as hunks, so floor inventory only. */
 export const GENERATED_FILE = /(?:^|\/)(?:dist|build|vendor|node_modules|\.yarn)\/|\.min\.(?:js|css)$|(?:^|\/)[^/]*lock(?:\.json|\.yaml|b)?$/i;
 
@@ -235,13 +247,15 @@ export function tagHunk(h: Hunk, ctx: TagContext): TagResult {
   } else if (ctx.floor === 'golden') tags.add('RH-3?');
   if (PROSE_FILE.test(ctx.path) || GENERATED_FILE.test(ctx.path)) return { tags: [...tags], notes, citation: null };
 
-  const removedDecls = dels.filter((l) => TEST_DECLARATION.test(l)).length;
-  const addedDecls = adds.filter((l) => TEST_DECLARATION.test(l)).length;
-  if (removedDecls > addedDecls) {
-    tags.add('RH-1');
-    notes.push(`RH-1: ${removedDecls - addedDecls} test declaration(s) removed`);
+  if (testCapable(ctx)) {
+    const removedDecls = dels.filter((l) => TEST_DECLARATION.test(l)).length;
+    const addedDecls = adds.filter((l) => TEST_DECLARATION.test(l)).length;
+    if (removedDecls > addedDecls) {
+      tags.add('RH-1');
+      notes.push(`RH-1: ${removedDecls - addedDecls} test declaration(s) removed`);
+    }
+    if (anyMatch(adds, SKIP_IDIOMS) || (ctx.floor === 'test' && anyMatch(adds, SKIP_IDIOMS_TEST_ONLY))) tags.add('RH-1');
   }
-  if (anyMatch(adds, SKIP_IDIOMS) || (ctx.floor === 'test' && anyMatch(adds, SKIP_IDIOMS_TEST_ONLY))) tags.add('RH-1');
 
   if (nonTest && anyMatch(adds, PLACEHOLDER_IDIOMS)) tags.add('RH-4');
   if (nonTest && anyMatch(adds, ENV_SNIFF_IDIOMS)) tags.add('RH-12');
