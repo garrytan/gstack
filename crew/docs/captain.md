@@ -238,12 +238,37 @@ successor when X happens" comes true. In November 2026 gbrain's queue reached 22
 partly this way: eight trains and a finished feature sat for 1 to 8 days with no owner,
 went stale and conflicting, and started to look like junk.
 
-- **Archive only with a live owner.** Before the Captain archives or rotates a thread that
-  still has an open PR, a handoff or an In progress issue, it starts the successor in the
-  same turn, and the successor subscribes to every open PR first (the
+- **Never archive a thread that holds an open PR (R91).** A thread stays, idle if need be,
+  until every PR it opened or carries is merged or closed. Work that has to move gets its
+  successor started first, and the successor subscribes to every open PR (the
   [/runaway-stopper successor brief](../../runaway-stopper/templates/successor-brief.md)
-  does this for rotations). When no successor is needed yet, the Captain takes the work
+  does this for rotations), while the old thread stays: a successor never makes archiving a
+  thread with an open PR OK. When no successor is needed yet, the Captain takes the work
   itself, on an issue assigned to a live thread with the trigger written in it.
+- **Archive through the check.** Before archiving any crew thread, re-assign every open
+  issue it holds to a live thread or close it, then archive with the one program below. It
+  reads the thread and its open issues, runs `gstack-archive-check thread`, and archives
+  only on exit 0 (`ARCHIVE_CHECK: clean`). The check re-reads every PR the thread holds
+  from GitHub and refuses while any is open, or while an issue in a working state (anything
+  open but Backlog or Needs you) is still on the thread. It fails closed: stale, truncated or
+  unreadable reads and failed gh reads refuse too ([troubleshooting](../../docs/troubleshooting.md#archive-reads-stale)).
+  Every run prints a handoff stub (each open PR's branch, head and CI at that head, and the
+  open issues) to paste into a successor brief. When an issue list has more than one page,
+  read every page into `issues`.
+
+  ```js
+  const code = "PROJ-123";
+  const [thread, issues] = await Promise.all([
+    tools.thread.get({ thread_id: code }),
+    tools.issue.read({ assignee: code, status: "open" }),
+  ]);
+  const file = `.gstack/tmp/archive-check-${code}.json`;
+  await tools.capy.write({ path: file, content: JSON.stringify({ read_at: new Date(await now()).toISOString(), thread, issues: issues.text }) });
+  const check = await tools.capy.bash({ command: `. <GSTACK_LAUNCH_FILE> && gstack-archive-check thread --thread ${code} --reads ${file}`, description: "Checking the thread before archiving" });
+  if (check.exit_code !== 0) return check.output;
+  await tools.thread.archive({ threads: [code] });
+  return check.output;
+  ```
 - **Triggers never live only in notes.** A "successor takes the slot when X" line goes on
   an issue owned by a live thread, never only in NOTES.md.
 - **Sweep for orphans.** Every Captain wake that reads its crew, and the daily issue sweep
@@ -262,7 +287,8 @@ went stale and conflicting, and started to look like junk.
 Issues show what the crew is really doing, so keep them true:
 
 - Before archiving a thread, re-assign every open issue it holds to its successor or the
-  Captain, and close only what is done ([No orphaned work](#no-orphaned-work)).
+  Captain, and close only what is done; `gstack-archive-check thread` refuses the archive
+  until you have ([No orphaned work](#no-orphaned-work)).
 - On each wake, leave every issue you touched accurate: its status, assignee and links.
 - An unassigned Todo that nobody will start goes to Backlog.
 - Deferred findings from review or /ship never become issues: they stay on the PR's
@@ -475,7 +501,15 @@ commits. Each PR merges at its own green head, and versions are set at release
    leaves VERSION, the `package.json` version and CHANGELOG.md alone.
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>` (add `--allow-repo-commands` when
    the base policy lists `land.merged_checks`, so a stale base can run them). It merges with
-   `--match-head-commit`, checks main's tree and writes a land note.
+   `--match-head-commit`, checks main's tree and writes a land note. In the same program,
+   after `MERGED`, run `gstack-archive-check landed --pr <n>`. For each
+   `ISSUE_CLOSE: <code>` line, read the issue with `tools.issue.read`. Move it to Done with a
+   comment naming the merge commit only when it links this PR, links no other open PR and has
+   no open sub-issues; skip one already Done; otherwise leave it open with a comment saying
+   why. Report the closed, skipped and failed codes. After a partial run, reconcile with
+   `tools.issue.read` and rerun: codes already Done are skipped. The landed PR's thread
+   stays unarchived until none of its PRs is open (R91); archive it then through
+   [the check](#no-orphaned-work).
 3. Release: before each regular stable cut (Monday and Thursday, 14:00 UTC), and in the same
    turn it lands a PR whose fragment carries `important:` (the READY says `rides the daily
    cut`; [releases.md](../../docs/releases.md#the-daily-check)), the Captain runs

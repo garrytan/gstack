@@ -328,7 +328,8 @@ turn, three sections in this order, each row with its thread, one line, and an a
    received, trains built, incidents), newest first.
 3. **In progress**: every working lane, what it owns, its state (building, READY, in
    train slot i, blocked on …) and how long since it last reported. A thread the Captain
-   archives leaves this list in the same turn.
+   archives leaves this list in the same turn. It archives only through `gstack-archive-check thread`, never a
+   thread that holds an open PR (R91; `crew/docs/captain.md` § No orphaned work).
 
 Ages make stalls visible: a lane in progress with no report for hours, or a READY waiting
 longer than `FILL_HOURS`, is the controller's next action.

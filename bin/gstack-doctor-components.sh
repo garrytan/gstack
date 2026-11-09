@@ -391,6 +391,11 @@ gstack_result_anchor() {
     PLAN_EXEMPT_UNKNOWN) printf '%s' 'plan-exempt-unknown' ;;
     PLAN_STORE_UNAVAILABLE) printf '%s' 'plan-store-unavailable' ;;
     QUEUE_PLAN_MISMATCH) printf '%s' 'queue-plan-mismatch' ;;
+    ARCHIVE_READS_STALE) printf '%s' 'archive-reads-stale' ;;
+    ARCHIVE_READS_UNPARSED) printf '%s' 'archive-reads-unparsed' ;;
+    ARCHIVE_THREAD_MISMATCH) printf '%s' 'archive-thread-mismatch' ;;
+    ARCHIVE_PR_NOT_MERGED) printf '%s' 'archive-pr-not-merged' ;;
+    ARCHIVE_GH_READ_FAILED) printf '%s' 'archive-gh-read-failed' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
