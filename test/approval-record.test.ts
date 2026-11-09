@@ -355,6 +355,40 @@ describe('import --autoplan', () => {
     expect(rows[0]!.source).toBe('autoplan:run-20261024131504@gate_rev=1');
   });
 
+  // Value: protects=an autoplan run id (<out dir name>-<14-digit stamp>) in the two places import puts it (the ask's "autoplan run <id>" and the
+  //   source's "autoplan:<id>@") never trips pii.phone.e164 or pii.cc, so a crew whose thread code ends in digits can record its gate (GST-2047,
+  //   HARN-1); fails_when=import refuses HARN-64-20261109177601 (phone) or GEVA-2-20261109173601 (Luhn), or the exemption reaches past those two
+  //   positions: a phone number in the same row's words or plan title, in the directory-name half of a minted id, a run id that is not the minted shape, or the same id typed into add
+  //   --ask; why_new=the Luhn-stamp test covers only a stamp the scanner already skips; seam=none; no_claim=other callers of the scanner
+  test('a minted autoplan run id in its own fields imports; a phone number in the same row, or the id anywhere else, still refuses', () => {
+    const importWith = (o: { runId: string; words?: string; title?: string }) => {
+      const run = tmp('appr-run-');
+      autoplanRun(run, [{ by: 'agent:GSTA-36', words: o.words ?? 'do it', at: '2026-11-09T17:36:01.000Z', p1: 'a' }]);
+      fs.writeFileSync(path.join(run, 'run.json'), JSON.stringify({ run: o.runId, status: 'complete' }));
+      if (o.title) fs.writeFileSync(path.join(run, 'plan-active.md'), `# ${o.title}\n\n## Implementation plan\n\n1. Fix it.\n`);
+      return { run, rows: importAutoplan(run, 'b', 'Garry') };
+    };
+    for (const runId of ['HARN-64-20261109177601', 'GEVA-2-20261109173601']) {
+      const { run, rows } = importWith({ runId });
+      if ('code' in rows) throw new Error(`${runId}: ${rows.message}`);
+      expect([rows[0]!.ask, rows[0]!.source]).toEqual([`Approve the plan "Widget fix" (autoplan run ${runId}, 2 decisions)`, `autoplan:${runId}@gate_rev=1`]);
+      expect(bin(['import', '--autoplan', run, '--by', 'Garry'], { cwd: repo(), env: { GSTACK_STATE_ROOT: tmp('appr-state-') } }).out).toMatch(/^APPROVAL_IMPORTED: n=1 skipped=0 /);
+    }
+    const refused: Array<[{ runId: string; words?: string; title?: string }, string]> = [
+      [{ runId: 'HARN-64-20261109177601', words: 'do it, call +14155552671 if it breaks' }, 'field words: pii.phone.e164'],
+      [{ runId: 'HARN-64-20261109177601', words: 'do it, call 14155552671 if it breaks' }, 'field words: pii.phone.e164'],
+      [{ runId: 'HARN-64-20261109177601', title: 'Call 14155552671 first' }, 'field ask: pii.phone.e164'],
+      [{ runId: 'call-14155552671' }, 'field ask: pii.phone.e164'],
+      [{ runId: '+14155552671-20261109173601' }, 'field ask: pii.phone.e164'],
+      [{ runId: '14155552671-20261109173601' }, 'field source: pii.phone.e164'],
+      [{ runId: 'call-415-555-2671-20261109173601' }, 'field ask: pii.phone.e164'],
+    ];
+    for (const [o, message] of refused) expect([o, importWith(o).rows]).toEqual([o, { code: 'APPROVAL_RECORD_SECRET', message }]);
+    const typed = bin(['add', '--ask', 'Approve the plan (autoplan run HARN-64-20261109177601, 2 decisions)', '--words', 'do it', '--by', 'Garry', '--scope', 'the plan'], { cwd: repo(), env: { GSTACK_STATE_ROOT: tmp('appr-state-') } });
+    expect([typed.status, typed.out + typed.err]).toEqual([typed.status, expect.stringContaining('field ask: pii.phone.e164')]);
+    expect(typed.status).not.toBe(0);
+  });
+
   test('an unanswered gate imports nothing and says why', () => {
     const run = tmp('appr-run-');
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: 'run-1', id: 'run-1-p1', label: 'P1', status: 'pending', gate_rev: 1 }) + '\n');

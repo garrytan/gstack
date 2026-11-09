@@ -31,7 +31,8 @@ import { scan, type Finding, type RepoVisibility } from "./redact-engine";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
-import { RECEIPT_FENCE, RUNS_FENCE, extractReceipt, placeReceipt } from "./ship-receipt";
+import { RECEIPT_FENCE, RUNS_FENCE, extractReceipt, placeReceipt, renderReceiptBlock, validateReceipt } from "./ship-receipt";
+import type { ShipReceipt } from "./headless-artifacts";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
@@ -506,6 +507,49 @@ function receiptDigitTokens(texts: string[]): string[] {
   return [...tokens];
 }
 
+/**
+ * Where a ship receipt's run-id fields hold GitHub Actions run ids, which pii.phone.e164 reads as phone numbers
+ * (GST-2047): the 1-based line and column span of each ci_carried[].run, flaky_exception[].runs[] and
+ * issues.flakes[].run value that is a run id (11 to 20 digits, with an optional /attempt), bounded to that value, in
+ * every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
+ * renderReceiptBlock's rendering of it. Only the receipt writer's own output qualifies, so a
+ * hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in prose, beside the
+ * block or under any other key still reports.
+ */
+function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to: number }> {
+  const lines = text.split("\n");
+  const rows = (v: unknown): number => v !== null && typeof v === "object" && Object.keys(v).length ? 2 + Object.values(v).reduce((n: number, c) => n + rows(c), 0) : 1;
+  const spans: Array<{ line: number; from: number; to: number }> = [];
+  for (let open = 0; open < lines.length; open++) {
+    if (lines[open] !== "```" + RECEIPT_FENCE) continue;
+    const close = lines.indexOf("```", open + 1);
+    if (close < 0) break;
+    const raw = lines.slice(open + 1, close).join("\n");
+    let receipt: ShipReceipt;
+    try { receipt = JSON.parse(raw); } catch { continue; }
+    if (validateReceipt(receipt).length || renderReceiptBlock(receipt) !== "```" + RECEIPT_FENCE + "\n" + raw + "\n```\n") continue;
+    const span = (path: Array<string | number>) => {
+      let at = open + 1;
+      let v: any = receipt;
+      for (const key of path) {
+        at++;
+        for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; at += rows(c); }
+        v = v[key];
+      }
+      if (!/^\d{11,20}(?:\/\d{1,4})?$/.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
+      const t = lines[at]!;
+      const key = path.at(-1);
+      const from = t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1;
+      spans.push({ line: at + 1, from, to: from + JSON.stringify(v).length - 1 });
+    };
+    receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
+    receipt.flaky_exception?.forEach((e, i) => e.runs.forEach((_, j) => span(["flaky_exception", i, "runs", j])));
+    receipt.issues?.flakes?.forEach((_, i) => span(["issues", "flakes", i, "run"]));
+    open = close;
+  }
+  return spans;
+}
+
 function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail: string | undefined, releaseVersions: string[]) {
   const found: Located[] = [];
   let oversize = false;
@@ -513,7 +557,11 @@ function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail:
   for (const [part, text] of parts) {
     const result = scan(text, { repoVisibility: vis, allowlist, ...(selfEmail ? { selfEmail } : {}) });
     oversize ||= result.oversize;
-    for (const finding of result.findings) found.push({ part, finding });
+    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptRunIdSpans(text) : [];
+    for (const finding of result.findings) {
+      if (finding.id === "pii.phone.e164" && runIds.some(s => s.line === finding.line && s.from <= finding.col && finding.col <= s.to)) continue;
+      found.push({ part, finding });
+    }
   }
   return { found, oversize };
 }

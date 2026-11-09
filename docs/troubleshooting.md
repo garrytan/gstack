@@ -2041,7 +2041,13 @@ session, outside the lane's /ship run.
 
 **Meaning.** A field matched gstack's secret scanner (the same one the push guard
 uses). The line names the field and the detector rule, never the matched text. Exit 3.
-Nothing was written, locally or to the Drive mirror.
+Nothing was written, locally or to the Drive mirror. `import --autoplan` skips a
+`pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id's
+14-digit stamp, or the thread-code digits right before it, where import places
+the id (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`), when
+the id has the minted shape `<name>-<14 digits>` (GST-2047); a phone number in
+the rest of the directory name, the same id anywhere else, and every other
+finding in the row still refuse.
 
 **Fix.** Record the words with the secret replaced by `[redacted]`, or ask the person to
 restate them. Rotate the secret if it was real.
@@ -2963,7 +2969,12 @@ release of this repository (or the post ran outside the checkout).
 **Fix.** Write it as `version: 1.2.3.4`, `"version": "..."` or `v1.2.3.4`.
 A gstack release named right after `gstack` (`gstack 1.94.4.0`, the install
 check's `gstack: ok 1.94.4.0 for=ship`) is exempt too, but only for majors 0 to 2.
-MEDIUM findings do not block pushes.
+So is a quad a few quotes, brackets, arrows or spaces (or the word `to`) from a
+`VERSION` file name or path, or from a three-part version, on the same line
+(`path.join(dir, "VERSION"), "1.98.0.0\n"`, `echo 1.98.0.0 > VERSION`,
+`v1.97.2 to 1.98.0.0`), and a `VERSION` file that holds only the quad (GST-2047).
+Any other word between them, or another quad as the only neighbour, keeps the
+finding. MEDIUM findings do not block pushes.
 
 <a id="redact-run-id-as-phone"></a>
 ### `pii.phone.e164` MEDIUM on a receipt token or a GitHub Actions run id
@@ -3006,7 +3017,16 @@ exact tokens it finds in these positions:
   accepted residual of the ruling that a run id is not a phone number;
 - every 11-digit id chained after an allowlisted one through `, `, ` and `,
   ` & `, ` or ` or ` / `, optionally with a `(#1234)` between
-  (`screen 40269992077 (#3434) and 40275443393 (#3453)`).
+  (`screen 40269992077 (#3434) and 40275443393 (#3453)`);
+- a run id in a ship receipt's run-id fields (`ci_carried[].run`,
+  `flaky_exception[].runs`, `issues.flakes[].run`) inside a
+  `gstack-ship-receipt` block the receipt writer rendered: the block must
+  close, pass the receipt schema and match `renderReceiptBlock`'s output byte
+  for byte. Only those values count, and only when they are run ids (11 to 20
+  digits, with an optional `/attempt`), so the same number in prose, beside
+  the block, under any other key, a run-id field holding other text or a
+  10-digit number, or a hand-written, schema-invalid or malformed block still
+  reports (GST-2047).
 
 A bare 11-digit number with none of that context, a 10-digit national number
 and an E.164 `+14155551234` still report, so the finding means the id stands
