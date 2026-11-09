@@ -157,8 +157,10 @@ describe('Claude Code 2.1.300 compaction with a preserved segment', () => {
     ];
     const plain = shaped.map(r => r.uuid === boundary ? { ...r, compactMetadata: undefined } : r);
     const orderOf = (rows: Row[]) => ownedCausalOrder(rows.map((r, i) => recordMeta(r, i)), '/w');
-    expect(orderOf(plain).order?.length).toBeGreaterThan(0);
-    expect(orderOf(shaped)).toEqual(orderOf(plain));
+    const control = orderOf(plain);
+    if (!('order' in control)) throw new Error('the control has no causal order');
+    expect(control.order.length).toBeGreaterThan(0);
+    expect(orderOf(shaped)).toEqual(control);
   });
 
   test('a preserved segment of only the tail (nothing kept in place) names no anchor and is reported as an unrecognized shape', async () => {
