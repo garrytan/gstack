@@ -45,12 +45,13 @@ import { exceptionConsumerProblem } from '../lib/pregate/flaky-exception';
 import { installedGstackVersion, isUnavailable, loadPolicyFromBase, matchesAny, policyUnavailableLine, resolveBaseBranch, stampFilesInTree, validatePolicy, type ShipPolicy } from '../lib/ship-policy';
 import { approvalForReceipt } from '../lib/approval-citations';
 import {
-  CARRY_METADATA_GLOBS, CARRY_NAMED_PATHS, CARRY_TEST_GLOBS,
+  CARRY_GATE_TEST_PATHS, CARRY_METADATA_GLOBS, CARRY_NAMED_PATHS, CARRY_TEST_GLOBS,
   bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceipt, planCarry, planTreeCarry,
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
+import { hunkName, testReviewPacket, weakenedTestHunks } from '../lib/ship-carry-tests';
 import { planRecheck, readRecheck, recheckPacket, recheckRecordTemplate } from '../crew/lib/ship-recheck';
 import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
@@ -86,6 +87,8 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       a receipt that records a pregate needs --pregate current for HEAD (RECEIPT_CARRY_PREGATE_STALE);
                                       a product change on linear history whose range-diff is within the re-check cap prints
                                       RECHECK: eligible … packet=<file>: one reader reads it, then --recheck <record.json> (J1);
+                                      a test edit that removed or changed assertion lines since the receipt's head is
+                                      RECEIPT_CARRY_TEST_WEAKENED: one fix-check reads the packet it names, then --test-review <record.json>;
                                       needs git >= 2.39 (RECEIPT_GIT_TOO_OLD)
   docs-caps [--base <ref>]            /ship Step 14.5: one DOCS_CAP: <path> <bytes>/<max> ok|over line per docs.caps entry of the
                                       reviewed policy (origin/<base>'s .gstack/ship-policy.json; --policy <file> reads that file
@@ -621,7 +624,7 @@ function productSpec(repoRoot: string, rules: ProductRules, from: string, to: st
     const lines = was.map((_, i) => i).filter(i => was[i] !== now[i]);
     return was.length === now.length && lines.length > 0 && lines.every(i => side.at.has(i + 1) && stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, rules.templates, side, i + 1, rules.placeholders));
   });
-  return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)], demoted, ownRows };
+  return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs), ...CARRY_GATE_TEST_PATHS.map(p => `:(exclude,literal)${p}`)], demoted, ownRows };
 }
 
 /** A commit's product patch-id against its merge base with the base ('' for no product diff), as write records it and a rewritten-history carry recomputes it. */
@@ -652,7 +655,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt carry: run it inside the git checkout whose head carries the receipt\n'); return EXIT.usage; }
   const head = (flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot))?.toLowerCase();
   if (!head || !/^[0-9a-f]{40,64}$/.test(head)) { process.stderr.write('gstack-ship-receipt carry: cannot resolve HEAD\n'); return EXIT.usage; }
-  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_CONDITIONAL' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_SCOPED_REVIEW' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
+  const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_CONDITIONAL' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_SCOPED_REVIEW' | 'RECEIPT_CARRY_TEST_WEAKENED' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
     process.stderr.write(resultLineWithDocs('gstack-ship-receipt carry', code, message) + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'refused', run: '-', code, message }) + '\n' : `CARRY: refused (${code})\nGSTACK_RESULT: skill=ship status=refused run=-\n`);
     return EXIT.refused;
@@ -718,6 +721,8 @@ function cmdCarry(rest: string[], json: boolean): number {
   let plan: ReturnType<typeof planCarry>;
   let scopedDryRun: string | undefined;
   let recheck: string | undefined;
+  let testReview: string | undefined;
+  let testPending: { named: string; packet: { text: string; sha256: string } } | undefined;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
     const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
@@ -815,6 +820,29 @@ function cmdCarry(rest: string[], json: boolean): number {
         if (typeof restFrom !== 'string' || typeof restHead !== 'string' || restFrom !== restHead) changedProduct.push(`(a product path outside ${left.join(', ')}; compare the two base diffs without them)`);
       }
     }
+    // A gate file under a test directory (the land list, the touchfile maps) sits outside both patch-ids, so it is compared
+    // path by path: any change since the reviewed head is a product change (GST-2204).
+    const patchSides = { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head };
+    if (!retarget) for (const p of [...touched].filter(p => CARRY_GATE_TEST_PATHS.includes(p) && !changedProduct.includes(p) && !contextPaths.includes(p)).sort()) if (comparePath(repoRoot, patchSides, p) !== 'same') changedProduct.push(p);
+    // A test edit that removed or changed an assertion line since the reviewed head needs one scoped fix-check (GST-2204);
+    // its refusal waits for the depth check below, so a skip marker or a deleted test still asks for /ship.
+    const movedTests = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, rangeBase, headBase)];
+    if (movedTests.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths changed since ${from.slice(0, 12)}; run /ship on ${head.slice(0, 12)}`);
+    const testPaths = [...touched].filter(p => (movedTests[0]!.has(p) || movedTests[1]!.has(p)) && (changed.find(c => c.path === p)?.class ?? classifyCarryPath(p, rules.extra)) === 'test');
+    const weakened = weakenedTestHunks(repoRoot, patchSides, testPaths);
+    if (weakened.length) {
+      const named = `${weakened.slice(0, CARRY_NAMED_PATHS).map(hunkName).join(', ')}${weakened.length > CARRY_NAMED_PATHS ? ` (+${weakened.length - CARRY_NAMED_PATHS} more)` : ''}`;
+      const packet = testReviewPacket(repoRoot, patchSides, weakened);
+      const record = flag(rest, '--test-review');
+      if (packet.over.length) changedProduct.push(...packet.over.map(p => `${p} (assertion lines changed since review, too large for the scoped fix-check: over ${PACKET_SECTION_CAP} lines)`));
+      else if (!record) testPending = { named, packet };
+      else {
+        const review = readScopedReview(record, { head }, [...new Set(weakened.map(h => h.path))]);
+        if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--test-review: ${review.message}`);
+        if (review.review.packet_sha256 !== packet.sha256) return refused('RECEIPT_CARRY_REFUSED', `--test-review: the record's packet_sha256 is ${review.review.packet_sha256?.slice(0, 12) ?? 'missing'}, not ${packet.sha256.slice(0, 12)}: the reader must read the packet HEAD ${head.slice(0, 12)} produces; rerun carry without --test-review to write it`);
+        testReview = `test assertions changed (scoped review by ${review.review.reviewer}: ${named})`;
+      }
+    }
     const stampedRows = changedProduct.length ? [] : stampOnly;
     let scopedReview: string | undefined;
     const packetBody = !changedProduct.length && contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : null;
@@ -872,7 +900,7 @@ function cmdCarry(rest: string[], json: boolean): number {
         process.stderr.write(`RECHECK: eligible range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader reads it, then carry --recheck <record.json> (${recheckRecordTemplate({ from, head, sha256: r.sha256, ...bound })}); a blocking finding means /ship on ${head.slice(0, 12)}\n`);
       }
     }
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(recheck ? { recheck } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(recheck ? { recheck } : {}), ...(testReview ? { testReview } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
@@ -905,6 +933,18 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (recheck && riskOf(now) !== riskOf(receipt.review_depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} is risk class ${riskOf(now)}, not the reviewed ${riskOf(receipt.review_depth)}, so a scoped re-check cannot stand in for review; run /ship on ${head.slice(0, 12)}`);
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
     depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) }, review_exclude: receiptExclude(review.exclude) };
+  }
+  if (testPending) {
+    const why = `test hunks removed or changed assertion lines since the reviewed head ${from.slice(0, 12)}: ${testPending.named}`;
+    if (rest.includes('--dry-run')) return refused('RECEIPT_CARRY_TEST_WEAKENED', `${why}; carry without --dry-run writes the packet for one fix-check reviewer, then carry --test-review <record.json>; nothing written`);
+    const packet = path.resolve(repoRoot, git(['rev-parse', '--git-path', `gstack/test-review-${head.slice(0, 12)}.md`], repoRoot) ?? `.git/gstack/test-review-${head.slice(0, 12)}.md`);
+    try {
+      fs.mkdirSync(path.dirname(packet), { recursive: true });
+      fs.writeFileSync(packet, testPending.packet.text);
+    } catch (e) {
+      return refused('RECEIPT_CARRY_REFUSED', `${why}, but the test-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
+    }
+    return refused('RECEIPT_CARRY_TEST_WEAKENED', `${why}; one fix-check reviewer reads ${packet} (packet_sha256 ${testPending.packet.sha256}), then rerun carry with --test-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean","packet_sha256":"${testPending.packet.sha256}"}); a blocking finding means restore the assertion or run /ship on ${head.slice(0, 12)}`);
   }
   // The rebound product_patch_id is HEAD's diff against the carry's base, so a retargeted receipt names that base from now on.
   // A receipt that records a version names HEAD's, read as write reads it: a restamp after a base merge moves it (GST-1030).
