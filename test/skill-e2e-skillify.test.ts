@@ -109,6 +109,9 @@ function setupSkillifyWorkdir(suffix: string, installSkills: string[] = ['scrape
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
   }
+  // gstack-timeline-log and gstack-learnings-log import ../lib/redact-engine.ts
+  // from beside bin/. A copy, not a symlink: the agent runs inside workDir.
+  fs.cpSync(path.join(ROOT, 'lib'), path.join(workDir, 'lib'), { recursive: true });
 
   fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), `# Project Instructions
 
