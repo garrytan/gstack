@@ -1841,6 +1841,36 @@ A `tracked-by-project` or `version-reverted` cause has its own section:
 listed changes, check out the default branch, move local commits to another
 branch), then re-run `bin/gstack-upgrade`. A reinstall that failed after the
 fast-forward is completed by the next run (`reinstall pending from <version>`).
+For `another gstack updater holds <state root>/.setup-lock (pid <n>)`, wait
+for that update to finish. If no gstack update is running (`kill -0 <n>`
+fails, or the pid reads `unknown` because the holder was killed before it
+wrote one), remove the lock with `rm -rf <state root>/.setup-lock` and
+re-run. See [how gstack's shell locks work](#shell-locks).
+
+<a id="shell-locks"></a>
+### Two gstack updates, setups or config writes ran at once (Ubuntu 26.04, uutils `mkdir`)
+
+**Meaning.** gstack's shell locks (the updater's `.setup-lock`, the config
+lock `.config-yaml.lock`, the install registry, the developer profile,
+settings.json, the Chromium install, the brain-sync drain, freeze and the
+lease directory) are lock directories. Older gstack held one when
+`mkdir <lock>` succeeded. Rust coreutils (uutils) 0.8.0, the `mkdir` on
+Ubuntu 26.04 and on GitHub's `ubuntu-latest` from 2026-11-09, reports success
+even when another process created the directory first, so two racing callers
+could both hold the lock: two updates moving one checkout, or two
+`gstack-config set` calls where one write dropped the other's key. GNU and
+BSD `mkdir` never did this.
+
+**Fix.** Upgrade gstack (`/gstack-upgrade`). Every lock is now taken by
+`gstack_lock_take` in `bin/gstack-lock.sh`: `mkdir` only makes the
+directory, and the holder is whoever creates its `pid` (or `owner`) file
+with the shell's noclobber redirect, which opens it `O_CREAT|O_EXCL`, so
+exactly one caller wins whatever `mkdir` reports. Waiting, stale-lock
+recovery and release are unchanged. A lock directory with no owner file
+inside, left by a process killed while taking it, still counts as held until
+the caller's own stale-lock rule clears it; when nothing is running, remove it
+with `rm -rf <lock>`. Re-set any config key you set during a concurrent write
+on 26.04 (`gstack-config get <key>` shows what stuck).
 
 <a id="upgrade-busy"></a>
 ### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)` / `gstack-upgrade: a shared harness (capy-server, pid <p>) holds a lease <n>m old; ... (UPGRADE_BUSY)`

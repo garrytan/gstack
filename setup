@@ -343,6 +343,7 @@ gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
 . "$SOURCE_GSTACK_DIR/bin/gstack-skill-name.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-skill-name.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-claude-root.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-claude-root.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-install-registry.sh is missing. fix: reinstall from a fresh clone (docs/ADDING_A_HOST.md)" >&2; exit 1; }
+. "$SOURCE_GSTACK_DIR/bin/gstack-lock.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-lock.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-render-claude.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 . "$SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh" || { echo "$0: $SOURCE_GSTACK_DIR/bin/gstack-host-renders.sh is missing. fix: reinstall from a fresh clone" >&2; exit 1; }
 SETUP_VERSION="$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
@@ -1836,19 +1837,20 @@ _deps_verified() {
 }
 
 # Checkout-local migration lock: a live holder means skip; a dead or missing
-# holder (killed setup) is reclaimed.
+# holder (killed setup) is reclaimed. gstack_lock_take (bin/gstack-lock.sh)
+# creates the pid file with O_EXCL: mkdir's exit status is not a lock on
+# Ubuntu 26.04's uutils mkdir.
 _deps_lock() {
   local lock="node_modules.gstack-migrate.lock" holder
-  if ! mkdir "$lock" 2>/dev/null; then
+  if ! gstack_lock_take "$lock" pid "$$"; then
     holder="$(cat "$lock/pid" 2>/dev/null || true)"
     case "$holder" in
       ''|*[!0-9]*|0) [ -z "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ] && [ -z "$holder" ] && return 1 ;;
       *) kill -0 "$holder" 2>/dev/null && return 1 ;;
     esac
     rm -rf "$lock"
-    mkdir "$lock" 2>/dev/null || return 1
+    gstack_lock_take "$lock" pid "$$" || return 1
   fi
-  echo "$$" > "$lock/pid"
 }
 
 _deps_unlock() { rm -rf node_modules.gstack-migrate.lock; }
@@ -2418,15 +2420,17 @@ elif ! ensure_playwright_browser; then
   _clear_playwright_quarantine
   _PW_LOCK="${TMPDIR:-/tmp}/gstack-playwright-install.lock"
   # Stale-lock self-heal: a SIGKILL'd prior setup leaves the lock dir behind
-  # forever (mkdir mutexes have no owner). If the recorded holder PID is dead,
-  # reclaim instead of telling the user to rmdir by hand.
+  # forever. If the recorded holder PID is dead, reclaim instead of telling the
+  # user to remove it by hand. The take is gstack_lock_take (bin/gstack-lock.sh),
+  # which creates the pid file with O_EXCL: mkdir's exit status is not a lock
+  # on Ubuntu 26.04's uutils mkdir.
   if [ -d "$_PW_LOCK" ]; then
     _PW_STALE=0; _PW_HOLDER=0
     _PW_LOCK_OLD=""
     [ -n "$(find "$_PW_LOCK" -maxdepth 0 -mmin +$(( _PW_INSTALL_TIMEOUT / 60 + 1 )) 2>/dev/null)" ] && _PW_LOCK_OLD=1
     if [ ! -f "$_PW_LOCK/pid" ]; then
-      # No holder recorded (killed between mkdir and echo, or mid-write by a
-      # live setup): nothing to probe, so only age can prove abandonment.
+      # No holder recorded (killed between mkdir and the pid write, or
+      # mid-write by a live setup): nothing to probe, so only age can prove abandonment.
       [ -n "$_PW_LOCK_OLD" ] && _PW_STALE=1
     else
       _PW_HOLDER=$(cat "$_PW_LOCK/pid" 2>/dev/null || true)
@@ -2455,7 +2459,7 @@ elif ! ensure_playwright_browser; then
         if { [ "$_PW_MOVED_PID" -gt 0 ] && [ "$_PW_MOVED_PID" != "$_PW_HOLDER" ] && kill -0 "$_PW_MOVED_PID" 2>/dev/null; } \
            || { [ ! -f "$_PW_LOCK.stale.$$/pid" ] && [ -z "$_PW_LOCK_OLD" ]; }; then
           # A new live holder, or a fresh lock whose holder has not written its
-          # pid yet (mkdir done, echo pending): not ours to reclaim.
+          # pid yet (mkdir done, pid write pending): not ours to reclaim.
           mv "$_PW_LOCK.stale.$$" "$_PW_LOCK" 2>/dev/null || true
         else
           rm -rf "$_PW_LOCK.stale.$$" 2>/dev/null || true
@@ -2463,8 +2467,7 @@ elif ! ensure_playwright_browser; then
       fi
     fi
   fi
-  if mkdir "$_PW_LOCK" 2>/dev/null; then
-    echo "$$" > "$_PW_LOCK/pid" 2>/dev/null || true
+  if gstack_lock_take "$_PW_LOCK" pid "$$"; then
     # Chain the earlier cleanup_copied_bun EXIT trap: `trap ... EXIT` REPLACES
     # the previous handler, so the lock trap must run both or any run taking
     # this path leaves .tmp-bun-bin behind.

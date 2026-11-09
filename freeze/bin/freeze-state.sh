@@ -15,7 +15,8 @@ mutex="$STATE_DIR/.freeze-mutation.lock"
 action="${1:-}"
 case "$action" in acquire|set|release|clear) ;; *) echo 'Usage: freeze-state.sh acquire|set DIRECTORY | release OWNER | clear' >&2; exit 2 ;; esac
 
-if ! mkdir "$mutex" 2>/dev/null; then
+. "$_here/../../bin/gstack-lock.sh" 2>/dev/null || { echo "FREEZE_ERROR: $_here/../../bin/gstack-lock.sh is missing. No boundary changed. Fix: reinstall with ./setup or /gstack-upgrade." >&2; exit 1; }
+if ! gstack_lock_take "$mutex" pid "$$"; then
   echo 'FREEZE_BUSY: another writer or an interrupted mutation owns the state lock. Retry after it finishes; if abandoned, inspect it with the user before recovery. No boundary changed.' >&2
   exit 1
 fi
@@ -23,7 +24,7 @@ temp=""
 finish() {
   local rc=$?
   [ -z "$temp" ] || rm -f -- "$temp"
-  rmdir "$mutex"
+  rm -rf -- "$mutex"
   exit "$rc"
 }
 trap finish EXIT

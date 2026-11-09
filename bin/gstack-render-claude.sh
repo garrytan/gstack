@@ -84,12 +84,13 @@ gstack_claude_overlay_field() {
 }
 
 # gstack_render_lock DIR / gstack_render_unlock DIR — serialize the swap and
-# record write of concurrent renders (mkdir lock, no flock). A lock whose
-# holder is gone is broken; after 30 s the swap proceeds unlocked.
+# record write of concurrent renders (gstack_lock_take from bin/gstack-lock.sh,
+# no flock). A lock whose holder is gone is broken; after 30 s the swap
+# proceeds unlocked.
 gstack_render_lock() {
   local lock="$1.lock" i=0 pid
   mkdir -p "$(dirname "$1")" 2>/dev/null || true
-  while ! mkdir "$lock" 2>/dev/null; do
+  while ! gstack_lock_take "$lock" pid "$$"; do
     pid="$(cat "$lock/pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       rm -rf "$lock"
@@ -99,7 +100,6 @@ gstack_render_lock() {
     [ "$i" -lt 300 ] || return 0
     sleep 0.1
   done
-  echo "$$" > "$lock/pid"
 }
 gstack_render_unlock() {
   rm -rf "$1.lock"

@@ -84,8 +84,9 @@ BUN=$(command -v bun 2>/dev/null) || fail "Chromium is not installed and bun is 
 
 # Same lock ./setup takes (#2136), so two installs never race on the cache.
 LOCK="${TMPDIR:-/tmp}/gstack-playwright-install.lock"
+. "$ROOT/bin/gstack-lock.sh" 2>/dev/null || fail "$ROOT/bin/gstack-lock.sh is missing" "reinstall with cd $ROOT && ./setup"
 tries=0
-while ! mkdir "$LOCK" 2>/dev/null; do
+while ! gstack_lock_take "$LOCK" pid "$$"; do
   holder=$(cat "$LOCK/pid" 2>/dev/null || true)
   case "$holder" in ''|*[!0-9]*) holder=0 ;; esac
   if [ "$holder" -eq 0 ] || ! kill -0 "$holder" 2>/dev/null; then rm -rf "$LOCK" 2>/dev/null; continue; fi
@@ -93,7 +94,6 @@ while ! mkdir "$LOCK" 2>/dev/null; do
   [ "$tries" -ge "$TIMEOUT" ] && fail "another gstack install holds the Chromium lock ($LOCK, pid $holder)" "wait for it, or remove a stale lock: rm -rf \"$LOCK\""
   sleep 1
 done
-echo "$$" > "$LOCK/pid" 2>/dev/null || true
 trap 'rm -rf "$LOCK" 2>/dev/null' EXIT INT TERM
 
 OVERRIDE=""

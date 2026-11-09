@@ -242,7 +242,7 @@ Gbrain itself ships with these that gstack wraps:
 |---|---|
 | `~/.gbrain/config.json` | Engine (pglite/postgres), database URL or path, API keys. Mode 0600. Written by `gbrain init`. |
 | `~/.gstack/gbrain-repo-policy.json` | Per-remote trust triad. Schema v2. Mode 0600. |
-| `~/.gstack/.setup-gbrain.lock.d` | Concurrent-run lock (atomic mkdir). Released on normal exit + SIGINT. |
+| `~/.gstack/.setup-gbrain.lock.d` | Concurrent-run lock: a directory whose `pid` file is created with O_EXCL (`gstack_lock_take`, `bin/gstack-lock.sh`), so it holds even where `mkdir` misreports a race. Released on normal exit + SIGINT. |
 | `~/.gstack/.brain-queue.d/` | Pending sync records for gstack memory sync — maildir-style spool, one file per record. A legacy `.brain-queue.jsonl` from older releases migrates automatically on the next drain. |
 | `~/.gstack/.brain-last-push` | Timestamp of last sync push (for `/health` scoring) |
 | `~/.gstack-artifacts-remote.txt` | URL of your gstack memory sync remote (safe to copy between machines; legacy name `~/.gstack-brain-remote.txt` still read) |

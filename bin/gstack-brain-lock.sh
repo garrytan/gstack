@@ -23,10 +23,14 @@
 #   gstack_brain_lock_release
 #     Removes the lock only when this process took it and still owns it.
 #
-# The lock is a directory (mkdir is atomic on every POSIX filesystem; flock(1)
-# is not on macOS) holding `pid` and `owner`. A lock whose pid is dead is
-# stale and is cleared. A lock directory with no pid file is a holder killed
-# between mkdir and the pid write once it is older than 10 minutes.
+# The lock is a directory holding `pid` and `owner`, taken with
+# gstack_lock_take (bin/gstack-lock.sh), which creates `pid` with O_EXCL:
+# mkdir's exit status is not a lock on Ubuntu 26.04's uutils mkdir, and
+# flock(1) is not on macOS. A lock whose pid is dead is stale and is cleared.
+# A lock directory with no pid file is a holder killed between mkdir and the
+# pid write once it is older than 10 minutes.
+
+. "$(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack: $(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 _GSTACK_BRAIN_LOCK_DIR=""
 _GSTACK_BRAIN_LOCK_MINE=0
@@ -34,10 +38,9 @@ _GSTACK_BRAIN_LOCK_HOLDER=""
 
 _gstack_brain_lock_try_once() {
   local dir="$1" pid
-  if mkdir "$dir" 2>/dev/null; then
+  if gstack_lock_take "$dir" pid "$$"; then
     GSTACK_BRAIN_LOCK_TOKEN="$$-${RANDOM:-0}-$(date +%s 2>/dev/null || echo 0)"
     export GSTACK_BRAIN_LOCK_TOKEN
-    printf '%s\n' "$$" > "$dir/pid" 2>/dev/null || true
     printf '%s\n' "$GSTACK_BRAIN_LOCK_TOKEN" > "$dir/owner" 2>/dev/null || true
     _GSTACK_BRAIN_LOCK_MINE=1
     return 0
