@@ -62,7 +62,30 @@ jobs:
           github-token: ''
           enable-annotation: 'true'
 
+  # R81 (docs/pregate.md#docs-only): skipped only when docs-scope succeeded and said
+  # docs-only; a crashed or failed classifier runs the smoke.
+  docs-scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - id: scope
+        uses: ./.github/actions/docs-scope
+
   windows-smoke:
+    needs: docs-scope
+    if: ${{ !cancelled() && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:

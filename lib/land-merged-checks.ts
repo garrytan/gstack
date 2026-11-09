@@ -45,9 +45,11 @@ export const LAND_EXPLANATION = '{ merged_checks } or null, read from the base r
 export function landPolicyErrors(raw: unknown): PolicyError[] {
   const l = raw as Record<string, unknown> | null;
   if (!l || typeof l !== 'object' || Array.isArray(l)) return [{ code: 'POLICY_INVALID', path: 'land', message: 'must be { merged_checks } or null' }];
-  const out: PolicyError[] = Object.keys(l).filter(k => k !== 'merged_checks').map(k => ({ code: 'POLICY_INVALID', path: `land.${k}`, message: 'unknown key' }));
+  const out: PolicyError[] = Object.keys(l).filter(k => k !== 'merged_checks' && k !== 'docs_only_skip').map(k => ({ code: 'POLICY_INVALID', path: `land.${k}`, message: 'unknown key' }));
   const c = l.merged_checks;
   if (!Array.isArray(c) || !c.length || c.length > MAX_CHECKS) return [...out, { code: 'POLICY_INVALID', path: 'land.merged_checks', message: `must list 1 to ${MAX_CHECKS} commands` }];
+  const skip = l.docs_only_skip;
+  if (skip !== undefined && (!Array.isArray(skip) || skip.some(s => !c.includes(s)) || skip.length >= c.length)) out.push({ code: 'POLICY_INVALID', path: 'land.docs_only_skip', message: 'must list merged_checks commands, leaving at least one to run' });
   c.forEach((cmd, i) => {
     if (typeof cmd !== 'string' || !cmd.trim()) out.push({ code: 'POLICY_INVALID', path: `land.merged_checks[${i}]`, message: 'must be a non-empty command' });
     else if (cmd.length > MAX_COMMAND || /[\0\r\n]/.test(cmd)) out.push({ code: 'POLICY_CONTAINMENT', path: `land.merged_checks[${i}]`, message: `must be one line of at most ${MAX_COMMAND} characters` });

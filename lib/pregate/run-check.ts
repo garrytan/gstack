@@ -12,6 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ghArtifactDeps, ghRunDeps, runInventory, type RunProfile } from '../run-evidence';
+import { classifyDocsOnly } from '../docs-only';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
 import { normalizeRemoteUrl } from '../../crew/lib/ship-queue-train-record';
@@ -71,6 +72,10 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
   return {
     repo, deps: ghRunDeps(repo, root), failures: ghArtifactDeps(repo), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
     unchanged: p => gateInputsChanged(root, base, p),
+    docsOnly: head => {
+      const mb = spawnSync('git', ['merge-base', `origin/${base}`, head], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+      try { return mb.status === 0 && classifyDocsOnly({ root, base: mb.stdout.trim(), head }).docsOnly; } catch { return false; }
+    },
     inventory: (command, tree, selected) => {
       if (!allowRepoCommands) return { error: 'the inventory command is a pin-file command; pass --allow-repo-commands' };
       const at = () => { const fp = wtreeFingerprint({ cwd: root }); return 'tree' in fp ? fp.tree : null; };
