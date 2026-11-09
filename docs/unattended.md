@@ -744,7 +744,9 @@ item, "do it" cases included, goes to the owner.
   earlier gate, or unreviewed post-cap deltas recommending `a`. The delta
   check then always runs, against `plan-at-gate.r<m>.md` of the answered gate
   (every edit since the owner's answer, the fixes included), and a High or
-  Critical still leaves the gate for the owner. `CARRIED:` says
+  Critical still leaves the gate for the owner. One failed delta check per
+  owner answer: after a second one fails on the same answer, the next gate
+  goes to the owner. `CARRIED:` says
   `across unrelayed gate_rev <n>`, and the journal row lists
   `skipped_gate_revs`. A relayed gate, a new user-challenge or owner-only
   item there, or a `revise` since the answer that put a new axis in scope

@@ -164,6 +164,25 @@ describe('carry across fix-only gates', () => {
     expect(decisions(s.out).some(d => d.gate_rev === 3 && d.carried_gate_from)).toBe(false);
   });
 
+  // Value: protects=an agent cannot redraw delta checks on one owner answer until one passes (review_loop_grant
+  // a-c7c65e1ca065); fails_when=sourceGate skips gates without counting their failed checks; why_new=the tests above
+  // fail the check once; seam=none
+  test('one failed delta check per owner answer: a second failure sends the next gate to the owner', () => {
+    const s = highAtGate2();
+    fixed(s);
+    const second = check(s.out, [{ id: 'F2', severity: 'High', title: 'The fix still drops the jitter' }]);
+    expect(second.stdout).toMatch(/^CARRY: no \(delta check found High: The fix still drops the jitter\)$/m);
+    expect(second.stdout).toContain("and it cannot carry the owner's last answer (the delta check against gate_rev 1's answer already failed at gate_rev 2 and 3; one failed check per owner answer, so the owner answers this one), so the owner answers it");
+    const v4 = path.join(s.dir, 'plan-v4.md');
+    fs.writeFileSync(v4, V3.replace('jitter 10% (kept from the first draft)', 'jitter 10% (kept, and tested)'));
+    const rev = r.ap(['revise', '--out', s.out, '--plan', v4]);
+    expect(rev.status, rev.stderr).toBe(0);
+    expect(rev.stdout).toMatch(/^GATE: gate_rev=4 /m);
+    expect(rev.stdout).toMatch(/^CARRY: no \(the delta check against gate_rev 1's answer already failed at gate_rev 2 and 3; one failed check per owner answer, so the owner answers this one\)$/m);
+    expect(rev.stdout).not.toMatch(/^CARRY_CHECK:/m);
+    expect(readRunJson(s.out).status).toBe('gate_pending');
+  });
+
   // Value: protects=a fix that widens the plan's scope goes to the owner; fails_when=plan_revised's scope_widened is not
   // recorded or not read; why_new=the delta check is the only other guard and it is a model; seam=none
   test('a fix that puts new scope in the plan refuses the carry', () => {

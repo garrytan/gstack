@@ -89,7 +89,7 @@ function record(state: RunState, c: Omit<CarryRecord, 'at'>): CarryRecord {
     c.reason, c.check ? path.basename(c.check.result) : 'decisions.jsonl', c.check?.status ?? c.verdict]);
   return full;
 }
-const refuse = (state: RunState, rev: number, from: number | undefined, reason: string) => record(state, { gate_rev: rev, from_gate_rev: from, verdict: 'refused', reason, lines: [`CARRY: no (${reason})`] });
+const refuse = (state: RunState, rev: number, from: number | undefined, reason: string, check?: CarryCheck) => record(state, { gate_rev: rev, from_gate_rev: from, verdict: 'refused', reason, ...(check ? { check } : {}), lines: [`CARRY: no (${reason})`] });
 
 /** Drop a delta check still waiting for its reviewer (the owner answered, the plan was revised, a new gate was written) and release its reservation. */
 export function voidPendingCheck(state: RunState, why: string): string[] {
@@ -122,15 +122,21 @@ const decidedOrDelta = (item: GateItem) => item.id === 'p1' || !!item.carried ||
 /**
  * The gate whose owner answer a carry reuses: `prev`, the gate before the new one, unless nobody answered it. Then the
  * owner's last answered gate, but only across gates nobody answered that were never relayed (no owner-facing render, no
- * `recommend`) and hold only decidedOrDelta items: fixes made in response to that answer, never a new question.
+ * `recommend`) and hold only decidedOrDelta items: fixes made in response to that answer, never a new question. At most
+ * one of those gates may have failed its delta check: a second failure on the same answer sends the next gate to the owner.
  */
 function sourceGate(state: RunState, prev: GateList): { prev: GateList; skipped: number[] } | Refusal {
   const rows = readDecisions(state.out);
-  const relayed = new Set(readJournal(state.out).filter(r => r.event === 'gate_relayed' || r.event === 'recommended').map(r => r.gate_rev));
+  const journalRows = readJournal(state.out);
+  const relayed = new Set(journalRows.filter(r => r.event === 'gate_relayed' || r.event === 'recommended').map(r => r.gate_rev));
+  const failed = new Set(journalRows.filter(r => r.event === 'carry_refused' && r.check_status === 'failed').map(r => r.gate_rev));
   const skipped: number[] = [];
   for (let rev = prev.gate_rev; ; rev--) {
     const gate = rev === prev.gate_rev ? prev : keptGate(state.out, rev);
-    if (rev < 2 || rows.some(r => r.gate_rev === rev && r.answered_at && !r.carried_from)) return { prev: gate ?? { ...prev, gate_rev: rev }, skipped };
+    const answered = rev < 2 || rows.some(r => r.gate_rev === rev && r.answered_at && !r.carried_from);
+    const failures = skipped.filter(s => failed.has(s));
+    if (answered && failures.length > 1) return { reason: `the delta check against gate_rev ${rev}'s answer already failed at gate_rev ${failures.join(' and ')}; one failed check per owner answer, so the owner answers this one`, from: rev };
+    if (answered) return { prev: gate ?? { ...prev, gate_rev: rev }, skipped };
     if (relayed.has(rev)) return { reason: `gate_rev ${rev} was relayed to the owner and not answered`, from: rev };
     if (!gate) return { reason: `gate_rev ${rev} was not answered and its items were not kept`, from: rev };
     const asks = gate.items.find(i => !decidedOrDelta(i));
@@ -324,8 +330,7 @@ export function submitCarryCheck(o: CheckOptions): { state: RunState; lines: str
     if (blocking) for (const item of list.items) if (check.items.includes(item.id)) (item.flags ??= []).push(`carry check ${o.model}: ${blocking.severity} ${blocking.title}`);
     fs.writeFileSync(gateFile, JSON.stringify(list, null, 2) + '\n');
     if (blocking) {
-      out = refuse(state, c.gate_rev, c.from_gate_rev, `delta check found ${blocking.severity}: ${blocking.title}`);
-      out.check = done;
+      out = refuse(state, c.gate_rev, c.from_gate_rev, `delta check found ${blocking.severity}: ${blocking.title}`, done);
       out.lines.push(`NEXT: relay gate_rev ${c.gate_rev} to the owner, or fix the finding and revise without relaying it: the phases are at their round cap, so the revise writes gate_rev ${c.gate_rev + 1}, and ${carryForecast(state)}`);
     } else {
       const before = keptGate(state.out, c.gate_rev - 1);
