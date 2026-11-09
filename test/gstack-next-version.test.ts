@@ -1383,7 +1383,7 @@ describe("sibling scan finds git worktrees wherever they live", () => {
   const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-next-version");
 
   function git(cwd: string, ...args: string[]): void {
-    const r = Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+    const r = Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
     if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${new TextDecoder().decode(r.stderr)}`);
   }
 
