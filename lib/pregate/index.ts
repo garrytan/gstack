@@ -512,7 +512,7 @@ export function mergeSameTreeChecks(prev: PregateFile | null, file: PregateFile)
   if (kept.some(c => c.stage === 'preflight')) file.stage1_ms ??= prev.stage1_ms;
   if (kept.some(c => c.stage === 'tests')) file.stage2_ms ??= prev.stage2_ms;
   file.verdict = verdictOf(file);
-  return `PREGATE_MERGED: kept ${kept.map(c => `${c.id}=${c.status}`).join(',')} from the record at this tree ${file.tree.slice(0, 12)} and head ${(file.head ?? '').slice(0, 12)} (recorded ${prev.generated_at ?? 'earlier'})`;
+  return `PREGATE_MERGED: kept ${kept.map(c => `${c.id}=${c.status}`).join(',')} from the record at this tree ${file.tree.slice(0, 12)} and head ${(file.head ?? '').slice(0, 12)} (recorded ${prev.generated_at ?? 'earlier'}; docs/pregate.md#same-tree-checks)`;
 }
 
 /**
