@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { SHIP_QUEUE_KEYS_VERSION } from '../lib/ship-policy';
-import { receiptDigest } from '../lib/ship-queue';
+import { ciAtHead, receiptDigest } from '../lib/ship-queue';
 import { applyStampPatch } from '../crew/lib/ship-queue-gate';
 import type { TreeReceipt } from '../lib/tree-receipt';
 import { BASE_POLICY, BIN, cleanup, makeFixtureRepo, makePr, mergeMain, mergeToMain, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -658,6 +658,32 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     const superseded = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [backstop] });
     expect(line(superseded.r.out, 'ci: ')).toBe(`ci: green at ${superseded.at} (passed=2 failed=0 pending=0 skipped=0)`);
     expect(superseded.r.status).toBe(EXIT.ok);
+  }, 240_000);
+
+  // Value: protects=each check suite is judged by its latest attempt alone when that attempt has jobs, and by its earlier attempts plus its
+  // workflow run's conclusion when it has none; fails_when=a rerun whose matrix dropped a failed slice stays red, or a passing first attempt hides a
+  // failed jobless rerun; seam=ciAtHead's filter=latest and filter=all reads through the gh shim; no_claim=GitHub's suite-per-attempt grouping
+  test('each check suite is judged by its latest attempt that ran jobs (stale matrix, empty failed rerun, replaced jobless run)', () => {
+    const app = { id: 15368 };
+    const at = (id: number, name: string, conclusion: string, completed_at: string, suite: number, earlier = false) => ({ id, name, status: 'completed', conclusion, completed_at, app, check_suite: { id: suite }, ...(earlier ? { earlier_attempt: true } : {}) });
+    const wf = (id: number, name: string, workflow_id: number, suite: number, conclusion: string, created_at: string) => ({ id, name, workflow_id, check_suite_id: suite, status: 'completed', conclusion, created_at });
+    const stale = readyWith({ check_runs: [
+      at(1, 'eval-slices (1)', 'success', '2026-11-09T17:00:00Z', 500, true), at(2, 'eval-slices (3)', 'failure', '2026-11-09T17:01:00Z', 500, true),
+      at(3, 'eval-slices (1)', 'success', '2026-11-09T18:00:00Z', 500), at(4, 'eval-slices (2)', 'success', '2026-11-09T18:01:00Z', 500),
+    ] }, undefined, { workflow_runs: [wf(42690000000, 'E2E Evals', 7, 500, 'success', '2026-11-09T16:59:00Z')] });
+    expect(line(stale.r.out, 'ci: ')).toBe(`ci: green at ${stale.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(stale.r.status).toBe(EXIT.ok);
+    const free = at(10, 'free-tests', 'success', '2026-11-09T18:20:00Z', 700);
+    const emptyRerun = readyWith({ check_runs: [at(11, 'checks', 'success', '2026-11-09T17:30:00Z', 600, true), free] }, undefined, { workflow_runs: [wf(42699999999, 'ci', 8, 600, 'failure', '2026-11-09T17:20:00Z')] });
+    expect(line(emptyRerun.r.out, 'ci: ')).toBe(`ci: red at ${emptyRerun.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    const lists: Record<string, unknown> = { latest: { check_runs: [free] }, all: { check_runs: [at(11, 'checks', 'success', '2026-11-09T17:30:00Z', 600), free] }, statuses: { statuses: [] }, workflow_runs: { workflow_runs: [wf(42699999999, 'ci', 8, 600, 'failure', '2026-11-09T17:20:00Z')] } };
+    const gh = (args: string[]) => { const url = args[1] ?? ''; const key = url.includes('actions/runs') ? 'workflow_runs' : url.includes('/status') ? 'statuses' : url.includes('filter=all') ? 'all' : 'latest'; const body = lists[key] as Record<string, unknown[]>; return { ok: true, out: JSON.stringify({ total_count: Object.values(body)[0]!.length, ...body }) }; };
+    expect(ciAtHead({ repoRoot: '', base: 'main', gh }, 'a'.repeat(40)).checks.filter(c => c.conclusion === 'failure').map(c => c.name)).toEqual(['ci (run 42699999999, no jobs)']);
+    expect(emptyRerun.r.status).toBe(EXIT.refused);
+    const title = at(12, 'Plain title', 'success', '2026-11-09T18:28:20Z', 800);
+    const plain = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [wf(42674265699, 'Plain title', 410784741, 800, 'success', '2026-11-09T18:27:59Z'), wf(42673942770, 'Plain title', 410784741, 900, 'failure', '2026-11-09T18:25:42Z')] });
+    expect(line(plain.r.out, 'ci: ')).toBe(`ci: green at ${plain.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(plain.r.status).toBe(EXIT.ok);
   }, 240_000);
 
   // Value: protects=the workflow-runs read fails closed like the check-runs read; fails_when=ready treats an unreadable or short actions/runs list

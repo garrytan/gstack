@@ -149,6 +149,8 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
   return [...latest.values(), ...standalone];
 }
 
+const suiteOf = (r: Record<string, unknown>) => String((r.check_suite as { id?: unknown } | null | undefined)?.id ?? '');
+
 /**
  * Workflow runs at a head that ended without a passing conclusion and without one check run (a startup_failure, or a
  * run that failed before scheduling a job), so the check-runs list never names them. Each counts as its own failed
@@ -156,39 +158,47 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
  * title on #4225 failed with no jobs and passed two minutes later; gstack-evals#303's second sealed run had no later one).
  * A later run replaces it only once that run has check runs or has finished; while it is still queued with no jobs the
  * failure still counts. A run cancelled before any job never ran: a concurrency group cancels a pending run when a newer
- * one at another SHA arrives (the main backstop at 526f604f911e), so it is not counted.
+ * one at another SHA arrives (the main backstop at 526f604f911e), so it is not counted. "Has jobs" means its suite is in
+ * latestSuites (its latest attempt ran jobs), so a passing first attempt never hides a rerun that failed with no jobs; a
+ * suite whose earlier-attempt runs already count a failure (judged) adds no second entry.
  */
-export function joblessRuns(checkRuns: Array<Record<string, unknown>>, workflowRuns: Array<Record<string, unknown>>): Array<{ name: string; status: string; conclusion: string | null }> {
-  const suites = new Set(checkRuns.map(r => String((r.check_suite as { id?: unknown } | null | undefined)?.id ?? '')).filter(Boolean));
+export function joblessRuns(latestSuites: Set<string>, judged: Array<Record<string, unknown>>, workflowRuns: Array<Record<string, unknown>>): Array<{ name: string; status: string; conclusion: string | null }> {
+  const failedSuites = new Set(judged.filter(r => r.status === 'completed' && !['success', 'skipped', 'neutral'].includes(String(r.conclusion))).map(suiteOf).filter(Boolean));
   const workflow = (w: Record<string, unknown>) => String(w.workflow_id ?? w.path ?? '');
   const order = (w: Record<string, unknown>) => [Date.parse(String(w.created_at ?? '')) || 0, Number(w.id) || 0] as const;
   const newer = (a: Record<string, unknown>, b: Record<string, unknown>) => order(a)[0] > order(b)[0] || (order(a)[0] === order(b)[0] && order(a)[1] > order(b)[1]);
-  const started = (w: Record<string, unknown>) => suites.has(String(w.check_suite_id ?? ''));
+  const started = (w: Record<string, unknown>) => latestSuites.has(String(w.check_suite_id ?? ''));
   const replaces = (o: Record<string, unknown>, w: Record<string, unknown>) => o !== w && workflow(o) === workflow(w) && newer(o, w) && (started(o) || (o.status === 'completed' && o.conclusion !== 'cancelled'));
   return workflowRuns
-    .filter(w => w.status === 'completed' && !['success', 'skipped', 'neutral', 'cancelled'].includes(String(w.conclusion)) && !started(w))
+    .filter(w => w.status === 'completed' && !['success', 'skipped', 'neutral', 'cancelled'].includes(String(w.conclusion)) && !started(w) && !failedSuites.has(String(w.check_suite_id ?? '')))
     .filter(w => !workflow(w) || !workflowRuns.some(o => replaces(o, w)))
     .map(w => ({ name: `${String(w.name ?? w.path ?? 'workflow')} (run ${String(w.id ?? '?')}, no jobs)`, status: 'completed', conclusion: w.conclusion === undefined || w.conclusion === null ? null : String(w.conclusion) }));
 }
 
 /**
  * CI at one exact SHA: the latest check run per name, every workflow run that ended with no jobs (joblessRuns), and
- * every commit-status context; unreadable or incomplete is unknown, never green. Check runs are read with filter=all:
- * GitHub's default (filter=latest) lists only each workflow run's latest attempt, so a rerun attempt that created no
- * jobs hides the failed run before it (gstack-evals#303), and GitHub's own rollup drops it the same way.
- * latestRunPerName still lets a rerun that ran supersede it.
+ * every commit-status context; unreadable or incomplete is unknown, never green. Check runs are read twice: GitHub's
+ * default (filter=latest) lists only each check suite's latest attempt, so a rerun attempt that created no jobs hides the
+ * failed run before it (gstack-evals#303), and GitHub's own rollup drops it the same way. A suite the latest list names is
+ * judged by that list alone, so a rerun whose matrix dropped a failed job retires it; a suite only filter=all names (its
+ * latest attempt had no jobs) is judged by its earlier attempts. latestRunPerName then picks the newest run per name.
  */
 export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }>; contexts: Array<{ name: string; state: string }> } {
   const at = sha.slice(0, 12);
-  const runs = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs?filter=all`, 'check_runs');
-  if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [], contexts: [] };
+  const latest = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs`, 'check_runs');
+  if ('error' in latest) return { line: `unknown at ${at} (${latest.error})`, green: false, none: false, checks: [], contexts: [] };
+  const all = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs?filter=all`, 'check_runs');
+  if ('error' in all) return { line: `unknown at ${at} (${all.error})`, green: false, none: false, checks: [], contexts: [] };
   const statuses = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/status`, 'statuses');
   if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [], contexts: [] };
   const workflowRuns = readAllPages(ctx, `repos/{owner}/{repo}/actions/runs?head_sha=${sha}`, 'workflow_runs');
   if ('error' in workflowRuns) return { line: `unknown at ${at} (${workflowRuns.error})`, green: false, none: false, checks: [], contexts: [] };
+  const latestSuites = new Set(latest.items.map(suiteOf).filter(Boolean));
+  const latestIds = new Set(latest.items.map(r => String(r.id ?? '')).filter(Boolean));
+  const judged = latestRunPerName([...latest.items, ...all.items.filter(r => suiteOf(r) ? !latestSuites.has(suiteOf(r)) : !!r.id && !latestIds.has(String(r.id)))]);
   const checks = [
-    ...latestRunPerName(runs.items).map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) })),
-    ...joblessRuns(runs.items, workflowRuns.items),
+    ...judged.map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) })),
+    ...joblessRuns(latestSuites, judged, workflowRuns.items),
   ];
   const verdicts = [
     ...checks.map(c => c.status !== 'completed' ? 'pending' : c.conclusion === 'success' ? 'passed' : c.conclusion === 'skipped' || c.conclusion === 'neutral' ? 'skipped' : 'failed'),
