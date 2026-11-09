@@ -742,7 +742,7 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
   });
 
   test('a symlinked .gstack-worktrees is checked through the link', () => {
-    const store = path.join(tmp, 'worktree-store');
+    const store = path.join(repo, 'worktree-store');
     fs.mkdirSync(store);
     fs.symlinkSync(store, path.join(repo, '.gstack-worktrees'));
     addWorktree(false);
@@ -751,6 +751,30 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('it has commits no branch or tag contains');
     expect(fs.existsSync(path.join(store, 'run-1', 'lane-1'))).toBe(true);
+  });
+
+  for (const flags of [['--force'], ['--force', '--force-worktrees']]) {
+    test(`a .gstack-worktrees symlink to a folder outside the repo stops ${flags.join(' ')} and keeps what it points at`, () => {
+      const store = path.join(tmp, 'worktree-store');
+      fs.mkdirSync(store);
+      git(['worktree', 'add', '-q', '-b', 'feature', path.join(store, 'feature')]);
+      fs.symlinkSync(store, path.join(repo, '.gstack-worktrees'));
+      const r = uninstall(flags);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain(`refusing to delete ${path.join(repo, '.gstack-worktrees')}: it is a symlink to ${store}, outside this repository`);
+      expect(fs.existsSync(path.join(store, 'feature', 'README.md'))).toBe(true);
+      expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${path.join(store, 'feature')}\n`);
+      expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
+    });
+  }
+
+  test('a .gstack-worktrees symlink to a folder holding the main checkout never deletes the repo', () => {
+    fs.symlinkSync(tmp, path.join(repo, '.gstack-worktrees'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(repo, '.gstack-worktrees')}: it is a symlink to ${tmp}, outside this repository`);
+    expect(fs.existsSync(path.join(repo, '.git', 'HEAD'))).toBe(true);
+    expect(fs.readFileSync(path.join(repo, 'README.md'), 'utf-8')).toBe('x\n');
   });
 
   test('a repo under .gstack-worktrees never runs its own config commands during the check', () => {

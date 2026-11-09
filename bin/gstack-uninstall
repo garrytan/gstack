@@ -177,6 +177,19 @@ _worktree_risk() {
   _head="$(_wt_git "$1" rev-parse -q --verify HEAD 2>/dev/null)" || return 0
   [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
 }
+# A symlinked .gstack-worktrees is deleted through only when it resolves inside
+# this repository; --force-worktrees does not bypass this.
+if [ "$KEEP_STATE" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -L "$_GIT_ROOT/.gstack-worktrees" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+  _WT_LINK_REAL="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  case "$_WT_LINK_REAL" in
+    "$(_real "$_GIT_ROOT")"/*) ;;
+    *)
+      echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees: it is a symlink to $_WT_LINK_REAL, outside this repository" >&2
+      echo "fix: remove the link with rm -- '$_GIT_ROOT/.gstack-worktrees', or re-run with --keep-state; --force-worktrees does not delete through it" >&2
+      exit 2
+      ;;
+  esac
+fi
 if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
   _DIRTY_WORKTREES=0
   _REGISTERED_WORKTREES="$(_registered_worktrees)"
