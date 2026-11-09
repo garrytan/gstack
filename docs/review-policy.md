@@ -99,17 +99,31 @@ incomplete coverage, which blocks until the reviewer is rerun.
    severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
    class a stop waits for Step 11's adversarial, outside and targeted voices
    (`NEXT: voices`), so gate code never reaches the owner's "ship with open
-   notes" without them (GST-967). A third round is the owner's
+   notes" without them (GST-967). <a id="review-loop-grant"></a>A third round is the owner's
    grant of one scoped fix-check (recorded in `review_loop_exception`), never the
    loop's: once `gstack-approvals add` records the grant (its ask or scope
-   naming `review_loop_grant` and the stop head's sha),
+   reading `review_loop_grant <stop head sha> on #<n>`, a short or full sha),
    `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
    plans that fix-check in place of the stop after a round-2 full pass, or after
    a round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
-   with a fixed blocking finding or a gate-class edit, and refuses any other row,
-   including a grant for a stop head before `--range-base` (an earlier /ship).
+   with a fixed blocking finding or a gate-class edit. The owner may also grant
+   it after round 1, in place of round 2's full or scoped pass:
+   `--pass 1 --last full --range-base <pass 1's PASS_HEAD> --grant <id>` then
+   prints `NEXT: fix-check`, Step 11 runs after the loop as usual, and Step 11.5
+   binds that fix-check at its own tree when Step 11 already ran before it and its
+   `range_base..commit` holds Step 11's native commit (GST-2244, gbrain #8839: the grant said "no rerun of Steps
+   9 to 11.5" and the plan still printed `NEXT: full`). The plan refuses any
+   other row (exit 3) and names the one field to fix: a row missing from this
+   branch's record, an outcome other than `approved`, a row that says
+   `review_loop_exception` (the receipt's field) instead of `review_loop_grant`,
+   a sha that is not a commit in this clone, or a commit that is not the stop
+   head, where it names the head it expected (HEAD, or any commit from
+   `--range-base` to HEAD). A grant for a stop head before `--range-base` (an
+   earlier /ship) is that last case.
    A fix-check never earns another, so the grant cannot repeat, and a stop after
-   the granted fix-check still goes to the owner. The cap approves nothing.
+   the granted fix-check still goes to the owner, and passing the grant again
+   after the fix-check it bought (a `review-fix-check` row logged after the grant)
+   plans as if no grant were given. The cap approves nothing.
    Edits that /ship Step 16 later finds after the review bound are a new stop: a
    new grant at a stop head after the last fix-check's commit, passed as
    `gstack-review-plan --post-review --last fix-check --range-base <that commit>
@@ -149,6 +163,7 @@ incomplete coverage, which blocks until the reviewer is rerun.
 | a fix-check that found nothing blocking | done |
 | a fix-check that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
+| a round-1 full pass whose next step is a full or scoped pass, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check in place of that pass (round 2) |
 | a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
 | `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |

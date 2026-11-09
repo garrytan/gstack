@@ -1861,6 +1861,14 @@ fix-checks ran before (GST-1681, GEVA-363's third round). The previous link's
 grant is refused: it names an earlier stop head, or it was recorded before a
 later logged fix-check (a post-review link's grant names the commit its
 fix-check read). A grant at any other commit plans nothing: one grant, one link.
+A grant after round 1 replaces round 2's pass with one scoped fix-check
+(GST-2244): the owner's "one scoped fix-check, no rerun of Steps 9 to 11.5"
+plans as `NEXT: fix-check` from `--pass 1 --last full --range-base <pass 1's
+PASS_HEAD> --grant <id>`, and Step 11.5 binds that fix-check at its own tree when
+its `range_base..commit` holds Step 11's native commit, so the reviewed tree is
+the fix-check's ([review-policy.md](review-policy.md#review-loop-grant)). Write the
+row's ask or scope as `review_loop_grant <stop head sha> on #<n>`. A row the
+plan can't bind is refused with the field to fix ([troubleshooting](troubleshooting.md#review-plan-grant-refused)).
 
 <a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
 fix-check after the first one (a merge resolution, say) logs its row with

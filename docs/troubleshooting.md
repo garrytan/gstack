@@ -653,7 +653,42 @@ the touched hunks when every fix is below the blocking floor, and 11.5 accepts t
 fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tree.
 
 **Expected result.** `gstack-review-read` shows both records at one tree with
-`review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
+`review_freshness` `CURRENT`, and Step 11.5 continues to Step 12. A fix-check the plan dispatched under the
+owner's grant (`NEXT: fix-check (the owner's grant <id> ...)`) after Step 11 is the
+exception: when its `range_base..commit` holds Step 11's native commit, Step 11.5
+binds it at its own tree and saves that tree as the reviewed tree (GST-2244).
+
+<a id="review-plan-grant-refused"></a>
+### `gstack-review-plan: --grant <id>: ...` (exit 3)
+
+**Meaning.** The plan could not bind the owner's grant of one scoped fix-check
+to this stop, so it plans nothing. The message names the one field to fix:
+
+- `no row <id> in the approval record for branch <b> (<file>)`: the row is on
+  another branch's record or another machine. Record it on this branch.
+- `has outcome <o>, not approved`: record the owner's grant as an approved row.
+- `names review_loop_exception, the receipt's field, not review_loop_grant`:
+  the row describes the receipt's exception, not a grant the plan reads
+  (GST-2244).
+- `names no review_loop_grant` or `names no commit sha`: the ask or scope lacks
+  the token or the stop head.
+- `names <sha>, which is not a commit in this clone`: fetch the branch, or name
+  a commit this clone has.
+- `names <sha>, which is not the stop head: expected <HEAD> (HEAD), or any
+  commit at or after --range-base <base> and at or before HEAD`: the row names an
+  earlier /ship's head or a commit outside this stop. After a post-review
+  fix-check the window starts after `--range-base`, because the last link's own
+  grant does not carry over.
+
+**Fix.** Record a new row with
+`gstack-approvals add --ask '... (review_loop_grant <stop head sha> on #<n>)' ...`
+using the head the message printed (a short or full sha), then rerun the same
+`gstack-review-plan` command with the new id. These causes used to share one
+message, `no approved row <id> naming review_loop_grant and this invocation's
+stop head`.
+
+**Expected result.** `NEXT: fix-check (the owner's grant <id> ...)` and one
+`DISPATCH: fix-check` line.
 
 <a id="ship-preflight-run-open"></a>
 ### `STOP: /ship run <id> is open on this checkout and past its preflight (<marker>; open until its finish or for 120 minutes) ...`
