@@ -36,8 +36,8 @@ const check = (out: string, findings: unknown[]) => {
   return res;
 };
 
-/** answer(rec) "do it" at gate_rev 1, revise at the round cap (gate_rev 2, delta check dispatched), the check finds a High. */
-function highAtGate2() {
+/** answer(rec) "do it" at gate_rev 1, revise at the round cap: gate_rev 2 with its delta check dispatched. */
+function dispatchedAtGate2() {
   const dir = path.join(r.host.base, `across${++n}`);
   const out = path.join(dir, 'run');
   expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', '--max-rounds', '1']).status).toBe(0);
@@ -51,10 +51,18 @@ function highAtGate2() {
   expect(rev.status, rev.stderr).toBe(0);
   expect(rev.stdout).toMatch(/^GATE: gate_rev=2 /m);
   expect(rev.stdout).toMatch(/^CARRY_CHECK: attempt=\S+-c2 /m);
-  const bad = check(out, [{ id: 'F1', severity: 'High', title: 'The edit also drops the jitter' }]);
-  expect(bad.stdout).toMatch(/^CARRY: no \(delta check found High: The edit also drops the jitter\)$/m);
   return { dir, out, v2 };
 }
+
+/** dispatchedAtGate2, and the check finds a High. */
+function highAtGate2() {
+  const s = dispatchedAtGate2();
+  const bad = check(s.out, [{ id: 'F1', severity: 'High', title: 'The edit also drops the jitter' }]);
+  expect(bad.stdout).toMatch(/^CARRY: no \(delta check found High: The edit also drops the jitter\)$/m);
+  return s;
+}
+const spend = (out: string) => JSON.parse(fs.readFileSync(path.join(out, 'spend.json'), 'utf8'));
+const RETRY_SPENT = "a delta check against gate_rev 1's answer was already dispatched at gate_rev 2 and 3 without carrying; one retry per owner answer, so the owner answers this one";
 
 /** The fix for the High: a second revise at the cap, which writes gate_rev 3. */
 function fixed(s: { dir: string; out: string }, text = V3) {
@@ -172,16 +180,55 @@ describe('carry across fix-only gates', () => {
     fixed(s);
     const second = check(s.out, [{ id: 'F2', severity: 'High', title: 'The fix still drops the jitter' }]);
     expect(second.stdout).toMatch(/^CARRY: no \(delta check found High: The fix still drops the jitter\)$/m);
-    expect(second.stdout).toContain("and it cannot carry the owner's last answer (the delta check against gate_rev 1's answer already failed at gate_rev 2 and 3; one failed check per owner answer, so the owner answers this one), so the owner answers it");
+    expect(second.stdout).toContain(`and it cannot carry the owner's last answer (${RETRY_SPENT}), so the owner answers it`);
     const v4 = path.join(s.dir, 'plan-v4.md');
     fs.writeFileSync(v4, V3.replace('jitter 10% (kept from the first draft)', 'jitter 10% (kept, and tested)'));
     const rev = r.ap(['revise', '--out', s.out, '--plan', v4]);
     expect(rev.status, rev.stderr).toBe(0);
     expect(rev.stdout).toMatch(/^GATE: gate_rev=4 /m);
-    expect(rev.stdout).toMatch(/^CARRY: no \(the delta check against gate_rev 1's answer already failed at gate_rev 2 and 3; one failed check per owner answer, so the owner answers this one\)$/m);
+    expect(rev.stdout.split('\n')).toContain(`CARRY: no (${RETRY_SPENT})`);
     expect(rev.stdout).not.toMatch(/^CARRY_CHECK:/m);
     expect(readRunJson(s.out).status).toBe('gate_pending');
   });
+
+  // Value: protects=a check voided after its reviewer ran (revise while pending, --unavailable, a stale result) still
+  // counts toward the one retry per owner answer and still shows in the run's spend (review_loop_grant a-aea3dddb2fef);
+  // fails_when=only submitted failures are counted, or voidPendingCheck releases a reservation whose result exists;
+  // why_new=the test above fails the check by submitting it; seam=none
+  for (const [kind, voidIt] of [
+    ['a revise while the check is pending', (s: { dir: string; out: string }) => fixed(s).stdout],
+    ['check --unavailable', (s: { dir: string; out: string }) => {
+      const c = readRunJson(s.out).carry.check;
+      const res = r.ap(['check', '--out', s.out, '--attempt', c.attempt, '--unavailable', 'no other family online']);
+      expect(res.status, res.stderr).toBe(0);
+      return res.stdout + fixed(s).stdout;
+    }],
+    ['a stale result after the plan moved', (s: { dir: string; out: string }) => {
+      const c = readRunJson(s.out).carry.check;
+      fs.appendFileSync(readRunJson(s.out).active_plan, '\nA line the reviewer never saw.\n');
+      const res = r.ap(['check', '--out', s.out, '--attempt', c.attempt, '--result', c.result, '--model', 'openai/gpt-6.1-sol']);
+      expect(res.status, res.stderr).toBe(0);
+      return res.stdout + fixed(s).stdout;
+    }],
+  ] as const) {
+    test(`a check voided by ${kind} after its reviewer ran counts toward the limit and stays in the spend`, () => {
+      const s = dispatchedAtGate2();
+      const first = readRunJson(s.out).carry.check;
+      result(first.result, first.delta_sha256, [{ id: 'F1', severity: 'High', title: 'The edit also drops the jitter' }]);
+      const out = voidIt(s);
+      expect(readJsonl(path.join(s.out, 'attempts.jsonl')).some((j: any) => j.event === 'carry_refused' && j.gate_rev === 2 && /^delta check (\S+ void: |unavailable: )/.test(j.reason))).toBe(true);
+      expect(out).toMatch(/^CARRY_CHECK: attempt=\S+-c3 /m);
+      expect(spend(s.out).settled.find((x: any) => x.attempt === first.attempt)).toMatchObject({ usd: 'unknown' });
+      expect(spend(s.out).released.map((x: any) => x.attempt)).not.toContain(first.attempt);
+      check(s.out, [{ id: 'F2', severity: 'High', title: 'The fix still drops the jitter' }]);
+      const v4 = path.join(s.dir, 'plan-v4.md');
+      fs.writeFileSync(v4, V3.replace('jitter 10% (kept from the first draft)', 'jitter 10% (kept, and tested)'));
+      const rev = r.ap(['revise', '--out', s.out, '--plan', v4]);
+      expect(rev.status, rev.stderr).toBe(0);
+      expect(rev.stdout.split('\n')).toContain(`CARRY: no (${RETRY_SPENT})`);
+      expect(rev.stdout).not.toMatch(/^CARRY_CHECK:/m);
+    });
+  }
 
   // Value: protects=a fix that widens the plan's scope goes to the owner; fails_when=plan_revised's scope_widened is not
   // recorded or not read; why_new=the delta check is the only other guard and it is a model; seam=none
