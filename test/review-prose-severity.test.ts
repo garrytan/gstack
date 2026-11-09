@@ -100,4 +100,19 @@ describe('the structured finding formats still collect at their label (GST-2122 
       expect([reader, labels(reader, fixCheck('The handler at api.ts:9 skips the auth check, which is CRITICAL.'))]).toEqual([reader, ['CRITICAL']]);
     }
   });
+
+  // Value: protects=dropping unshaped prose under NO FINDINGS never shifts the native voice's relaxed parse off its findings, so a FIXABLE
+  //   `Severity: Low. Blocks: no` finding after such prose keeps its field; fails_when=it collects CRITICAL; why_new=/ship pass 1 on #4218
+  //   (specialist-batched#1) found the drop misaligned the two parses; seam=parseFindings; no_claim=none
+  test('a NO FINDINGS reply with prose keeps a native Blocks: no finding at its field', () => {
+    const out = fixCheck('NO FINDINGS\n\nThe retry path looks High risk overall.\n\nFIXABLE: the log line at a.ts:3 is verbose. Severity: Low. Blocks: no');
+    expect(labels('adversarial-native', out)).toEqual(['Low']);
+  });
+
+  // Value: protects=a numbered finding heading (GST-1031, GST-1657) is finding structure, so its label stands without a file:line;
+  //   fails_when=it collects INFORMATIONAL; why_new=/ship pass 1 on #4218 (red-team#2); seam=parseFindings; no_claim=bullets or wrapped loci
+  test('a numbered finding heading keeps its label', () => {
+    expect(labels('adversarial-native', fixCheck('**Finding 1 (CRITICAL): the session token is logged in plaintext**'))).toEqual(['CRITICAL']);
+    expect(labels('outside-voice', fixCheck('### 1. Session token logged in plaintext (P1)'))).toEqual(['P1']);
+  });
 });
