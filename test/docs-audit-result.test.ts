@@ -158,6 +158,7 @@ describe('format-only repair of the final line', () => {
   const base = { audit_id: ID, files_reviewed: ['README.md', 'docs/skills.md'] };
   const missingSection = line(base);
   const misnamedKey = line({ ...base, docs_section: 'x' });
+  const without = (key: string) => { const o = JSON.parse(line({ ...base, documentation_section: SECTION })); delete o[key]; return JSON.stringify(o); };
 
   test.each([
     ['documentation_section left out', missingSection, '"documentation_section" is missing'],
@@ -201,6 +202,9 @@ describe('format-only repair of the final line', () => {
     ['status blocked without a blocker', line({ ...base, documentation_section: SECTION, status: 'blocked' })],
     ['another audit id', line({ ...base, documentation_section: SECTION, audit_id: 'ship356-docs-0' })],
     ['a last line that is not JSON', 'Still reading docs/skills.md'],
+    ['no audit id', without('audit_id')],
+    ['no status', without('status')],
+    ['a status outside the three outcomes', line({ ...base, documentation_section: SECTION, status: 'done' })],
   ])('a content failure (%s) still counts: no repair is offered', (_name, last) => {
     const r = result(prose + last + '\n', ID);
     expect(r.status).toBe(1);
@@ -235,5 +239,16 @@ describe('format-only repair of the final line', () => {
     expect(second.status).toBe(1);
     expect(second.stdout).toContain('a format repair was already used for this audit');
     expect(second.written).not.toContain(`${ID}-result.json`);
+  });
+
+  test('a --repair-of that names a content failure is refused without using the audit\'s one repair', () => {
+    const content = result(prose + line({ ...base, documentation_section: SECTION, audit_id: 'ship356-docs-0' }) + '\n', ID);
+    const first = result(prose + missingSection + '\n', ID);
+    const wrong = result(line({ ...base, documentation_section: SECTION }) + '\n', ID, { file: content.file, out: first.out });
+    expect(wrong.status).toBe(1);
+    expect(wrong.stdout).toContain('not a format-only failure');
+    const fixed = result(line({ ...base, documentation_section: SECTION }) + '\n', ID, { file: first.file, out: first.out });
+    expect(fixed.stdout).not.toContain('already used');
+    expect(fixed.status).toBe(0);
   });
 });

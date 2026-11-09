@@ -332,13 +332,15 @@ function main(argv: string[]): void {
     if (!repairOf) check = checkDocsResult(output, auditId);
     else {
       const original = fs.readFileSync(repairOf, 'utf8');
-      fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
-      let first = true;
-      try { fs.writeFileSync(path.join(outDir, `${auditId}-format-repair`), '', { mode: 0o600, flag: 'wx' }); } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-        first = false;
-      }
       const prior = checkDocsResult(original, auditId);
+      let first = true;
+      if (!prior.ok && prior.repairable) {
+        fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+        try { fs.writeFileSync(path.join(outDir, `${auditId}-format-repair`), '', { mode: 0o600, flag: 'wx' }); } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+          first = false;
+        }
+      }
       check = first ? checkDocsRepair(output, original, auditId)
         : { ok: false, problems: ['a format repair was already used for this audit', ...(prior.ok ? [] : prior.problems)], trimmed: [], repairable: false, kept: {} };
     }

@@ -6860,7 +6860,7 @@ used, but this is a malformed reply, not a blocked audit.
 the line is still one JSON object with the right audit id and a consistent
 status), the command prints `FORMAT_REPAIR:` instead of a retry note. That is
 not an attempt: send `gstack-docs-candidate repair-prompt <output> --audit-id <id>`
-back to the audit child (or one fresh agent with no tools), save its one-line
+to one fresh agent with no tools (never the audit child, which can still edit), save its one-line
 reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <output>`.
 The reply passes only if every value the first line gave correctly is
 unchanged, and each audit gets one repair. Otherwise run Step 14.5's one

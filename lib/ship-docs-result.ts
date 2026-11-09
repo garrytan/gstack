@@ -8,7 +8,8 @@
  * A failure of shape alone (the line is one object; only keys, types or the section are wrong) is `repairable`: the parent
  * re-asks for the line once (docsRepairPrompt) without spending an attempt, and checkDocsRepair accepts the reply only when
  * every value the first line already gave correctly is unchanged (GBEV-3: a missing section, then a misnamed key set to "x").
- * A wrong audit id, a status that contradicts the lists, or a last line that is not an object is a content failure and counts.
+ * A missing or wrong audit id, a missing or unknown status, a status that contradicts the lists, or a last line that is not an
+ * object is a content failure and counts: a repair may never supply the audit's identity or its outcome.
  */
 export const DOCS_RESULT_KEYS = ['schema_version', 'audit_id', 'status', 'files_updated', 'files_reviewed', 'blockers', 'decisions', 'documentation_section'] as const;
 const LISTS = ['files_updated', 'files_reviewed', 'blockers', 'decisions'] as const;
@@ -42,10 +43,10 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
   const unknown = Object.keys(v).filter(key => !(DOCS_RESULT_KEYS as readonly string[]).includes(key));
   for (const key of unknown.slice(0, 5)) problems.push(`unknown key ${shown(key)}`);
   if (unknown.length > 5) problems.push(`${unknown.length - 5} more unknown keys`);
-  for (const key of DOCS_RESULT_KEYS) if (!Object.hasOwn(v, key)) { problems.push(`"${key}" is missing`); bad.add(key); }
+  for (const key of DOCS_RESULT_KEYS) if (!Object.hasOwn(v, key)) { problems.push(`"${key}" is missing`); bad.add(key); if (key === 'audit_id' || key === 'status') content = true; }
   if (Object.hasOwn(v, 'schema_version') && v.schema_version !== 1) { problems.push(`"schema_version" is ${shown(v.schema_version)}, not 1`); bad.add('schema_version'); }
   if (Object.hasOwn(v, 'audit_id') && v.audit_id !== auditId) { problems.push(`"audit_id" is ${shown(v.audit_id)}, not the audit id this audit was given`); content = true; }
-  if (Object.hasOwn(v, 'status') && !['updated', 'current', 'blocked'].includes(v.status as string)) { problems.push(`"status" is ${shown(v.status)}, not updated, current or blocked`); bad.add('status'); }
+  if (Object.hasOwn(v, 'status') && !['updated', 'current', 'blocked'].includes(v.status as string)) { problems.push(`"status" is ${shown(v.status)}, not updated, current or blocked`); bad.add('status'); content = true; }
   for (const key of LISTS) {
     if (!Object.hasOwn(v, key)) continue;
     const list = v[key];
