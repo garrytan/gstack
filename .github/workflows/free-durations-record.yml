@@ -9,7 +9,9 @@ name: Free-suite duration seeds
 # a seed PR. A file that fails while recording turns its job red but keeps its
 # duration (a red file is still a real cost) and is named in the PR body; an
 # interrupted recording, or more than 5 red files on either OS, proposes
-# nothing (docs/TESTING_INTERNALS.md#free-suite-duration-seed).
+# nothing (docs/TESTING_INTERNALS.md#free-suite-duration-seed). A seed PR
+# closed without merging opens a blocker issue (the seed stays stale until the
+# next recording lands), and a seed PR that merges closes it.
 
 on:
   schedule:
@@ -20,9 +22,15 @@ on:
         description: Push the bot branch and open or refresh the seed PR (false records and reports only)
         type: boolean
         default: true
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths:
+      - scripts/free-test-durations.json
+      - scripts/free-test-durations-windows.json
 
 concurrency:
-  group: free-durations-record
+  group: ${{ github.event_name == 'pull_request' && format('free-durations-seed-pr-{0}', github.event.pull_request.number) || 'free-durations-record' }}
   cancel-in-progress: false
 
 permissions:
@@ -30,6 +38,7 @@ permissions:
 
 jobs:
   linux:
+    if: github.event_name != 'pull_request'
     runs-on: ubicloud-standard-8
     timeout-minutes: 45
     steps:
@@ -70,6 +79,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/windows-free-tests.yml
     permissions:
       contents: read
@@ -79,7 +89,7 @@ jobs:
 
   propose:
     needs: [linux, windows]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -174,3 +184,33 @@ jobs:
           gh workflow run free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           gh workflow run windows-smoke.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           gh workflow run quality-gate.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+
+  seed-pr-closed:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'bot/free-duration-seeds' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Raise the stale-seed blocker when a seed PR closes unmerged, clear it when one merges
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          title="Blocker: free-suite duration seed PR closed unmerged"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ "$MERGED" = true ]; then
+            if [ -n "$existing" ]; then gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Seed PR #$PR_NUMBER merged, so the seed is current again."; fi
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/blocker.md" <<EOF
+          Seed PR #$PR_NUMBER was closed without merging, so scripts/free-test-durations.json still lacks every free test file added since its last recording. Unseeded files are packed at the seed's 99th percentile, which unbalances shards and stretches every Free Tests job toward its 90-minute cap.
+
+          Fix: dispatch a fresh recording on main (\`gh workflow run free-durations-record.yml --ref main\`) and merge the seed PR it opens, or record with \`bun run test:ubicloud --record-durations\` and land the seed in a PR. This issue closes when a seed PR from the recorder merges; close it by hand if the seed lands another way. See docs/TESTING_INTERNALS.md#free-suite-duration-seed.
+          EOF
+          if [ -n "$existing" ]; then gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/blocker.md"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/blocker.md"; fi
+          echo "::error::Seed PR #$PR_NUMBER closed unmerged; the free-suite duration seed stays stale until a recording lands."
+          exit 1

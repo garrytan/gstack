@@ -331,7 +331,7 @@ describe('free-tests workflow wiring', () => {
     const setupSeconds = Number(workflow.env.FREE_SUITE_SETUP_SECONDS);
     expect(Number.isInteger(setupSeconds) && setupSeconds > 0).toBe(true);
     const plan = createFreeCiPlan(collectFreeTestFiles(), Number(workflow.env.FREE_SUITE_SHARDS),
-      loadFreeTestDurations() ?? {}, 'wiring', Number(workflow.env.FREE_SUITE_JOBS));
+      loadFreeTestDurations() ?? {}, 'wiring', Number(workflow.env.FREE_SUITE_JOBS), setupSeconds);
     const declared = workflow.jobs['free-suite']['timeout-minutes'];
     const emitted = ciPlanMatrix(plan, setupSeconds);
     if (!('include' in emitted)) throw new Error('the CI matrix carries no per-shard timeouts');
