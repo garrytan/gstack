@@ -16,9 +16,11 @@
  * stays last; `--replace` overwrites instead.
  * `pr-title` and `pr-create` first check the title against the repository's
  * plain-title policy (lib/plain-title.ts); a refused title posts nothing.
- * The scan runs on the merged bytes, which are the bytes sent.
+ * The scan runs on the merged bytes, which are the bytes sent. Unless the
+ * repository is private, those bytes first get the public receipt form and
+ * then refuse on any home path, Capy thread id or cost (lib/public-pr-text.ts).
  *
- * Exit codes: 0 posted; 1 HIGH finding (or oversize input) refused;
+ * Exit codes: 0 posted; 1 HIGH finding, oversize input or a public-repo detail refused;
  * 2 MEDIUM findings need confirmation, printed as `RULE:` lines plus a
  * `TOKEN:` that binds the bytes, destination, operation and findings;
  * 3 `gh`/`glab` failed; 4 the title breaks the plain-title policy, printed as
@@ -28,6 +30,7 @@
  */
 import { createHash } from "crypto";
 import { scan, type Finding, type RepoVisibility } from "./redact-engine";
+import { privateDetails, publicReceiptText, readRepoVisibility } from "./public-pr-text";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
@@ -76,7 +79,12 @@ export const USAGE = `usage: gstack-post <op> [<target>] [options]
   pr-title and pr-create check the title against ${PLAIN_TITLE_POLICY_PATH}
   (gstack-plain-title) first; a repository without that file is not checked.
 
-  Exit: 0 posted · 1 HIGH finding refused · 2 MEDIUM findings need
+  On a public repo, or one whose visibility cannot be read, the receipt blocks
+  go out in their public form (PUBLIC_FORM:) and a home path, Capy thread id or
+  cost figure anywhere else refuses the post (PUBLIC: lines, exit 1;
+  docs/troubleshooting.md#gstack-post-public-text).
+
+  Exit: 0 posted · 1 HIGH finding or public-repo detail refused · 2 MEDIUM findings need
   confirmation (RULE:/TOKEN: lines on stdout) · 3 gh/glab failed ·
   4 the title is not plain words (PLAIN_TITLE: lines on stdout; rewrite the
   title file and rerun) or the plain-title policy is invalid; nothing posted · 64 usage
@@ -415,24 +423,6 @@ function readText(env: PostEnv, file: string, what: "title" | "body"): string {
   return text;
 }
 
-function visibility(env: PostEnv, req: Request, kind: HostKind, configBin: string): RepoVisibility {
-  if (req.visibility) return req.visibility;
-  const norm = (s: string) => {
-    const v = s.trim().toLowerCase();
-    return v === "public" || v === "private" || v === "unknown" ? v : undefined;
-  };
-  const cfg = env.run(configBin, ["get", "redact_repo_visibility"]);
-  const fromConfig = cfg.status === 0 ? norm(cfg.stdout) : undefined;
-  if (fromConfig) return fromConfig;
-  if (kind === "github") {
-    const gh = env.run("gh", ["repo", "view", "--json", "visibility", "--jq", ".visibility"]);
-    return (gh.status === 0 && norm(gh.stdout)) || "unknown";
-  }
-  const gl = env.run("glab", ["repo", "view", "--output", "json"]);
-  if (gl.status !== 0) return "unknown";
-  try { return norm(String(JSON.parse(gl.stdout).visibility ?? "")) ?? "unknown"; } catch { return "unknown"; }
-}
-
 type Part = "title" | "body";
 interface Located { part: Part; finding: Finding }
 
@@ -641,11 +631,24 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       env.err(`gstack-post: pr-body merged by section: replaced ${list(m.replaced)}; kept ${list(m.kept)}; added ${list(m.added)}${m.dropped.length ? `; dropped ${m.dropped.join(", ")}` : ""}\n`);
     }
     if (body !== undefined && req.attribute) body = attributionCallout(req.attribute) + body;
+    const vis = readRepoVisibility(env.run, { explicit: req.visibility, configBin, kind: remote.kind });
+    if (body !== undefined && vis !== "private") {
+      const pub = publicReceiptText(body);
+      body = pub.text;
+      if (pub.changed.length) env.out(`PUBLIC_FORM: receipt rewritten for a ${vis} repo (${pub.changed.join(", ")})\n`);
+    }
     const parts: Array<[Part, string]> = [];
     if (title !== undefined) parts.push(["title", title]);
     if (body !== undefined) parts.push(["body", body]);
-
-    const vis = visibility(env, req, remote.kind, configBin);
+    if (vis !== "private") {
+      const leaks = parts.flatMap(([part, text]) => privateDetails(text).map(f => ({ part, f })));
+      if (leaks.length) {
+        env.out(`REPO_VISIBILITY: ${vis}\n`);
+        for (const { part, f } of leaks) env.out(`PUBLIC: ${f.rule} LINE: ${f.line} PART: ${part}\n`);
+        env.err(`gstack-post: refused, the text names a home path, a Capy thread id or a cost on a ${vis} repo (PUBLIC: lines; line numbers count the text gstack-post would send, a merged pr-body included); nothing was posted. Rewrite those lines: a repo-relative path or the file name, no Capy id but the platform badge, no dollar, credits or token figure. A private repo sets gstack-config redact_repo_visibility private.\n`);
+        return EXIT.refused;
+      }
+    }
     const email = env.run("git", ["config", "user.email"]);
     const hasQuad = parts.some(([, text]) => /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(text));
     const { found, oversize } = scanParts(parts, vis, email.status === 0 ? email.stdout.trim() || undefined : undefined, hasQuad ? repoReleaseVersions(env) : []);

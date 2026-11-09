@@ -3078,6 +3078,31 @@ the whole body you want (keep the earlier description under a title of its own,
 such as `## Original description`, if it should stay) and post it with
 `--replace`.
 
+<a id="gstack-post-public-text"></a>
+### `PUBLIC: public.home_path|public.capy_id|public.cost LINE: <n> PART: <part>` from gstack-post
+
+**Meaning.** The repository is public, or gstack-post could not read its
+visibility and treats it as public (GST-1955). On such a repository a PR title,
+body or comment never names a home path (`/home/<user>/…`, `/Users/<user>/…`,
+`/root/…`, `C:\Users\<user>\…`, `~/…` or `~user/…`, code spans included), a
+Capy jam id or `capy.ai/thread/…` link other than the platform's own badge, or a
+cost, credits or token figure (`$12.30`, `2.70 USD`, `35,000 credits`,
+`300k tokens`, `spend_usd: 2.7`, `tokens=181234`). Before scanning,
+gstack-post puts the receipt blocks /ship writes in their public form and prints
+`PUBLIC_FORM: receipt rewritten …`: no cost, credits or token field, `run` and
+`thread` as an opaque `anon-<12 hex>` id, home paths cut to the file name. Any
+detail left in the prose refuses the whole post, exit 1, and nothing is sent.
+Each line names the rule, the line in the text gstack-post would send (for
+`pr-body` the merged body, so a kept section can be the source) and the part,
+never the value. A lone `$1` inside code is a shell positional, not a price.
+`carry --pr` rewrites its receipt the same way.
+
+**Fix.** Rewrite the named lines: a repo-relative path or just the file name, no
+Capy id (the badge the platform adds stays), and results without dollars,
+credits or tokens unless cost is the lesson. For a kept section, bring that
+section in the body file or post with `--replace`. A private repository whose
+visibility gh cannot read sets `gstack-config set redact_repo_visibility private`.
+
 <a id="redact-prepush-email"></a>
 ### `MEDIUM  pii.email  <file>:<line>` from the pre-push hook
 

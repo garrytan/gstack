@@ -1,0 +1,4 @@
+---
+important: security
+---
+- **PR text on a public repository no longer names home paths, Capy thread ids or what a run cost.** /ship's receipt block went out with `spend_usd`, the Capy run and thread ids and, after a remote gate, an absolute path under the home directory, and nothing stopped the same details in the prose. On a public repository, or one whose visibility can't be read, `gstack-post` now sends the receipt in a public form: no cost, credits or token field, the run and thread as an opaque id that still deduplicates, and paths cut to the file name. Any home path (including tilde and Windows paths, inside code too), Capy id other than the platform's badge, or dollar, credits or token figure left in a title, body or comment refuses the post with a `PUBLIC:` line naming the rule and line, never the value. `gstack-ship-receipt carry --pr` posts its receipt in the same public form. Private repositories keep today's text.

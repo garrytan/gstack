@@ -58,6 +58,7 @@ import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { publicReceiptText, readRepoVisibility } from '../lib/public-pr-text';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
@@ -926,8 +927,13 @@ function cmdCarry(rest: string[], json: boolean): number {
   }
   if (bodyFile) fs.writeFileSync(bodyFile, newBody);
   else {
+    const vis = readRepoVisibility((cmd, args) => {
+      if (cmd === 'gh') { const r = gh(args); return { status: r.ok ? 0 : 1, stdout: r.out }; }
+      const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 30_000 });
+      return { status: r.status ?? 1, stdout: r.stdout ?? '' };
+    }, { configBin: path.join(import.meta.dir, 'gstack-config'), kind: 'github', repo });
     const tmp = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'gstack-carry-')), 'body.md');
-    fs.writeFileSync(tmp, newBody, { mode: 0o600 });
+    fs.writeFileSync(tmp, vis === 'private' ? newBody : publicReceiptText(newBody).text, { mode: 0o600 });
     const edit = gh(['pr', 'edit', pr!, ...(repo ? ['--repo', repo] : []), '--body-file', tmp]);
     fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
     if (!edit.ok) return incomplete(`gh pr edit failed: ${edit.err}; the receipt was not carried`);
