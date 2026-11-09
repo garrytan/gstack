@@ -1861,17 +1861,22 @@ fix-check unbound the earlier one and lanes logged a synthetic combined row
 (#4063: fc3 at 265d868, then fc4 over the merge). finish now walks back from the
 newest row: while a row's `range_base` doesn't hold the reviewed tree, the link
 before it is the newest earlier row whose commit is that `range_base`. The chain
-counts only when it reaches a row whose `range_base` holds the reviewed tree and
-every link is a clean, committed read with its own approved
-`review_loop_grant`. A link's grant may name any stop head inside its
-`range_base..commit`, its own commit included: the post-review flow grants
+counts only when it reaches a row whose `range_base` holds the reviewed tree,
+every link is a committed read with its own approved `review_loop_grant`, and
+the newest link is clean. An earlier link that found issues (logged
+`converged:false`, as review-army.md requires) still links when it finished its
+read bound to its own commit, its findings account for its counts, and every
+open or blocking finding names a file it read (GBRA-386, GST-1973): it counts
+no path itself, a path its findings name counts only through a clean link
+after it, and the line marks it `(found issues)`. A link's grant may name any
+stop head inside its `range_base..commit`, its own commit included: the post-review flow grants
 each fix-check at the commit it reads, so link 1's stop head is link 2's
 `range_base` (founderstar#634, GST-1676). Grants are assigned newest link
 first and a grant counts for one link only, so one grant never covers two
 fix-checks: a lone grant naming that boundary goes to the newer link and leaves
-the older one ungranted. A path counts as `fix_checked` when some link's range
-touched it and it is unchanged since that link (or its patch against the base is
-still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
+the older one ungranted. A path counts as `fix_checked` when some clean link's
+range touched it and it is unchanged since that link (or its patch against the
+base is still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
 (fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A
 `range_base` no earlier row ends at is a gap and refuses with the single-row
 reason (`range_base <sha12> does not hold the reviewed tree`); a link that is
