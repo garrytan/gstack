@@ -88,6 +88,22 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect(repo({ 'notes.md': `logs are under /home/garry/work/run.log\nkey ${AWS}\n` }).secrets().status).toBe('fail');
   });
 
+  // Value: protects=a Django test that adds `session = self.client.session` passes the never-downgradable secrets check while the same line in a string or an env file still fails it;
+  //   fails_when=the #4209 false positive returns, or the exemption reaches a """ block or a .env value; why_new=#4209 stopped /ship for Python users; seam=fixture repo; no_claim=Dart files at the pregate level
+  test('a Django test client session read passes; the same line in a string or a .env file still fails (#4209)', () => {
+    const base = 'from django.test import TestCase\n\n\nclass ViewTests(TestCase):\n    def test_index(self):\n        self.client.get("/")\n';
+    const fx: FixtureRepo = makeFixtureRepo({ pregate: BASE_PREGATE, baseFiles: { 'tests/test_views.py': base } });
+    try {
+      const secrets = () => JSON.parse(runBin(fx, 'gstack-pregate', ['--base', 'main', '--only', 'secrets', '--json']).out).checks.find((c: { id: string }) => c.id === 'secrets');
+      const added = base + '        session = self.client.session\n        session["cart"] = [1]\n        session.save()\n';
+      commit(fx, { 'tests/test_views.py': added });
+      expect(secrets().status).toBe('pass');
+      commit(fx, { 'tests/test_views.py': added + '\nFIXTURE = """\n        session = self.client.session\n"""\n', '.env': 'SESSION=self.client.session\n' });
+      const check = secrets();
+      expect({ status: check.status, rows: (check.lines as string[]).filter((l) => l.includes('env.kv')) }).toEqual({ status: 'fail', rows: [expect.stringContaining('.env, added line 1)'), expect.stringContaining('test_views.py, line 12)')] });
+    } finally { cleanup(fx); }
+  });
+
   test('parseAddedLineNumbers numbers each added line from its hunk header', () => {
     const diff = ['diff --git a/a.py b/a.py', '--- a/a.py', '+++ b/a.py', '@@ -3,0 +4,2 @@', '+one', '+two', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     expect([...parseAddedLineNumbers(diff)]).toEqual([['a.py', [4, 5, 11]]]);

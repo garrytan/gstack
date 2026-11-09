@@ -832,8 +832,9 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
  * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
  * #3630 (#3418, #3419): Dart and Python (.py, .pyi) qualify on the same grammar
  * fact, no unquoted string literal, so `'password': request.password` and
- * `session: HttpSession,` are names. Python's `=` forms
- * (`password=request.password`) still fire: the separator must be `:`.
+ * `session: HttpSession,` are names. Python's keyword form
+ * (`password=request.password,`) still fires: the separator must be `:`. A
+ * plain `=` assignment of a dotted name is isAttributeReference's (#4209).
  * Without a known source path nothing is exempt.
  */
 const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
@@ -1083,6 +1084,30 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
       if (tail === null || carriesSecretLiteral(tail)) return false;
     }
   }
+  return !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * #4209: in Python and Dart source, an unquoted dotted name chain that is the
+ * whole right-hand side of an `=` assignment (`session = self.client.session`,
+ * `token = request.auth`) reads an attribute; it holds no credential. Only
+ * Python and Dart, where the whole file's strings are known (insideString), so
+ * the same line inside a `"""`/`'''` block still reports. Every segment must be
+ * name-shaped (snake_case, camelCase, PascalCase or CONSTANT_CASE), so a dotted
+ * random token still reports, and only a `;` and a comment may follow it on
+ * the line: a literal after it (`or "…"`, `, "…"`), a continuation or a
+ * keyword argument's comma still reports. A quoted value, a bare name, a
+ * config, .env or TS file, and a scan without a path are unchanged.
+ */
+const ATTRIBUTE_SEGMENT = /^_*(?:[a-z][a-z0-9]*(?:_+[a-z0-9]+)*|[A-Z][A-Z0-9]*(?:_+[A-Z0-9]+)*|[A-Za-z][a-z0-9]*(?:[A-Z][a-z0-9]+)*)_*$/;
+function isAttributeReference(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  const chain = span.replace(/;$/, "").split(".");
+  if (chain.length < 2 || !chain.every((segment) => ATTRIBUTE_SEGMENT.test(segment))) return false;
+  const { start, end } = spanBounds(match);
+  if (!/=[ \t]*$/.test(match.input.slice(match.index, start))) return false;
+  const rest = match.input.slice(end).split("\n", 1)[0];
+  if (!(/\.dart$/i.test(sourcePath) ? /^[ \t]*(?:\/\/.*)?\r?$/ : /^[ \t]*(?:#.*)?\r?$/).test(rest)) return false;
   return !insideString(match.input, start, sourcePath);
 }
 
@@ -1549,6 +1574,7 @@ export const PATTERNS: RedactPattern[] = [
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
     // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
+    // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
     validate: (span, match, opts) =>
@@ -1558,6 +1584,7 @@ export const PATTERNS: RedactPattern[] = [
       !isBareEnvRead(span, match) &&
       !isCallExpression(span, match) &&
       !isSourceExpression(span, match, opts?.sourcePath) &&
+      !isAttributeReference(span, match, opts?.sourcePath) &&
       !isSchemaFieldIdentifier(span, match) &&
       !isTestFixtureLabel(span, opts?.sourcePath) &&
       shannonEntropy(span) >= 3.0,

@@ -314,6 +314,8 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["    login('it\\'s', password: request.password);", "lib/a.dart"], ['    "user": "a", "password": request.password,', "app.py"],
       // The triple-quote guard is Dart/Python only: a stray ''' in a TS string leaves #3048 as it was.
       ["const s = \"'''\";\n  session: SessionState,", "src/a.ts"],
+      // #4209: a plain assignment of a dotted name reads an attribute; the keyword form below still fires.
+      ["      password = request.password", "app/api/handlers.py"],
     ] as const) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
     for (const [literal, file] of [
       ["    session: HttpSession,", "deploy/values.yaml"],
@@ -322,7 +324,6 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       [`      "password": "${v}",`, "app/api/handlers.py"],
       [`  password = "${v}"`, "app/config.py"],
       ["      password=request.password,", "app/api/handlers.py"],
-      ["      password = request.password", "app/api/handlers.py"],
       [`CONFIG = """\npassword: ${vIdent}\n"""`, "tests/conftest.py"],
       [`      'password': '${v}',`, "backend/lib/src/handlers/onboarding_handlers.dart"],
       [`  password: "${v}",`, "backend/lib/src/config.dart"],
