@@ -82,13 +82,14 @@ function writtenRecords(): Record<string, unknown> {
   return out;
 }
 
-/** A git on PATH that logs each invocation's arguments, so a test can count processes. */
-function countingGit(root: string): string {
-  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+/** A git on PATH that logs each invocation's arguments, so a test can count processes; failBatch makes `cat-file --batch` exit 128. */
+function countingGit(root: string, failBatch = false): string {
+  const real = path.join(spawnSync('git', ['--exec-path'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim(), 'git');
   const bin = path.join(root, 'bin');
   const log = path.join(root, 'git.log');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  const fail = failBatch ? `case "$*" in "cat-file --batch"*) exit 128;; esac\n` : '';
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\n${fail}exec '${real}' "$@"\n`, { mode: 0o755 });
   process.env.PATH = `${bin}${path.delimiter}${saved.path}`;
   return log;
 }
@@ -103,6 +104,15 @@ describe('rebuildFromNotes reads the notes in one batch', () => {
     const catFiles = fs.readFileSync(log, 'utf8').split('\n').filter(l => l.startsWith('cat-file'));
     expect(catFiles.length).toBe(1);
     expect(r).toMatchObject({ read: 408, fetched: true });
+  }, 60_000);
+
+  // Value: protects=land and the freeze lock refuse instead of reading an empty queue when the one batch read fails;
+  // fails_when=readBlobs ignores the batch process's exit status again; why_new=one failed batch drops every note at once, where one failed per-note read dropped one; seam=a git on PATH whose cat-file --batch exits 128; no_claim=timeouts and maxBuffer overruns, which take the same status path
+  test('a failed batch read reports fetched false and restores nothing', () => {
+    const { repo } = fixture(noteBodies(3));
+    countingGit(path.dirname(repo), true);
+    expect(rebuildFromNotes(repo, 'origin')).toMatchObject({ restored: 0, read: 0, fetched: false });
+    expect(writtenRecords()).toEqual({});
   }, 60_000);
 
   // Value: protects=the batched read restores exactly what the per-note read restored, so no land or ready sees different queue state;

@@ -362,10 +362,13 @@ export function forgetNotes(repoRoot: string, names: string[], remote = 'origin'
 
 /**
  * The text of each blob, in order, from one `git cat-file --batch` process. Sizes are bytes, so the
- * output is split as a Buffer before decoding; a missing or non-blob object yields no text.
+ * output is split as a Buffer before decoding; a missing or non-blob object yields no text. Null when
+ * the process fails, times out or overruns its buffer, so no partial read passes for a complete one.
  */
-function readBlobs(repoRoot: string, blobs: string[]): string[] {
-  const out = spawnSync('git', ['cat-file', '--batch', '--buffer'], { cwd: repoRoot, input: blobs.join('\n') + '\n', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 }).stdout ?? Buffer.alloc(0);
+function readBlobs(repoRoot: string, blobs: string[]): string[] | null {
+  const r = spawnSync('git', ['cat-file', '--batch', '--buffer'], { cwd: repoRoot, input: blobs.join('\n') + '\n', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  if (r.error || r.status !== 0) return null;
+  const out = r.stdout;
   const texts: string[] = [];
   for (let i = 0; i < out.length;) {
     const nl = out.indexOf(10, i);
@@ -384,8 +387,9 @@ export function rebuildFromNotes(repoRoot: string, remote = 'origin'): { restore
   const f = fetchNotes(repoRoot, remote);
   const list = git(repoRoot, ['notes', `--ref=${NOTES_REF}`, 'list']);
   if (!list.ok || !list.out.trim()) return { restored: 0, read: 0, detail: f.detail, fetched: f.ok };
-  const records = readBlobs(repoRoot, list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean))
-    .map(parseNote).filter((r): r is AnyRecord => !!r);
+  const texts = readBlobs(repoRoot, list.out.split('\n').map(l => l.split(' ')[0]!).filter(Boolean));
+  if (!texts) return { restored: 0, read: 0, detail: `git cat-file --batch failed reading ${NOTES_REF}; no note was read`, fetched: false };
+  const records = texts.map(parseNote).filter((r): r is AnyRecord => !!r);
   const fresh = records.filter(newerOrMissing);
   for (const r of fresh) writeJsonAtomic(recordPath(r), r);
   return { restored: fresh.length, read: records.length, detail: f.detail, fetched: f.ok };
