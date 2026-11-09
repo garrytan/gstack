@@ -332,7 +332,7 @@ describe('Tunnel listener lifecycle', () => {
     // The route calls ctx.tunnel.start (server-auth.test.ts pins that call);
     // the factory wires it to the shared startTunnel() helper with the
     // factory-scoped tunnel-surface handler.
-    const startBlock = sliceBetween(SERVER_SRC, 'start: (authtoken) => (tunnelStarting ??= startTunnel({', 'commands: {');
+    const startBlock = sliceBetween(SERVER_SRC, 'start: (authtoken) => startTunnel({', 'commands: {');
     expect(startBlock).toContain("makeFetchHandler('tunnel')");
     // The helper owns the ephemeral bind and points ngrok at the TUNNEL
     // port — never the local daemon port.
