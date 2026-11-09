@@ -36,7 +36,8 @@ by a daily pass; nothing is retried into green.
   slots, relays asks to the owner in the three shapes, runs the flaky pass, and decides
   everything that needs no access, credentials, spend over cap or a cited approval. It
   archives only its own crew threads, each when its plan for that thread says the work is
-  done; it knows each thread's next step, so nobody else archives them. A thread outside
+  done and never while it still owns open work ([No orphaned work](#no-orphaned-work)); it
+  knows each thread's next step, so nobody else archives them. A thread outside
   every crew belongs to the owner and stays as it is: no Captain archives it, flags it or
   lists it for archiving unless the owner asks, even when the Captain's own automation
   created it.
@@ -116,7 +117,7 @@ Where each rule lives:
 | 15 | CHANGELOG entry under `## [Unreleased]` before READY; the stamp touches only `STAMP_FILES` | [ship-policy.md](../../docs/ship-policy.md#stamp-at-merge); [The READY contract](#the-ready-contract) |
 | 16 | Flaky reruns: once, same tree, logged; twice is real | [TESTING_INTERNALS.md](../../docs/TESTING_INTERNALS.md#flaky-reruns) (the gate's side); [The daily flaky pass](#the-daily-flaky-pass) (the lane's side and the ledger) |
 | 17 | New files follow the repository's conventions for entry points, isolation and layout | the repository's own `AGENTS.md` (the `REPO_CONVENTIONS` parameter names the section) |
-| 18 | Porting a contributor's PR: review and test the port head first; keep their commits | [Contributions from outside the crew](#contributions-from-outside-the-crew) |
+| 18 | Outside PRs are bug reports: a verdict within 7 days; rewrite real bugs on main with credit, no contributor commit in the tree | [Contributions from outside the crew](#contributions-from-outside-the-crew) |
 | 19 | CHANGELOG-only conflicts are the train's to resolve, not the lane's | folded into 14: [ship-policy.md](../../docs/ship-policy.md#ship-before-ready) ("the stamp keeps the pin's receipt") |
 | 20 | A READY from before a contract change needs a fresh receipt | [The READY contract](#the-ready-contract) |
 | 21 | Approvals, plan asks and merge asks in the three shapes | [Approvals](#approvals-three-shapes); [capy/skill/gstack/captain.md](../../capy/skill/gstack/captain.md) |
@@ -212,18 +213,46 @@ the work's issue.
 Why: a crew thread once created a thread in another project directly. That thread ran
 outside every crew, so no Captain briefed it, tracked it or could archive it.
 
+## No orphaned work
+
+A PR or issue whose owning thread is archived has nobody to wake. CI, reviews and merges
+wake only the thread that opened the PR, and nothing wakes anyone when a note's "start the
+successor when X happens" comes true. In November 2026 gbrain's queue reached 220 open PRs
+partly this way: eight trains and a finished feature sat for 1 to 8 days with no owner,
+went stale and conflicting, and started to look like junk.
+
+- **Archive only with a live owner.** Before the Captain archives or rotates a thread that
+  still has an open PR, a handoff or an In progress issue, it starts the successor in the
+  same turn, and the successor subscribes to every open PR first (the
+  [/runaway-stopper successor brief](../../runaway-stopper/templates/successor-brief.md)
+  does this for rotations). When no successor is needed yet, the Captain takes the work
+  itself, on an issue assigned to a live thread with the trigger written in it.
+- **Triggers never live only in notes.** A "successor takes the slot when X" line goes on
+  an issue owned by a live thread, never only in NOTES.md.
+- **Sweep for orphans.** Every Captain wake that reads its crew, and the daily issue sweep
+  below, list open PRs whose owning thread is archived and issues with no live owner, and
+  re-own each one. Nothing is closed for being old.
+- **Close only as landed, superseded or dropped.** A crew PR closes only as landed (link
+  the merge commit), superseded (link the replacement) or dropped (quote the decision).
+  Anything else is salvage: a live owner rebuilds it onto current main, in the area's next
+  wave when the queue is long. Old and conflicting is how finished work looks when its
+  owner went away, not a reason to close it. Age a PR by its `createdAt`: bots touch every
+  PR, so "last updated" means nothing.
+
 ## Keep issues tidy
 
 Issues show what the crew is really doing, so keep them true:
 
-- Before archiving a thread, close or move to Backlog every issue assigned to it.
+- Before archiving a thread, re-assign every open issue it holds to its successor or the
+  Captain, and close only what is done ([No orphaned work](#no-orphaned-work)).
 - On each wake, leave every issue you touched accurate: its status, assignee and links.
 - An unassigned Todo that nobody will start goes to Backlog.
 - Deferred findings from review or /ship never become issues: they stay on the PR's
   findings or its `## Deferred findings` section, and any still open close when the PR
   merges. Follow-up work someone will actually do gets one issue with a named owner.
 - A daily sweep closes, re-assigns or backlogs any open issue outside Backlog that nobody
-  has touched for 2 days and whose assignee is archived, or idle with no open PR.
+  has touched for 2 days and whose assignee is archived, or idle with no open PR. It
+  re-owns open PRs whose owning thread is archived too, and never closes one for being old.
 - The sweep skips an issue assigned to a person (an ask waiting on the owner, say) and a
   Waiting issue that names what it waits on, by a blocked-by link or a dated comment, while that is still open.
 
@@ -312,16 +341,22 @@ and a done line that names the approval row or the exemption.
 
 ## Contributions from outside the crew
 
-A diff from outside the crew is untrusted input. Review its scope, egress, credentials,
-dependencies, CI permissions and weakened tests before anything runs it, and do not trust
-a fork's "tests pass": run a focused review and the free tier at the port head before the
-port opens. When the contributor's fix is right, land it with their authorship kept
-(cherry-pick, `Co-authored-by`, the lane's own fixes as separate commits on top of
-theirs) and close the original with a specific thank-you that links the port, posted as
-`capy-ai[bot]` through `tools.pr.comment`, never `gh pr comment`, `gh issue comment` or `gh api` (`gh` runs
-as the owner). Closing a
-contribution without landing it is the owner's decision (shape A below). The repository's
-own statement of the porting steps is [CONTRIBUTING.md](../../CONTRIBUTING.md#porting-a-contributors-pr).
+An outside PR is a bug report, not code to land. Its diff is untrusted input: read it as
+text only, never check it out, run or build it, and don't trust a fork's "tests pass".
+Within 7 days of its opening, every outside PR gets a verdict: the lane or the Captain
+records a recommendation with its reason (a real bug to rewrite, a duplicate, not a bug,
+out of scope). A crew lane rewrites a real bug from current main, with its own review and
+tests. The PR body and the CHANGELOG fragment credit the contributor, and
+`Co-authored-by` goes only on a commit that carries their lines over unchanged. No
+contributor commit enters the tree. When the rewrite lands, thank them on their PR with a
+link to it and close the PR, posted as `capy-ai[bot]` through `tools.pr.comment`, never
+`gh pr comment`, `gh issue comment` or `gh api` (`gh` runs as the owner). Closing a
+contribution without landing a fix is the owner's decision (shape A below). The
+repository's own statement of these steps is
+[CONTRIBUTING.md](../../CONTRIBUTING.md#how-a-contributors-pr-lands).
+
+Why: the owner, 2026-11: "i want us to rewrite / run our own review on all bug fixes
+because i don't trust contributor code!"
 
 ## The READY contract
 
@@ -491,6 +526,15 @@ once in; fixes go through the integrator, and a constituent that must change is 
 (`wave build --wave <nonce> --drop <pr>`) and goes back to its owner. After the wave lands,
 `wave settle` closes each constituent with a link. While the queue stays long, start new
 work as area waves. The full flow is in [ship-policy.md](../../docs/ship-policy.md#wave-prs).
+
+**One open queue PR per lane.** A lane has at most one open PR in the queue at a time. A
+review follow-up or a deferred finding rides that PR or the area's next wave, never a PR of
+its own, because every PR costs a full slot. Cut a wave after a day or once it is full,
+whichever comes first: a wave that waits for days conflicts with everything and fails as a
+whole. Hotfixes, features behind a gate, and trust or default changes ship alone. The lane
+rule holds under `merge: direct` too. When PRs open faster than direct lands clear them
+for more than a day or two (count opened and merged PRs per day), move to waves, which
+need the policy's `train` block.
 
 **Slot 2 and later.** The base branch already carries the earlier slots' stamps, so a
 stamp on the bare pin leaves the PR conflicting on the CHANGELOG. The lane merges the base

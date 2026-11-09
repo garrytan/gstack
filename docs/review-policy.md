@@ -849,10 +849,11 @@ and a later reader agree on what was flagged:
   under test.
 
 <a id="porting-a-contributors-work"></a>
-## Porting a contributor's work
+## Crediting a contributor's lines
 
-A ported branch keeps the contributor's commits as theirs and adds the
-porter's fixes on top, each crediting the original authors.
+Outside PRs are rewritten from main rather than ported
+([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
+carries a contributor's lines over unchanged, the commit that carries them credits them.
 `gstack-coauthor-trailers [<range> | --base <ref>] [--message <file>]
 [--exclude <email>]...` lists every distinct author of the range's commits
 (default `origin/<base>..HEAD`) other than the checkout's own committer
