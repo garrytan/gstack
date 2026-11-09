@@ -625,7 +625,7 @@ in an unattended run, never a warning; interactive runs follow the repair rule a
 Write `$_AP/gate.json` (shape: `gstack-gate --help`): one item per User Challenge
 (`uc<n>`, approval; `why` = you said / both recommend / why / blind spots / cost if
 wrong), per taste decision (`d<n>`, auto; `why` = principle and the alternative's
-impact) and `plan` (approval: a) approve as-is (recommended) b) with overrides
+impact) and `p1` (approval: a) approve as-is (recommended) b) with overrides
 c) interrogate d) revise e) reject). Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
 and append its `decisions` output to `$_AP/decisions.jsonl`. Write the full review
 to `$_AP/review-record.md` and its Plan Summary alone to `$_AP/summary.md`:
@@ -663,8 +663,8 @@ verbatim (URGENT block, plain summary, numbered decisions seven per page with ea
 auto default, review-record path; `--page N` for later pages), never the full review.
 
 Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json --reply "<text>" --gate-rev <rev>`;
-unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `plana`
-without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `planc`/`pland`/`plane`
+unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `p1a`
+without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `p1c`/`p1d`/`p1e`
 = C/D/E. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
 with its `GSTACK_RESULT` line and never approve.
 
