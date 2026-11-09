@@ -256,3 +256,44 @@ describe.skipIf(process.platform === 'win32')('regression contract: recent selec
     }
   });
 });
+
+describe.skipIf(process.platform === 'win32')('CLAUDE_CONFIG_DIR and CODEX_HOME', () => {
+  // A dev profile (CLAUDE_CONFIG_DIR=~/.claude-dev/.claude, CODEX_HOME=~/.claude-dev/.codex) keeps its
+  // sessions under those dirs. The walk used to read ~/.claude/projects and ~/.codex/sessions only, so
+  // those sessions never reached the brain. Fails when a custom home is skipped or the default home is
+  // counted twice when the env names it.
+  test('sessions under a custom Claude Code config dir and Codex home are walked beside the default homes', () => {
+    const now = Date.now();
+    const b = box('transcript_ingest_mode: recent\n');
+    try {
+      const app = b.repo('acme/app');
+      const line = (rec: Record<string, unknown>) => JSON.stringify(rec) + '\n';
+      const start = iso(now - 60_000);
+      b.claude('defaulthome01', { cwd: app, start });
+      const devClaude = join(b.home, '.claude-dev', '.claude');
+      mkdirSync(join(devClaude, 'projects', 'p'), { recursive: true });
+      writeFileSync(
+        join(devClaude, 'projects', 'p', 'devclaude0001.jsonl'),
+        line({ type: 'user', message: { role: 'user', content: 'hello dev' }, cwd: app, timestamp: start }) +
+          line({ type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: start }),
+      );
+      const devCodex = join(b.home, '.claude-dev', '.codex');
+      mkdirSync(join(devCodex, 'sessions', '2026', '10', '01'), { recursive: true });
+      writeFileSync(
+        join(devCodex, 'sessions', '2026', '10', '01', 'rollout-devcodex0001.jsonl'),
+        line({ type: 'session_meta', timestamp: start, payload: { id: 'devcodex0001', cwd: app } }) +
+          line({ type: 'response_item', timestamp: start, payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi dev' }] } }),
+      );
+      const plain = ingest(b, ['--probe'], { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' });
+      expect(plain.status).toBe(0);
+      expect(plain.stdout).toContain('Total files in window: 1');
+      const dev = ingest(b, ['--probe'], { CLAUDE_CONFIG_DIR: devClaude, CODEX_HOME: devCodex });
+      expect(dev.status).toBe(0);
+      expect(dev.stdout).toContain('Total files in window: 3');
+      const same = ingest(b, ['--probe'], { CLAUDE_CONFIG_DIR: join(b.home, '.claude'), CODEX_HOME: join(b.home, '.codex') });
+      expect(same.stdout).toContain('Total files in window: 1');
+    } finally {
+      b.cleanup();
+    }
+  });
+});

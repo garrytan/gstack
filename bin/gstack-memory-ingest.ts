@@ -16,7 +16,9 @@
  *
  * Sources walked:
  *   ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl   — Claude Code sessions
+ *     (plus $CLAUDE_CONFIG_DIR/projects when that names another dir)
  *   ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl    — Codex CLI sessions
+ *     (plus $CODEX_HOME/sessions when that names another dir)
  *   ~/Library/Application Support/Cursor/User/*.vscdb — Cursor (V1.0.1 follow-up)
  *   ~/.gstack/projects/<slug>/learnings.jsonl       — typed: learning
  *   ~/.gstack/projects/<slug>/timeline.jsonl        — typed: timeline
@@ -56,7 +58,7 @@ import {
   rmSync,
   realpathSync,
 } from "fs";
-import { join, basename, dirname, delimiter, relative } from "path";
+import { join, basename, dirname, delimiter, relative, resolve, sep } from "path";
 import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
@@ -222,6 +224,25 @@ interface BulkResult {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const HOME = homedir();
+
+/**
+ * Session roots for one harness: the default home plus the harness's own
+ * config dir when CLAUDE_CONFIG_DIR or CODEX_HOME names another one. A dev
+ * profile keeps its sessions under that dir, and a walk of ~/.claude or
+ * ~/.codex alone never sees them. Only a dir inside HOME counts: a session
+ * store belongs to the home being walked, and a config dir elsewhere (another
+ * user's, a mount, a test's temporary HOME) is not part of it. Resolved so the
+ * default home is never walked twice when the variable spells it another way.
+ */
+function sessionRoots(envVar: "CLAUDE_CONFIG_DIR" | "CODEX_HOME", defaultDir: string, sub: string): string[] {
+  const roots = [join(HOME, defaultDir, sub)];
+  const custom = process.env[envVar];
+  if (custom) {
+    const dir = resolve(custom);
+    if (dir.startsWith(HOME + sep)) roots.push(join(dir, sub));
+  }
+  return [...new Set(roots)];
+}
 const GSTACK_HOME = resolveStateRoot();
 const STATE_PATH = join(GSTACK_HOME, ".transcript-ingest-state.json");
 const LOCK_PATH = `${STATE_PATH}.lock`;
@@ -503,7 +524,10 @@ function sessionRepoAllowed(ctx: WalkContext, remote: string | undefined): boole
 }
 
 function* walkClaudeCodeProjects(ctx: WalkContext): Generator<{ path: string; type: MemoryType }> {
-  const root = join(HOME, ".claude", "projects");
+  for (const root of sessionRoots("CLAUDE_CONFIG_DIR", ".claude", "projects")) yield* walkClaudeProjectsRoot(ctx, root);
+}
+
+function* walkClaudeProjectsRoot(ctx: WalkContext, root: string): Generator<{ path: string; type: MemoryType }> {
   if (!existsSync(root)) return;
   let projectDirs: string[];
   try {
@@ -535,7 +559,10 @@ function* walkClaudeCodeProjects(ctx: WalkContext): Generator<{ path: string; ty
 }
 
 function* walkCodexSessions(ctx: WalkContext): Generator<{ path: string; type: MemoryType }> {
-  const root = join(HOME, ".codex", "sessions");
+  for (const root of sessionRoots("CODEX_HOME", ".codex", "sessions")) yield* walkCodexSessionsRoot(ctx, root);
+}
+
+function* walkCodexSessionsRoot(ctx: WalkContext, root: string): Generator<{ path: string; type: MemoryType }> {
   if (!existsSync(root)) return;
   // Date-bucketed: YYYY/MM/DD/rollout-*.jsonl. Walk up to 4 levels deep.
   function* recurse(dir: string, depth: number): Generator<string> {

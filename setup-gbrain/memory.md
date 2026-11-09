@@ -9,8 +9,8 @@ answer does.
 
 | Source | Type | Where | Sensitivity |
 |---|---|---|---|
-| Claude Code session JSONL | `transcript` | `~/.claude/projects/*/` | High — full conversations including tool I/O |
-| Codex CLI session JSONL | `transcript` | `~/.codex/sessions/YYYY/MM/DD/` | High |
+| Claude Code session JSONL | `transcript` | `~/.claude/projects/*/` (and `$CLAUDE_CONFIG_DIR/projects/*/`) | High — full conversations including tool I/O |
+| Codex CLI session JSONL | `transcript` | `~/.codex/sessions/YYYY/MM/DD/` (and `$CODEX_HOME/sessions/`) | High |
 | Cursor session SQLite (V1.0.1) | `transcript` | `~/Library/Application Support/Cursor/` | Same — deferred V1.0.1 |
 | Eureka log | `eureka` | `~/.gstack/analytics/eureka.jsonl` | Medium — your insights, often non-secret |
 | Project learnings | `learning` | `~/.gstack/projects/<slug>/learnings.jsonl` | Medium |
@@ -35,8 +35,9 @@ key, optionally narrowed by the `transcript_repos` allowlist:
 | `off` | No transcripts; other memory still syncs |
 | `recent+repos`, `all+repos`, `new@…+repos` | The same window, only for the repos in `transcript_repos`. gstack adds and removes `+repos` itself. |
 
-Both sources are covered: Claude Code sessions (`~/.claude/projects/`) and
-Codex sessions (`~/.codex/sessions/`), from every project on this machine
+Both sources are covered: Claude Code sessions (`~/.claude/projects/`, plus
+`$CLAUDE_CONFIG_DIR/projects/` when that variable names another config dir) and
+Codex sessions (`~/.codex/sessions/`, plus `$CODEX_HOME/sessions/`), from every project on this machine
 that your per-remote trust policy allows, not only the current repo. Pages go
 to your brain: the local engine (PGLite or Supabase) in local-stdio mode, or
 the artifacts repo the remote brain pulls from in remote-http mode.
