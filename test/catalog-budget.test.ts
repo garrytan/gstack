@@ -103,8 +103,14 @@ import { skillCensus } from './helpers/skill-census';
  * New-skill ratchet: previous ceiling 1,423 + ceil(115 / 4) = 1,452
  * token-equivalents (5,808 bytes), leaving 11 bytes. Existing descriptions
  * are unchanged.
+ *   ref     plan-coverage addition on base b6155921a (2026-11-08), eval-arm
+ *           branch eng-review-intentions-candidate (never merges)
+ *   result  plan-coverage adds 193 bytes (name plus a one-sentence
+ *           description); measured aggregate 5,830 bytes = 1,458
+ *           token-equivalents including the root router alias.
+ * New ceiling set to the measured 1,458. Existing descriptions are unchanged.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_452;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_458;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.

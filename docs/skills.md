@@ -36,6 +36,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces, and error messages scored for the agents that read them ([agent-ready errors](agent-ready-errors.md)). Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies, and triggers CLI errors the way an agent meets them (no terminal, contained, redacted) through `gstack-error-capture`. |
 | [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
+| [`/plan-coverage`](#plan-coverage) | **Test Planner** | Before code is written, map every path a plan touches, put the existing tests on each, and plan the tests, CI lanes and evals that close the gaps. Unattended. |
 | [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
@@ -220,6 +221,10 @@ Plan-file reviews retain their existing seven-day freshness handling and optiona
 When an eng review writes a test plan artifact to `~/.gstack/projects/`, a later `/qa` picks up that test plan automatically — your engineering review feeds directly into QA testing with no manual copy-paste.
 
 ---
+
+## `/plan-coverage`
+
+`/plan-coverage` runs before code is written and never asks a question: at every decision it takes its recommended option and records it. It maps every code path and user flow the planned change touches (each branch, error path and edge) as a diagram, puts the existing tests and the CI lane that runs them on each path, and for each gap picks one remedy (extend an existing test, unit test, E2E test, CI job or eval) with the regression it would catch. It writes three files under `.gstack/plan-coverage/` at the repository root: `path-map.md`, `coverage-map.md` and `test-plan.md`. It does not review the plan's design.
 
 ## `/plan-design-review`
 

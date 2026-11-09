@@ -186,6 +186,7 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   learn: CLAUDE_ONLY,
   'write-skill': CLAUDE_ONLY,
   modernize: CLAUDE_ONLY,
+  'plan-coverage': CLAUDE_ONLY,
   retro: CLAUDE_ONLY,
   'runaway-stopper': CLAUDE_ONLY,
   'setup-deploy': CLAUDE_ONLY,

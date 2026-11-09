@@ -19,6 +19,7 @@ CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are i
 | `/plan-design-review` | plan |
 | `/plan-devex-review` | plan |
 | `/plan-tune` | plan |
+| `/plan-coverage` | plan |
 | `/autoplan` | plan |
 | `/design-consultation` | plan |
 | `/spec` | plan |
