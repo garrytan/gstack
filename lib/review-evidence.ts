@@ -335,7 +335,7 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   return rec;
 }
 
-const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'open' ||
+export const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'open' ||
   ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
   (!f.gate && isCriticalFinding(f) && isOpenByAction(f)));
 export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);

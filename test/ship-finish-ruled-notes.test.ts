@@ -414,7 +414,7 @@ const HE361 = {
   ],
 };
 const NONCONVERGED = 'FIX_CHECK: not counted (missing start capture or incomplete/nonconverged pass)';
-const openLine = (findings: string[], head: string) => `FIX_CHECK_OPEN: ${findings.join(',')} on the fix-check at ${head.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${head.slice(0, 12)}; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`;
+const openLine = (findings: string[], head: string) => `FIX_CHECK_OPEN: ${findings.join(',')} on the fix-check at ${head.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${head.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`;
 const exception = (head: string) => ['--review-loop-exception', JSON.stringify({ accepted_by: 'harness minder (HARN-1)', date: '2026-11-09', via: 'a-9628d51bef2d', reason: 'both ship as open notes', fix_check: { head, findings: 2 } })];
 const finishLoop = (f: ShipFx, reviewed: string, post: string, head: string) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE, ...exception(head)]);
 
@@ -454,6 +454,20 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     const r = finishLoop(f, reviewed, post, fixHead);
     expect([r.status, lineOf(r.stdout, 'FIX_CHECK'), lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([NEW_A, NEW_B], fixHead)]);
     expect(r.stdout.split('\n').filter(l => l.startsWith('RULED_NOTE: ')).every(l => l.endsWith(" (outside this fix-check's range; not applied)"))).toBe(true);
+  });
+
+  test('an open INFORMATIONAL beside the two ruled CRITICALs keeps the fix-check uncounted and is named, then binds once ruled', () => {
+    const NEW_C = 'src/x.ts:1:retry-log';
+    const row = { ...HE361, issues_found: 3, critical: 2, informational: 1, findings: [...HE361.findings, { fingerprint: NEW_C, severity: 'INFORMATIONAL', action: 'open', locus: 'diff', blocking: false, raised_by: 'fix-check' }] };
+    const { f, fixHead, reviewed, post } = grantedFixCheck(row);
+    for (const finding of [NEW_A, NEW_B]) expect(rule(f, finding, fixHead).status).toBe(0);
+    const before = finishLoop(f, reviewed, post, fixHead);
+    expect([before.status, lineOf(before.stdout, 'FIX_CHECK'), lineOf(before.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([NEW_C], fixHead)]);
+    expect(rule(f, NEW_C, fixHead).status).toBe(0);
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toStartWith(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}`);
+    expect(lineOf(r.stdout, 'FIX_CHECK_OPEN')).toBe('');
+    expect(r.status, r.stdout).toBe(0);
   });
 
   test('an edit after the fix-check head still routes as behavior without an exception that accepts it', () => {
