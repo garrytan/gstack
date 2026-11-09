@@ -710,8 +710,47 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     repo = moved;
     const r = uninstall(['--force']);
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain(`refusing to delete ${path.join(moved, worktree)}: git cannot read its status`);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(moved, worktree)}: it is not a registered worktree of this repository`);
     expect(fs.readFileSync(path.join(moved, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+  });
+
+  test('a checkout name with a newline never turns into a relative delete', () => {
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src', 'app.txt'), 'app\n');
+    git(['add', 'src/app.txt']);
+    git(['commit', '-q', '-m', 'src']);
+    fs.mkdirSync(path.join(repo, '.gstack-worktrees', 'x\nsrc', '.git'), { recursive: true });
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('refusing to delete');
+    expect(fs.readFileSync(path.join(repo, 'src', 'app.txt'), 'utf-8')).toBe('app\n');
+  });
+
+  test('a symlinked .gstack-worktrees is checked through the link', () => {
+    const store = path.join(tmp, 'worktree-store');
+    fs.mkdirSync(store);
+    fs.symlinkSync(store, path.join(repo, '.gstack-worktrees'));
+    addWorktree(false);
+    git(['commit', '-q', '--allow-empty', '-m', 'wip'], path.join(repo, worktree));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('it has commits no branch or tag contains');
+    expect(fs.existsSync(path.join(store, 'run-1', 'lane-1'))).toBe(true);
+  });
+
+  test('a repo under .gstack-worktrees never runs its own config commands during the check', () => {
+    const nested = path.join(repo, '.gstack-worktrees', 'run-1', 'clone');
+    fs.mkdirSync(nested, { recursive: true });
+    git(['init', '-q', '-b', 'main'], nested);
+    fs.writeFileSync(path.join(nested, 'a.txt'), 'a\n');
+    git(['add', 'a.txt'], nested);
+    git(['commit', '-q', '-m', 'a'], nested);
+    const marker = path.join(tmp, 'fsmonitor-ran');
+    git(['config', 'core.fsmonitor', `touch '${marker}'; false`], nested);
+    const r = uninstall(['--force']);
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${nested}: it is not a registered worktree of this repository`);
   });
 
   test('a clean worktree holding a commit no branch contains stops the uninstall', () => {
