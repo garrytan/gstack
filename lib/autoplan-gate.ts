@@ -28,7 +28,7 @@ import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry'
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { phaseClose } from './autoplan-timing';
-import { ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
+import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
 import { readJsonl, sha256File } from './headless-artifacts';
 import { closeDraftDirectionsFile, loadBriefInputs } from './owner-brief';
@@ -423,6 +423,9 @@ export function answerGate(state: RunState, gateRev: number, reply: string, answ
   const provenance = o.carry ? { owner_reply: o.carry.words, carried_gate_from: o.carry.from, carried_gate_rev: o.carry.gate_rev, carry_reason: o.carry.reason, ...(o.carry.by ? { carried_answered_by: o.carry.by } : {}) }
     : o.ownerReply !== undefined && o.wordsBy ? { answer_words: o.ownerReply, answer_words_parsed: ownerParsed!.valid, words_by: o.wordsBy }
     : o.ownerReply !== undefined ? { owner_reply: o.ownerReply, owner_reply_parsed: ownerParsed!.valid } : {};
+  const agent = agentWords(provenance);
+  const challenges = agent ? parsed.choices.filter(c => !c.prior && c.kind === 'approval' && c.id !== 'p1').map(c => c.id) : [];
+  if (challenges.length) throw new RunError('OWNER_REPLY_REQUIRED', `${challenges.map(id => `${id} is ${list.items.find(i => i.id === id)!.cap ? 'a round-cap approval' : 'a user challenge'} only the owner can settle`).join('; ')}, and this reply is in ${agent}'s own words (--words-by); relay the owner's words with --owner-reply "<text>" and no --words-by, or leave ${challenges.join(', ')} out of the reply; nothing was applied`, 3);
   const shape = o.carry || o.wordsBy ? undefined : replyShape(o.ownerReply ?? reply, list, ownerParsed ?? parsed);
   const itemOf = (id: string) => list.items.find(i => i.id === id)!;
   const optionOf = (c: GateChoice) => itemOf(c.id).options.find(o => o.key === c.chosen)!;

@@ -5078,12 +5078,15 @@ directory, and this one already holds files.
 ### `OWNER_REPLY_REQUIRED`
 
 **Meaning.** An agent answered the gate (`--by agent:<id>`) without recording
-what the owner actually said. Nothing was applied.
+what the owner actually said, or answered a `uc` item (a user challenge or a
+round-cap approval, which only the owner settles) in its own words
+(`--words-by agent:<id>`). Nothing was applied.
 
 **Fix.** Pass the owner's words verbatim: `--owner-reply "<text>"`,
 `--owner-reply -` to read them from stdin, or `--owner-reply-file <path>`. They
 are stored on every decision row; when they parse under the gate grammar they
-must resolve to the same choices as `--reply`.
+must resolve to the same choices as `--reply`. For a `uc` item, relay the
+owner's answer without `--words-by`, or leave that item out of the reply.
 
 <a id="gate-owner-reply-mismatch"></a>
 ### `GATE_OWNER_REPLY_MISMATCH`

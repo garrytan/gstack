@@ -274,6 +274,9 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
 /** `--by` values: the owner typing tokens, or an agent relaying or deciding them. */
 export const ANSWERED_BY_RE = /^(human|agent:[A-Za-z0-9_.:-]+)$/;
 
+/** The agent whose own words (`--words-by agent:<id>`) an answer was in; never the owner's words, so they approve no plan, carry no gate and settle no user challenge. */
+export const agentWords = (r: { words_by?: string }): string | undefined => r.words_by || undefined;
+
 /** Who answered and in whose words: a new answer replaces all of it, so an earlier answerer's fields never survive under a later one. */
 const PROVENANCE = ['answered_by', 'owner_reply', 'owner_reply_parsed', 'answer_words', 'answer_words_parsed', 'words_by', 'carried_gate_from', 'carried_gate_rev', 'carry_reason', 'carried_answered_by'] as const;
 

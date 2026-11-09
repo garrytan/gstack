@@ -25,6 +25,7 @@ const AGREE = {
   native: [{ id: 'F1', severity: 'High', title: 'Ship the backoff behind a flag first', user_challenge: true, changes: 'scope', fix: 'gate the change behind RETRY_BACKOFF=1' }],
   outside: [{ id: 'O1', severity: 'High', title: 'Ship the backoff behind a flag first', user_challenge: true, changes: 'scope', fix: 'gate the change behind RETRY_BACKOFF=1' }],
 };
+const ONE_VOICE = { native: AGREE.native, outside: [] };
 const V2 = SMALL_PLAN.replace('cap 30 s', 'cap 30 s, behind RETRY_BACKOFF=1');
 const gateOf = (out: string) => JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8'));
 const decisions = (out: string) => readJsonl(path.join(out, 'decisions.jsonl'));
@@ -52,7 +53,16 @@ const recHashOf = (out: string) => recHash(gateOf(out));
 
 describe('whose words answered the gate (GEVA-2, P7)', () => {
   test("an agent's own words are recorded as its own, never as the owner's, never carried, and imported under the agent", () => {
-    const s = answeredAndRevised([], 'Accepted on the standing approval', AGREE, ['--words-by', 'agent:gstack-minder']);
+    const dir = path.join(r.host.base, `carry${++n}`);
+    const s = { out: path.join(dir, 'run') };
+    expect(r.ap(['next', '--out', s.out, '--plan', writePlan(dir), '--no-ui']).status).toBe(0);
+    phaseVia(r, s.out, 'ceo', ONE_VOICE);
+    phaseVia(r, s.out, 'eng', NONE);
+    const ans = r.ap(['answer', '--out', s.out, '--gate-rev', '1', '--reply', 'd1b p1b', '--by', 'agent:gstack-minder', '--owner-reply', 'Accepted on the standing approval', '--words-by', 'agent:gstack-minder']);
+    expect(ans.status, ans.stderr).toBe(0);
+    expect(ans.stdout).toMatch(/^APPLY: /m);
+    fs.writeFileSync(path.join(dir, 'plan-v2.md'), V2);
+    expect(r.ap(['revise', '--out', s.out, '--plan', path.join(dir, 'plan-v2.md'), '--incorporates', 'd1']).status).toBe(0);
     const p1 = decisions(s.out).find(d => d.gate_rev === 1 && d.label === 'P1');
     expect(p1).toMatchObject({ answer_words: 'Accepted on the standing approval', words_by: 'agent:gstack-minder' });
     expect(p1.owner_reply).toBeUndefined();
@@ -99,6 +109,48 @@ describe('whose words answered the gate (GEVA-2, P7)', () => {
       expect(res.stderr).toContain('--words-by must be owner or the answering agent');
     }
     expect(decisions(out).every(d => d.status === 'pending')).toBe(true);
+  });
+});
+
+describe('a user challenge is settled only in the owner\'s words', () => {
+  const challenged = () => {
+    const dir = path.join(r.host.base, `carry${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui']).status).toBe(0);
+    phaseVia(r, out, 'ceo', AGREE);
+    phaseVia(r, out, 'eng', NONE);
+    expect(gateOf(out).items.find((i: any) => i.id === 'uc1')).toMatchObject({ kind: 'approval', item_class: 'challenge2' });
+    return out;
+  };
+  const agent = ['--by', 'agent:gstack-minder', '--words-by', 'agent:gstack-minder', '--owner-reply', 'Accepted on the standing approval'];
+
+  test('agent words that would settle uc1 are refused, naming the item and the owner words it needs; the gate stays open', () => {
+    const out = challenged();
+    const before = fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8');
+    for (const reply of ['rec', 'as-is', 'uc1b p1b', 'uc1a']) {
+      const res = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', reply, '--rec-hash', recHashOf(out), ...agent]);
+      expect(res.status, `${reply}: ${res.stdout}`).toBe(3);
+      expect(res.stderr).toMatch(/uc1 is a user challenge only the owner can settle.*agent:gstack-minder's own words.*--owner-reply.*\(OWNER_REPLY_REQUIRED\)/);
+    }
+    expect(fs.readFileSync(path.join(out, 'decisions.jsonl'), 'utf8')).toBe(before);
+    expect(readRunJson(out).status).toBe('gate_pending');
+  });
+
+  test("the owner's words settle the same item", () => {
+    const out = challenged();
+    const res = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'rec', '--rec-hash', recHashOf(out), '--by', 'agent:gstack-minder', '--owner-reply', 'Garry: Do it']);
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.stdout).toMatch(/^APPLY: .*uc1/m);
+    expect(decisions(out).find(d => d.label === 'UC1')).toMatchObject({ chosen: 'b', status: 'approved', owner_reply: 'Garry: Do it' });
+  });
+
+  test('agent words still answer the items an agent may decide, leaving uc1 to the owner', () => {
+    const out = challenged();
+    const d1 = gateOf(out).items.find((i: any) => i.id === 'd1');
+    const res = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', d1 ? 'd1a p1a' : 'p1a', ...agent]);
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.stdout).toMatch(/^GATE_PENDING: uc1 unanswered/m);
+    expect(decisions(out).find(d => d.label === 'UC1')).toMatchObject({ status: 'pending' });
   });
 });
 
