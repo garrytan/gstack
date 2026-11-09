@@ -30,24 +30,26 @@ describe('the runner-config helpers', () => {
   test('listCommand rewrites vitest run and jest, keeps the prefix and flags, and leaves every other runner alone', () => {
     expect(listCommand('npx vitest run {files}', ['tests/a.test.js'], '/s/l.json')).toBe("npx vitest list --filesOnly --json='/s/l.json' 'tests/a.test.js'");
     expect(listCommand('pnpm exec vitest run --config vitest.live.config.js {files}', ['a.test.ts'], '/s/l.json')).toBe("pnpm exec vitest list --filesOnly --json='/s/l.json' --config vitest.live.config.js 'a.test.ts'");
-    expect(listCommand('npx jest {files}', ['a.test.js'], '/s/l.json')).toBe("npx jest --listTests --json 'a\\.test\\.js'");
-    expect(listCommand('./node_modules/.bin/jest --ci {files}', ['a.test.js'], '/s/l.json')).toBe("./node_modules/.bin/jest --listTests --json --ci 'a\\.test\\.js'");
-    // jest reads each file argument as a regex: a Next.js route segment is escaped, or `[id]` would be a character class and the file never listed.
-    expect(listCommand('npx jest {files}', ['app/[id]/(group)/page.test.js'], '/s/l.json')).toBe("npx jest --listTests --json 'app/\\[id\\]/\\(group\\)/page\\.test\\.js'");
+    // jest lists every test its config runs, with no file arguments: it reads one as a regex (`app/[id]/…` would match nothing) or,
+    // under --runTestsByPath, as a path (an escaped one would name no file), so the selection is intersected with the list instead.
+    expect(listCommand('npx jest {files}', ['app/[id]/page.test.js'], '/s/l.json')).toBe('npx jest --listTests --json');
+    expect(listCommand('./node_modules/.bin/jest --ci {files}', ['a.test.js'], '/s/l.json')).toBe('./node_modules/.bin/jest --listTests --json --ci');
+    expect(listCommand('npx jest --runTestsByPath {files}', ['app/[id]/page.test.js'], '/s/l.json')).toBe('npx jest --listTests --json --runTestsByPath');
     // A tool name inside another word or path is not the runner: bun with a jest setup file gets no jest probe.
     for (const runner of ['bun test {files}', 'bun test --preload ./jest.setup.ts {files}', 'node --test {files}', 'npx playwright test --reporter=list {files}', 'npx vitest {files}', 'node scripts/run-tests.js {files}', 'npx jest --listTests {files}', 'npx jest-cli {files}', 'bun test --preload ./vitest.run.ts {files}']) expect(listCommand(runner, ['a.test.js'], '/s/l.json')).toBeNull();
   });
 
-  // Value: protects=a run that ended on the runner's own no-files message for files on disk is read as not applicable, with the
-  //   config's patterns as the reason, while a missing file (a bad selector) or any other exit stays judged; fails_when=the message
-  //   alone clears a lane or the existence guard goes; why_new=new helper; seam=none; no_claim=which files the config excludes
-  test('noTestFilesFound reads vitest and jest no-files exits for files that exist, and nothing else', () => {
+  // Value: protects=a vitest run that ended on its own no-files message for files on disk is read as not applicable, with the
+  //   config's patterns as the reason, while a missing file (a bad selector), jest's "No tests found" (a regex argument can match
+  //   nothing while the config includes the file) or any other exit stays judged; fails_when=the message alone clears a lane, the
+  //   existence guard goes, or jest's message clears one; why_new=new helper; seam=none; no_claim=which files the config excludes
+  test('noTestFilesFound reads a vitest no-files exit for files that exist, and nothing else', () => {
     const dir = tempDir();
     fs.mkdirSync(path.join(dir, 'tests/live'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'tests/live/a.test.js'), '');
     expect(noTestFilesFound(VITEST_NO_FILES, dir, ['tests/live/a.test.js'])).toBe('the runner\'s config excludes them: the runner said "No test files found" (include: tests/**/*.test.js; exclude: **/node_modules/**, **/.git/**, tests/live/**)');
     const jest = 'No tests found, exiting with code 1\nRun with `--passWithNoTests` to exit with code 0\nIn /repo\n  6 files checked.\n  testPathIgnorePatterns: /node_modules/, /tests/live/ - 5 matches\nPattern: tests/live/a.test.js - 0 matches\n';
-    expect(noTestFilesFound(jest, dir, ['tests/live/a.test.js'])).toBe('the runner\'s config excludes them: the runner said "No tests found" (testPathIgnorePatterns: /node_modules/, /tests/live/ - 5 matches)');
+    expect(noTestFilesFound(jest, dir, ['tests/live/a.test.js'])).toBeNull();
     expect(noTestFilesFound(VITEST_NO_FILES, dir, ['tests/live/a.test.js', 'tests/live/gone.test.js'])).toBeNull();
     expect(noTestFilesFound(' Test Files  1 failed (1)\n      Tests  1 failed (1)\n', dir, ['tests/live/a.test.js'])).toBeNull();
     expect(noTestFilesFound(VITEST_NO_FILES, dir, [])).toBeNull();
@@ -59,11 +61,12 @@ describe('the runner-config helpers', () => {
     const dir = tempDir();
     const bin = path.join(dir, 'bin');
     fs.mkdirSync(bin);
-    fs.writeFileSync(path.join(bin, 'jest'), '#!/usr/bin/env bash\n[ -n "$JEST_SHIM_EXIT" ] && exit "$JEST_SHIM_EXIT"\n[ -n "$JEST_SHIM_TEXT" ] && { echo "$JEST_SHIM_TEXT"; exit 0; }\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "yarn run v1.22.22"\nprintf \'["%s"]\\n\' "$PWD/tests/unit/b.test.js"\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "Done in 0.41s."\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'jest'), '#!/usr/bin/env bash\necho "$*" > "$JEST_SHIM_ARGS"\n[ -n "$JEST_SHIM_EXIT" ] && exit "$JEST_SHIM_EXIT"\n[ -n "$JEST_SHIM_TEXT" ] && { echo "$JEST_SHIM_TEXT"; exit 0; }\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "yarn run v1.22.22"\nprintf \'["%s"]\\n\' "$PWD/tests/unit/b.test.js"\n[ -n "$JEST_SHIM_PREAMBLE" ] && echo "Done in 0.41s."\nexit 0\n', { mode: 0o755 });
     for (const f of ['tests/unit/b.test.js', 'tests/live/a.test.js']) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), ''); }
-    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, JEST_SHIM_ARGS: path.join(dir, 'args.txt') };
     const files = ['tests/live/a.test.js', 'tests/unit/b.test.js'];
     expect(excludedByConfig('jest {files}', dir, files, env, dir, 30_000)).toEqual({ files: ['tests/live/a.test.js'], reason: "the runner's config excludes them: `jest --listTests` does not list them in this environment" });
+    expect(fs.readFileSync(env.JEST_SHIM_ARGS, 'utf8').trim()).toBe('--listTests --json');
     expect(excludedByConfig('jest {files}', dir, ['tests/unit/b.test.js'], env, dir, 30_000)).toBeNull();
     // A package manager's preamble and footer around jest's JSON (yarn classic) still leave the JSON line readable.
     expect(excludedByConfig('jest {files}', dir, files, { ...env, JEST_SHIM_PREAMBLE: '1' }, dir, 30_000)?.files).toEqual(['tests/live/a.test.js']);
@@ -175,4 +178,71 @@ describe('lanes under a vitest config that excludes tests/live', () => {
       expect(r.status).not.toBe(EXIT.ok);
     }
   }, 120_000);
+});
+
+/**
+ * An `npx` on PATH that behaves like jest under a config ignoring /tests/live/: `jest --listTests --json` prints every
+ * test file under tests/ outside tests/live; a run reads each file argument as a regex against the absolute path (as jest does),
+ * or as a literal path under --runTestsByPath, and prints jest's summary, or "No tests found" with exit 1 when nothing matched.
+ */
+const jestNpxShim = (repo: FixtureRepo): Record<string, string> => {
+  const dir = path.join(repo.root, 'npx-jest-shim');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'npx'), [
+    '#!/usr/bin/env bash',
+    '[ "$1" = jest ] || exit 99',
+    'shift; list=; bypath=; args=()',
+    'for a in "$@"; do case "$a" in --listTests) list=1 ;; --json) ;; --runTestsByPath) bypath=1 ;; *) args+=("$a") ;; esac; done',
+    'all=(); while IFS= read -r f; do case "$f" in tests/live/*) ;; *) all+=("$f") ;; esac; done < <(find tests -name "*.test.js" | sort)',
+    'if [ -n "$list" ]; then printf "["; sep=; for f in "${all[@]}"; do printf \'%s"%s"\' "$sep" "$PWD/$f"; sep=,; done; printf "]\\n"; exit 0; fi',
+    'echo "jest run: ${args[*]}" >> "$JEST_SHIM_LOG"',
+    'n=0; for f in "${all[@]}"; do for a in "${args[@]}"; do if [ -n "$bypath" ]; then [ "$f" = "$a" ] && n=$((n+1)); elif [[ "$PWD/$f" =~ $a ]]; then n=$((n+1)); fi; done; done',
+    'if [ $n -eq 0 ]; then echo "No tests found, exiting with code 1" >&2; exit 1; fi',
+    'echo "Tests:       $n passed, $n total"',
+    '',
+  ].join('\n'), { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'path.sh'), `PATH='${dir}':"$PATH"\n`);
+  return { PATH: `${dir}:${process.env.PATH ?? ''}`, BASH_ENV: path.join(dir, 'path.sh'), JEST_SHIM_LOG: path.join(repo.root, 'jest-runs.log') };
+};
+
+describe('lanes under a jest config that ignores tests/live', () => {
+  const TEST = (name: string) => `test('${name}', () => {});\n`;
+  const BASE = {
+    'package.json': JSON.stringify({ name: 'fixture', version: '1.0.0', scripts: { test: 'jest' }, devDependencies: { jest: '^30.0.0' } }, null, 2) + '\n',
+    'tests/live/a.test.js': TEST('live a'),
+    'tests/unit/[id]/c.test.js': TEST('unit c'),
+  };
+  const run = (files: Record<string, string>, runner?: string) => {
+    const repo = makeFixtureRepo({ pregate: { $schema: 'https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1', dependencies: { 'docs/**': [], 'README.md': [] }, ...(runner ? { runner } : {}) }, baseFiles: BASE });
+    repos.push(repo);
+    commit(repo, { '.github/workflows/free-tests.yml': null, '.github/workflows/windows.yml': null }, 'no workflows');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin');
+    commit(repo, files);
+    const shim = jestNpxShim(repo);
+    const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--only', 'lanes'], shim);
+    const runs = fs.existsSync(shim.JEST_SHIM_LOG!) ? fs.readFileSync(shim.JEST_SHIM_LOG!, 'utf8').trim().split('\n') : [];
+    return { ...r, runs, lanes: /^tests {6}lanes {5}.*$/m.exec(r.out)?.[0] ?? '' };
+  };
+
+  // Value: protects=under a --runTestsByPath runner the listing still keeps an included file whose path has regex characters, so it
+  //   runs; the ignored file is named not applicable (red-team pass 2: escaped arguments named no file, and the lane passed with zero
+  //   tests); fails_when=jest's listing is given file arguments again; why_new=new path; seam=an npx jest shim; no_claim=real jest
+  test('a --runTestsByPath runner runs an included [id] path and names the ignored file not applicable', () => {
+    const r = run({ 'tests/live/a.test.js': TEST('live a2'), 'tests/unit/[id]/c.test.js': TEST('unit c2') }, 'npx jest --runTestsByPath {files}');
+    expect(r.runs).toEqual(['jest run: tests/unit/[id]/c.test.js']);
+    expect(r.lanes).toMatch(/ pass .*1 tests ran in 1 file\(s\), exit 0; 1 selected file\(s\) not applicable here .*`jest --listTests` does not list them in this environment\): tests\/live\/a\.test\.js/);
+    expect(r.status).toBe(EXIT.ok);
+  }, 60_000);
+
+  // Value: protects=(hold) a detected jest runner given an [id] path, which jest reads as a regex matching nothing, still fails as
+  //   on main; jest's "No tests found" is never not applicable; fails_when=that exit passes silently with zero tests run;
+  //   why_new=new path; seam=an npx jest shim; no_claim=real jest
+  test('hold: an included [id] path jest cannot match by regex still fails, never not applicable', () => {
+    const r = run({ 'tests/unit/[id]/c.test.js': TEST('unit c2') });
+    expect(r.runs).toEqual(['jest run: tests/unit/[id]/c.test.js']);
+    expect(r.lanes).toMatch(/ fail .*PREGATE_LANE_FAILED/);
+    expect(r.lanes).not.toContain('not applicable');
+    expect(r.status).not.toBe(EXIT.ok);
+  }, 60_000);
 });

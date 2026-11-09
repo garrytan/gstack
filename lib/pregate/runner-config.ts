@@ -9,9 +9,10 @@
  * run. Two answers, both from the runner itself rather than a parse of its
  * config, so the config's env-gated branches resolve as they would here:
  * `excludedByConfig` asks the runner which of a group's files it would run
- * (`vitest list --filesOnly`, `jest --listTests`, each file argument escaped
- * for jest, which reads it as a regex) before the lane runs, and
- * `noTestFilesFound` reads a run that still ended on that message. Either way
+ * before the lane runs (`vitest list --filesOnly` for the group's files;
+ * `jest --listTests` for every test, since jest reads a file argument as a
+ * regex or, under `--runTestsByPath`, as a path), and `noTestFilesFound` reads
+ * a vitest run that still ended on that message. Either way
  * the files are not applicable here: not run, not counted as covered, never a
  * failure. Any doubt (another runner, a listing that fails or cannot be read,
  * a file missing from disk) leaves the files to run as before.
@@ -21,27 +22,23 @@ import * as path from 'node:path';
 import { runBashSync } from '../script-invocation';
 
 const VITEST_RUN = /(?<=^|[\s;&|(/])vitest\s+run(?=$|[\s;&|)])/;
+/** jest as a whole command word: `./node_modules/.bin/jest` is, `--preload ./jest.setup.ts` is not. */
 const JEST = /(?<=^|[\s;&|(/])jest(?=$|[\s;&|)])/;
-const NO_FILES = /^\s*(No test files found|No tests found), exiting with code 1\b.*$/m;
+const NO_FILES = /^\s*(No test files found), exiting with code 1\b.*$/m;
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-
-/** Whether `runner` runs jest, as a whole command word: `./node_modules/.bin/jest` does, `--preload ./jest.setup.ts` does not. */
-export const runsJest = (runner: string) => JEST.test(runner);
-
-/** A file argument for jest, which reads each one as a regex: escaped, so `app/[id]/page.test.js` matches that file and no other. */
-export const jestPattern = (f: string) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Files a runner's config leaves out of a run, and why. */
 export interface NotApplicable { files: string[]; reason: string }
 
 /**
  * The listing command for `runner` with `files`: vitest's `list --filesOnly` (its JSON written to `out`) for a `vitest run`
- * command, jest's `--listTests --json` for a jest one; null for any other runner, which runs every file as before.
+ * command; jest's `--listTests --json` with no file arguments for a jest one, so every test its config runs is listed whether
+ * the runner reads files as regexes or as paths (`--runTestsByPath`); null for any other runner, which runs every file as before.
  */
 export function listCommand(runner: string, files: readonly string[], out: string): string | null {
   if (VITEST_RUN.test(runner)) return runner.replace(VITEST_RUN, `vitest list --filesOnly --json=${quote(out)}`).replace('{files}', () => files.map(quote).join(' '));
-  if (runsJest(runner) && !/--listTests\b/.test(runner)) return runner.replace(JEST, 'jest --listTests --json').replace('{files}', () => files.map(jestPattern).map(quote).join(' '));
+  if (JEST.test(runner) && !/--listTests\b/.test(runner)) return runner.replace(JEST, 'jest --listTests --json').replace(/\s*\{files\}/, '');
   return null;
 }
 
@@ -69,13 +66,15 @@ export function excludedByConfig(runner: string, cwd: string, files: readonly st
 }
 
 /**
- * A run that exited non-zero with no test summary on the runner's own "No test files found" (vitest) or "No tests found"
- * (jest), for files that all exist under `cwd`: the config excluded every one, and the message (with the include and
- * exclude lines vitest prints after it) is the reason. Null otherwise; a missing file still fails as a bad selector.
+ * A run that exited non-zero with no test summary on vitest's own "No test files found", for files that all exist under
+ * `cwd`: vitest matches a file argument as a path substring, so the config excluded every one, and the message with the
+ * include and exclude lines vitest prints after it is the reason. Null otherwise: a missing file still fails as a bad
+ * selector, and jest's "No tests found" stays a failure, since jest reads a file argument as a regex and a path such as
+ * `app/[id]/page.test.js` can match nothing while the config includes it.
  */
 export function noTestFilesFound(output: string, cwd: string, files: readonly string[]): string | null {
   const m = NO_FILES.exec(output);
   if (!m || !files.length || !files.every(f => fs.existsSync(path.join(cwd, f)))) return null;
-  const patterns = output.slice(m.index).split('\n').map(l => l.trim()).filter(l => /^(include|exclude|testMatch|testPathIgnorePatterns|testRegex):/.test(l));
+  const patterns = output.slice(m.index).split('\n').map(l => l.trim()).filter(l => /^(include|exclude):/.test(l));
   return `the runner's config excludes them: the runner said "${m[1]}"${patterns.length ? ` (${patterns.join('; ').replace(/\s+/g, ' ')})` : ''}`;
 }
