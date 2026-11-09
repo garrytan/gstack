@@ -601,3 +601,110 @@ describe('state-root safety: only the default root is deleted (docs/state-root.m
     expect(fs.lstatSync(path.join(mockHome, '.gstack')).isSymbolicLink()).toBe(true);
   });
 });
+
+// Value: protects=a repo's tracked .gstack/ policy files and the uncommitted work in its .gstack-worktrees/ checkouts;
+//   fails_when=uninstall removes per-project state without checking --keep-state, git-tracked files, or dirty worktrees;
+//   why_new=GSTA-461 item 9 (data loss under --keep-state); seam=none; no_claim=a real gstack install (temp HOME and state root)
+describe('per-project state: tracked files and dirty worktrees survive (GSTA-461 item 9)', () => {
+  let tmp: string, home: string, repo: string, gitEnv: Record<string, string>;
+  const git = (args: string[], cwd = repo) => {
+    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+    return r.stdout;
+  };
+  const uninstall = (args: string[]) => spawnSync('bash', [UNINSTALL, ...args], {
+    cwd: repo, encoding: 'utf-8', timeout: 30_000,
+    env: { ...gitEnv, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'),
+      GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+      GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+  });
+  const worktree = path.join('.gstack-worktrees', 'run-1', 'lane-1');
+
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-proj-')));
+    home = path.join(tmp, 'home');
+    repo = path.join(tmp, 'proj');
+    fs.writeFileSync(path.join(tmp, 'gitconfig'), '');
+    gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string>;
+    fs.mkdirSync(path.join(home, '.claude', 'skills', 'gstack'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+    fs.mkdirSync(path.join(home, '.gstack'), { recursive: true });
+    fs.mkdirSync(path.join(repo, '.gstack'), { recursive: true });
+    git(['init', '-q', '-b', 'main']);
+    fs.writeFileSync(path.join(repo, '.git', 'info', 'exclude'), '.gstack-worktrees/\n');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'x\n');
+    git(['add', 'README.md']);
+    git(['commit', '-q', '-m', 'seed']);
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  function trackPolicyAndAddBrowseState() {
+    fs.writeFileSync(path.join(repo, '.gstack', 'ship-policy.json'), '{"merge":"direct"}\n');
+    git(['add', '.gstack/ship-policy.json']);
+    git(['commit', '-q', '-m', 'policy']);
+    fs.writeFileSync(path.join(repo, '.gstack', '.gitignore'), '*\n');
+    fs.writeFileSync(path.join(repo, '.gstack', 'browse.json'), '{}\n');
+  }
+  function addWorktree(dirty: boolean) {
+    git(['worktree', 'add', '-q', '--detach', worktree, 'HEAD']);
+    if (dirty) fs.writeFileSync(path.join(repo, worktree, 'wip.txt'), 'unsaved work\n');
+  }
+
+  test('--keep-state keeps the repo .gstack/ and every .gstack-worktrees/ checkout', () => {
+    trackPolicyAndAddBrowseState();
+    addWorktree(true);
+    const r = uninstall(['--force', '--keep-state']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain(`${repo}/.gstack`);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(true);
+    expect(git(['status', '--short'])).toBe('');
+    expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(false);
+  });
+
+  test('a plain uninstall keeps git-tracked .gstack files and removes the ignored browse state', () => {
+    trackPolicyAndAddBrowseState();
+    fs.writeFileSync(path.join(repo, '.gstack', 'ship-policy.json'), '{"merge":"queue"}\n');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(repo, '.gstack', 'ship-policy.json'), 'utf-8')).toBe('{"merge":"queue"}\n');
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(false);
+    expect(git(['status', '--short', '--', '.gstack'])).toBe(' M .gstack/ship-policy.json\n');
+    expect(r.stderr).toContain('kept git-tracked files');
+  });
+
+  test('a dirty worktree stops a plain uninstall before anything is removed, naming the worktree and the fix', () => {
+    trackPolicyAndAddBrowseState();
+    addWorktree(true);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has uncommitted changes`);
+    expect(r.stderr).toMatch(/^fix: .*--keep-state.*--force-worktrees/m);
+    expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(true);
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(true);
+  });
+
+  test('--force-worktrees removes a dirty worktree and prunes its registration', () => {
+    addWorktree(true);
+    const r = uninstall(['--force', '--force-worktrees']);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+    expect(git(['worktree', 'list', '--porcelain'])).not.toContain('lane-1');
+  });
+
+  test('hold: a plain uninstall still removes untracked .gstack state and clean worktrees entirely', () => {
+    fs.writeFileSync(path.join(repo, '.gstack', 'browse.json'), '{}\n');
+    fs.mkdirSync(path.join(repo, '.gstack', 'reports'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.gstack', 'reports', 'qa.md'), '# qa\n');
+    addWorktree(false);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`${repo}/.gstack/`);
+    expect(r.stdout).toContain(`${repo}/.gstack-worktrees/`);
+    expect(fs.existsSync(path.join(repo, '.gstack'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(false);
+  });
+});

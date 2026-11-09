@@ -4,7 +4,15 @@
 # Usage:
 #   gstack-uninstall              — interactive uninstall (prompts before removing)
 #   gstack-uninstall --force      — remove everything without prompting
-#   gstack-uninstall --keep-state — remove skills but keep all gstack state
+#   gstack-uninstall --keep-state — remove skills but keep all gstack state,
+#                                   including the repo's .gstack/ and .gstack-worktrees/
+#   gstack-uninstall --force-worktrees — also delete .gstack-worktrees/ checkouts
+#                                   that have uncommitted changes
+#
+# Per-project state: git-tracked files under .gstack/ (ship policy and the
+# like) are never deleted; only the files git ignores go. A worktree under
+# .gstack-worktrees/ with uncommitted changes stops the uninstall (exit 2,
+# before anything is removed) unless --force-worktrees is given.
 #
 # State: only the default root ~/.gstack/ is ever deleted. A state root
 # selected elsewhere (GSTACK_HOME, GSTACK_STATE_ROOT, GSTACK_STATE_DIR or
@@ -33,8 +41,10 @@
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
-#   .gstack/                      — per-project browse state (in current git repo)
-#   .gstack-worktrees/            — per-project test worktrees (in current git repo)
+#   .gstack/                      — per-project browse state (in current git repo;
+#                                   git-tracked files are kept)
+#   .gstack-worktrees/            — per-project test worktrees (in current git repo;
+#                                   dirty ones need --force-worktrees)
 #   .agents/skills/gstack*        — Codex/Gemini sidecar (in current git repo)
 #   .cursor/skills/gstack*        — project-local Cursor skills (in current git repo)
 #   Running browse daemons        — stopped via SIGTERM before cleanup
@@ -71,17 +81,19 @@ _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 # ─── Parse flags ─────────────────────────────────────────────
 FORCE=0
 KEEP_STATE=0
+FORCE_WORKTREES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     --keep-state) KEEP_STATE=1; shift ;;
+    --force-worktrees) FORCE_WORKTREES=1; shift ;;
     -h|--help)
       sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
       exit 0
       ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: gstack-uninstall [--force] [--keep-state]" >&2
+      echo "Usage: gstack-uninstall [--force] [--keep-state] [--force-worktrees]" >&2
       exit 1
       ;;
   esac
@@ -126,6 +138,32 @@ if [ "$KEEP_STATE" -eq 0 ] && [ -e "$RESOLVED_ROOT" ]; then
     _LEAVE_ROOT="$RESOLVED_ROOT"
   fi
 fi
+# ─── Per-project worktree safety ─────────────────────────────
+# Registered worktrees under .gstack-worktrees/; git's own list, so a plain
+# directory there never makes git walk up and report the parent repository.
+_project_worktrees() {
+  local _base _wt
+  _base="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  [ -n "$_base" ] || return 0
+  git -C "$_GIT_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r _wt; do
+    case "$(_real "$_wt")/" in "$_base"/*) printf '%s\n' "$_wt" ;; esac
+  done
+}
+if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+  _DIRTY_WORKTREES=0
+  while IFS= read -r _WT; do
+    [ -n "$_WT" ] || continue
+    if ! _WT_STATUS="$(git -C "$_WT" status --porcelain 2>/dev/null)" || [ -n "$_WT_STATUS" ]; then
+      echo "gstack-uninstall: refusing to delete $_WT: it has uncommitted changes" >&2
+      _DIRTY_WORKTREES=1
+    fi
+  done < <(_project_worktrees)
+  if [ "$_DIRTY_WORKTREES" -eq 1 ]; then
+    echo "fix: commit or stash the changes, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete them anyway" >&2
+    exit 2
+  fi
+fi
+
 _report_left_root() {
   [ -n "$_LEAVE_ROOT" ] || return 0
   local _val
@@ -151,8 +189,10 @@ if [ "$FORCE" -eq 0 ]; then
 
   if [ -n "$_GIT_ROOT" ]; then
     [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
-    [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
-    [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
+    if [ "$KEEP_STATE" -eq 0 ]; then
+      [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports; git-tracked files are kept)"
+      [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
+    fi
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
     [ -d "$_GIT_ROOT/.cursor/skills" ] && echo "  $_GIT_ROOT/.cursor/skills/gstack*"
   fi
@@ -483,14 +523,29 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.cursor/skills" ]; then
 fi
 
 # ─── Remove per-project state ───────────────────────────────
-if [ -n "$_GIT_ROOT" ]; then
-  if [ -d "$_GIT_ROOT/.gstack" ]; then
-    rm -rf "$_GIT_ROOT/.gstack"
-    REMOVED+=("$_GIT_ROOT/.gstack/")
+# --keep-state keeps both folders. Otherwise a folder holding git-tracked files
+# loses only what git ignores; dirty worktrees were refused above unless
+# --force-worktrees was given.
+_remove_project_dir() {
+  local _dir="$_GIT_ROOT/$1"
+  [ -d "$_dir" ] || return 0
+  if [ -z "$(git -C "$_GIT_ROOT" ls-files -- "$1" 2>/dev/null | head -n 1)" ]; then
+    rm -rf "$_dir"
+    REMOVED+=("$_dir/")
+    return 0
   fi
+  git -C "$_GIT_ROOT" clean -fdXq -- "$1" >/dev/null 2>&1 || true
+  REMOVED+=("$_dir/ (git-ignored files)")
+  echo "kept git-tracked files in $_dir/ (and any untracked file git does not ignore)" >&2
+}
+if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
+  _remove_project_dir .gstack
   if [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
-    rm -rf "$_GIT_ROOT/.gstack-worktrees"
-    REMOVED+=("$_GIT_ROOT/.gstack-worktrees/")
+    while IFS= read -r _WT; do
+      [ -n "$_WT" ] && rm -rf "$_WT"
+    done < <(_project_worktrees)
+    _remove_project_dir .gstack-worktrees
+    git -C "$_GIT_ROOT" worktree prune 2>/dev/null || true
   fi
 fi
 
