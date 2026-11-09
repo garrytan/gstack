@@ -2,8 +2,11 @@
  * lib/run-evidence.ts: a GitHub Actions run as evidence for one tree (GSTA-156). Every refusal reason has a fixture;
  * the dependencies are fakes, so nothing here reaches GitHub.
  */
-import { describe, expect, test } from 'bun:test';
-import { parseRunReceipt, parseRunRef, runInventory, runProfileErrors, runReceiptFields, uncoveredFiles, verifyFromRun, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
+import { afterAll, describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { ghRunDeps, parseRunReceipt, parseRunRef, runInventory, runProfileErrors, runReceiptFields, uncoveredFiles, verifyFromRun, verifyRun, type ApiJob, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
 
 const REPO = 'garrytan/gbrain';
 const HEAD = 'a'.repeat(40);
@@ -246,5 +249,74 @@ describe('verifyFromRun (P3b --from-run)', () => {
     const OWN = 'c'.repeat(40);
     const red: ApiRun = { ...base.run, id: 101, head_sha: OWN, conclusion: 'failure', created_at: '2026-10-29T11:00:00Z' };
     expect(verifyFromRun(src(world({ others: [red] })), '100', ['test.yml/unit'], TREE, OWN)).toMatchObject({ ok: false, reason: 'newer_run_vetoes' });
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('ghRunDeps jobs read through a proxy that cuts slow pages (GST-2215)', () => {
+  // A stub gh that pages an attempt-2 jobs list itself, the way `gh api --paginate` does, and answers 502 for any page
+  // larger than maxPage (the git proxy's ~10 s cutoff), for one failing page, or 404 for everything.
+  const dirs: string[] = [];
+  afterAll(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+  function stubGh(o: { jobs: number; maxPage: number; failPage?: number; status?: 404 }) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gst2215-'));
+    dirs.push(dir);
+    const log = path.join(dir, 'calls.log');
+    fs.writeFileSync(path.join(dir, 'gh'), [
+      '#!/usr/bin/env bash',
+      `printf '%s\\n' "$*" >> '${log}'`,
+      ...(o.status ? [`echo 'gh: Not Found (HTTP ${o.status})' >&2; exit 1`] : []),
+      'url=""; for a in "$@"; do case "$a" in repos/*) url="$a";; esac; done',
+      'case "$url" in */actions/runs/100/attempts/2/jobs\\?per_page=*) ;; *) echo "gh: unexpected $url" >&2; exit 1;; esac',
+      'n="${url##*per_page=}"',
+      `if [ "$n" -gt ${o.maxPage} ]; then echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1; fi`,
+      `i=1; page=1; while [ $i -le ${o.jobs} ]; do`,
+      `  if [ $page -eq ${o.failPage ?? 0} ]; then echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1; fi`,
+      `  end=$((i + n - 1)); [ $end -gt ${o.jobs} ] && end=${o.jobs}`,
+      '  for j in $(seq $i $end); do printf \'{"name":"job-%d","conclusion":"success"}\\n\' $j; done',
+      '  i=$((end + 1)); page=$((page + 1))',
+      'done',
+    ].join('\n'), { mode: 0o755 });
+    return { dir, calls: () => fs.readFileSync(log, 'utf8').trim().split('\n') };
+  }
+  function verifyThrough(stub: { dir: string }) {
+    const saved = { PATH: process.env.PATH, GSTACK_STATE_ROOT: process.env.GSTACK_STATE_ROOT };
+    process.env.PATH = `${stub.dir}:${saved.PATH}`;
+    process.env.GSTACK_STATE_ROOT = path.join(stub.dir, 'state');
+    try {
+      const base = world();
+      const w = world({ run: { ...base.run, run_attempt: 2 }, artifact: { ...(base.artifact as TreeRecord), run_attempt: 2 } });
+      return verifyRun({ ...deps(w), jobs: ghRunDeps(REPO, stub.dir).jobs }, { repo: REPO, runRef: '100', profileName: 'test', profile: { ...PROFILE, jobs: ['job-1', 'job-75'] }, now: NOW });
+    } finally {
+      process.env.PATH = saved.PATH;
+      if (saved.GSTACK_STATE_ROOT === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = saved.GSTACK_STATE_ROOT;
+    }
+  }
+  const page = (n: number) => `api --paginate repos/${REPO}/actions/runs/100/attempts/2/jobs?per_page=${n} --jq .jobs[]`;
+
+  // Value: protects=a rerun attempt with 86 jobs verifies when the proxy 502s a 100-job page; fails_when=the read asks for 100 per page or stops after page one;
+  //   why_new=GST-2215 (gbrain #8940); seam=ghRunDeps.jobs over a PATH stub; no_claim=GitHub's real latency
+  test('an attempt-2 run with more than 50 jobs is read at 50 per page, every page, and verifies', () => {
+    const stub = stubGh({ jobs: 86, maxPage: 50 });
+    const v = verifyThrough(stub);
+    expect(v.ok ? v.evidence.run_attempt : v.detail).toBe(2);
+    expect(stub.calls()).toEqual([page(50)]);
+  });
+
+  // Value: protects=one smaller-page retry after a 5xx; fails_when=a 502 at 50 per page refuses without retrying
+  test('a 5xx at 50 per page retries the whole list once at 25 per page', () => {
+    const stub = stubGh({ jobs: 86, maxPage: 25 });
+    expect(verifyThrough(stub).ok).toBe(true);
+    expect(stub.calls()).toEqual([page(50), page(25)]);
+  });
+
+  // Value: protects=fail closed, a partial job list never counts; fails_when=the jobs printed before a failed page are used, or the retry repeats
+  test('a page failing in the middle of the list stays api_error after one retry, and a non-5xx error does not retry', () => {
+    const mid = stubGh({ jobs: 86, maxPage: 100, failPage: 2 });
+    const v = verifyThrough(mid);
+    expect(v.ok ? 'ok' : [v.reason, v.detail.includes('HTTP 502')]).toEqual(['api_error', true]);
+    expect(mid.calls()).toEqual([page(50), page(25)]);
+    const missing = stubGh({ jobs: 86, maxPage: 100, status: 404 });
+    expect(verifyThrough(missing)).toMatchObject({ ok: false, reason: 'api_error' });
+    expect(missing.calls()).toEqual([page(50)]);
   });
 });
