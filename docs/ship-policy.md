@@ -265,13 +265,16 @@ so it builds the scratch merge described below (`SCREEN_MERGE:`, pushed as
 (or a remote whose refs cannot be listed) is `QUEUE_SCREEN_STALE_REF`. A CHANGELOG-only conflict is screenable, and a
 lane whose skill's own paid cases ran focused may still READY with `--no-screen`.
 
-`ci:` counts the latest run per check (one app's check name), as GitHub's
-rollup does: a check that was re-run or superseded on the same commit (a
-cancelled run beside a later pass of the same name from a second workflow run)
-is judged by its newest run (latest `completed_at`, then id; a run still in
+`ci:` reads every attempt of each check suite and judges a suite by its latest
+attempt that has jobs (earlier attempts count only when the latest has none).
+It keeps the newest run per check (one app's check name): a check that was
+re-run or superseded on the same commit is judged by its newest run (latest `completed_at`, then id; a run still in
 progress is newest); two apps reporting the same name stay separate; a run with
 no name or no readable `completed_at` counts on its own; commit-status contexts
-are counted one each.
+are counted one each. A workflow run that failed without starting any job
+counts as a failed check `<workflow> (run <id>, no jobs)` unless a later run of
+the same workflow replaced it; a run cancelled before any job is not counted.
+An unreadable list is unknown, never green.
 
 It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate

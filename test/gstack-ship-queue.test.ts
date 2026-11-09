@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { SHIP_QUEUE_KEYS_VERSION } from '../lib/ship-policy';
-import { receiptDigest } from '../lib/ship-queue';
+import { ciAtHead, receiptDigest } from '../lib/ship-queue';
 import { applyStampPatch } from '../crew/lib/ship-queue-gate';
 import type { TreeReceipt } from '../lib/tree-receipt';
 import { BASE_POLICY, BIN, cleanup, makeFixtureRepo, makePr, mergeMain, mergeToMain, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -547,13 +547,13 @@ describe('full_e2e gate evidence (review #3235 P1-1)', () => {
 describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
   const pass = { status: 'completed', conclusion: 'success' };
   const hundred = Array.from({ length: 100 }, () => pass);
-  function readyWith(checks: unknown, statuses?: unknown) {
+  function readyWith(checks: unknown, statuses?: unknown, workflowRuns?: unknown) {
     const repo = fixture();
     const head = makePr(repo, 'pr-a');
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(repo.root, 'pregate.json');
     fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
-    const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks }, ...(statuses ? { statuses: { [head]: statuses } } : {}) });
+    const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks }, ...(statuses ? { statuses: { [head]: statuses } } : {}), ...(workflowRuns ? { workflowRuns: { [head]: workflowRuns } } : {}) });
     return { r: queue(repo, ['ready', '--pr', '1', '--pregate', pregate], gh), at: head.slice(0, 12) };
   }
 
@@ -597,6 +597,102 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     expect(line(queued.r.out, 'ci: ')).toBe(`ci: pending at ${queued.at} (passed=1 failed=0 pending=1 skipped=0)`);
     const nullConclusion = readyWith({ check_runs: [{ ...newer, conclusion: null }, other] });
     expect(line(nullConclusion.r.out, 'ci: ')).toBe(`ci: red at ${nullConclusion.at} (passed=1 failed=1 pending=0 skipped=0)`);
+  }, 240_000);
+
+  // Value: protects=a check whose latest workflow-run attempt has no jobs (GitHub's default filter=latest then lists none of its runs) still counts its
+  // failed, cancelled, timed_out or action_required run, while a green head, a pending or skipped check and a rerun that later passed keep their results;
+  // fails_when=ready reads only the latest attempt's runs and calls gstack-evals#303 (failed checks, attempt 2 empty, beside a passing sealed) green;
+  // seam=ciAtHead (ready, land, train land, wave and post-merge share it) through the gh shim's filter=latest/all split; no_claim=a workflow run that never created a job
+  test('a failed check run from an earlier attempt is red when the latest attempt listed no jobs (gstack-evals#303)', () => {
+    const app = { id: 15368 };
+    const sealed = { id: 129322588977, name: 'sealed', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T17:22:47Z', app, check_suite: { id: 115553095053 } };
+    const checks = { id: 129322614246, name: 'checks', status: 'completed', conclusion: 'failure', completed_at: '2026-11-09T17:49:57Z', app, check_suite: { id: 115553115622 } };
+    const pr303 = readyWith({ check_runs: [{ ...checks, earlier_attempt: true }, sealed] });
+    expect(line(pr303.r.out, 'ci: ')).toBe(`ci: red at ${pr303.at} (passed=1 failed=1 pending=0 skipped=0)`);
+    expect(pr303.r.status).toBe(EXIT.refused);
+    for (const conclusion of ['cancelled', 'timed_out', 'action_required']) {
+      const r = readyWith({ check_runs: [{ ...checks, conclusion, earlier_attempt: true }, sealed] });
+      expect(line(r.r.out, 'ci: ')).toBe(`ci: red at ${r.at} (passed=1 failed=1 pending=0 skipped=0)`);
+    }
+    const green = readyWith({ check_runs: [{ ...checks, conclusion: 'success' }, sealed] });
+    expect(green.r.status).toBe(EXIT.ok);
+    expect(line(green.r.out, 'ci: ')).toBe(`ci: green at ${green.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    const pending = readyWith({ check_runs: [{ ...checks, status: 'in_progress', conclusion: null, completed_at: null }, sealed] });
+    expect(line(pending.r.out, 'ci: ')).toBe(`ci: pending at ${pending.at} (passed=1 failed=0 pending=1 skipped=0)`);
+    const skipped = readyWith({ check_runs: [{ ...checks, conclusion: 'skipped' }, sealed] });
+    expect(line(skipped.r.out, 'ci: ')).toBe(`ci: green at ${skipped.at} (passed=1 failed=0 pending=0 skipped=1)`);
+    const rerunPassed = readyWith({ check_runs: [{ ...checks, earlier_attempt: true }, { ...checks, id: 129330000000, conclusion: 'success', completed_at: '2026-11-09T18:20:00Z' }, sealed] });
+    expect(rerunPassed.r.status).toBe(EXIT.ok);
+    expect(line(rerunPassed.r.out, 'ci: ')).toBe(`ci: green at ${rerunPassed.at} (passed=2 failed=0 pending=0 skipped=0)`);
+  }, 240_000);
+
+  // Value: protects=a workflow run that failed before creating any job (no check run names it) is red unless a later run of the same workflow at the
+  // head replaced it; fails_when=ready drops gstack-evals#303's jobless sealed failure, or holds #4225's head on a jobless Plain title failure that a later
+  // run passed; seam=ciAtHead's actions/runs?head_sha read through the gh shim; no_claim=third-party apps' check suites that never report
+  test('a workflow run that ended with no jobs is red until a later run of the same workflow replaces it (gstack-evals#303, #4225)', () => {
+    const app = { id: 15368 };
+    const sealedRun = { id: 129322588977, name: 'sealed', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T17:22:47Z', app, check_suite: { id: 115553095053 } };
+    const checksRun = { id: 129322614246, name: 'checks', status: 'completed', conclusion: 'failure', completed_at: '2026-11-09T17:49:57Z', app, check_suite: { id: 115553115622 }, earlier_attempt: true };
+    const wf = (id: number, name: string, workflow_id: number, suite: number, conclusion: string, created_at: string) => ({ id, name, workflow_id, check_suite_id: suite, status: 'completed', conclusion, created_at });
+    const pr303 = readyWith({ check_runs: [checksRun, sealedRun] }, undefined, { workflow_runs: [
+      wf(42671854799, 'sealed', 2, 115574560782, 'failure', '2026-11-09T18:11:40Z'),
+      wf(42663983836, 'ci', 1, 115553115622, 'failure', '2026-11-09T17:22:30Z'),
+      wf(42663976278, 'sealed', 2, 115553095053, 'success', '2026-11-09T17:22:28Z'),
+    ] });
+    expect(line(pr303.r.out, 'ci: ')).toBe(`ci: red at ${pr303.at} (passed=1 failed=2 pending=0 skipped=0)`);
+    expect(pr303.r.status).toBe(EXIT.refused);
+    const title = { id: 129351707680, name: 'Plain title', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:28:20Z', app, check_suite: { id: 115581108609 } };
+    const free = { id: 129351700000, name: 'free-tests', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:20:00Z', app, check_suite: { id: 115580000000 } };
+    const startup = wf(42664833631, 'Plain title', 410784741, 115555408717, 'startup_failure', '2026-11-09T17:27:42Z');
+    const jobless = wf(42673942770, 'Plain title', 410784741, 115580220335, 'failure', '2026-11-09T18:25:42Z');
+    const replaced = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [wf(42674265699, 'Plain title', 410784741, 115581108609, 'success', '2026-11-09T18:27:59Z'), jobless, startup] });
+    expect(line(replaced.r.out, 'ci: ')).toBe(`ci: green at ${replaced.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(replaced.r.status).toBe(EXIT.ok);
+    const last = readyWith({ check_runs: [{ ...title, completed_at: '2026-11-09T17:30:00Z' }, free] }, undefined, { workflow_runs: [wf(42664900000, 'Plain title', 410784741, 115581108609, 'success', '2026-11-09T17:29:00Z'), jobless, startup] });
+    expect(line(last.r.out, 'ci: ')).toBe(`ci: red at ${last.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    expect(last.r.status).toBe(EXIT.refused);
+    const queued = readyWith({ check_runs: [{ ...title, completed_at: '2026-11-09T17:30:00Z' }, free] }, undefined, { workflow_runs: [{ ...wf(42674265699, 'Plain title', 410784741, 115590000000, 'success', '2026-11-09T18:27:59Z'), status: 'queued', conclusion: null }, jobless] });
+    expect(line(queued.r.out, 'ci: ')).toBe(`ci: red at ${queued.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    expect(queued.r.status).toBe(EXIT.refused);
+    const backstop = wf(41764056397, 'Main backstop gate', 3, 115500000000, 'cancelled', '2026-11-04T02:57:38Z');
+    const superseded = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [backstop] });
+    expect(line(superseded.r.out, 'ci: ')).toBe(`ci: green at ${superseded.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(superseded.r.status).toBe(EXIT.ok);
+  }, 240_000);
+
+  // Value: protects=each check suite is judged by its latest attempt alone when that attempt has jobs, and by its earlier attempts plus its
+  // workflow run's conclusion when it has none; fails_when=a rerun whose matrix dropped a failed slice stays red, or a passing first attempt hides a
+  // failed jobless rerun; seam=ciAtHead's filter=latest and filter=all reads through the gh shim; no_claim=GitHub's suite-per-attempt grouping
+  test('each check suite is judged by its latest attempt that ran jobs (stale matrix, empty failed rerun, replaced jobless run)', () => {
+    const app = { id: 15368 };
+    const at = (id: number, name: string, conclusion: string, completed_at: string, suite: number, earlier = false) => ({ id, name, status: 'completed', conclusion, completed_at, app, check_suite: { id: suite }, ...(earlier ? { earlier_attempt: true } : {}) });
+    const wf = (id: number, name: string, workflow_id: number, suite: number, conclusion: string, created_at: string) => ({ id, name, workflow_id, check_suite_id: suite, status: 'completed', conclusion, created_at });
+    const stale = readyWith({ check_runs: [
+      at(1, 'eval-slices (1)', 'success', '2026-11-09T17:00:00Z', 500, true), at(2, 'eval-slices (3)', 'failure', '2026-11-09T17:01:00Z', 500, true),
+      at(3, 'eval-slices (1)', 'success', '2026-11-09T18:00:00Z', 500), at(4, 'eval-slices (2)', 'success', '2026-11-09T18:01:00Z', 500),
+    ] }, undefined, { workflow_runs: [wf(42690000000, 'E2E Evals', 7, 500, 'success', '2026-11-09T16:59:00Z')] });
+    expect(line(stale.r.out, 'ci: ')).toBe(`ci: green at ${stale.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(stale.r.status).toBe(EXIT.ok);
+    const free = at(10, 'free-tests', 'success', '2026-11-09T18:20:00Z', 700);
+    const emptyRerun = readyWith({ check_runs: [at(11, 'checks', 'success', '2026-11-09T17:30:00Z', 600, true), free] }, undefined, { workflow_runs: [wf(42699999999, 'ci', 8, 600, 'failure', '2026-11-09T17:20:00Z')] });
+    expect(line(emptyRerun.r.out, 'ci: ')).toBe(`ci: red at ${emptyRerun.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    const lists: Record<string, unknown> = { latest: { check_runs: [free] }, all: { check_runs: [at(11, 'checks', 'success', '2026-11-09T17:30:00Z', 600), free] }, statuses: { statuses: [] }, workflow_runs: { workflow_runs: [wf(42699999999, 'ci', 8, 600, 'failure', '2026-11-09T17:20:00Z')] } };
+    const gh = (args: string[]) => { const url = args[1] ?? ''; const key = url.includes('actions/runs') ? 'workflow_runs' : url.includes('/status') ? 'statuses' : url.includes('filter=all') ? 'all' : 'latest'; const body = lists[key] as Record<string, unknown[]>; return { ok: true, out: JSON.stringify({ total_count: Object.values(body)[0]!.length, ...body }) }; };
+    expect(ciAtHead({ repoRoot: '', base: 'main', gh }, 'a'.repeat(40)).checks.filter(c => c.conclusion === 'failure').map(c => c.name)).toEqual(['ci (run 42699999999, no jobs)']);
+    expect(emptyRerun.r.status).toBe(EXIT.refused);
+    const title = at(12, 'Plain title', 'success', '2026-11-09T18:28:20Z', 800);
+    const plain = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [wf(42674265699, 'Plain title', 410784741, 800, 'success', '2026-11-09T18:27:59Z'), wf(42673942770, 'Plain title', 410784741, 900, 'failure', '2026-11-09T18:25:42Z')] });
+    expect(line(plain.r.out, 'ci: ')).toBe(`ci: green at ${plain.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(plain.r.status).toBe(EXIT.ok);
+  }, 240_000);
+
+  // Value: protects=the workflow-runs read fails closed like the check-runs read; fails_when=ready treats an unreadable or short actions/runs list
+  // as zero jobless runs and calls the head green; seam=ciAtHead's readAllPages over actions/runs?head_sha; no_claim=GitHub's own pagination
+  test('an unreadable or short workflow-runs list is unknown, never green', () => {
+    const pass = { id: 1, name: 'free-tests', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:00:00Z', app: { id: 1 } };
+    const short = readyWith({ check_runs: [pass] }, undefined, { total_count: 5, workflow_runs: [] });
+    expect(line(short.r.out, 'ci: ')).toMatch(new RegExp(`^ci: unknown at ${short.at}`));
+    expect(short.r.status).toBe(EXIT.refused);
   }, 240_000);
 
   test('a commit-status context is never collapsed with a check run of the same name', () => {

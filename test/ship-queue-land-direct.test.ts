@@ -54,10 +54,12 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  if(d.mainOnView){g('update-ref','refs/heads/main',d.mainOnView);delete d.mainOnView;save()}",
     "  let head='';try{head=g('rev-parse','refs/heads/'+p.headRefName)}catch{};",
     "  console.log(JSON.stringify({mergeable:'MERGEABLE',mergeStateStatus:'CLEAN',...p,headRefOid:p.headRefOid??head,mergeCommit:p.mergeSha?{oid:p.mergeSha}:null}));process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "if(a[0]==='api'){const m=/commits\\/([0-9a-f]+)\\/(check-runs|status)/.exec(a[1]);if(!m)process.exit(1);",
     "  if(m[2]==='status'){console.log(JSON.stringify({total_count:0,statuses:[]}));process.exit(0)}",
     "  const set=d.checks[m[1]]??Object.fromEntries(d.defaultChecks.map(n=>[n,'success']));",
-    "  const runs=Object.entries(set).map(([name,c],i)=>({id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}));",
+    "  const all=/[?&]filter=all(&|$)/.test(a[1]);",
+    "  const runs=Object.entries(set).filter(([,v])=>all||!v.earlierAttempt).map(([name,v],i)=>{const c=typeof v==='string'?v:v.conclusion;return {id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}});",
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
@@ -610,6 +612,18 @@ describe('land --pin: refusals (nothing merged)', () => {
     refused(fx, missing, 'QUEUE_LAND_CHECKS');
     expect(missing.err).toContain('Check VERSION is not stale vs queue');
     expect(missing.out + missing.err).toContain('cannot be dispatched, so edit the PR title or body to rerun it');
+  }, 90_000);
+
+  // Value: protects=land never merges a pin whose failed check run sits in an earlier workflow-run attempt that GitHub's default filter=latest hides
+  // (gstack-evals#303: the rerun attempt listed no jobs); fails_when=land reads only the latest attempt and merges; seam=ciAtHead through the shim's
+  // filter=latest/all split; no_claim=a workflow run that never created a job
+  test('QUEUE_LAND_CHECKS: a failed check from an earlier attempt whose rerun listed no jobs is red (gstack-evals#303)', () => {
+    const fx = setup();
+    const pin = openPr(fx, '27');
+    fx.write(d => { d.checks[pin] = { 'free-tests': 'success', 'Check VERSION is not stale vs queue': 'success', checks: { conclusion: 'failure', earlierAttempt: true } }; });
+    const r = land(fx, '27', pin);
+    refused(fx, r, 'QUEUE_LAND_CHECKS');
+    expect(r.err).toMatch(/red at [0-9a-f]{12} \(passed=2 failed=1 pending=0 skipped=0\)/);
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: GitHub does not report the PR mergeable and clean', () => {

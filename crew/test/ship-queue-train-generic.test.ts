@@ -52,6 +52,7 @@ function wrap(fx: TrainFixture): void {
     "if(a[0]==='pr'&&a[1]==='view'&&d.prs[a[2]]){const p=d.prs[a[2]];const h=rev('refs/heads/'+p.headRefName);if(h)p.headRefOid=h;out(p)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];d.log.push({cmd:'pr merge',args:a});if(rev('refs/heads/'+p.headRefName)!==want){save();console.error('Head branch was modified');process.exit(1)}",
     "  const before=rev('main');const tree=g('merge-tree','--write-tree',before,want).split('\\n')[0];g('update-ref','refs/heads/main',g('commit-tree',tree,'-p',before,'-m','squash #'+a[2]));p.state='MERGED';save();process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "const paged=/commits\\/([0-9a-f]+)\\/(check-runs|status)\\?.*page=(\\d+)/.exec(a[1]||'');",
     "if(a[0]==='api'&&paged&&!(d.ci||{})[paged[1]]){const list=paged[2]==='check-runs'?[{name:'test',status:'completed',conclusion:'success',id:1,completed_at:'2026-10-26T00:00:00Z'}]:[];const key=paged[2]==='check-runs'?'check_runs':'statuses';console.log(JSON.stringify(paged[3]==='1'?{total_count:list.length,state:'success',[key]:list}:{total_count:list.length,[key]:[]}));process.exit(0)}",
     "const r=cp.spawnSync('node',[" + JSON.stringify(shim) + ",D,...a],{stdio:'inherit',timeout:120000});process.exit(r.status??1);",

@@ -42,6 +42,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  let head='';try{head=g('rev-parse','refs/heads/'+p.headRefName)}catch{};",
     "  console.log(JSON.stringify({...p,headRefOid:head}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='list'){console.log(JSON.stringify(Object.entries(d.prs).filter(([,p])=>p.state==='OPEN').map(([n,p])=>({number:Number(n),headRefOid:g('rev-parse','refs/heads/'+p.headRefName),isCrossRepository:!!p.isCrossRepository}))));process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "if(a[0]==='api'){const m=/commits\\/([0-9a-f]+)\\/(check-runs|status)/.exec(a[1]);if(!m)process.exit(1);",
     "  if(m[2]==='status'){console.log(JSON.stringify({total_count:0,statuses:[]}));process.exit(0)}",
     "  const red=d.red.includes(m[1]);console.log(JSON.stringify({total_count:1,check_runs:[{id:1,name:'free-tests',status:'completed',conclusion:red?'failure':'success',completed_at:'2026-10-29T00:00:00Z',app:{id:1}}]}));process.exit(0)}",
