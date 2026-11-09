@@ -13,6 +13,8 @@ import { describe, expect, test } from "bun:test";
 import { EXIT, runPost, type PostEnv } from "../lib/gstack-post";
 import { privateDetails, publicReceiptText } from "../lib/public-pr-text";
 import { extractReceipt, receiptRuns } from "../lib/ship-receipt";
+import { exceptionProblems, reviewLoopExceptionLine } from "../lib/ship-receipt-depth";
+import { docsExceptionLine } from "../lib/ship-receipt-docs";
 
 interface Call { cmd: string; args: string[]; input?: string }
 
@@ -166,6 +168,24 @@ describe("public repo: the receipt goes out in its public form", () => {
     expect(f.sent()).toContain("New words.");
     expect(f.sent()).not.toContain("spend_usd");
     expect(f.sent()).not.toContain("/home/");
+  });
+
+  test("the exception lines the receipt check wants word for word get the same scrub as the receipt fields (red-team on d899f44)", () => {
+    const head = "a".repeat(40);
+    const loop = { accepted_by: "garrytan", date: "2026-11-08", via: `https://capy.ai/thread/${JAM}`, reason: "notes in /home/user/.capy/work/x/stop.md", fix_check: { head, findings: 1 } };
+    const docs = { status: "current", scope: "docs", exception: { accepted_by: "garrytan", date: "2026-11-08", via: JAM, reason: "audit cap" } };
+    const receipt = { schema_version: 1, pr: 4180, head, base: "main", review_loop: { passes: 2, deferred: 1, fix_checks: 1 }, review_loop_exception: loop, docs };
+    const text = [CLEAN, "", reviewLoopExceptionLine(loop), "", docsExceptionLine(docs)!, "", "```gstack-ship-receipt", JSON.stringify(receipt, null, 2), "```", ""].join("\n");
+    expect(exceptionProblems(text, receipt as never)).toEqual([]);
+    const f = fakeEnv({ files: { "/b": text }, ghVisibility: "PUBLIC" });
+    expect(run(["pr-body", "4180", "--body-file", "/b", "--replace"], f)).toBe(EXIT.posted);
+    const sent = f.sent();
+    expect(sent).not.toContain("jam_");
+    expect(sent).not.toContain("/home/");
+    expect(sent).toContain("capy.ai/thread/anon-");
+    expect(privateDetails(sent)).toEqual([]);
+    expect(exceptionProblems(sent, extractReceipt(sent).receipt!)).toEqual([]);
+    expect(privateDetails("see capy.ai/thread/anon-0123456789abX")).toHaveLength(1);
   });
 });
 

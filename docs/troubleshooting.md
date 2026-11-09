@@ -3104,7 +3104,11 @@ cut to the file name; a result line led by an ALL_CAPS label (`REVIEW_LOOP:`,
 `BUDGET_FINAL:`, `CI_CARRY:`) drops each `key=value` whose key is usd, cost,
 credits, tokens, spend or used, or ends in one after `_`, `.` or `-`
 (`refused=` and `reused=` stay), and each `$` amount, with the same path and
-id scrub. A home path or Capy id left in the prose refuses the whole post,
+id scrub. The lines the receipt check wants word for word from receipt fields
+(`Review-loop exception:`, `Documentation exception:`, `Ruled note:`,
+`Mechanical retake:`, `Test-lane exception:`) get the same scrub as those
+fields, so they still match, and the scrubbed `capy.ai/thread/anon-<12 hex>`
+link passes. A home path or Capy id left in the prose refuses the whole post,
 exit 1, and nothing is sent. Each line names the rule, the line in the text
 gstack-post would send (for `pr-body` the merged body, so a kept section can be
 the source) and the part, never the value. A cost, credits or token figure in

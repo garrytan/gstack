@@ -41,7 +41,7 @@ export function readRepoVisibility(run: VisibilityRunner, o: { explicit?: RepoVi
 }
 
 const JAM_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}/g;
-const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/[^\s"'`<>)\]]+/g;
+const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/(?!anon-[0-9a-f]{12}(?![A-Za-z0-9_-]))[^\s"'`<>)\]]+/g;
 const BADGE = /<a href="https:\/\/capy\.ai\/thread\/jam_[A-Za-z0-9]+"><picture>(?:(?!<\/a>)[\s\S]){0,800}?capy\.ai\/badge\/(?:(?!<\/a>)[\s\S]){0,800}?<\/picture><\/a>/g;
 const COSTS = [
   /(?<![\w$\\])\$\s?\d[\d,]*(?:\.\d+)?/g,
@@ -201,6 +201,7 @@ const RUNS_BLOCK = /(```gstack-receipt-runs[ \t]*\r?\n)([\s\S]*?)(\r?\n```)/g;
 const MACHINE_LINE = /^([ \t]*(?:[-*+][ \t]+|\d+\.[ \t]+)?`?)([A-Z][A-Z0-9_]+:)(.*)$/gm;
 const SPEND_PAIR = /[ \t]*\b(?:[\w.-]*[_.-])?(?:usd|costs?|credits?|tokens?|spend|used)=[^\s`]*/gi;
 const DOLLARS = /[ \t]*\$\s?\d[\d,]*(?:\.\d+)?/g;
+const MIRROR_LINE = /^([ \t]*(?:Review-loop exception|Documentation exception|Ruled note|Mechanical retake|Test-lane exception): )(.*)$/gm;
 
 /**
  * The public form of what machines write into PR text: the receipt and receipt-runs blocks
@@ -209,8 +210,10 @@ const DOLLARS = /[ \t]*\$\s?\d[\d,]*(?:\.\d+)?/g;
  * code is gone), and home paths in any string are cut to their file name and jam ids hashed. A
  * result line led by an ALL_CAPS label (`REVIEW_LOOP:`, `BUDGET_FINAL:`, `CI_CARRY:`, after an
  * optional bullet or backtick) drops each key=value whose key is, or ends in _ . or - and, usd, cost,
- * credits, tokens, spend or used (so refused= and reused= stay) and each $ amount, and gets the same path and id scrub. A block that is
- * unchanged, or not JSON, keeps its bytes; privateDetails still reads whatever stays.
+ * credits, tokens, spend or used (so refused= and reused= stay) and each $ amount, and gets the same path and id scrub. The lines
+ * the receipt check wants word for word from receipt fields (`Review-loop exception:`, `Documentation exception:`, `Ruled note:`,
+ * `Mechanical retake:`, `Test-lane exception:`) get the same scrub as those fields, so they still match. A block that is
+ * unchanged, or not JSON, keeps its bytes; privateDetails still reads whatever stays, and a scrubbed `capy.ai/thread/anon-<hash>` passes it.
  */
 export function publicReceiptText(text: string): { text: string; changed: string[] } {
   const changed = new Set<string>();
@@ -241,5 +244,11 @@ export function publicReceiptText(text: string): { text: string; changed: string
     changed.add(`${label.slice(0, -1)} line`);
     return lead + label + out;
   });
-  return { text: machine, changed: [...changed].sort() };
+  const mirrored = machine.replace(MIRROR_LINE, (all, label: string, rest: string) => {
+    const out = scrub(rest);
+    if (out === rest) return all;
+    changed.add(`${label.trim().slice(0, -1)} line`);
+    return label + out;
+  });
+  return { text: mirrored, changed: [...changed].sort() };
 }
