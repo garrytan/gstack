@@ -13,6 +13,7 @@
  * gstack's gh runner shape (lib/ci-gate.ts).
  */
 import type { GhResult, GhRunner } from './ci-gate';
+import { headCheckRows } from './ci-head-checks';
 import { parseHeadChecks, parsePullState, rateLimitKind, type PullState } from './gh-poll';
 
 export class GhError extends Error {
@@ -179,14 +180,20 @@ function restList(env: GhEnv, path: string, key: string): unknown[] {
 
 /**
  * Every check on the head commit by name, from REST check runs and commit
- * statuses (the same rows `gh pr checks` reads through GraphQL), duplicates
- * collapsed to the worst bucket.
+ * statuses (the same rows `gh pr checks` reads through GraphQL) plus CI at the
+ * head as gstack-ship-queue ready reads it (lib/ci-head-checks.ts: a failed
+ * check whose rerun attempt created no jobs, a workflow run that failed with
+ * no jobs), duplicates collapsed to the worst bucket. An unknown read is a
+ * transient GhError, so the poll loop tries again.
  */
 export function fetchChecks(env: GhEnv, repo: string, head: string): Map<string, Check> {
-  const rows = parseHeadChecks(
+  const listed = parseHeadChecks(
     restList(env, `repos/${repo}/commits/${head}/check-runs?per_page=100`, 'check_runs'),
     restList(env, `repos/${repo}/commits/${head}/status?per_page=100`, 'statuses'),
   );
+  const ci = headCheckRows(args => runGh(env, args), repo, head);
+  if ('error' in ci) throw new GhError(ci.error, true);
+  const rows = [...listed, ...ci.rows.map(row => ({ ...row, link: '', description: '' }))];
   const checks = new Map<string, Check>();
   for (const row of rows) {
     const current = checks.get(row.name);

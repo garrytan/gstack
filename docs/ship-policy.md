@@ -274,7 +274,9 @@ no name or no readable `completed_at` counts on its own; commit-status contexts
 are counted one each. A workflow run that failed without starting any job
 counts as a failed check `<workflow> (run <id>, no jobs)` unless a later run of
 the same workflow replaced it; a run cancelled before any job is not counted.
-An unreadable list is unknown, never green.
+An unreadable list is unknown, never green. `gstack-pr-wait`, `gstack-ci-gate`
+and the release cut read CI through the same helper (`lib/ci-head-checks.ts`),
+on top of what they read before, so none of them calls such a head green.
 
 It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate

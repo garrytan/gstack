@@ -6974,7 +6974,12 @@ one stdout line per real event, prefixed `#<pr>`; progress and recoverable
 errors go to stderr. `/land-and-deploy` Step 3 runs it with `--until green`.
 Exit 0 means the `--until` condition is met or the PR merged; exit 1 and 2
 end with one of the two codes below. `green` gates on every check on the
-head, as `gstack-ci-gate` does, so the two never disagree; a check the base
+head, as `gstack-ci-gate` does, so the two never disagree. Both read every
+attempt of each check suite as `gstack-ship-queue ready` does: a failed check
+whose rerun attempt created no jobs (GitHub's default list then hides it) and a
+workflow run that failed before creating any job (`check failed: <workflow>
+(run <id>, no jobs)`) block `green`, and a rerun that passed clears its
+failure. A check the base
 branch requires (rulesets and classic branch protection) counts as pending
 until it appears. `--exclude <check,...>` leaves a named non-required check
 out of the verdict, as `gstack-ci-gate --exclude` does: it neither holds

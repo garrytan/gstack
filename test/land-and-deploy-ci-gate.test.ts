@@ -20,7 +20,13 @@ const OTHER = 'b'.repeat(40);
 
 const FAKE_GH = `#!/usr/bin/env bash
 D="$FAKE_GH_DIR"
-if [ "$1" = api ]; then kind=api
+if [ "$1" = api ]; then
+  case "$2" in
+    */check-runs\?*) echo '{"total_count":0,"check_runs":[]}'; exit 0 ;;
+    */status\?*) echo '{"total_count":0,"statuses":[]}'; exit 0 ;;
+    */actions/runs\?*) echo '{"total_count":0,"workflow_runs":[]}'; exit 0 ;;
+  esac
+  kind=api
 elif [ "$1 $2" = "pr merge" ]; then printf '%s\\n' "$*" >> "$D/merges.log"; exit 0
 elif [ "$1 $2" = "pr view" ]; then kind=head
 elif [ "$1 $2" = "pr checks" ]; then case " $* " in *" --required "*) kind=required ;; *) kind=all ;; esac

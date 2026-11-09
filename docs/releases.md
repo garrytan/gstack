@@ -44,7 +44,10 @@ regression fix (below).
 **Green** means, on that exact commit: the `free-tests` check run succeeded
 (the status main requires), the commit was gated (below), every check run on
 it has completed and none failed, and `refs/notes/gstack-trains` holds no
-active freeze. A cancelled check run counts as red. A commit with a check run
+active freeze. A cancelled check run counts as red. Check runs are read the
+way the merge queue reads them, so a failed check whose rerun attempt created
+no jobs, and a workflow run that failed before creating any job, count as red
+even though GitHub's default list hides them. A commit with a check run
 still going is skipped and the next older one is considered, back through 7
 days or 200 first-parent commits. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate

@@ -10,6 +10,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ciGateMain, evaluateChecks, parseCiGateArgs, runCiGate, type CiGateOptions, type GhResult, type GhRunner } from '../lib/ci-gate';
+import { PR303, PR303_RERUN_PASSED, ciRest, type CiAtCommit } from './helpers/ci-attempts-fixture';
 
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -21,13 +22,16 @@ const row = (name: string, bucket?: string) => ({ name, state: 'X', link: `https
 const NONE = err("no checks reported on the 'feature' branch");
 const NONE_REQUIRED = err("no required checks reported on the 'feature' branch");
 
-interface Script { heads?: string[]; required?: GhResult[]; all?: GhResult[]; api?: GhResult }
+/** `rest` is REST CI at the head (none by default); null answers none of those reads, so they fall to `api`. */
+interface Script { heads?: string[]; required?: GhResult[]; all?: GhResult[]; api?: GhResult; rest?: CiAtCommit | null }
 function fakeGh(script: Script): GhRunner & { calls: string[][] } {
   const queues = { head: script.heads ?? [HEAD], required: script.required ?? [], all: script.all ?? [] };
   const next = <T>(queue: T[]): T => (queue.length > 1 ? queue.shift()! : queue[0]);
   const calls: string[][] = [];
   const gh = ((args: string[]) => {
     calls.push(args);
+    const rest = script.rest === null ? null : ciRest(args, script.rest ?? { check_runs: [] });
+    if (rest) return rest;
     if (args[0] === 'api') return script.api ?? err('gh: Not Found (HTTP 404)');
     if (args[1] === 'view') return { status: 0, stdout: `${next(queues.head)}\n`, stderr: '' };
     if (args[1] === 'merge') throw new Error('the gate must never merge');
@@ -181,8 +185,29 @@ describe('head binding', () => {
       ['pr', 'view', '42', '--repo', 'owner/project', '--json', 'headRefOid', '--jq', '.headRefOid'],
       ['pr', 'checks', '42', '--repo', 'owner/project', '--required', '--json', 'name,state,bucket,link'],
       ['pr', 'checks', '42', '--repo', 'owner/project', '--json', 'name,state,bucket,link'],
+      ['api', `repos/owner/project/commits/${HEAD}/check-runs?per_page=100&page=1`],
+      ['api', `repos/owner/project/commits/${HEAD}/check-runs?filter=all&per_page=100&page=1`],
+      ['api', `repos/owner/project/commits/${HEAD}/status?per_page=100&page=1`],
+      ['api', `repos/owner/project/actions/runs?head_sha=${HEAD}&per_page=100&page=1`],
       ['pr', 'view', '42', '--repo', 'owner/project', '--json', 'headRefOid', '--jq', '.headRefOid'],
     ]);
+  });
+});
+
+describe('every attempt of each check suite counts (GST-2252)', () => {
+  // Value: protects=the merge gate counts a failed check whose rerun attempt created no jobs and a workflow run that failed before any job, as
+  // gstack-ship-queue ready does, while a rerun that passed stays PASS and an unreadable REST read is ERROR; fails_when=the gate trusts gh pr checks
+  // (GitHub's rollup lists only each suite's latest attempt) and passes gstack-evals#303; seam=lib/ci-head-checks.ts (ciAtHead) in evaluateOnce,
+  // through the fake gh's filter=latest/all split; no_claim=GitHub's attempt grouping (the fixture is #4235's recording)
+  test('a failed check hidden behind a rerun attempt with no jobs, and a workflow run that failed with no jobs, are FAIL (gstack-evals#303)', async () => {
+    const red = await gate({ required: [NONE_REQUIRED], all: [ok([row('sealed', 'pass')])], rest: PR303 });
+    expect(red.verdict).toBe('FAIL');
+    expect(checkLines(red.lines)).toEqual(['CHECK\tchecks\tfail\trequired=n\t', 'CHECK\tsealed (run 42671854799, no jobs)\tfail\trequired=n\t']);
+    const rerun = await gate({ required: [NONE_REQUIRED], all: [ok([row('checks', 'pass'), row('sealed', 'pass')])], rest: PR303_RERUN_PASSED });
+    expect(rerun.verdict).toBe('PASS');
+    const unreadable = await gate({ required: [NONE_REQUIRED], all: [ok([row('sealed', 'pass')])], rest: null, api: err('gh: HTTP 403') });
+    expect(unreadable.verdict).toBe('ERROR');
+    expect(unreadable.lines[0]).toStartWith('CAUSE CI at aaaaaaaaaaaa is unknown');
   });
 });
 
