@@ -8,8 +8,9 @@ name: Free Tests
 # provider keys at all — least privilege, and fork PRs get real test signal
 # here (the eval matrix skips fork PRs because repository secrets can't reach
 # them). test/free-tests-workflow-wiring.test.ts fails CI if a secret sneaks in.
-# The one exception is TRUNK_API_TOKEN in the trunk-dynamic-ci observer, which
-# runs no pull-request code and which nothing depends on (see that job).
+# The exceptions are TRUNK_API_TOKEN in the trunk-dynamic-ci observer and
+# TRUNK_ORG_API_TOKEN in the trunk-flaky-tests uploader. Each runs no
+# pull-request code and nothing depends on it (see those jobs).
 #
 # This is a REQUIRED check from day one (branch protection lists it). If it's
 # red, fix or quarantine-with-issue — don't make it advisory; an advisory lane
@@ -705,7 +706,7 @@ jobs:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
       - name: Run free suite
-        run: xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json"
+        run: xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json" --junit-dir "$RUNNER_TEMP/free-junit"
         env:
           GSTACK_EXPECT_BINARIES: "1"
           # WS1 flake telemetry: a single timing flake must not red the only
@@ -732,6 +733,19 @@ jobs:
           name: free-result-${{ matrix.shard }}
           path: ${{ runner.temp }}/free-results/*.json
           if-no-files-found: error
+
+      # bun's JUnit report from every child of this shard, the flaky retry
+      # included. Only trunk-flaky-tests reads it; no verdict does.
+      - name: Upload shard JUnit reports
+        if: always()
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: free-junit-${{ matrix.shard }}
+          path: ${{ runner.temp }}/free-junit/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Uploaded unconditionally (not just on failure): a flaky-pass run is
       # GREEN — that's the point — so its evidence must survive green runs.
@@ -762,6 +776,60 @@ jobs:
           path: .context/free-test-logs/gstack-free-test-*.log
           include-hidden-files: true
           if-no-files-found: ignore
+
+  # Trunk Flaky Tests, DETECTION ONLY (GST-1859). Uploads every free-suite
+  # shard's JUnit reports, failures included, to the Trunk test collection
+  # 7yDVXXE3 so Trunk can flag tests that fail and then pass on the same code.
+  # Nothing is quarantined or skipped: the uploader runs with quarantine off,
+  # the collection has quarantining off, and no job needs this one or reads it,
+  # so it cannot change which tests gate or turn free-tests red. It is the only
+  # job that sees TRUNK_ORG_API_TOKEN (Trunk's v1 organization token; the v2 API
+  # key in TRUNK_API_TOKEN does not work with the uploader), so the token never
+  # shares a job with pull-request code: it checks out nothing, downloads only
+  # the XML artifacts and runs one pinned action with no GITHUB_TOKEN scopes.
+  # The CLI version is pinned and use-cache is off, so the binary always comes
+  # from Trunk's checksummed release, never from an Actions cache entry that a
+  # pull-request job could have written.
+  # Same-repository pull requests and main pushes only; a missing token skips
+  # both steps. Fail-open at step and job level. Review:
+  # docs/TESTING_INTERNALS.md.
+  trunk-flaky-tests:
+    name: Trunk Flaky Tests (detection only)
+    needs: free-suite
+    if: always() && needs.free-suite.result != 'skipped' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions: {}
+    env:
+      TRUNK_ORG_API_TOKEN: ${{ secrets.TRUNK_ORG_API_TOKEN }}
+    steps:
+      - name: Download every shard's JUnit reports
+        if: env.TRUNK_ORG_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: free-junit-*
+          path: ${{ runner.temp }}/free-junit
+      - name: Upload them to Trunk Flaky Tests (detection only, quarantine off)
+        if: env.TRUNK_ORG_API_TOKEN != ''
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: trunk-io/analytics-uploader@a86313c7029d22e6ea2d5c346060a224d90053dc # v2.1.6
+        with:
+          junit-paths: ${{ runner.temp }}/free-junit/**/*.xml
+          org-slug: garry-tan
+          token: ${{ env.TRUNK_ORG_API_TOKEN }}
+          test-collection-id: 7yDVXXE3
+          cli-version: 0.16.2
+          use-cache: 'false'
+          quarantine: 'false'
+          use-uncloned-repo: 'true'
+          github-token: ''
+          gh-repo-url: ${{ github.server_url }}/${{ github.repository }}
+          gh-repo-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          gh-repo-head-branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
   # Branch protection already requires the `free-tests` context. Keep that
   # stable name as an always-running aggregate so every platform-specific CSO

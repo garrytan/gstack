@@ -442,6 +442,49 @@ describe('per-file test and expect() counts from bun JUnit', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
 
+  // Value: protects=the Trunk Flaky Tests feed (GST-1859): --junit-dir keeps every child's bun JUnit report, failures included, without touching verdicts, counts or the stream; fails_when=the report is dropped with the sandbox, a child overwrites another's file, a retry-style child (no testCounts) gains counts, a failing write changes the outcome, or --junit-dir is accepted outside --ci-run; seam=scripts/test-free-shards.ts runFreeShard; no_claim=what Trunk does with the files
+  test('--junit-dir keeps each real child\'s JUnit report, failures included, and changes no verdict', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-shard-junit-')));
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fixtures: Record<string, string> = {
+        't/pass.test.ts': "import { test, expect } from 'bun:test';\ntest('p1', () => { expect(1).toBe(1); });\n",
+        't/fail.test.ts': "import { test, expect } from 'bun:test';\ntest('f1', () => { expect(1).toBe(2); });\n",
+      };
+      for (const [file, body] of Object.entries(fixtures)) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, file), body);
+      }
+      const junitDir = path.join(root, 'junit');
+      const run = (runFiles: string[], n: number, extra: Parameters<typeof runFreeShard>[3]) =>
+        runFreeShard(runFiles, n, 3, { rootDir: root, quiet: true, log: () => {}, logFilePath: path.join(root, `stream-${n}.log`), ...extra });
+      const counted = await run(['t/pass.test.ts'], 1, { testCounts: true, junitDir });
+      const retryLike = await run(['t/fail.test.ts'], 2, { junitDir });
+      const bare = await run(['t/fail.test.ts'], 3, {});
+      expect(counted.status).toBe('passed');
+      expect(counted.counts?.complete).toBe(true);
+      expect(retryLike.counts).toBeUndefined();
+      expect([retryLike.status, retryLike.failingFiles]).toEqual([bare.status, bare.failingFiles]);
+      const kept = fs.readdirSync(junitDir).sort();
+      expect(kept).toHaveLength(2);
+      expect(kept[0]).toMatch(/^junit-1-of-3-[0-9a-f-]{36}\.xml$/);
+      expect(kept[1]).toMatch(/^junit-2-of-3-[0-9a-f-]{36}\.xml$/);
+      expect(fs.readFileSync(path.join(junitDir, kept[0]), 'utf8')).toContain('name="p1"');
+      expect(fs.readFileSync(path.join(junitDir, kept[1]), 'utf8')).toMatch(/name="f1"[\s\S]*<failure/);
+      const blocked = path.join(root, 'not-a-dir');
+      fs.writeFileSync(blocked, '');
+      const lines: string[] = [];
+      const unwritable = await runFreeShard(['t/pass.test.ts'], 1, 1, { rootDir: root, quiet: true, log: line => lines.push(line), logFilePath: path.join(root, 'blocked.log'), testCounts: true, junitDir: blocked });
+      expect([unwritable.status, unwritable.counts?.complete]).toEqual(['passed', true]);
+      expect(lines.some(line => line.includes('could not keep its JUnit report') && line.includes('the verdict is unchanged'))).toBe(true);
+      const base = ['--ci-run', 'plan.json', '--shard', '1', '--result', 'r.json'];
+      expect(parseCliOptions([...base, '--junit-dir', 'junit']).junitDir).toBe('junit');
+      expect('junitDir' in parseCliOptions(base)).toBe(false);
+      expect(() => parseCliOptions(['--junit-dir', 'junit'])).toThrow('--junit-dir applies only to --ci-run');
+      expect(() => parseCliOptions([...base, '--junit-dir'])).toThrow('Missing path for --junit-dir');
+    } finally { errors.mockRestore(); fs.rmSync(root, { recursive: true, force: true }); }
+  }, 60_000);
+
   test('a hung sub-shard is killed at its wall while its sibling finishes, and no child outlives the parent', async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-shard-jobs-')));
     const errors = spyOn(console, 'error').mockImplementation(() => {});
