@@ -2383,8 +2383,9 @@ restamping`, GST-1245), so a reset stamp needs no hand cleanup:
    without a READY receipt (`gstack-ship-queue ready --pr <n>` records one
    on `refs/notes/gstack-trains` once its pregate, full_e2e and receipt checks
    pass; land checks nothing weaker), a /ship receipt that is missing or
-   bound to another head (`QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE`), and
-   required checks that are not green at the pin.
+   bound to another head (`QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE`) or
+   reviewed against another branch than the base
+   (`QUEUE_RECEIPT_BASE_MISMATCH`), and required checks that are not green at the pin.
 2. **Lock.** Take the repository land lock, `refs/notes/gstack-land` (its own
    ref, never the trains notes ref), by exact lease. It records the PR, holder,
    phase and journal. A held lock is `QUEUE_LAND_LOCKED` naming the holder;
@@ -2458,6 +2459,7 @@ release-file rows):
 | the PR is open, on the base, from this repository | `QUEUE_NOT_READY`, `QUEUE_TRAIN_UNTRUSTED` |
 | the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
 | the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
+| the receipt's `base` is the queue's base | [`QUEUE_RECEIPT_BASE_MISMATCH`](troubleshooting.md#queue-receipt-base-mismatch) |
 | a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
 | no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; a backstop freeze left from before `release_gate` only warns; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
