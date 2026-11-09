@@ -575,10 +575,12 @@ if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
   _remove_project_dir .gstack
   if [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
     while IFS= read -r -d '' _WT; do
-      [ -n "$_WT" ] && rm -rf "$_WT"
+      [ -n "$_WT" ] || continue
+      _WT_REAL="$(_real "$_WT")"
+      rm -rf "$_WT"
+      [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
     done < <(_project_worktrees)
     _remove_project_dir .gstack-worktrees
-    git -C "$_GIT_ROOT" worktree prune 2>/dev/null || true
   fi
 fi
 

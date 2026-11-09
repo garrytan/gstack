@@ -694,6 +694,21 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(git(['worktree', 'list', '--porcelain'])).not.toContain('lane-1');
   });
 
+  test('a missing worktree outside .gstack-worktrees keeps its registration and its commits', () => {
+    addWorktree(false);
+    const away = path.join(tmp, 'usb', 'wt');
+    git(['worktree', 'add', '-q', '--detach', away, 'HEAD']);
+    git(['commit', '-q', '--allow-empty', '-m', 'unique detached work'], away);
+    const head = git(['rev-parse', 'HEAD'], away).trim();
+    fs.renameSync(path.join(tmp, 'usb'), path.join(tmp, 'usb.unmounted'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
+    const list = git(['worktree', 'list', '--porcelain']);
+    expect(list).toContain(`worktree ${away}\nHEAD ${head}\n`);
+    expect(list).not.toContain('lane-1');
+  });
+
   test('status.showUntrackedFiles=no does not hide a new file in a worktree', () => {
     addWorktree(true);
     git(['config', 'status.showUntrackedFiles', 'no']);
