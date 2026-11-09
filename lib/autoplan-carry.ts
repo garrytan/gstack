@@ -328,7 +328,8 @@ export function submitCarryCheck(o: CheckOptions): { state: RunState; lines: str
       out.check = done;
       out.lines.push(`NEXT: relay gate_rev ${c.gate_rev} to the owner, or fix the finding and revise without relaying it: the phases are at their round cap, so the revise writes gate_rev ${c.gate_rev + 1}, and ${carryForecast(state)}`);
     } else {
-      const plan = assess(state, keptGate(state.out, c.gate_rev - 1) ?? { ...list, gate_rev: c.from_gate_rev! } as GateList, list);
+      const before = keptGate(state.out, c.gate_rev - 1);
+      const plan: Plan = !before && c.gate_rev - 1 !== c.from_gate_rev ? { reason: `gate_rev ${c.gate_rev - 1} was not answered and its items were not kept`, from: c.gate_rev - 1 } : assess(state, before ?? { ...list, gate_rev: c.from_gate_rev! } as GateList, list);
       if (!('reason' in plan) && plan.source.gate_rev !== c.from_gate_rev) { out = refuse(state, c.gate_rev, c.from_gate_rev, `the check read edits since gate_rev ${c.from_gate_rev}, but the answer to carry is now gate_rev ${plan.source.gate_rev}'s`); out.check = done; }
       else if ('reason' in plan) { out = refuse(state, c.gate_rev, c.from_gate_rev, plan.reason); out.check = done; }
       else {

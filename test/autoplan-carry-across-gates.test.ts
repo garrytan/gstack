@@ -121,6 +121,37 @@ describe('carry across fix-only gates', () => {
     expect(rev.stdout).not.toMatch(/^CARRY_CHECK:/m);
   });
 
+  // Value: protects=a check dispatched across a gate whose items were never kept (written before this change) cannot
+  // carry past a relay recorded meanwhile; fails_when=submit falls back to the answered gate without walking the skipped
+  // one; why_new=the across-gates tests always keep the snapshot; seam=none
+  test('a passing check across a gate whose items were not kept refuses instead of carrying', () => {
+    const s = highAtGate2();
+    expect(fixed(s).stdout).toMatch(/^CARRY_CHECK: attempt=\S+-c3 /m);
+    fs.rmSync(path.join(s.out, 'gate-at-gate.r2.json'));
+    fs.appendFileSync(path.join(s.out, 'attempts.jsonl'), JSON.stringify({ ts: new Date().toISOString(), event: 'gate_relayed', gate_rev: 2, via: 'test' }) + '\n');
+    const ok = check(s.out, []);
+    expect(ok.stdout).toMatch(/^CARRY: no \(gate_rev 2 was not answered and its items were not kept\)$/m);
+    expect(ok.stdout).not.toMatch(/^CARRIED:/m);
+    expect(readRunJson(s.out).status).toBe('gate_pending');
+  });
+
+  // Value: protects=gstack-gate render journals the relay in the live run and never writes a checkpoint generation's
+  // hash-pinned copy; fails_when=the render path drops recordRelay or writes the copy; why_new=only owner-brief was tested
+  test('gstack-gate render records the relay in the live run, never in a checkpoint copy', () => {
+    const s = highAtGate2();
+    const copy = path.join(s.dir, 'ckpt', 'generations', 'g1', 'run');
+    fs.cpSync(s.out, copy, { recursive: true });
+    fs.writeFileSync(path.join(copy, '..', 'checkpoint.json'), '{}\n');
+    const journalBefore = fs.readFileSync(path.join(copy, 'attempts.jsonl'), 'utf8');
+    const render = (dir: string) => spawnSync('bun', [path.join(ROOT, 'bin', 'gstack-gate'), 'render', path.join(dir, 'gate.json'), '--all'], { cwd: ROOT, env: r.env, encoding: 'utf8', timeout: 60_000 });
+    const fromCopy = render(copy);
+    expect(fromCopy.status, fromCopy.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(copy, 'attempts.jsonl'), 'utf8')).toBe(journalBefore);
+    const live = render(s.out);
+    expect(live.status, live.stderr).toBe(0);
+    expect(readJsonl(path.join(s.out, 'attempts.jsonl')).filter((j: any) => j.event === 'gate_relayed').map((j: any) => [j.gate_rev, j.via])).toEqual([[2, 'gstack-gate render']]);
+  });
+
   // Value: protects=Highs still block the cross-gate carry exactly as at one gate; fails_when=the skipped path carries
   // without binding a passing check; why_new=the repro binds a clean check; seam=none
   test('a High in the delta check across gates leaves gate_rev 3 for the owner', () => {
