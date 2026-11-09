@@ -601,14 +601,18 @@ MERGE_ERR=""
 # decisions.active.json is derived from decisions.jsonl (rebuildSnapshot in
 # lib/gstack-decision.ts), so two machines' snapshots are never merged as
 # bytes (#4174). When a stopped merge's only conflicts are snapshots whose
-# logs merged cleanly, each is rebuilt from its merged log and the merge is
-# concluded. Anything else returns 1 and the caller aborts the merge, which
-# also undoes a partial rebuild. Works without the .gitattributes line, so
-# repositories initialized before it recover too.
+# logs merged cleanly and only grew on both sides, each is rebuilt from its
+# merged log and the merge is concluded. The jsonl-append driver takes the
+# union of base, ours and theirs, so a log that lost lines on one side
+# (--compact expunging a redacted decision) would get them back; that merge
+# is left to abort as before. Anything else returns 1 and the caller aborts
+# the merge, which also undoes a partial rebuild. Works without the
+# .gitattributes line, so repositories initialized before it recover too.
 rebuild_conflicted_snapshots() {
   local -a lit=(git --literal-pathspecs -C "$GSTACK_HOME") slugs=()
-  local p slug
+  local p slug base side
   "${lit[@]}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 1
+  base=$("${lit[@]}" merge-base HEAD MERGE_HEAD 2>/dev/null) || return 1
   command -v bun >/dev/null 2>&1 || return 1
   while IFS= read -r -d '' p; do
     case "$p" in projects/*/decisions.active.json) ;; *) return 1 ;; esac
@@ -621,6 +625,12 @@ rebuild_conflicted_snapshots() {
     p="projects/$slug/decisions.jsonl"
     "${lit[@]}" cat-file -e ":0:$p" 2>/dev/null || return 1
     "${lit[@]}" diff --quiet -- "$p" 2>/dev/null || return 1
+    if "${lit[@]}" cat-file -e "$base:$p" 2>/dev/null; then
+      for side in HEAD MERGE_HEAD; do
+        [ -z "$(LC_ALL=C comm -23 <("${lit[@]}" show "$base:$p" 2>/dev/null | LC_ALL=C sort -u) \
+          <("${lit[@]}" show "$side:$p" 2>/dev/null | LC_ALL=C sort -u))" ] || return 1
+      done
+    fi
     GSTACK_STATE_ROOT="$GSTACK_HOME" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" \
       "$SCRIPT_DIR/gstack-decision-log" --rebuild-snapshot "$slug" >/dev/null 2>&1 || return 1
     "${lit[@]}" add -f -- "projects/$slug/decisions.active.json" >/dev/null 2>&1 || return 1
@@ -651,17 +661,31 @@ merge_origin_keeping_local_edits() {
   fi
   [ -n "$stash_sha" ] || return "$rc"
   out=$("${lit[@]}" stash pop -q 2>&1) && return "$rc"
-  local paths="" args="" failed=0
+  local paths="" args="" failed=0 slug
+  local -a snapshots=()
   while IFS= read -r -d '' p; do
     if "${lit[@]}" cat-file -e "HEAD:$p" 2>/dev/null; then
       "${lit[@]}" checkout -q HEAD -- "$p" >/dev/null 2>&1 || failed=1
     else
       { "${lit[@]}" rm -q --cached -- "$p" >/dev/null 2>&1 && rm -f -- "$GSTACK_HOME/$p"; } || failed=1
     fi
+    case "$p" in
+      projects/*/decisions.active.json)
+        slug="${p#projects/}"; slug="${slug%/decisions.active.json}"
+        case "$slug" in ''|*/*|.|..) ;; *) snapshots+=("$slug"); continue ;; esac
+        ;;
+    esac
     paths="$paths ${p}"
     args="$args $(printf '%q' "$p")"
   done < <("${lit[@]}" diff -z --name-only --diff-filter=U 2>/dev/null)
   "${lit[@]}" reset -q >/dev/null 2>&1 || failed=1
+  # A conflicted decision snapshot is rebuilt from the decisions.jsonl now in
+  # the working tree, so it matches the log the local edit was put back into.
+  for slug in ${snapshots[@]+"${snapshots[@]}"}; do
+    GSTACK_STATE_ROOT="$GSTACK_HOME" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" \
+      "$SCRIPT_DIR/gstack-decision-log" --rebuild-snapshot "$slug" >/dev/null 2>&1 || failed=1
+  done
+  [ "$failed" = 0 ] && [ -z "$paths" ] && [ "${#snapshots[@]}" -gt 0 ] && return "$rc"
   if [ -z "$paths" ] || [ "$failed" = 1 ]; then
     MERGE_ERR="local edits could not be put back after merging origin/$branch ($(printf '%s\n' "$out" | head -1)); they are saved in git -C $GSTACK_HOME stash list"
     return 1
