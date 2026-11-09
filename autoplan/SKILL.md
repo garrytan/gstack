@@ -663,8 +663,8 @@ verbatim (URGENT block, plain summary, numbered decisions seven per page with ea
 auto default, review-record path; `--page N` for later pages), never the full review.
 
 Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json --reply "<text>" --gate-rev <rev>`;
-unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `p1a`
-without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `p1c`/`p1d`/`p1e`
+unparsed, stale or `pending` replies are re-presented (`gate_rev`+1), never guessed. `p1a`
+with no change = A; a `d<n>`/`uc<n>` change (`all` too) = B/B2; `p1c`/`p1d`/`p1e`
 = C/D/E. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
 with its `GSTACK_RESULT` line and never approve.
 
