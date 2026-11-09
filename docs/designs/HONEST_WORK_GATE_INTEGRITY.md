@@ -158,7 +158,7 @@ v1 (see Review record).
 
 | id | what it tags | signal |
 |---|---|---|
-| RH-1 | test removed or disabled | removed `test(`/`it(`/`def test_`/`func Test`/`@Test`; added `.skip`, `.only`, `xit`, `xdescribe`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip(`, `@Disabled`, `@Ignore`, `XCTSkip`, `@tag :skip` |
+| RH-1 | test removed or disabled | removed `test(`/`it(`/`def test_`/`func Test`/`@Test`; added `.skip`, `.only`, `xit`, `xdescribe`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip(`, `@Disabled`, `@Ignore`, `XCTSkip`, `@tag :skip`; not in data, logs or run output (`.json`, `.jsonl`, `.ndjson`, `.csv`, `.tsv`, `.log`, `.out`) unless renamed from another file, so English there that quotes "fit (" carries no RH-1 |
 | RH-3 | snapshot changed without its owning test | `__snapshots__/<name>.snap` or `<name>.snap` whose conventional owner (`<name>` test file) has no hunk in the candidate. `*.golden`, `testdata/` and project `Snapshot paths:` are tagged `RH-3?` (owner unresolved: listed and read, never inferred). No general source-ownership inference in v1 |
 | RH-4 | placeholder committed | added `todo!()`, `unimplemented!()`, `raise NotImplementedError`, `throw new Error("not implemented")`, `pass  # TODO` in non-test code |
 | RH-12 | environment sniffing in product code | added `process.env.CI`, `NODE_ENV === 'test'`, `RAILS_ENV == 'test'`, `PYTEST_CURRENT_TEST`, `GITHUB_ACTIONS` outside test paths |
