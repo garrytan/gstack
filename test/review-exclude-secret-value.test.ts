@@ -121,7 +121,7 @@ describe('the argument-byte bound', () => {
   }, 120_000);
 });
 
-describe('names git quotes under review_exclude_paths (GST-1451)', () => {
+describe.skipIf(process.platform === 'win32')('names git quotes under review_exclude_paths (GST-1451)', () => {
   /** Names git's patch headers C-quote even with core.quotePath=false: a quote, a backslash, a tab, a control byte, a space beside a quote. */
   const QUOTED = ['receipts/q"x.json', 'receipts/back\\slash.json', 'receipts/tab\tx.json', 'receipts/ctl\x01x.json', 'receipts/sp ace "q".json'];
   const UTF8 = 'receipts/r\u00e9sum\u00e9-\u6f22.json';
