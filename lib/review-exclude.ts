@@ -13,7 +13,7 @@
  * git exclude beats any positive pathspec. That second command is bounded by its argument
  * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it is not applied.
  *
- * A file kept only for a secret line (a line that names a credential and carries a value, lib/review-risk.ts secretValueLine;
+ * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
  * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
  * get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead of the whole file, readSelection counts
  * only that excerpt, and no reader's command names it, so it does not count toward the bound (GST-1967).
@@ -29,7 +29,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
-import { secretPath, secretValueLine } from './review-risk';
+import { scan } from './redact-engine';
+import { shannonEntropy } from './redact-patterns';
+import { KEY_NAME, SECRET_LINE, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -81,6 +83,24 @@ export interface ExcludeInput {
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/** Every credential name on a line: SECRET_LINE, and a key name given a value (`OPENAI_API_KEY=`, `"GH_TOKEN": `). */
+const SECRET_NAMES = [...SECRET_LINE, new RegExp(String.raw`\b${KEY_NAME}['"]?\s*[=:]`)].map(r => new RegExp(r.source, `${r.flags}g`));
+/** A variable reference (`$X`, `${X}`): a name, never a value. */
+const VARIABLE_REFERENCE = /\$\{?[A-Za-z_]\w*\}?/g;
+/** An unprefixed credential-shaped run (base64, base64url, a random token): 20+ characters mixing upper case, lower case and digits. */
+const VALUE_TOKEN = /[A-Za-z0-9+/_=-]{20,}/g;
+const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').matchAll(VALUE_TOKEN)].some(([t]) => /[A-Z]/.test(t) && /[a-z]/.test(t) && /\d/.test(t) && shannonEntropy(t) >= 3.5);
+/**
+ * Whether one changed line of excludable content holds a credential value, so its file is kept (GST-1967): it names a
+ * credential, and the credential scan (the secrets check, with #4157's env-read rule) finds a secret anywhere on the line,
+ * or a credential-shaped run follows a name within 200 characters. A line that only names one (`${OPENAI_API_KEY}`,
+ * `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
+ */
+export function secretValueLine(p: string, line: string): boolean {
+  const ends = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => m.index + m[0].length));
+  return ends.length > 0 && (ends.some(e => valueToken(line.slice(e, e + 200))) || scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW'));
+}
 /** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
 export const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
 /** A recorded selection's list hash (applied patterns, excluded files, kept files with their reasons) when its digest is built from it; null otherwise. */

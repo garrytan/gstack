@@ -7,8 +7,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { collectCommit } from '../lib/review-collect';
-import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude } from '../lib/review-exclude';
-import { secretValueLine } from '../lib/review-risk';
+import { KEEP_ARG_MAX_BYTES, readSelection, reviewExclude, secretValueLine } from '../lib/review-exclude';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
