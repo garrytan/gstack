@@ -18,6 +18,7 @@
  */
 import type { SkillLoad, Transcript, TranscriptEvent } from './skill-contract';
 import { sameSkill, skillLoads } from './skill-contract';
+import { autoplanPhaseCompletions } from './autoplan-phase-publication';
 
 export const SKILL = 'autoplan';
 export type Phase = 'ceo' | 'design' | 'dx' | 'eng';
@@ -28,7 +29,9 @@ export const PHASE_NAME: Record<Phase, string> = { ceo: 'CEO', design: 'Design',
 export type Missing = 'scope' | Phase | 'gate' | 'end';
 
 const SNAPSHOT = /gstack-autoplan-snapshot(?:\.ts)?["']?\s+(init|scope)(?:\s|$)/;
-export const PUBLISHED = /^\s*true\s+autoplan-published\s+(ceo|design|dx|eng)\s*$/;
+// The no-op may carry the declaration, quoted: `true autoplan-published design 'Phase 2 complete.'`.
+// Claude Code can journal pre-tool narration only as a paraphrase that drops it; commands are verbatim.
+export const PUBLISHED = /^\s*true\s+autoplan-published\s+(ceo|design|dx|eng)(?:\s+(['"])([^'"\n]+)\2)?\s*$/;
 const PHASE_READ = /(?:^|[\\/])autoplan[\\/]sections[\\/](ceo|design|dx|eng)-phase\.md$/;
 const GATE_RENDER = /gstack-gate["']?\s+render(?:\s|$)/;
 const GATE_FILE = /(?:^|[\\/])gate\.json$/;
@@ -120,7 +123,10 @@ export function checkRun(t: Transcript, load: SkillLoad): RunCheck {
     const p = m[1] as Phase;
     const at = run.indexOf(u);
     if (!published.includes(p)) {
-      if (!reportsIn(run.slice(from, at)).includes(p)) uncounted.push({ phase: p, why: 'no-report' });
+      const declared = m[3] !== undefined && autoplanPhaseCompletions({ status: 'ready', calls: [],
+        assistantMessages: [{ sessionId: 'publication', text: m[3], timestamp: new Date(0).toISOString() }] }, 0)
+        .some(hit => hit.phase === Number(PHASE_NUMBER[p]));
+      if (!declared && !reportsIn(run.slice(from, at)).includes(p)) uncounted.push({ phase: p, why: 'no-report' });
       else if (p !== dueNext(phases, published, p)) uncounted.push({ phase: p, why: 'out-of-order', due: dueNext(phases, published, p) });
       else published.push(p);
     }
@@ -165,7 +171,7 @@ function dueNext(phases: Phase[] | null, published: Phase[], p: Phase): Phase | 
 
 const label = (p: Phase) => `Phase ${PHASE_NUMBER[p]} (${PHASE_NAME[p]})`;
 const dueLine = (p: Phase) => `Next due: the ${label(p)} report.`;
-const howToPublish = (p: Phase) => `its report as text starting "**Phase ${PHASE_NUMBER[p]} complete.**" (autoplan/sections/phase-close.md step 6) in a message whose only tool call is: true autoplan-published ${p}`;
+const howToPublish = (p: Phase) => `its report as text starting "**Phase ${PHASE_NUMBER[p]} complete.**" (autoplan/sections/phase-close.md step 6) in a message whose only tool call is: true autoplan-published ${p} 'Phase ${PHASE_NUMBER[p]} complete.'`;
 
 /**
  * The refusal for a publish no-op of `p` about to run, or null to let it run:
