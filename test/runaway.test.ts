@@ -33,10 +33,14 @@ const FOUN4 = {
     task(132, 'Targeted money reader on #501 at 7ed85c37', 374220),
   ],
 };
+const FOUN4_STANDING = { ...FOUN4, standing: true, pull_requests: [], pull_requests_total: 0 };
 
 describe('gstack-runaway scan', () => {
   test('FOUN-4: own tokens and age rotate, the reused /ship subagent is flagged, review rounds counted per PR', () => {
-    const r = run('scan', '--thread', write('foun4.json', FOUN4), '--now', NOW);
+    const crew = run('scan', '--thread', write('foun4-crew.json', FOUN4), '--now', NOW).out;
+    expect(crew).not.toContain('ROTATE');
+    expect(crew).toContain('FLAG: CHECK_IN own_tokens 6.06B > 1.00B (upper bound)');
+    const r = run('scan', '--thread', write('foun4.json', FOUN4_STANDING), '--now', NOW);
     expect(r.code).toBe(0);
     expect(r.out).toContain('RUNAWAY: thread=FOUN-4 verdict=ROTATE');
     expect(r.out).toMatch(/own=6\.06B\(upper\)/);
@@ -57,7 +61,7 @@ describe('gstack-runaway scan', () => {
   });
 
   test('DEFER holds a rotation and a stop of the mid-/ship subagent itself; stopping another subagent goes ahead', () => {
-    const doc = { code: 'GSTA-9', status: 'working', created_at: '2026-11-03T10:00:00Z', cost: { tokens: 300e6 },
+    const doc = { code: 'GSTA-9', status: 'working', created_at: '2026-11-03T10:00:00Z', cost: { tokens: 300e6 }, standing: true, pull_requests: [],
       tasks: [task(3, 'gate fix lane', 150e6, 'idle'), task(4, 'ship 1 outside-voice (#535)', 2e6, 'working')] };
     const other = run('scan', '--thread', write('defer.json', doc), '--now', NOW);
     expect(other.out).toContain('verdict=STOP');
@@ -78,7 +82,7 @@ describe('gstack-runaway scan', () => {
   });
 
   test('active means working, waiting, or a turn in the last 24 hours; an old quiet thread is not rotated', () => {
-    const base = { code: 'HARN-11', created_at: '2026-10-25T00:00:00Z', cost: { tokens: 10e6 }, tasks: [] };
+    const base = { code: 'HARN-11', created_at: '2026-10-25T00:00:00Z', cost: { tokens: 10e6 }, tasks: [], standing: true, pull_requests: [] };
     const idleRecent = run('scan', '--thread', write('idle-recent.json', { ...base, status: 'idle', updated_at: '2026-11-03T21:50:00Z' }), '--now', NOW);
     expect(idleRecent.out).toContain('active=yes');
     expect(idleRecent.out).toContain('FLAG: ROTATE age 9.9d > 3d and active');
@@ -164,7 +168,7 @@ describe('gstack-runaway scan', () => {
   });
 
   test('a subagent.list file replaces thread.get tasks: own sums top-level paths only, truncation makes it an upper bound', () => {
-    const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 700e6 }, tasks: [] };
+    const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 700e6 }, tasks: [], standing: true, pull_requests: [] };
     const subs = { total: 3, tasks: [
       { path: '1', title: 'build', status: 'done', cost: { tokens: 150e6, credits: 1 } },
       { path: '1.1', title: 'reader', status: 'done', cost: { tokens: 50e6, credits: 1 } },
@@ -181,11 +185,11 @@ describe('gstack-runaway scan', () => {
   test('--dir sweeps every thread file, largest own tokens first, with a SWEEP total', () => {
     const d = path.join(tmp, 'crew');
     fs.mkdirSync(d);
-    fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4));
+    fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4_STANDING));
     fs.writeFileSync(path.join(d, 'GSTA-1.thread.json'), JSON.stringify({ code: 'GSTA-1', status: 'idle', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 1e6 }, tasks: [] }));
     const r = run('scan', '--dir', d, '--now', NOW);
     expect(r.out.indexOf('thread=FOUN-4')).toBeLessThan(r.out.indexOf('thread=GSTA-1'));
-    expect(r.out).toContain('SWEEP: threads=2 rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=1 unreadable=0');
+    expect(r.out).toContain('SWEEP: threads=2 rotate=1 stop=0 defer=0 report=0 warn=0 check_in=0 look=0 ok=1 unreadable=0');
     expect(r.code).toBe(0);
   });
 
@@ -210,7 +214,7 @@ describe('gstack-runaway scan', () => {
   test('an unreadable or incomplete thread file is named, skipped and fails the sweep; the rest still scan', () => {
     const d = path.join(tmp, 'bad');
     fs.mkdirSync(d);
-    fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4));
+    fs.writeFileSync(path.join(d, 'FOUN-4.thread.json'), JSON.stringify(FOUN4_STANDING));
     fs.writeFileSync(path.join(d, 'BAD-1.thread.json'), '{"code": "BAD-1", "cost": ');
     fs.writeFileSync(path.join(d, 'BAD-2.thread.json'), JSON.stringify({ code: 'BAD-2', status: 'working', tasks: [] }));
     fs.writeFileSync(path.join(d, 'BAD-3.thread.json'), JSON.stringify({ code: 'BAD-3', cost: { tokens: 1 }, tasks: [] }));
@@ -225,7 +229,7 @@ describe('gstack-runaway scan', () => {
     expect(r.out).toMatch(/BAD-4\.thread\.json field=tasks\[\]\.cost\.tokens expected=number/);
     expect(r.out).toMatch(/BAD-5\.thread\.json expected a tools\.thread\.get object/);
     expect(r.out).not.toContain('thread=BAD-2');
-    expect(r.out).toContain('rotate=1 stop=0 defer=0 report=0 warn=0 look=0 ok=0 unreadable=5');
+    expect(r.out).toContain('rotate=1 stop=0 defer=0 report=0 warn=0 check_in=0 look=0 ok=0 unreadable=5');
   });
 
   test('a malformed --subagents file is named as RUNAWAY_INPUT, not scanned as exact', () => {
@@ -273,6 +277,40 @@ describe('gstack-runaway scan', () => {
     expect(run('scan', '--dir', path.join(tmp, 'nope')).err).toContain('RUNAWAY_USAGE: no directory');
     expect(run('scan', '--thread', write('ok4.json', FOUN4), '--event', 'x.json').err).toContain('RUNAWAY_USAGE: unknown argument "--event"');
   });
+  // Value: protects=R70 as amended 2026-11-09 and R91: a crew thread keeps its PR to the end and checks in once at 1B own tokens; only a
+  //   standing thread with no open PR rotates; unknown PR data counts as holding one; fails_when=scan tells a Captain to rotate a crew
+  //   thread that holds an open PR (GST-2226); seam=assess via gstack-runaway scan; no_claim=whether a thread is standing (the Captain says so)
+  test('a crew thread holding a PR never rotates, checks in at 1B, and only a standing thread with no open PR rotates', () => {
+    const pr = (state: string) => ({ repo: 'garrytan/gstack', number: 4300, title: 'x', state, relation: 'owner' });
+    const base = { code: 'GSTA-500', status: 'working', created_at: '2026-11-03T10:00:00Z', tasks: [] };
+    const crew = run('scan', '--thread', write('crew-pr.json', { ...base, cost: { tokens: 600e6 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
+    expect(crew).not.toContain('ROTATE');
+    expect(crew).not.toContain('FLAG: WARN');
+    expect(crew).toContain('verdict=OK');
+    const big = run('scan', '--thread', write('crew-big.json', { ...base, cost: { tokens: 1.1e9 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
+    expect(big).toContain('verdict=CHECK_IN');
+    expect(big.match(/^FLAG: /gm)).toEqual(['FLAG: ']);
+    expect(big).toContain('FLAG: CHECK_IN own_tokens 1.10B > 1.00B');
+    const old = run('scan', '--thread', write('crew-old.json', { ...base, created_at: '2026-10-25T00:00:00Z', cost: { tokens: 10e6 }, pull_requests: [] }), '--now', NOW).out;
+    expect(old).toContain('verdict=OK');
+    const standing = { ...base, cost: { tokens: 600e6 }, standing: true, pull_requests: [pr('merged'), pr('closed')], pull_requests_total: 2 };
+    const s = run('scan', '--thread', write('standing.json', standing), '--now', NOW).out;
+    expect(s).toContain('verdict=ROTATE');
+    expect(s).toContain('FLAG: ROTATE own_tokens 600M > 500M');
+    const aged = run('scan', '--thread', write('standing-aged.json', { ...standing, cost: { tokens: 10e6 }, created_at: '2026-10-25T00:00:00Z' }), '--now', NOW).out;
+    expect(aged).toContain('FLAG: ROTATE age 9.9d > 3d and active');
+    expect(run('scan', '--thread', write('standing-warn.json', { ...standing, cost: { tokens: 450e6 } }), '--now', NOW).out).toContain('FLAG: WARN own_tokens 450M > 400M warn line');
+    for (const [name, prs] of [['open', { pull_requests: [pr('open')], pull_requests_total: 1 }], ['draft', { pull_requests: [pr('draft')] }],
+      ['unlisted', { pull_requests: [pr('merged')], pull_requests_total: 2 }], ['unknown', { pull_requests: undefined }]] as const) {
+      const held = run('scan', '--thread', write('standing-' + name + '.json', { ...standing, ...prs }), '--now', NOW).out;
+      expect(held).not.toContain('ROTATE');
+      expect(held).not.toContain('FLAG: WARN own_tokens');
+      expect(held).toContain('verdict=DEFER');
+      expect(held).toMatch(/DEFER: holds (an open PR|PRs it can't see); rotate after every PR merges or closes \(R91\)/);
+    }
+    const unknownCrew = run('scan', '--thread', write('crew-unknown.json', { ...base, cost: { tokens: 600e6 } }), '--now', NOW).out;
+    expect(unknownCrew).not.toContain('ROTATE');
+  });
 });
 
 describe('/runaway-stopper skill', () => {
@@ -309,6 +347,12 @@ describe('/runaway-stopper skill', () => {
     const out = run('scan', '--thread', write('skill-warm.thread.json', doc), '--now', NOW).out;
     expect(out).toContain('empty_wake=0%/20');
     expect(out).not.toContain('FLAG: WARN empty_wake');
+  });
+  test('the fetch program marks standing threads, and only a standing thread with no open PR is rotated', () => {
+    expect(skill).toContain('content: JSON.stringify({ ...doc, events, standing: standing.includes(doc.code) })');
+    expect(skill).toContain('| `FLAG: ROTATE` | A standing thread: Step 3. |');
+    expect(skill).toContain('| `FLAG: CHECK_IN` |');
+    expect(skill).toContain('Open or unknown PRs block rotation\n(R91)');
   });
   test('rotation stops or lists live subagents, the successor subscribes to open PRs, and archiving waits for it', () => {
     expect(skill).toContain('stop your working and waiting subagents, or list each with its run');
