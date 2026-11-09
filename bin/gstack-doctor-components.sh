@@ -396,6 +396,8 @@ gstack_result_anchor() {
     ARCHIVE_THREAD_MISMATCH) printf '%s' 'archive-thread-mismatch' ;;
     ARCHIVE_PR_NOT_MERGED) printf '%s' 'archive-pr-not-merged' ;;
     ARCHIVE_GH_READ_FAILED) printf '%s' 'archive-gh-read-failed' ;;
+    ARCHIVE_PR_STATE_UNKNOWN) printf '%s' 'archive-pr-state-unknown' ;;
+    ARCHIVE_POLICY_UNREADABLE) printf '%s' 'archive-policy-unreadable' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;

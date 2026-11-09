@@ -251,7 +251,8 @@ went stale and conflicting, and started to look like junk.
   only on exit 0 (`ARCHIVE_CHECK: clean`). The check re-reads every PR the thread holds
   from GitHub and refuses while any is open, or while an issue in a working state (anything
   open but Backlog or Needs you) is still on the thread. It fails closed: stale, truncated or
-  unreadable reads and failed gh reads refuse too ([troubleshooting](../../docs/troubleshooting.md#archive-reads-stale)).
+  unreadable reads, failed gh reads and a PR state other than `OPEN`, `CLOSED` or `MERGED`
+  refuse too ([troubleshooting](../../docs/troubleshooting.md#archive-reads-stale)).
   Every run prints a handoff stub (each open PR's branch, head and CI at that head, and the
   open issues) to paste into a successor brief. When an issue list has more than one page,
   read every page into `issues`.
@@ -503,7 +504,9 @@ commits. Each PR merges at its own green head, and versions are set at release
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>` (add `--allow-repo-commands` when
    the base policy lists `land.merged_checks`, so a stale base can run them). It merges with
    `--match-head-commit`, checks main's tree and writes a land note. In the same program,
-   after `MERGED`, run `gstack-archive-check landed --pr <n>`. For each
+   after `MERGED`, run `gstack-archive-check landed --pr <n>` from the repository root (it
+   refuses with `ARCHIVE_POLICY_UNREADABLE` when `.gstack/plain-titles.json` is missing,
+   invalid or empty, and closes nothing). For each
    `ISSUE_CLOSE: <code>` line, read the issue with `tools.issue.read`. Move it to Done with a
    comment naming the merge commit only when it links this PR, links no other open PR and has
    no open sub-issues; skip one already Done; otherwise leave it open with a comment saying

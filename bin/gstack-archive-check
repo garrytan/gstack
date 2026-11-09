@@ -27,9 +27,10 @@ const HELP = `gstack-archive-check — refuse to archive a thread that still hol
         Reads older than ${MAX_READ_AGE_MS / 60_000} minutes, truncated or unparsable are refused.
   landed --pr <n> [--repo <owner/repo>] [--json]
         After gstack-ship-queue land: one ISSUE_CLOSE line per tracker code in the merged PR's trailing
-        title group (.gstack/plain-titles.json codes), or ISSUE_CLOSE: none.
+        title group (.gstack/plain-titles.json codes), or ISSUE_CLOSE: none. Run it from the repository root:
+        a missing, invalid or empty .gstack/plain-titles.json refuses (ARCHIVE_POLICY_UNREADABLE).
 
-Exit codes: 0 clean (thread) or read (landed) · 1 refused, or landed on a PR that is not merged · 2 usage · 3 a read was stale, unparsable, for another thread, or gh failed`;
+Exit codes: 0 clean (thread) or read (landed) · 1 refused, or landed on a PR that is not merged · 2 usage · 3 a read was stale, unparsable, for another thread, gh failed or returned a PR state other than OPEN, CLOSED or MERGED, or (landed) the title policy is missing or invalid`;
 
 function ghBound(repo?: string): Gh {
   return (args: string[]) => {
@@ -67,8 +68,9 @@ function landed(args: string[]): number {
   if (!pr || !/^\d+$/.test(pr)) return usage('landed needs --pr <number>');
   if (repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repo)) return usage('--repo takes owner/repo');
   let policy = null;
-  try { policy = loadPlainTitlePolicy(process.cwd()); } catch {}
-  const r = landedIssues({ pr: Number(pr), repo, gh: ghBound(repo), policy });
+  let policyError: string | undefined;
+  try { policy = loadPlainTitlePolicy(process.cwd()); } catch (e: any) { policyError = String(e?.message ?? e); }
+  const r = landedIssues({ pr: Number(pr), repo, gh: ghBound(repo), policy, policyError });
   if (args.includes('--json')) process.stdout.write(JSON.stringify(r.json) + '\n');
   else process.stdout.write([...(r.failure ? [resultLine('gstack-archive-check landed', r.failure.code, r.failure.message)] : []), ...r.lines].join('\n') + '\n');
   return r.exit;
