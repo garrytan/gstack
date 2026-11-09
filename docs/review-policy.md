@@ -855,8 +855,11 @@ Outside PRs are rewritten from main rather than ported
 ([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
 carries a contributor's lines over unchanged, the commit that carries them credits them.
 Pass the contributor's PR commits as the range, fetched as a ref and never checked out
-(`git fetch origin pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`):
-the default range holds only the rewrite's own commits and finds no co-author.
+(`git fetch origin +pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`;
+the `+` lets a re-fetch follow a force-push): the default range holds only the rewrite's
+own commits and finds no co-author. A fork's commits can name any author, so list the
+range first and `--exclude <email>` every author whose lines the commit does not carry
+before adding `--message`.
 `gstack-coauthor-trailers [<range> | --base <ref>] [--message <file>]
 [--exclude <email>]...` lists every distinct author of the range's commits
 (default `origin/<base>..HEAD`) other than the checkout's own committer

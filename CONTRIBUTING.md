@@ -961,10 +961,13 @@ The maintainer crew follows the same rule
    with its own tests, the repo's gates and a CHANGELOG fragment. No contributor
    commit enters the tree. A commit that carries the contributor's lines over
    unchanged gets a `Co-authored-by:` trailer for them. Fetch their PR head as a ref
-   without checking it out (`git fetch origin pull/<n>/head:refs/contrib/<n>`), then
-   `crew/bin/gstack-coauthor-trailers origin/main..refs/contrib/<n> --message <msgfile>`
-   prints it from their commits; its default range holds only your own commits and
-   finds no co-author. Never guess an email: use the identity on their commits.
+   without checking it out (`git fetch origin +pull/<n>/head:refs/contrib/<n>`; the
+   `+` lets a re-fetch follow a force-push), then run
+   `crew/bin/gstack-coauthor-trailers origin/main..refs/contrib/<n>` to list the
+   authors of their commits; its default range holds only your own commits and finds
+   no co-author. A fork's commits can name anyone, so keep only the authors whose
+   lines you carry: drop the rest with `--exclude <email>` when you rerun it with
+   `--message <msgfile>`. Never guess an email: use the identity on their commits.
 4. **Credit them in the fix.** The PR body names the original PR and its author in
    the first paragraph and says what differs from their diff. The CHANGELOG fragment
    thanks them by handle.
