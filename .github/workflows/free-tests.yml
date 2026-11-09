@@ -202,7 +202,8 @@ jobs:
         run: |
           set -eu
           if [ -z "$DOCS_TESTS" ]; then exit 0; fi
-          bun --no-env-file test --timeout=30000 $DOCS_TESTS
+          read -ra tests <<< "$DOCS_TESTS"
+          bun --no-env-file test --timeout=30000 "${tests[@]}"
 
   free-plan:
     needs: [reuse, docs-scope]
