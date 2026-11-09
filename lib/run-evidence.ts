@@ -332,7 +332,11 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
   return {
     run: id => json<ApiRun>(`repos/${repo}/actions/runs/${id}`),
     runsForHead: (workflow, sha) => all<ApiRun>(`repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100`, 'workflow_runs'),
-    jobs: (id, attempt) => all<ApiJob>(`repos/${repo}/actions/runs/${id}/attempts/${attempt}/jobs?per_page=100`, 'jobs'),
+    // A long rerun attempt's 100-job page can outlast a proxy's ~10 s cutoff (GST-2215): read 50 per page, and after a 5xx read the whole list once more at 25. A failed page throws, so a partial list never counts.
+    jobs: (id, attempt) => {
+      const read = (n: number) => all<ApiJob>(`repos/${repo}/actions/runs/${id}/attempts/${attempt}/jobs?per_page=${n}`, 'jobs');
+      try { return read(50); } catch (e) { if (!/\bHTTP 5\d\d\b/.test((e as Error).message)) throw e; return read(25); }
+    },
     artifact: (id, name) => {
       const listed = all<{ name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
       if (listed.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
