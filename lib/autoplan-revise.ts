@@ -22,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
-import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
+import { carryForecast, carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
 import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
 import { diffStat, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
@@ -107,6 +107,21 @@ export function decisionSeverity(state: RunState, decision: string): string {
   return found.map(f => f!.severity).reduce((a, b) => (SEVERITY_ORDER.indexOf(b) > SEVERITY_ORDER.indexOf(a) ? b : a));
 }
 
+/**
+ * What a revise that edits the plan will do when phases it would reopen used their last round: it reopens none of
+ * them and writes a new gate for the unreviewed delta, which may or may not carry the owner's answer. Printed before
+ * the revise (NEXT after an answer, or a failed delta check) and at the top of its output, so nobody promises the
+ * owner a single review pass. `capped` defaults to the opened phases at their cap, unless the pending changes would
+ * apply without re-review.
+ */
+export function capForecast(state: RunState, capped?: string[]): string | undefined {
+  const pending = pendingAmendments(state).map(a => a.decision);
+  const quiet = pending.length > 0 && (!!state.lean || pending.every(id => BELOW_HIGH.includes(decisionSeverity(state, id))));
+  const phases = capped ?? (quiet ? [] : state.phase_order.filter(p => state.phases[p]?.snapshot && atCap(state, p)));
+  if (!phases.length) return undefined;
+  return `NEW_GATE: ${phases.join(',')} used their last round, so a plan edit reopens no reviewer: it goes to gate_rev ${(state.gate_rev ?? 0) + 1} as an unreviewed delta, and ${carryForecast(state)}`;
+}
+
 /** Every accepted change is in: approve, unless a plan delta after a round cap still needs the owner (a new gate revision). */
 function approveOrRegate(state: RunState, at: string): string[] {
   if (pendingDeltas(state).length) {
@@ -179,6 +194,8 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   const reopen = quiet ? [] : touched.filter(p => !capped.includes(p));
   const delta = capped.length || quiet ? diffStat(lineDiff(fs.readFileSync(state.active_plan, 'utf8'), fs.readFileSync(path.join(staging, FILES.active), 'utf8'))) : { added: 0, removed: 0 };
   const atGate = state.status === 'gate_pending' ? state.gate_rev : undefined;
+  const forecast = capped.length ? capForecast(state, capped) : undefined;
+  const widened = [...(['ui', 'dx'] as const).filter(axis => detected[axis] && !state.scope[axis]), ...(state.scope.docs_only && !detected.docs_only ? ['code beyond docs'] : [])];
   journal(out, { event: 'revise_intent', k, staging: path.relative(out, staging), plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, at_gate_rev: atGate ?? null, incorporates, withdraw, settle });
   voidPendingCheck(state, 'the plan was revised');
 
@@ -204,11 +221,11 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   if (amending) state.status = pendingAmendments(state).length ? 'amend_pending' : state.phase_order.some(p => !state.phases[p]?.closed_at) ? 'running' : pendingDeltas(state).length ? 'gate_pending' : 'complete';
   // A quiet revise that ends at gate_pending still has an earlier capped delta waiting: the owner gets a new gate for it.
   const regate = (capped.length > 0 || quiet) && state.status === 'gate_pending';
-  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, at_gate_rev: atGate ?? null };
+  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, ...(widened.length ? { scope_widened: widened } : {}), at_gate_rev: atGate ?? null };
   fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify({ state, renames, committed, settled }, null, 2) + '\n');
   publish(state, staging, renames, committed, settled);
   keepPlanFile(state.out, file);
-  const lines = [`REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,
+  const lines = [...(forecast ? [forecast] : []), `REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,
     ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (${state.lean ? 'lean run: one gate revision' : 'below High'}; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
   for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; the gate asks the owner about the unreviewed delta (+${delta.added} -${delta.removed} lines)`);
   if (regate) {

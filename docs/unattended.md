@@ -587,7 +587,10 @@ The example above is the full run. The first `next` also takes `--kind`:
    publishes an immutable, hash-listed generation under
    `<dir>/<run>/generations/` and switches `current.json` to it (the previous
    generation is kept; a stale copy never replaces a newer one; a directory
-   overlapping the run is refused with `CHECKPOINT_OVERLAP`; a failure is a
+   overlapping the run is refused with `CHECKPOINT_OVERLAP`; a directory that is
+   one run's folder, meaning a run directory, a `<dir>/<run>` checkpoint folder or
+   a folder named after the run, prints `CHECKPOINT: skipped` with the folder to
+   use and writes nothing, so no copy nests inside it; a failure is a
    `CHECKPOINT: failed` warning that leaves the command's exit code alone).
    `$AP checkpoints --from <dir>` lists generations with their hash status, and
    `$AP resume --out <new dir> --from <dir>/<run>` restores the newest valid
@@ -732,6 +735,28 @@ item, "do it" cases included, goes to the owner.
   check is void, its reservation released and the gate left for the owner,
   when the owner answers the gate, the plan is revised, a new gate is
   written, or the delta changed after dispatch.
+- **Across fix-only gates.** When the gate before the new one was never
+  answered, the carry reuses the owner's last answered gate instead, so a
+  failed delta check that is fixed and revised does not ask the owner twice.
+  Every gate in between must be unanswered, never relayed (no
+  `gstack-owner-brief render`, `gstack-gate render` or `recommend` of it;
+  renders journal `gate_relayed`), and hold only `p1`, items decided at an
+  earlier gate, or unreviewed post-cap deltas recommending `a`. The delta
+  check then always runs, against `plan-at-gate.r<m>.md` of the answered gate
+  (every edit since the owner's answer, the fixes included), and a High or
+  Critical still leaves the gate for the owner. `CARRIED:` says
+  `across unrelayed gate_rev <n>`, and the journal row lists
+  `skipped_gate_revs`. A relayed gate, a new user-challenge or owner-only
+  item there, or a `revise` since the answer that put a new axis in scope
+  (`ui`, `dx`, or code beyond a docs-only plan; `plan_revised` records
+  `scope_widened`) prints `CARRY: no (<why>)`.
+
+When a `revise` would edit a plan whose phases used their last round, it
+reopens no reviewer and writes a new gate. `NEW_GATE:` says so, and whether
+that gate can carry the owner's answer, in the `NEXT` lines after an answer
+that leaves accepted changes, at the top of the `revise` output, and after a
+delta check that found a High; relay the gate instead of promising the owner a
+single review pass.
 
 Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
 (`carried_gate_from`, `carried_gate_rev`, `carried_answered_by`);

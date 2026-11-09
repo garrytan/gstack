@@ -45,7 +45,7 @@ import { dispatchLine, exportRun } from '../lib/autoplan-export';
 import { capyRelayLine } from '../lib/captain-brief';
 import { exportPublic } from '../lib/autoplan-public';
 import { migrateRun } from '../lib/autoplan-migrate';
-import { reviseRun } from '../lib/autoplan-revise';
+import { capForecast, reviseRun } from '../lib/autoplan-revise';
 import { FIX_LINES, KINDS, type AutoplanKind } from '../lib/autoplan-lean';
 import { pendingAmendments, type RunState, type Voice } from '../lib/autoplan-state';
 import { FILES, RunError, currentPhase, fitReservation, initRun, markOutside, markSent, nextStep, readState, resumeRun, retireAttempt, statusLines, submitResult, withRunLock, writeState, type NextOptions } from '../lib/autoplan-run';
@@ -157,9 +157,11 @@ function num(args: string[], name: string): number | undefined {
 }
 const resultLineFor = (status: string, out: string) => `GSTACK_RESULT: skill=autoplan status=${status} run=${out}`;
 const listFlag = (args: string[], name: string) => args.flatMap((a, i) => (a === name && args[i + 1] ? args[i + 1]!.split(',').map(x => x.trim()).filter(Boolean) : []));
-/** The NEXT line after an answer or revise: per pending change, settle it or edit the plan and revise; else next. */
+/** The NEXT line after an answer or revise: per pending change, settle it or edit the plan and revise (with NEW_GATE when that revise opens a gate); else next. */
 function nextLine(state: RunState, out: string): string {
-  return pendingAmendments(state).length ? `NEXT: ${amendmentSteps(state, out)}` : `NEXT: gstack-autoplan next --out ${out}`;
+  if (!pendingAmendments(state).length) return `NEXT: gstack-autoplan next --out ${out}`;
+  const forecast = capForecast(state);
+  return [`NEXT: ${amendmentSteps(state, out)}`, ...(forecast ? [forecast] : [])].join('\n');
 }
 
 /**

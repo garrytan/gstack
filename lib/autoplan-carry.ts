@@ -16,7 +16,9 @@
  * item do not block: items a "do it" covers (the owner's words are "do it": an auto item that changes no scope, cost or direction and is no round grant), and a
  * capped-delta item recommending "accept", which first gets one reviewer on just the delta
  * (`CARRY_CHECK:`, answered with `gstack-autoplan check`); a High or Critical finding there
- * means no carry, and the gate goes to the owner as before.
+ * means no carry, and the gate goes to the owner as before. When gate_rev N was never answered, N is the owner's last
+ * answered gate instead, across gates that were never relayed and hold only delta or already-decided items (sourceGate);
+ * the delta check then always runs on every edit since that answer (GST-2084).
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -47,17 +49,21 @@ export interface CarryCheck {
 }
 export interface CarryRecord {
   gate_rev: number; from_gate_rev?: number; verdict: 'carried' | 'refused' | 'check_pending';
-  reason: string; words?: string; under_do_it?: string[]; check?: CarryCheck; lines: string[]; at: string;
+  reason: string; words?: string; under_do_it?: string[]; skipped?: number[]; check?: CarryCheck; lines: string[]; at: string;
 }
 
 const sha256 = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 const planFile = (state: RunState) => state.plan_input ?? state.plan_source;
 const fileSha = (file: string) => (fs.existsSync(file) ? sha256(fs.readFileSync(file)) : undefined);
 export const atGateCopy = (out: string, rev: number) => path.join(out, `plan-at-gate.r${rev}.md`);
+const gateListCopy = (out: string, rev: number) => path.join(out, `gate-at-gate.r${rev}.json`);
+const keptGate = (out: string, rev: number): GateList | undefined => (fs.existsSync(gateListCopy(out, rev)) ? JSON.parse(fs.readFileSync(gateListCopy(out, rev), 'utf8')) as GateList : undefined);
 
-/** What finishGate journals beside gate_written: the plan file's bytes and a copy of the reviewed plan the owner is asked about. */
+/** What finishGate journals beside gate_written: the plan file's bytes, a copy of the reviewed plan the owner is asked about, and a copy of the gate list (gate.json is overwritten by the next gate). */
 export function gateEvidence(state: RunState, rev: number): { source_file_sha256?: string } {
   if (fs.existsSync(state.active_plan)) fs.copyFileSync(state.active_plan, atGateCopy(state.out, rev));
+  const gate = path.join(state.out, 'gate.json');
+  if (fs.existsSync(gate)) fs.copyFileSync(gate, gateListCopy(state.out, rev));
   return { source_file_sha256: keepPlanFile(state.out, planFile(state)) };
 }
 
@@ -78,7 +84,7 @@ export function carryLines(state: RunState): string[] {
 function record(state: RunState, c: Omit<CarryRecord, 'at'>): CarryRecord {
   const full = { ...c, at: now() };
   state.carry = full;
-  journal(state.out, { event: c.verdict === 'carried' ? 'gate_carried' : c.verdict === 'check_pending' ? 'carry_check_dispatched' : 'carry_refused', gate_rev: c.gate_rev, from_gate_rev: c.from_gate_rev ?? null, reason: c.reason, ...(c.under_do_it?.length ? { under_do_it: c.under_do_it } : {}), ...(c.check ? { check: c.check.attempt, check_status: c.check.status } : {}) });
+  journal(state.out, { event: c.verdict === 'carried' ? 'gate_carried' : c.verdict === 'check_pending' ? 'carry_check_dispatched' : 'carry_refused', gate_rev: c.gate_rev, from_gate_rev: c.from_gate_rev ?? null, reason: c.reason, ...(c.under_do_it?.length ? { under_do_it: c.under_do_it } : {}), ...(c.skipped?.length ? { skipped_gate_revs: c.skipped } : {}), ...(c.check ? { check: c.check.attempt, check_status: c.check.status } : {}) });
   appendTrailRow(path.join(state.out, 'decisions.tsv'), ['gate', c.verdict === 'carried' ? `carried gate_rev ${c.gate_rev} from gate_rev ${c.from_gate_rev}` : c.verdict === 'check_pending' ? `delta check before carrying gate_rev ${c.gate_rev}` : `no carry for gate_rev ${c.gate_rev}`,
     c.reason, c.check ? path.basename(c.check.result) : 'decisions.jsonl', c.check?.status ?? c.verdict]);
   return full;
@@ -107,10 +113,34 @@ function deltaSince(state: RunState, rev: number): { diff: string; sha: string }
 interface Source { id: string; gate_rev: number; words: string; by?: string; p1?: string }
 /** noStop: K1's autoplan-regate (lib/no-stop.ts): a plan edit after the owner's answer that only adds plain ELI5 lines (notEli5Only). */
 interface NoStop { why: string }
-type Plan = { source: Source; doIt: GateItem[]; deltas: GateItem[]; noStop?: NoStop } | { reason: string; from?: number };
+type Plan = { source: Source; doIt: GateItem[]; deltas: GateItem[]; skipped: number[]; noStop?: NoStop } | { reason: string; from?: number };
+type Refusal = { reason: string; from: number };
 
-/** Every condition but the delta check; returns why not, or what the carry takes. */
-function assess(state: RunState, prev: GateList, list: GateList): Plan {
+/** An item a gate nobody answered may hold and still be skipped: p1, an item decided at an earlier gate, or an unreviewed post-cap delta recommending "accept". */
+const decidedOrDelta = (item: GateItem) => item.id === 'p1' || !!item.carried || (item.cap?.kind === 'delta' && item.recommended === 'a' && !item.options.find(o => o.key === 'a')?.changes_plan);
+
+/**
+ * The gate whose owner answer a carry reuses: `prev`, the gate before the new one, unless nobody answered it. Then the
+ * owner's last answered gate, but only across gates nobody answered that were never relayed (no owner-facing render, no
+ * `recommend`) and hold only decidedOrDelta items: fixes made in response to that answer, never a new question.
+ */
+function sourceGate(state: RunState, prev: GateList): { prev: GateList; skipped: number[] } | Refusal {
+  const rows = readDecisions(state.out);
+  const relayed = new Set(readJournal(state.out).filter(r => r.event === 'gate_relayed' || r.event === 'recommended').map(r => r.gate_rev));
+  const skipped: number[] = [];
+  for (let rev = prev.gate_rev; ; rev--) {
+    const gate = rev === prev.gate_rev ? prev : keptGate(state.out, rev);
+    if (rev < 2 || rows.some(r => r.gate_rev === rev && r.answered_at && !r.carried_from)) return { prev: gate ?? { ...prev, gate_rev: rev }, skipped };
+    if (relayed.has(rev)) return { reason: `gate_rev ${rev} was relayed to the owner and not answered`, from: rev };
+    if (!gate) return { reason: `gate_rev ${rev} was not answered and its items were not kept`, from: rev };
+    const asks = gate.items.find(i => !decidedOrDelta(i));
+    if (asks) return { reason: `gate_rev ${rev} was not answered and asks ${asks.id}: ${asks.title}`, from: rev };
+    skipped.unshift(rev);
+  }
+}
+
+/** The owner's approval at `prev` that a carry would reuse, or why there is none. */
+function ownerAnswer(state: RunState, prev: GateList): Refusal | { from: number; p1: ReturnType<typeof readDecisions>[number]; choice: string; tokens: boolean; words: string } {
   const from = prev.gate_rev;
   if (state.carry_forward === false) return { reason: 'carry-forward is off for this run (--no-carry-forward)', from };
   const p1 = readDecisions(state.out).find(r => r.gate_rev === from && (r.label ?? '').toLowerCase() === 'p1');
@@ -123,6 +153,16 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   if (agentWords(p1)) return { reason: `gate_rev ${from} was answered in ${agentWords(p1)}'s own words, not the owner's`, from };
   const words = p1.owner_reply ?? (p1.answered_by === 'human' ? p1.reply : undefined);
   if (!words?.trim()) return { reason: `no owner words recorded at gate_rev ${from}`, from };
+  return { from, p1, choice: p1.chosen, tokens, words };
+}
+
+/** Every condition but the delta check; returns why not, or what the carry takes. */
+function assess(state: RunState, prev: GateList, list: GateList): Plan {
+  const gate = sourceGate(state, prev);
+  if ('reason' in gate) return gate;
+  const answer = ownerAnswer(state, gate.prev);
+  if ('reason' in answer) return answer;
+  const { from, p1, choice, tokens, words } = answer;
   const amendments = (state.amendments ?? []).filter(a => a.gate_rev === from);
   const open = amendments.find(a => a.status !== 'incorporated' && a.status !== 'settled');
   if (open) return { reason: `accepted change ${open.decision} is ${open.status}`, from };
@@ -131,8 +171,14 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   let expected: string | undefined = at >= 0 ? journalRows[at]!.source_file_sha256 : undefined;
   const hashOf = (file: string) => { try { return reviewHash(fs.readFileSync(file, 'utf8')); } catch { return undefined; } };
   let reviewed: string | undefined = hashOf(atGateCopy(state.out, from));
-  for (const r of journalRows.slice(at + 1)) if (r.event === 'plan_revised') { expected = r.source_file_sha256; reviewed = r.new_plan_sha256; }
+  let widened: string | undefined;
+  for (const r of journalRows.slice(at + 1)) {
+    if (r.event !== 'plan_revised') continue;
+    expected = r.source_file_sha256; reviewed = r.new_plan_sha256;
+    if (r.scope_widened?.length) widened ??= `revise v${r.k} put ${r.scope_widened.join(', ')} in scope, beyond the changes the owner accepted at gate_rev ${from}`;
+  }
   if (!expected) return { reason: 'no plan evidence recorded for the gate or the revise (a run written before carry-forward)', from };
+  if (widened) return { reason: widened, from };
   const changed = fileSha(planFile(state)) !== expected ? `the plan file ${path.basename(planFile(state))} changed after the owner's answer or the revise that took it` : undefined;
   if ((!changed && driftLine(state, 'PLAN_SOURCE_CHANGED')) || (changed && (!reviewed || hashOf(state.active_plan) !== reviewed))) return { reason: 'the reviewed plan differs from the plan file', from };
   const urgent = readJsonl(path.join(state.out, 'findings.jsonl')).rows.find(r => (r.urgent === true || r.outside_plan === true) && !r.settled_by);
@@ -145,13 +191,14 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
     if (!tokens && isDoIt(words) && item.kind === 'auto' && !item.cap && !option?.changes_plan && !['scope', 'cost', 'direction'].includes(item.changes ?? '')) { doIt.push(item); continue; }
     return { reason: `new item ${item.id}: ${item.title}`, from };
   }
-  const source = { id: p1.id, gate_rev: from, words, by: p1.answered_by, ...(tokens ? { p1: p1.chosen } : {}) };
-  if (!changed) return { source, doIt, deltas };
+  const source = { id: p1.id, gate_rev: from, words, by: p1.answered_by, ...(tokens ? { p1: choice } : {}) };
+  const skipped = gate.skipped;
+  if (!changed) return { source, doIt, deltas, skipped };
   const before = planFileCopy(state.out, expected);
   if (!fs.existsSync(before) || !fs.existsSync(planFile(state))) return { reason: changed, from };
   const why = notEli5Only(lineDiff(fs.readFileSync(before, 'utf8'), fs.readFileSync(planFile(state), 'utf8')));
   if (why) return { reason: `${changed}; ${why}`, from };
-  return { source, doIt, deltas, noStop: { why: `${changed}, adding only ELI5 lines (the reviewed plan is exported)` } };
+  return { source, doIt, deltas, skipped, noStop: { why: `${changed}, adding only ELI5 lines (the reviewed plan is exported)` } };
 }
 
 /** Called by finishGate once gate_rev N+1 is written (status gate_pending): carry, set up the delta check, or say why not. */
@@ -161,48 +208,53 @@ export function evaluateCarry(state: RunState, prev: GateList | undefined, list:
   try {
     const plan = assess(state, prev, list);
     if ('reason' in plan) return refuse(state, list.gate_rev, plan.from, plan.reason);
-    if (plan.deltas.length) return dispatchCheck(state, prev, list, plan);
-    return carry(state, list, plan.source, plan.doIt, plan.deltas, undefined, plan.noStop);
+    if (plan.deltas.length || plan.skipped.length) return dispatchCheck(state, list, plan);
+    return carry(state, list, plan);
   } catch (e: any) {
     if (readDecisions(state.out).some(r => r.gate_rev === list.gate_rev && r.answered_at && !r.carried_from)) throw e;
     return refuse(state, list.gate_rev, prev.gate_rev, `error: ${e instanceof RunError ? `${e.detail} (${e.code})` : e?.message ?? e}`);
   }
 }
 
-function dispatchCheck(state: RunState, prev: GateList, list: GateList, plan: Extract<Plan, { source: Source }>): CarryRecord {
+function dispatchCheck(state: RunState, list: GateList, plan: Extract<Plan, { source: Source }>): CarryRecord {
   const rev = list.gate_rev;
+  const from = plan.source.gate_rev;
   const cap = state.carry_check_cap_usd ?? DEFAULT_CARRY_CHECK_CAP_USD;
   const estimate = attemptEstimate(state, undefined, process.env).usd;
-  if (estimate > cap) return refuse(state, rev, prev.gate_rev, `delta check estimate ${estimate.toFixed(2)} is over the per-gate cap ${cap.toFixed(2)} (--carry-check-cap)`);
-  const delta = deltaSince(state, prev.gate_rev);
-  if (!delta) return refuse(state, rev, prev.gate_rev, `no copy of the plan the owner answered at gate_rev ${prev.gate_rev}`);
+  if (estimate > cap) return refuse(state, rev, from, `delta check estimate ${estimate.toFixed(2)} is over the per-gate cap ${cap.toFixed(2)} (--carry-check-cap)`);
+  const delta = deltaSince(state, from);
+  if (!delta) return refuse(state, rev, from, `no copy of the plan the owner answered at gate_rev ${from}`);
   const current = fs.readFileSync(state.active_plan, 'utf8');
   const { diff, sha: deltaSha } = delta;
   const attempt = `${state.run}-c${rev}`;
   const prompt = path.join(state.out, `carry-check-g${rev}-prompt.md`);
   const result = path.join(state.out, `carry-check-g${rev}.md`);
   try { reserve(path.join(state.out, FILES.spend), attempt, estimate, { cap: state.spend_cap_usd, label: 'carry-check' }); }
-  catch (e: any) { return refuse(state, rev, prev.gate_rev, `delta check does not fit the run's spend cap: ${e?.message ?? e}`); }
-  const accepted = (state.amendments ?? []).filter(a => a.gate_rev === prev.gate_rev).map(a => `- ${a.title} -> ${a.text}`).join('\n') || '- (none recorded)';
+  catch (e: any) { return refuse(state, rev, from, `delta check does not fit the run's spend cap: ${e?.message ?? e}`); }
+  const accepted = (state.amendments ?? []).filter(a => a.gate_rev === from).map(a => `- ${a.title} -> ${a.text}`).join('\n') || '- (none recorded)';
+  const across = plan.skipped.length ? `gate_rev ${plan.skipped.join(', ')}` : '';
   fs.writeFileSync(prompt, [BOUNDARY, '',
-    `You are checking one edit to a reviewed plan before gstack reuses the owner's approval of gate_rev ${prev.gate_rev} for gate_rev ${rev}. The owner accepted these changes:`, accepted, '',
+    `You are checking one edit to a reviewed plan before gstack reuses the owner's approval of gate_rev ${from} for gate_rev ${rev}. The owner accepted these changes:`, accepted, '',
     'The plan was edited after that answer, but the phases that would re-review the edit were at their round cap, so no reviewer has read it. Read the delta and say whether it implements the accepted changes, adds nothing the owner did not accept (scope, cost or direction), and leaves the plan correct. Rate a finding High or Critical only when the edit adds an unaccepted change, contradicts an accepted one, or would make the plan fail a test, break production, or lose data or secrets; anything else is Medium or lower.', '',
-    `Delta (reviewed plan at gate_rev ${prev.gate_rev} -> now; + added, - removed; SHA-256 ${deltaSha}):`, '```diff', diff, '```', '',
+    ...(across ? [`${across} came between that answer and this gate and never reached the owner: the plan was fixed instead. The delta below covers every edit since the owner's answer, those fixes included.`, ''] : []),
+    `Delta (reviewed plan at gate_rev ${from} -> now; + added, - removed; SHA-256 ${deltaSha}):`, '```diff', diff, '```', '',
     'The complete current plan follows as context.', '', current,
     REVIEWER_TRAILER, RESULT_FORMAT('carry-check', deltaSha, result)].join('\n'));
   const check: CarryCheck = { attempt, prompt, result, delta_sha256: deltaSha, items: plan.deltas.map(i => i.id), estimate_usd: estimate, status: 'dispatched', at: now() };
   const family = state.native_model ? `not ${modelFamily(state.native_model)}` : 'differs from the plan reviewers where available';
-  return record(state, { gate_rev: rev, from_gate_rev: prev.gate_rev, verdict: 'check_pending', words: plan.source.words, under_do_it: plan.doIt.map(i => i.id), check,
-    reason: `only an unreviewed post-cap delta is new (${check.items.join(',')}); one reviewer reads it first`,
+  return record(state, { gate_rev: rev, from_gate_rev: from, verdict: 'check_pending', words: plan.source.words, under_do_it: plan.doIt.map(i => i.id), skipped: plan.skipped, check,
+    reason: across ? `the owner's gate_rev ${from} answer is reused across unrelayed ${across}; one reviewer reads every edit since it first` : `only an unreviewed post-cap delta is new (${check.items.join(',')}); one reviewer reads it first`,
     lines: [`CARRY_CHECK: attempt=${attempt} items=${check.items.join(',')} prompt=${prompt} result=${result} model_family=${family} estimate=${estimate.toFixed(2)} cap=${cap.toFixed(2)}`,
       `NEXT: dispatch one reviewer on the prompt, then gstack-autoplan check --out ${state.out} --attempt ${attempt} --result ${result} --model <id> (or --unavailable "<reason>" to relay the gate as today)`] });
 }
 
-function carry(state: RunState, list: GateList, source: Source, doIt: GateItem[], deltas: GateItem[], check?: CarryCheck, noStop?: NoStop): CarryRecord {
+function carry(state: RunState, list: GateList, plan: Extract<Plan, { source: Source }>, check?: CarryCheck): CarryRecord {
+  const { source, doIt, deltas, skipped, noStop } = plan;
   const rev = list.gate_rev;
   const p1 = list.items.find(i => i.id === 'p1')!;
   const reply = list.items.map(i => `${i.id}${i.id === 'p1' ? source.p1 ?? p1.recommended : i.carried?.chosen ?? i.recommended}`).join(' ');
-  const reason = [doIt.length || deltas.length || noStop ? '' : 'no new choice', doIt.length ? `"do it" covers ${doIt.map(i => i.id).join(',')}` : '', deltas.length ? `delta check passed on ${deltas.map(i => i.id).join(',')}` : '',
+  const reason = [doIt.length || deltas.length || skipped.length || noStop ? '' : 'no new choice', doIt.length ? `"do it" covers ${doIt.map(i => i.id).join(',')}` : '', deltas.length ? `delta check passed on ${deltas.map(i => i.id).join(',')}` : '',
+    skipped.length ? `delta check passed across unrelayed gate_rev ${skipped.join(',')}` : '',
     noStop ? `no-stop autoplan-regate: ${noStop.why}` : 'plan unchanged since the accepted changes'].filter(Boolean).join('; ');
   const answered = answerGate(state, rev, reply, 'agent:gstack-autoplan', { carry: { from: source.id, gate_rev: source.gate_rev, words: source.words, by: source.by, reason } });
   const marks = new Map<string, Record<string, string>>([...doIt.map(i => [decisionId(list.run, rev, i.id), { carried_under: 'do it' }] as const), ...deltas.map(i => [decisionId(list.run, rev, i.id), { carry_check: check?.attempt ?? '' }] as const)]);
@@ -213,7 +265,17 @@ function carry(state: RunState, list: GateList, source: Source, doIt: GateItem[]
     ...doIt.map(i => `CARRIED_UNDER_DO_IT: ${i.id} ${i.title} -> ${i.options.find(o => o.key === i.recommended)?.text ?? i.recommended} (the owner has not seen this item)`),
     ...(noStop ? [`NO_STOP: autoplan-regate recorded (${noStop.why}) file=${ledger}`] : []),
     ...answered.lines];
-  return record(state, { gate_rev: rev, from_gate_rev: source.gate_rev, verdict: 'carried', reason, words: source.words, under_do_it: doIt.map(i => i.id), ...(check ? { check } : {}), lines });
+  return record(state, { gate_rev: rev, from_gate_rev: source.gate_rev, verdict: 'carried', reason, words: source.words, under_do_it: doIt.map(i => i.id), skipped, ...(check ? { check } : {}), lines });
+}
+
+/** Before a revise writes a new gate: whether that gate could carry the owner's last answer, from what is known now. */
+export function carryForecast(state: RunState): string {
+  const gateFile = path.join(state.out, 'gate.json');
+  if (!fs.existsSync(gateFile)) return 'the owner answers it (there is no earlier gate)';
+  const gate = sourceGate(state, JSON.parse(fs.readFileSync(gateFile, 'utf8')) as GateList);
+  const answer = 'reason' in gate ? gate : ownerAnswer(state, gate.prev);
+  if ('reason' in answer) return `it cannot carry the owner's last answer (${answer.reason}), so the owner answers it`;
+  return `it carries the owner's gate_rev ${answer.from} answer (${JSON.stringify(answer.words)}) only if one delta reviewer finds no High or Critical in the edits since then; otherwise the owner answers it`;
 }
 
 export interface CheckOptions { out: string; attempt?: string; result?: string; model?: string; unavailable?: string; sameFamily?: string }
@@ -264,11 +326,13 @@ export function submitCarryCheck(o: CheckOptions): { state: RunState; lines: str
     if (blocking) {
       out = refuse(state, c.gate_rev, c.from_gate_rev, `delta check found ${blocking.severity}: ${blocking.title}`);
       out.check = done;
+      out.lines.push(`NEXT: relay gate_rev ${c.gate_rev} to the owner, or fix the finding and revise without relaying it: the phases are at their round cap, so the revise writes gate_rev ${c.gate_rev + 1}, and ${carryForecast(state)}`);
     } else {
-      const plan = assess(state, { ...list, gate_rev: c.from_gate_rev! } as GateList, list);
-      if ('reason' in plan) { out = refuse(state, c.gate_rev, c.from_gate_rev, plan.reason); out.check = done; }
+      const plan = assess(state, keptGate(state.out, c.gate_rev - 1) ?? { ...list, gate_rev: c.from_gate_rev! } as GateList, list);
+      if (!('reason' in plan) && plan.source.gate_rev !== c.from_gate_rev) { out = refuse(state, c.gate_rev, c.from_gate_rev, `the check read edits since gate_rev ${c.from_gate_rev}, but the answer to carry is now gate_rev ${plan.source.gate_rev}'s`); out.check = done; }
+      else if ('reason' in plan) { out = refuse(state, c.gate_rev, c.from_gate_rev, plan.reason); out.check = done; }
       else {
-        out = carry(state, list, plan.source, plan.doIt, plan.deltas, done, plan.noStop);
+        out = carry(state, list, plan, done);
         out.lines.unshift(`CARRY_CHECK: passed attempt=${check.attempt} model=${o.model} findings=${done.findings} highest=${max}`);
       }
     }

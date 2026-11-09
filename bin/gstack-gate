@@ -9,6 +9,8 @@
  * Logic: lib/gate-list.ts. Codes: lib/result-codes.ts (GATE_REV_STALE, GATE_REPLY_UNPARSED).
  */
 import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { recordRelay } from '../lib/autoplan-state';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { applyReply, decisionRows, parseReply, renderGate, validateGateList, type GateList } from '../lib/gate-list';
 import { resultLine } from '../lib/result-codes';
@@ -77,6 +79,7 @@ function main(argv: string[]): number {
     if (page !== undefined && !/^[0-9]+$/.test(page)) return usage('--page needs a number');
     if (page !== undefined && rest.includes('--all')) return usage('--page and --all are exclusive');
     process.stdout.write(rest.includes('--all') ? renderGate(list, 1, list.items.length) : renderGate(list, page ? Number(page) : 1));
+    recordRelay(path.dirname(path.resolve(positional[0]!)), list.gate_rev, 'gstack-gate render');
     return EXIT.ok;
   }
   if (cmd === 'parse') {

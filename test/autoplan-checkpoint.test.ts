@@ -151,6 +151,29 @@ describe('checkpoint and restore', () => {
     expect(restoreInto.stderr).toMatch(/\(CHECKPOINT_OVERLAP\)/);
   });
 
+  // Value: protects=GSTACK_AUTOPLAN_CHECKPOINT_DIR set to one run's folder (its checkpoint collection, a run directory, or a
+  // folder named after the run) no longer nests a second copy under <dir>/<run>; fails_when=checkpointRun joins the run
+  // name onto any directory it is given; why_new=the overlap test covers only the live run's own directory; seam=none
+  test('a checkpoint directory that is one run\'s folder is skipped with the folder to use, and nothing nests inside it', () => {
+    const c = checkpointed('nest');
+    const before = generations(c.collection);
+    const inCollection = autoplan(['export', '--out', c.out], { env: env({ GSTACK_AUTOPLAN_CHECKPOINT_DIR: c.collection }) });
+    expect(inCollection.status, inCollection.stderr).toBe(0);
+    expect(inCollection.stderr).toContain(`CHECKPOINT: skipped ${c.collection}: it is the checkpoint folder of run ${c.run}, so a checkpoint would nest inside it; nothing written (point GSTACK_AUTOPLAN_CHECKPOINT_DIR at the checkpoints folder that holds one folder per run: ${c.root})`);
+    expect(fs.existsSync(path.join(c.collection, c.run))).toBe(false);
+    expect(generations(c.collection)).toEqual(before);
+    const named = path.join(c.dir, 'elsewhere', c.run);
+    const inNamed = autoplan(['export', '--out', c.out], { env: env({ GSTACK_AUTOPLAN_CHECKPOINT_DIR: named }) });
+    expect(inNamed.stderr).toMatch(new RegExp(`^CHECKPOINT: skipped ${esc(named)}: it is named after this run \\(${esc(c.run)}\\), so a checkpoint would nest inside it; nothing written`, 'm'));
+    expect(fs.existsSync(named)).toBe(false);
+    const other = startSmallRun(path.join(c.dir, 'other'));
+    const inRun = autoplan(['export', '--out', c.out], { env: env({ GSTACK_AUTOPLAN_CHECKPOINT_DIR: other }) });
+    expect(inRun.stderr).toMatch(/^CHECKPOINT: skipped .*: it is an autoplan run directory \(it holds run\.json\), so a checkpoint would nest inside it; nothing written/m);
+    expect(fs.existsSync(path.join(other, c.run))).toBe(false);
+    const right = autoplan(['export', '--out', c.out], { env: env({ GSTACK_AUTOPLAN_CHECKPOINT_DIR: c.root }) });
+    expect(right.stderr).toMatch(new RegExp(`^CHECKPOINT: ${esc(path.join(c.collection, 'generations'))}/g\\d{6}-`, 'm'));
+  });
+
   test('tampered, escaping, symlink-escaping and non-validating checkpoints and a non-empty target are refused and write nothing', () => {
     const c = checkpointed('refusals');
     const gen = path.join(c.collection, 'generations', generations(c.collection)[0]!);

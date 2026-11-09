@@ -99,6 +99,10 @@ export const now = () => new Date().toISOString();
 export function journal(out: string, row: Record<string, unknown>): void {
   fs.appendFileSync(path.join(out, FILES.journal), JSON.stringify({ ts: now(), ...row }) + '\n');
 }
+/** An owner-facing render of gate_rev `rev` (gstack-owner-brief render, gstack-gate render) in a run directory: the owner may have seen it, so no carry skips it (lib/autoplan-carry.ts). */
+export function recordRelay(out: string, rev: number, via: string): void {
+  if (fs.existsSync(path.join(out, FILES.run))) journal(out, { event: 'gate_relayed', gate_rev: rev, via });
+}
 export function readJournal(out: string): Array<Record<string, any>> {
   const file = path.join(out, FILES.journal);
   if (!fs.existsSync(file)) return [];

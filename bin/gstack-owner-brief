@@ -25,6 +25,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { renderCaptainBrief } from '../lib/captain-brief';
 import { BRIEF_FILE, closeDraftDirectionsFile, loadBriefInputs, renderBrief } from '../lib/owner-brief';
+import { recordRelay } from '../lib/autoplan-state';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-owner-brief — one page for the owner: summary, URGENT block, numbered decisions (docs/unattended.md#owner-brief)
@@ -49,6 +50,7 @@ function main(argv: string[]): number {
   if ('error' in loaded) { process.stderr.write(resultLine(`gstack-owner-brief ${cmd}`, loaded.error.code, loaded.error.message) + '\n'); return loaded.error.code === 'BRIEF_INPUT_MISSING' ? EXIT.refused : EXIT.fail; }
   const json = rest.includes('--json');
 
+  if (cmd === 'render') recordRelay(path.resolve(out), loaded.inputs.gate.gate_rev, `gstack-owner-brief render${rest.includes('--captain') ? ' --captain' : ''}`);
   if (cmd === 'render' && rest.includes('--captain')) {
     const brief = renderCaptainBrief(loaded.inputs, { outDir: path.resolve(out), captainName: flag(rest, '--captain-name') });
     if (rest.includes('--write')) fs.writeFileSync(path.join(path.resolve(out), 'captain-brief.md'), brief.text);

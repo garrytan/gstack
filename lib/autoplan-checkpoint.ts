@@ -128,6 +128,14 @@ export function checkpointNotice(env: NodeJS.ProcessEnv, repo?: string): string 
   return `CHECKPOINT: unset; to survive machine replacement: export GSTACK_AUTOPLAN_CHECKPOINT_DIR=${dir ?? '<a private project-user Drive folder>'}${dir ? ' (or for every run: gstack-config set autoplan_checkpoint drive)' : ''}`;
 }
 
+/** Why `root` is one run's folder rather than the checkpoints folder above it: a run directory, one run's checkpoint folder, or a folder named after this run. */
+function runFolder(root: string, run: string): string | undefined {
+  if (fs.existsSync(path.join(root, FILES.run))) return 'it is an autoplan run directory (it holds run.json)';
+  if (fs.existsSync(path.join(root, CURRENT)) || fs.existsSync(path.join(root, GENERATIONS))) return `it is the checkpoint folder of run ${path.basename(root)}`;
+  if (path.basename(root) === run) return `it is named after this run (${run})`;
+  return undefined;
+}
+
 /** A checkpoint beyond the at-rest ones: after a bound voice, after a phase transition, and the notice at the first next. */
 export type CheckpointMoment = 'bound' | 'transition' | 'init';
 const repoOf = (state: RunState) => { const input = state.plan_input ?? state.plan_source; const root = input ? repoRoot(path.dirname(input)) : undefined; return root ? path.basename(root) : undefined; };
@@ -143,6 +151,8 @@ export function checkpointRun(out: string, env: NodeJS.ProcessEnv = process.env,
   if (!atRest && !moment) return undefined;
   const root = checkpointRoot(env, repoOf(state));
   if (!root) return atRest || moment === 'init' ? checkpointNotice(env, repoOf(state)) : undefined;
+  const misplaced = runFolder(path.resolve(root), state.run);
+  if (misplaced) return `CHECKPOINT: skipped ${root}: ${misplaced}, so a checkpoint would nest inside it; nothing written (point GSTACK_AUTOPLAN_CHECKPOINT_DIR at the checkpoints folder that holds one folder per run${misplaced.startsWith('it is the checkpoint folder') ? `: ${path.dirname(path.resolve(root))}` : ''})`;
   const collection = path.join(path.resolve(root), state.run);
   refuseOverlap('the checkpoint directory overlaps the run directory', collection, state.out);
   return exclusive(path.join(collection, '.lock'), () => {
