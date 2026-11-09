@@ -567,6 +567,8 @@ describe('train build', () => {
     expect(queue(fx, ['train', 'build', '--prs', `1@${h1},2@${h2}`, '--dry-run']).err).toMatch(/PR #2's ship receipt is invalid \(.*\).*\(QUEUE_RECEIPT_MISSING\)/);
     setPrBody(fx, '2', shippedBody('1', h2));
     expect(queue(fx, ['train', 'build', '--prs', `1@${h1},2@${h2}`, '--dry-run']).err).toMatch(/PR #2's ship receipt names pr=1, not this PR.*\(QUEUE_RECEIPT_STALE\)/);
+    setPrBody(fx, '2', shippedBody('2', h2, { base: 'pr-1' }));
+    expect(queue(fx, ['train', 'build', '--prs', `1@${h1},2@${h2}`, '--dry-run']).err).toMatch(/PR #2's ship receipt was reviewed against pr-1, not main.*\(QUEUE_RECEIPT_BASE_MISMATCH\)/);
     expect(remoteRefs(fx)).toBe(refsBefore);
     expect(dispatches(fx)).toEqual([]);
     expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'trains'))).toBe(false);

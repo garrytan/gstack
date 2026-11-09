@@ -504,6 +504,8 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   if (!b.ok) return b;
   const self = merged ? null : baseContainsHead(root, baseRef, b.head);
   if (self) return { ok: false, code: 'BASE_CONTAINS_HEAD', message: self, line: b.line };
+  const based = merged ? b : bindReceipt(body, pr, accepted, { base: baseRef });
+  if (!based.ok) return based;
   const ancestor = (commit: string) => b.receipt.carry?.ancestry === 'rewritten' || git(root, ['merge-base', '--is-ancestor', commit, b.head]).ok;
   const problems = exceptionProblems(body, b.receipt, ancestor);
   if (problems.length) return { ok: false, code: 'QUEUE_RECEIPT_EXCEPTION_INVALID', message: `the receipt's owner exception does not stand: ${problems.join('; ')}`, line: b.line };
