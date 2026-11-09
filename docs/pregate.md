@@ -1488,7 +1488,8 @@ also calls the head docs-only. Without that check, the run is never evidence (`a
 
 **Land.** `land.docs_only_skip` in `.gstack/ship-policy.json` names the `merged_checks` commands land
 skips for a docs-only pin, such as the test list, keeping typecheck and the freshness check. Land keeps every
-check when a non-docs file on the base tip names a changed doc, because the pin merges onto that tip. Releases up
+check when a non-docs file on the base tip names a changed doc, or reads the directory of a repo-admitted one
+([below](#repo-docs-paths)) where the pin had no such reader, because the pin merges onto that tip. Releases up
 to 1.98.0.0 refuse the key as unknown, so `validate` refuses it until `min_gstack_version` reaches
 `LAND_DOCS_ONLY_SKIP_KEY_VERSION` (lib/ship-policy-keys.ts). To turn it on (GST-1968), use one pull request, after a
 stable release carries the key: add `docs_only_skip`, raise `min_gstack_version` to that release, and check that
@@ -1526,9 +1527,10 @@ the reference scan (a script or test naming the path pins it; a repo-allowed doc
   doesn't understand a newer key never widens on it.
 - **Readers by directory.** A script that lists a directory reads every post in it, which a literal-path scan can't
   see. So for a path only `allow` admits, any non-prose tracked file that names one of its directories (`wiki/`,
-  `'wiki'`, `"wiki/board"`) refuses the change unless it is tied to `tests`: it is one of them, names one, or one
+  `'wiki'`, `"wiki/board"`, `'./wiki'`, `'../wiki'`, `root + '/wiki'`, `` `${root}/wiki` ``) refuses the change unless it is tied to `tests`: it is one of them, names one, or one
   names it (with or without its extension). `tests` lists up to 16 test files (`*.test.ts` and the like, never a glob);
-  the docs lane runs them, in pregate and in CI's `tests` output, whenever a repo-admitted path changed. A prose file
+  the docs lane runs them, in pregate and in CI's `tests` output, whenever a repo-admitted path changed. A listed test missing from the classified tree refuses
+  the change, so the docs lane can't pass without it. A prose file
   that names a directory only describes it; one that names a path still pins that path.
 
 **Turning it on.** Releases up to 1.98.0.0 refuse `docs_only` as an unknown key, and `validate` refuses the block
