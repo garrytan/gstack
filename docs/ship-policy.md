@@ -2129,8 +2129,8 @@ changed paths' diff, then the scoped-review sections of the context paths. The
 400-line and 64 KB caps count the whole packet, and `range_diff_sha256` binds
 all of it. The record also names `range_base`, the commit the reviewed range
 starts from (the fork point, or a landed stack parent), and the carry reason
-logs the context paths and that `range_base`. A context section over 200 lines,
-or a packet over the caps, prints `RECHECK: not eligible (<why>)` and stays
+logs the context paths and that `range_base`. A context section with over 200
+of the branch's own +/- lines, or a packet over the caps, prints `RECHECK: not eligible (<why>)` and stays
 `RECEIPT_CARRY_PRODUCT_CHANGED`. A changed path alone, or context paths alone,
 keep the routes above, and their output is unchanged.
 

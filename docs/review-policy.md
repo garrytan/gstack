@@ -172,7 +172,10 @@ A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
 `REVIEW_DEPTH`, and an absent flag counts as full. The fix range
 `RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
 as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
-`FIX_RANGE:`). It dispatches one fix-check on the range, the Red Team on the
+`FIX_RANGE:`). The range holds only the PR's own change since `RANGE_BASE`: when
+a base merge lands inside it, what the base brought (a file only main changed,
+or main's lines in a file both changed) is not counted, and neither is its gate
+class (GST-2229, harness-evals #354). It dispatches one fix-check on the range, the Red Team on the
 range, the native adversarial pass when the range changes runtime lines, every
 force-included specialist and the outside voice when published numbers changed.
 Step 11's voices that have not run yet stay listed, as on a full pass 2. It
