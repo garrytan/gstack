@@ -4,8 +4,8 @@ Your crew's CREW.md and recorded approvals decide who may merge, update a base, 
 
 1. **Plan, then a yes.** New functionality starts with /autoplan sized to the work; the build waits for "do it". [SKILL.md: Plan, approve, ship]
 2. **Someone else merges.** Run /ship to a receipt on your final pushed head, send one READY quoting gstack's verify output verbatim, and stop. The merge owner merges on green and assigns versions; docs-only PRs run only docs checks. [crew/docs/captain.md: The READY contract]
-3. **Block only on the floor.** A finding blocks if it would fail a test, break production, or lose data or secrets; the rest goes in the PR body or next wave. [docs/review-policy.md]
-4. **Fix waves.** When main goes red, hold /ship while one owner finds the root cause; bring main in once, as your rules allow. Fold deferred findings and test follow-ups into one PR. [docs/triage.md]
+3. **Block only on the floor.** A finding blocks if it would fail a test, break production, or lose data or secrets; deferred findings stay on the PR and never become issues. [docs/review-policy.md]
+4. **Fix waves.** When main goes red, hold /ship while one owner finds the root cause; bring main in once, as your rules allow. Follow-ups get one issue with an owner and one PR. [docs/triage.md]
 5. **Severe first, same gates.** A severe user-facing bug jumps the queue with a short plan; receipt, checks and merge owner stay.
 6. **Trade findings, not small talk.** Another crew's finding goes to its Captain, through yours, with evidence.
 7. **Measure before you act.** Run the real system on the merged tree you ship; a real run outranks a reviewed plan. Each number names its run, commit or uncapped query; say what you did not verify.

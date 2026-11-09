@@ -219,6 +219,9 @@ Issues show what the crew is really doing, so keep them true:
 - Before archiving a thread, close or move to Backlog every issue assigned to it.
 - On each wake, leave every issue you touched accurate: its status, assignee and links.
 - An unassigned Todo that nobody will start goes to Backlog.
+- Deferred findings from review or /ship never become issues: they stay on the PR's
+  findings or its `## Deferred findings` section, and any still open close when the PR
+  merges. Follow-up work someone will actually do gets one issue with a named owner.
 - A daily sweep closes, re-assigns or backlogs any open issue outside Backlog that nobody
   has touched for 2 days and whose assignee is archived, or idle with no open PR.
 - The sweep skips an issue assigned to a person (an ask waiting on the owner, say) and a
@@ -638,7 +641,7 @@ only the run the lane named.
 ## The lessons loop
 
 Every report ends with one Lesson. The controller reads lessons before chat, and each
-one becomes a rule in CREW.md, a line in AGENTS.md, or a tool fix filed as an issue;
+one becomes a rule in CREW.md, a line in AGENTS.md, or a tool fix as one issue with an owner;
 nothing stays a lesson for long. Rules carry the thread that produced them, so a new lane
 can read the incident behind the rule.
 

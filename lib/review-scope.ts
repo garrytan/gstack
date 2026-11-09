@@ -6,12 +6,13 @@
  * new neighbours in pre-existing code, fixed them, and the fixes drew another
  * pass until the cycle cap. Under `review_scope: frozen` (the default) the
  * scope is fixed after pass 1: findings in the diff are fixed, findings in
- * code the PR did not change are filed as issues (deferred), and later passes
- * read only the range since the previous pass and fix only blocking findings.
+ * code the PR did not change are deferred and stay on the PR, never filed as
+ * issues, and later passes read only the range since the previous pass and fix
+ * only blocking findings.
  * Everything below the blocking floor is a named note in the PR body and never
  * triggers a pass. `review_scope: all` keeps the old behaviour.
  *
- * Pure functions here; bin/gstack-review-scope runs git and gh.
+ * Pure functions here; bin/gstack-review-scope runs git.
  */
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
@@ -234,9 +235,8 @@ export function scopeLine(policy: ReviewScopePolicy, pass: number, scoped: reado
 }
 
 // ---------------------------------------------------------------------------
-// deferral: one issue per blocking finding in code the PR did not change
+// deferral: a blocking finding in code the PR did not change stays on the PR
 // ---------------------------------------------------------------------------
-export const DEFERRED_MARKER = 'gstack-deferred-finding';
 const oneLine = (s: unknown) => String(s ?? '').replace(/[\x00-\x1f\x7f\u2028\u2029]+/g, ' ').trim();
 
 export function findingIdentity(f: ScopeFinding): string {
@@ -250,43 +250,20 @@ function findingText(f: ScopeFinding): string {
   return oneLine(f.summary ?? f.problem ?? f.category ?? 'review finding');
 }
 
-export interface DeferContext { repo?: string; pr?: number; branch?: string; head?: string }
+export interface DeferredRecord { fingerprint: string; path: string; severity: string; stated?: string; summary: string }
 
-/** Issue title and body for a deferred finding; the marker keeps a rerun from filing it twice. */
-export function renderDeferredIssue(f: ScopedFinding, ctx: DeferContext): { title: string; body: string; marker: string } {
-  const text = findingText(f);
-  const title = `Deferred review finding: ${findingWhere(f)} — ${text}`.slice(0, 120);
-  const origin = ctx.pr ? `${ctx.repo ? `${ctx.repo}#${ctx.pr}` : `PR #${ctx.pr}`}` : ctx.branch ? `branch \`${ctx.branch}\`` : 'a /ship run';
-  const marker = `<!-- ${DEFERRED_MARKER}: ${oneLine(findingIdentity(f))} -->`;
+/** The PR's record of a deferred finding: `severity` stays the collected label, `stated` carries what the reviewer wrote beside it. */
+export function deferredRecord(f: ScopedFinding): DeferredRecord {
   const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
-  const body = [
-    `Filed by /ship's pre-landing review of ${origin}${ctx.head ? ` (head ${ctx.head.slice(0, 12)})` : ''}. The finding is in code that PR did not change, so it was deferred here instead of being fixed there (review scope frozen after pass 1).`,
-    '',
-    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}${said.length ? ` (the reviewer wrote ${said.join(', ')})` : ''}`,
-    `- **Where:** \`${findingWhere(f)}\``,
-    `- **Finding:** ${text}`,
-    ...(f.fix ? [`- **Suggested fix:** ${oneLine(f.fix)}`] : []),
-    ...(f.specialist ? [`- **Found by:** ${oneLine(f.specialist)}`] : []),
-    '',
-    marker,
-    '',
-  ].join('\n');
-  return { title, body, marker };
+  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), ...(said.length ? { stated: said.join(', ') } : {}), summary: String(f.summary ?? f.problem ?? f.category ?? '') };
 }
 
-export interface DeferredRecord { fingerprint: string; path: string; severity: string; summary: string; issue: number | null; url?: string; reason?: string }
-/** `defer`'s reason when the marker search found the finding's issue already open; the section renders such a record as a plain `#N`. */
-export const ALREADY_FILED_REASON = 'already filed';
-
-/** The PR-body section for deferred findings: references, never closing keywords, so a merge closes nothing. Only `frozen` defers. */
+/** The PR-body section for deferred findings, which stay on the PR: no issue is filed and no closing keyword is written. Only `frozen` defers. */
 export function renderDeferredSection(deferred: readonly DeferredRecord[], noted: readonly ScopeFinding[] = []): string {
   const out: string[] = [];
   if (deferred.length) {
-    out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen); filed as issues and not closed by this PR.', '');
-    for (const d of deferred) {
-      const ref = d.issue ? `#${d.issue}${d.reason && d.reason !== ALREADY_FILED_REASON ? ` (${oneLine(d.reason)})` : ''}` : `unfiled${d.reason ? ` (${oneLine(d.reason)})` : ''}`;
-      out.push(`- Deferred: ${ref} — ${oneLine(d.severity)} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
-    }
+    out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen). They stay on this PR and are not filed as issues.', '');
+    for (const d of deferred) out.push(`- Deferred: ${oneLine(d.severity)}${d.stated ? ` (the reviewer wrote ${oneLine(d.stated)})` : ''} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
     out.push('');
   }
   if (noted.length) {

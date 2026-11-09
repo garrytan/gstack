@@ -3,17 +3,15 @@
  * gstack-review-scope — the finding scope of /ship's review loop (docs/ship-policy.md#review-scope).
  *
  *   gstack-review-scope classify --base <ref> --pass <n> [--range-base <sha>] [--policy frozen|diff-plus-blocking|all] [--findings <file>|-] [--json]
- *   gstack-review-scope defer --findings <classified.json> [--pr <n>] [--repo <owner/repo>] [--branch <name>] [--out <deferred.json>] [--dry-run] [--json]
+ *   gstack-review-scope defer --findings <classified.json> [--out <deferred.json>] [--json]
  *   gstack-review-scope render --deferred <deferred.json> [--findings <classified.json>]
  *   gstack-review-scope summary --since <iso-timestamp> (--run <dir> | --ledger <f>... | --no-ledger) [--out <file>] [--json]
  *
  * `classify` reads a JSON array of findings (the Step 9.3 result) and stamps
  * each with `locus` (diff | fix-range | outside), `kind` (defect | test-gap |
  * advisory), `blocking` and `scope` (fix | defer | note); the loop fixes only
- * `fix`, files `defer` as issues and writes `note` into the PR body.
- * `defer` files one GitHub issue per deferred finding through gh, reusing an
- * open issue that already carries the finding's marker; without gh the finding
- * stays deferred as "unfiled" with the reason. `render` prints the PR-body
+ * `fix` and writes `defer` and `note` into the PR body. `defer` records each
+ * deferred finding for the PR and files no issue. `render` prints the PR-body
  * sections. `summary` reads this branch's review log for the invocation's
  * passes and prints the REVIEW_LOOP line the ship receipt carries.
  * Logic: lib/review-scope.ts.
@@ -27,10 +25,9 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
-import { EXIT as POST_EXIT, runPost } from '../lib/gstack-post';
 import {
-  ledgerPass, parseFixTrailers, parseHunks, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
-  ALREADY_FILED_REASON, DEFERRED_MARKER, findingIdentity, findingWhere, REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
+  deferredRecord, ledgerPass, parseFixTrailers, parseHunks, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
 import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
 
@@ -39,9 +36,9 @@ const HELP = `gstack-review-scope — finding scope for /ship's review loop (doc
   classify --base <ref> --pass <n> [--range-base <sha>] [--policy frozen|diff-plus-blocking|all] [--findings <file>|-]
                                       stamp each finding with locus, kind, blocking and scope (fix | defer | note);
                                       prints REVIEW_SCOPE: … and the classified JSON array (--json: JSON only)
-  defer --findings <classified.json> [--pr <n>] [--repo <r>] [--branch <b>] [--out <file>] [--dry-run]
-                                      file one issue per scope=defer finding through gh (reuses an open issue carrying the
-                                      finding's marker); prints DEFERRED: lines and the deferred records
+  defer --findings <classified.json> [--out <file>]
+                                      record each scope=defer finding for the PR body (no issue is filed);
+                                      prints DEFERRED: lines and the deferred records
   render --deferred <file> [--findings <classified.json>]
                                       the PR-body sections: ## Deferred findings (references, never closing keywords)
                                       and ## Review notes (scope=note findings)
@@ -55,7 +52,7 @@ const HELP = `gstack-review-scope — finding scope for /ship's review loop (doc
                                       prints REVIEW_SCOPE_UNBOUND: <what>: <why> (unbound=N). An unreadable ledger: REVIEW_SCOPE_LEDGER
 
 Defaults: --policy from the base branch's .gstack/ship-policy.json review_scope (frozen); an unresolvable base refuses
-  (POLICY_SOURCE_UNAVAILABLE) unless --policy is passed; --findings - reads stdin; --branch the current branch.
+  (POLICY_SOURCE_UNAVAILABLE) unless --policy is passed; --findings - reads stdin.
 ${exitTableHelp()}`;
 
 function flag(args: string[], name: string): string | undefined {
@@ -98,57 +95,6 @@ function diffHunkLines(from: string, cwd: string): { ok: boolean; out: string; e
     return { ok: true, out: keep.join('\n'), err: '' };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
-function gh(args: string[], cwd: string): { ok: boolean; out: string; err: string } {
-  const r = spawnSync('gh', args, { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
-  if (r.error) return { ok: false, out: '', err: (r.error as NodeJS.ErrnoException).code === 'ENOENT' ? 'gh is not installed' : r.error.message };
-  return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
-}
-/**
- * File one deferred issue through the publication boundary the PR body uses
- * (lib/gstack-post: the exact title and body bytes are scanned for secrets and
- * private values before anything reaches gh). Reviewer text is untrusted here: a
- * security finding may quote the value it found. A HIGH finding refuses, a MEDIUM
- * one needs a human and is never confirmed unattended; both leave the finding
- * deferred and unfiled with the reason in the record.
- */
-function publishIssue(repoRoot: string, repo: string | undefined, title: string, body: string): { ok: boolean; out: string; err: string } {
-  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'gstack-deferred-'));
-  const titleFile = path.join(dir, 'title.txt');
-  const bodyFile = path.join(dir, 'issue.md');
-  fs.writeFileSync(titleFile, title, { mode: 0o600 });
-  fs.writeFileSync(bodyFile, body, { mode: 0o600 });
-  let out = '';
-  let err = '';
-  try {
-    const code = runPost(['issue-create', '--title-file', titleFile, '--body-file', bodyFile], {
-      run(cmd, args, input) {
-        // --repo names the destination: the remote is that GitHub repository and every gh call targets it.
-        // `gh repo view` takes the repository as its positional argument and rejects --repo, so the visibility read
-        // (public-strict scan or not) names it that way; every other gh command takes --repo.
-        if (repo && cmd === 'git' && args[0] === 'remote') return { status: 0, stdout: `https://github.com/${repo}\n`, stderr: '' };
-        const argv = cmd === 'gh' && repo ? (args[0] === 'repo' && args[1] === 'view' ? [...args.slice(0, 2), repo, ...args.slice(2)] : [...args, '--repo', repo]) : args;
-        const r = spawnSync(cmd, argv, { cwd: repoRoot, input: input ?? '', encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
-        if (r.error) return { status: 1, stdout: '', stderr: (r.error as NodeJS.ErrnoException).code === 'ENOENT' ? `${cmd} is not installed` : r.error.message };
-        return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
-      },
-      readFile: p => fs.readFileSync(p, 'utf8'),
-      out: t => { out += t; },
-      err: t => { err += t; },
-    }, path.join(import.meta.dir, 'gstack-config'));
-    if (code === POST_EXIT.posted) return { ok: true, out, err };
-    const rules = [...new Set([...out.matchAll(/RULE: (\S+)/g)].map(m => m[1]))].join(', ');
-    const reason = code === POST_EXIT.refused ? `publication scan refused: HIGH ${rules || 'finding'}; remove the value from the finding text`
-      : code === POST_EXIT.confirm ? `publication scan: MEDIUM ${rules || 'finding'} needs a human before this text is posted`
-      : `gh issue create failed: ${(err.trim().split('\n').find(l => l.trim()) ?? 'unknown').slice(0, 160)}`;
-    return { ok: false, out, err: reason };
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-/** One `gh issue list` page; a page exactly this full may hide older markers, so the run says so and the records carry it. */
-const DEFERRED_SEARCH_LIMIT = 200;
-
 function readFindings(spec: string | undefined, what: string): ScopeFinding[] {
   const text = spec === undefined || spec === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(spec, 'utf8');
   const parsed = JSON.parse(text.trim() || '[]');
@@ -206,51 +152,10 @@ function cmdClassify(rest: string[], json: boolean): number {
 }
 
 function cmdDefer(rest: string[], json: boolean): number {
-  const repoRoot = git(['rev-parse', '--show-toplevel'], process.cwd()).out.trim() || process.cwd();
   let findings: ScopedFinding[];
   try { findings = readFindings(flag(rest, '--findings'), 'classified findings') as ScopedFinding[]; } catch (e: any) { return refuse('defer', 'REVIEW_SCOPE_INPUT', e.message); }
-  const toDefer = findings.filter(f => f.scope === 'defer');
-  const prFlag = flag(rest, '--pr');
-  if (prFlag !== undefined && !/^[1-9]\d*$/.test(prFlag)) return refuse('defer', 'REVIEW_SCOPE_INPUT', `--pr must be a PR number, got ${JSON.stringify(prFlag.slice(0, 40))}`);
-  const repo = flag(rest, '--repo');
-  const repoArgs = repo ? ['--repo', repo] : [];
-  const ctx = {
-    repo, pr: prFlag ? Number(prFlag) : undefined,
-    branch: flag(rest, '--branch') ?? (git(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot).out.trim() || undefined),
-    head: git(['rev-parse', 'HEAD'], repoRoot).out.trim() || undefined,
-  };
-  const dryRun = rest.includes('--dry-run');
-  // One search for every marker, before any create: a failed search files nothing, so a rate-limited rerun cannot duplicate issues.
-  let filed: Array<{ number: number; url: string; body: string }> | null = null;
-  let searchError = '';
-  let truncated = false;
-  if (!dryRun && toDefer.length) {
-    const existing = gh(['issue', 'list', ...repoArgs, '--state', 'open', '--search', `"${DEFERRED_MARKER}" in:body`, '--json', 'number,url,body', '--limit', String(DEFERRED_SEARCH_LIMIT)], repoRoot);
-    if (existing.ok) { try { filed = JSON.parse(existing.out); } catch { searchError = 'gh issue list returned no JSON'; } }
-    else searchError = `gh issue list failed: ${(existing.err || 'unknown').split('\n')[0]!.slice(0, 160)}`;
-    if (!Array.isArray(filed)) filed = null;
-    // An exactly-full page is read as truncated: an older issue with this finding's marker may sit past it, so a new issue may duplicate one.
-    truncated = (filed?.length ?? 0) >= DEFERRED_SEARCH_LIMIT;
-    if (truncated) process.stderr.write(`DEFERRED_SEARCH: truncated at ${DEFERRED_SEARCH_LIMIT} open issues; an existing issue for a finding may not have been found\n`);
-  }
-  const records: DeferredRecord[] = [];
-  for (const f of toDefer) {
-    const { title, body, marker } = renderDeferredIssue(f, ctx);
-    const record: DeferredRecord = { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), summary: String(f.summary ?? f.problem ?? f.category ?? ''), issue: null };
-    records.push(record);
-    if (dryRun) { record.reason = 'dry run'; continue; }
-    if (!filed) { record.reason = searchError; continue; }
-    const hit = filed.find(i => typeof i.body === 'string' && i.body.includes(marker));
-    if (hit) { record.issue = hit.number; record.url = hit.url; record.reason = ALREADY_FILED_REASON; continue; }
-    const created = publishIssue(repoRoot, repo, title, body);
-    if (created.ok) {
-      const url = created.out.split('\n').map(l => l.trim()).filter(l => /\/issues\/\d+$/.test(l)).pop() ?? '';
-      const n = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
-      if (Number.isInteger(n)) { record.issue = n; record.url = url; if (truncated) record.reason = `filed; the marker search was truncated at ${DEFERRED_SEARCH_LIMIT}, so an older issue may duplicate it`; } else record.reason = `gh returned no issue url: ${url.slice(0, 120)}`;
-    } else record.reason = created.err;
-  }
-  // Unfiled is the documented degraded path, not a failure: the finding stays deferred and the PR body names the reason.
-  for (const r of records) process.stderr.write(`DEFERRED: ${r.issue ? `#${r.issue}` : `unfiled (${r.reason ?? 'no gh'})`} ${r.severity} ${r.path}\n`);
+  const records: DeferredRecord[] = findings.filter(f => f.scope === 'defer').map(deferredRecord);
+  for (const r of records) process.stderr.write(`DEFERRED: ${r.severity} ${r.path}\n`);
   if (!records.length) process.stderr.write('DEFERRED: none\n');
   const out = flag(rest, '--out');
   if (out) fs.writeFileSync(out, JSON.stringify(records, null, 2) + '\n');

@@ -35,7 +35,7 @@ export const SHIP_POLICY_SCHEMA = 'https://github.com/garrytan/gstack/docs/ship-
 export type BumpPolicy = 'patch' | 'ask' | 'never';
 export type QueueMode = 'claim-at-open' | 'stamp-at-merge';
 export type HistoryPolicy = 'merge-only' | 'squash-ok';
-/** `frozen`: /ship fixes the diff in pass 1, defers unchanged code to issues and reviews only the range after; `all`: every finding is fixed now. */
+/** `frozen`: /ship fixes the diff in pass 1, defers unchanged code to the PR body and reviews only the range after; `all`: every finding is fixed now. */
 export type ReviewScope = 'frozen' | 'diff-plus-blocking' | 'all';
 
 export interface ShipPolicy {
@@ -755,7 +755,7 @@ export function shipConsequences(policy: ShipPolicy, base: string): string[] {
     ? 'review_scope all: Step 9.4 fixes every finding on every pass (gstack-review-scope classify --policy all)'
     : policy.review_scope === 'diff-plus-blocking'
       ? 'review_scope diff-plus-blocking: Step 9.4 runs `gstack-review-scope classify --policy diff-plus-blocking` each pass; pass 1 fixes the diff and every blocking finding, in unchanged code too, later passes read only the range since the previous pass and fix only blocking findings; notes go to the PR body'
-      : 'review_scope frozen: Step 9.4 runs `gstack-review-scope classify` each pass; pass 1 fixes the diff and defers blocking findings in unchanged code to issues, later passes read only the range since the previous pass and fix only blocking findings; notes go to the PR body');
+      : 'review_scope frozen: Step 9.4 runs `gstack-review-scope classify` each pass; pass 1 fixes the diff and defers blocking findings in unchanged code to the PR body, later passes read only the range since the previous pass and fix only blocking findings; notes go to the PR body');
   if (policy.review_exclude_paths.length) out.push(`review_exclude_paths ${policy.review_exclude_paths.join(' ')}: Step 9's reviewers leave out the data, docs, binary and .log files these git globs match on this branch; gstack-review-plan prints REVIEW_EXCLUDE: with the counts and the kept files, and every brief names what was left out (docs/ship-policy.md#review-exclude-paths)`);
   if (policy.preregistration_shas.length) out.push(`preregistration: \`gstack-evidence ancestor --from-policy --base ${base}\` must print only ANCESTOR: ok before push; the ship receipt records the result`);
   if (policy.release_tool) out.push(`release_tool: \`${policy.release_tool}\` runs only inside gstack-restamp (staging worktree, outputs confined to release_outputs)`);

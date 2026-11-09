@@ -174,10 +174,10 @@ The receipt's `review_loop` object, written from `gstack-review-scope summary
 (Step 9 full passes this ship ran, 1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`),
 `blocking_found` (every blocker the readers found, rows and dispatch ledgers
 both, [review-policy.md](review-policy.md#what-the-receipt-records)), `deferred`
-(blocking findings in unchanged code filed as issues, Step 11's late defers
-included), `noted`, `fixed` and `scope`. The
+(blocking findings in unchanged code, kept on the PR and never filed as
+issues, Step 11's late defers included), `noted`, `fixed` and `scope`. The
 summary line a parent reads prints it as `passes=<n> blocking_found=<k>
-deferred=<m>`; the PR body lists the deferred issues under `## Deferred
+deferred=<m>`; the PR body lists the deferred findings under `## Deferred
 findings` and the below-floor items under `## Review notes`. A pass that finds
 nothing is `NO FINDINGS` from every reviewer and a pass with no edits, which
 is the loop's exit, never a failed review ([review-policy.md](review-policy.md)).

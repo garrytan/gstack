@@ -39,7 +39,7 @@ The lane's own lines, after the block:
 pin: <sha40>                      # the full head SHA, restated
 screen choice: <--no-screen: cases <ids> ran focused and passed | --screen: <reason>>
 flaky: <none | case, both run ids, logged in the ledger on <date>>
-review passes: <n> (deferred: <items filed as issues, or none>)
+review passes: <n> (deferred: <findings kept on the PR, or none>)
 Unverified: <none | each claim the lane did not check itself, and why>
 Head frozen from now on; a push drops this PR from any train and I will READY again.
 ```

@@ -72,7 +72,7 @@ branch that changes the policy.
 | `migrations` | `{ dir, id }` or `null` | `null` | The migration directory and a regex with exactly one capture group for the number in a file name (`"^v(\\d+)-"`); `gstack-pregate regate` reports `MIGRATION_COLLISION`. |
 | `gate_command` | command or `null` | `null` | The repo's full pre-merge gate. `gstack-ship-queue gate-ahead` and `ready` print it for the caller to run (in the background or in CI); gstack never executes it. Needs `min_gstack_version`. |
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
-| `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, files blocking findings in unchanged code as issues, and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of filing it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
+| `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, lists blocking findings in unchanged code as deferred in the PR body (never as issues), and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of deferring it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
 | `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add `forbid_fetch` entries, never remove one. Needs `min_gstack_version`. |
@@ -1621,12 +1621,9 @@ construction:
    security or data-loss defect. Everything else (an advisory, an informational
    item, a test gap, a wording note) is below the floor. Pass 1 fixes findings in
    the diff (`scope: fix`). A blocking finding in code the PR did not change is
-   `scope: defer`: `gstack-review-scope defer` files it as a GitHub issue (reusing
-   an open issue that carries the same `<!-- gstack-deferred-finding: <fingerprint> -->`
-   marker; the title and body go through the same publication scan as the PR
-   body, so a finding that quotes a credential stays `unfiled (publication scan
-   refused: …)`; `unfiled (<reason>)` without `gh`) and `render` writes it under
-   `## Deferred findings` in the PR body. Below-floor findings outside the diff,
+   `scope: defer`: `gstack-review-scope defer` records it for the PR, files no
+   issue, and `render` writes it under `## Deferred findings` in the PR body, which
+   goes through the PR body's publication scan. Below-floor findings outside the diff,
    every below-floor finding from pass 2 on, and every below-floor finding from
    Step 11's voices or a fix-check (`raised_by` `adversarial-native`,
    `outside-voice` or `fix-check`, even classified at `--pass 1`) are
@@ -1727,7 +1724,7 @@ The floor and the pass structure are stated once, in
 [review-policy.md](review-policy.md); this section documents the knob.
 
 `review_scope: diff-plus-blocking` is the documented fallback for a repository
-where deferred issues pile up: the same passes and range as `frozen`, but a
+where deferred findings pile up: the same passes and range as `frozen`, but a
 blocking finding in code the PR did not change is `scope: fix` in this PR
 instead of `defer`, and the loop stops at Step 9.4's third fixing cycle
 (`CYCLES >= 3`): only `frozen` runs the review plan's two-round cap. `review_scope: all` is the opt-back to the earlier loop:

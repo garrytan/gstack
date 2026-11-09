@@ -3,7 +3,7 @@
  * bin/gstack-review-scope). Five Captains hit a loop that re-read the whole
  * diff each pass and fixed neighbours in pre-existing code until the cycle
  * cap. Under `review_scope: frozen` pass 1 fixes the diff and defers blocking
- * findings in unchanged code to issues; pass 2+ fixes only blocking findings
+ * findings in unchanged code to the PR body; pass 2+ fixes only blocking findings
  * in the range since the previous pass (or the diff) and notes the rest.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import {
-  isBlocking, kindOf, locusOf, mapStateMatrixOutput, parseHunks, raisedBy, renderDeferredIssue, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
+  deferredRecord, isBlocking, kindOf, locusOf, mapStateMatrixOutput, parseHunks, raisedBy, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
   UNTESTED_CELL, type ScopedFinding, type ScopeFinding,
 } from '../lib/review-scope';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -166,33 +166,41 @@ describe('scope decisions', () => {
 describe('deferral rendering', () => {
   const finding: ScopedFinding = { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts', line: 7, severity: 'CRITICAL', category: 'data-loss', summary: 'Unbounded delete\nwithout a where clause', fix: 'add the tenant filter', specialist: 'security', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' };
 
-  test('a deferred issue shows the severity and Blocks the reviewer stated beside the collected label (GST-766)', () => {
-    const issue = renderDeferredIssue({ ...finding, stated: { severity: 'Low', blocks: 'no' } }, { repo: 'acme/app', pr: 42 });
-    expect(issue.body).toContain('- **Severity:** CRITICAL (the reviewer wrote Severity: Low, Blocks: no)');
-    expect(renderDeferredIssue({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } }, {}).body).toContain('- **Severity:** CRITICAL (the reviewer wrote Blocks: yes - **Injected:** x)');
-    expect(renderDeferredIssue(finding, {}).body).toContain('- **Severity:** CRITICAL\n');
+  test('a deferred record keeps the collected label as its severity and the reviewer\'s stated severity and Blocks beside it (GST-766)', () => {
+    expect(deferredRecord({ ...finding, stated: { severity: 'Low', blocks: 'no' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Severity: Low, Blocks: no' });
+    expect(deferredRecord({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Blocks: yes - **Injected:** x' });
+    expect(deferredRecord(finding)).toEqual({ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete\nwithout a where clause' });
   });
 
-  test('the issue names the origin PR, the finding and a marker that keeps a rerun from filing twice; the body section references and never closes', () => {
-    const issue = renderDeferredIssue(finding, { repo: 'acme/app', pr: 42, branch: 'feat/x', head: 'a'.repeat(40) });
-    expect(issue.title).toBe('Deferred review finding: lib/legacy.ts:7 — Unbounded delete without a where clause');
-    expect(issue.body).toContain('acme/app#42 (head aaaaaaaaaaaa)');
-    expect(issue.body).toContain('- **Severity:** CRITICAL');
-    expect(issue.body).toContain('- **Suggested fix:** add the tenant filter');
-    expect(issue.body).toContain('- **Found by:** security');
-    expect(issue.marker).toBe('<!-- gstack-deferred-finding: lib/legacy.ts:7:data-loss -->');
-    expect(issue.body.trimEnd().endsWith(issue.marker)).toBe(true);
+  test('deferred findings stay on the PR: the body section lists them, says no issue was filed, and never closes anything (R85)', () => {
     const section = renderDeferredSection(
-      [{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete', issue: 77 },
-        { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts:1', severity: 'CRITICAL', summary: 'Missing owner check', issue: null, reason: 'gh is not installed' }],
+      [{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete' },
+        { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts:1', severity: 'CRITICAL', stated: 'Blocks: no', summary: 'Missing owner\ncheck' }],
       [{ path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', summary: 'rename b', advisory: true }]);
     expect(section).toContain('## Deferred findings');
-    expect(section).toContain('- Deferred: #77 — CRITICAL `lib/legacy.ts:7` Unbounded delete');
-    expect(section).toContain('- Deferred: unfiled (gh is not installed) — CRITICAL `lib/old.ts:1` Missing owner check');
+    expect(section).toContain('not filed as issues');
+    expect(section).toContain('- Deferred: CRITICAL `lib/legacy.ts:7` Unbounded delete');
+    expect(section).toContain('- Deferred: CRITICAL (the reviewer wrote Blocks: no) `lib/old.ts:1` Missing owner check');
+    expect(section).not.toMatch(/#\d|unfiled/);
     expect(section).toContain('## Review notes');
     expect(section).toContain('- INFORMATIONAL [ADVISORY] `src/auth.ts:42` rename b');
     expect(section).not.toMatch(/\b(fixes|closes|resolves)\b/i);
     expect(renderDeferredSection([], [])).toBe('');
+  });
+
+  test('no gstack instruction files a deferred review or /ship finding as an issue (R85)', () => {
+    const files = ['ship/sections/review-army.md.tmpl', 'ship/sections/pr-body.md.tmpl', 'captain/templates/READY.md', 'docs/review-policy.md', 'docs/ship-policy.md', 'docs/unattended.md', 'crew/docs/captain.md', 'capy/skill/gstack/factory.md', 'lib/ship-policy.ts', 'lib/review-scope.ts', 'bin/gstack-review-scope'];
+    const filing = /\b(fil(e|es|ed|ing)|defers?)\b[^.;:,]{0,80}\b(as|to) (a |an |one )?(github )?issues?\b|\bone issue per\b|\bdeferred[- ]issues?\b|gstack-deferred-finding/gi;
+    const negated = (text: string, at: number) => /\b(never|not|no)\b[^.;:,]*$/i.test(text.slice(Math.max(0, at - 40), at));
+    const hits = files.flatMap(f => fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\n\s*\n/).map(para => para.replace(/\s+/g, ' '))
+      .filter(para => /defer/i.test(para))
+      .flatMap(para => [...para.matchAll(filing)].filter(m => !negated(para, m.index!)).map(m => `${f}: ${m[0]}`)));
+    expect(hits).toEqual([]);
+    for (const f of ['capy/skill/gstack/factory.md', 'crew/docs/captain.md']) {
+      const text = fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\s+/g, ' ');
+      expect(text, f).toMatch(/[Dd]eferred findings[^.]*never (become|filed as) issues/);
+      expect(text, f).toMatch(/one issue with (a named |an )owner/);
+    }
   });
 });
 
@@ -321,79 +329,30 @@ describe('gstack-review-scope (bin)', () => {
     expect(JSON.parse(r.out).findings.map((x: ScopedFinding) => `${x.path}=${x.locus}/${x.scope}`)).toEqual(['src/café.ts=diff/fix', 'src/naïve.ts=diff/fix']);
   });
 
-  test('defer without gh keeps the finding deferred as unfiled and still exits 0 (the PR body carries the reason), searches once before creating, and files nothing when the search fails; --dry-run files nothing', () => {
+  test('defer keeps each deferred finding on the PR and never runs gh, so no issue is filed (R85)', () => {
     const repo = fixture();
+    const shim = path.join(repo.root, 'gh-shim');
+    fs.mkdirSync(shim);
+    const log = path.join(shim, 'calls.log');
+    fs.writeFileSync(path.join(shim, 'gh'), `#!/bin/sh\necho "$*" >> "${log}"\necho https://example.test/acme/app/issues/10\n`, { mode: 0o755 });
     const classified = path.join(repo.root, 'classified.json');
     fs.writeFileSync(classified, JSON.stringify([
       { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts', line: 7, severity: 'CRITICAL', category: 'data-loss', summary: 'Unbounded delete', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' },
       { fingerprint: 'src/auth.ts:42:naming', path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', category: 'naming', summary: 'rename b', locus: 'diff', kind: 'defect', blocking: false, scope: 'note' },
       { fingerprint: 'src/auth.ts:11:security', path: 'src/auth.ts', line: 11, severity: 'CRITICAL', category: 'security', summary: 'fixed', locus: 'diff', kind: 'defect', blocking: true, scope: 'fix' },
     ]));
-    const dry = runBin(repo, 'gstack-review-scope', ['defer', '--findings', classified, '--pr', '42', '--dry-run', '--json']);
-    expect(dry.status).toBe(EXIT.ok);
-    expect(JSON.parse(dry.out)).toEqual([{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete', issue: null, reason: 'dry run' }]);
-    const noGh = path.join(repo.root, 'nogh');
-    fs.mkdirSync(noGh);
-    fs.writeFileSync(path.join(noGh, 'gh'), '#!/bin/sh\necho "gh: not logged in" >&2; exit 4\n', { mode: 0o755 });
     const out = path.join(repo.root, 'deferred.json');
-    const unfiled = runBin(repo, 'gstack-review-scope', ['defer', '--findings', classified, '--pr', '42', '--out', out], { PATH: `${noGh}:${process.env.PATH}` });
-    expect(unfiled.status).toBe(EXIT.ok);
-    expect(unfiled.err).toMatch(/^DEFERRED: unfiled \(gh issue list failed: gh: not logged in\) CRITICAL lib\/legacy\.ts:7$/m);
-    expect(unfiled.out).toContain('- Deferred: unfiled (gh issue list failed: gh: not logged in) — CRITICAL `lib/legacy.ts:7` Unbounded delete');
-    // the search failed, so nothing was created: a rate-limited rerun cannot duplicate the issue the marker exists to find
-    const listFails = path.join(repo.root, 'listfails');
-    fs.mkdirSync(listFails);
-    const created = path.join(listFails, 'created');
-    fs.writeFileSync(path.join(listFails, 'gh'), `#!/bin/sh\nif [ "$1" = issue ] && [ "$2" = list ]; then echo "gh: HTTP 403 rate limit" >&2; exit 1; fi\nif [ "$1" = issue ] && [ "$2" = create ]; then touch "${created}"; echo https://example.test/o/r/issues/1; exit 0; fi\nexit 1\n`, { mode: 0o755 });
-    const rateLimited = runBin(repo, 'gstack-review-scope', ['defer', '--findings', classified, '--pr', '42', '--json'], { PATH: `${listFails}:${process.env.PATH}` });
-    expect(rateLimited.status).toBe(EXIT.ok);
-    expect(JSON.parse(rateLimited.out)[0]).toMatchObject({ issue: null, reason: 'gh issue list failed: gh: HTTP 403 rate limit' });
-    expect(fs.existsSync(created)).toBe(false);
+    const r = runBin(repo, 'gstack-review-scope', ['defer', '--findings', classified, '--out', out, '--json'], { PATH: `${shim}:${process.env.PATH}` });
+    expect(r.status, r.err).toBe(EXIT.ok);
+    expect(JSON.parse(r.out)).toEqual([{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete' }]);
+    expect(r.err).toMatch(/^DEFERRED: CRITICAL lib\/legacy\.ts:7$/m);
+    expect(fs.existsSync(log)).toBe(false);
     const rendered = runBin(repo, 'gstack-review-scope', ['render', '--deferred', out, '--findings', classified]);
     expect(rendered.status).toBe(EXIT.ok);
-    expect(rendered.out).toContain('## Deferred findings');
+    expect(rendered.out).toContain('- Deferred: CRITICAL `lib/legacy.ts:7` Unbounded delete');
     expect(rendered.out).toContain('## Review notes');
     expect(rendered.out).toContain('- INFORMATIONAL `src/auth.ts:42` rename b');
     expect(rendered.out).not.toContain('src/auth.ts:11');
-  });
-
-  test('defer through gh creates one issue per deferred finding and reuses an open issue that already carries the marker', () => {
-    const repo = fixture();
-    const shim = path.join(repo.root, 'gh-shim');
-    fs.mkdirSync(shim);
-    const log = path.join(shim, 'calls.log');
-    fs.writeFileSync(path.join(shim, 'gh'), [
-      '#!/bin/sh', `echo "$*" >> "${log}"`,
-      'if [ "$1" = issue ] && [ "$2" = list ]; then',
-      `  echo '[{"number":9,"url":"https://example.test/acme/app/issues/9","body":"x <!-- gstack-deferred-finding: lib/legacy.ts:7:data-loss --> y"},{"number":3,"url":"https://example.test/acme/app/issues/3","body":"<!-- gstack-deferred-finding: other:1:x -->"}]'; exit 0; fi`,
-      'if [ "$1" = issue ] && [ "$2" = create ]; then echo "https://example.test/acme/app/issues/10"; exit 0; fi',
-      'echo "unsupported $*" >&2; exit 1', '',
-    ].join('\n'), { mode: 0o755 });
-    const classified = path.join(repo.root, 'classified.json');
-    fs.writeFileSync(classified, JSON.stringify([
-      { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts', line: 7, severity: 'CRITICAL', category: 'data-loss', summary: 'Unbounded delete', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' },
-      { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts', line: 1, severity: 'CRITICAL', category: 'auth', summary: 'Missing owner check', fix: 'check owner', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' },
-      // Reviewer text is untrusted: a security finding that quotes the credential it found must not reach a public issue.
-      { fingerprint: 'lib/keys.ts:3:security', path: 'lib/keys.ts', line: 3, severity: 'CRITICAL', category: 'security', summary: 'Hardcoded token ghp_' + 'Qm4zR7tK2wX9pL5vN8sD1fG6hJ3yB0cA7eU2', locus: 'outside', kind: 'defect', blocking: true, scope: 'defer' },
-    ]));
-    const r = runBin(repo, 'gstack-review-scope', ['defer', '--findings', classified, '--pr', '42', '--repo', 'acme/app', '--json'], { PATH: `${shim}:${process.env.PATH}` });
-    expect(r.status).toBe(EXIT.ok);
-    const records = JSON.parse(r.out);
-    expect(records.slice(0, 2)).toEqual([
-      { fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete', issue: 9, url: 'https://example.test/acme/app/issues/9', reason: 'already filed' },
-      { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts:1', severity: 'CRITICAL', summary: 'Missing owner check', issue: 10, url: 'https://example.test/acme/app/issues/10' },
-    ]);
-    expect(records[2].issue).toBeNull();
-    expect(records[2].reason).toMatch(/^publication scan refused: HIGH /);
-    expect(r.err).toContain('DEFERRED: #9 CRITICAL lib/legacy.ts:7');
-    expect(r.err).toContain('DEFERRED: #10 CRITICAL lib/old.ts:1');
-    expect(r.err).toContain('DEFERRED: unfiled (publication scan refused: HIGH ');
-    const calls = fs.readFileSync(log, 'utf8');
-    expect(calls.match(/^issue create /gm)?.length).toBe(1);
-    expect(calls.match(/^issue list /gm)?.length).toBe(1);
-    expect(calls).toContain('--search "gstack-deferred-finding" in:body');
-    expect(calls).toContain('issue create --title=Deferred review finding: lib/old.ts:1 — Missing owner check --body-file=- --repo acme/app');
-    expect(calls).not.toContain('Qm4zR7tK2wX9pL5vN8sD1fG6hJ3yB0cA7eU2');
   });
 
   // Generated by /ship Step 7 (coverage audit of the harness lane E diff).
