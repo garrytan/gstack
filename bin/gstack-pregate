@@ -5,7 +5,7 @@
  *   gstack-pregate [run] [--stage preflight|tests|guards|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
  *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
- *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, no fail/incomplete, obligations cleared
+ *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, every registered check, no fail/incomplete, obligations cleared
  *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
  *                  [--flaky-exception "<test file>::<case>" … --pr <n> [--grant <approval id>]]   a run with failures, under the owner's grant
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
@@ -33,7 +33,7 @@ import { PREGATE_CONFIG_PATH, explainConfig, loadConfigFromHead } from '../lib/p
 import { describeDraft, draftConfig } from '../lib/pregate/init-draft';
 import { buildRunCheck } from '../lib/pregate/run-check';
 import { buildContext, defaultUserConfigPath, describeRefusal, loadedDotenvFiles } from '../lib/pregate/context';
-import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, keepSameTreeClears, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
+import { CHECKS, CHECK_IDS, PREGATE_GUARDS_OUT_REL, PREGATE_OUT_REL, PREGATE_TIER2, PREPUSH_CHECK_IDS, clearDecision, clearObligation, keepSameTreeClears, mergeSameTreeChecks, readPregateFile, renderTable, runPregate, verifyPregate, writePregateFile } from '../lib/pregate/index';
 import { describeLane, discoverLanes } from '../lib/pregate/workflows';
 import { REMOTE_GATE_LANE } from '../lib/pregate/checks/lanes';
 import { baseBranchOf, describeSubstitution } from '../lib/pregate/remote-receipt';
@@ -51,7 +51,8 @@ import { fromGateAhead } from '../lib/tree-receipt';
 const HELP = `gstack-pregate — cheap checks before anything paid or remote (docs/pregate.md)
 
   run (default)   stage 1 mechanical preflight (${CHECKS.filter(c => c.stage === 'preflight').map(c => c.id).join(', ')}), then stage 2 test execution (${CHECKS.filter(c => c.stage === 'tests').map(c => c.id).join(', ')})
-  verify          publication check against ${PREGATE_OUT_REL}: current tree, no fail or incomplete, every requires-remote obligation cleared
+  verify          publication check against ${PREGATE_OUT_REL}: current tree, every registered check present (checks=N of M;
+                  a --only or --stage record is PREGATE_INCOMPLETE), no fail or incomplete, every requires-remote obligation cleared
   clear           record the receipt that clears one requires-remote obligation: pregate.json/remote_gate needs
                   --receipt <file> (the gate's PREGATE_REMOTE: line, checked against the tested tree; a tree that
                   differs from pregate.json's only in the base branch's stamp rule is accepted and recorded as a
@@ -77,7 +78,9 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
 
   --stage preflight|tests|guards|all   default all; guards is the pre-push housekeeping run (docs/pregate.md#prepush):
                                 only ${PREPUSH_CHECK_IDS.join(' and ')}, each for the files the diff touched, written to ${PREGATE_GUARDS_OUT_REL}
-  --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')})
+  --only <check,...>            restrict to these checks (${CHECK_IDS.join(', ')}; tier 2 later: ${PREGATE_TIER2.join(', ')});
+                                with --stage preflight|tests, the record keeps the checks this run skipped only from a record at
+                                the same head, tree, base and policy (PREGATE_MERGED: kept …); otherwise verify refuses it
   --base <branch>               a branch on origin, not a commit (default: origin/HEAD's branch unless it is the
                                 checked-out one, else the PR's base, origin/main, origin/master; lib/default-base.ts)
   --allow-repo-commands         run pin-file commands and the test runner (what /ship passes); without it those checks are incomplete
@@ -204,7 +207,9 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
     });
   }
   const file = await runPregate(ctx, { stage, only, run: flag(rest, '--run') });
-  const kept = keepSameTreeClears(fs.existsSync(out) ? readPregateFile(out).file : null, file);
+  const before = fs.existsSync(out) ? readPregateFile(out).file : null;
+  const merged = stage === 'guards' ? null : mergeSameTreeChecks(before, file);
+  const kept = [...(merged ? [merged] : []), ...keepSameTreeClears(before, file)];
   let written: string;
   try { written = writePregateFile(root, out, file); }
   catch (e: any) { process.stderr.write(resultLine('gstack-pregate', 'ARTIFACT_SCHEMA', e.message) + '\n'); return EXIT.fail; }
