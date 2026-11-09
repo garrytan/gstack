@@ -65,6 +65,7 @@ export function createSseEndpoint<T>(
   const heartbeatMs = config.heartbeatMs ?? 15000;
   const encoder = new TextEncoder();
 
+  let cancelStream = (): void => {};
   const stream = new ReadableStream({
     start(controller) {
       let cleanedUp = false;
@@ -74,13 +75,15 @@ export function createSseEndpoint<T>(
       const cleanup = (): void => {
         if (cleanedUp) return;
         cleanedUp = true;
+        req.signal.removeEventListener('abort', cleanup);
         if (heartbeat !== null) {
           clearInterval(heartbeat);
           heartbeat = null;
         }
         if (unsubscribe !== null) {
-          unsubscribe();
+          const release = unsubscribe;
           unsubscribe = null;
+          try { release(); } catch { /* Continue closing even if a source fails. */ }
         }
         try {
           controller.close();
@@ -88,6 +91,13 @@ export function createSseEndpoint<T>(
           // Expected: stream already closed by the consumer.
         }
       };
+
+      cancelStream = cleanup;
+      req.signal.addEventListener('abort', cleanup, { once: true });
+      if (req.signal.aborted) {
+        cleanup();
+        return;
+      }
 
       const send: SseSender = (event, data) => {
         if (cleanedUp) return;
@@ -116,9 +126,20 @@ export function createSseEndpoint<T>(
       }
 
       // Subscribe for live events.
-      unsubscribe = config.subscribe((entry) => {
-        send(config.liveEventName, entry);
-      });
+      try {
+        const release = config.subscribe((entry) => {
+          send(config.liveEventName, entry);
+        });
+        // subscribe may synchronously abort or emit an unserializable event.
+        if (cleanedUp) {
+          try { release(); } catch {}
+          return;
+        }
+        unsubscribe = release;
+      } catch {
+        cleanup();
+        return;
+      }
 
       // Heartbeat keeps NAT boxes and proxies from dropping idle SSE,
       // and serves as a liveness probe: an enqueue failure here is the
@@ -133,8 +154,8 @@ export function createSseEndpoint<T>(
         }
       }, heartbeatMs);
 
-      req.signal.addEventListener('abort', cleanup);
     },
+    cancel() { cancelStream(); },
   });
 
   return new Response(stream, {

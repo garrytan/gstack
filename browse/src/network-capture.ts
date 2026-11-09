@@ -84,13 +84,14 @@ export class SizeCappedBuffer {
 }
 
 /** Global capture state. */
-let captureBuffer = new SizeCappedBuffer();
-let captureActive = false;
-let captureFilter: RegExp | null = null;
+const captureBuffer = new SizeCappedBuffer();
+// A listener owns one capture session. The revision also invalidates reads
+// already awaiting a body when the buffer is cleared.
+let captureRevision = 0;
 let captureListener: ((response: PlaywrightResponse) => Promise<void>) | null = null;
 
 export function isCaptureActive(): boolean {
-  return captureActive;
+  return captureListener !== null;
 }
 
 export function getCaptureBuffer(): SizeCappedBuffer {
@@ -99,7 +100,9 @@ export function getCaptureBuffer(): SizeCappedBuffer {
 
 /** Create the response listener function. */
 function createResponseListener(filter: RegExp | null): (response: PlaywrightResponse) => Promise<void> {
-  return async (response: PlaywrightResponse) => {
+  const listener = async (response: PlaywrightResponse) => {
+    if (captureListener !== listener) return;
+    const revision = captureRevision;
     const url = response.url();
     if (filter && !filter.test(url)) return;
 
@@ -141,15 +144,15 @@ function createResponseListener(filter: RegExp | null): (response: PlaywrightRes
       bodyTruncated: truncated,
     };
 
-    captureBuffer.push(entry);
+    if (captureListener === listener && captureRevision === revision) captureBuffer.push(entry);
   };
+  return listener;
 }
 
 /** Start capturing response bodies. */
 export function startCapture(filterPattern?: string): { filter: string | null } {
-  captureFilter = filterPattern ? new RegExp(filterPattern) : null;
-  captureActive = true;
-  captureListener = createResponseListener(captureFilter);
+  const filter = filterPattern ? new RegExp(filterPattern) : null;
+  captureListener = createResponseListener(filter);
   return { filter: filterPattern || null };
 }
 
@@ -160,7 +163,6 @@ export function getCaptureListener(): ((response: PlaywrightResponse) => Promise
 
 /** Stop capturing. */
 export function stopCapture(): { count: number; sizeKB: number } {
-  captureActive = false;
   captureListener = null;
   return {
     count: captureBuffer.length,
@@ -170,6 +172,7 @@ export function stopCapture(): { count: number; sizeKB: number } {
 
 /** Clear the capture buffer. */
 export function clearCapture(): void {
+  captureRevision++;
   captureBuffer.clear();
 }
 

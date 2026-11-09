@@ -18,7 +18,17 @@ function unfenced(text: string): string[] {
   let fence: string | null = null;
   return text.split('\n').map(line => {
     const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-    if (m) { if (!fence) { fence = m[1]![0]!; return ''; } if (m[1]![0] === fence) { fence = null; return ''; } }
+    if (m) {
+      if (!fence) {
+        if (m[1]![0] === '`' && line.slice(m[0].length).includes('`')) return line;
+        fence = m[1]!;
+        return '';
+      }
+      if (m[1]![0] === fence[0] && m[1]!.length >= fence.length && !line.slice(m[0].length).trim()) {
+        fence = null;
+        return '';
+      }
+    }
     return fence ? '' : line;
   });
 }
@@ -31,8 +41,12 @@ export function anchorsOf(text: string): Set<string> {
     if (h) {
       const base = githubSlug(h[1]!);
       const n = seen.get(base) ?? 0;
-      seen.set(base, n + 1);
-      out.add(n ? `${base}-${n}` : base);
+      let suffix = n;
+      let slug = suffix ? `${base}-${suffix}` : base;
+      while (seen.has(slug)) { suffix++; slug = `${base}-${suffix}`; }
+      seen.set(base, suffix);
+      seen.set(slug, 0);
+      out.add(slug);
     }
     for (const a of line.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/gi)) out.add(a[1]!);
   }
@@ -58,7 +72,8 @@ export function brokenLinks(root: string, files: readonly string[], added?: Read
         let dest: string;
         try { dest = rel ? (rel.startsWith('/') ? path.join(root, decodeURIComponent(rel)) : path.resolve(path.dirname(abs), decodeURIComponent(rel))) : abs; }
         catch { broken.push({ file, line: i + 1, target, reason: 'undecodable path' }); continue; }
-        if (path.relative(root, dest).startsWith('..')) { broken.push({ file, line: i + 1, target, reason: 'points outside the repository' }); continue; }
+        const relative = path.relative(root, dest);
+        if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) { broken.push({ file, line: i + 1, target, reason: 'points outside the repository' }); continue; }
         if (!fs.existsSync(dest)) { broken.push({ file, line: i + 1, target, reason: 'no such file' }); continue; }
         if (!anchor || !/\.md$/i.test(dest) || !fs.statSync(dest).isFile()) continue;
         let wanted: string;
