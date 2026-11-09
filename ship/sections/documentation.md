@@ -74,7 +74,10 @@ Reentry never resets the count or authorizes a launch.
    It parses only the LAST nonempty line, trims whitespace around keys and requires
    every field/type, exact audit id, schema and status invariant. `DOCS_RESULT: ok`
    saves `<audit-id>-result.json` and the section unchanged as `<audit-id>-documentation.md`;
-   `DOCS_RESULT_INVALID` names each bad key and prints a `RETRY_NOTE:`. Also require
+   `DOCS_RESULT_INVALID` names each bad key and prints a `RETRY_NOTE:`, or `FORMAT_REPAIR:` when
+   only the line's shape is wrong: then, once and using no attempt, send `gstack-docs-candidate
+   repair-prompt <output> --audit-id <audit-id>`'s output to one fresh agent with no tools (never the writer child),
+   and rerun `result` on its reply adding `--repair-of <output>`; a refusal prints `RETRY_NOTE:`. Also require
    the actual spawned marker above, as echoed in the child output; state files are
    not evidence of it. Never default or reconstruct missing values.
 3. **Check ownership.** Run `gstack-docs-candidate compare <candidate>`.

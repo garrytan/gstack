@@ -6879,9 +6879,17 @@ carries a `## Documentation` heading. Whitespace around a key is trimmed first a
 The line names each problem. Nothing was saved: the audit's result cannot be
 used, but this is a malformed reply, not a blocked audit.
 
-**Fix.** Run Step 14.5's one remaining re-audit with the printed `RETRY_NOTE:`
-text appended to its prompt, word for word; it quotes the exact keys. With no
-attempt left, Step 14.5 stops and reports this code and the keys it names
+**Fix.** When the line's only fault is its shape (keys, types or the section;
+the line is still one JSON object with the right audit id and a consistent
+status), the command prints `FORMAT_REPAIR:` instead of a retry note. That is
+not an attempt: send `gstack-docs-candidate repair-prompt <output> --audit-id <id>`
+to one fresh agent with no tools (never the audit child, which can still edit), save its one-line
+reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <output>`.
+The reply passes only if every value the first line gave correctly is
+unchanged, and each audit gets one repair. Otherwise run Step 14.5's one
+remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
+word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
+and reports this code and the keys it names
 ([ship/sections/documentation.md](../ship/sections/documentation.md)).
 <a id="gstack-pr-wait"></a>
 ## gstack-pr-wait

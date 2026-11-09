@@ -8,7 +8,8 @@
  *                                  [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
- *   gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir>
+ *   gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir> [--repair-of <first child-output>]
+ *   gstack-docs-candidate repair-prompt <child-output> --audit-id <id>
  *   gstack-docs-candidate [snapshot|compare] --help
  *
  * snapshot saves, NUL-safely and without writing to the repository: base SHA,
@@ -53,7 +54,11 @@
  * <audit-id>-result.json and the section, unchanged, as <audit-id>-documentation.md
  * in --out-dir and prints DOCS_RESULT: ok. Otherwise it writes nothing, prints a
  * DOCS_RESULT_INVALID line naming each bad key and a RETRY_NOTE: for the re-audit's
- * prompt, and exits 1 (GST-1843).
+ * prompt, and exits 1 (GST-1843). When the line's only fault is its shape it prints
+ * FORMAT_REPAIR: instead of RETRY_NOTE:, and the step re-asks for the line once without
+ * spending an attempt: repair-prompt prints that re-ask (the schema, the problems and the
+ * child's own output), and result --repair-of <first output> checks the reply, refusing a
+ * second repair of the same audit and any change to a value the first line gave correctly.
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -61,7 +66,7 @@ import * as path from 'path';
 import { baseContainsHead } from '../lib/default-base';
 import { baseArg } from '../lib/gate-diff/git';
 import { resultLine } from '../lib/result-codes';
-import { checkDocsResult, docsRetryNote } from '../lib/ship-docs-result';
+import { checkDocsRepair, checkDocsResult, docsRepairPrompt, docsRetryNote, type DocsResultCheck } from '../lib/ship-docs-result';
 import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
@@ -140,7 +145,14 @@ function one(args: string[], name: string): string {
 const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>] [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>
-       gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir>`;
+       gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir> [--repair-of <first child-output>]
+       gstack-docs-candidate repair-prompt <child-output> --audit-id <id>`;
+
+function auditIdArg(args: string[]): string {
+  const auditId = one(args, '--audit-id');
+  if (!/^[A-Za-z0-9._-]+$/.test(auditId) || auditId.includes('..')) throw new Error(`--audit-id ${JSON.stringify(auditId)} must be letters, digits, dot, underscore or dash, with no '..'`);
+  return auditId;
+}
 
 /** The owner's accepted Step 14.5 exception from the blocked .gstack/tmp/docs-audit.json record, read by the receipt's own parser; throws when the record is not blocked or names no complete exception. */
 function acceptedException(file: string): NonNullable<ReceiptDocs['exception']> & { scope: string } {
@@ -206,7 +218,7 @@ function recordProblems(record: any): string[] {
 function main(argv: string[]): void {
   const [command, ...args] = argv;
   const topHelp = (command === '--help' || command === '-h') && !args.length;
-  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'attempt' || command === 'result') && args.length === 1 && args[0] === '--help';
+  const commandHelp = (command === 'snapshot' || command === 'compare' || command === 'attempt' || command === 'result' || command === 'repair-prompt') && args.length === 1 && args[0] === '--help';
   if (topHelp || commandHelp) {
     console.log(USAGE);
     return;
@@ -311,17 +323,35 @@ function main(argv: string[]): void {
   if (command === 'result') {
     const [file, ...rest] = args;
     if (!file || file.startsWith('--')) throw new Error('result takes the child output file, then --audit-id <id> --out-dir <record dir>');
-    for (let i = 0; i < rest.length; i += 2) if (!['--audit-id', '--out-dir'].includes(rest[i]!)) throw new Error(`unknown argument: ${rest[i]}`);
-    const auditId = one(rest, '--audit-id');
-    if (!/^[A-Za-z0-9._-]+$/.test(auditId) || auditId.includes('..')) throw new Error(`--audit-id ${JSON.stringify(auditId)} must be letters, digits, dot, underscore or dash, with no '..'`);
+    for (let i = 0; i < rest.length; i += 2) if (!['--audit-id', '--out-dir', '--repair-of'].includes(rest[i]!)) throw new Error(`unknown argument: ${rest[i]}`);
+    const auditId = auditIdArg(rest);
     const outDir = path.resolve(one(rest, '--out-dir'));
-    const check = checkDocsResult(fs.readFileSync(file, 'utf8'), auditId);
+    const repairOf = optional(rest, '--repair-of');
+    const output = fs.readFileSync(file, 'utf8');
+    let check: DocsResultCheck;
+    if (!repairOf) check = checkDocsResult(output, auditId);
+    else {
+      const original = fs.readFileSync(repairOf, 'utf8');
+      const prior = checkDocsResult(original, auditId);
+      let first = true;
+      if (!prior.ok && prior.repairable) {
+        fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+        try { fs.writeFileSync(path.join(outDir, `${auditId}-format-repair`), '', { mode: 0o600, flag: 'wx' }); } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+          first = false;
+        }
+      }
+      check = first ? checkDocsRepair(output, original, auditId)
+        : { ok: false, problems: ['a format repair was already used for this audit', ...(prior.ok ? [] : prior.problems)], trimmed: [], repairable: false, kept: {} };
+    }
     if (check.trimmed.length) console.log(`KEYS_TRIMMED: ${check.trimmed.map(k => JSON.stringify(k)).join(' ')}`);
     if (!check.ok) {
       console.log(resultLine('gstack-docs-candidate result', 'DOCS_RESULT_INVALID', check.problems.join('; ')));
-      console.log(`RETRY_NOTE: ${docsRetryNote(check.problems)}`);
+      if (check.repairable) console.log('FORMAT_REPAIR: format-only; not an attempt. Re-ask for the last line once: gstack-docs-candidate repair-prompt <this output> --audit-id <id>, then result <reply> with --repair-of <this output>');
+      else console.log(`RETRY_NOTE: ${docsRetryNote(check.problems)}`);
       process.exit(1);
     }
+    if (repairOf) console.log('FORMAT_REPAIR: applied (the reply kept every value the first line gave correctly)');
     fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
     const resultFile = path.join(outDir, `${auditId}-result.json`);
     const sectionFile = path.join(outDir, `${auditId}-documentation.md`);
@@ -330,6 +360,17 @@ function main(argv: string[]): void {
     console.log(`DOCS_RESULT: ok status=${check.result.status} files_updated=${check.result.files_updated.length}`);
     console.log(`RESULT: ${resultFile}`);
     console.log(`SECTION: ${sectionFile}`);
+    return;
+  }
+  if (command === 'repair-prompt') {
+    const [file, ...rest] = args;
+    if (!file || file.startsWith('--')) throw new Error('repair-prompt takes the child output file, then --audit-id <id>');
+    for (let i = 0; i < rest.length; i += 2) if (rest[i] !== '--audit-id') throw new Error(`unknown argument: ${rest[i]}`);
+    const auditId = auditIdArg(rest);
+    const output = fs.readFileSync(file, 'utf8');
+    const check = checkDocsResult(output, auditId);
+    if (check.ok || !check.repairable) throw new Error(`${file} is not a format-only failure of the last line, so it has no format repair: ${check.ok ? 'it is a valid result' : 'a content failure counts as an attempt (Blocked recovery, RETRY_NOTE:)'}`);
+    process.stdout.write(docsRepairPrompt(output, auditId, check.problems));
     return;
   }
   throw new Error(USAGE);
