@@ -2177,8 +2177,9 @@ review loop or Step 14.5's docs audit for a carried receipt:
    `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
    `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
    without `--dry-run` to write the packet, have one fix-check reviewer read it,
-   then carry with `--scoped-review <record.json>` and `--pregate`. A blocking
-   finding continues the full ship.
+   then carry with `--scoped-review <record.json>` and `--pregate`, and
+   `RECEIPT_CARRY_TEST_WEAKENED`, whose route is the same with
+   `--test-review <record.json>`. A blocking finding continues the full ship.
 2. Fix what the base merge broke (the CHANGELOG, the size caps the policy
    declares) and commit, `gstack-ship-release push --branch <branch-name> --early`,
    `gstack-ci-carry wait --base <base>` (`CI_CARRY: none` is not a stop), then

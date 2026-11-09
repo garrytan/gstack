@@ -6821,7 +6821,8 @@ receipt is not carried. The refusal names the changed product paths, or for a
 retargeted stacked PR the parent branch and the base.
 
 **Fix.** Run /ship on the new head. The receipt carries only across a
-conflict-only base merge, a test-only change, release metadata, a registered
+conflict-only base merge, a test-only change (one that removes or changes an
+assertion line first needs a clean fix-check, [`RECEIPT_CARRY_TEST_WEAKENED`](#receipt-carry-test-weakened)), release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
 landed on the base, a stamp on the branch's own rows in a stamp file it also
