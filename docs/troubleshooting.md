@@ -2041,7 +2041,11 @@ session, outside the lane's /ship run.
 
 **Meaning.** A field matched gstack's secret scanner (the same one the push guard
 uses). The line names the field and the detector rule, never the matched text. Exit 3.
-Nothing was written, locally or to the Drive mirror.
+Nothing was written, locally or to the Drive mirror. `import --autoplan` skips a
+`pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id where
+import places it (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`),
+when the id has the minted shape `<name>-<14 digits>` (GST-2047); the same id
+anywhere else, and every other finding in the row, still refuses.
 
 **Fix.** Record the words with the secret replaced by `[redacted]`, or ask the person to
 restate them. Rotate the secret if it was real.

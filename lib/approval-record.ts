@@ -32,7 +32,7 @@ import { capyDriveFolder } from './autoplan-checkpoint';
 import { reviewedPlan } from './captain-brief';
 import { slugFromEnvironment } from './bin-context';
 import { firstTitle } from './markdown-sections';
-import { scan } from './redact-engine';
+import { scan, type Finding } from './redact-engine';
 import type { ResultCodeName } from './result-codes';
 import { resolveStateRoot } from './state-root';
 
@@ -151,8 +151,17 @@ function validDate(d: string): boolean {
 
 export interface NewRow { ask: string; words: string; by: string; scope: string; pending?: string; outcome?: string; date?: string; source?: string }
 
-/** Validate and secret-scan one row; the error names the field and rule, never the text. */
-export function buildRow(input: NewRow, branch: string, now = new Date()): ApprovalRow | RecordError {
+/** An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, then a 14-digit time stamp. */
+const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
+
+/**
+ * Validate and secret-scan one row; the error names the field and rule, never the text. `runId` (import only) is a
+ * minted autoplan run id and the offset where the importer placed it in each field: pii.phone.e164 and pii.cc read its
+ * stamp, alone or with the digits of the directory name before it, as a phone or card number (GST-2047), so a finding
+ * of those two rules that starts inside the id at that offset is skipped. Anything else in the field, and the same id
+ * typed anywhere else, is scanned as usual.
+ */
+export function buildRow(input: NewRow, branch: string, now = new Date(), runId?: { id: string; at: Partial<Record<'ask' | 'source', number>> }): ApprovalRow | RecordError {
   const fields = { ask: input.ask, words: input.words, by: input.by, scope: input.scope, pending: input.pending ?? 'none', source: input.source ?? 'manual' };
   for (const [k, v] of Object.entries(fields)) {
     if (typeof v !== 'string' || !v.trim()) return { code: 'APPROVAL_RECORD_INVALID', message: `--${k} is required` };
@@ -165,7 +174,9 @@ export function buildRow(input: NewRow, branch: string, now = new Date()): Appro
   if (!validDate(date)) return { code: 'APPROVAL_RECORD_INVALID', message: `--date must be a real YYYY-MM-DD day` };
   for (const [k, v] of Object.entries(fields)) {
     const s = scan(v);
-    const hits = s.findings.filter(f => f.severity === 'HIGH' || f.severity === 'MEDIUM');
+    const at = runId && MINTED_RUN_ID.test(runId.id) ? runId.at[k as 'ask' | 'source'] : undefined;
+    const inRunId = (f: Finding) => at !== undefined && (f.id === 'pii.phone.e164' || f.id === 'pii.cc') && f.line === 1 && f.col - 1 >= at && f.col - 1 < at + runId!.id.length;
+    const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f));
     if (s.oversize || hits.length) return { code: 'APPROVAL_RECORD_SECRET', message: `field ${k}: ${s.oversize ? 'oversize input' : [...new Set(hits.map(f => f.id))].join(', ')}` };
   }
   const id = 'a-' + createHash('sha256').update([fields.source, date, fields.ask, fields.words, fields.by].join('\u0000')).digest('hex').slice(0, 12);
@@ -326,8 +337,9 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const checked = [...new Set(items.map(r => r.carry_check).filter((c): c is string => !!c))];
     const scope = [`the reviewed plan (sha256 ${planSha}), ${changed.length ? `${changed.length} recommendation(s) changed: ${changed.map(r => stripRef(r.title ?? '')).join('; ')}` : 'every recommendation taken'}`,
       unseen.length ? `taken under "do it", not seen by the owner: ${unseen.join('; ')}` : '', checked.length ? `post-cap delta checked by ${checked.join(', ')}` : ''].filter(Boolean).join('; ');
+    const askHead = `Approve the plan "${planTitle}" (autoplan run `;
     const built = buildRow({
-      ask: `Approve the plan "${planTitle}" (autoplan run ${runId}, ${carried ? `gate_rev ${rev} carried forward from gate_rev ${carried.carried_gate_rev}, ` : ''}${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
+      ask: `${askHead}${runId}, ${carried ? `gate_rev ${rev} carried forward from gate_rev ${carried.carried_gate_rev}, ` : ''}${items.length + (p1 ? 1 : 0)} decisions)`.slice(0, CAPS.ask),
       words: first.owner_reply ?? first.answer_words ?? first.reply ?? '(no words recorded)',
       by: who.slice(0, CAPS.by),
       scope: scope.slice(0, CAPS.scope),
@@ -335,7 +347,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
       outcome,
       date: first.answered_at!.slice(0, 10),
       source: `autoplan:${runId}@gate_rev=${rev}`,
-    }, branch, new Date(first.answered_at!));
+    }, branch, new Date(first.answered_at!), { id: runId, at: { ask: askHead.length, source: 'autoplan:'.length } });
     if ('code' in built) return built;
     out.push(first.words_by ? { ...built, words_by: first.words_by } : built);
   }
