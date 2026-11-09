@@ -189,7 +189,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   }
 
   const ci = ciAtHead(ctx, o.pin);
-  lines.push(`CI: ${ci.line}`);
+  lines.push(`CI: ${ci.line}`, ...ci.superseded);
   if (!ci.green) return fail(lines, { code: 'QUEUE_LAND_CHECKS', message: `checks are ${ci.line}`, fix: `wait for pending checks (gstack-pr-wait ${o.pr} --until green), or fix the red one at a new head; then rerun land` });
   const passed = new Set([...ci.checks.filter(c => c.conclusion === 'success').map(c => c.name), ...ci.contexts.filter(c => c.state === 'success').map(c => c.name)]);
   const missing = (policy.changelog_fragments?.required_checks ?? []).filter(n => !passed.has(n));

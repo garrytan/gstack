@@ -223,7 +223,10 @@ READY_RECEIPT: <state root>/ship-queue/ready/<repo key>/42-<head>.json (notes pu
 ```
 
 Under `changelog_fragments`, a `READY_RECEIPT:` line follows, written only when
-every check above passed; `land` refuses a pin without one.
+every check above passed; `land` refuses a pin without one. It says `notes
+pushed` only once origin holds the note; otherwise `ready` refuses with
+[`QUEUE_READY_NOTE_UNPUSHED`](troubleshooting.md#queue-ready-note-unpushed),
+as it does under a train, because `land` reads the note on origin.
 
 CI's Version Gate (`scripts/compare-pr-version.ts`) accepts that head as
 unstamped when `VERSION` and `package.json`'s version match its merge base, the
@@ -275,6 +278,14 @@ are counted one each. A workflow run that failed without starting any job
 counts as a failed check `<workflow> (run <id>, no jobs)` unless a later run of
 the same workflow replaced it; a run cancelled before any job is not counted.
 An unreadable list is unknown, never green.
+
+When a check counts as passing only because a newer run from another check
+suite replaced a red one (a branch-only `free-tests.yml` dispatch beside the red
+`pull_request` run, which tested the merge with the base), `ready` prints
+`CI_SUPERSEDED: <check> red run <id> replaced by <id> (suite <a> → <b>)` under
+the `ci:` line, one per replaced run, and `land` prints the same under its `CI:`
+line. It is a warning and changes no verdict; a rerun in the same suite prints
+nothing ([what to do](troubleshooting.md#ci-superseded)).
 
 It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate
