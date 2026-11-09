@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import { scan } from './redact-engine';
-import { PATTERNS } from './redact-patterns';
+import { PATTERNS, shannonEntropy } from './redact-patterns';
 
 export const RISK_CLASSES = ['money', 'auth', 'secret', 'security', 'data', 'eval', 'policy'] as const;
 export type RiskClass = (typeof RISK_CLASSES)[number];
@@ -81,6 +81,23 @@ export const SECRET_LINE = [
   new RegExp(String.raw`\$\{?${KEY_NAME}`),
   /\b(?:keychain|keytar|find-generic-password|find-internet-password|secret-tool|git-credential|credential\.helper)\b/i, /\bgh auth token\b/, /(?:^|[\s'"/])\.netrc\b/,
 ];
+/** Every credential name on a line: SECRET_LINE, and a key name given a value (`OPENAI_API_KEY=`, `"GH_TOKEN": `). */
+const SECRET_NAMES = [...SECRET_LINE, new RegExp(String.raw`\b${KEY_NAME}['"]?\s*[=:]`)].map(r => new RegExp(r.source, `${r.flags}g`));
+/** A variable reference (`$X`, `${X}`): a name, never a value. */
+const VARIABLE_REFERENCE = /\$\{?[A-Za-z_]\w*\}?/g;
+/** An unprefixed credential-shaped run (base64, base64url, a random token): 20+ characters mixing upper case, lower case and digits. */
+const VALUE_TOKEN = /[A-Za-z0-9+/_=-]{20,}/g;
+const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').matchAll(VALUE_TOKEN)].some(([t]) => /[A-Z]/.test(t) && /[a-z]/.test(t) && /\d/.test(t) && shannonEntropy(t) >= 3.5);
+/**
+ * Whether one changed line of excludable content holds a credential value, so lib/review-exclude.ts keeps its file (GST-1967):
+ * it names a credential, and the credential scan (the secrets check, with #4157's env-read rule) finds a secret anywhere on
+ * the line, or a credential-shaped run follows a name within 200 characters. A line that only names one
+ * (`${OPENAI_API_KEY}`, `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
+ */
+export function secretValueLine(p: string, line: string): boolean {
+  const ends = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => m.index + m[0].length));
+  return ends.length > 0 && (ends.some(e => valueToken(line.slice(e, e + 200))) || secretShaped(p, [line]));
+}
 
 /** Sealed custody (harness-evals#237: scripts/sealed/seal.ts) and egress code are trust boundaries too (GST-1177). */
 const SECURITY_PATH_TOKENS = ['trust', 'redact', 'redaction', 'redactor', 'sanitize', 'sanitizer', 'neutralize', 'neutralizer', 'consent', 'escape', 'seal', 'sealed', 'custody', 'egress'];

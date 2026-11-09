@@ -3752,13 +3752,14 @@ the base policy commit.
 - **The branch declares the key but the base does not:** only the base copy
   applies; land that hunk on the base first, as above.
 - **A pattern was not applied** (`skipped=` on the `REVIEW_EXCLUDE:` line): its kept
-  files need more than 24,000 argument bytes. Narrow the pattern, move the kept
-  files out of it, or split the PR.
+  files need more than 24,000 argument bytes on the reader's keep command (files
+  kept only for a secret line are excerpted and do not count). Narrow the
+  pattern, move the kept files out of it, or split the PR.
 - **Still over after exclusion:** add the printed folders to the base policy, or
   split the PR. Files kept only for a secret line already count as their
   excerpts ([secret-line excerpts](ship-policy.md#secret-line-excerpts)); one in
-  `DIFF_KEEP:` that still counts whole is kept for another reason or could not
-  be excerpted.
+  `DIFF_KEEP:` is kept for another reason, and one the excerpt could not be
+  built for moves to the reader's keep command and counts whole.
 
 There is no override flag. See [the review ceiling](ship-policy.md#review-diff-ceiling).
 

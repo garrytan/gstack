@@ -27,9 +27,6 @@ import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_LINE_
 export const TARGETED_CLASSES = ['money', 'gate', 'auth', 'secret'] as const;
 export type TargetedClass = (typeof TARGETED_CLASSES)[number];
 
-/** Whether one added or deleted line reads a credential (SECRET_LINE): lib/review-exclude.ts keeps a matched file that has one. */
-export const secretLine = (line: string) => SECRET_LINE.some(r => r.test(line));
-
 /** A hash of the patterns that decide the classes, not of this file's bytes: a comment edit keeps it, a pattern edit changes it. */
 export const TARGETED_RULES = createHash('sha256').update(JSON.stringify({
   TARGETED_CLASSES, MONEY_PATH_TOKENS, MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECRET_SCAN,

@@ -17,6 +17,8 @@ const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const policyText = JSON.stringify({ review_exclude_paths: ['docs/benchmarks/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
 const TURNS = 'docs/benchmarks/qm-s1-probe/results/turns';
+/** A credential-shaped base64 value (no known key prefix) for the lines that must keep their file: a name alone keeps nothing (GST-1967). */
+const VALUE = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
 /** A credential-shaped value built at run time, so the source holds no scanner match. */
 const plantedKey = (seed: number) => 'gh' + 'p_' + `Zx9Qw3Er5Ty7Ui9Op1As3Df5Gh7Jk9Lz2Xc${seed}`.slice(0, 36);
 
@@ -33,11 +35,11 @@ function capture(k: number, plant: Record<number, string> = {}): { text: string;
     else if (n % 800 === 30) {
       const env = `\${OPENAI_API_KEY_F${k}_L${n}}`, svc = `svc-f${k}-l${n}`;
       markers.push(env, svc);
-      lines.push(`   "system": "${'You are a coding agent. '.repeat(450)}Read ${env} from the environment and never print it. ${'Follow the repo rules. '.repeat(450)}On macOS run security find-generic-password -s ${svc} for the keychain entry.",`);
+      lines.push(`   "system": "${'You are a coding agent. '.repeat(450)}Read ${env} (value ${VALUE}) from the environment and never print it. ${'Follow the repo rules. '.repeat(450)}On macOS run security find-generic-password -s ${svc} for the keychain entry.",`);
     } else if (n % 800 === 380) {
       const env = `$GH_TOKEN_F${k}_L${n}`;
       markers.push(env);
-      lines.push(`   "note": "${'context '.repeat(150)}export ${env} before the push",`);
+      lines.push(`   "note": "${'context '.repeat(150)}export ${env} (value ${VALUE}) before the push",`);
     } else lines.push(`   "line${n}": "${'x'.repeat(40)} ${n}",`);
   }
   lines.push(' ]', '}');

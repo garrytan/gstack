@@ -19,6 +19,8 @@ import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } fro
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
+/** A credential-shaped base64 value (no known key prefix) for the lines that must keep their file: a name alone keeps nothing (GST-1967). */
+const VALUE = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
 const GZ = Buffer.from([0x1f, 0x8b, 0, 1, 2, 3, 0, 0]);
 const EXCLUDED = ['receipts/a/result.json', 'receipts/a/trial.gz', 'receipts/config/blob.bin', 'receipts/c/result.json', 'receipts/e/result.json', 'receipts/notes.md'];
 const KEPT = ['receipts/b/result.json', 'receipts/d/fixture.json', 'receipts/run.sh'];
@@ -145,7 +147,7 @@ describe('what review_exclude_paths excludes and keeps', () => {
   //   and a credential line inside a matched file keeps it; fails_when=scanNumbers or targetedClasses read excluded lines, or
   //   a secret-bearing data file is excluded; why_new=task 9; seam=bin/gstack-review-plan; no_claim=pregate's credential scan
   test('excluded lines feed neither the numeric scan nor the targeted classes; a credential line keeps its file', () => {
-    const files = { 'receipts/r.json': '{"cost_usd": 12.5, "price_usd": 3, "pass_rate": "97%", "latency_ms": 180}\n', 'docs/bench.md': '# bench\n', 'receipts/s.json': '{"cmd": "curl -H $OPENAI_API_KEY"}\n' };
+    const files = { 'receipts/r.json': '{"cost_usd": 12.5, "price_usd": 3, "pass_rate": "97%", "latency_ms": 180}\n', 'docs/bench.md': '# bench\n', 'receipts/s.json': `{"cmd": "curl -H $OPENAI_API_KEY", "auth": "${VALUE}"}\n` };
     const control = makeFixtureRepo({ prefix: 'gstack-exclude-' }); repos.push(control);
     commit(control, files);
     const with_ = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(with_);
@@ -963,7 +965,7 @@ describe('a branch cannot hide code under a base pattern', () => {
   //   item 5 (#3852 round 3, outside-voice#2); seam=bin/gstack-review-plan and reviewExclude in head mode; no_claim=pregate's gitleaks scan, what readers' own diffs show (they still follow the attributes)
   test('a branch .gitattributes marking receipts binary cannot get a credential-line file excluded: the keep rule reads the text', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(repo);
-    const secret = '{"cmd": "curl -H $OPENAI_API_KEY"}\n';
+    const secret = `{"cmd": "curl -H $OPENAI_API_KEY", "auth": "${VALUE}"}\n`;
     commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': secret, 'receipts/a.b/c.json': secret, 'receipts/a.json': '{"ok": true}\n', 'receipts/a/t.json': '{"ok": true}\n' });
     const p = JSON.parse(plan(repo, ['--json']).out);
     const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' as const }, { path: 'receipts/s.json', reason: 'secret-line' as const }];
