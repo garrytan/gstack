@@ -183,9 +183,12 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
+ * A finding with no structure (JSON, lead label, label heading, Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE,
+ * or a file:line on it or on the line it runs on from) is prose that only mentions a severity (GST-2122): it collects at INFORMATIONAL at
+ * most, and nothing when the reply says NO FINDINGS.
  */
 export function parseFindings(reader: string, output: string, fixableRaises = true): Array<{ label: string; raw: string }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; section?: boolean; context?: string };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -215,6 +218,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     if (!treeSeen && isReviewedTreeLine(t)) { treeSeen = true; continue; }
     const afterGap = gap;
     const continued = !!prev && !HEADING.test(prev) && (EXCEPTION.test(prev) || !/[.!?…}]["'”’)\]*_`]*$/.test(prev));
+    const before = prev;
     prev = t;
     gap = false;
     if (/^NO FINDINGS\.?$/.test(t) || /^Recommendation:/i.test(t)) { current = null; continue; }
@@ -271,6 +275,8 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
     if (found) {
       current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
       current.fixable = inherited?.toUpperCase() === 'FIXABLE';
+      current.section = !!inherited;
+      if (continued) current.context = before;
       current.heading = !indented && NUMBERED_HEAD.test(t);
       if (!indented) head = t;
       continue;
@@ -285,9 +291,14 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
   const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw);
   const relaxed = fixableRaises && role === 'adversarial-native' ? parseFindings(reader, output, false) : undefined;
   const statesSeverity = (raw: string) => { const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && !!rank(ls[0]); };
-  return out.map((f, i) => {
+  const clean = output.split('\n').some(l => /^NO FINDINGS\.?$/.test(l.trim()));
+  const shaped = (f: Finding) => f.section || [...f.raw.split(' | '), f.context ?? ''].some(t => t.startsWith('{') || LEAD_LABEL.test(t) || META.test(t) || !!t.match(STATED_SEVERITY) || BLOCKS_YES.test(t)
+    || LOCUS.test(t) || PATH_LOCUS.test(t) || (role === 'adversarial-native' && /(?<![A-Za-z0-9])(?:FIXABLE|INVESTIGATE)(?![A-Za-z0-9])/i.test(t)));
+  return out.flatMap((f, i) => {
     const own = relaxed?.length === out.length && relaxed[i]!.raw === f.raw && statesNoBlocks(f.raw) && statesSeverity(f.raw) ? relaxed[i]!.label : undefined;
-    return { label: own ?? (unblocked(f) ? f.label : 'CRITICAL'), raw: f.raw };
+    const label = own ?? (unblocked(f) ? f.label : 'CRITICAL');
+    if (shaped(f)) return [{ label, raw: f.raw }];
+    return clean ? [] : [{ label: (rank(label) ?? 0) > 2 ? 'INFORMATIONAL' : label, raw: f.raw }];
   });
 }
 

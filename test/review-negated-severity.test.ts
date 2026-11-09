@@ -71,30 +71,33 @@ describe('a sentence that denies a severity never collects at it (GST-1628)', ()
   //   exception in that sentence, an "else" or "the blockers" subject, or a label that names a thing ("the CRITICAL path") keeps its label,
   //   and a line naming a locus in another sentence keeps its label as a summary candidate; fails_when=a denial collects a finding, any
   //   control collects below CRITICAL, or a candidate flag is wrong; why_new=GST-1628; seam=parseFindings and summaryCandidate;
-  //   no_claim=that each control is a real finding
+  //   no_claim=that each control is a real finding. GST-2122: a control with no file:line and no finding structure collects at INFORMATIONAL
   test('rating verbs deny, and the negative controls keep their label', () => {
     for (const line of ['Nothing reaches CRITICAL.', 'None of these rises to CRITICAL.', 'Nothing reaches the CRITICAL floor.', 'None of them would rise to CRITICAL.',
       'Neither finding reaches the CRITICAL bar.', 'Nothing here meets the CRITICAL threshold.', 'None of these qualifies as CRITICAL.', 'No finding rises to CRITICAL.',
       'No issues reach High or CRITICAL.', 'Nothing in this diff rises to the level of CRITICAL.'])
       expect([line, labels(line)]).toEqual([line, []]);
-    for (const line of ['The leak in log.ts:3 is fixed. Nothing reaches CRITICAL.', 'I checked crew/docs/captain.md:313-336 and brief.md:36. Nothing reaches the CRITICAL floor.',
-      'No auth check guards the admin route, so nothing rises to CRITICAL.'])
+    for (const line of ['The leak in log.ts:3 is fixed. Nothing reaches CRITICAL.', 'I checked crew/docs/captain.md:313-336 and brief.md:36. Nothing reaches the CRITICAL floor.'])
       expect([line, labels(line), summaryCandidate(line)]).toEqual([line, ['CRITICAL'], true]);
+    expect([labels('No auth check guards the admin route, so nothing rises to CRITICAL.'), summaryCandidate('No auth check guards the admin route, so nothing rises to CRITICAL.')]).toEqual([['INFORMATIONAL'], true]);
     for (const line of ['The race in queue.ts:40 rises to CRITICAL.', 'Nothing in auth.ts:9 reaches CRITICAL.', 'Nothing reaches CRITICAL except the token leak.'])
       expect([line, summaryCandidate(line)]).toEqual([line, false]);
-    for (const line of ['The race in queue.ts:40 rises to CRITICAL.', 'Nothing else reaches CRITICAL.', 'None of the blockers rises to CRITICAL.', 'Nothing in auth.ts:9 reaches CRITICAL.',
-      'Nothing reaches CRITICAL except the token leak.', 'No auth check guards the admin route, so nothing reaches CRITICAL.', 'Nothing reaches the CRITICAL path without a token.',
-      'Unauthenticated input reaches the CRITICAL write path.', 'I found nothing CRITICAL. The retry loop rises to CRITICAL.', '- Nothing reaches CRITICAL.', 'Nothing reaches CRITICAL. Blocks: yes'])
+    for (const line of ['The race in queue.ts:40 rises to CRITICAL.', 'Nothing in auth.ts:9 reaches CRITICAL.', 'Nothing reaches CRITICAL. Blocks: yes'])
       expect([line, labels(line)]).toEqual([line, ['CRITICAL']]);
+    for (const line of ['Nothing else reaches CRITICAL.', 'None of the blockers rises to CRITICAL.', 'Nothing reaches CRITICAL except the token leak.',
+      'No auth check guards the admin route, so nothing reaches CRITICAL.', 'Nothing reaches the CRITICAL path without a token.', 'Unauthenticated input reaches the CRITICAL write path.',
+      'I found nothing CRITICAL. The retry loop rises to CRITICAL.', '- Nothing reaches CRITICAL.'])
+      expect([line, labels(line)]).toEqual([line, ['INFORMATIONAL']]);
   });
   // Value: protects=a verb that takes the severity as its object ("Neither fix clears the P0.", a fix-check reader's surviving blocker)
   //   and a label followed by a word that only starts like a floor noun ("no CRITICAL barrier") keep their label and are no summary
   //   candidate; fails_when=either collects nothing or becomes dismissible, or the floor nouns widen the pre-GST-1628 denial ("No CRITICAL
   //   level."); why_new=#4075's Step 11 voices showed both dropping a blocker at 049c0fb; seam=parseFindings and summaryCandidate;
-  //   no_claim=that each control is a real finding
+  //   no_claim=that each control is a real finding. GST-2122: none of these names a file:line or uses a finding format, so each stays on
+  //   record as an INFORMATIONAL note lead judgment may promote, still no summary candidate
   test('an object-taking verb and a look-alike floor noun keep their label', () => {
-    for (const [line, want] of [['Neither fix clears the P0.', ['P0']], ['None of the changes clears the CRITICAL.', ['CRITICAL']], ['Neither fix hits the P0.', ['P0']],
-      ['Nothing reaches the CRITICAL.', ['CRITICAL']], ['There is no CRITICAL barrier between tenants, so one tenant can overwrite another tenant\u2019s records.', ['CRITICAL']]] as const)
+    for (const [line, want] of [['Neither fix clears the P0.', ['INFORMATIONAL']], ['None of the changes clears the CRITICAL.', ['INFORMATIONAL']], ['Neither fix hits the P0.', ['INFORMATIONAL']],
+      ['Nothing reaches the CRITICAL.', ['INFORMATIONAL']], ['There is no CRITICAL barrier between tenants, so one tenant can overwrite another tenant\u2019s records.', ['INFORMATIONAL']]] as const)
       expect([line, labels(line)]).toEqual([line, [...want]]);
     for (const line of ['Neither fix clears the P0.', 'None of the patches clears the CRITICAL.', 'Nothing hits the CRITICAL.', 'No CRITICAL level.',
       'There is no CRITICAL barrier between tenants, so one tenant can overwrite another tenant\u2019s records.'])

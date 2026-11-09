@@ -34,7 +34,8 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
   //   right (it is the floor), or coverage of stored private reader outputs (checked outside the repo). GST-987: the gate class (and every
   //   risk class) keeps this rule; outside it the native voice's FIXABLE beside Blocks: no no longer counts as a raise, so such a fielded
   //   finding collects at its field unless a lead, a label heading or Blocks: yes raises it. GST-1031 ruling A: the gate and risk classes
-  //   drop that raise too, so on every class FIXABLE raises only a finding that does not state Blocks: no
+  //   drop that raise too, so on every class FIXABLE raises only a finding that does not state Blocks: no. GST-2122: a finding with no
+  //   structure (JSON, lead label, label heading, Severity or Blocks: yes field, native tag) and no file:line may collect at INFORMATIONAL
   test.each([['gate', true], ['code', false]] as const)('every pinned input, reader fixture and generated field shape (%s class)', (_cls, raises) => {
     const { entries, shapes } = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger/main-labels.json'), 'utf8'));
     const { bodies, fields: tails, joins, readers, generated } = shapes;
@@ -55,7 +56,9 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
         const raised = /Blocks:?\**:?\s*\**\s*yes/i.test(f.raw) || (e.reader.startsWith('adversarial-native') && /FIXABLE/.test(f.raw) && !/Blocks:?\**:?\s*\**\s*no\b/i.test(f.raw)) || (raises ? LEAD : LEAD_NO_FIXABLE).test(f.raw) || HEADING.test(output);
         const ok = single === undefined ? (rank(f.label) ?? 0) >= (rank(e.main[i]) ?? 0)
           : (rank(f.label) ?? 0) >= (rank(single) ?? 0) && (raised || (rank(f.label) ?? 0) === (rank(single) ?? 0));
-        if (!ok) bad.push(`${e.reader} main=${e.main[i]} got=${f.label} field=${single ?? '-'} ${JSON.stringify(f.raw.slice(0, 100))}`);
+        const unshaped = !f.raw.startsWith('{') && !/Severity|Blocks:?\**:?\s*\**\s*yes/i.test(f.raw) && !LEAD.test(f.raw) && !HEADING.test(output) && !/[\w./-]+\.\w+:\d+/.test(f.raw)
+          && !(e.reader.startsWith('adversarial-native') && /FIXABLE|INVESTIGATE/i.test(f.raw));
+        if (!ok && !(unshaped && f.label === 'INFORMATIONAL')) bad.push(`${e.reader} main=${e.main[i]} got=${f.label} field=${single ?? '-'} ${JSON.stringify(f.raw.slice(0, 100))}`);
       });
     }
     expect(bad).toEqual([]);
