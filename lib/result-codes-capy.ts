@@ -1,7 +1,8 @@
 /**
  * Result codes for gstack's Capy adaptations: the per-thread approval record
  * (gstack-approvals), the Captain brief (gstack-owner-brief render --captain),
- * PR screenshots (gstack-pr-shots) and the installer's launch file. Kept beside lib/result-codes.ts (which
+ * PR screenshots (gstack-pr-shots), the installer's launch file and the Captain's pre-archive check and
+ * issue close on land (gstack-archive-check; R86, R91). Kept beside lib/result-codes.ts (which
  * spreads this table into RESULT_CODES) so the owner module stays within the
  * module-size ratchet; the same rules apply: one stable docs/troubleshooting.md
  * anchor, a summary and a fix clause each.
@@ -118,5 +119,30 @@ export const CAPY_RESULT_CODES = {
     anchor: 'queue-plan-mismatch',
     summary: 'land found a READY note with no plan record, or a note whose Plan line differs from the PR body\'s, under plan_record: require',
     fix: 'the lane fixes the PR body\'s Plan line if needed and reruns gstack-ship-queue ready --pr <n> at the pin, which resolves the line and writes the record into the note',
+  },
+  ARCHIVE_READS_STALE: {
+    anchor: 'archive-reads-stale',
+    summary: 'the Capy reads handed to gstack-archive-check are older than 15 minutes (or dated in the future), so they may not show what the thread holds now',
+    fix: 'rerun the archive program from crew/docs/captain.md#no-orphaned-work, which reads tools.thread.get and tools.issue.read again and stamps read_at with now(); nothing was archived',
+  },
+  ARCHIVE_READS_UNPARSED: {
+    anchor: 'archive-reads-unparsed',
+    summary: 'gstack-archive-check could not fully read the Capy reads (missing, empty or truncated output, or a line or state it does not know), so it cannot say the thread is clean',
+    fix: 'pass the raw tools.thread.get result and the raw tools.issue.read text unedited and read every page of a multi-page issue list; tools.thread.get lists at most 20 PRs and cannot page, so a thread that has held more cannot be proven clean and stays unarchived; nothing was archived',
+  },
+  ARCHIVE_THREAD_MISMATCH: {
+    anchor: 'archive-thread-mismatch',
+    summary: 'the reads file holds another thread than --thread names',
+    fix: 'read the thread you are archiving and pass its code to --thread; nothing was archived',
+  },
+  ARCHIVE_PR_NOT_MERGED: {
+    anchor: 'archive-pr-not-merged',
+    summary: 'gstack-archive-check landed was run on a PR GitHub does not report as merged, so no issue closes',
+    fix: 'run it after gstack-ship-queue land prints MERGED for this PR; close nothing until then',
+  },
+  ARCHIVE_GH_READ_FAILED: {
+    anchor: 'archive-gh-read-failed',
+    summary: 'gh could not read a PR gstack-archive-check needs, or answered for another PR, so the check fails closed',
+    fix: 'check `gh auth status` and the repository, then rerun (at most 2 times); if it still fails, leave the thread unarchived (or the issue open) and tell the Captain',
   },
 } satisfies Record<string, ResultCode>;

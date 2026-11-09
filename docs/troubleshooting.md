@@ -4623,6 +4623,58 @@ body and its receipt would disagree. Nothing was written.
 body (or rerun `gstack-issue-links --out` if the issue set changed), then rerun
 the receipt write.
 
+## The pre-archive check and issue close on land
+
+Codes printed by `bin/gstack-archive-check` (crew/docs/captain.md#no-orphaned-work). Each
+ends an error line in parentheses. In every case nothing was archived and no issue was closed.
+
+<a id="archive-reads-stale"></a>
+### `ARCHIVE_READS_STALE`
+
+**Meaning.** The `read_at` in the reads file is more than 15 minutes old, or more than 2
+minutes in the future. Old reads can miss a PR or issue the thread picked up since.
+
+**Fix.** Rerun the whole archive program: it reads `tools.thread.get` and
+`tools.issue.read` again and stamps `read_at` with the program's `now()`.
+
+<a id="archive-reads-unparsed"></a>
+### `ARCHIVE_READS_UNPARSED`
+
+**Meaning.** A part of the reads (named in the line: `reads`, `read_at`, `thread` or
+`issues`) is missing, empty, truncated or holds something the check does not know: no
+`States:` header in the issue text, no `pull_requests` array, `pull_requests_total`
+larger than the list, an issue list with neither a row nor `No issues match.`, an
+unrecognized line or a state the header does not name. An empty
+read looks like "no work", so the check refuses instead of guessing.
+
+**Fix.** Write the tool results raw, unedited. When the issue list has more pages, read
+them all first, then rerun. A truncated PR list has no fix: `tools.thread.get` lists at
+most 20 PRs and cannot page through the rest, so a thread that has held more than 20 PRs
+cannot be proven clean and stays unarchived.
+
+<a id="archive-thread-mismatch"></a>
+### `ARCHIVE_THREAD_MISMATCH`
+
+**Meaning.** The reads are for another thread than `--thread` names.
+
+**Fix.** Read the thread you mean to archive and pass the same code.
+
+<a id="archive-pr-not-merged"></a>
+### `ARCHIVE_PR_NOT_MERGED`
+
+**Meaning.** `gstack-archive-check landed` ran on a PR GitHub does not report as merged.
+
+**Fix.** Run it after `gstack-ship-queue land` prints `MERGED`.
+
+<a id="archive-gh-read-failed"></a>
+### `ARCHIVE_GH_READ_FAILED`
+
+**Meaning.** `gh pr view <n> --repo <repo>` failed, printed no JSON, or answered for a
+different PR than the one asked for. A failed read is never clean.
+
+**Fix.** Check `gh auth status` and the repository, then rerun, at most twice. If it
+still fails, leave the thread unarchived (or the issue open) and tell the Captain.
+
 ## Eval plans, lane ownership, evidence verification, the owner brief
 
 Codes printed by `bin/gstack-eval-plan`, `bin/gstack-lane-check`,

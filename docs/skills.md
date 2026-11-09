@@ -972,7 +972,8 @@ sets the defaults that keep it from coming back.
   thread keeps its PR until it merges or closes and checks in with its Captain once past 1B), a subagent past 100M (stop), empty wakes past 25% of the
   last 40 turns (warm-wait check-ins are left out), and review rounds past 2 per PR. Captains are reported, never rotated.
 - **Stop.** A live subagent past 100M is stopped with its reason. A standing thread is rotated at a clean point through
-  a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain. A thread
+  a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain once none of
+  its PRs is open (R91), through `gstack-archive-check thread`. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
 - **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
   PR head (metering its own row with a 100M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh

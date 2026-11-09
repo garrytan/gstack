@@ -313,7 +313,7 @@ describe('/runaway-stopper skill', () => {
   test('rotation stops or lists live subagents, the successor subscribes to open PRs, and archiving waits for it', () => {
     expect(skill).toContain('stop your working and waiting subagents, or list each with its run');
     expect(skill).toContain('subscribes to each open PR in the handoff');
-    expect(skill).toContain('Archive the old thread once the successor reports its subscriptions');
+    expect(skill).toContain('Leave the old thread unarchived while it holds an open PR (R91)');
     expect(fs.readFileSync(path.resolve(import.meta.dir, '..', 'runaway-stopper', 'templates', 'successor-brief.md'), 'utf8')).toContain('subscribe to every open PR');
   });
 });
