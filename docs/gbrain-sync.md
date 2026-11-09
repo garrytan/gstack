@@ -153,7 +153,7 @@ your machine. Blocked patterns include:
 - Stripe live secret and restricted keys (`sk_live_…`, `rk_live_…`)
 - Slack tokens (`xoxb-…`, `xoxp-…` and the other `xox?-` forms)
 - npm tokens (`npm_…`)
-- Database URLs with a password (`postgres://user:pass@host`, and the
+- Database URLs with a password (`postgres://app:<password>@host`, and the
   same for MySQL, MongoDB, Redis and AMQP)
 
 The last four follow gstack's redaction rules, so placeholders such as
