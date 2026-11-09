@@ -5693,8 +5693,15 @@ release, so a PR carries only its `changelog.d` fragment. Nothing was merged.
 **Fix.** The lane runs the command the refusal prints, for example
 `git checkout $(git merge-base origin/main HEAD) -- VERSION CHANGELOG.md`
 (and sets the `package.json` version back by hand when it's named), keeps or
-adds the fragment with the entry text, commits, then runs /ship and
-`gstack-ship-queue ready --pr <n> --no-screen` at the new head.
+adds the fragment with the entry text, and commits. That commit changes only
+release metadata, so the PR's /ship receipt carries to it: run
+`gstack-ship-receipt carry --pr <n> --base main`, then
+`gstack-ship-queue ready --pr <n> --no-screen` at the new head. A base merge
+before the commit carries the same way; resolve VERSION, CHANGELOG.md and
+`package.json` conflicts to the base's files. Run a fresh /ship only when
+carry refuses, such as `RECEIPT_CARRY_PRODUCT_CHANGED` when the commit also
+changed code (test/ship-receipt-carry-unstamp-land.test.ts walks all three
+paths through `land --pin`).
 
 <a id="queue-land-pin-moved"></a>
 ### `QUEUE_LAND_PIN_MOVED`
