@@ -625,8 +625,10 @@ in an unattended run, never a warning; interactive runs follow the repair rule a
 Write `$_AP/gate.json` (shape: `gstack-gate --help`): one item per User Challenge
 (`uc<n>`, approval; `why` = you said / both recommend / why / blind spots / cost if
 wrong), per taste decision (`d<n>`, auto; `why` = principle and the alternative's
-impact) and `p1` (approval: a) approve as-is (recommended) b) with overrides
-c) interrogate d) revise e) reject). Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
+impact) and `p1` (approval: a) approve as-is b) take the recommended changes c) interrogate
+d) revise e) reject), recommending `b` if a recommended option changes the plan, else `a`.
+Every `uc<n>`/`d<n>` option sets `changes_plan` (`true` if it changes the plan,
+else `false`). Run `~/.claude/skills/gstack/bin/gstack-gate render $_AP/gate.json`
 and append its `decisions` output to `$_AP/decisions.jsonl`. Write the full review
 to `$_AP/review-record.md` and its Plan Summary alone to `$_AP/summary.md`:
 
@@ -641,7 +643,7 @@ findings outside this plan, or `None.`); also written above `## Implementation p
 [1-3 sentence summary]
 
 ### Decisions Made: [N] total ([M] auto-decided, [K] taste choices, [J] user challenges)
-Auto-decided: see the plan file's Decision Audit Trail; the rest are the brief's decisions.
+Auto-decided: see the plan's Decision Audit Trail.
 
 ### Review Scores
 CEO, Design, DX and Eng: phase summary plus Codex, Claude
@@ -649,7 +651,7 @@ and consensus status; say skipped where a phase did not run. Then the CYCLE line
 from `~/.claude/skills/gstack/bin/gstack-autoplan-timing summary --run <RUN_ID> --out "$_AP"`.
 
 ### Cross-Phase Themes
-Concerns independently raised in 2+ phases, or "No cross-phase themes — each phase's concerns were distinct."
+Concerns raised independently in 2+ phases, or "None."
 
 ### Deferred to TODOS.md
 [Items auto-deferred with reasons]
@@ -659,21 +661,23 @@ Concerns independently raised in 2+ phases, or "No cross-phase themes — each p
 ```
 
 Present `~/.claude/skills/gstack/bin/gstack-owner-brief render --out "$_AP" --write`
-verbatim (URGENT block, plain summary, numbered decisions seven per page with each
-auto default, review-record path; `--page N` for later pages), never the full review.
+verbatim (`--page N` for later pages), never the full review.
 
 Parse the reply: `~/.claude/skills/gstack/bin/gstack-gate parse $_AP/gate.json --reply "<text>" --gate-rev <rev>`;
-unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `all` or `p1a`
-without overrides = A; `d<n>` overrides = B; `uc<n>` overrides = B2; `p1c`/`p1d`/`p1e`
-= C/D/E. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
+unparsed or stale replies are re-presented (`gate_rev`+1), never guessed. `rec` (alias
+`all`), the one-word default, takes every recommendation, plan changes included; `as-is` keeps
+the plan as first written. First match: any `pending` id = approve nothing (bare `p1a` leaves
+`uc<n>` pending; re-parse the owner's whole reply);
+`p1c`/`p1d`/`p1e` = C/D/E; a chosen `changes_plan` option (or an unflagged override)
+= B on a `d<n>`, B2 on a `uc<n>`; else = A. Under `SESSION_KIND: unattended` Read `sections/unattended.md`, end here
 with its `GSTACK_RESULT` line and never approve.
 
 **Option handling:**
-- A: mark APPROVED, run `~/.claude/skills/gstack/bin/gstack-owner-brief close --out "$_AP" --plan <ACTIVE_PLAN>` (draft-direction lines become the decided option and date), write review logs, suggest /ship
-- B: ask which overrides, apply, then follow D's affected-phase rerun rule (Eng last) before re-presenting the gate; same 3-cycle cap as D.
-- B2: accept/reject User Challenges one at a time; rejected ones preserve the user's direction. Re-run Eng, then re-present the gate.
+- A: mark APPROVED, run `~/.claude/skills/gstack/bin/gstack-owner-brief close --out "$_AP" --plan <ACTIVE_PLAN>`, write review logs, suggest /ship
+- B: apply each chosen change, rerun as in D before re-presenting the gate; same 3-cycle cap as D.
+- B2: apply each accepted User Challenge (rejected ones keep the user's direction), re-run Eng, re-present the gate.
 - C: answer freeform, re-present the gate
-- D: make changes, re-run affected phases (scope→1, design→2, dx→2.5, test plan→3, arch→3; a re-run of any earlier phase re-runs Eng after it — the gate always reviews the final plan). Max 3 cycles.
+- D: make changes, re-run affected phases (scope→1, design→2, dx→2.5, test plan→3, arch→3), then Eng; max 3 cycles.
 - E: start over
 
 **Starting an affected-phase rerun:** Keep the current Implementation plan and all
@@ -681,9 +685,9 @@ prior accepted obligations intact. Move that phase's applied `autoplan-baseline-
 record verbatim into fenced history in Review record, keeping its original source SHA.
 Create a fresh amendment checkpoint. New baseline edits use `create`'s
 `baselineEdits.record` and `sourceSha256`; the review projection hash is not baseline
-identity. Carry forward unchanged accepted requirements. Never replay old replacements
+identity. Never replay old replacements
 or rewrite a historical source SHA. This is a new phase invocation; compaction
-resumes the existing one and its checkpoint. Eng still runs last.
+resumes the existing one and its checkpoint.
 
 ---
 
