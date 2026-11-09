@@ -256,6 +256,15 @@ describe('pregate secrets: source context and diff integrity', () => {
     for (const file of ['ru.strings', 'zh.strings', 'zh-be.strings']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 9\\)$`)));
   });
 
+  // Value: protects=a keyword and its value on the next line of UTF-16 text fail like the same pair in plain text; fails_when=the readings of a binary file share one line, so the keyword line ends with another reading and the next-line rule loses it;
+  //   why_new=GSTA-474: an AWS secret key under its YAML key passed in UTF-16LE (#4243 advisory note 1); seam=fixture repo; no_claim=UTF-32
+  test('an AWS secret key on the line under its keyword fails in UTF-16LE and UTF-16BE like plain text (GST-2261)', () => {
+    const pair = `aws_secret_access_key:\n  ${['Zq3Xn7P2Lm4Rt8Wv', 'Bc5Df6Gh7Jk8Lm9Np0Qr1St2'].join('')}\n`;
+    const r = repo({ 'plain.yml': pair, 'le.yml': utf16(pair), 'be.yml': utf16(pair, true) }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['plain.yml', 'le.yml', 'be.yml']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH aws\\.secret_key .*\\(${file.replace('.', '\\.')}, added line \\d\\)$`)));
+  });
+
   // Value: protects=a UTF-16 token right beside a CJK character is found, and so is a plain token beside a run of character-and-NUL pairs; fails_when=the CJK character's bytes glue onto the token, or padding the run cuts the plain token;
   //   why_new=GST-2195 review (outside voice): U+4E2D before a token read as "-N" glued to it; seam=fixture repo; no_claim=UTF-32
   test('a token right beside a CJK character in UTF-16, or beside a NUL run in binary content, fails like plain text (GST-2195)', () => {
