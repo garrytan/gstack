@@ -37,6 +37,7 @@ import { checkScratch } from '../run-scratch';
 import { starterPolicy } from '../starter';
 import { isDeviceDart, listRepoFiles, readRepoFile } from '../import-graph';
 import { docsOnlyLane } from '../docs-only-lane';
+import { excludedByConfig, noTestFilesFound, type NotApplicable } from '../runner-config';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
@@ -360,7 +361,7 @@ export function parseSummary(raw: string, runner = ''): RunnerSummary {
   return (dartRun ? null : parseDart(output)) ?? parseBats(output) ?? { ran: null, failed: null };
 }
 
-interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal: string | null; observedStart: boolean; ran: number | null; failed: number | null; tail: string[]; runner: string; command: string; files: string[]; lastFile: string | null; ms: number; error?: string; noBrowsers?: string }
+interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal: string | null; observedStart: boolean; ran: number | null; failed: number | null; tail: string[]; runner: string; command: string; files: string[]; lastFile: string | null; ms: number; error?: string; noBrowsers?: string; notApplicable?: string }
 
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
@@ -375,7 +376,8 @@ async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup,
   const output = readRange(log, r.start, r.end);
   const summary = parseSummary(output, g.runner);
   const noBrowsers = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? PLAYWRIGHT_NO_BROWSERS.exec(output)?.[0].trim().slice(0, 200) : undefined;
-  return { ...(noBrowsers ? { noBrowsers } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) };
+  const notApplicable = r.exit !== null && r.exit !== 0 && summary.ran === null ? noTestFilesFound(output, path.join(ctx.repoRoot, g.cwd), files) : null;
+  return { ...(noBrowsers ? { noBrowsers } : {}), ...(notApplicable ? { notApplicable } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) };
 }
 
 /**
@@ -387,7 +389,9 @@ async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup,
  * one runs. The first unfinished, then the first non-zero run decides the
  * exit; counts add up only when every run reported a summary, and any run
  * that reported 0 tests makes the whole lane zero-run (another package's
- * count must not hide it).
+ * count must not hide it). A run that ended on the runner's own "No test
+ * files found" for files its config excludes is not applicable, not judged
+ * (lib/pregate/runner-config.ts).
  */
 async function runLocal(ctx: PregateContext, env: NodeJS.ProcessEnv, groups: RunGroup[]) {
   const dir = checkScratch(ctx.scratch, 'lanes');
@@ -402,10 +406,12 @@ async function runLocal(ctx: PregateContext, env: NodeJS.ProcessEnv, groups: Run
     serialCount += serial.length;
     for (const files of [...(unit.length ? [unit] : []), ...serial.map(f => [f])]) runs.push(await runOnce(ctx, env, g, files, log, counter));
   }
-  const bad = runs.find(r => r.exit === null) ?? runs.find(r => r.exit !== 0);
-  const sum = (k: 'ran' | 'failed') => (runs.some(r => r[k] === null) ? null : runs.reduce((n, r) => n + (r[k] as number), 0));
-  const zero = runs.find(r => r.ran === 0);
-  return { runs, bad, exit: bad ? bad.exit : 0, ran: zero ? 0 : sum('ran'), zero: zero?.command, failed: sum('failed'), log, tail: (bad ?? runs[runs.length - 1]!).tail, command: runs.map(r => r.command).join(' && '), serial: serialCount };
+  const judged = runs.filter(r => !r.notApplicable);
+  const notApplicable: NotApplicable[] = runs.flatMap(r => (r.notApplicable ? [{ files: r.files, reason: r.notApplicable }] : []));
+  const bad = judged.find(r => r.exit === null) ?? judged.find(r => r.exit !== 0);
+  const sum = (k: 'ran' | 'failed') => (judged.some(r => r[k] === null) ? null : judged.reduce((n, r) => n + (r[k] as number), 0));
+  const zero = judged.find(r => r.ran === 0);
+  return { runs, bad, notApplicable, exit: bad ? bad.exit : 0, ran: zero ? 0 : sum('ran'), zero: zero?.command, failed: sum('failed'), log, tail: (bad ?? runs[runs.length - 1]!).tail, command: runs.map(r => r.command).join(' && '), serial: serialCount };
 }
 
 /** Why the local lane did not finish: a stall, a runner process past --timeout or a launch failure, with the last file started. */
@@ -559,13 +565,27 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
   const dropped = plan.dropped ? `${plan.dropped.length} selected file(s) the declared runner cannot run (not run, not counted as covered): ${plan.dropped.join(' ')}` : '';
   if (!plan.groups.length && dropped) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no selected file is one the declared runner can run; ${dropped}` };
   if (!plan.groups.length) return { ...base, status: 'incomplete', ...gap, ...(gap?.environment ? { lines: [...lines, environmentLine(gap.environment)] } : {}) };
-  const { groups } = plan;
-  const total = groups.reduce((n, g) => n + g.files.length, 0);
   const runtime = launchRuntime(ctx.repoRoot, ctx.env);
   if (runtime.refusal) return { ...base, ...runtime.refusal, cause: 'environment', environment: launchCause('runtime', runtime.refusal.detail), lines: [`runtime: ${runtime.label}`, environmentLine(launchCause('runtime', runtime.refusal.detail))] };
+  // Files the runner's own config excludes here are not applicable (GST-2146): asked of the runner before the run, and read from a run that still ends on "No test files found".
+  const listDir = checkScratch(ctx.scratch, 'lanes');
+  const listed = plan.groups.map(g => ({ g, out: excludedByConfig(g.runner, path.join(ctx.repoRoot, g.cwd), g.files, runtime.env, listDir, Math.min(ctx.timeoutMs, 120_000)) }));
+  const excluded = listed.flatMap(({ g, out }) => (out ? [{ files: out.files.map(f => (g.cwd ? `${g.cwd}/${f}` : f)), reason: out.reason }] : []));
+  const groups = listed.map(({ g, out }) => (out ? { ...g, files: g.files.filter(f => !out.files.includes(f)) } : g)).filter(g => g.files.length);
+  const notApplicable = (na: NotApplicable[]) => na.map(n => `${n.files.length} selected file(s) not applicable here (not run, not counted as covered; ${n.reason}): ${n.files.join(' ')}`);
+  const naLines = (na: NotApplicable[]) => notApplicable(na).map(l => `not applicable: ${l}`);
+  const onlyNotApplicable = (na: NotApplicable[], extra: string[]): CheckResult => {
+    const detail = `no selected file runs under the runner's config here; ${[...notApplicable(na), ...(dropped ? [dropped] : [])].join('; ')}`;
+    const withLines = { ...base, lines: [...lines, ...(dropped ? [`not run: ${dropped}`] : []), ...naLines(na), ...extra] };
+    return gap ? { ...withLines, status: 'incomplete', ...gap, detail: `${detail}; ${gap.detail}` } : { ...withLines, status: sel.remote.length ? 'requires-remote' : 'pass', detail };
+  };
+  if (!groups.length) return onlyNotApplicable(excluded, []);
   const r = await runLocal(ctx, runtime.env, groups);
+  const na = [...excluded, ...r.notApplicable];
+  const total = groups.reduce((n, g) => n + g.files.length, 0) - r.notApplicable.reduce((n, x) => n + x.files.length, 0);
   const adapters = [...new Set(groups.map(g => adapterFor(g.runner)).filter(Boolean))];
-  const runLines = [...lines, ...(dropped ? [`not run: ${dropped}`] : []), `runtime: ${runtime.label}`, `progress: ${adapters.join(', ') || 'none (no progress adapter for this runner; serial files and heartbeats only)'}`, `ran: ${r.command.length > 200 ? `${r.command.slice(0, 200)}…` : r.command}`, `log: ${r.log}`, ...r.tail.map(l => `  ${l}`)];
+  if (r.runs.every(x => x.notApplicable)) return onlyNotApplicable(na, [`ran: ${r.command}`, `log: ${r.log}`]);
+  const runLines = [...lines, ...(dropped ? [`not run: ${dropped}`] : []), ...naLines(na), `runtime: ${runtime.label}`, `progress: ${adapters.join(', ') || 'none (no progress adapter for this runner; serial files and heartbeats only)'}`, `ran: ${r.command.length > 200 ? `${r.command.slice(0, 200)}…` : r.command}`, `log: ${r.log}`, ...r.tail.map(l => `  ${l}`)];
   const withRun = { ...base, lines: runLines, inputs: { ...inputs, command: sha256(r.command), runtime: runtime.label } };
   if (r.exit === null) {
     const why = unfinished(ctx, r, total);
@@ -583,7 +603,7 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     return { ...withRun, status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `local lane exited ${r.exit} (${r.failed ?? '?'} failed of ${r.ran ?? '?'} ran; ${total} files; pipefail)`, fix: `read ${r.log}, fix the in-branch failure, rerun gstack-pregate --stage tests` };
   }
   if (r.ran === 0) return { ...withRun, status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `ZERO-RUN: the runner reported 0 tests${r.zero ? ` in ${r.zero}` : ''} (${total} selected file(s))`, fix: 'a bad selector, a missing file or a skipped describe; exit 0 is not a pass' };
-  const detail = `${r.ran ?? 'count unavailable'} tests ran in ${total} file(s)${r.serial ? ` (${r.serial} serial)` : ''}, exit 0${dropped ? `; ${dropped}` : ''}${sel.remote.length ? `; ${sel.remote.length} requires-remote obligation(s)` : ''}`;
+  const detail = `${r.ran ?? 'count unavailable'} tests ran in ${total} file(s)${r.serial ? ` (${r.serial} serial)` : ''}, exit 0${dropped ? `; ${dropped}` : ''}${na.length ? `; ${notApplicable(na).join('; ')}` : ''}${sel.remote.length ? `; ${sel.remote.length} requires-remote obligation(s)` : ''}`;
   if (gap) return { ...withRun, status: 'incomplete', ...gap, detail: `${detail}; ${gap.detail}`, ...(gap.environment ? { lines: [...runLines, environmentLine(gap.environment)] } : {}) };
   return { ...withRun, status: sel.remote.length ? 'requires-remote' : 'pass', detail };
 }
