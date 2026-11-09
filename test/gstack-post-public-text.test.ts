@@ -173,7 +173,7 @@ describe("public repo: the receipt goes out in its public form", () => {
   test("the exception lines the receipt check wants word for word get the same scrub as the receipt fields (red-team on d899f44)", () => {
     const head = "a".repeat(40);
     const loop = { accepted_by: "garrytan", date: "2026-11-08", via: `https://capy.ai/thread/${JAM}`, reason: "notes in /home/user/.capy/work/x/stop.md", fix_check: { head, findings: 1 } };
-    const docs = { status: "current", scope: "docs", exception: { accepted_by: "garrytan", date: "2026-11-08", via: JAM, reason: "audit cap" } };
+    const docs = { status: "current" as const, scope: "docs", exception: { accepted_by: "garrytan", date: "2026-11-08", via: JAM, reason: "audit cap" } };
     const receipt = { schema_version: 1, pr: 4180, head, base: "main", review_loop: { passes: 2, deferred: 1, fix_checks: 1 }, review_loop_exception: loop, docs };
     const text = [CLEAN, "", reviewLoopExceptionLine(loop), "", docsExceptionLine(docs)!, "", "```gstack-ship-receipt", JSON.stringify(receipt, null, 2), "```", ""].join("\n");
     expect(exceptionProblems(text, receipt as never)).toEqual([]);
