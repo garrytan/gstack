@@ -379,6 +379,11 @@ describe('gstack-brain-sync secret scan', () => {
     ['pem-block', '-----BEGIN PRIVATE KEY-----'],
     ['jwt', 'eyJ0eXAiOiJKV1QiLCJh.eyJzdWIiOiIxMjM0NTY3.SflKxwRJSMeKKF30oGTbU'],
     ['bearer-json', '"authorization":"Bearer abcdef1234567890abcdef1234567890"'],
+    // GST-2196: redact-engine rates these HIGH; the scanner used to push them.
+    ['stripe-live-key', 'sk_' + 'live_' + 'Q7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc'],
+    ['slack-token', 'xox' + 'b-' + '2384710293-4829103847-Zr8Qm2Lx7Vn4Tb'],
+    ['db-url-password', 'DATABASE_URL=postgres://app:' + 'Vq8zR2' + 'mLp7@db.internal.example.com:5432/prod'],
+    ['npm-token', 'npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'],
   ];
 
   for (const [name, content] of SECRETS) {
@@ -405,6 +410,27 @@ describe('gstack-brain-sync secret scan', () => {
       expect(spoolText()).toContain('projects/p/learnings.jsonl');
     });
   }
+
+  test('prose about tokens and passwords and placeholder database urls still sync', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    const rows = [
+      { insight: 'Rotate the npm token before release; the Slack bot token and the password live in the vault' },
+      { insight: 'DATABASE_URL=postgres://app:PASSWORD@host/db or postgres://app:${DB_PASSWORD}@db/prod' },
+      { insight: 'local dev uses postgres://postgres:postgres@localhost:5432/app' },
+      { insight: 'cache is redis://localhost:6379', owner: 'ops@team.example.com' },
+      { insight: 'test keys look like sk_' + 'live_' + 'EXAMPLEEXAMPLEEXAMPLEEXAMPLE' },
+    ];
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.held_count ?? 0).toBe(0);
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
+    expect(log.stdout).toMatch(/sync: 1 file/);
+  });
 
   test('--skip-file unblocks specific file', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);

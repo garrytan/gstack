@@ -458,6 +458,7 @@ describe('gstack-skill-start behavior', () => {
     const log = path.join(tmp, 'egress.log');
     const sinks = ['gstack-telemetry-log', 'gstack-brain-sync', 'gstack-update-check'];
     fs.mkdirSync(shadow); fs.mkdirSync(gh);
+    fs.symlinkSync(path.join(ROOT, 'lib'), path.join(tmp, 'lib'));
     for (const name of fs.readdirSync(path.join(ROOT, 'bin'))) {
       if (!sinks.includes(name)) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(shadow, name));
     }

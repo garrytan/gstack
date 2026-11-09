@@ -204,9 +204,12 @@ sync_active() {
   return 0
 }
 
-# Secret scan over a staged diff file. Pattern families are the
-# pre-commit hook's; only the family name ever leaves this function, never the
-# matched text. The diff is read as bytes and decoded with replacement, so
+# Secret scan over a staged diff file. The first six pattern families are the
+# pre-commit hook's; the four after them mirror lib/redact-patterns.ts HIGH
+# rules (stripe.secret/restricted, slack.token, npm.token,
+# db.url_with_password) with its placeholder exemptions, so a row the
+# learnings and timeline writers accept is not held here. Only the family name
+# ever leaves this function, never the matched text. The diff is read as bytes and decoded with replacement, so
 # undecodable bytes cannot crash the scan into a false "clean".
 #   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
 #                                               family names); anything else is
@@ -238,8 +241,40 @@ patterns = [
                 re.IGNORECASE)),
 ]
 
+structural = [re.compile(p, re.I) for p in (r'^your[_-]', r'^<[^>]*>$', r'^\*+$', r'^x{6,}$')]
+substring = [re.compile(p, re.I) for p in (r'example', r'^pass(word)?$', r'^changeme$', r'^redacted',
+                                            r'^placeholder', r'^dummy', r'^fake', r'test[_-]?(key|token|secret)')]
+url_password_words = {'PASSWORD', 'PASS', 'PASSWD', 'YOUR_PASSWORD', 'DB_PASSWORD', 'MY_PASSWORD',
+                      'CHANGEME', 'CHANGE_ME', 'PLACEHOLDER', 'REDACTED', 'EXAMPLE'}
+interpolated = re.compile(r'^(\$\{.+\}|\$[A-Z_][A-Z0-9_]*)$')
+postgres_loopback = re.compile(r'^postgres(?:ql)?://postgres:postgres@(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?![\w.:@%-])')
+
+def real_token(m):
+    span = m.group(1)
+    return not any(rx.search(span) for rx in structural + substring)
+
+def real_db_url(m):
+    pw = m.group(2)
+    if pw == '' or interpolated.search(pw) or pw in url_password_words:
+        return False
+    if any(rx.search(pw) for rx in structural):
+        return False
+    return not postgres_loopback.search(m.group(1))
+
+patterns = [(name, rx, None) for name, rx in patterns] + [
+    ('stripe-live-key', re.compile(r'\b((?:sk|rk)_live_[A-Za-z0-9]{24,})\b'), real_token),
+    ('slack-token', re.compile(r'\b(xox[baprs]-[A-Za-z0-9-]{10,})\b'), real_token),
+    ('npm-token', re.compile(r'\b(npm_[A-Za-z0-9]{36})\b'), real_token),
+    # A diff line of a JSONL file is JSON text: the URL stops at an unescaped
+    # quote, so it cannot run across into the next field's "@".
+    ('db-url-password',
+     re.compile(r'\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@"]+:((?:[^@\s/"\\]|\\.)+)@[^\s/"]+)'),
+     real_db_url),
+]
+
 def families(text):
-    return [name for name, rx in patterns if rx.search(text)]
+    return [name for name, rx, real in patterns
+            if any(real is None or real(m) for m in rx.finditer(text))]
 
 def read(path):
     with open(path, "rb") as f:
