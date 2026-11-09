@@ -530,13 +530,13 @@ describe('full_e2e gate evidence (review #3235 P1-1)', () => {
 describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
   const pass = { status: 'completed', conclusion: 'success' };
   const hundred = Array.from({ length: 100 }, () => pass);
-  function readyWith(checks: unknown, statuses?: unknown) {
+  function readyWith(checks: unknown, statuses?: unknown, workflowRuns?: unknown) {
     const repo = fixture();
     const head = makePr(repo, 'pr-a');
     const tree = runBin(repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(repo.root, 'pregate.json');
     fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
-    const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks }, ...(statuses ? { statuses: { [head]: statuses } } : {}) });
+    const gh = ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks }, ...(statuses ? { statuses: { [head]: statuses } } : {}), ...(workflowRuns ? { workflowRuns: { [head]: workflowRuns } } : {}) });
     return { r: queue(repo, ['ready', '--pr', '1', '--pregate', pregate], gh), at: head.slice(0, 12) };
   }
 
@@ -580,6 +580,60 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     expect(line(queued.r.out, 'ci: ')).toBe(`ci: pending at ${queued.at} (passed=1 failed=0 pending=1 skipped=0)`);
     const nullConclusion = readyWith({ check_runs: [{ ...newer, conclusion: null }, other] });
     expect(line(nullConclusion.r.out, 'ci: ')).toBe(`ci: red at ${nullConclusion.at} (passed=1 failed=1 pending=0 skipped=0)`);
+  }, 240_000);
+
+  // Value: protects=a check whose latest workflow-run attempt has no jobs (GitHub's default filter=latest then lists none of its runs) still counts its
+  // failed, cancelled, timed_out or action_required run, while a green head, a pending or skipped check and a rerun that later passed keep their results;
+  // fails_when=ready reads only the latest attempt's runs and calls gstack-evals#303 (failed checks, attempt 2 empty, beside a passing sealed) green;
+  // seam=ciAtHead (ready, land, train land, wave and post-merge share it) through the gh shim's filter=latest/all split; no_claim=a workflow run that never created a job
+  test('a failed check run from an earlier attempt is red when the latest attempt listed no jobs (gstack-evals#303)', () => {
+    const app = { id: 15368 };
+    const sealed = { id: 129322588977, name: 'sealed', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T17:22:47Z', app, check_suite: { id: 115553095053 } };
+    const checks = { id: 129322614246, name: 'checks', status: 'completed', conclusion: 'failure', completed_at: '2026-11-09T17:49:57Z', app, check_suite: { id: 115553115622 } };
+    const pr303 = readyWith({ check_runs: [{ ...checks, earlier_attempt: true }, sealed] });
+    expect(line(pr303.r.out, 'ci: ')).toBe(`ci: red at ${pr303.at} (passed=1 failed=1 pending=0 skipped=0)`);
+    expect(pr303.r.status).toBe(EXIT.refused);
+    for (const conclusion of ['cancelled', 'timed_out', 'action_required']) {
+      const r = readyWith({ check_runs: [{ ...checks, conclusion, earlier_attempt: true }, sealed] });
+      expect(line(r.r.out, 'ci: ')).toBe(`ci: red at ${r.at} (passed=1 failed=1 pending=0 skipped=0)`);
+    }
+    const green = readyWith({ check_runs: [{ ...checks, conclusion: 'success' }, sealed] });
+    expect(green.r.status).toBe(EXIT.ok);
+    expect(line(green.r.out, 'ci: ')).toBe(`ci: green at ${green.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    const pending = readyWith({ check_runs: [{ ...checks, status: 'in_progress', conclusion: null, completed_at: null }, sealed] });
+    expect(line(pending.r.out, 'ci: ')).toBe(`ci: pending at ${pending.at} (passed=1 failed=0 pending=1 skipped=0)`);
+    const skipped = readyWith({ check_runs: [{ ...checks, conclusion: 'skipped' }, sealed] });
+    expect(line(skipped.r.out, 'ci: ')).toBe(`ci: green at ${skipped.at} (passed=1 failed=0 pending=0 skipped=1)`);
+    const rerunPassed = readyWith({ check_runs: [{ ...checks, earlier_attempt: true }, { ...checks, id: 129330000000, conclusion: 'success', completed_at: '2026-11-09T18:20:00Z' }, sealed] });
+    expect(rerunPassed.r.status).toBe(EXIT.ok);
+    expect(line(rerunPassed.r.out, 'ci: ')).toBe(`ci: green at ${rerunPassed.at} (passed=2 failed=0 pending=0 skipped=0)`);
+  }, 240_000);
+
+  // Value: protects=a workflow run that failed before creating any job (no check run names it) is red unless a later run of the same workflow at the
+  // head replaced it; fails_when=ready drops gstack-evals#303's jobless sealed failure, or holds #4225's head on a jobless Plain title failure that a later
+  // run passed; seam=ciAtHead's actions/runs?head_sha read through the gh shim; no_claim=third-party apps' check suites that never report
+  test('a workflow run that ended with no jobs is red until a later run of the same workflow replaces it (gstack-evals#303, #4225)', () => {
+    const app = { id: 15368 };
+    const sealedRun = { id: 129322588977, name: 'sealed', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T17:22:47Z', app, check_suite: { id: 115553095053 } };
+    const checksRun = { id: 129322614246, name: 'checks', status: 'completed', conclusion: 'failure', completed_at: '2026-11-09T17:49:57Z', app, check_suite: { id: 115553115622 }, earlier_attempt: true };
+    const wf = (id: number, name: string, workflow_id: number, suite: number, conclusion: string, created_at: string) => ({ id, name, workflow_id, check_suite_id: suite, status: 'completed', conclusion, created_at });
+    const pr303 = readyWith({ check_runs: [checksRun, sealedRun] }, undefined, { workflow_runs: [
+      wf(42671854799, 'sealed', 2, 115574560782, 'failure', '2026-11-09T18:11:40Z'),
+      wf(42663983836, 'ci', 1, 115553115622, 'failure', '2026-11-09T17:22:30Z'),
+      wf(42663976278, 'sealed', 2, 115553095053, 'success', '2026-11-09T17:22:28Z'),
+    ] });
+    expect(line(pr303.r.out, 'ci: ')).toBe(`ci: red at ${pr303.at} (passed=1 failed=2 pending=0 skipped=0)`);
+    expect(pr303.r.status).toBe(EXIT.refused);
+    const title = { id: 129351707680, name: 'Plain title', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:28:20Z', app, check_suite: { id: 115581108609 } };
+    const free = { id: 129351700000, name: 'free-tests', status: 'completed', conclusion: 'success', completed_at: '2026-11-09T18:20:00Z', app, check_suite: { id: 115580000000 } };
+    const startup = wf(42664833631, 'Plain title', 410784741, 115555408717, 'startup_failure', '2026-11-09T17:27:42Z');
+    const jobless = wf(42673942770, 'Plain title', 410784741, 115580220335, 'failure', '2026-11-09T18:25:42Z');
+    const replaced = readyWith({ check_runs: [title, free] }, undefined, { workflow_runs: [wf(42674265699, 'Plain title', 410784741, 115581108609, 'success', '2026-11-09T18:27:59Z'), jobless, startup] });
+    expect(line(replaced.r.out, 'ci: ')).toBe(`ci: green at ${replaced.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(replaced.r.status).toBe(EXIT.ok);
+    const last = readyWith({ check_runs: [{ ...title, completed_at: '2026-11-09T17:30:00Z' }, free] }, undefined, { workflow_runs: [wf(42664900000, 'Plain title', 410784741, 115581108609, 'success', '2026-11-09T17:29:00Z'), jobless, startup] });
+    expect(line(last.r.out, 'ci: ')).toBe(`ci: red at ${last.at} (passed=2 failed=1 pending=0 skipped=0)`);
+    expect(last.r.status).toBe(EXIT.refused);
   }, 240_000);
 
   test('a commit-status context is never collapsed with a check run of the same name', () => {

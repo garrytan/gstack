@@ -107,10 +107,10 @@ const CI_PAGE = 100;
 const CI_MAX_PAGES = 10;
 
 /** Every page of one GitHub list for a commit; anything short of exactly total_count is an error, never a partial answer. */
-function readAllPages(ctx: QueueContext, endpoint: string, key: 'check_runs' | 'statuses'): { items: Array<Record<string, unknown>> } | { error: string } {
+function readAllPages(ctx: QueueContext, endpoint: string, key: 'check_runs' | 'statuses' | 'workflow_runs'): { items: Array<Record<string, unknown>> } | { error: string } {
   const items: Array<Record<string, unknown>> = [];
   for (let page = 1; page <= CI_MAX_PAGES; page++) {
-    const r = ctx.gh(['api', `${endpoint}?per_page=${CI_PAGE}&page=${page}`]);
+    const r = ctx.gh(['api', `${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=${CI_PAGE}&page=${page}`]);
     let body: { total_count?: unknown; [k: string]: unknown } | null = null;
     try { body = r.ok ? JSON.parse(r.out) : null; } catch {}
     const list = body?.[key];
@@ -149,14 +149,42 @@ export function latestRunPerName<T extends { name?: unknown; id?: unknown; statu
   return [...latest.values(), ...standalone];
 }
 
-/** CI at one exact SHA: the latest check run per name (as GitHub's rollup counts) and every commit-status context; unreadable or incomplete is unknown, never green. */
+/**
+ * Workflow runs at a head that ended without a passing conclusion and without one check run (a startup_failure, or a
+ * run that failed before scheduling a job), so the check-runs list never names them. Each counts as its own failed
+ * check unless a later run of the same workflow at this head replaced it; that run's own checks then count (Plain
+ * title on #4225 failed with no jobs and passed two minutes later; gstack-evals#303's second sealed run had no later one).
+ */
+export function joblessRuns(checkRuns: Array<Record<string, unknown>>, workflowRuns: Array<Record<string, unknown>>): Array<{ name: string; status: string; conclusion: string | null }> {
+  const suites = new Set(checkRuns.map(r => String((r.check_suite as { id?: unknown } | null | undefined)?.id ?? '')).filter(Boolean));
+  const workflow = (w: Record<string, unknown>) => String(w.workflow_id ?? w.path ?? '');
+  const order = (w: Record<string, unknown>) => [Date.parse(String(w.created_at ?? '')) || 0, Number(w.id) || 0] as const;
+  const newer = (a: Record<string, unknown>, b: Record<string, unknown>) => order(a)[0] > order(b)[0] || (order(a)[0] === order(b)[0] && order(a)[1] > order(b)[1]);
+  return workflowRuns
+    .filter(w => w.status === 'completed' && !['success', 'skipped', 'neutral'].includes(String(w.conclusion)) && !suites.has(String(w.check_suite_id ?? '')))
+    .filter(w => !workflow(w) || !workflowRuns.some(o => o !== w && workflow(o) === workflow(w) && newer(o, w)))
+    .map(w => ({ name: `${String(w.name ?? w.path ?? 'workflow')} (run ${String(w.id ?? '?')}, no jobs)`, status: 'completed', conclusion: w.conclusion === undefined || w.conclusion === null ? null : String(w.conclusion) }));
+}
+
+/**
+ * CI at one exact SHA: the latest check run per name, every workflow run that ended with no jobs (joblessRuns), and
+ * every commit-status context; unreadable or incomplete is unknown, never green. Check runs are read with filter=all:
+ * GitHub's default (filter=latest) lists only each workflow run's latest attempt, so a rerun attempt that created no
+ * jobs hides the failed run before it (gstack-evals#303), and GitHub's own rollup drops it the same way.
+ * latestRunPerName still lets a rerun that ran supersede it.
+ */
 export function ciAtHead(ctx: QueueContext, sha: string): { line: string; green: boolean; none: boolean; checks: Array<{ name: string; status: string; conclusion: string | null }>; contexts: Array<{ name: string; state: string }> } {
   const at = sha.slice(0, 12);
-  const runs = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs`, 'check_runs');
+  const runs = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/check-runs?filter=all`, 'check_runs');
   if ('error' in runs) return { line: `unknown at ${at} (${runs.error})`, green: false, none: false, checks: [], contexts: [] };
   const statuses = readAllPages(ctx, `repos/{owner}/{repo}/commits/${sha}/status`, 'statuses');
   if ('error' in statuses) return { line: `unknown at ${at} (${statuses.error})`, green: false, none: false, checks: [], contexts: [] };
-  const checks = latestRunPerName(runs.items).map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) }));
+  const workflowRuns = readAllPages(ctx, `repos/{owner}/{repo}/actions/runs?head_sha=${sha}`, 'workflow_runs');
+  if ('error' in workflowRuns) return { line: `unknown at ${at} (${workflowRuns.error})`, green: false, none: false, checks: [], contexts: [] };
+  const checks = [
+    ...latestRunPerName(runs.items).map(c => ({ name: String(c.name ?? ''), status: String(c.status ?? ''), conclusion: c.conclusion === undefined || c.conclusion === null ? null : String(c.conclusion) })),
+    ...joblessRuns(runs.items, workflowRuns.items),
+  ];
   const verdicts = [
     ...checks.map(c => c.status !== 'completed' ? 'pending' : c.conclusion === 'success' ? 'passed' : c.conclusion === 'skipped' || c.conclusion === 'neutral' ? 'skipped' : 'failed'),
     ...statuses.items.map(s => s.state === 'success' ? 'passed' : s.state === 'pending' ? 'pending' : 'failed'),
