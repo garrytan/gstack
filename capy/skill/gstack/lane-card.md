@@ -31,6 +31,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 - Batch independent reads in one parallel program. Return 4k characters or less per call; write long output to a file under `~/.capy/work` and read the part you need.
 - A wait you expect to last under about 30 minutes checks in every 240 s: `wait` on the operation with `duration_seconds: 240`, then re-issue it silently on a wake that brings nothing new. After about 30 minutes, or past the expected end, stop re-issuing and sleep on the operation or pull request watch. A longer wait sleeps on its operations. While /ship runs, sleep.
 - Past twice the crew's median lane spend, write `handoffs/<code>/next.md` and tell the Captain in one line; it decides whether you continue, rotate or park.
+- Keep your PR until it merges or closes; never hand off mid-PR on a token count. Past 1B own tokens (about $330), check in with the Captain once, then carry on unless told otherwise.
 
 ## Before a push
 
