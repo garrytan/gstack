@@ -54,6 +54,14 @@ function repo(files: Record<string, string | Buffer>) {
 }
 
 describe('pregate secrets: source context and diff integrity', () => {
+  // Value: protects=a large added diff (a binary read with --text) parses in linear time; fails_when=each added line copies the file's earlier lines; why_new=GST-2195 review; seam=pure parser; no_claim=git's own speed
+  test('parseAddedLines reads 200,000 added lines in one file quickly (GST-2195)', () => {
+    const diff = 'diff --git a/big.bin b/big.bin\n+++ b/big.bin\n@@ -0,0 +1,200000 @@\n' + '+x\n'.repeat(200_000);
+    const started = performance.now();
+    expect(parseAddedLines(diff).get('big.bin')?.length).toBe(200_000);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test('parseAddedLines groups by file and keeps a "+++" content line inside a hunk', () => {
     const diff = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -0,0 +1,2 @@', '+one', '+++two', 'diff --git a/b.env b/b.env', '--- /dev/null', '+++ b/b.env', '@@ -0,0 +1 @@', '+three'].join('\n');
     expect([...parseAddedLines(diff)]).toEqual([['a.ts', ['one', '++two']], ['b.env', ['three']]]);
@@ -246,6 +254,14 @@ describe('pregate secrets: source context and diff integrity', () => {
     const r = repo({ 'ru.strings': utf16(`${ru}\r\ntoken ${PAT}\r\n`), 'zh.strings': utf16(`${zh}\r\ntoken ${PAT}\r\n`), 'zh-be.strings': utf16(`${zh}\ntoken ${PAT}\n`, true) }).secrets();
     expect(r.status).toBe('fail');
     for (const file of ['ru.strings', 'zh.strings', 'zh-be.strings']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 9\\)$`)));
+  });
+
+  // Value: protects=a UTF-16 token right beside a CJK character is found, and so is a plain token beside a run of character-and-NUL pairs; fails_when=the CJK character's bytes glue onto the token, or padding the run cuts the plain token;
+  //   why_new=GST-2195 review (outside voice): U+4E2D before a token read as "-N" glued to it; seam=fixture repo; no_claim=UTF-32
+  test('a token right beside a CJK character in UTF-16, or beside a NUL run in binary content, fails like plain text (GST-2195)', () => {
+    const r = repo({ 'le.strings': utf16(`中${PAT}中文\r\n`), 'be.strings': utf16(`中${PAT}中文\n`, true), 'run.bin': Buffer.from(`\x89\0\0\x01${PAT}\0x\0y\0z\0\n`, 'latin1') }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['le.strings', 'be.strings', 'run.bin']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 1\\)$`)));
   });
 
   // Value: protects=a plain token in binary content stays whole when a NUL-flanked byte sits beside it; fails_when=reading the bytes as UTF-16 glues that byte to the token or cuts its edge character off;
