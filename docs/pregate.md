@@ -1432,6 +1432,63 @@ on the head (a branch dispatch) or runs every job. The usual case is a branch
 that already holds main's tip. Dispatch Free Tests on the branch, and the
 pull request run that follows reuses it instead of running the suite again.
 
+<a id="docs-only"></a>
+## Docs-only pull requests (R81)
+
+A pull request whose every changed path is human-facing documentation skips the test
+suites. It runs the docs lane instead: links on the lines it added resolve, generated pages
+are fresh, the credential scan passes, and the tests that read docs by directory run. Pushes
+to the base branch always run the full suites.
+
+**One classifier.** `lib/docs-only.ts` (`bin/gstack-docs-only`) decides the class for CI,
+pregate, `gstack-ci-carry`, /ship's lanes and land. A path is docs only when every one of
+these holds:
+
+- It is a plain file (mode 100644). Executables, symlinks, submodules and type changes refuse.
+- It is on the allowlist, matched case-sensitively: root `README.md`, `docs/**/*.md`, `changelog.d/*.md`.
+- review-depth's `classifyPath` calls it docs, so agent prose, skill directories and policy docs stay code.
+- It matches no denylist entry. The denylist covers agent-instruction names matched case-insensitively
+  (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `ETHOS.md`, `CREW.md`, `captain.md`, `factory.md`, `pregate.md`,
+  `unattended.md` and others), `*-policy.md`, preferences, `sections/`, `templates/`, `*.tmpl`, pinned
+  results (`docs/evals/`, `docs/inventory/`), preregistrations, and every output in `.gstack/generated.json`.
+- No tracked file outside human prose names its path. A script, test, workflow or skill that reads a doc pins it.
+  `CHANGELOG.md`, `TODOS.md` and other allowlisted docs don't pin. The match is a substring match, so it errs
+  toward pinning.
+
+A rename needs both sides to pass, and a deletion needs the old path to pass. An empty diff, an
+unknown ref or any git failure is never docs-only: the CLI prints `DOCS_ONLY: error (DOCS_ONLY_ERROR …)`,
+exits 2 and writes `docs_only=false` ([troubleshooting](troubleshooting.md#docs-only-error)).
+
+**Tests that read docs by directory.** A literal-path scan can't see a test that walks `docs/` or
+lists every tracked file. `DOCS_READER_TESTS` in `lib/docs-only.ts` names them (for example
+`test/docs-config-keys.test.ts`), and the docs lane runs the ones whose tree the change touches.
+`test/docs-only.test.ts` fails on a new reader that is in neither `DOCS_READER_TESTS` nor `DOCS_READER_EXEMPT`.
+
+**CI.** In `free-tests.yml` and `windows-smoke.yml`, a `docs-scope` job checks out the merge ref
+with `fetch-depth: 2` and runs the base branch's classifier (`.github/actions/docs-scope`) on
+`HEAD^1..HEAD`. That is the exact tree CI tests, and a branch can't change the classifier that judges it.
+Each suite job skips only when `docs-scope` succeeded and said docs-only, so a crashed classifier runs
+everything. A required check that is itself the suite, `windows-smoke`, always runs and skips its steps
+instead (`env.DOCS_ONLY`), because gstack's land counts only a check that concluded success, never a skipped
+one. `docs-lane` runs `scripts/check-doc-links.ts --base HEAD^1` and the docs reader tests. The required
+`free-tests` aggregator always runs. On a docs-only pull request it passes only after `docs-lane` passed, and it
+records no `tested-tree`, so a push to main never reuses that run. Use the same jobs in another
+repository: copy `.github/actions/docs-scope`, add a `docs-scope` job, and gate each suite job with
+`${{ !cancelled() && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}`.
+Never use a workflow-level `paths-ignore`: a required check that never starts stays pending.
+
+**Pregate and /ship.** On a docs-only change the `lanes` check runs the docs lane in place of the
+test lanes and owes no remote gate. The `regen` and `secrets` checks run as always. `ci-reuse/free-tests`
+declares `docs-scope` as its `skippable` gate. A pull request run that skipped every suite carries as not
+owed (`CI_CARRY: accepted ci-carry tree=… not_owed=docs-only`), but only when this checkout's classifier
+also calls the head docs-only. Without that check, the run is never evidence (`artifact_missing`).
+
+**Land.** `land.docs_only_skip` in `.gstack/ship-policy.json` names the `merged_checks` commands land
+skips for a docs-only pin, such as the test list, keeping typecheck and the freshness check. Land keeps every
+check when a non-docs file on the base tip names a changed doc, because the pin merges onto that tip. A gstack
+release older than this change refuses the key as unknown, so main's policy adds it only with `min_gstack_version`
+raised to the first release that reads it; until then land runs every merged check on a docs-only pin.
+
 <a id="flaky-exception"></a>
 ## Owner-granted flaky exception
 

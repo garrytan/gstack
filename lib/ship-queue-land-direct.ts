@@ -15,6 +15,7 @@
  * rerun after GitHub merged goes straight to the tree check.
  */
 import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
+import { mergedChecksFor } from './land-docs-only';
 import { runMergedChecks } from './land-merged-checks';
 import { landPlan } from './plan-record';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
@@ -136,7 +137,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.state === 'MERGED' && info.headRefOid === o.pin && isSha(info.mergeCommit?.oid)) {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
     if (o.dryRun) return { ok: true, run, lines: [...lines, 'DRY-RUN: nothing verified (a rerun without --dry-run runs the tree check and writes the land note)'] };
-    const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: policy.land?.merged_checks ?? [], allow: o.allowRepoCommands });
+    const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: mergedChecksFor(root, policy.land, `origin/${ctx.base}`, o.pin), allow: o.allowRepoCommands });
     const left = readLock(root, remote);
     if (left.state !== 'held' || !ownsLock(left.lock, { pr: o.pr }, journal)) return out;
     const got = takeLock();
@@ -208,7 +209,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     const current = loadBasePolicy(ctx);
     if ('message' in current) return fail(lines, current);
     if (current.policy.merge !== 'direct') return fail(lines, { code: 'QUEUE_NOT_READY', message: `the base policy at ${tip.slice(0, 12)} no longer sets merge: direct`, fix: 'land through the train' });
-    const checks = current.policy.land?.merged_checks ?? [];
+    const checks = mergedChecksFor(root, current.policy.land, tip, o.pin);
     const staleRelease = releaseMoved(tip);
     if (staleRelease) return fail(lines, staleRelease);
     if (mergeBase !== tip) {

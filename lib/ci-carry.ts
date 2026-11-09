@@ -56,7 +56,7 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, head:
   if (!listed.length) return no('no_run', `no ${profile.workflow} run (${profile.events.join(', ')}) on ${head.slice(0, 12)} yet`);
   const refusals: string[] = [];
   for (const run of listed) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: [head], now: src.now, unchanged: src.unchanged });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: [head], now: src.now, unchanged: src.unchanged, docsOnly: src.docsOnly });
     if (v.ok) return v;
     refusals.push(`run ${run.id}: ${v.reason}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
   }
@@ -92,9 +92,10 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
     }
     const other = runs.find(e => e.tree !== o.tree);
     if (other) return no('tree_mismatch', `run ${other.run_id} tested tree ${other.tree.slice(0, 12)}, not ${o.tree.slice(0, 12)}`);
-    const empty = jobs.length ? undefined : runs.find(e => !e.files.length || e.tests === 0);
+    const docsOnly = runs.every(e => e.docs_only);
+    const empty = jobs.length || docsOnly ? undefined : runs.find(e => !e.files.length || e.tests === 0);
     if (empty) return no('no_tests', `run ${empty.run_id}'s tree.json ${empty.files.length ? 'records 0 tests' : `lists no test files (a rerun of only the failed jobs records none): dispatch a fresh full run of ${src.profiles[empty.profile]?.workflow ?? empty.profile} (gh workflow run ${src.profiles[empty.profile]?.workflow ?? '<workflow>'} --ref <branch>) and carry from that`}`);
-    if (o.inventory) {
+    if (o.inventory && !docsOnly) {
       const listed = o.inventory();
       if ('error' in listed) return no('inventory_failed', listed.error);
       if (!listed.length) return no('inventory_empty', 'the inventory command printed no files');
@@ -123,6 +124,10 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
   }
   const after = o.wtree();
   if (after !== o.tree) return no('tree_changed', `the working tree changed while the runs were verified (now ${after ? after.slice(0, 12) : 'unreadable'})`);
+  if (runs.every(e => e.docs_only)) {
+    const gates = [...new Set(o.profiles.map(n => src.profiles[n]?.skippable?.gate).filter(Boolean))];
+    return { ok: true, runs, tests: 'n/a', notOwed: `docs-only change: CI skipped the suites at this tree (gate job ${gates.join(', ')}; docs/pregate.md#docs-only)`, receipt: `ci-carry tree=${o.tree.slice(0, 12)} not_owed=docs-only ${runReceiptFields(runs, src.now)}` };
+  }
   if (jobs.length) {
     const gates = [...new Set(o.profiles.map(n => src.profiles[n]?.skippable?.gate).filter(Boolean))];
     const allSkipped = runs.every(e => jobs.every(j => e.skipped_jobs?.includes(j)));

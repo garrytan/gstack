@@ -36,6 +36,7 @@ import { classifyCommandEnvironment, classifyEnvironment, environmentLine, envir
 import { checkScratch } from '../run-scratch';
 import { starterPolicy } from '../starter';
 import { isDeviceDart, listRepoFiles, readRepoFile } from '../import-graph';
+import { docsOnlyLane } from '../docs-only-lane';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
@@ -625,6 +626,8 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   const declared = ctx.configKind !== 'none' && ctx.policyDeclaresLanes !== false;
   const mode: NoLaneMode = !declared ? 'no-policy' : ctx.config.warn.includes('lanes') ? 'warned' : 'strict';
   const base: CheckResult = { id: 'lanes', stage: 'tests', status: 'pass', inputs, lines: describe(ctx, sel, mode), remote: sel.remote };
+  const docs = docsOnlyLane(ctx, base);
+  if (docs) return docs;
   const lost = new Set(sel.removed.flatMap(r => r.lostCoverage)).size;
   const removedNote = sel.removed.length ? `${sel.removed.length} removed path(s)${lost ? `; ${lost} subject(s) lost their last test` : ''}` : '';
   const withRemoved = (r: CheckResult): CheckResult => (removedNote ? { ...r, detail: r.detail ? `${r.detail}; ${removedNote}` : removedNote } : r);
