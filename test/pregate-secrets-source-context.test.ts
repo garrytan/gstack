@@ -238,6 +238,16 @@ describe('pregate secrets: source context and diff integrity', () => {
     for (const file of ['plain.txt', 'nul.txt', 'out.jsonl', 'le.txt', 'be.txt']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 1\\)$`)));
   });
 
+  // Value: protects=a token in UTF-16 text that is mostly outside the ASCII range is still found; fails_when=Cyrillic or CJK text around the token makes its NUL bytes read as spaces;
+  //   why_new=GST-2195 review: localized UTF-16 files (Localizable.strings, .rc) passed the check; seam=fixture repo; no_claim=UTF-32
+  test('a token in UTF-16 text that is mostly Cyrillic or CJK fails like plain text (GST-2195)', () => {
+    const ru = Array(8).fill('Привет мир, это файл настроек').join('\r\n');
+    const zh = Array(8).fill('这是一个本地化的字符串文件内容').join('\r\n');
+    const r = repo({ 'ru.strings': utf16(`${ru}\r\ntoken ${PAT}\r\n`), 'zh.strings': utf16(`${zh}\r\ntoken ${PAT}\r\n`), 'zh-be.strings': utf16(`${zh}\ntoken ${PAT}\n`, true) }).secrets();
+    expect(r.status).toBe('fail');
+    for (const file of ['ru.strings', 'zh.strings', 'zh-be.strings']) expect(r.lines).toContainEqual(expect.stringMatching(new RegExp(`^HIGH github\\.pat .*\\(${file.replace('.', '\\.')}, added line 9\\)$`)));
+  });
+
   // Value: protects=reading binary files does not turn real images into findings; fails_when=a PNG, JPEG, GIF or ICNS from this repo warns or fails the check;
   //   why_new=GST-2195 scans binary content that was skipped before; seam=fixture repo; no_claim=compiled executables (the repo stores none)
   test('the real binary assets this repo stores add no finding, and the pass names how many files it read (GST-2195)', () => {

@@ -74,19 +74,20 @@ export function parsePostimages(diff: string): Map<string, string[]> {
  * Text the scanner can read from a file git calls binary, which the diff
  * passes through with --text (GST-2195). Text with no NUL is returned as is.
  * UTF-16 text, with or without a byte-order mark, puts a NUL beside each
- * character of its ASCII range, always on the same side, so those NULs are
- * dropped; then each run of NUL, other control bytes or bytes that are not
- * UTF-8 (an image chunk, an executable's padding) becomes one space. Line
+ * character of its ASCII range, always on the same side, so the NULs inside
+ * every run of such character-and-NUL pairs are dropped, however much of the
+ * file is outside that range (Cyrillic, CJK); then each run of NUL, other
+ * control bytes or bytes that are not UTF-8 (an image chunk, an executable's
+ * padding) becomes one space. Line
  * breaks stay, so line numbers still hold. Callers keep only credential
  * findings from such a file: privacy patterns read its bytes as noise (a run
  * of digits in a compressed icon reads as a phone number).
  */
 export function scannableText(text: string): string {
   if (!text.includes('\0')) return text;
-  const nuls = [0, 0];
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 0) nuls[i % 2]!++;
-  const utf16 = Math.max(...nuls) >= text.length / 4 && Math.min(...nuls) * 10 <= Math.max(...nuls);
-  return (utf16 ? text.replaceAll('\0', '') : text).replace(/[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g, ' ');
+  return text
+    .replace(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}|(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g, run => run.replaceAll('\0', ''))
+    .replace(/[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g, ' ');
 }
 
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
