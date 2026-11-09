@@ -250,13 +250,12 @@ function findingText(f: ScopeFinding): string {
   return oneLine(f.summary ?? f.problem ?? f.category ?? 'review finding');
 }
 
-export interface DeferredRecord { fingerprint: string; path: string; severity: string; summary: string }
+export interface DeferredRecord { fingerprint: string; path: string; severity: string; stated?: string; summary: string }
 
-/** The PR's record of a deferred finding; the severity shows what the reviewer stated beside the collected label. */
+/** The PR's record of a deferred finding: `severity` stays the collected label, `stated` carries what the reviewer wrote beside it. */
 export function deferredRecord(f: ScopedFinding): DeferredRecord {
   const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
-  const severity = String(f.severity ?? 'unrated');
-  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: said.length ? `${severity} (the reviewer wrote ${said.join(', ')})` : severity, summary: String(f.summary ?? f.problem ?? f.category ?? '') };
+  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), ...(said.length ? { stated: said.join(', ') } : {}), summary: String(f.summary ?? f.problem ?? f.category ?? '') };
 }
 
 /** The PR-body section for deferred findings, which stay on the PR: no issue is filed and no closing keyword is written. Only `frozen` defers. */
@@ -264,7 +263,7 @@ export function renderDeferredSection(deferred: readonly DeferredRecord[], noted
   const out: string[] = [];
   if (deferred.length) {
     out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen). They stay on this PR and are not filed as issues.', '');
-    for (const d of deferred) out.push(`- Deferred: ${oneLine(d.severity)} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
+    for (const d of deferred) out.push(`- Deferred: ${oneLine(d.severity)}${d.stated ? ` (the reviewer wrote ${oneLine(d.stated)})` : ''} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
     out.push('');
   }
   if (noted.length) {
