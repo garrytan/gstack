@@ -252,6 +252,15 @@ describe("public repo: any other private detail refuses the post", () => {
     refuses(`<a href="https://capy.ai/thread/${JAM}">badge-shaped but no badge image</a>`, "public.capy_id");
   });
 
+  test("an anon thread link refuses when anything follows the hash (outside-voice#1 on 45f6765)", () => {
+    const link = "https://capy.ai/thread/anon-0123456789ab";
+    refuses(`See ${link}/../GSTA-256 for the run.`, "public.capy_id");
+    refuses(`See ${link}.GSTA-36 for the run.`, "public.capy_id");
+    refuses(`See ${link}#GSTA-36 for the run.`, "public.capy_id");
+    refuses(`See ${link}%2F${JAM.slice(4)} for the run.`, "public.capy_id");
+    for (const ok of [link, `via ${link}: audit cap`, `The run is ${link}.`, `(${link})`]) expect(privateDetails(ok)).toEqual([]);
+  });
+
   test("costs: dollars, a code span, USD, credits, tokens, spend keys post with a LOW note", () => {
     const notes = (prose: string) => {
       const f = fakeEnv({ files: { "/b": prose + "\n" }, ghVisibility: "PUBLIC" });

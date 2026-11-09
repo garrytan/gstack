@@ -41,7 +41,7 @@ export function readRepoVisibility(run: VisibilityRunner, o: { explicit?: RepoVi
 }
 
 const JAM_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}/g;
-const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/(?!anon-[0-9a-f]{12}(?![A-Za-z0-9_-]))[^\s"'`<>)\]]+/g;
+const CAPY_ID = /(?<![A-Za-z0-9])jam_[A-Za-z0-9]{8,}|capy\.ai\/thread\/(?!anon-[0-9a-f]{12}(?=$|[\s"'`<>)\]]|[:.,;!?](?=$|\s)))[^\s"'`<>)\]]+/g;
 const BADGE = /<a href="https:\/\/capy\.ai\/thread\/jam_[A-Za-z0-9]+"><picture>(?:(?!<\/a>)[\s\S]){0,800}?capy\.ai\/badge\/(?:(?!<\/a>)[\s\S]){0,800}?<\/picture><\/a>/g;
 const COSTS = [
   /(?<![\w$\\])\$\s?\d[\d,]*(?:\.\d+)?/g,
