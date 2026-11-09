@@ -214,6 +214,10 @@ describe('gstack-archive-check (bin)', () => {
     expect(r.status).toBe(1);
     expect(r.out).toContain('ORPHAN: pr garrytan/gbrain#5 open');
     expect(fs.statSync(stub).mode & 0o777).toBe(0o600);
+    const stale = path.join(repo.root, 'stale.json');
+    fs.writeFileSync(stale, JSON.stringify(reads({ read_at: '2020-01-01T00:00:00Z' })));
+    expect(runBin(repo, 'gstack-archive-check', ['thread', '--thread', 'GSTA-1', '--reads', stale, '--stub-out', stub], env).status).toBe(3);
+    expect(fs.readFileSync(stub, 'utf8')).toBe('');
     const calls = fs.readFileSync(path.join(repo.root, 'gh-shim', 'calls.log'), 'utf8').split('\n').filter(l => l.includes(' api '));
     expect(calls.length).toBeGreaterThan(0);
     for (const c of calls) expect(c.startsWith('garrytan/gbrain ')).toBe(true);
@@ -224,5 +228,19 @@ describe('gstack-archive-check (bin)', () => {
     const clean = runBin(repo, 'gstack-archive-check', ['thread', '--thread', 'GSTA-1', '--reads', file], env);
     expect([clean.status, clean.out.trim().split('\n').at(-1)]).toEqual([0, 'ARCHIVE_CHECK: clean thread=GSTA-1 prs=0 issues=0']);
     expect(runBin(repo, 'gstack-archive-check', ['thread', '--reads', file], env).status).toBe(2);
+  });
+
+  // Value: protects=the land step's CLI: usage guards, the merged-PR close lines and the not-merged refusal; fails_when=a bad --pr or --repo reaches gh, or an open PR prints ISSUE_CLOSE
+  test('landed: usage exits 2, a merged PR prints its codes, an open PR exits 1', () => {
+    if (process.platform === 'win32') return;
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const env = shim(repo, { 'garrytan/gstack#7': { state: 'MERGED', title: 'Fix x (GST-12)', mergeCommit: { oid: 'd'.repeat(40) } }, 'garrytan/gstack#8': { state: 'OPEN', title: 'Fix y (GST-13)' } });
+    expect(runBin(repo, 'gstack-archive-check', ['landed', '--pr', 'x'], env).status).toBe(2);
+    expect(runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'bad'], env).status).toBe(2);
+    const merged = runBin(repo, 'gstack-archive-check', ['landed', '--pr', '7', '--repo', 'garrytan/gstack'], env);
+    expect([merged.status, merged.out.trim()]).toEqual([0, 'ISSUE_CLOSE: GST-12 pr=garrytan/gstack#7 merge=' + 'd'.repeat(12)]);
+    const open = runBin(repo, 'gstack-archive-check', ['landed', '--pr', '8', '--repo', 'garrytan/gstack'], env);
+    expect(open.status).toBe(1);
+    expect(open.out).toContain('ARCHIVE_PR_NOT_MERGED');
   });
 });

@@ -4646,8 +4646,10 @@ minutes in the future. Old reads can miss a PR or issue the thread picked up sin
 larger than the list, an unrecognized line or a state the header does not name. An empty
 read looks like "no work", so the check refuses instead of guessing.
 
-**Fix.** Write the tool results raw, unedited. When the PR list or the issue list has more
-pages, read them all first. Rerun.
+**Fix.** Write the tool results raw, unedited. When the issue list has more pages, read
+them all first, then rerun. A truncated PR list has no fix: `tools.thread.get` lists at
+most 20 PRs and cannot page through the rest, so a thread that has held more than 20 PRs
+cannot be proven clean and stays unarchived.
 
 <a id="archive-thread-mismatch"></a>
 ### `ARCHIVE_THREAD_MISMATCH`

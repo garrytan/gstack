@@ -128,7 +128,7 @@ export const CAPY_RESULT_CODES = {
   ARCHIVE_READS_UNPARSED: {
     anchor: 'archive-reads-unparsed',
     summary: 'gstack-archive-check could not fully read the Capy reads (missing, empty or truncated output, or a line or state it does not know), so it cannot say the thread is clean',
-    fix: 'pass the raw tools.thread.get result and the raw tools.issue.read text unedited; for a truncated PR list or an issue list with more than one page, read the rest first; nothing was archived',
+    fix: 'pass the raw tools.thread.get result and the raw tools.issue.read text unedited and read every page of a multi-page issue list; tools.thread.get lists at most 20 PRs and cannot page, so a thread that has held more cannot be proven clean and stays unarchived; nothing was archived',
   },
   ARCHIVE_THREAD_MISMATCH: {
     anchor: 'archive-thread-mismatch',

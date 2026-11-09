@@ -52,7 +52,7 @@ function thread(args: string[]): number {
   let raw: unknown;
   try { raw = JSON.parse(fs.readFileSync(readsFile, 'utf8')); } catch (e: any) { raw = { parseError: String(e?.message ?? e) }; }
   const r = checkThread(raw, { thread: code, now: Date.now(), ghFor: ghBound });
-  if (stubOut && r.stub) { fs.writeFileSync(stubOut, r.stub, { mode: 0o600 }); fs.chmodSync(stubOut, 0o600); }
+  if (stubOut) { fs.writeFileSync(stubOut, r.stub, { mode: 0o600 }); fs.chmodSync(stubOut, 0o600); }
   if (args.includes('--json')) process.stdout.write(JSON.stringify(r.json) + '\n');
   else {
     const failure = r.failure ? [resultLine('gstack-archive-check thread', r.failure.code, r.failure.message)] : [];

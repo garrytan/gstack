@@ -288,7 +288,8 @@ Issues show what the crew is really doing, so keep them true:
 
 - Before archiving a thread, re-assign every open issue it holds to its successor or the
   Captain, and close only what is done; `gstack-archive-check thread` refuses the archive
-  until you have ([No orphaned work](#no-orphaned-work)).
+  while an issue in a working state is still on the thread, and lists Backlog and Needs you
+  issues as notes for you to re-assign ([No orphaned work](#no-orphaned-work)).
 - On each wake, leave every issue you touched accurate: its status, assignee and links.
 - An unassigned Todo that nobody will start goes to Backlog.
 - Deferred findings from review or /ship never become issues: they stay on the PR's
