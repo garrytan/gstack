@@ -1,1 +1,2 @@
 - `browse scroll <selector>` brings the element into view again when `--wait` is absent. The flag parser treated the first argument as the `--wait` value and dropped it, so `scroll footer` and `scroll footer --times 2` scrolled to the page bottom and replied "Scrolled to bottom".
+- gstack's renderer no longer mistakes Debian and Ubuntu's `/usr/bin/browse`, a link to xdg-open, for gstack's own browser. A `browse` on PATH whose real file has another name is now skipped, so you get the clear "no browser" message instead of a desktop opener launching.
