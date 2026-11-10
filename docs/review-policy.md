@@ -896,7 +896,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
 3. `collect` hashes each reader's raw output and appends its findings to
    `merged.jsonl` with the label as written. The five readers whose brief demands JSON (the specialists, the batched
    specialist, the Red Team, the targeted reader and fix-check) collect only JSON objects with a `severity` key, whatever
-   the layout (one line, pretty-printed, nested, in an array or a code fence; a cut-off object at the severity it names),
+   the layout (one line, pretty-printed, nested, in an array or a code fence; a cut-off or malformed object at the severity it names),
    and their prose is never a finding (GST-2237). The two prose voices collect as follows (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
    wherever they stand, headings and table rows included, except that a line with its own `Severity` field takes that

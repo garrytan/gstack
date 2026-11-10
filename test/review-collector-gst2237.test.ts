@@ -139,3 +139,14 @@ describe('fail closed only on prose the collector could not read (GST-2237 negat
     } finally { fs.rmSync(d, { recursive: true, force: true }); }
   });
 });
+
+describe('the collector keeps JSON blockers it can read (GST-2237 review round 1)', () => {
+  // Value: protects=a JSON object that does not parse still collects its severity when the key sits below the opening brace or a
+  //   trailing comma breaks it, beside a valid object; fails_when=the CRITICAL is lost while the reply still counts as a review;
+  //   why_new=/ship specialist finding on PR #4269; seam=parseFindings; no_claim=objects with no severity key
+  test('a malformed pretty-printed object collects the severity it names', () => {
+    const out = ['{', '  "severity": "CRITICAL",', '  "path": "lib/pay.ts",', `  "summary": "${PAY}",`, '}', json({ severity: 'INFORMATIONAL' })].join('\n');
+    expect(run('red-team', out)).toMatchObject({ review: true, labels: ['CRITICAL', 'INFORMATIONAL'], blockers: ['red-team#1'] });
+    expect(run('red-team', ['{ "path": "lib/pay.ts",', '  "severity": "CRITICAL", "summary": "has "q""}'].join('\n')).labels).toEqual(['CRITICAL']);
+  });
+});

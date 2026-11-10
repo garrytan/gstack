@@ -341,7 +341,8 @@ const jsonRole = (reader: string) => JSON_ROLES.has(reader.split('/')[0]!);
 /**
  * A JSON reader's findings: every object in the reply with a `severity` key (any key case), on one line, pretty-printed, nested or in
  * an array, its label as written (a value that is not a string, as its JSON); an object that does not parse but names a severity (a
- * cut-off line) collects at that severity. An object alone on its line keeps that line as its raw text, any other its compact JSON.
+ * cut-off line, a trailing comma, a severity key below the opening brace) collects at that severity. An object alone on its line keeps
+ * that line as its raw text, any other its compact JSON.
  */
 function jsonFindings(output: string): Array<{ label: string; raw: string }> {
   const text = output.replace(/\r\n/g, '\n');
@@ -377,10 +378,11 @@ function jsonFindings(output: string): Array<{ label: string; raw: string }> {
       i = end;
       continue;
     }
-    const cut = /"severity"\s*:\s*"([^"\n]*)/i.exec(text.slice(i, e));
+    const cut = /"severity"\s*:\s*"([^"\n]*)/i.exec(text.slice(i, end >= 0 ? end + 1 : text.length));
     if (!cut) continue;
-    findings.push({ label: cut[1]!, raw: text.slice(s, e).trim() });
-    i = e;
+    const at = lineAt(i + cut.index);
+    findings.push({ label: cut[1]!, raw: text.slice(s, at.e).trim() });
+    i = at.e;
   }
   return findings;
 }
