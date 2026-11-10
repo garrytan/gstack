@@ -331,6 +331,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
   {
+    file: 'crew/test/ship-queue-ready-notes-push.test.ts',
+    reason: 'drives bin/gstack-ship-queue ready against the #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts, like crew/test/ship-queue-train.test.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead (windows-scoped-shard run 42711409624)',
+  },
+  {
     file: 'crew/test/ship-queue-train-bisect.test.ts',
     reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },

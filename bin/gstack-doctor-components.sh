@@ -317,6 +317,7 @@ gstack_result_anchor() {
     QUEUE_SCREEN_NOT_RUN) printf '%s' 'queue-screen-not-run' ;;
     QUEUE_TRAIN_STACK_RED) printf '%s' 'queue-train-stack-red' ;;
     QUEUE_POST_MERGE_RED) printf '%s' 'queue-post-merge-red' ;;
+    QUEUE_READY_NOTE_UNPUSHED) printf '%s' 'queue-ready-note-unpushed' ;;
     QUEUE_SCREEN_RED) printf '%s' 'queue-screen-red' ;;
     READY_SCREEN_CHOICE_REQUIRED) printf '%s' 'ready-screen-choice-required' ;;
     PREGATE_TIMING_ASSERTION) printf '%s' 'pregate-timing-assertion' ;;
