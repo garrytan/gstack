@@ -6,6 +6,20 @@ The whole diff is scanned as written, headers and context lines included, so
 a secret in a file name or one that lines up across an unchanged line is
 held. Each added line is also scanned with its JSON string literals decoded,
 so a secret hidden behind \u escapes or backslash-escaped quotes is caught.
+Each hunk's new text (its unchanged and added lines without their diff
+markers) is scanned as one block too, so a key on an unchanged line joins a
+value added under it.
+
+Callers pass two readings of the same staged diff and every check runs on
+both, so neither can lose what the other holds. The first is the plain
+`git diff` the hook has always scanned, with the user's diff.context and
+textconv drivers. The second is the same diff with --text, --no-textconv and
+-U3, so a file git calls binary arrives as its bytes and a diff.context below
+3 cannot drop the unchanged lines around an edit. A line or hunk holding a
+NUL byte is also read as UTF-16 in both byte orders and alignments, and with
+its NULs removed. A section of the second reading that still says "Binary
+files ... differ" or carries a "GIT binary patch" was not diffed as text; it
+is flagged as binary-not-scanned (fail closed).
 
 The first six pattern families are the original hook's; the four after them
 mirror lib/redact-patterns.ts HIGH rules (stripe.secret/restricted,
@@ -15,10 +29,11 @@ here. Only the family name ever leaves this script, never the matched text.
 The diff is read as bytes and decoded with replacement, so undecodable bytes
 cannot crash the scan into a false "clean".
 
-  gate <diff|->                     exit 0 clean, 3 hit (prints the family
+  gate <diff|-> [<text-diff>]       exit 0 clean, 3 hit (prints the family
                                     names); anything else is a scanner
                                     failure (fail closed). "-" reads stdin.
-  attribute <diff> <names> <out>    one pass: splits the diff on its
+  attribute <diff> <names> <out> [<text-diff>]
+                                    one pass: splits each diff on its
                                     "diff --git" headers, pairs each section
                                     with the NUL-separated names from
                                     "git diff --name-only -z" (same order),
@@ -113,6 +128,50 @@ def added_lines(lines):
     return out
 
 
+def post_images(lines):
+    """Each hunk's new text as bytes: its unchanged and added lines, markers
+    removed, joined on the newline byte git split them at."""
+    out, cur, in_hunk = [], [], False
+    for line in lines:
+        if line.startswith(b"diff --git ") or line.startswith(b"@@"):
+            if cur:
+                out.append(b"\n".join(cur))
+            cur, in_hunk = [], line.startswith(b"@@")
+        elif in_hunk and line[:1] in (b" ", b"+"):
+            cur.append(line[1:])
+    if cur:
+        out.append(b"\n".join(cur))
+    return out
+
+
+def nul_readings(bodies):
+    """Each byte string holding a NUL byte, read with its NULs removed and as
+    UTF-16LE and UTF-16BE from both byte alignments."""
+    out = []
+    for body in bodies:
+        if b"\0" not in body:
+            continue
+        out.append(body.replace(b"\0", b"").decode("utf-8", "replace"))
+        for chunk in (body, body[1:]):
+            chunk = chunk[:len(chunk) // 2 * 2]
+            out.append(chunk.decode("utf-16-le", "replace"))
+            out.append(chunk.decode("utf-16-be", "replace"))
+    return out
+
+
+def unscanned_binary(lines):
+    """True when a section's header says git did not diff a file as text."""
+    in_hunk = False
+    for line in lines:
+        if line.startswith(b"diff --git "):
+            in_hunk = False
+        elif line.startswith(b"@@"):
+            in_hunk = True
+        elif not in_hunk and (line.startswith(b"Binary files ") or line == b"GIT binary patch"):
+            return True
+    return False
+
+
 def decoded_in_place(text):
     """text with every escaped JSON string literal replaced by its decoded
     value in quotes, so a key and its value are matched together even when
@@ -127,13 +186,19 @@ def decoded_in_place(text):
     return json_string.sub(decode, text)
 
 
-def families(lines):
+def families(lines, text_reading=False):
     added = added_lines(lines)
     raw = b"\n".join(lines).decode("utf-8", "replace")
-    texts = [raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
+    posts = post_images(lines)
+    post_texts = [post.decode("utf-8", "replace") for post in posts]
+    texts = ([raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
+             + post_texts + [decoded_in_place(text) for text in post_texts]
+             + [t for nul in nul_readings([line[1:] for line in lines] + posts)
+                for t in [nul, decoded_in_place(nul)] + decoded_strings(nul)])
     text = "\n".join(texts)
-    return [name for name, rx, real in patterns
-            if any(real is None or real(m) for m in rx.finditer(text))]
+    found = ['binary-not-scanned'] if text_reading and unscanned_binary(lines) else []
+    return found + [name for name, rx, real in patterns
+                    if any(real is None or real(m) for m in rx.finditer(text))]
 
 
 def read(path):
@@ -143,9 +208,27 @@ def read(path):
         return f.read()
 
 
+def union(plain, text):
+    hits = families(plain)
+    if text is not None:
+        hits += [h for h in families(text, text_reading=True) if h not in hits]
+    return hits
+
+
+def sections(path):
+    out = []
+    for line in read(path).split(b"\n"):
+        if line.startswith(b"diff --git "):
+            out.append([line])
+        elif out:
+            out[-1].append(line)
+    return out
+
+
 mode = sys.argv[1]
 if mode == "gate":
-    hits = families(read(sys.argv[2]).split(b"\n"))
+    text = read(sys.argv[3]).split(b"\n") if len(sys.argv) > 3 else None
+    hits = union(read(sys.argv[2]).split(b"\n"), text)
     if hits:
         print(",".join(hits))
         sys.exit(3)
@@ -155,18 +238,14 @@ if mode != "attribute":
 
 diff_path, names_path, out_path = sys.argv[2:5]
 names = [n.decode("utf-8", "surrogateescape") for n in read(names_path).split(b"\0") if n]
-sections = []
-for line in read(diff_path).split(b"\n"):
-    if line.startswith(b"diff --git "):
-        sections.append([line])
-    elif sections:
-        sections[-1].append(line)
-if len(sections) != len(names):
+plain = sections(diff_path)
+text = sections(sys.argv[5]) if len(sys.argv) > 5 else [None] * len(plain)
+if len(plain) != len(names) or len(text) != len(names):
     sys.exit(4)
 with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
-    for name, body in zip(names, sections):
+    for name, body, text_body in zip(names, plain, text):
         if "\n" in name or "\t" in name:
             sys.exit(4)
-        hits = families(body)
+        hits = union(body, text_body)
         if hits:
             out.write(hits[0] + "\t" + name + "\n")

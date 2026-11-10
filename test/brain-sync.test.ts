@@ -312,6 +312,70 @@ describe('init + sync + restore round-trip', () => {
     }
   });
 
+  test('the pre-commit hook init and restore write refuses an AWS key in a binary file (GST-2292)', () => {
+    const body = Buffer.from('\0' + 'AKIA' + 'ABCDEFGHIJKLMNOP' + '\n', 'latin1');
+    const commitRefused = (home: string) => {
+      fs.mkdirSync(path.join(home, 'projects/p/ceo-plans'), { recursive: true });
+      fs.writeFileSync(path.join(home, 'projects/p/ceo-plans/note.md'), body);
+      git(['add', '-f', 'projects/p/ceo-plans/note.md'], home);
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit'], home);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('aws-access-key');
+    };
+    expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+    commitRefused(tmpHome);
+    const machineB = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-machineB-'));
+    try {
+      expect(run(['gstack-brain-restore', bareRemote], { env: { GSTACK_HOME: machineB } }).status).toBe(0);
+      commitRefused(machineB);
+    } finally {
+      fs.rmSync(machineB, { recursive: true, force: true });
+    }
+  });
+
+  test('the scanner flags a binary section it was not given the bytes of', () => {
+    const textDiff = path.join(tmpHome, 'text.diff');
+    const scan = (diff: string) => {
+      fs.writeFileSync(textDiff, diff);
+      return spawnSync('python3', [path.join(BIN, 'gstack-brain-secret-scan.py'), 'gate', '-', textDiff], { input: diff.replace(/^Binary files .*$|^GIT binary patch$/gm, ''), encoding: 'utf-8', timeout: 30_000 });
+    };
+    const header = 'diff --git a/n.md b/n.md\nnew file mode 100644\nindex 0000000..1111111\n';
+    for (const tail of ['Binary files /dev/null and b/n.md differ\n', 'GIT binary patch\nliteral 3\nKcmZ?wFaQ7m\n\n']) {
+      const r = scan(header + tail);
+      expect(r.status).toBe(3);
+      expect(r.stdout.trim()).toBe('binary-not-scanned');
+    }
+    const text = scan(header + '--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+Binary files are mentioned here\n');
+    expect(text.status).toBe(0);
+  });
+
+  // GST-2292 audit: the hook keeps scanning the plain diff main scanned (the
+  // user's diff.context and textconv drivers apply) beside the --text reading.
+  for (const [name, setup, body] of [
+    ['an AWS key on a context line that diff.context 5 shows', (home: string) => {
+      fs.writeFileSync(path.join(home, 'projects/p/ceo-plans/note.md'), '  AKIA' + 'ABCDEFGHIJKLMNOP\n1\n2\n3\nbefore\n');
+      git(['add', '-f', 'projects/p/ceo-plans/note.md'], home);
+      expect(git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--no-verify', '-m', 'baseline'], home).status).toBe(0);
+      git(['config', 'diff.context', '5'], home);
+    }, '  AKIA' + 'ABCDEFGHIJKLMNOP\n1\n2\n3\nafter\n'],
+    ['an AWS key that only a textconv driver decodes', (home: string) => {
+      fs.writeFileSync(path.join(home, '.git/info/attributes'), 'projects/p/ceo-plans/note.md diff=audit\n');
+      git(['config', 'diff.audit.textconv', 'base64 -d'], home);
+    }, Buffer.from('AKIA' + 'ABCDEFGHIJKLMNOP\n').toString('base64') + '\n'],
+  ] as [string, (home: string) => void, string][]) {
+    test(`the pre-commit hook refuses ${name}`, () => {
+      expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+      fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+      fs.mkdirSync(path.join(tmpHome, '.git/info'), { recursive: true });
+      setup(tmpHome);
+      fs.writeFileSync(path.join(tmpHome, 'projects/p/ceo-plans/note.md'), body);
+      git(['add', '-f', 'projects/p/ceo-plans/note.md']);
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit']);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('aws-access-key');
+    });
+  }
+
   test('the pre-commit hook fails closed when its scanner is missing or fails', () => {
     expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
     const hook = path.join(tmpHome, '.git/hooks/pre-commit');
@@ -525,6 +589,141 @@ describe('gstack-brain-sync secret scan', () => {
     expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
     expect(statusJson().status).toBe('held');
     expect(statusJson().held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  // GST-2292: git prints "Binary files ... differ" for a file with a NUL byte
+  // instead of its bytes, so the scan has to read the bytes some other way.
+  function syncFile(rel: string, body: string | Buffer, env?: Record<string, string>) {
+    fs.mkdirSync(path.dirname(path.join(tmpHome, rel)), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, rel), body);
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once'], { env }).status).toBe(0);
+    return JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+  }
+  const remoteFiles = () =>
+    spawnSync('git', ['--git-dir=' + bareRemote, 'ls-tree', '-r', '--name-only', 'main'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+  const AWS_KEY = 'AKIA' + 'ABCDEFGHIJKLMNOP';
+  const BINARY_CASES: [string, Buffer][] = [
+    ['a NUL byte', Buffer.from('\0' + AWS_KEY + '\n', 'latin1')],
+    ['UTF-16LE text', Buffer.from('note ' + AWS_KEY + '\n', 'utf16le')],
+    ['UTF-16BE text', Buffer.from('note ' + AWS_KEY + '\n', 'utf16le').swap16()],
+  ];
+  for (const [name, body] of BINARY_CASES) {
+    test(`an AWS key in a file git calls binary (${name}) is held`, () => {
+      run(['gstack-artifacts-init', '--remote', bareRemote]);
+      run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+      const rel = 'projects/p/ceo-plans/note.md';
+      const status = syncFile(rel, body);
+      expect(status.status).toBe('held');
+      expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+      expect(remoteFiles()).not.toContain(rel);
+    });
+  }
+
+  test('an AWS key added to a clean binary file that already synced is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    const clean = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52, 0xff, 0x00, 0x10]);
+    const first = syncFile(rel, clean);
+    expect(first.held_count ?? 0).toBe(0);
+    expect(remoteFiles()).toContain(rel);
+    const second = syncFile(rel, Buffer.concat([clean, Buffer.from('\n' + AWS_KEY + '\0', 'latin1')]));
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+    const shown = spawnSync('git', ['--git-dir=' + bareRemote, 'show', 'main:' + rel], { timeout: 30_000 }).stdout as Buffer;
+    expect(shown.toString('latin1')).not.toContain(AWS_KEY);
+  });
+
+  test('a Bearer value added under an unchanged authorization key is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/headers.md';
+    const first = syncFile(rel, '{\n  "authorization":\n}\n');
+    expect(first.held_count ?? 0).toBe(0);
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    const second = syncFile(rel, '{\n  "authorization":\n' + value + '}\n');
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a Bearer value added under an unchanged authorization key in UTF-16 text is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/headers.md';
+    const first = syncFile(rel, Buffer.from('{\n  "authorization":\n}\n', 'utf16le'));
+    expect(first.held_count ?? 0).toBe(0);
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    const second = syncFile(rel, Buffer.from('{\n  "authorization":\n' + value + '}\n', 'utf16le'));
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a Bearer value added under an unchanged authorization key is held when git diff.context is 0', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const env = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.context', GIT_CONFIG_VALUE_0: '0' };
+    const rel = 'projects/p/ceo-plans/headers.md';
+    const first = syncFile(rel, '{\n  "authorization":\n}\n', env);
+    expect(first.held_count ?? 0).toBe(0);
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    const second = syncFile(rel, '{\n  "authorization":\n' + value + '}\n', env);
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  // GST-2292 audit: the scan keeps main's plain diff as one reading, so a
+  // larger diff.context or a textconv driver still shows it what main saw.
+  test('an AWS key on an unchanged line that the user\'s diff.context 5 shows is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, rel), '  ' + AWS_KEY + '\n1\n2\n3\nbefore\n');
+    git(['add', '-f', rel]);
+    expect(git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--no-verify', '-m', 'baseline']).status).toBe(0);
+    git(['config', 'diff.context', '5']);
+    const status = syncFile(rel, '  ' + AWS_KEY + '\n1\n2\n3\nafter\n');
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a \\u-escaped AWS key in a UTF-16 JSON file is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    const status = syncFile(rel, Buffer.from('{"k":"\\u0041KIA' + 'ABCDEFGHIJKLMNOP"}\n', 'utf16le'));
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+    expect(remoteFiles()).not.toContain(rel);
+  });
+
+  test('the scan files that hold staged bytes are private to the user', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const shimDir = path.join(tmpHome, 'shim');
+    const modes = path.join(tmpHome, 'scan-modes.txt');
+    fs.mkdirSync(shimDir, { recursive: true });
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+    fs.writeFileSync(path.join(shimDir, 'git'), `#!/bin/sh\n"${realGit}" "$@"\nrc=$?\nfor f in "${tmpHome}"/brain-sync-paths.*.scan.diff "${tmpHome}"/brain-sync-paths.*.scan.text; do [ -f "$f" ] && ls -ln "$f" | cut -c1-10 >> '${modes}'; done\nexit $rc\n`, { mode: 0o755 });
+    const status = syncFile('projects/p/ceo-plans/note.md', '# a plan\n', { PATH: shimDir + path.delimiter + process.env.PATH, TMPDIR: tmpHome });
+    expect(status.held_count ?? 0).toBe(0);
+    const seen = fs.readFileSync(modes, 'utf-8').split('\n').filter(Boolean);
+    expect(seen.length).toBeGreaterThan(0);
+    expect([...new Set(seen)]).toEqual(['-rw-------']);
+  });
+
+  test('an AWS key that only a configured textconv driver decodes is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    fs.mkdirSync(path.join(tmpHome, '.git/info'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, '.git/info/attributes'), rel + ' diff=audit\n');
+    git(['config', 'diff.audit.textconv', 'base64 -d']);
+    const status = syncFile(rel, Buffer.from(AWS_KEY + '\n').toString('base64') + '\n');
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+    expect(remoteFiles()).not.toContain(rel);
   });
 
   test('a clean file whose name is an AWS access key is held', () => {
@@ -760,8 +959,9 @@ describe('gstack-brain-sync per-file hold', () => {
     expect(remoteLog()).toMatch(/sync: 997 file/);
     const calls = shim.calls();
     expect(calls.filter((c) => / add /.test(` ${c} `)).length).toBe(1);
-    // attribution diff + name list + post-hold re-scan diff + empty-diff check
-    expect(calls.filter((c) => c.includes('diff --cached')).length).toBeLessThanOrEqual(4);
+    // attribution diffs (plain and --text, GST-2292) + name list + post-hold
+    // re-scan diffs (plain and --text) + empty-diff check
+    expect(calls.filter((c) => c.includes('diff --cached')).length).toBeLessThanOrEqual(6);
     expect(spoolFiles()).toHaveLength(3);
   }, 120_000);
 

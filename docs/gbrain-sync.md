@@ -160,12 +160,27 @@ The last four follow gstack's redaction rules, so placeholders such as
 `sk_live_EXAMPLE…`, `${DB_PASSWORD}` or `postgres:postgres@localhost` are
 not held.
 
-The scan reads the whole staged diff, including file names and the unchanged
-lines shown around each edit. Each added line is also scanned with its JSON
-strings decoded, so a secret written with `\u` escapes or inside an escaped
-JSON string is still caught. Because unchanged lines are scanned too, a file
-that already holds a flagged line is held on every edit until you remove the
-line or skip the file.
+The scan reads the whole staged diff twice: once as `git diff` shows it to
+you (your `diff.context` and any textconv driver apply), and once as raw text
+with three unchanged lines around each edit. A match in either reading holds
+the file. Both readings include file names. Each added line is also
+scanned with its JSON strings decoded, so a secret written with `\u` escapes or inside an escaped
+JSON string is still caught. Each edited block is also read as the new file
+text, so a key on an unchanged line and a value added under it are matched
+together, whatever your git `diff.context` setting is. Files git treats as
+binary (a NUL byte, UTF-16 text) are scanned by their bytes, read plainly,
+without NULs and as UTF-16. If git still reports a file as binary instead of
+showing its bytes, the file is held as `binary-not-scanned`. Bytes that none
+of these readings turn into text, such as a compressed file, are not held
+unless a pattern matches them.
+
+Because unchanged and removed lines are scanned too, a file that already holds
+a flagged line is held on every edit while that line is in the diff. If the
+flagged line was never synced, delete it and the next sync goes through. If it
+is already committed in `~/.gstack`, deleting it leaves it on a removed line
+of the next diff, so the file stays held and only `--skip-file` clears it.
+Skipping stops syncing the file, so a copy that was already pushed stays on
+the remote; if it was pushed, treat the secret as exposed.
 
 If a scan hits, only the flagged file is held back (with any file coupled
 to it); everything else syncs. The held file stays queued and is re-scanned
@@ -182,7 +197,10 @@ To remediate:
 2. If the match is a false positive on content you never want synced, run
    `gstack-brain-sync --skip-file <path>` to permanently exclude that path;
    `gstack-brain-sync --unskip-file <path>` undoes it.
-3. Otherwise, edit the file to remove the secret; the next skill run syncs it.
+3. Otherwise, edit the file to remove the secret. If that line was never
+   synced, the next skill run syncs the file. If it is already committed in
+   `~/.gstack`, the file stays held and only `--skip-file` clears it; if it
+   was pushed, treat the secret as exposed.
 
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
 runs the same scanner (`bin/gstack-brain-secret-scan.py`) if you manually

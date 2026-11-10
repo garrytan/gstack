@@ -206,12 +206,17 @@ sync_active() {
 
 # Secret scan over a staged diff file: bin/gstack-brain-secret-scan.py, the
 # same scanner the artifacts repo's pre-commit hook runs. It scans the whole
-# diff as written and each added line with its JSON string literals decoded,
-# and prints only family names, never the matched text.
-#   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
+# diff as written, each added line with its JSON string literals decoded and
+# each hunk's new text, and prints only family names, never the matched text.
+# It reads two diffs of the same index: the plain diff (the user's
+# diff.context and textconv drivers apply) and one with --text --no-textconv
+# -U3, so binary files arrive as bytes and a small diff.context cannot hide
+# the unchanged lines. Every finding from either reading counts.
+#   secret_scan gate <diff> [<text-diff>]       exit 0 clean, 3 hit (prints the
 #                                               family names); anything else is
 #                                               a scanner failure (fail closed)
-#   secret_scan attribute <diff> <names> <out>  writes "<family>\t<path>" per
+#   secret_scan attribute <diff> <names> <out> [<text-diff>]
+#                                               writes "<family>\t<path>" per
 #                                               flagged path; exit 0, or 4 when
 #                                               the diff's sections and the
 #                                               `git diff --name-only -z` names
@@ -1038,9 +1043,11 @@ hold_flagged_paths() {
   WAITING=0
   : > "$scan.hits"
   : > "$scan.blobs"
+  (umask 077 && : > "$scan.diff" && : > "$scan.text") || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
-  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" "$scan.text" || rc=1; }
   [ "$rc" -eq 0 ] && { append_invalid_json_hits "$scan.names" "$scan.hits" || rc=1; }
   # A successful add need not stage the requested spelling or current bytes
   # (case-insensitive indexes and assume-unchanged can both report success).
@@ -1076,11 +1083,12 @@ hold_flagged_paths() {
     { grep -vxF -f "$scan.unstage" "$paths_file" || true; } > "$paths_file.kept"
     mv -f "$paths_file.kept" "$paths_file"
   fi
-  if ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null; then
+  if ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null \
+    || ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null; then
     block_drain "git could not read the staged diff for the re-scan"
     return 1
   fi
-  gate_out=$(secret_scan gate "$scan.diff") || gate_rc=$?
+  gate_out=$(secret_scan gate "$scan.diff" "$scan.text") || gate_rc=$?
   [ "$gate_rc" -eq 0 ] && return 0
   if [ "$gate_rc" -eq 3 ]; then
     block_drain "a re-scan after holding back the flagged files still matched ($gate_out)"
