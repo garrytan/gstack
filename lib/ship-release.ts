@@ -249,19 +249,20 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
 }
 
 type FixLink = { row: Record<string, any>; commit: string; from: string };
-type BridgeOpts = { reviewed: string; baseRef: string; release: readonly string[]; bookkeeping: readonly string[]; testCode: readonly string[] };
+type BridgeOpts = { reviewed: string; baseRef: string; metadata: (p: string) => boolean; bookkeeping: readonly string[]; testCode: readonly string[] };
 
 /**
  * A range_base that follows the reviewed tree's commit by docs and release metadata alone (GST-2294, harness-evals#361: the
  * fix-check range started at the Step 14.5 docs commit). Walks range_base's first parents off the base back to the nearest commit
  * holding the reviewed tree; every commit after it, range_base included, must be a single-parent commit whose every path finish
- * routes as release metadata or authored docs, so the paths outside the fix-check's read keep the docs route and its recheck.
+ * routes as release metadata (route's own per-path rule, so baseRelease on a landed stack parent) or authored docs, so the paths
+ * outside the fix-check's read keep the docs route and its recheck.
  * A merge, a code or test path, or no reviewed commit behind range_base returns null.
  */
 function docsBridge(cwd: string, from: string, o: BridgeOpts): { reviewedAt: string; commits: string[] } | null {
   const log = git(cwd, ['log', '--first-parent', '--format=%H %T %P', from, '--not', o.baseRef]);
   if (log.status !== 0) return null;
-  const docsOnly = (p: string) => o.release.includes(p) || (!isTestCode(p, o.testCode) && classifyPath(p, cwd) === 'docs' && !matchesAny(o.bookkeeping, p));
+  const docsOnly = (p: string) => o.metadata(p) || (!isTestCode(p, o.testCode) && classifyPath(p, cwd) === 'docs' && !matchesAny(o.bookkeeping, p));
   const commits: string[] = [];
   for (const [commit, tree, ...parents] of log.stdout.trim().split('\n').filter(Boolean).map(l => l.split(' '))) {
     if (tree === o.reviewed) return commits.length ? { reviewedAt: commit!, commits: commits.reverse() } : null;
@@ -294,14 +295,14 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const onBranch = (c: string) => !!c && ancestor(c, 'HEAD');
   const commits = rows.map(row => commitOf(row.commit_full));
   const chain: FixLink[] = [];
-  let gap = '';
+  let gap = '', bridged = '';
   for (let i = rows.length - 1; i >= 0;) {
     const link = { row: rows[i]!, commit: commits[i]!, from: commitOf(rows[i]!.range_base) };
     chain.unshift(link);
     if (!onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
     i = commits.slice(0, i).lastIndexOf(link.from);
     const bridge = i < 0 ? docsBridge(cwd, link.from, o) : null;
-    if (bridge) r.add(`FIX_CHECK_DOCS_BRIDGE: range_base ${link.from.slice(0, 12)} follows the reviewed commit ${bridge.reviewedAt.slice(0, 12)} by docs or release metadata only (${bridge.commits.map(c => c.slice(0, 12)).join(',')})`);
+    if (bridge) bridged = `FIX_CHECK_DOCS_BRIDGE: range_base ${link.from.slice(0, 12)} follows the reviewed commit ${bridge.reviewedAt.slice(0, 12)} by docs or release metadata only (${bridge.commits.map(c => c.slice(0, 12)).join(',')})`;
     else if (i < 0) gap = `range_base ${link.from.slice(0, 12)} does not hold the reviewed tree`;
   }
   const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
@@ -350,6 +351,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const rulable = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).filter((f: any) => !!f && !f.gate && RULABLE.has(f.action) && holdsOpen(f) && typeof f.fingerprint === 'string' && !ruledOn(l).has(f.fingerprint)).map((f: any) => f.fingerprint as string);
   for (const l of notCounted ? chain : []) if (rulable(l).length) r.add(`FIX_CHECK_OPEN: ${rulable(l).join(',')} on the fix-check at ${l.commit.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${l.commit.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`);
   if (!chain.length || notCounted) return { counted: false, paths: [] };
+  if (bridged) r.add(bridged);
   const read: ((p: string) => boolean)[] = [];
   for (const [k, l] of chain.entries()) {
     if (!clean.has(l)) continue;
@@ -386,10 +388,11 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     shipped = b;
   }
   const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], accepted: [], fix_checked: [], sidecar: [] };
+  const isMetadata = (p: string) => parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
   const onlyShipped = new Set(parent ? [...shipped].filter(p => !changedSet.has(p)) : []);
   for (const p of [...changedSet, ...onlyShipped].sort()) {
     const verdict = sides ? (!touched.has(p) || (parent && !shipped.has(p) && baseHolds(cwd, sides, p)) ? 'same' : comparePath(cwd, sides, p)) : 'changed';
-    const metadata = parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
+    const metadata = isMetadata(p);
     by[verdict === 'same' ? 'base' : metadata ? 'metadata' : sides && isTestCode(p, opts.testCode) ? 'tests' : classifyPath(p, cwd) === 'docs' && !matchesAny(opts.bookkeeping, p) ? 'docs' : verdict === 'context' ? 'context' : 'behavior'].push(p);
   }
   const shippedTests = by.tests.filter(p => onlyShipped.has(p));
@@ -409,7 +412,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior.push(...packetBody.over);
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
-  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, release, bookkeeping: opts.bookkeeping, testCode: opts.testCode, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
+  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, metadata: isMetadata, bookkeeping: opts.bookkeeping, testCode: opts.testCode, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
   if (!fix) return null;
   const counted = fix.counted;
   by.fix_checked = fix.paths;

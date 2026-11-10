@@ -338,3 +338,59 @@ describe('finish counts a fix-check whose range starts after docs-only commits (
     expect(r.status, r.stdout).toBe(0);
   });
 });
+
+describe('the docs bridge uses the router\'s own metadata rule on a landed stack parent (GST-2294 audit)', () => {
+  const POLICY_SRC = ['export const allow = false;', ...Array.from({ length: 28 }, (_, k) => `export const l${k} = ${k};`), 'export const label = "old";', ''].join('\n');
+  /** A child branch reviewed after its stack parent P, with src/policy.ts optionally declared under key; P then lands on main and main merges into the child. */
+  function stackShape(key: string | null, after: (f: ShipFx) => void) {
+    const f = shipFixture({ ...(key ? { '.gstack/ship-policy.json': JSON.stringify({ min_gstack_version: '1.99.0.0', [key]: ['src/policy.ts'] }) } : {}), 'src/policy.ts': POLICY_SRC, 'src/x.ts': 'export const x = 1;\n' }, { 'src/parent.ts': 'export const parent = 1;\n' });
+    ships.push(f);
+    const parent = headOf(f);
+    edit(f, { 'src/x.ts': 'export const x = 2;\n' }, 'child');
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const from = edit(f, { 'src/policy.ts': POLICY_SRC.replace('allow = false', 'allow = true') }, 'unreviewed logic change');
+    after(f);
+    link(f, from, CLEAN);
+    f.advanceBase({ 'src/parent.ts': 'export const parent = 1;\n' });
+    expect(f.git('fetch', '-q', 'origin').status).toBe(0);
+    expect(f.git('merge', '-q', '--no-edit', 'origin/main').status).toBe(0);
+    return { r: finish(f, reviewed, parent, ['--docs-rechecked']), from };
+  }
+  const notHeld = (c: string) => `FIX_CHECK: not counted (range_base ${at(c)} does not hold the reviewed tree)`;
+
+  // Value: protects=a declared stamp or release-output path the router classes as behavior on a landed stack parent never bridges
+  //   the gap, whether the fix-check rewrites that file or only appends to it; fails_when=the bridge reads the broad release list and
+  //   credits src/policy.ts as fix_checked (finish exits 0, fix_checked=2); seam=finish's chain walk and route's metadata rule
+  test.each([
+    ['stamp_paths', 'a rewrite'], ['release_outputs', 'a rewrite'], ['stamp_paths', 'an append'], ['release_outputs', 'an append'],
+  ])('%s: a logic change in the gap, then %s in the fix-check range, refuses', (key, kind) => {
+    const { r, from } = stackShape(key, f => edit(f, {
+      'src/policy.ts': kind === 'a rewrite' ? POLICY_SRC.replace('allow = false', 'allow = true').replace('"old"', '"new"') : `${POLICY_SRC.replace('allow = false', 'allow = true')}export const tail = 1;\n`,
+      'src/x.ts': 'export const x = 3;\n',
+    }, 'fix-check reads this range'));
+    expect(lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), r.stdout).toBe('');
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, notHeld(from)]);
+  });
+
+  // Value: protects=the two controls of the append repro: with no append the fix-check never touched src/policy.ts, and with no
+  //   declaration the path was never metadata; both refuse; fails_when=either control counts; seam=finish's route
+  test('controls: no append stops on src/policy.ts, and no declaration refuses the bridge', () => {
+    const noAppend = stackShape('stamp_paths', f => edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix-check reads this range'));
+    expect([noAppend.r.status, noAppend.r.stdout.includes('src/policy.ts')], noAppend.r.stdout).toEqual([3, true]);
+    const undeclared = stackShape(null, f => edit(f, { 'src/policy.ts': `${POLICY_SRC.replace('allow = false', 'allow = true')}export const tail = 1;\n`, 'src/x.ts': 'export const x = 3;\n' }, 'fix-check reads this range'));
+    expect([undeclared.r.status, lineOf(undeclared.r.stdout, 'FIX_CHECK')], undeclared.r.stdout).toEqual([3, notHeld(undeclared.from)]);
+  });
+});
+
+describe('the docs bridge line prints only when the fix-check counts (GST-2294 audit)', () => {
+  // Value: protects=FIX_CHECK_DOCS_BRIDGE never sits beside a refused chain; fails_when=the line prints before the grant check
+  //   refuses; seam=finish's FIX_CHECK output
+  test('an ungranted fix-check after a docs commit prints no bridge line', () => {
+    const { f, reviewed, reviewedBase } = reviewedShape();
+    const d = edit(f, { 'README.md': '# Fx\n\nHow to run the canary.\n' }, 'docs commit');
+    edit(f, { 'src/x.ts': 'export const x = 3;\n', 'test/x.test.ts': TEST_V2 }, 'fix the round-2 blocker');
+    link(f, d, CLEAN, { grant: false });
+    const r = finish(f, reviewed, reviewedBase, ['--docs-rechecked']);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, '', 'FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)']);
+  });
+});
