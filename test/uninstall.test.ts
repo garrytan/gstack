@@ -1285,6 +1285,15 @@ describe('every deletion target is checked for unsaved git work before anything 
     expect(fs.existsSync(install)).toBe(false);
   });
 
+  test('a local-only commit that git fetch . HEAD wrote into FETCH_HEAD still stops the uninstall', () => {
+    unpushedCommit(install);
+    git(['fetch', '-q', '.', 'HEAD'], install);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} has commits no remote-tracking branch contains`);
+    expect(fs.existsSync(path.join(install, 'notes.md'))).toBe(true);
+  });
+
   test('on a git older than 2.36 (no worktree list -z) a locked worktree of the install still stops the uninstall', () => {
     const lane = path.join(tmp, 'lane');
     git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
@@ -1405,6 +1414,19 @@ describe('the manual removal in docs/uninstall.md checks each folder before dele
     expect(r.stderr).toContain(`kept ${install}: ${notes} has uncommitted changes, unpushed commits or a locked worktree`);
     expect(fs.existsSync(path.join(notes, 'notes.md'))).toBe(true);
     expect(fs.existsSync(plain)).toBe(false);
+  });
+
+  test('a local-only commit that git fetch . HEAD wrote into FETCH_HEAD keeps its folder', () => {
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(repo);
+    git(['init', '-q', '-b', 'main'], repo);
+    fs.writeFileSync(path.join(repo, 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], repo);
+    git(['commit', '-q', '-m', 'local notes'], repo);
+    git(['fetch', '-q', '.', 'HEAD'], repo);
+    const r = checkedDelete([repo]);
+    expect(r.stderr).toContain(`kept ${repo}: ${repo} has uncommitted changes, unpushed commits or a locked worktree`);
+    expect(fs.existsSync(path.join(repo, 'notes.md'))).toBe(true);
   });
 });
 

@@ -12,7 +12,7 @@ This handles skills, symlinks, harness registrations (the files `gstack-harness`
 
 A plain uninstall keeps the git-tracked files under `.gstack/` (such as ship policy) and removes only the ones git ignores. It stops with exit 2, before removing anything, when a checkout under `.gstack-worktrees/` has uncommitted changes, has commits no branch or tag holds, or is not a worktree this repo registered. Pass `--force-worktrees` to delete those checkouts anyway. Every checkout is checked, including a worktree created inside another checkout under `.gstack-worktrees/`. A git submodule inside a clean checkout is deleted with it only when every commit it holds is on a remote-tracking branch; otherwise it stops the uninstall. A locked worktree (`git worktree lock`) always stops the uninstall, even with `--force-worktrees`; unlock it with `git worktree unlock <path>` if you want it gone. If `git worktree list` fails, the uninstall stops too, even with `--force-worktrees`. The check runs again after you confirm, before anything is removed, so a checkout you edit while the confirmation prompt waits is kept: uninstall exits 2 and removes nothing. Run from inside the gstack install itself, a `.gstack/` that holds its own git repository also stops the uninstall, because deleting the install would take it along. A `.gstack/` that is its own git repository is kept, with a message saying so, because its commits may exist nowhere else. When `.gstack-worktrees` is a symlink, uninstall removes only the link and never follows it, so the folder it points at and the worktrees there are kept.
 
-Before it deletes anything, uninstall also checks every folder it is about to delete: each host's gstack install (global and project-local), the gstack-made Claude per-skill folders, and `~/.gstack`. If any git checkout inside one of them has uncommitted changes, has commits that neither a remote-tracking branch nor its last fetch (`FETCH_HEAD`, where a stable-channel upgrade lands) holds, or has a locked worktree, the uninstall stops with exit 2 and names the checkout. So does a folder that holds something this run keeps: with `--keep-state`, an install that contains `~/.gstack`, your state root, or the current repo's `.gstack/` or `.gstack-worktrees/` (for example, when you run it from inside the gstack checkout) is refused rather than deleted with them. Push or move the work, or run uninstall from outside the install, then re-run it ([troubleshooting](troubleshooting.md#uninstall)).
+Before it deletes anything, uninstall also checks every folder it is about to delete: each host's gstack install (global and project-local), the gstack-made Claude per-skill folders, and `~/.gstack`. If any git checkout inside one of them has uncommitted changes, has commits that neither a remote-tracking branch nor a fetch from one of its remotes (`FETCH_HEAD`, where a stable-channel upgrade lands) holds, or has a locked worktree, the uninstall stops with exit 2 and names the checkout. So does a folder that holds something this run keeps: with `--keep-state`, an install that contains `~/.gstack`, your state root, or the current repo's `.gstack/` or `.gstack-worktrees/` (for example, when you run it from inside the gstack checkout) is refused rather than deleted with them. Push or move the work, or run uninstall from outside the install, then re-run it ([troubleshooting](troubleshooting.md#uninstall)).
 
 ## Option 2: Manual removal (no local repo)
 
@@ -20,8 +20,16 @@ If you don't have the repo cloned (e.g. you installed via a Claude Code paste an
 
 ```bash
 # 0. A delete that stops for unsaved git work: each folder goes only when no git
-#    checkout inside it has uncommitted changes, commits no remote-tracking
-#    branch holds, or a locked worktree. A symlink is only unlinked.
+#    checkout inside it has uncommitted changes, commits that neither a
+#    remote-tracking branch nor a fetch from one of its remotes holds, or a
+#    locked worktree. A symlink is only unlinked.
+# The FETCH_HEAD commits a fetch from one of checkout $1's remotes wrote.
+gstack_remote_fetch_heads() (
+  cd "$1" || exit 0
+  git config --get-regexp '^remote\..*\.url$' |
+    sed -E 's/^[^ ]+ //; s#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
+    awk 'NR == FNR { u[$0]; next } { n = split($0, a, " of "); if (n > 1 && (a[n] in u)) print $1 }' - "$(git rev-parse --git-path FETCH_HEAD)" 2>/dev/null
+)
 gstack_rm_checked() {
   local d g r s ok
   for d in "$@"; do
@@ -31,7 +39,7 @@ gstack_rm_checked() {
     while IFS= read -r -d '' g; do
       r=${g%/.git}
       s=$(git -C "$r" status --porcelain --untracked-files=all) && [ -z "$s" ] &&
-        s=$(git -C "$r" rev-list -n 1 --all --not --remotes $(git -C "$r" rev-parse -q --verify FETCH_HEAD)) && [ -z "$s" ] &&
+        s=$(git -C "$r" rev-list -n 1 --all --not --remotes $(gstack_remote_fetch_heads "$r")) && [ -z "$s" ] &&
         s=$(git -C "$r" worktree list --porcelain) && ! printf '%s\n' "$s" | grep -q '^locked' ||
         { echo "kept $d: $r has uncommitted changes, unpushed commits or a locked worktree" >&2; ok=0; break; }
     done < <(find "$d" -name .git -prune -print0 2>/dev/null)

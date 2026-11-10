@@ -406,16 +406,27 @@ _deletion_targets() {
   fi
   [ "$KEEP_STATE" -eq 1 ] || printf '%s\0' "$STATE_DIR"
 }
+# Prints the FETCH_HEAD commits of checkout $1 that a fetch from one of its
+# remotes wrote. Remote URLs are normalized the way git writes FETCH_HEAD
+# (credentials dropped, trailing "/" and one ".git" stripped); a fetch from "."
+# or any other source counts for nothing.
+_remote_fetch_heads() (
+  cd "$1" || exit 0
+  _wt_git . config --get-regexp '^remote\..*\.url$' 2>/dev/null |
+    sed -E 's/^[^ ]+ //; s#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
+    awk 'NR == FNR { u[$0]; next } { n = split($0, a, " of "); if (n > 1 && (a[n] in u)) print $1 }' - "$(_wt_git . rev-parse --git-path FETCH_HEAD 2>/dev/null)" 2>/dev/null
+)
 # Prints why deleting git checkout $1, found inside deletion target $2, would
-# lose work: uncommitted changes, commits neither a remote-tracking branch nor
-# FETCH_HEAD holds (a stable-channel upgrade fetches into FETCH_HEAD only), or a
+# lose work: uncommitted changes, commits neither a remote-tracking branch nor a
+# fetch from one of its remotes holds (a stable-channel upgrade fetches into
+# FETCH_HEAD only), or a
 # locked worktree inside $2 or registered in the repository $1's own .git holds.
 _repo_risk() {
   local _out _field _wt _target_real
   [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$(_real "$1")" ] || { echo "is a git checkout git cannot read"; return 0; }
   _out="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "has a status git cannot read"; return 0; }
   [ -z "$_out" ] || { echo "has uncommitted changes"; return 0; }
-  _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes $(_wt_git "$1" rev-parse -q --verify FETCH_HEAD 2>/dev/null) 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
+  _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes $(_remote_fetch_heads "$1") 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
   [ -z "$_out" ] || { echo "has commits no remote-tracking branch contains"; return 0; }
   _target_real="$(_real "$2")"
   while IFS= read -r -d '' _field; do
