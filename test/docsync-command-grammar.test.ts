@@ -258,6 +258,29 @@ test('the docs-candidate result command is admitted only with a private output f
   expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate result <a saved private .md or .json child output> --audit-id <the audit id> --out-dir <`);
 });
 
+// Census 42748129558 (ship-docsync-store): Step 14.5 counts each launch with `gstack-docs-candidate attempt` (#4192), which
+// this interface did not declare, so the parent correctly stopped before launching any audit.
+test('the docs-candidate attempt command is admitted only with a private child output and a private --state .json', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const state = path.join(fixture.home, 'docs-attempts.json');
+  for (const command of [`${helper} attempt ${output} --state ${state}`, `${helper} attempt --help`])
+    expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} attempt ${output} --state ${path.join(fixture.repo, '.gstack/tmp/docs-attempts.json')}`,
+    `${helper} attempt ${output} --state ${path.join(fixture.home, 'docs-attempts.md')}`,
+    `${helper} attempt ${output} --state ${path.join(fixture.skills, 'bin/docs-attempts.json')}`,
+    `${helper} attempt ${path.join(fixture.repo, 'out.md')} --state ${state}`,
+    `${helper} attempt ${output}`,
+    `${helper} attempt --state ${state} ${output}`,
+    `${helper} attempt ${output} --state ${state} --exec rm`,
+    `${helper} attempt ${output} --out ${state}`,
+    `${helper} attempt --help extra`,
+    `~/.claude/skills/gstack/bin/gstack-docs-candidate attempt ${output} --state ${state}`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate attempt <a saved private .md or .json child output> --state <a private .json under ${fixture.home}> and attempt --help`);
+});
+
 // Train gate 39904966815 and GSTA-63's focused run joined the candidate's --help onto a line of reads; v1.91.185.0 moved the
 // own-call rule into the sentence naming --help and the slip came back four times (JOINED_READ_LINES below). The --help only
 // prints usage, so it now joins a line of reads like a Git read; every other own-call command stays alone.
