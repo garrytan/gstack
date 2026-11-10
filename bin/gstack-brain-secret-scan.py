@@ -6,6 +6,15 @@ The whole diff is scanned as written, headers and context lines included, so
 a secret in a file name or one that lines up across an unchanged line is
 held. Each added line is also scanned with its JSON string literals decoded,
 so a secret hidden behind \u escapes or backslash-escaped quotes is caught.
+Each hunk's new text (its unchanged and added lines without their diff
+markers) is scanned as one block too, so a key on an unchanged line joins a
+value added under it.
+
+Callers diff with --text and --no-textconv, so a file git calls binary
+arrives as its bytes. A line holding a NUL byte is also read as UTF-16 in
+both byte orders and alignments, and with its NULs removed. A section that
+still says "Binary files ... differ" or carries a "GIT binary patch" was not
+diffed as text; it is flagged as binary-not-scanned (fail closed).
 
 The first six pattern families are the original hook's; the four after them
 mirror lib/redact-patterns.ts HIGH rules (stripe.secret/restricted,
@@ -113,6 +122,50 @@ def added_lines(lines):
     return out
 
 
+def post_images(lines):
+    """Each hunk's new text: its unchanged and added lines, markers removed."""
+    out, cur, in_hunk = [], [], False
+    for line in lines:
+        if line.startswith(b"diff --git ") or line.startswith(b"@@"):
+            if cur:
+                out.append(b"\n".join(cur).decode("utf-8", "replace"))
+            cur, in_hunk = [], line.startswith(b"@@")
+        elif in_hunk and line[:1] in (b" ", b"+"):
+            cur.append(line[1:])
+    if cur:
+        out.append(b"\n".join(cur).decode("utf-8", "replace"))
+    return out
+
+
+def nul_readings(lines):
+    """Each diff line holding a NUL byte, read with its NULs removed and as
+    UTF-16LE and UTF-16BE from both byte alignments."""
+    out = []
+    for line in lines:
+        if b"\0" not in line:
+            continue
+        body = line[1:]
+        out.append(body.replace(b"\0", b"").decode("utf-8", "replace"))
+        for chunk in (body, body[1:]):
+            chunk = chunk[:len(chunk) // 2 * 2]
+            out.append(chunk.decode("utf-16-le", "replace"))
+            out.append(chunk.decode("utf-16-be", "replace"))
+    return out
+
+
+def unscanned_binary(lines):
+    """True when a section's header says git did not diff a file as text."""
+    in_hunk = False
+    for line in lines:
+        if line.startswith(b"diff --git "):
+            in_hunk = False
+        elif line.startswith(b"@@"):
+            in_hunk = True
+        elif not in_hunk and (line.startswith(b"Binary files ") or line == b"GIT binary patch"):
+            return True
+    return False
+
+
 def decoded_in_place(text):
     """text with every escaped JSON string literal replaced by its decoded
     value in quotes, so a key and its value are matched together even when
@@ -130,10 +183,13 @@ def decoded_in_place(text):
 def families(lines):
     added = added_lines(lines)
     raw = b"\n".join(lines).decode("utf-8", "replace")
-    texts = [raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
+    posts = post_images(lines)
+    texts = ([raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
+             + posts + [decoded_in_place(post) for post in posts] + nul_readings(lines))
     text = "\n".join(texts)
-    return [name for name, rx, real in patterns
-            if any(real is None or real(m) for m in rx.finditer(text))]
+    found = ['binary-not-scanned'] if unscanned_binary(lines) else []
+    return found + [name for name, rx, real in patterns
+                    if any(real is None or real(m) for m in rx.finditer(text))]
 
 
 def read(path):

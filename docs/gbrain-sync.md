@@ -163,9 +163,19 @@ not held.
 The scan reads the whole staged diff, including file names and the unchanged
 lines shown around each edit. Each added line is also scanned with its JSON
 strings decoded, so a secret written with `\u` escapes or inside an escaped
-JSON string is still caught. Because unchanged lines are scanned too, a file
-that already holds a flagged line is held on every edit until you remove the
-line or skip the file.
+JSON string is still caught. Each edited block is also read as the new file
+text, so a key on an unchanged line and a value added under it are matched
+together. Files git treats as binary (a NUL byte, UTF-16 text) are scanned
+by their bytes, read plainly, without NULs and as UTF-16; a file whose bytes
+the scan cannot read is held as `binary-not-scanned`.
+
+Because unchanged and removed lines are scanned too, a file that already holds
+a flagged line is held on every edit while that line is in the diff. If the
+flagged line was never synced, delete it and the next sync goes through. If it
+is already committed in `~/.gstack`, deleting it leaves it on a removed line
+of the next diff, so the file stays held and only `--skip-file` clears it.
+Skipping stops syncing the file, so a copy that was already pushed stays on
+the remote; if it was pushed, treat the secret as exposed.
 
 If a scan hits, only the flagged file is held back (with any file coupled
 to it); everything else syncs. The held file stays queued and is re-scanned
