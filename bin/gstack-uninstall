@@ -173,15 +173,21 @@ _wt_git() {
 }
 # Prints why deleting checkout $1 would lose work; prints nothing when it is safe.
 # A checkout this repository did not register is never opened with git, so its
-# own config cannot run anything.
+# own config cannot run anything; a submodule of a registered lane is the one
+# exception, read with rev-list under _wt_git.
 _worktree_risk() {
-  local _dir _status _head
+  local _dir _status _head _local
   _dir="$(_real "$1")"
   case "$_dir" in
     ""|*"
 "*) echo "it is not a registered worktree of this repository"; return 0 ;;
   esac
-  printf '%s\n' "$_REGISTERED_WORKTREES" | grep -Fxq -- "$_dir" || { _is_registered_submodule "$_dir" || echo "it is not a registered worktree of this repository"; return 0; }
+  if ! printf '%s\n' "$_REGISTERED_WORKTREES" | grep -Fxq -- "$_dir"; then
+    _is_registered_submodule "$_dir" || { echo "it is not a registered worktree of this repository"; return 0; }
+    _local="$(_wt_git "$_dir" rev-list -n 1 --all --not --remotes 2>/dev/null)" || { echo "git cannot read its history"; return 0; }
+    [ -z "$_local" ] || echo "it is a submodule with commits no remote-tracking branch contains"
+    return 0
+  fi
   [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$_dir" ] || { echo "git cannot read it as a checkout"; return 0; }
   _status="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "git cannot read its status"; return 0; }
   [ -z "$_status" ] || { echo "it has uncommitted changes"; return 0; }
@@ -189,9 +195,11 @@ _worktree_risk() {
   [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
 }
 # Succeeds when checkout $1 is a submodule of the registered worktree under
-# .gstack-worktrees that holds it; that worktree's status reports its changes.
+# .gstack-worktrees that holds it: that worktree's index records exactly this
+# path as a gitlink, so its status reports the submodule's changes. Commits only
+# the submodule's own refs hold are checked by the caller.
 _is_registered_submodule() {
-  local _wt _parent="" _base
+  local _wt _parent="" _base _rel _entry
   _base="$(_real "$_GIT_ROOT/.gstack-worktrees")"
   while IFS= read -r _wt; do
     case "$_wt" in "$_base"/*) ;; *) continue ;; esac
@@ -199,7 +207,11 @@ _is_registered_submodule() {
   done <<EOF
 $_REGISTERED_WORKTREES
 EOF
-  [ -n "$_parent" ] && [ "$(_wt_git "$_parent" ls-files --stage -- "${1#"$_parent"/}" 2>/dev/null | cut -c1-6)" = "160000" ]
+  [ -n "$_parent" ] || return 1
+  _rel="${1#"$_parent"/}"
+  _entry="$(_wt_git "$_parent" ls-files --stage -z -- ":(literal)$_rel" 2>/dev/null | tr '\0' '\n')"
+  case "$_entry" in 160000\ *) ;; *) return 1 ;; esac
+  [ "${_entry#*	}" = "$_rel" ]
 }
 # Prints one "refusing to delete" line per checkout under .gstack-worktrees/
 # that must be kept; prints nothing when every one can go. A locked worktree

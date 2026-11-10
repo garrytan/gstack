@@ -881,6 +881,32 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(fs.existsSync(path.join(repo, '.gstack-worktrees'))).toBe(false);
   });
 
+  test('a submodule inside a clean lane with a commit no remote-tracking branch holds stops the uninstall', () => {
+    const lib = path.join(tmp, 'lib');
+    fs.mkdirSync(lib);
+    git(['init', '-q', '-b', 'main'], lib);
+    fs.writeFileSync(path.join(lib, 'lib.txt'), 'lib\n');
+    git(['add', 'lib.txt'], lib);
+    git(['commit', '-q', '-m', 'lib'], lib);
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'vendor/lib']);
+    git(['commit', '-q', '-m', 'submodule']);
+    addWorktree(false);
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'update', '-q', '--init'], path.join(repo, worktree));
+    const sub = path.join(repo, worktree, 'vendor', 'lib');
+    const recorded = git(['rev-parse', 'HEAD'], sub).trim();
+    git(['switch', '-q', '-c', 'wip'], sub);
+    fs.writeFileSync(path.join(sub, 'wip.txt'), 'local only\n');
+    git(['add', 'wip.txt'], sub);
+    git(['commit', '-q', '-m', 'wip'], sub);
+    const wip = git(['rev-parse', 'HEAD'], sub).trim();
+    git(['switch', '-q', '--detach', recorded], sub);
+    expect(git(['status', '--porcelain', '--ignore-submodules=none'], path.join(repo, worktree))).toBe('');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${sub}: it is a submodule with commits no remote-tracking branch contains`);
+    expect(git(['cat-file', '-t', wip], sub).trim()).toBe('commit');
+  });
+
   for (const flags of [['--force'], ['--force', '--force-worktrees']]) {
     test(`a locked worktree stops ${flags.join(' ')} and is kept with its registration`, () => {
       addWorktree(false);
