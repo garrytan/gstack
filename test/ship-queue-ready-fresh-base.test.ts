@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { CHECK_IDS } from '../lib/pregate/index';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { ghQueueShim } from './helpers/ship-queue-fixture';
@@ -17,6 +18,7 @@ const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
 const green = { check_runs: [{ status: 'completed', conclusion: 'success' }] };
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 const queue = (repo: FixtureRepo, args: string[], env: Record<string, string>) => runBin(repo, 'gstack-ship-queue', [...args, '--base', 'main'], env);
 
 function write(repo: FixtureRepo, files: Record<string, string>, message: string): string {
@@ -113,7 +115,7 @@ describe('ready refreshes origin/<base> before comparing receipt fields (GST-223
     const head = openPr(fx, '1');
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
     fx.repo.git('update-ref', '-d', 'refs/remotes/origin/main');
     const r = trainQueue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect(r.err).not.toContain('declares no train block');
