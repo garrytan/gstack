@@ -165,9 +165,12 @@ lines shown around each edit. Each added line is also scanned with its JSON
 strings decoded, so a secret written with `\u` escapes or inside an escaped
 JSON string is still caught. Each edited block is also read as the new file
 text, so a key on an unchanged line and a value added under it are matched
-together. Files git treats as binary (a NUL byte, UTF-16 text) are scanned
-by their bytes, read plainly, without NULs and as UTF-16; a file whose bytes
-the scan cannot read is held as `binary-not-scanned`.
+together, whatever your git `diff.context` setting is. Files git treats as
+binary (a NUL byte, UTF-16 text) are scanned by their bytes, read plainly,
+without NULs and as UTF-16. If git still reports a file as binary instead of
+showing its bytes, the file is held as `binary-not-scanned`. Bytes that none
+of these readings turn into text, such as a compressed file, are not held
+unless a pattern matches them.
 
 Because unchanged and removed lines are scanned too, a file that already holds
 a flagged line is held on every edit while that line is in the diff. If the

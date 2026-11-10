@@ -10,11 +10,13 @@ Each hunk's new text (its unchanged and added lines without their diff
 markers) is scanned as one block too, so a key on an unchanged line joins a
 value added under it.
 
-Callers diff with --text and --no-textconv, so a file git calls binary
-arrives as its bytes. A line holding a NUL byte is also read as UTF-16 in
-both byte orders and alignments, and with its NULs removed. A section that
-still says "Binary files ... differ" or carries a "GIT binary patch" was not
-diffed as text; it is flagged as binary-not-scanned (fail closed).
+Callers diff with --text, --no-textconv and -U3, so a file git calls binary
+arrives as its bytes and the user's diff.context cannot drop the unchanged
+lines around an edit. A line or hunk holding a NUL byte is also read as
+UTF-16 in both byte orders and alignments, and with its NULs removed. A
+section that still says "Binary files ... differ" or carries a "GIT binary
+patch" was diffed without --text; it is flagged as binary-not-scanned (fail
+closed).
 
 The first six pattern families are the original hook's; the four after them
 mirror lib/redact-patterns.ts HIGH rules (stripe.secret/restricted,
@@ -123,28 +125,28 @@ def added_lines(lines):
 
 
 def post_images(lines):
-    """Each hunk's new text: its unchanged and added lines, markers removed."""
+    """Each hunk's new text as bytes: its unchanged and added lines, markers
+    removed, joined on the newline byte git split them at."""
     out, cur, in_hunk = [], [], False
     for line in lines:
         if line.startswith(b"diff --git ") or line.startswith(b"@@"):
             if cur:
-                out.append(b"\n".join(cur).decode("utf-8", "replace"))
+                out.append(b"\n".join(cur))
             cur, in_hunk = [], line.startswith(b"@@")
         elif in_hunk and line[:1] in (b" ", b"+"):
             cur.append(line[1:])
     if cur:
-        out.append(b"\n".join(cur).decode("utf-8", "replace"))
+        out.append(b"\n".join(cur))
     return out
 
 
-def nul_readings(lines):
-    """Each diff line holding a NUL byte, read with its NULs removed and as
+def nul_readings(bodies):
+    """Each byte string holding a NUL byte, read with its NULs removed and as
     UTF-16LE and UTF-16BE from both byte alignments."""
     out = []
-    for line in lines:
-        if b"\0" not in line:
+    for body in bodies:
+        if b"\0" not in body:
             continue
-        body = line[1:]
         out.append(body.replace(b"\0", b"").decode("utf-8", "replace"))
         for chunk in (body, body[1:]):
             chunk = chunk[:len(chunk) // 2 * 2]
@@ -184,8 +186,10 @@ def families(lines):
     added = added_lines(lines)
     raw = b"\n".join(lines).decode("utf-8", "replace")
     posts = post_images(lines)
+    post_texts = [post.decode("utf-8", "replace") for post in posts]
     texts = ([raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
-             + posts + [decoded_in_place(post) for post in posts] + nul_readings(lines))
+             + post_texts + [decoded_in_place(text) for text in post_texts]
+             + nul_readings([line[1:] for line in lines] + posts))
     text = "\n".join(texts)
     found = ['binary-not-scanned'] if unscanned_binary(lines) else []
     return found + [name for name, rx, real in patterns

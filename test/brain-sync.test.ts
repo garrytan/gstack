@@ -563,11 +563,11 @@ describe('gstack-brain-sync secret scan', () => {
 
   // GST-2292: git prints "Binary files ... differ" for a file with a NUL byte
   // instead of its bytes, so the scan has to read the bytes some other way.
-  function syncFile(rel: string, body: string | Buffer) {
+  function syncFile(rel: string, body: string | Buffer, env?: Record<string, string>) {
     fs.mkdirSync(path.dirname(path.join(tmpHome, rel)), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, rel), body);
     run(['gstack-brain-enqueue', rel]);
-    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    expect(run(['gstack-brain-sync', '--once'], { env }).status).toBe(0);
     return JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
   }
   const remoteFiles = () =>
@@ -613,6 +613,31 @@ describe('gstack-brain-sync secret scan', () => {
     expect(first.held_count ?? 0).toBe(0);
     const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
     const second = syncFile(rel, '{\n  "authorization":\n' + value + '}\n');
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a Bearer value added under an unchanged authorization key in UTF-16 text is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/headers.md';
+    const first = syncFile(rel, Buffer.from('{\n  "authorization":\n}\n', 'utf16le'));
+    expect(first.held_count ?? 0).toBe(0);
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    const second = syncFile(rel, Buffer.from('{\n  "authorization":\n' + value + '}\n', 'utf16le'));
+    expect(second.status).toBe('held');
+    expect(second.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a Bearer value added under an unchanged authorization key is held when git diff.context is 0', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const env = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.context', GIT_CONFIG_VALUE_0: '0' };
+    const rel = 'projects/p/ceo-plans/headers.md';
+    const first = syncFile(rel, '{\n  "authorization":\n}\n', env);
+    expect(first.held_count ?? 0).toBe(0);
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    const second = syncFile(rel, '{\n  "authorization":\n' + value + '}\n', env);
     expect(second.status).toBe('held');
     expect(second.held.map((h: any) => h.path)).toEqual([rel]);
   });
