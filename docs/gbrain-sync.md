@@ -160,12 +160,12 @@ The last four follow gstack's redaction rules, so placeholders such as
 `sk_live_EXAMPLE…`, `${DB_PASSWORD}` or `postgres:postgres@localhost` are
 not held.
 
-The scan reads only the lines a commit adds. A line that is already in the
-repository (an unchanged line shown around an edit, or a line the edit
-removes) never holds the file, so you can delete an old row that the scan
-would flag today. Each added line is scanned as written and again with its
-JSON strings decoded, so a secret written with `\u` escapes or inside an
-escaped JSON string is still caught.
+The scan reads the whole staged diff, including file names and the unchanged
+lines shown around each edit. Each added line is also scanned with its JSON
+strings decoded, so a secret written with `\u` escapes or inside an escaped
+JSON string is still caught. Because unchanged lines are scanned too, a file
+that already holds a flagged line is held on every edit until you remove the
+line or skip the file.
 
 If a scan hits, only the flagged file is held back (with any file coupled
 to it); everything else syncs. The held file stays queued and is re-scanned

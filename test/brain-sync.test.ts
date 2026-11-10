@@ -505,30 +505,39 @@ describe('gstack-brain-sync secret scan', () => {
     });
   }
 
-  test('a secret already in the repo on an unchanged (context) line does not hold an edit', () => {
+  // GST-2263 audit: the scan reads the same diff lines main reads, context and
+  // headers included, so a secret that only lines up across an unchanged line
+  // or sits in a file name is still held.
+  test('a key renamed to authorization above an unchanged Bearer value is held', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
-    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
-    const file = path.join(tmpHome, 'projects/p/learnings.jsonl');
-    const old = JSON.stringify({ insight: 'DATABASE_URL=postgres://app:' + 'Vq8zR2' + 'mLp7@db.internal.example.com:5432/prod' });
-    fs.writeFileSync(file, old + '\n');
-    git(['add', '-f', 'projects/p/learnings.jsonl']);
-    expect(git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--no-verify', '-m', 'row from before the database-url family']).status).toBe(0);
-    const remoteLog = () => spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
+    const rel = 'projects/p/ceo-plans/headers.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    fs.writeFileSync(path.join(tmpHome, rel), '{\n  "note":\n' + value + '}\n');
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
     const statusJson = () => JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
-
-    fs.appendFileSync(file, JSON.stringify({ insight: 'a clean row' }) + '\n');
-    run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
-    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
     expect(statusJson().held_count ?? 0).toBe(0);
-    expect(remoteLog()).toMatch(/sync: 1 file/);
 
-    // Removing the old row is a removed line, never an added one: it syncs too.
-    fs.writeFileSync(file, JSON.stringify({ insight: 'a clean row' }) + '\n');
-    run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+    fs.writeFileSync(path.join(tmpHome, rel), '{\n  "authorization":\n' + value + '}\n');
+    run(['gstack-brain-enqueue', rel]);
     expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
-    expect(statusJson().held_count ?? 0).toBe(0);
-    expect(spoolText()).not.toContain('projects/p/learnings.jsonl');
+    expect(statusJson().status).toBe('held');
+    expect(statusJson().held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a clean file whose name is an AWS access key is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/' + 'AKIA' + 'ABCDEFGHIJKLMNOP' + '.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, rel), '# a plan\n');
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
   });
 
   test('prose about tokens and passwords and placeholder database urls still sync', () => {

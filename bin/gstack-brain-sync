@@ -205,9 +205,9 @@ sync_active() {
 }
 
 # Secret scan over a staged diff file: bin/gstack-brain-secret-scan.py, the
-# same scanner the artifacts repo's pre-commit hook runs. It scans added lines
-# only, each as written and with its JSON string literals decoded, and prints
-# only family names, never the matched text.
+# same scanner the artifacts repo's pre-commit hook runs. It scans the whole
+# diff as written and each added line with its JSON string literals decoded,
+# and prints only family names, never the matched text.
 #   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
 #                                               family names); anything else is
 #                                               a scanner failure (fail closed)

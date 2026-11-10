@@ -421,8 +421,8 @@ cp "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$(dirname "$HOOK")/gstack-brain-se
 cat > "$HOOK" <<'HOOK_EOF'
 #!/usr/bin/env bash
 # gstack-artifacts pre-commit hook: secret-scan defense-in-depth. It runs a copy of the
-# scanner gstack-brain-sync runs before staging (same families, added lines
-# only, JSON string values decoded), written beside this hook by
+# scanner gstack-brain-sync runs before staging (same families, the whole
+# staged diff, JSON string values decoded), written beside this hook by
 # gstack-artifacts-init and gstack-brain-restore, so a manual `git commit` against
 # the artifacts repo is held the same way.
 set -uo pipefail

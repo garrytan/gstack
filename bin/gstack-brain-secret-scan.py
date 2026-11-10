@@ -2,10 +2,10 @@
 r"""Secret scan over a staged git diff, shared by gstack-brain-sync and the
 pre-commit hook that gstack-artifacts-init and gstack-brain-restore install.
 
-Only added lines are scanned: a context or removed line is already in the
-repository, so it cannot hold an edit. Each added line is scanned as written
-and again with its JSON string literals decoded, so a secret hidden behind
-\u escapes or backslash-escaped quotes is caught.
+The whole diff is scanned as written, headers and context lines included, so
+a secret in a file name or one that lines up across an unchanged line is
+held. Each added line is also scanned with its JSON string literals decoded,
+so a secret hidden behind \u escapes or backslash-escaped quotes is caught.
 
 The first six pattern families are the original hook's; the four after them
 mirror lib/redact-patterns.ts HIGH rules (stripe.secret/restricted,
@@ -129,7 +129,8 @@ def decoded_in_place(text):
 
 def families(lines):
     added = added_lines(lines)
-    texts = added + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
+    raw = b"\n".join(lines).decode("utf-8", "replace")
+    texts = [raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
     text = "\n".join(texts)
     return [name for name, rx, real in patterns
             if any(real is None or real(m) for m in rx.finditer(text))]
