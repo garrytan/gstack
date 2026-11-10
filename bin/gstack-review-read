@@ -7,7 +7,9 @@
 # bin/gstack-wtree --review, or "unknown"), ---TREE--- (HEAD tree, informational) and
 # ---DIRTY--- (tracked-file dirty flag). Consumers grade diff-scoped review
 # rows using review_freshness; legacy or uncaptured diff evidence cannot fall
-# back to HEAD equality. Plan rows are unchanged.
+# back to HEAD equality. A finding the owner ruled a disclosed note (gstack-approvals rule, at a head inside
+# the row's reviewed range) is closed on every diff-review row, as finish does on a fix-check (GST-2273).
+# Plan rows are unchanged.
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,13 +23,15 @@ gstack_state_root_select
 GSTACK_HOME="$_gstack_sr_root"
 WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
-  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_RULED_LIB="$SCRIPT_DIR/../lib/ruled-notes.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
+    const { readRuledNotes, rulingsFor } = await import(process.env.GSTACK_RULED_LIB);
+    const notes = readRuledNotes(process.cwd());
     for (const line of (await Bun.stdin.text()).split("\n").filter(Boolean)) {
       try {
         const rec = JSON.parse(line);
         delete rec.review_freshness;
-        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE);
+        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE, rulingsFor(process.cwd(), rec, notes));
         if (freshness) rec.review_freshness = freshness;
         console.log(JSON.stringify(rec));
       } catch { console.error("gstack-review-read: skipping malformed review row"); }

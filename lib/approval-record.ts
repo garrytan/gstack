@@ -85,20 +85,24 @@ export function locate(o: { cwd: string; env: Env; branch?: string }): StoreLoca
   if (!contained(stateRoot, file)) return { code: 'APPROVAL_RECORD_INVALID', message: `record path escapes the state root: ${file}` };
   // Every mirror root this machine can see, best first; the first is written, the rest are read so a
   // row mirrored before the Captain created approvals/ (or under an explicit directory) stays visible.
+  // A shell that did not source the launch file (no GSTACK_CAPY=1) still reads the mounted Drive's mirrors, so finish, the
+  // receipt and gstack-approvals see the same rulings and grants either way (GST-2273); only GSTACK_CAPY=1 writes them.
   const roots: Array<[MirrorSource, string]> = [];
   if (o.env.GSTACK_APPROVALS_DIR) roots.push(['GSTACK_APPROVALS_DIR', o.env.GSTACK_APPROVALS_DIR]);
-  if (o.env.GSTACK_CAPY === '1' && o.env.GSTACK_APPROVALS_MIRROR !== '0') {
-    const captain = captainApprovalsDir(o.env);
+  if (o.env.GSTACK_APPROVALS_MIRROR !== '0') {
+    const capy = { ...o.env, GSTACK_CAPY: '1' };
+    const captain = captainApprovalsDir(capy);
     if (captain) roots.push(['captain drive', captain]);
     const top = git(o.cwd, ['rev-parse', '--show-toplevel']);
-    const folder = capyDriveFolder(o.env, top.status === 0 ? path.basename(top.stdout.trim()) : undefined);
+    const folder = capyDriveFolder(capy, top.status === 0 ? path.basename(top.stdout.trim()) : undefined);
     if (folder) roots.push(['project-user drive', path.join(path.dirname(folder), 'approvals')]);
   }
   const rel = path.join(slug, `${branchKey(branch)}.jsonl`);
   for (const [, root] of roots) if (!contained(root, path.join(root, rel))) return { code: 'APPROVAL_RECORD_INVALID', message: `mirror path escapes ${root}` };
-  const [chosen, ...rest] = roots;
+  const writable = o.env.GSTACK_CAPY === '1' || !!o.env.GSTACK_APPROVALS_DIR;
+  const [chosen, ...rest] = writable ? roots : [undefined, ...roots];
   return {
-    file, mirror: chosen ? path.join(chosen[1], rel) : undefined, mirror_source: chosen?.[0], read_also: rest.map(([, root]) => path.join(root, rel)),
+    file, mirror: chosen ? path.join(chosen[1], rel) : undefined, mirror_source: chosen?.[0], read_also: rest.map(r => path.join(r![1], rel)),
     branch, slug, ephemeral: o.env.GSTACK_EPHEMERAL === '1',
   };
 }
