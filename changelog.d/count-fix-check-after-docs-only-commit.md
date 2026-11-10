@@ -1,4 +1,0 @@
----
-important: blocker
----
-- **finish now counts a granted fix-check whose range starts after a docs-only commit.** When the Step 14.5 docs commit landed between the reviewed commit and the fix-check, the fix-check's range started at that docs commit, and `gstack-ship-release finish` refused it with `FIX_CHECK: not counted (range_base <sha> does not hold the reviewed tree)`, so the fixed code routed as unreviewed behavior. finish now accepts that range when every commit between the reviewed tree's commit and the range start changes only docs or release metadata, and prints a `FIX_CHECK_DOCS_BRIDGE:` line naming them. Those docs still go through the docs recheck. A code or test commit in between, a merge, a range start before the reviewed commit, and a range start on another branch still refuse (GST-2294, harness-evals HARN-65).
