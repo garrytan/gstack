@@ -120,11 +120,12 @@ describe('gstack-docs-candidate result', () => {
     expect(r.status).toBe(0);
   });
 
-  test('a last line that is not one JSON object names the whole expected line', () => {
-    const r = result(`${line({ documentation_section: SECTION })}\nDone.\n`, 'ship352b-docs-1');
+  test('a broken object after the result is read as the result and names the whole expected line', () => {
+    const r = result(`${line({ documentation_section: SECTION })}\n{"schema_version":1,"audit_id":\n`, 'ship352b-docs-1');
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('the last nonempty line is not one JSON object');
+    expect(r.stdout).toContain('the last line that opens a JSON object is not one JSON object');
     expect(r.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(r.written).toEqual([]);
   });
 
   test('no loss: every captured completion the contract helper accepts is accepted, and every one it rejects is rejected', () => {
@@ -261,5 +262,92 @@ describe('format-only repair of the final line', () => {
     const fixed = result(line({ ...base, documentation_section: SECTION }) + '\n', ID, { file: first.file, out: first.out });
     expect(fixed.stdout).not.toContain('already used');
     expect(fixed.status).toBe(0);
+  });
+});
+
+// Value: protects=a "current, no edits" audit whose only slips are format (documentation_section left out of the object, prose
+//   after it) never spends an audit attempt and never halts /ship (FOUN-267 on founderstar #837, HARN-83 on harness-evals #393,
+//   both 2026-11-10: each child put the section in prose after the JSON, so the last line was prose and the result counted as a
+//   content failure with no format repair); fails_when=trailing prose turns a repairable result into a spent attempt, prose after
+//   a valid result is rejected, or a result whose substance is missing or contradictory gets through; seam=gstack-docs-candidate
+//   result/repair-prompt; no_claim=whether the repair reply restates the section faithfully (the host answers it)
+describe('captured "current, no edits" results with format slips', () => {
+  const ID = 'ship837-docs-a2';
+  const preamble = [
+    `REVIEWED_TREE: ${'c'.repeat(40)} /repo`, '',
+    'The docs are current and I made no edits. The preamble echoed `SESSION_KIND: spawned` (with `SKILL_START_PROTO: 1`).', '',
+    'The audit covered base 1a2b3c4d to head 5e6f7a8b: 16 committed files, with nothing staged, unstaged or untracked.', '',
+  ].join('\n');
+  const reviewed = { audit_id: ID, files_reviewed: ['docs/content-schema.md', 'docs/plans/v0.2-dynamics.md', 'README.md', 'docs/design.md'],
+    decisions: ['docs/plans/v0.2-dynamics.md still describes a removed buff; it is a historical plan, so it was left unedited and reported as debt', 'No banned-terms list exists, so the banned-terms check reported none'] };
+  const missingSection = line(reviewed);
+  const readable = '**Status:** current. No documentation edits were needed.\n\n**Scope:** base 1a2b3c4d to head 5e6f7a8b, 16 committed files.\n\n**Documentation health:**\n- README.md: current.\n- docs/plans/v0.2-dynamics.md: stale, left as a historical plan.';
+  const trailing = `\nThe JSON above is the full result. Its \`documentation_section\`, given here in readable form, is:\n\n${readable}`;
+
+  test('(a) documentation_section left out, nothing after: a format repair that uses no attempt, then the section is saved', () => {
+    const first = result(preamble + missingSection + '\n', ID);
+    expect(first.status).toBe(1);
+    expect(first.stdout).toContain('(DOCS_RESULT_INVALID)');
+    expect(first.stdout).toContain('"documentation_section" is missing');
+    expect(first.stdout).toMatch(/^FORMAT_REPAIR: format-only; not an attempt/m);
+    expect(first.stdout).not.toMatch(/^RETRY_NOTE: /m);
+    expect(first.written).toEqual([]);
+    const prompt = repairPrompt(first.file, ID);
+    expect([prompt.status, prompt.stderr]).toEqual([0, '']);
+    expect(prompt.stdout).toContain('inside "documentation_section" as one JSON string');
+    const fixed = result(line({ ...reviewed, documentation_section: readable }) + '\n', ID, { file: first.file, out: first.out });
+    expect([fixed.status, fixed.stderr]).toEqual([0, '']);
+    expect(fixed.stdout).toMatch(/^FORMAT_REPAIR: applied/m);
+    expect(fs.readFileSync(path.join(fixed.out, `${ID}-documentation.md`), 'utf8')).toBe(readable);
+  });
+
+  test('(b) the same with the section written as prose after the JSON: still a format repair, and the prose reaches the repair prompt', () => {
+    const first = result(preamble + missingSection + '\n' + trailing + '\n', ID);
+    expect(first.status).toBe(1);
+    expect(first.stdout).toContain('(DOCS_RESULT_INVALID)');
+    expect(first.stdout).toContain('"documentation_section" is missing');
+    expect(first.stdout).toMatch(/^TRAILING_PROSE: ignored 6 lines after the result object$/m);
+    expect(first.stdout).toMatch(/^FORMAT_REPAIR: format-only; not an attempt/m);
+    expect(first.stdout).not.toMatch(/^RETRY_NOTE: /m);
+    const prompt = repairPrompt(first.file, ID);
+    expect([prompt.status, prompt.stderr]).toEqual([0, '']);
+    expect(prompt.stdout).toContain('- docs/plans/v0.2-dynamics.md: stale, left as a historical plan.');
+    expect(prompt.stdout).toContain('write nothing before or after the line');
+    const fixed = result(line({ ...reviewed, documentation_section: readable }) + '\nThat is the corrected line.\n', ID, { file: first.file, out: first.out });
+    expect([fixed.status, fixed.stderr]).toEqual([0, '']);
+    expect(fixed.stdout).toContain('DOCS_RESULT: ok status=current files_updated=0');
+    expect(fs.readFileSync(path.join(fixed.out, `${ID}-documentation.md`), 'utf8')).toBe(readable);
+  });
+
+  test('a complete result followed by prose is accepted unchanged, and the ignored prose is disclosed', () => {
+    const valid = line({ ...reviewed, documentation_section: readable });
+    const r = result(preamble + valid + '\n' + trailing + '\n', ID);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toMatch(/^TRAILING_PROSE: ignored 6 lines after the result object$/m);
+    expect(r.stdout).toContain('DOCS_RESULT: ok status=current files_updated=0');
+    expect(JSON.parse(fs.readFileSync(path.join(r.out, `${ID}-result.json`), 'utf8'))).toEqual(JSON.parse(valid));
+  });
+
+  test.each([
+    ['claims an edit and leaves the section out', line({ ...reviewed, status: 'updated', files_updated: ['README.md'] }), '"documentation_section" is missing', 'FORMAT_REPAIR'],
+    ['is blocked and leaves the section out', line({ ...reviewed, status: 'blocked', blockers: ['README install steps are wrong'] }), '"documentation_section" is missing', 'FORMAT_REPAIR'],
+    ['says current but lists an edit', line({ ...reviewed, files_updated: ['README.md'] }), 'status current cannot list files_updated', 'RETRY_NOTE'],
+    ['has no status', JSON.stringify((({ status: _s, ...o }) => o)(JSON.parse(missingSection))), '"status" is missing', 'RETRY_NOTE'],
+    ['has no audit id', JSON.stringify((({ audit_id: _a, ...o }) => o)(JSON.parse(missingSection))), '"audit_id" is missing', 'RETRY_NOTE'],
+  ])('a result that %s, with prose after it, is never accepted and names the field', (_name, last, problem, next) => {
+    const r = result(preamble + last + '\n' + trailing + '\n', ID);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(problem);
+    expect(r.stdout).toMatch(new RegExp(`^${next}: `, 'm'));
+    expect(r.stdout).not.toContain('DOCS_RESULT: ok');
+    expect(r.written).toEqual([]);
+  });
+
+  test('prose with no object line at all is still a content failure', () => {
+    const r = result(preamble + trailing + '\n', ID);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('no line opens a JSON object');
+    expect(r.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(repairPrompt(r.file, ID).status).not.toBe(0);
   });
 });

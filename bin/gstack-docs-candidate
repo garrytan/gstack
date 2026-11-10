@@ -344,6 +344,7 @@ function main(argv: string[]): void {
       check = first ? checkDocsRepair(output, original, auditId)
         : { ok: false, problems: ['a format repair was already used for this audit', ...(prior.ok ? [] : prior.problems)], trimmed: [], repairable: false, kept: {} };
     }
+    if (check.trailing) console.log(`TRAILING_PROSE: ignored ${check.trailing} line${check.trailing === 1 ? '' : 's'} after the result object`);
     if (check.trimmed.length) console.log(`KEYS_TRIMMED: ${check.trimmed.map(k => JSON.stringify(k)).join(' ')}`);
     if (!check.ok) {
       console.log(resultLine('gstack-docs-candidate result', 'DOCS_RESULT_INVALID', check.problems.join('; ')));

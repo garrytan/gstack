@@ -7072,7 +7072,8 @@ exception.
 ### `DOCS_RESULT_INVALID`
 
 **Meaning.** `gstack-docs-candidate result` read the /document-release child's
-last nonempty line and it does not meet /ship Step 14.5's result contract: a key
+result line (the last line that opens a JSON object; prose after it is ignored
+and reported as `TRAILING_PROSE:`) and it does not meet /ship Step 14.5's result contract: a key
 is missing, unknown or appears twice once whitespace around keys is trimmed, a
 field has the wrong type, the audit id, schema version or status invariant is
 wrong, or `documentation_section` is empty, a placeholder (such as `"x"`) or

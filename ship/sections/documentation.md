@@ -71,7 +71,7 @@ Reentry never resets the count or authorizes a launch.
    use recovery before another writer.
 2. **Check output.** Save the output, then run
    `~/.claude/skills/gstack/bin/gstack-docs-candidate result <output> --audit-id <audit-id> --out-dir <record dir>`.
-   It parses only the LAST nonempty line, trims whitespace around keys and requires
+   It parses the last line opening a JSON object, ignores prose after it, trims whitespace around keys and requires
    every field/type, exact audit id, schema and status invariant. `DOCS_RESULT: ok`
    saves `<audit-id>-result.json` and the section unchanged as `<audit-id>-documentation.md`;
    `DOCS_RESULT_INVALID` names each bad key and prints a `RETRY_NOTE:`, or `FORMAT_REPAIR:` when

@@ -1,0 +1,4 @@
+{
+  "bytes": 32,
+  "why": "Step 14.5 says the docs audit result is the last JSON object line and prose after it is ignored (GST-2349)"
+}
