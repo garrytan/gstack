@@ -273,8 +273,11 @@ describe('init + sync + restore round-trip', () => {
   test('the pre-commit hook init and restore write catches a JSON auth header with a Bearer prefix', () => {
     for (const bin of ['gstack-artifacts-init', 'gstack-brain-restore']) {
       const src = fs.readFileSync(path.join(BIN, bin), 'utf-8');
-      expect(src).toContain('(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}');
+      expect(src).toContain('cp "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$(dirname "$HOOK")/gstack-brain-secret-scan.py"');
+      expect(src).toContain('SCAN="$(dirname "$0")/gstack-brain-secret-scan.py"');
     }
+    const scanner = fs.readFileSync(path.join(BIN, 'gstack-brain-secret-scan.py'), 'utf-8');
+    expect(scanner).toContain('(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}');
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
     const token = ['Bearer ', 'abcd', 'efgh', 'ijkl', 'mnop', 'qrst'].join('');
@@ -283,6 +286,74 @@ describe('init + sync + restore round-trip', () => {
     const r = git(['commit', '-q', '-m', 'manual commit']);
     expect(r.status).not.toBe(0);
     expect(git(['log', '--oneline']).stdout).not.toContain('manual commit');
+  });
+
+  test('the pre-commit hook init and restore write holds a Stripe live key (brain-sync scan families)', () => {
+    const stripe = JSON.stringify({ leaked: 'sk_' + 'live_' + 'Q7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc' }) + '\n';
+    const commitRefused = (home: string) => {
+      expect(fs.readFileSync(path.join(home, '.git/hooks/gstack-brain-secret-scan.py'), 'utf-8'))
+        .toBe(fs.readFileSync(path.join(BIN, 'gstack-brain-secret-scan.py'), 'utf-8'));
+      fs.mkdirSync(path.join(home, 'projects', 'p'), { recursive: true });
+      fs.writeFileSync(path.join(home, 'projects/p/learnings.jsonl'), stripe);
+      git(['add', '-f', 'projects/p/learnings.jsonl'], home);
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit'], home);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('stripe-live-key');
+      expect(git(['log', '--oneline'], home).stdout).not.toContain('manual commit');
+    };
+    expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+    commitRefused(tmpHome);
+    const machineB = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-machineB-'));
+    try {
+      expect(run(['gstack-brain-restore', bareRemote], { env: { GSTACK_HOME: machineB } }).status).toBe(0);
+      commitRefused(machineB);
+    } finally {
+      fs.rmSync(machineB, { recursive: true, force: true });
+    }
+  });
+
+  test('the pre-commit hook fails closed when its scanner is missing or fails', () => {
+    expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+    const hook = path.join(tmpHome, '.git/hooks/pre-commit');
+    const original = fs.readFileSync(hook, 'utf-8');
+    expect(original).toMatch(/^SCAN=.*$/m);
+    const failingScanner = path.join(tmpHome, '.git', 'failing-scan.py');
+    fs.writeFileSync(failingScanner, 'import sys\nsys.stdin.read()\nsys.exit(1)\n');
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'), '{"insight":"nothing secret"}\n');
+    git(['add', '-f', 'projects/p/learnings.jsonl']);
+    for (const [scan, message] of [
+      [path.join(tmpHome, 'no-such-scanner.py'), 'secret scanner'],
+      [failingScanner, 'secret scan failed (exit 1)'],
+    ] as [string, string][]) {
+      fs.writeFileSync(hook, original.replace(/^SCAN=.*$/m, `SCAN='${scan}'`));
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit']);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(message);
+      expect(git(['log', '--oneline']).stdout).not.toContain('manual commit');
+    }
+  });
+
+  test('the pre-commit hook keeps scanning after the gstack install that wrote it is deleted', () => {
+    const install = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-install-'));
+    try {
+      fs.cpSync(BIN, path.join(install, 'bin'), { recursive: true });
+      expect(run([path.join(install, 'bin', 'gstack-artifacts-init'), '--remote', bareRemote]).status).toBe(0);
+    } finally {
+      fs.rmSync(install, { recursive: true, force: true });
+    }
+    const file = path.join(tmpHome, 'projects/p/learnings.jsonl');
+    const commit = () => {
+      git(['add', '-f', 'projects/p/learnings.jsonl']);
+      return git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit']);
+    };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{"insight":"nothing secret"}\n');
+    expect(commit().status).toBe(0);
+    fs.appendFileSync(file, JSON.stringify({ leaked: 'sk_' + 'live_' + 'Q7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc' }) + '\n');
+    const r = commit();
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('stripe-live-key');
   });
 
   test('refuses init on different remote', () => {
@@ -410,6 +481,64 @@ describe('gstack-brain-sync secret scan', () => {
       expect(spoolText()).toContain('projects/p/learnings.jsonl');
     });
   }
+
+  // GST-2263: a hand-written row can hide a secret behind JSON escapes. The
+  // scan decodes JSON string values and scans them as well as the raw line.
+  const ESCAPED: [string, string][] = [
+    ['a \\u-escaped Stripe live key', '{"note":"sk_' + 'live_' + '\\u0051' + '7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc"}'],
+    ['an auth header inside an escaped JSON string', '{"headers":"{\\"authorization\\": \\"Bearer ' + 'abcdef1234567890' + 'abcdef1234567890\\"}"}'],
+    ['an auth header whose key is \\u-escaped', '{"\\u0061uthorization":"Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"}'],
+    ['an auth header whose Bearer prefix is \\u-escaped', '{"authorization":"\\u0042earer ' + 'abcdef1234567890' + 'abcdef1234567890"}'],
+  ];
+  for (const [name, row] of ESCAPED) {
+    test(`holds ${name}`, () => {
+      run(['gstack-artifacts-init', '--remote', bareRemote]);
+      run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+      fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'), row + '\n');
+      run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+      expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+      const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+      expect(status.status).toBe('held');
+      expect(status.held.map((h: any) => h.path)).toEqual(['projects/p/learnings.jsonl']);
+      expect(spoolText()).toContain('projects/p/learnings.jsonl');
+    });
+  }
+
+  // GST-2263 audit: the scan reads the same diff lines main reads, context and
+  // headers included, so a secret that only lines up across an unchanged line
+  // or sits in a file name is still held.
+  test('a key renamed to authorization above an unchanged Bearer value is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/headers.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    const value = '  "Bearer ' + 'abcdef1234567890' + 'abcdef1234567890"\n';
+    fs.writeFileSync(path.join(tmpHome, rel), '{\n  "note":\n' + value + '}\n');
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    const statusJson = () => JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(statusJson().held_count ?? 0).toBe(0);
+
+    fs.writeFileSync(path.join(tmpHome, rel), '{\n  "authorization":\n' + value + '}\n');
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    expect(statusJson().status).toBe('held');
+    expect(statusJson().held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('a clean file whose name is an AWS access key is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/' + 'AKIA' + 'ABCDEFGHIJKLMNOP' + '.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, rel), '# a plan\n');
+    run(['gstack-brain-enqueue', rel]);
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+  });
 
   test('prose about tokens and passwords and placeholder database urls still sync', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);

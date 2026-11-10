@@ -1,0 +1,4 @@
+---
+important: security
+---
+- **Brain sync now catches secrets hidden behind JSON escapes, and its pre-commit hook checks every family the sync does.** A hand-written learnings or timeline row could slip a Stripe key past the push-time scan by writing it with `\u` escapes, or slip an auth header past it inside an escaped JSON string. The scan now decodes each added line's JSON strings and scans them as well as the raw diff, so both are held. The pre-commit hook that `gstack-artifacts-init` and `gstack-brain-restore` install, which catches a manual `git commit` in `~/.gstack`, checked only the original six families; it now runs the same scanner as brain sync (`bin/gstack-brain-secret-scan.py`), so it also refuses Stripe live keys, Slack and npm tokens and database URLs with a password. Rerun `gstack-artifacts-init` to refresh a hook written by an older gstack.
