@@ -1,0 +1,4 @@
+{
+  "bytes": -4,
+  "why": "GST-1455: the shared closer opens status reports with failed-or-skipped, unverified and also-changed lines (-4 B)"
+}

@@ -37,6 +37,8 @@ The lane's own lines, after the block:
 
 ```text
 pin: <sha40>                      # the full head SHA, restated
+Failed or skipped: <none | each check, case or step that failed or never ran, and why>
+Also changed: <none | each config, CI or out-of-scope file the PR touches>
 screen choice: <--no-screen: cases <ids> ran focused and passed | --screen: <reason>>
 flaky: <none | case, both run ids, logged in the ledger on <date>>
 review passes: <n> (deferred: <findings kept on the PR, or none>)
