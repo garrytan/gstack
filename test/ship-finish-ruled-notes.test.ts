@@ -470,6 +470,18 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     expect(r.status, r.stdout).toBe(0);
   });
 
+  // Value: protects=nothing binds without an owner row: a skipped non-CRITICAL finding the reader marked blocking stays open
+  //   beside a ruled open CRITICAL; fails_when=the ruled CRITICAL clears the row while the skipped blocker has no ruling;
+  //   seam=withoutRuledNotes and FIX_CHECK_OPEN
+  test('a skipped blocking finding with no ruling keeps the row unbound beside a ruled open CRITICAL, and is named', () => {
+    const SKIPPED = 'src/x.ts:1:skipped-blocker';
+    const row = { ...HE361, issues_found: 2, critical: 1, informational: 1, findings: [HE361.findings[0], { fingerprint: SKIPPED, severity: 'INFORMATIONAL', action: 'skipped', locus: 'fix-range', blocking: true, raised_by: 'fix-check' }] };
+    const { f, fixHead, reviewed, post } = grantedFixCheck(row);
+    expect(rule(f, NEW_A, fixHead).status).toBe(0);
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK'), lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([SKIPPED], fixHead)]);
+  });
+
   test('an edit after the fix-check head still routes as behavior without an exception that accepts it', () => {
     const { f, fixHead, reviewed, post } = grantedFixCheck(HE361);
     for (const finding of [NEW_A, NEW_B]) expect(rule(f, finding, fixHead).status).toBe(0);

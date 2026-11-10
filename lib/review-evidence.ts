@@ -339,6 +339,8 @@ export const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'ope
   ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
   (!f.gate && isCriticalFinding(f) && isOpenByAction(f)));
 export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);
+/** What a ruling must cover before rulings can clear a row: every unresolved finding and every one the reader marked blocking, whatever its action. */
+export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f.blocking === true;
 
 /**
  * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
@@ -353,7 +355,7 @@ function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>)
   if (!ruled.size || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
-      rec.findings.some(f => !isRuled(f) && (!record(f) || unresolvedFinding(f)))) return rec;
+      rec.findings.some(f => !isRuled(f) && holdsOpen(f))) return rec;
   return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
 }
 

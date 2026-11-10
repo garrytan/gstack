@@ -21,7 +21,7 @@ import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
-import { reviewFreshness, RULABLE, unresolvedFinding } from './review-evidence';
+import { holdsOpen, reviewFreshness, RULABLE } from './review-evidence';
 import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
 import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
@@ -322,7 +322,7 @@ function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: st
     : uncovered ? `a finding on ${uncovered.p} that no later clean fix-check's range touched${at(uncovered.d)}`
     : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
   if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
-  const rulable = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).filter((f: any) => !!f && !f.gate && RULABLE.has(f.action) && unresolvedFinding(f) && typeof f.fingerprint === 'string' && !ruledOn(l).has(f.fingerprint)).map((f: any) => f.fingerprint as string);
+  const rulable = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).filter((f: any) => !!f && !f.gate && RULABLE.has(f.action) && holdsOpen(f) && typeof f.fingerprint === 'string' && !ruledOn(l).has(f.fingerprint)).map((f: any) => f.fingerprint as string);
   for (const l of notCounted ? chain : []) if (rulable(l).length) r.add(`FIX_CHECK_OPEN: ${rulable(l).join(',')} on the fix-check at ${l.commit.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${l.commit.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`);
   if (!chain.length || notCounted) return { counted: false, paths: [] };
   const read: ((p: string) => boolean)[] = [];
