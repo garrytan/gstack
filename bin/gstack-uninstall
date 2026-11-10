@@ -243,7 +243,9 @@ _WORKTREES_FIX="fix: commit the work to a branch or stash it, unlock a locked wo
 _git_root_in_install() {
   local _install _root
   _root="$(_real "$_GIT_ROOT")"
-  for _install in "$HOME/.claude/skills/gstack" "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack*; do
+  for _install in "$HOME/.claude/skills/gstack" "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack* \
+    "$HOME"/.cursor/skills/gstack* "$HOME"/.config/opencode/skills/gstack* "$HOME"/.copilot/skills/gstack* \
+    "$HOME"/.gemini/antigravity-cli/skills/gstack* "$HOME"/.gemini/skills/gstack*; do
     [ -d "$_install" ] || continue
     _is_at_or_above "$(_real "$_install")" "$_root" && return 0
   done

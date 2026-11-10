@@ -1012,6 +1012,31 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(fs.existsSync(path.join(home, '.gstack'))).toBe(true);
   });
 
+  test('run from inside a Cursor install, a .gstack that is its own repo stops the uninstall before anything is removed', () => {
+    const install = path.join(home, '.cursor', 'skills', 'gstack');
+    fs.mkdirSync(install, { recursive: true });
+    fs.writeFileSync(path.join(install, 'SKILL.md'), '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\n');
+    git(['init', '-q', '-b', 'main'], install);
+    fs.writeFileSync(path.join(install, '.git', 'info', 'exclude'), '.gstack/\n');
+    git(['add', 'SKILL.md'], install);
+    git(['commit', '-q', '-m', 'install'], install);
+    const own = path.join(install, '.gstack');
+    fs.mkdirSync(own);
+    git(['init', '-q', '-b', 'main'], own);
+    fs.writeFileSync(path.join(own, 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], own);
+    git(['commit', '-q', '-m', 'unpushed notes'], own);
+    const r = spawnSync('bash', [UNINSTALL, '--force'], {
+      cwd: install, encoding: 'utf-8', timeout: 30_000,
+      env: { ...gitEnv, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'), GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`${install}/.gstack/ holds its own git repository`);
+    expect(git(['log', '--format=%s'], own)).toBe('unpushed notes\n');
+    expect(fs.existsSync(path.join(install, 'SKILL.md'))).toBe(true);
+  });
+
   test('a failing git worktree list stops --force --force-worktrees and keeps the checkouts', () => {
     addWorktree(true);
     const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
