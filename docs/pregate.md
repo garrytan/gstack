@@ -907,7 +907,8 @@ Then, for the lane:
   (gstack's gate leaves paid test files to the paid PR gate). Those files need
   no run, and the receipt counts them as `skipped=<n>`. A file the inventory
   prints stays required even when `skipped` names it, and a failing `skipped`
-  command refuses (`skipped_failed`). When `skipped` names every selected file,
+  command refuses (`skipped_failed`); when it failed because the checkout has
+  no installed dependencies, the refusal says so. When `skipped` names every selected file,
   no selected test ran, so the clear refuses (`paid_only`), just as the gate's
   own `tests=0` report never clears. Without `skipped`, every selected file
   must appear in a run's `files`.
