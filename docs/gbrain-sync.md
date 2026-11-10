@@ -195,7 +195,10 @@ To remediate:
 2. If the match is a false positive on content you never want synced, run
    `gstack-brain-sync --skip-file <path>` to permanently exclude that path;
    `gstack-brain-sync --unskip-file <path>` undoes it.
-3. Otherwise, edit the file to remove the secret; the next skill run syncs it.
+3. Otherwise, edit the file to remove the secret. If that line was never
+   synced, the next skill run syncs the file. If it is already committed in
+   `~/.gstack`, the file stays held and only `--skip-file` clears it; if it
+   was pushed, treat the secret as exposed.
 
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
 runs the same scanner (`bin/gstack-brain-secret-scan.py`) if you manually
