@@ -165,6 +165,20 @@ describe('carry after a stack parent squash-merges (#3570)', () => {
     expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
     expect(receiptIn(body).head).toBe(child);
   }, 90_000);
+
+  // Value: protects=a retargeted stacked child cannot empty the land list after review and carry (GST-2204); fails_when=the
+  // retarget route skips the gate-path comparison again; seam=none; no_claim=-
+  test('a retargeted child that emptied test/land-merged-checks.txt after review refuses as a product change', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { child, body } = stack(repo, { 'lib/util.js': SUB }, { 'lib/retry.js': RETRY4, 'test/land-merged-checks.txt': 'test/retry.test.js\n' });
+    commit(repo, { 'test/land-merged-checks.txt': '' }, 'child: empty the land list');
+    landOnMain(repo, { 'lib/util.js': SUB });
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
+    expect(out.err).toContain('test/land-merged-checks.txt');
+    expect(receiptIn(body).head).toBe(child);
+  }, 90_000);
 });
 
 const CONFIG = ['a = 1', 'b = 2', 'c = 3', 'd = 4', 'e = 5', 'f = 6', 'g = 7', 'h = 8', ''].join('\n');

@@ -821,9 +821,13 @@ function cmdCarry(rest: string[], json: boolean): number {
       }
     }
     // A gate file under a test directory (the land list, the touchfile maps) sits outside both patch-ids, so it is compared
-    // path by path: any change since the reviewed head is a product change (GST-2204).
+    // path by path: any change since the reviewed head is a product change (GST-2204). A retargeted stack has no reviewed
+    // base to diff against, so there the file must be byte-identical to the reviewed head's.
     const patchSides = { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head };
-    if (!retarget) for (const p of [...touched].filter(p => CARRY_GATE_TEST_PATHS.includes(p) && !changedProduct.includes(p) && !contextPaths.includes(p)).sort()) if (comparePath(repoRoot, patchSides, p) !== 'same') changedProduct.push(p);
+    const blob = (rev: string, p: string) => git(['rev-parse', '--verify', '--quiet', `${rev}:${p}`], repoRoot);
+    for (const p of [...touched].filter(p => CARRY_GATE_TEST_PATHS.includes(p) && !changedProduct.includes(p) && !contextPaths.includes(p)).sort()) {
+      if (retarget ? blob(from, p) !== blob(head, p) : comparePath(repoRoot, patchSides, p) !== 'same') changedProduct.push(p);
+    }
     // A test edit that removed or changed an assertion line since the reviewed head needs one scoped fix-check (GST-2204);
     // its refusal waits for the depth check below, so a skip marker or a deleted test still asks for /ship.
     const movedTests = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, rangeBase, headBase)];
