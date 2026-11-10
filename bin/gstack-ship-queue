@@ -37,7 +37,7 @@ import { EXIT, exitTableHelp, formatResult } from '../lib/headless-artifacts';
 import { versionAtRef } from '../lib/restamp';
 import { RESULT_CODES } from '../lib/result-codes';
 import { resolveBaseBranch } from '../lib/ship-policy';
-import { loadBasePolicy, ready, stamp, verify, type QueueContext, type StepOutput } from '../lib/ship-queue';
+import { loadBasePolicy, ready, refreshBase, stamp, verify, type QueueContext, type StepOutput } from '../lib/ship-queue';
 import { attemptFile, listAttempts, prepareGateAhead, recordGateAhead, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { logShipCall } from '../lib/ship-call-log';
 
@@ -197,8 +197,10 @@ async function main(argv: string[]): Promise<number> {
   if (gateExit !== undefined && !/^-?\d+$/.test(gateExit)) return usage('--gate-exit needs an exit code');
   const gate = { gateExit: gateExit === undefined ? undefined : Number(gateExit), gateLog: flag(args, '--gate-log') };
   if (cmd === 'ready') {
+    const unfetched = refreshBase(ctx);
     const loaded = loadBasePolicy(ctx);
     if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), ...gate });
+    if (unfetched) return finish('ready', { ok: false, lines: [], run: 'none', failure: unfetched });
     if (['--screen', '--no-screen', '--broad'].some(f => args.includes(f))) process.stderr.write('gstack-ship-queue ready: --screen/--no-screen/--broad ignored: the base policy declares no train block\n');
     return finish('ready', ready(ctx, { pr, pregate: flag(args, '--pregate'), ...gate }));
   }

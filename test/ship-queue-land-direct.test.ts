@@ -27,9 +27,11 @@ import { readTrainNotes } from '../crew/scripts/release-cut';
 import { gitIn } from '../crew/scripts/train-gate';
 import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../lib/pregate/index';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 /** The base policy with land.merged_checks: the first proves the checks see the merged tree, the second stands in for a budget cap a stale base can break (#3886). */
 const CHECKED = { ...POLICY, land: { merged_checks: ['test -e other.txt && ls pr-*.txt >/dev/null', "test ! -e budget.md || test ! -e other.txt || { echo 'budget.md over its cap' >&2; exit 1; }"] }, min_gstack_version: LAND_KEY_VERSION };
 const repos: FixtureRepo[] = [];
@@ -59,7 +61,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  if(m[2]==='status'){console.log(JSON.stringify({total_count:0,statuses:[]}));process.exit(0)}",
     "  const set=d.checks[m[1]]??Object.fromEntries(d.defaultChecks.map(n=>[n,'success']));",
     "  const all=/[?&]filter=all(&|$)/.test(a[1]);",
-    "  const runs=Object.entries(set).filter(([,v])=>all||!v.earlierAttempt).map(([name,v],i)=>{const c=typeof v==='string'?v:v.conclusion;return {id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}});",
+    "  const runs=Array.isArray(set)?set.filter(r=>all||!r.earlier_attempt):Object.entries(set).filter(([,v])=>all||!v.earlierAttempt).map(([name,v],i)=>{const c=typeof v==='string'?v:v.conclusion;return {id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}});",
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
@@ -475,6 +477,61 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(r.out).toContain('DRY-RUN: nothing merged');
     expect(remote(fx, 'main')).toBe(base);
   }, 90_000);
+});
+
+describe('land --pin and ready under merge: direct (GSTA-461 items 7 and 19)', () => {
+  const run = (id: number, name: string, conclusion: string, completed_at: string, suite: number) => ({ id, name, status: 'completed', conclusion, completed_at, app: { id: 1 }, check_suite: { id: suite } });
+
+  // Value: protects=land --pin names each red run that a newer run from another check suite replaced, right after its CI line, and still lands;
+  // fails_when=land prints plain green and merges with no word when free-tests failed in suite 1 and a branch-only run passed in suite 3;
+  // why_new=reports/GSTA-461.md item 7; seam=the gh shim's raw check-run list; no_claim=the same-suite rule that would refuse (after the freeze)
+  test('a red check replaced by a pass from another check suite lands with a CI_SUPERSEDED line', () => {
+    const fx = setup();
+    const pin = openPr(fx, '9');
+    fx.write(d => { d.checks[pin] = [run(1, 'free-tests', 'failure', '2026-11-09T10:00:00Z', 1), run(2, 'Check VERSION is not stale vs queue', 'success', '2026-11-09T10:02:00Z', 2), run(3, 'free-tests', 'success', '2026-11-09T10:20:00Z', 3)]; });
+    const r = land(fx, '9', pin);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    const lines = r.out.split('\n');
+    const ci = lines.findIndex(l => l.startsWith('CI: green at '));
+    expect(ci).toBeGreaterThanOrEqual(0);
+    expect(lines[ci + 1]).toBe('CI_SUPERSEDED: free-tests red run 1 replaced by 3 (suite 1 → 3)');
+    expect(r.out).toContain('MERGED: #9 as ');
+  }, 90_000);
+
+  // Value: protects=ready without a train block refuses when origin never receives its READY note, and a rerun after the fix pushes the kept note
+  // that land --pin then reads from origin; fails_when=ready prints a READY_RECEIPT line and exits 0 while origin lacks the note (our own land on
+  // 11-09 refused QUEUE_NOT_READY this way); why_new=#4254 covers only the train path; seam=a pre-receive hook in the fixture's bare origin, and a
+  // separate state root for ready so land can only find the note on origin; no_claim=GitHub's own rejection messages
+  test('origin rejects refs/notes/*: ready refuses QUEUE_READY_NOTE_UNPUSHED; once origin accepts, a rerun pushes the note and land merges', () => {
+    const fx = setup();
+    const head = openPr(fx, '31', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-31');
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const env = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'ready-state') };
+    const ready = () => runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '31', '--pregate', pregate, '--base', 'main'], env);
+    const hook = path.join(fx.repo.origin, 'hooks', 'pre-receive');
+    const remoteNotes = () => fx.repo.git('ls-remote', 'origin', 'refs/notes/gstack-trains').split(/\s+/)[0] ?? '';
+    fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/notes/*) echo "notes refused by fixture" >&2; exit 1;; esac; done; exit 0\n', { mode: 0o755 });
+    const refused = ready();
+    expect(refused.status).toBe(EXIT.refused);
+    expect(refused.err).toContain('(QUEUE_READY_NOTE_UNPUSHED)');
+    expect(refused.err).toContain('gstack-ship-queue ready --pr 31');
+    expect(refused.out).not.toContain('notes pushed');
+    expect(refused.out).toMatch(/^GSTACK_RESULT: .*status=refused/m);
+    expect(remoteNotes()).toBe('');
+    fs.rmSync(hook);
+    const again = ready();
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toMatch(/^READY_RECEIPT: .* \(notes pushed to origin refs\/notes\/gstack-trains\)$/m);
+    expect(remoteNotes()).not.toBe('');
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const r = land(fx, '31', head);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('MERGED: #31 as ');
+  }, 120_000);
 });
 
 describe('land --pin: refusals (nothing merged)', () => {
