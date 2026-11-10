@@ -9,10 +9,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../../lib/headless-artifacts';
+import { CHECK_IDS } from '../../lib/pregate/index';
 import { cleanup, runBin } from '../../test/helpers/restamp-fixture';
 import { line, openPr, queue, repoKey, trainFixture, type TrainFixture } from '../../test/helpers/ship-queue-train-fixture';
 
 const NOTES = 'refs/notes/gstack-trains';
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 const fixtures: TrainFixture[] = [];
 afterEach(() => { while (fixtures.length) cleanup(fixtures.pop()!.repo); });
 
@@ -23,7 +25,7 @@ function readyFixture() {
   fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
   const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
   const pregate = path.join(fx.repo.root, 'pregate.json');
-  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
   return { fx, head, pregate };
 }
 
