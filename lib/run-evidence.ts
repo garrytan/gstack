@@ -363,10 +363,7 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
     artifact: (id, name, attempt) => {
       const listed = all<{ id: number; name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
       if (listed.length === 0 || listed.length > MAX_ARTIFACT_ATTEMPTS) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
-      for (const a of listed) {
-        if (!Number.isSafeInteger(a.id)) throw new Error(`run ${id}'s artifact ${name} has no numeric id`);
-        if (!(a.size_in_bytes <= MAX_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${a.size_in_bytes} bytes, over ${MAX_ARTIFACT_BYTES}`);
-      }
+      for (const a of listed) if (!(a.size_in_bytes <= MAX_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${a.size_in_bytes} bytes, over ${MAX_ARTIFACT_BYTES}`);
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-run-evidence-'));
       try {
         if (listed.length === 1) {
@@ -376,6 +373,7 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
           return JSON.parse(fs.readFileSync(file, 'utf8')) as TreeRecord;
         }
         const records = listed.map(a => {
+          if (!Number.isSafeInteger(a.id)) throw new Error(`run ${id}'s artifact ${name} has no numeric id`);
           const zip = path.join(dir, `${a.id}.zip`);
           fs.writeFileSync(zip, Buffer.from(gh(['api', `repos/${repo}/actions/artifacts/${a.id}/zip`], 120_000, 'latin1'), 'latin1'));
           const r = spawnSync('unzip', ['-p', zip, 'tree.json'], { encoding: 'utf8', timeout: 60_000, maxBuffer: MAX_ARTIFACT_BYTES });
