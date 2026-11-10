@@ -28,8 +28,8 @@ const STRICT = "test('a is 1', () => { expect(a).toBe(1); });";
 const LOOSE = "test('a is 1', () => { expect(typeof a).toBe('number'); });";
 
 /** The audit's repro: a branch reviewed at its first commit, with a receipt gstack-ship-receipt write recorded there. */
-function reviewed(base: Record<string, string> = {}) {
-  const f = shipFixture({ [APP_TEST]: suite(STRICT), [LAND_LIST]: `${APP_TEST}\n`, ...base }, { 'src/b.ts': 'export const b = 2;\n' }); ships.push(f);
+function reviewed(base: Record<string, string> = {}, feat: Record<string, string> = {}) {
+  const f = shipFixture({ [APP_TEST]: suite(STRICT), [LAND_LIST]: `${APP_TEST}\n`, ...base }, { 'src/b.ts': 'export const b = 2;\n', ...feat }); ships.push(f);
   const from = f.git('rev-parse', 'HEAD').stdout.trim();
   const body = path.join(f.root, 'body.md');
   fs.writeFileSync(body, '## Summary\n');
@@ -110,6 +110,21 @@ describe('a carry whose test diff removes or changes assertion lines (GST-2204)'
     expect(r.stdout).toContain('base merge');
   });
 
+  // Value: protects=the base dropping an assertion in one test cannot cover the branch dropping the same text in another;
+  // fails_when=base removals cancel branch removals by text alone again; seam=none
+  test('a removal the base made in another test does not cancel the branch removing the same assertion', () => {
+    const block = (name: string, kept: boolean) => [`test('${name}', () => {`, ...(kept ? ['  expect(a).toBe(1);'] : []), '});'].join('\n');
+    const three = (a: boolean, b: boolean, c: boolean) => suite(block('A', a), block('B', b), block('C', c));
+    const x = reviewed({ [APP_TEST]: three(true, true, true) }, { [APP_TEST]: three(false, true, true) });
+    x.f.advanceBase({ [APP_TEST]: three(true, true, false) });
+    x.f.git('fetch', '-q', 'origin');
+    expect(x.f.git('merge', '-q', '--no-edit', 'origin/main').status).toBe(0);
+    x.edit({ [APP_TEST]: three(true, false, true) });
+    const r = x.carry(['--dry-run']);
+    expect([r.status, firstLine(r.stdout)], r.stderr).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_TEST_WEAKENED)']);
+    expect(r.stderr).toContain(`${APP_TEST}:6`);
+  });
+
   test('test.skip still refuses through the review depth, ahead of the scoped fix-check', () => {
     const x = reviewed();
     const head = x.edit({ [APP_TEST]: suite(STRICT.replace("test('", "test.skip('")) });
@@ -134,6 +149,14 @@ describe('the land list and the touchfile maps are gate paths (GST-2204)', () =>
   test('classifyCarryPath puts the land list and the touchfile maps in product, other test files in test', () => {
     for (const p of [LAND_LIST, 'test/helpers/touchfiles-data.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'test/helpers/touchfile-closure.ts']) expect([p, classifyCarryPath(p)]).toEqual([p, 'product']);
     for (const p of [APP_TEST, 'test/helpers/ship-bin-fixture.ts', 'test/fixtures/land-merged-checks.txt']) expect([p, classifyCarryPath(p)]).toEqual([p, 'test']);
+  });
+
+  // Value: protects=paid-eval quarantine, budgets and ratchet allowlists cannot be loosened under a test-only carry;
+  // fails_when=any of them classifies as test again; seam=none
+  test('the eval policy and budget data and the ratchet allowlists are product too', () => {
+    for (const p of ['test/helpers/periodic-exclude-data.ts', 'test/helpers/eval-budgets.ts', 'test/fixtures/module-size-ratchet.json', 'test/fixtures/skill-md-size-allowlist.json', 'test/state-root-ratchet.allowlist.json']) {
+      expect([p, classifyCarryPath(p)]).toEqual([p, 'product']);
+    }
   });
 });
 

@@ -247,10 +247,15 @@ export const CARRY_TEST_CODE_GLOBS: readonly string[] = [
 export const CARRY_TEST_GLOBS: readonly string[] = ['test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**', ...CARRY_TEST_CODE_GLOBS];
 export const CARRY_METADATA_GLOBS: readonly string[] = ['VERSION', 'CHANGELOG.md', 'package.json', 'agents-digest/**'];
 /**
- * Gate files under a test directory (GST-2204): the list land runs on a moved base and the touchfile maps that select which
- * tests run. Emptying one passes CI by running less, so a change to one is product, never a test-only carry.
+ * Gate files under a test directory (GST-2204): the list land runs on a moved base, the touchfile maps that select which
+ * tests run, the paid-eval policy, quarantine and budget data, and the ratchet allowlists. Loosening one passes CI by
+ * running or enforcing less, so a change to one is product, never a test-only carry.
  */
-export const CARRY_GATE_TEST_PATHS: readonly string[] = ['test/land-merged-checks.txt', 'test/helpers/touchfiles-data.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'test/helpers/touchfile-closure.ts'];
+export const CARRY_GATE_TEST_PATHS: readonly string[] = [
+  'test/land-merged-checks.txt', 'test/helpers/touchfiles-data.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'test/helpers/touchfile-closure.ts',
+  'test/helpers/periodic-exclude-data.ts', 'test/helpers/eval-budgets.ts',
+  'test/fixtures/module-size-ratchet.json', 'test/fixtures/skill-md-size-allowlist.json', 'test/state-root-ratchet.allowlist.json',
+];
 /** How many differing product paths a RECEIPT_CARRY_PRODUCT_CHANGED refusal names, and how far the per-path patch-id walk goes. */
 export const CARRY_NAMED_PATHS = 20;
 
