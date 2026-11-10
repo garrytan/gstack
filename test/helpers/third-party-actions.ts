@@ -82,7 +82,7 @@ export const offersDriveOption = (text: string): boolean => letteredOptions(text
 const DEFER_OUTCOME = /(?:^|[.!?;:]\s+|\s-+\s+|[\u2013\u2014]\s*)(?:(?!\b(?:not|never|no|nothing|nobody|none|neither|nor|without|cannot|refus\w*|declin\w*|avoid\w*|rather|instead|if|unless|otherwise|else)\b|n['\u2019]t\b)[^.!?;:\u2013\u2014])*?\b(?:(?:I|we)(?:['\u2019]ll| will) |I |we )?(?:(?:mark|leave|keep)\w* (?:this|it|the)(?: [\w-]+)?(?: step)? (?:as )?|(?<status>(?:stays|remains|is) ))(?:blocked|waiting) on you(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/gi;
 const PUT_OFF = /(?<!\b(?:not|no)\s+)\blater\b|\bnot (?:yet|now)\b/i;
 const offersDeferOutcome = (option: string): boolean => [...option.matchAll(DEFER_OUTCOME)]
-  .some(match => !match.groups?.status || PUT_OFF.test(option.slice(0, match.index)));
+  .some(match => !match.groups?.status || PUT_OFF.test(option.slice(0, match.index + match[0].lastIndexOf(match.groups.status))));
 export const offersDefer = (text: string): boolean => letteredOptions(text).some(option =>
   /\b(?:defer\w*|postpone\w*|put (?:this|it)(?: step)? off|skip (?:this|it)(?: step)? for now|come back to (?:this|it)(?: step)? later|leave (?:this|it)(?: step)? for (?:now|later))\b/i.test(option)
   || !/drive|browse|Aside/i.test(option)

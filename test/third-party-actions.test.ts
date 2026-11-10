@@ -587,7 +587,7 @@ describe('Opus consent renders (gate captures)', () => {
   test('the defer outcome counts in any words, and a refusal of it never does', () => {
     // Gate 42431616220 slice 15: the red tpa-present render's D) option, missed by the spelling list.
     for (const option of ["D) Do it later. I'll mark this step as waiting on you.", 'D) Not yet: the step stays blocked on you.',
-      'D) Later. This step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you.",
+      'D) Later. This step remains waiting on you.', 'D) Later, so this step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you.",
       "D) Do it later - I'll leave this step as blocked on you.", 'D) Not now. The step stays blocked on you.',
       'D) Sign in yourself later. The step is waiting on you.'])
       expect(offersDefer(option), option).toBe(true);

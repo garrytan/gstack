@@ -301,8 +301,13 @@ describe('browseNavigatedTo', () => {
       "$B goto 'file://$PWD/fixture.html' >/dev/null && $B html", '$B goto "file://$PWD/other.html" >/dev/null && $B html',
       'cd /tmp/elsewhere && $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
       'cd "$HOME" && $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
-      `echo "$B goto ${url}" >/dev/null && $B html`, `$B text goto ${url} >/dev/null && $B html`])
+      `echo "$B goto ${url}" >/dev/null && $B html`, `$B text goto ${url} >/dev/null && $B html`,
+      '$B status >/dev/null || $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
+      `cd ${cwd} && $B status || $B goto "file://$PWD/fixture.html" >/dev/null && $B html`])
       expect(credited(command), command).toBe(false);
+    expect(credited(`test -d ${cwd} || exit 1; $B goto "file://$PWD/fixture.html" >/dev/null && $B html`)).toBe(true);
+    const http = 'http://127.0.0.1:9/missing';
+    expect(browseNavigatedTo(bash(`$B goto ${http} >/dev/null && $B html`, '<html>Not Found</html>'), http)).toBe(false);
     const goto = '$B goto "file://$PWD/fixture.html" >/dev/null && $B html';
     expect(browseNavigatedTo(bash(goto, html), url)).toBe(false);
     for (const output of [`Exit code 1\n${html}`, `Error: page.goto: net::ERR_FILE_NOT_FOUND at ${url}`, '<tool_use_error>denied</tool_use_error>'])

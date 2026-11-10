@@ -95,8 +95,10 @@ export function scanBrowseErrors(text: string): string[] {
 /**
  * True when a Bash `goto` reached exactly this URL: it printed browse's success line for the URL with a 2xx status, or
  * it sent its stdout to /dev/null (`$B goto "<url>" >/dev/null && $B html`) and the call proves it exited 0. That proof
- * is a call that did not fail (no leading `Exit code N` or tool error, no `Error` or `net::ERR_` line) where every
- * command after the goto is joined by `&&`, so none of them ran unless it succeeded. The goto's target must be the URL
+ * is a call that did not fail (no leading `Exit code N` or tool error, no `Error` or `net::ERR_` line) where no `||`
+ * before the goto in its list could skip it and every command after the goto is joined by `&&`, so none of them ran
+ * unless it succeeded. Only a file:// URL qualifies: goto exits 0 on any HTTP status, so exit 0 proves no 2xx load of
+ * an http URL. The goto's target must be the URL
  * itself, or `$PWD`/`${PWD}` under a known working directory (`cwd`, followed through literal `cd <path>` commands in
  * call order; any other `cd` makes it unknown). The goto must be the segment's own browse command (`$B goto`,
  * `${B} goto` or `<path>/browse goto`), not text inside another command.
@@ -118,8 +120,10 @@ export function browseNavigatedTo(toolCalls: Array<{ tool: string; input: any; o
       const cd = segment.match(/^cd\s+(\S+)$/);
       if (cd) pwd = /^\/[^$`'"]*$/.test(cd[1]!) ? cd[1] : undefined;
       const goto = segment.match(/^(?:\w+=\S*\s+)*(?:"?\$\{?B\}?"?|\S*\bbrowse)\s+goto\s+("[^"]*"|'[^']*'|[^\s'"]+)(.*)$/);
-      if (failed || !goto || !/(?:^|\s)(?:1?>|&>)\s*\/dev\/null(?:\s|$)/.test(goto[2]!)) continue;
+      if (failed || !goto || !url.startsWith('file://') || !/(?:^|\s)(?:1?>|&>)\s*\/dev\/null(?:\s|$)/.test(goto[2]!)) continue;
       if (parts.slice(i + 1).some((separator, j) => j % 2 === 0 && separator !== '&&')) continue;
+      const before = parts.slice(0, i).filter((_, j) => j % 2 === 1);
+      if (before.slice(before.findLastIndex(separator => separator !== '&&' && separator !== '||') + 1).includes('||')) continue;
       const raw = goto[1]!;
       const target = raw.startsWith("'") ? raw.slice(1, -1)
         : (raw.startsWith('"') ? raw.slice(1, -1) : raw).replace(/\$\{PWD\}|\$PWD\b/g, () => pwd ?? '\u0000');
