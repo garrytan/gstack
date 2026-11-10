@@ -334,8 +334,11 @@ describe('init + sync + restore round-trip', () => {
   });
 
   test('the scanner flags a binary section it was not given the bytes of', () => {
-    const scan = (diff: string) =>
-      spawnSync('python3', [path.join(BIN, 'gstack-brain-secret-scan.py'), 'gate', '-'], { input: diff, encoding: 'utf-8', timeout: 30_000 });
+    const textDiff = path.join(tmpHome, 'text.diff');
+    const scan = (diff: string) => {
+      fs.writeFileSync(textDiff, diff);
+      return spawnSync('python3', [path.join(BIN, 'gstack-brain-secret-scan.py'), 'gate', '-', textDiff], { input: diff.replace(/^Binary files .*$|^GIT binary patch$/gm, ''), encoding: 'utf-8', timeout: 30_000 });
+    };
     const header = 'diff --git a/n.md b/n.md\nnew file mode 100644\nindex 0000000..1111111\n';
     for (const tail of ['Binary files /dev/null and b/n.md differ\n', 'GIT binary patch\nliteral 3\nKcmZ?wFaQ7m\n\n']) {
       const r = scan(header + tail);
@@ -345,6 +348,33 @@ describe('init + sync + restore round-trip', () => {
     const text = scan(header + '--- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+Binary files are mentioned here\n');
     expect(text.status).toBe(0);
   });
+
+  // GST-2292 audit: the hook keeps scanning the plain diff main scanned (the
+  // user's diff.context and textconv drivers apply) beside the --text reading.
+  for (const [name, setup, body] of [
+    ['an AWS key on a context line that diff.context 5 shows', (home: string) => {
+      fs.writeFileSync(path.join(home, 'projects/p/ceo-plans/note.md'), '  AKIA' + 'ABCDEFGHIJKLMNOP\n1\n2\n3\nbefore\n');
+      git(['add', '-f', 'projects/p/ceo-plans/note.md'], home);
+      expect(git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--no-verify', '-m', 'baseline'], home).status).toBe(0);
+      git(['config', 'diff.context', '5'], home);
+    }, '  AKIA' + 'ABCDEFGHIJKLMNOP\n1\n2\n3\nafter\n'],
+    ['an AWS key that only a textconv driver decodes', (home: string) => {
+      fs.writeFileSync(path.join(home, '.git/info/attributes'), 'projects/p/ceo-plans/note.md diff=audit\n');
+      git(['config', 'diff.audit.textconv', 'base64 -d'], home);
+    }, Buffer.from('AKIA' + 'ABCDEFGHIJKLMNOP\n').toString('base64') + '\n'],
+  ] as [string, (home: string) => void, string][]) {
+    test(`the pre-commit hook refuses ${name}`, () => {
+      expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+      fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+      fs.mkdirSync(path.join(tmpHome, '.git/info'), { recursive: true });
+      setup(tmpHome);
+      fs.writeFileSync(path.join(tmpHome, 'projects/p/ceo-plans/note.md'), body);
+      git(['add', '-f', 'projects/p/ceo-plans/note.md']);
+      const r = git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', 'manual commit']);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('aws-access-key');
+    });
+  }
 
   test('the pre-commit hook fails closed when its scanner is missing or fails', () => {
     expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
@@ -642,6 +672,35 @@ describe('gstack-brain-sync secret scan', () => {
     expect(second.held.map((h: any) => h.path)).toEqual([rel]);
   });
 
+  // GST-2292 audit: the scan keeps main's plain diff as one reading, so a
+  // larger diff.context or a textconv driver still shows it what main saw.
+  test('an AWS key on an unchanged line that the user\'s diff.context 5 shows is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    fs.mkdirSync(path.join(tmpHome, 'projects/p/ceo-plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, rel), '  ' + AWS_KEY + '\n1\n2\n3\nbefore\n');
+    git(['add', '-f', rel]);
+    expect(git(['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--no-verify', '-m', 'baseline']).status).toBe(0);
+    git(['config', 'diff.context', '5']);
+    const status = syncFile(rel, '  ' + AWS_KEY + '\n1\n2\n3\nafter\n');
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+  });
+
+  test('an AWS key that only a configured textconv driver decodes is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    fs.mkdirSync(path.join(tmpHome, '.git/info'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, '.git/info/attributes'), rel + ' diff=audit\n');
+    git(['config', 'diff.audit.textconv', 'base64 -d']);
+    const status = syncFile(rel, Buffer.from(AWS_KEY + '\n').toString('base64') + '\n');
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+    expect(remoteFiles()).not.toContain(rel);
+  });
+
   test('a clean file whose name is an AWS access key is held', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
@@ -875,8 +934,9 @@ describe('gstack-brain-sync per-file hold', () => {
     expect(remoteLog()).toMatch(/sync: 997 file/);
     const calls = shim.calls();
     expect(calls.filter((c) => / add /.test(` ${c} `)).length).toBe(1);
-    // attribution diff + name list + post-hold re-scan diff + empty-diff check
-    expect(calls.filter((c) => c.includes('diff --cached')).length).toBeLessThanOrEqual(4);
+    // attribution diffs (plain and --text, GST-2292) + name list + post-hold
+    // re-scan diffs (plain and --text) + empty-diff check
+    expect(calls.filter((c) => c.includes('diff --cached')).length).toBeLessThanOrEqual(6);
     expect(spoolFiles()).toHaveLength(3);
   }, 120_000);
 
