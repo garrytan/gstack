@@ -174,7 +174,15 @@ _read_registered_worktrees() {
         _path=""
         ;;
     esac
-  done < <(git -C "$_GIT_ROOT" worktree list --porcelain -z 2>/dev/null)
+  done < <(_worktree_list git -C "$_GIT_ROOT")
+}
+# "$@" worktree list --porcelain, NUL-separated. git before 2.36 has no -z, so its
+# newline-separated list is used there (a path holding a newline then splits).
+_worktree_list() {
+  local _list
+  "$@" worktree list --porcelain -z 2>/dev/null && return 0
+  _list="$("$@" worktree list --porcelain 2>/dev/null)" || return 1
+  printf '%s\n\n' "$_list" | tr '\n' '\0'
 }
 # _in_list VALUE ITEM... — VALUE equals one of the ITEMs.
 _in_list() {
@@ -183,7 +191,7 @@ _in_list() {
   for _item in "$@"; do [ "$_item" = "$_want" ] && return 0; done
   return 1
 }
-# git inside a registered checkout, with no config able to run a command.
+# git inside a checkout, with its hooks and fsmonitor turned off.
 _wt_git() {
   local _dir="$1"
   shift
@@ -234,7 +242,7 @@ _is_registered_submodule() {
 # is kept even with --force-worktrees.
 _worktree_refusals() {
   local _wt _risk
-  if ! git -C "$_GIT_ROOT" worktree list --porcelain -z >/dev/null 2>&1; then
+  if ! _worktree_list git -C "$_GIT_ROOT" >/dev/null; then
     echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees/: git cannot list this repository's worktrees"
     return 0
   fi
@@ -399,14 +407,15 @@ _deletion_targets() {
   [ "$KEEP_STATE" -eq 1 ] || printf '%s\0' "$STATE_DIR"
 }
 # Prints why deleting git checkout $1, found inside deletion target $2, would
-# lose work: uncommitted changes, commits no remote-tracking branch holds, or a
+# lose work: uncommitted changes, commits neither a remote-tracking branch nor
+# FETCH_HEAD holds (a stable-channel upgrade fetches into FETCH_HEAD only), or a
 # locked worktree inside $2 or registered in the repository $1's own .git holds.
 _repo_risk() {
   local _out _field _wt _target_real
   [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$(_real "$1")" ] || { echo "is a git checkout git cannot read"; return 0; }
   _out="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "has a status git cannot read"; return 0; }
   [ -z "$_out" ] || { echo "has uncommitted changes"; return 0; }
-  _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
+  _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes $(_wt_git "$1" rev-parse -q --verify FETCH_HEAD 2>/dev/null) 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
   [ -z "$_out" ] || { echo "has commits no remote-tracking branch contains"; return 0; }
   _target_real="$(_real "$2")"
   while IFS= read -r -d '' _field; do
@@ -419,7 +428,7 @@ _repo_risk() {
         fi
         ;;
     esac
-  done < <(_wt_git "$1" worktree list --porcelain -z 2>/dev/null)
+  done < <(_worktree_list _wt_git "$1")
 }
 # Exits 2, before anything is removed, when a deletion target holds state this
 # run keeps (--keep-state, or a state root left in place) or a git checkout
@@ -435,7 +444,9 @@ _check_deletion_targets() {
     [ -z "$RESOLVED_ROOT" ] || _keeps+=("$RESOLVED_ROOT")
     [ -z "$_GIT_ROOT" ] || _keeps+=("$_GIT_ROOT/.gstack" "$_GIT_ROOT/.gstack-worktrees")
   fi
-  [ -z "$_GIT_ROOT" ] || [ ! -d "$_GIT_ROOT/.gstack-worktrees" ] || _lanes="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _lanes="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  fi
   while IFS= read -r -d '' _target; do
     [ -d "$_target" ] && [ ! -L "$_target" ] || continue
     _treal="$(_real "$_target")"

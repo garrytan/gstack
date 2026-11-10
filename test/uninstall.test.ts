@@ -1255,6 +1255,52 @@ describe('every deletion target is checked for unsaved git work before anything 
     expect(r.stderr).toContain(`refusing to delete ${install}: ${install} registers the locked worktree ${lane}`);
     expect(fs.existsSync(path.join(install, '.git'))).toBe(true);
   });
+
+  test('a dirty repo behind a .gstack-worktrees symlink into ~/.gstack stops the uninstall', () => {
+    const lane = pushedRepo(path.join(home, '.gstack', 'lanes', 'lane1'));
+    fs.writeFileSync(path.join(lane, 'SKILL.md'), 'my edit\n');
+    fs.symlinkSync(path.join(home, '.gstack', 'lanes'), path.join(proj, '.gstack-worktrees'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(home, '.gstack')}: ${lane} has uncommitted changes`);
+    expect(fs.readFileSync(path.join(lane, 'SKILL.md'), 'utf-8')).toBe('my edit\n');
+  });
+
+  test('a shallow stable-channel install advanced by git fetch origin stable is removed', () => {
+    fs.rmSync(install, { recursive: true, force: true });
+    const origin = path.join(tmp, 'channel-origin.git');
+    const seed = pushedRepo(path.join(tmp, 'channel-seed'));
+    git(['remote', 'set-url', 'origin', origin], seed);
+    git(['init', '-q', '--bare', '-b', 'main', origin], tmp);
+    git(['push', '-q', 'origin', 'main'], seed);
+    git(['clone', '-q', '--single-branch', '--depth', '1', `file://${origin}`, install], tmp);
+    fs.writeFileSync(path.join(seed, 'SKILL.md'), 'release\n');
+    git(['commit', '-q', '-am', 'release'], seed);
+    git(['push', '-q', 'origin', 'main', 'main:stable'], seed);
+    git(['fetch', '-q', 'origin', 'stable'], install);
+    git(['merge', '-q', '--ff-only', 'FETCH_HEAD'], install);
+    const r = uninstall(['--force']);
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(install)).toBe(false);
+  });
+
+  test('on a git older than 2.36 (no worktree list -z) a locked worktree of the install still stops the uninstall', () => {
+    const lane = path.join(tmp, 'lane');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
+    git(['worktree', 'lock', lane], install);
+    const shim = path.join(tmp, 'oldgit');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/bash\ncase " $* " in *" worktree list "*" -z "*) echo "error: unknown switch z" >&2; exit 129 ;; esac\nexec ${JSON.stringify(Bun.which('git'))} "$@"\n`, { mode: 0o755 });
+    const r = spawnSync('bash', [UNINSTALL, '--force'], {
+      cwd: proj, encoding: 'utf-8', timeout: 30_000,
+      env: { ...gitEnv, PATH: `${shim}:${gitEnv.PATH}`, HOME: home, GSTACK_DIR: install, GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} registers the locked worktree ${lane}`);
+    expect(fs.existsSync(path.join(install, '.git'))).toBe(true);
+  });
 });
 
 describe('locked worktrees are found by NUL-separated paths (GST-2303)', () => {
