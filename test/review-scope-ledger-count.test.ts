@@ -24,13 +24,21 @@ const review = (min: number, pass: number, findings: object[]) => ({ skill: 'rev
 const fixCheck = (min: number, findings: object[]) => ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), review_scope: 'frozen', findings });
 const note = (fp: string, raised_by: string) => ({ fingerprint: fp, severity: 'INFORMATIONAL', action: 'noted', blocking: false, raised_by });
 
+/**
+ * A JSON reader's finding lines in its brief's schema (GST-2237: its prose is never a finding): `[CRITICAL] src/a.ts:3 text` becomes
+ * `{"severity":"CRITICAL","summary":"src/a.ts:3 text"}`, whose locus ledgerBlockers still reads from the text.
+ */
+const inSchema = (reader: string, output: string) => /^(?:specialist|specialist-batched|red-team|targeted|fix-check)(?:\/|$)/.test(reader) && output !== CLEAN
+  ? output.split('\n').map(l => { const m = /^(?:- )?\[(\w+)\]\s+(.*)$/.exec(l); return m ? JSON.stringify({ severity: m[1], summary: m[2] }) : l; }).join('\n')
+  : output;
+
 /** One pass directory: each reader's output collected into its ledger, then lead judgment (default: every label kept). */
 function pass(dir: string, readers: Array<[string, string]>, judgeWith = (merged: MergedLine[]): JudgedLine[] => merged.map(m => ({ id: m.id, severity: m.label }))): string {
   fs.mkdirSync(dir, { recursive: true });
   const ledger = path.join(dir, 'review-ledger.jsonl');
   const mergedFile = path.join(dir, 'merged.jsonl');
   fs.writeFileSync(mergedFile, '');
-  for (const [reader, output] of readers) expect(collect(ledger, reader, output, mergedFile).review).toBe(true);
+  for (const [reader, output] of readers) expect(collect(ledger, reader, inSchema(reader, output), mergedFile).review).toBe(true);
   const merged = readJsonl<MergedLine>(mergedFile);
   const judged = judgeWith(merged);
   const judgedFile = path.join(dir, 'judged.jsonl');
@@ -213,7 +221,7 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     const ledger = path.join(rejected, 'review-ledger.jsonl');
     const mergedFile = path.join(rejected, 'merged.jsonl');
     fs.writeFileSync(mergedFile, '');
-    collect(ledger, 'red-team', '[CRITICAL] src/a.ts:3 the guard is inverted', mergedFile);
+    collect(ledger, 'red-team', inSchema('red-team', '[CRITICAL] src/a.ts:3 the guard is inverted'), mergedFile);
     const merged = readJsonl<MergedLine>(mergedFile);
     const judgedFile = path.join(rejected, 'judged.jsonl');
     fs.writeFileSync(judgedFile, JSON.stringify({ id: merged[0]!.id, severity: 'INFORMATIONAL' }) + '\n');

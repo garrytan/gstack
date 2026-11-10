@@ -21,9 +21,17 @@ const NO_DEFECT_SUMMARIES: Record<string, string[]> = {
   'Nothing CRITICAL to report.': [], 'No CRITICAL/HIGH findings.': [], 'No P0/P1 issues.': [], 'No CRITICAL, HIGH or MEDIUM issues.': [],
   'There are no CRITICAL findings.': [], 'No CRITICAL or High findings to report.': [],
   'I found nothing CRITICAL.': [], "So there's nothing at CRITICAL.": [], 'Neither finding is CRITICAL.': [], 'Nothing here is CRITICAL.': [], 'Neither fix is CRITICAL.': [],
-  'Nothing in this diff is CRITICAL.': [], 'review-ledger/geva-77-fix-check.txt': Array(3).fill('INFORMATIONAL'),
-  'review-ledger/harn15-ship2-p2-red-team.txt': Array(4).fill('INFORMATIONAL'), 'review-ledger/harn15-ship2-p2-fix-check.txt': Array(5).fill('INFORMATIONAL'),
+  'Nothing in this diff is CRITICAL.': [],
 };
+
+/**
+ * GST-2237: a JSON reader (specialist, specialist-batched, red-team, targeted, fix-check) collects exactly the severities its JSON objects
+ * state, its prose never; main is no floor for its prose. A cut-off object keeps the severity it names.
+ */
+const JSON_READER = /^(?:specialist|specialist-batched|red-team|targeted|fix-check)(?:\/|$)/;
+const jsonLabels = (output: string) => output.split('\n').map(l => l.trim()).filter(l => l.startsWith('{')).flatMap(l => {
+  try { const o = JSON.parse(l); return typeof o.severity === 'string' ? [o.severity] : []; } catch { const m = /"severity"\s*:\s*"([^"]*)/i.exec(l); return m ? [m[1]!] : []; }
+});
 
 describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
   // Value: protects=no input the suite pins, no reader fixture and no Severity field shape collects below the label main (82e9d7ec)
@@ -44,6 +52,7 @@ describe('parseFindings is never weaker than main (GST-976 invariant)', () => {
     for (const e of entries as Array<{ reader: string; output?: string; fixture?: string; main: string[] }>) {
       const output = e.output ?? fs.readFileSync(path.join(ROOT, 'test/fixtures', e.fixture!), 'utf8');
       const got = parseFindings(e.reader, output, raises);
+      if (JSON_READER.test(e.reader)) { if (JSON.stringify(got.map(f => f.label)) !== JSON.stringify(jsonLabels(output))) bad.push(`GST-2237 ${JSON.stringify(got.map(f => f.label))} ${JSON.stringify(output.slice(0, 80))}`); continue; }
       const summary = NO_DEFECT_SUMMARIES[e.fixture ?? output];
       if (summary) { if (JSON.stringify(got.map(f => f.label)) !== JSON.stringify(summary)) bad.push(`GST-435 ${JSON.stringify(got.map(f => f.label))} ${JSON.stringify(output.slice(0, 80))}`); continue; }
       if (!e.main.length) continue;

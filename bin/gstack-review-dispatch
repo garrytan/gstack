@@ -598,7 +598,9 @@ function main(): number {
     }
     if (unavailable !== undefined) { process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(unavailable)} (missing outside coverage: unavailable, never clean)\n`); return EXIT.ok; }
     if (!r.review) {
-      process.stdout.write(`COLLECT_NOT_REVIEWED: reader=${reader} findings=0 sha256=${r.sha} (no finding and no ${cleanMarkers(reader).map(([m]) => m).join(' or ')} line: a refusal, an empty reply or a reader that never saw the diff is not a review; verify reports this brief NOT_COLLECTED)\n`);
+      process.stdout.write(r.why === 'prose_not_collected'
+        ? `COLLECT_NOT_REVIEWED: reader=${reader} findings=0 sha256=${r.sha} reason=prose_not_collected (a line names a severity or a file:line but no finding could be read from it: re-send the brief; verify reports this brief NOT_COLLECTED)\n`
+        : `COLLECT_NOT_REVIEWED: reader=${reader} findings=0 sha256=${r.sha} (no finding and no ${cleanMarkers(reader).map(([m]) => m).join(' or ')} line: a refusal, an empty reply or a reader that never saw the diff is not a review; verify reports this brief NOT_COLLECTED)\n`);
       return EXIT.fail;
     }
     process.stdout.write(`COLLECT: reader=${reader} findings=${r.lines.length} sha256=${r.sha} merged=${merged}\n`);

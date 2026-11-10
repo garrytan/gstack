@@ -894,7 +894,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    prompt and runs `sent` on what it passed: a hash that differs from the rendered
    one is `BRIEF_MISMATCH`, and that reader's review does not count.
 3. `collect` hashes each reader's raw output and appends its findings to
-   `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
+   `merged.jsonl` with the label as written. The five readers whose brief demands JSON (the specialists, the batched
+   specialist, the Red Team, the targeted reader and fix-check) collect only JSON objects with a `severity` key, whatever
+   the layout (one line, pretty-printed, nested, in an array or a code fence; a cut-off object at the severity it names),
+   and their prose is never a finding (GST-2237). The two prose voices collect as follows (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
    wherever they stand, headings and table rows included, except that a line with its own `Severity` field takes that
    field's label (any letter case; a field stating more than one label, "High/Critical", counts as none), so a severity word in the finding's text does not raise it, and a label leading the line stays its floor (GST-976); a top-level list item under a
@@ -954,11 +957,26 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
    review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
    its label counts it again.
+   In a prose voice's reply that carries its clean marker, prose with none of that structure collects only beside a
+   structured finding; on its own ("Critical paths (checkout, refund) are covered by the new tests.") it collects nothing,
+   and the reply fails closed as below (GST-2237). In a `NO FINDINGS` reply the native voice's FIXABLE or INVESTIGATE
+   counts as structure only as a tag (`[FIXABLE]`, `(FIXABLE)`, `FIXABLE:`), not as a mention ("the two FIXABLE items
+   from pass 1; both are fixed").
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
    line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader
-   that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1.
+   that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1. A prose voice's
+   reply whose only marker is the `Recommendation:` line fails closed the same way when it collected no finding but a line
+   names a severity in any letter case (P0 to P3 in capitals), FIXABLE, INVESTIGATE, a blocker, a file:line or
+   `VERDICT: FINDINGS` and is not wholly a denial ("No Critical or High findings."): the collector could not read a finding
+   it may hold, so it prints `COLLECT_NOT_REVIEWED ... reason=prose_not_collected`, verify reports `NOT_REVIEWED` with
+   `prose_not_collected`, and the brief is re-sent. An explicit `NO FINDINGS` stays a clean review whatever its notes say,
+   and a JSON reader's reply with a JSON finding is a review whatever prose surrounds it.
+   What blocks: every collected label that ranks CRITICAL (Critical, P0, a native FIXABLE raised to CRITICAL), the outside
+   voice's High and P1 (its brief: "A Critical, High or `Blocks: yes` finding is CRITICAL", "P0/P1 findings block like
+   native ones"), and any label no vocabulary ranks (`CRITICAL (blocks shipping)`, `BLOCKER`), which counts as CRITICAL and
+   which lead judgment may not lower. `Blocks: no` keeps the meaning given above.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id

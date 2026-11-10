@@ -291,7 +291,7 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('one pass: specialists, then the Red Team on their collected lines; every prompt is the rendered brief; the ledger verifies clean', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
-    const h = host(dir, env, { output: t => (t.endsWith('specialist-batched') ? 'High: src/a.ts:3 the export is untested' : 'NO FINDINGS') });
+    const h = host(dir, env, { output: t => (t.endsWith('specialist-batched') ? '{"severity":"High","path":"src/a.ts","line":3,"summary":"the export is untested"}' : 'NO FINDINGS') });
     const medium = { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' };
     const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], models: { specialist: medium, 'red-team': medium } });
     expect(h.creates.every(c => JSON.stringify(c.model) === JSON.stringify(medium))).toBe(true);
@@ -1349,7 +1349,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     made.push(dir);
     const out = path.join(dir, '.state/run/p1');
     const beam = path.join(dir, '.state/BEAM');
-    const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return 'High: src/a.ts:3 SEALED-QUOTE leaked from the clone'; } return 'NO FINDINGS'; } });
+    const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return '{"severity":"High","path":"src/a.ts","line":3,"summary":"SEALED-QUOTE leaked from the clone"}'; } return 'NO FINDINGS'; } });
     const blocked = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
     expect(blocked).toContain('FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=' + "'" + fs.realpathSync(beam) + "'");
     expect(blocked).toContain('KEEP: ' + "'" + fs.realpathSync(beam) + "'");
@@ -1383,7 +1383,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     made.push(dir);
     const out = path.join(dir, '.state/run/p1');
     const beam = path.join(dir, '.state/BEAM');
-    const h = host(dir, env, { output: t => { if (t === 'ship f3p1 specialist-batched') clone(beam); if (t === 'ship f3p1 specialist-batched#2' && fs.existsSync(beam)) return 'High: src/a.ts:3 SEALED-QUOTE read from the kept clone'; return 'NO FINDINGS'; } });
+    const h = host(dir, env, { output: t => { if (t === 'ship f3p1 specialist-batched') clone(beam); if (t === 'ship f3p1 specialist-batched#2' && fs.existsSync(beam)) return '{"severity":"High","path":"src/a.ts","line":3,"summary":"SEALED-QUOTE read from the kept clone"}'; return 'NO FINDINGS'; } });
     let res = await runPass(h, { base: 'main', out, pass: 'f3p1', planFlags: ['--depth-floor', 'full'] });
     for (let i = 0; i < 4 && res.includes('NEXT: poll'); i++) res = await runPass(h, { base: 'main', out, pass: 'f3p1', planFlags: ['--depth-floor', 'full'] });
     const kept = fs.realpathSync(beam);

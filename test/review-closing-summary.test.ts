@@ -6,7 +6,7 @@ import { collect, judge, ledgerBlockers, parseFindings, readJsonl, recordJudgmen
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const fixture = (name: string) => fs.readFileSync(path.join(ROOT, 'test/fixtures/review-ledger', name), 'utf8');
-const labels = (output: string, reader = 'fix-check') => parseFindings(reader, output).map(f => f.label);
+const labels = (output: string, reader = 'outside-voice') => parseFindings(reader, output).map(f => f.label);
 
 describe("a reader's no-defect closing sentence is not a finding (GST-435)", () => {
   // Value: protects=a fix-check's own closing sentence that denies every severity it names ("I found nothing CRITICAL",
@@ -26,8 +26,9 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
       expect([line, labels(line)]).toEqual([line, ['INFORMATIONAL']]);
   });
 
-  test('the #194 and #202 fix-check replies collect no blocker: the closing line stays on record as a note', () => {
-    for (const [name, json] of [['gst-435-closing-nothing-critical.txt', 4], ['gst-435-closing-no-defect.txt', 3]] as const) {
+  // GST-2237: a fix-check reader is a JSON reader, so its closing prose is never a finding and only its JSON objects collect.
+  test('the #194 and #202 fix-check replies collect no blocker: only their JSON findings collect', () => {
+    for (const [name, json] of [['gst-435-closing-nothing-critical.txt', 3], ['gst-435-closing-no-defect.txt', 2]] as const) {
       const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst435-'));
       const ledger = path.join(d, 'l.jsonl');
       const merged = path.join(d, 'm.jsonl');
@@ -42,8 +43,7 @@ describe("a reader's no-defect closing sentence is not a finding (GST-435)", () 
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst435-'));
     const merged = path.join(d, 'm.jsonl');
     const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fixture('geva-77-fix-check.txt'), merged);
-    expect(r.lines.map(l => [l.id, l.label])).toEqual([['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL'], ['fix-check#3', 'INFORMATIONAL']]);
-    expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
+    expect(r.lines.map(l => [l.id, l.label])).toEqual([['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]);
     expect(judge(readJsonl<MergedLine>(merged), r.lines.map(l => ({ id: l.id, severity: l.label }))).ok).toBe(true);
     fs.rmSync(d, { recursive: true, force: true });
   });

@@ -41,8 +41,9 @@ describe('a clean reply or a denial in reader prose is never a blocker (GST-2122
   test("alphaclaw's fix-check sentence is no blocker", () => {
     expect(labels('fix-check', fixCheck(ALPHACLAW))).toEqual([]);
     const prose = fixCheck(`I re-read each fix against its finding and the tests that cover it. ${ALPHACLAW}`);
-    expect(labels('fix-check', prose)).toEqual(['INFORMATIONAL']);
-    expect(blockersOf('fix-check', prose)).toEqual([]);
+    expect(labels('fix-check', prose)).toEqual([]);
+    expect(labels('outside-voice', prose)).toEqual(['INFORMATIONAL']);
+    expect(blockersOf('outside-voice', prose)).toEqual([]);
     const clean = fixCheck(`NO FINDINGS\n\n${ALPHACLAW}`);
     expect(labels('fix-check', clean)).toEqual([]);
     expect(blockersOf('fix-check', clean)).toEqual([]);
@@ -88,7 +89,8 @@ describe('the structured finding formats still collect at their label (GST-2122 
       'NO FINDINGS\n\nThe token is logged at log.ts:3. Blocks: yes',
       '{"severity":"CRITICAL","path":"lib/a.ts","line":3,"summary":"cut off',
     ];
-    for (const c of cases) expect([c, labels('red-team', fixCheck(c))]).toEqual([c, ['CRITICAL']]);
+    for (const c of cases) expect([c, labels('outside-voice', fixCheck(c))]).toEqual([c, ['CRITICAL']]);
+    for (const c of [cases[0]!, cases[3]!]) expect([c, labels('red-team', fixCheck(c))]).toEqual([c, ['CRITICAL']]);
   });
 
   // Value: protects=outside a NO FINDINGS reply prose severity collects as before this change (fail-closed): #4075's surviving fix-check
@@ -97,8 +99,12 @@ describe('the structured finding formats still collect at their label (GST-2122 
   //   ledgerBlockers; no_claim=that every prose blocker is real (judge folds phantoms)
   test("#4075's prose blocker still blocks", () => {
     const out = fixCheck('Neither fix clears the P0.');
-    expect(labels('fix-check', out)).toEqual(['P0']);
-    expect(blockersOf('fix-check', out)).toEqual(['fix-check#1']);
+    expect(labels('outside-voice', out)).toEqual(['P0']);
+    expect(blockersOf('outside-voice', out)).toEqual(['outside-voice#1']);
+    // GST-2237: from a JSON reader the same prose is no finding and no review, so it is re-asked, never counted clean.
+    expect(labels('fix-check', out)).toEqual([]);
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst2122r-'));
+    try { expect(collect(path.join(d, 'l.jsonl'), 'fix-check', out, path.join(d, 'm.jsonl')).review).toBe(false); } finally { fs.rmSync(d, { recursive: true, force: true }); }
   });
 
   // Value: protects=the bypass is bounded to clean replies: prose with no finding structure collects at its label in a reply with no
@@ -106,7 +112,8 @@ describe('the structured finding formats still collect at their label (GST-2122 
   //   anything; why_new=the NO FINDINGS rule's one bypass, pinned; seam=parseFindings; no_claim=that unstructured prose under NO
   //   FINDINGS is never a real defect
   test('unstructured prose keeps its label unless the reply says NO FINDINGS', () => {
-    for (const reader of ['red-team', 'fix-check', 'outside-voice']) {
+    for (const reader of ['red-team', 'fix-check']) expect([reader, labels(reader, fixCheck('The handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, []]);
+    for (const reader of ['outside-voice']) {
       expect([reader, labels(reader, fixCheck('The handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, ['CRITICAL']]);
       expect([reader, labels(reader, fixCheck('NO FINDINGS\n\nThe handler skips the auth check, which is CRITICAL.'))]).toEqual([reader, []]);
     }
@@ -118,7 +125,7 @@ describe('the structured finding formats still collect at their label (GST-2122 
   //   counted as structure and brought the GST-2122 stop back for "**1. Coverage:** no fix introduced a CRITICAL defect."; seam=parseFindings;
   //   no_claim=that every denial spelling is read
   test('a denial after a bold lead collects nothing, headings included', () => {
-    for (const reader of ['adversarial-native', 'red-team', 'fix-check']) {
+    for (const reader of ['adversarial-native', 'outside-voice']) {
       expect([reader, labels(reader, fixCheck('**1. Coverage:** no fix introduced a CRITICAL defect.'))]).toEqual([reader, []]);
       expect([reader, labels(reader, fixCheck('NO FINDINGS\n\n**1. Coverage:** no fix introduced a CRITICAL defect.'))]).toEqual([reader, []]);
       expect([reader, labels(reader, fixCheck('- **Callers:** none of the fixes introduced a High regression.'))]).toEqual([reader, []]);

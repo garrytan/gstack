@@ -7,7 +7,7 @@ import { collect, ledgerBlockers, parseFindings, rank, readJsonl, recordJudgment
 const DIR = path.resolve(import.meta.dir, 'fixtures/review-ledger/gst-1628');
 const read = (f: string) => fs.readFileSync(path.join(DIR, f), 'utf8');
 const roleOf = (f: string) => f.replace(/\.txt$/, '').split('_').at(-1)!;
-const labels = (output: string, reader = 'fix-check', raises = true) => parseFindings(reader, output, raises).map(f => f.label);
+const labels = (output: string, reader = 'outside-voice', raises = true) => parseFindings(reader, output, raises).map(f => f.label);
 
 /** Captured reader outputs (Captain drive handoffs, gstack ship runs) with every label main 1a06afd collected; each CRITICAL is the reader's own blocking rating. */
 const REAL: Record<string, string[]> = {
@@ -31,14 +31,16 @@ describe('a sentence that denies a severity never collects at it (GST-1628)', ()
   //   counts a blocker for either; why_new=#247 (fc2 blocking_found=1) and #4055 (blocking_found=2 for one real blocker) each had to
   //   explain a phantom the judge refused to lower; seam=parseFindings, collect, recordJudgment and ledgerBlockers; no_claim=that every
   //   denial spelling is recognized
+  // GST-2237: both readers are fix-checks, JSON readers whose prose never collects: #247's prose-only reply is no review at all (it is
+  //   re-asked), and #4055's closing line no longer collects, so neither leaves anything for lead judgment to lower.
   test('neither captured phantom counts as a blocker', () => {
     const evals = 'geva-350-evals247-fc2-closing_fix-check.txt';
     const crew = 'gsta-329-pr4055-fc_fix-check.txt';
     for (const raises of [true, false]) {
-      expect([raises, labels(read(evals), 'fix-check', raises)]).toEqual([raises, ['INFORMATIONAL']]);
-      expect([raises, labels(read(crew), 'fix-check', raises)]).toEqual([raises, ['INFORMATIONAL', 'INFORMATIONAL', 'CRITICAL']]);
+      expect([raises, labels(read(evals), 'fix-check', raises)]).toEqual([raises, []]);
+      expect([raises, labels(read(crew), 'fix-check', raises)]).toEqual([raises, ['INFORMATIONAL', 'INFORMATIONAL']]);
     }
-    for (const [name, lower] of [[evals, {}], [crew, { 'fix-check#3': 'the reader wrote "Nothing reaches the CRITICAL floor": a no-defect closing line' }]] as const) {
+    for (const [name, lower] of [[evals, {}], [crew, {}]] as const) {
       const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gst1628-'));
       const ledger = path.join(d, 'l.jsonl');
       const merged = path.join(d, 'm.jsonl');

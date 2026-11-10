@@ -335,8 +335,10 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     for (const prose of ['No CRITICAL issues except the token leak in log.ts:3', 'There is no CRITICAL issue other than the SQL injection at db.ts:12',
       'Nothing CRITICAL apart from the auth bypass (auth.ts:9).', 'No new CRITICAL findings, but the token leak in log.ts:3 still blocks.',
       'None CRITICAL besides the race in queue.ts:40, which loses writes.', '- **No CRITICAL** issues remain except F2 (store.ts:22 corrupts data).'])
-      for (const reader of ['outside-voice', 'fix-check', 'red-team', 'adversarial-native'])
+      for (const reader of ['outside-voice', 'adversarial-native'])
         expect([prose, reader, parseFindings(reader, prose).map(f => f.label)]).toEqual([prose, reader, ['CRITICAL']]);
+    // GST-2237: a JSON reader's prose is no finding (and with no JSON object or NO FINDINGS, no review).
+    for (const reader of ['fix-check', 'red-team']) expect([reader, parseFindings(reader, 'No CRITICAL issues except the token leak in log.ts:3')]).toEqual([reader, []]);
   });
 
   // Value: protects=a negated severity word still collects at its label, so a reader's closing prose ("found nothing CRITICAL" after a
@@ -354,14 +356,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
       '- The new secondary: 47/60, 15/60, 5/40, 7/40, 4/40 and 11.5/40.',
       '- The minimum p of 2^-15.',
     ].join('\n');
-    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL', 'CRITICAL']);
+    expect(parseFindings('fix-check', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
+    expect(parseFindings('outside-voice', fixCheck).map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL', 'CRITICAL']);
     const kept: Array<[string, string]> = [['Found no CRITICAL issues in the fix range.', 'CRITICAL'], ['This is not CRITICAL.', 'CRITICAL'],
       ['I found zero Critical findings, and none High.', 'Critical'], ['The retry path is safe; without CRITICAL impact.', 'CRITICAL'], ['No new CRITICAL issues introduced by the fix.', 'CRITICAL'],
       ['No remaining CRITICAL or HIGH findings.', 'CRITICAL'], ['**No** CRITICAL issues found.', 'CRITICAL'],
       ['No [P1] issues remain.', 'P1'], ['No CRITICAL regressions introduced by the fix.', 'CRITICAL'],
       ['There is nothing CRITICAL in the fix range.', 'CRITICAL'], ['No CRITICAL — the fix is sound.', 'CRITICAL'], ['Found no CRITICAL or HIGH regressions.', 'CRITICAL'], ['No HIGH-risk changes.', 'HIGH'],
       ['Checked collect() at lib/review-ledger.ts:189; no CRITICAL issues remain.', 'CRITICAL'], ['No CRITICAL issues; served on localhost:3000.', 'CRITICAL']];
-    for (const [prose, label] of kept) expect([prose, parseFindings('fix-check', prose).map(f => f.label)]).toEqual([prose, [label]]);
+    for (const [prose, label] of kept) expect([prose, parseFindings('outside-voice', prose).map(f => f.label)]).toEqual([prose, [label]]);
     for (const prose of ['Nothing CRITICAL or HIGH remains.', 'No **CRITICAL** issues found.', 'No `CRITICAL` issue.', 'Nothing at CRITICAL severity remains.', 'Nothing CRITICAL to report.',
       'No CRITICAL/HIGH findings.', 'No P0/P1 issues.', 'No CRITICAL, HIGH or MEDIUM issues.'])
       expect([prose, parseFindings('fix-check', prose).map(f => f.label)]).toEqual([prose, []]);
@@ -616,7 +619,8 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('adversarial-native', native).map(f => f.label)).toEqual(['CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL', 'INVESTIGATE', 'INVESTIGATE', 'CRITICAL']);
     expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low. Blocks: no').map(f => f.label)).toEqual(['Low']);
     expect(parseFindings('adversarial-native', '**1. Race in a.ts:3 (`FIXABLE`).**\nSeverity: Low.').map(f => f.label)).toEqual(['CRITICAL']);
-    expect(parseFindings('red-team', '1. Race in a.ts:3 (FIXABLE).').map(f => f.label)).toEqual(['FIXABLE']);
+    expect(parseFindings('outside-voice', '1. Race in a.ts:3 (FIXABLE).').map(f => f.label)).toEqual(['FIXABLE']);
+    expect(parseFindings('red-team', '1. Race in a.ts:3 (FIXABLE).')).toEqual([]);
     expect(parseFindings('adversarial-native', 'No rate limit is FIXABLE (login.ts:9)').map(f => f.label)).toEqual(['CRITICAL']);
   });
 
@@ -632,17 +636,18 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     const replies: Array<[string, string, string, number]> = [['red-team', 'harn15-ship2-red-team.txt', 'CRITICAL', 3], ['red-team', 'harn15-ship2-p2-red-team.txt', 'INFORMATIONAL', 3],
       ['fix-check', 'harn15-ship2-p2-fix-check.txt', 'INFORMATIONAL', 4], ['fix-check', 'harn15-152-p2-fix-check.txt', 'CRITICAL', 2]];
     for (const [reader, name, summary, json] of replies) {
-      const found = parseFindings(reader, fixture(name));
+      const found = parseFindings('outside-voice', fixture(name));
       expect([name, found.map(f => f.label)]).toEqual([name, [summary, ...Array(json).fill('INFORMATIONAL')]]);
       expect(found[0]!.raw).toMatch(/(no|nothing( at)?) CRITICAL/);
+      // GST-2237: from the JSON reader that wrote it, only the JSON findings collect.
+      expect([name, parseFindings(reader, fixture(name)).map(f => f.label)]).toEqual([name, Array(json).fill('INFORMATIONAL')]);
     }
     const fc = fixture('geva-77-fix-check.txt');
     const d = tmp();
     const merged = path.join(d, 'merged.jsonl');
     const r = collect(path.join(d, 'l.jsonl'), 'fix-check', fc, merged);
-    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL'], ['fix-check#3', 'INFORMATIONAL']]]);
-    expect(r.lines[2]!.raw).toStartWith('Neither finding is CRITICAL.');
-    const phantom = collect(path.join(d, 'l2.jsonl'), 'fix-check', fixture('harn15-152-p2-fix-check.txt'), path.join(d, 'm2.jsonl'));
+    expect([r.review, r.lines.map(l => [l.id, l.label])]).toEqual([true, [['fix-check#1', 'INFORMATIONAL'], ['fix-check#2', 'INFORMATIONAL']]]);
+    const phantom = collect(path.join(d, 'l2.jsonl'), 'outside-voice', fixture('harn15-152-p2-fix-check.txt'), path.join(d, 'm2.jsonl'));
     fs.writeFileSync(path.join(d, 'j2.jsonl'), phantom.lines.map(l => JSON.stringify({ id: l.id, severity: 'INFORMATIONAL' })).join('\n') + '\n');
     expect(judge(readJsonl<MergedLine>(path.join(d, 'm2.jsonl')), readJsonl(path.join(d, 'j2.jsonl'))).ok).toBe(false);
     for (const line of ['There are no CRITICAL findings.', 'No CRITICAL or High findings to report.', 'I found nothing CRITICAL.', "So there's nothing at CRITICAL.",
@@ -665,11 +670,15 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect(parseFindings('outside-voice', '1. Lock race (a.ts:3)\n\n   Fix: take it first. Blocks: yes\n2. Cache drift (c.ts:4)').map(f => f.label)).toEqual(['CRITICAL']);
     expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"critical","summary":"Low-level race in q.ts"}').map(f => [f.label, f.raw]))
       .toEqual([['critical', '{"severity":"critical","summary":"Low-level race in q.ts"}']]);
-    expect(parseFindings('red-team', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['Critical', '2. Token leak in the logger']]);
-    expect(parseFindings('red-team', '1. Unescaped query\n   ## High\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['High', '2. Token leak in the logger']]);
-    expect(parseFindings('red-team', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
-    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
+    expect(parseFindings('outside-voice', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['Critical', '2. Token leak in the logger']]);
+    expect(parseFindings('outside-voice', '1. Unescaped query\n   ## High\n2. Token leak in the logger').map(f => [f.label, f.raw])).toEqual([['High', '2. Token leak in the logger']]);
+    expect(parseFindings('outside-voice', '1. Race in queue\n- Severity: Low\n   this one blocks. Blocks: yes').map(f => f.label)).toEqual(['CRITICAL']);
+    expect(parseFindings('outside-voice', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
       .toEqual([['CRITICAL', '{"severity":"low","summary":"race"} | this blocks the merge. Blocks: yes']]);
+    // GST-2237: a JSON reader collects its JSON object at its own severity; the prose around it is never a finding.
+    expect(parseFindings('red-team', '1. Unescaped query\n   **Critical**\n2. Token leak in the logger')).toEqual([]);
+    expect(parseFindings('red-team', '1. Unescaped query\n   {"severity":"low","summary":"race"}\n   this blocks the merge. Blocks: yes').map(f => [f.label, f.raw]))
+      .toEqual([['low', '{"severity":"low","summary":"race"}']]);
   });
 
   // Value: protects=a finding's own Severity and Blocks fields set its collected label, so a severity word in its body never raises it

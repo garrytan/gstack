@@ -75,8 +75,8 @@ describe('a numbered native finding keeps its closing paragraph after a nested l
       expect(blockers(output).blockers).toBe(1);
     }
     const critical = ['1. Webhook routes skip signature validation, a CRITICAL gap.', '   - first detail', '   - second detail', '', 'The log line omits the locale. Severity: Low.'].join('\n');
-    for (const reader of ['outside-voice', 'red-team', 'specialist/testing'])
-      expect([reader, parseFindings(reader, critical).map(f => f.label)]).toEqual([reader, ['CRITICAL', 'Low']]);
+    expect(parseFindings('outside-voice', critical).map(f => f.label)).toEqual(['CRITICAL', 'Low']);
+    for (const reader of ['red-team', 'specialist/testing']) expect([reader, parseFindings(reader, critical)]).toEqual([reader, []]);
     expect(native(critical).map(f => f.label)[0]).toBe('CRITICAL');
     expect(blockers(critical).blockers).toBe(1);
   });

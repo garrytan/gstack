@@ -134,7 +134,7 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     const ledger = path.join(out, 'review-ledger.jsonl');
     const merged = path.join(out, 'merged.jsonl');
     const reply = path.join(out, 'security.txt');
-    fs.writeFileSync(reply, '1. **CRITICAL**: a.ts:3 leaks a token\nBlocks: yes\n');
+    fs.writeFileSync(reply, '{"severity":"CRITICAL","path":"a.ts","line":3,"summary":"leaks a token"}\n');
     const c = collect(ledger, 'specialist/security', fs.readFileSync(reply, 'utf8'), merged, reply);
     expect(c.lines.map(l => l.id)).toEqual(['specialist/security#1']);
     expect(ledgerBlockers(ledger).map(b => b.id)).toEqual(['specialist/security#1']);
@@ -152,7 +152,7 @@ describe('review-sweep quarantine and printed paths (GST-1322 PR B /ship pass 1)
     const ledger = path.join(out, 'review-ledger.jsonl');
     const merged = path.join(out, 'merged.jsonl');
     const reply = path.join(out, 'security.txt');
-    fs.writeFileSync(reply, '1. **CRITICAL**: a.ts:3 SEALED-QUOTE read from the clone\nBlocks: yes\n');
+    fs.writeFileSync(reply, '{"severity":"CRITICAL","path":"a.ts","line":3,"summary":"SEALED-QUOTE read from the clone"}\n');
     collect(ledger, 'specialist/security', fs.readFileSync(reply, 'utf8'), merged, reply);
     expect(collect(ledger, 'specialist/security', fs.readFileSync(reply, 'utf8'), merged, reply).lines.map(l => l.id)).toEqual(['specialist/security#2.1']);
     const m = { pass: 'p1', out, ledger, merged, readers: [{ reader: 'specialist/security', role: 'specialist', name: 'security', title: 'security', stage: 'specialists', state: 'rendered', output: reply }] } as unknown as Manifest;

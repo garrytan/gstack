@@ -55,7 +55,8 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
   //   why_new=both stopped /ship with NEXT: stop; seam=collect, judge, ledgerBlockers; no_claim=that a dismissal is right (it is on record)
   const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gst1031s-'));
   test('the negated and the plain summary sentence are candidates; dismissed with a reason they leave the blocker count', () => {
-    for (const [reader, output, id] of [['fix-check', 'None of these would fail a test or let a real consumer through on input the fix was about, so nothing is CRITICAL.\n', 'fix-check#1'], ['fix-check', fixture('gst-1031-fix-check.txt'), 'fix-check#4']]) {
+    // GST-2237: fix-check is a JSON reader now, so its prose never collects; the outside voice carries the same sentences.
+    for (const [reader, output, id] of [['outside-voice', 'None of these would fail a test or let a real consumer through on input the fix was about, so nothing is CRITICAL.\n', 'outside-voice#1'], ['outside-voice', fixture('gst-1031-fix-check.txt'), 'outside-voice#4']]) {
       const d = dir();
       const ledger = path.join(d, 'l.jsonl');
       const merged = path.join(d, 'm.jsonl');
@@ -81,7 +82,7 @@ describe('a closing summary is a candidate lead judgment may dismiss on record (
       'The session token is written to the debug log on every request, a CRITICAL leak.', 'Nothing guards the write path the failure of which is CRITICAL',
       'There is no CRITICAL lock around the refund write, so two workers double-pay.', 'The patch closes the CRITICAL window only on Linux; on macOS the race remains.']) {
       expect([line, summaryCandidate(line)]).toEqual([line, false]);
-      expect(parseFindings('fix-check', line).length).toBe(1);
+      expect(parseFindings('outside-voice', line).length).toBe(1);
     }
     const lowered = judge([{ id: 'r#1', reader: 'r', label: 'CRITICAL', raw: 'No CRITICAL issues except the token leak in log.ts:3.', output_sha256: 'x' }], [{ id: 'r#1', severity: 'INFORMATIONAL', reason: 'summary' }]);
     expect(lowered).toMatchObject({ ok: false, downgraded: ['r#1'] });
@@ -115,7 +116,7 @@ describe('lead judgment may lower a native finding to the Severity its reader st
     expect(run('adversarial-native', OUT, 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace('Blocks: no', 'Blocks: yes'), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace(' Blocks: no, because a reader still reads it.', ''), 'Medium', 'r')).toMatchObject({ ok: false, dismissed: 0 });
-    expect(run('red-team', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
+    expect(run('outside-voice', '**1. Auth bypass lets any user read admin data (CRITICAL).**\n\nThe earlier triage filed it lower. Severity: Low. Blocks: no.\n', 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
     expect(run('adversarial-native', OUT.replace('Severity: Medium', 'Severity: FIXABLE'), 'Low', 'r')).toMatchObject({ ok: false, dismissed: 0 });
   });
   test('a merged row whose reader was edited to adversarial-native is caught by verify', () => {
