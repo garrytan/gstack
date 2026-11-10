@@ -812,7 +812,7 @@ _link_runtime_dists() {
       _link_or_copy "$1/$d" "$2/$d"
     fi
   done
-  for f in VERSION scripts/jargon-list.json scripts/question-registry.ts \
+  for f in VERSION scripts/jargon-list.json scripts/question-registry.ts scripts/resolvers/fix-check.ts \
     docs/askuserquestion-split.md docs/askuserquestion-cjk.md docs/test-value-bar.md \
     review/checklist.md review/design-checklist.md review/greptile-triage.md review/TODOS-format.md \
     plan-devex-review/dx-hall-of-fame.md; do
