@@ -262,6 +262,7 @@ gstack_result_anchor() {
     STABLE_RELEASE_UNKNOWN) printf '%s' 'stable-release-unknown' ;;
     PREGATE_GSTACK_TOO_OLD) printf '%s' 'pregate-gstack-too-old' ;;
     QUEUE_NOT_READY) printf '%s' 'queue-not-ready' ;;
+    QUEUE_BASE_UNFETCHED) printf '%s' 'queue-base-unfetched' ;;
     QUEUE_PROOF_MISSING) printf '%s' 'queue-proof-missing' ;;
     QUEUE_STAMP_NOT_STAMP_ONLY) printf '%s' 'queue-stamp-not-stamp-only' ;;
     QUEUE_VERIFY_MISMATCH) printf '%s' 'queue-verify-mismatch' ;;

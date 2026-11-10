@@ -36,6 +36,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the lane is not ready to report: the working tree, HEAD or CI state does not match the pushed PR head',
     fix: 'commit and push the work (or wait for CI on that exact head), then rerun gstack-ship-queue ready',
   },
+  QUEUE_BASE_UNFETCHED: {
+    anchor: 'queue-base-unfetched',
+    summary: 'ready, or the stamp path of land, could not fetch origin/<base>, so it did not compare the receipt with a base ref it could not refresh',
+    fix: 'fix the fetch (git fetch origin <base>), then rerun the same command',
+  },
   QUEUE_PROOF_MISSING: {
     anchor: 'queue-proof-missing',
     summary: 'a proof input the queue step needs is missing or does not match (gated head, base, stamp journal, version or tree)',
