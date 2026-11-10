@@ -425,10 +425,17 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 - **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
   `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
   and eval harness, so a Codex/Factory/... runtime root would need most of the
-  development tree. It is the one `$GSTACK_ROOT` path
-  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
-  self-contained or have the skill call it from the source checkout
-  (`.source-path`). **Effort:** M. **Priority:** P3.
+  development tree. `bin/gstack-model-benchmark` (/benchmark-models imports
+  the test tree's providers) and `bin/gstack-ship-queue` (the merge queue
+  imports the eval gate) have the same problem and fail to start from a
+  copied Windows root. `test/runtime-root-assets.test.ts` defers all three.
+  For each, either make it self-contained or have the skill call it from the
+  source checkout (`.source-path`). That test also follows static imports
+  only: lazy `import()` and `require()` calls (`bin/gstack-evidence` loads
+  `scripts/lib/shard-engine` with a fallback, and
+  `lib/pregate/flaky-exception.ts` requires it and a test helper), modules a
+  shell script launches, and bare package imports go unchecked.
+  **Effort:** M. **Priority:** P3.
 - **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
   `office-hours/SKILL.md` (#2449) and now `plan-design-review/SKILL.md` sit in
   `~/.codex/skills/gstack/<skill>/` because skills read them as

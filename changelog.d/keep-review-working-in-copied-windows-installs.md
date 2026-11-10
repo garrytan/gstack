@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **/review and /ship start again on Windows under Codex, Cursor and the other non-Claude hosts.** On Windows, setup copies gstack's `bin/` and `lib/` into each host's runtime folder instead of linking them, and it left out three `scripts/` files those commands import. The review planner that /review and /ship run first stopped with `Cannot find module '../scripts/resolvers/fix-check'`, and the commands behind /retro and /write-skill had the same gap. Setup now copies `scripts/resolvers/fix-check.ts`, `scripts/discover-skills.ts` and `scripts/lib/ci-history.ts` too, and a test follows the static imports of the commands each host's skills run, so a new static import outside the runtime folder fails CI. Thanks to @SatriaSuriaAriffin, who found and reported the fix-check gap (#4275).
