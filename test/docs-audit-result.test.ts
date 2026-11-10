@@ -120,11 +120,11 @@ describe('gstack-docs-candidate result', () => {
     expect(r.status).toBe(0);
   });
 
-  test('a broken object after the result is read as the result and names the whole expected line', () => {
-    const r = result(`${line({ documentation_section: SECTION })}\n{"schema_version":1,"audit_id":\n`, 'ship352b-docs-1');
+  test('text after a valid result line is not accepted: it names the problem and offers one whole-line re-ask', () => {
+    const r = result(`${line({ documentation_section: SECTION })}\nDone.\n`, 'ship352b-docs-1');
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('the last line that opens a JSON object is not one JSON object');
-    expect(r.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(r.stdout).toContain('text follows the JSON result line');
+    expect(r.stdout).toMatch(/^FORMAT_REPAIR: /m);
     expect(r.written).toEqual([]);
   });
 
@@ -301,39 +301,38 @@ describe('captured "current, no edits" results with format slips', () => {
     expect(fs.readFileSync(path.join(fixed.out, `${ID}-documentation.md`), 'utf8')).toBe(readable);
   });
 
-  test('(b) the same with the section written as prose after the JSON: still a format repair, and the prose reaches the repair prompt', () => {
+  test('(b) the same with the section written as prose after the JSON: a whole-line re-ask that uses no attempt, and the prose reaches it', () => {
     const first = result(preamble + missingSection + '\n' + trailing + '\n', ID);
     expect(first.status).toBe(1);
     expect(first.stdout).toContain('(DOCS_RESULT_INVALID)');
-    expect(first.stdout).toContain('"documentation_section" is missing');
-    expect(first.stdout).toMatch(/^TRAILING_PROSE: ignored 6 lines after the result object$/m);
+    expect(first.stdout).toContain('text follows the JSON result line');
     expect(first.stdout).toMatch(/^FORMAT_REPAIR: format-only; not an attempt/m);
     expect(first.stdout).not.toMatch(/^RETRY_NOTE: /m);
     const prompt = repairPrompt(first.file, ID);
     expect([prompt.status, prompt.stderr]).toEqual([0, '']);
     expect(prompt.stdout).toContain('- docs/plans/v0.2-dynamics.md: stale, left as a historical plan.');
     expect(prompt.stdout).toContain('write nothing before or after the line');
-    const fixed = result(line({ ...reviewed, documentation_section: readable }) + '\nThat is the corrected line.\n', ID, { file: first.file, out: first.out });
+    const fixed = result(line({ ...reviewed, documentation_section: readable }) + '\n', ID, { file: first.file, out: first.out });
     expect([fixed.status, fixed.stderr]).toEqual([0, '']);
     expect(fixed.stdout).toContain('DOCS_RESULT: ok status=current files_updated=0');
     expect(fs.readFileSync(path.join(fixed.out, `${ID}-documentation.md`), 'utf8')).toBe(readable);
   });
 
-  test('a complete result followed by prose is accepted unchanged, and the ignored prose is disclosed', () => {
-    const valid = line({ ...reviewed, documentation_section: readable });
-    const r = result(preamble + valid + '\n' + trailing + '\n', ID);
-    expect([r.status, r.stderr]).toEqual([0, '']);
-    expect(r.stdout).toMatch(/^TRAILING_PROSE: ignored 6 lines after the result object$/m);
-    expect(r.stdout).toContain('DOCS_RESULT: ok status=current files_updated=0');
-    expect(JSON.parse(fs.readFileSync(path.join(r.out, `${ID}-result.json`), 'utf8'))).toEqual(JSON.parse(valid));
+  test('a complete result followed by prose is not accepted: it gets the whole-line re-ask', () => {
+    const r = result(preamble + line({ ...reviewed, documentation_section: readable }) + '\n' + trailing + '\n', ID);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('text follows the JSON result line');
+    expect(r.stdout).toMatch(/^FORMAT_REPAIR: /m);
+    expect(r.written).toEqual([]);
   });
 
   test.each([
-    ['claims an edit and leaves the section out', line({ ...reviewed, status: 'updated', files_updated: ['README.md'] }), '"documentation_section" is missing', 'FORMAT_REPAIR'],
-    ['is blocked and leaves the section out', line({ ...reviewed, status: 'blocked', blockers: ['README install steps are wrong'] }), '"documentation_section" is missing', 'FORMAT_REPAIR'],
-    ['says current but lists an edit', line({ ...reviewed, files_updated: ['README.md'] }), 'status current cannot list files_updated', 'RETRY_NOTE'],
-    ['has no status', JSON.stringify((({ status: _s, ...o }) => o)(JSON.parse(missingSection))), '"status" is missing', 'RETRY_NOTE'],
-    ['has no audit id', JSON.stringify((({ audit_id: _a, ...o }) => o)(JSON.parse(missingSection))), '"audit_id" is missing', 'RETRY_NOTE'],
+    ['claims an edit and leaves the section out', line({ ...reviewed, status: 'updated', files_updated: ['README.md'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
+    ['is blocked and leaves the section out', line({ ...reviewed, status: 'blocked', blockers: ['README install steps are wrong'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
+    ['says current but lists an edit', line({ ...reviewed, files_updated: ['README.md'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
+    ['has no status', JSON.stringify((({ status: _s, ...o }) => o)(JSON.parse(missingSection))), 'text follows the JSON result line', 'FORMAT_REPAIR'],
+    ['has no audit id', JSON.stringify((({ audit_id: _a, ...o }) => o)(JSON.parse(missingSection))), 'the last nonempty line is not one JSON object', 'RETRY_NOTE'],
+    ['has another audit id', line({ ...reviewed, audit_id: 'ship837-docs-a1' }), 'the last nonempty line is not one JSON object', 'RETRY_NOTE'],
   ])('a result that %s, with prose after it, is never accepted and names the field', (_name, last, problem, next) => {
     const r = result(preamble + last + '\n' + trailing + '\n', ID);
     expect(r.status).toBe(1);
@@ -346,8 +345,54 @@ describe('captured "current, no edits" results with format slips', () => {
   test('prose with no object line at all is still a content failure', () => {
     const r = result(preamble + trailing + '\n', ID);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('no line opens a JSON object');
+    expect(r.stdout).toContain('the last nonempty line is not one JSON object');
     expect(r.stdout).toMatch(/^RETRY_NOTE: /m);
     expect(repairPrompt(r.file, ID).status).not.toBe(0);
+  });
+});
+
+// Value: protects=text after a docs-audit result line never lets a contradicting verdict through (GPT-6.1 Sol cross-family audit of
+//   #4285 at 61c6e17: a fenced "current" example after a blocked result was accepted as current, and a "Correction: BLOCKED" after a
+//   current line without a section became a repair that had to stay current); fails_when=a result with text after it is accepted, a
+//   JSON line is taken from trailing text or a fence, or the re-ask is held to the first line's values; seam=gstack-docs-candidate
+//   result/repair-prompt; no_claim=what the re-ask's answerer concludes (its reply is judged on its own)
+describe('text after the result line: one free re-ask for the whole line, judged on its own', () => {
+  const ID = 'sol-docs-1';
+  const C = { schema_version: 1, audit_id: ID, status: 'current', files_updated: [], files_reviewed: ['README.md'], blockers: [], decisions: [],
+    documentation_section: '**Status:** current. No edits needed.\n\nScope: README.md; no coverage debt or diagram drift.' };
+  const blocker = 'README.md has incorrect security instructions; needs an owner decision.';
+  const blocked = { ...C, status: 'blocked', blockers: [blocker], documentation_section: '**Status:** blocked. README.md security instructions need an owner decision.\n\nScope: README.md.' };
+  const correction = 'Correction: the audit is BLOCKED. README.md security instructions are stale and need owner approval; do not ship.';
+  const { documentation_section: _s, ...noSection } = C;
+
+  test.each([
+    ['a blocked result followed by a fenced current example', [JSON.stringify(blocked), 'For reference only, this is the current-result format, not my verdict:', '```json', JSON.stringify(C), '```', 'My actual result remains blocked.'].join('\n')],
+    ['a current result followed by a BLOCKED correction', JSON.stringify(C) + '\n' + correction],
+    ['a current result without a section followed by a BLOCKED correction', JSON.stringify(noSection) + '\n' + correction],
+  ])('%s is never accepted; it gets one whole-line re-ask that uses no attempt', (_name, output) => {
+    const first = result(output + '\n', ID);
+    expect(first.status).toBe(1);
+    expect(first.stdout).not.toContain('DOCS_RESULT: ok');
+    expect(first.stdout).toContain('text follows the JSON result line');
+    expect(first.stdout).toMatch(/^FORMAT_REPAIR: format-only; not an attempt/m);
+    expect(first.stdout).not.toMatch(/^RETRY_NOTE: /m);
+    expect(first.written).toEqual([]);
+    const prompt = repairPrompt(first.file, ID);
+    expect([prompt.status, prompt.stderr]).toEqual([0, '']);
+    expect(prompt.stdout).toContain('counting everything it wrote after its JSON line');
+    expect(prompt.stdout).not.toContain('Copy every value your last line already gave correctly');
+    const answer = result(JSON.stringify(blocked) + '\n', ID, { file: first.file, out: first.out });
+    expect([answer.status, answer.stderr]).toEqual([0, '']);
+    expect(answer.stdout).toContain('DOCS_RESULT: ok status=blocked files_updated=0');
+    expect(JSON.parse(fs.readFileSync(path.join(answer.out, `${ID}-result.json`), 'utf8')).blockers).toEqual([blocker]);
+  });
+
+  test('a re-ask answer that itself has text after its line counts as an attempt', () => {
+    const first = result(JSON.stringify(C) + '\n' + correction + '\n', ID);
+    const answer = result(JSON.stringify(C) + '\nDone.\n', ID, { file: first.file, out: first.out });
+    expect(answer.status).toBe(1);
+    expect(answer.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(answer.stdout).not.toMatch(/^FORMAT_REPAIR: /m);
+    expect(answer.written).not.toContain(`${ID}-result.json`);
   });
 });

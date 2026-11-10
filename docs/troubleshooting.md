@@ -7072,8 +7072,7 @@ exception.
 ### `DOCS_RESULT_INVALID`
 
 **Meaning.** `gstack-docs-candidate result` read the /document-release child's
-result line (the last line that opens a JSON object; prose after it is ignored
-and reported as `TRAILING_PROSE:`) and it does not meet /ship Step 14.5's result contract: a key
+last nonempty line and it does not meet /ship Step 14.5's result contract: a key
 is missing, unknown or appears twice once whitespace around keys is trimmed, a
 field has the wrong type, the audit id, schema version or status invariant is
 wrong, or `documentation_section` is empty, a placeholder (such as `"x"`) or
@@ -7089,7 +7088,10 @@ not an attempt: send `gstack-docs-candidate repair-prompt <output> --audit-id <i
 to one fresh agent with no tools (never the audit child, which can still edit), save its one-line
 reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <output>`.
 The reply passes only if every value the first line gave correctly is
-unchanged, and each audit gets one repair. Otherwise run Step 14.5's one
+unchanged, and each audit gets one repair. Text after a JSON line that carries
+the audit id (`text follows the JSON result line`) gets the same free re-ask for
+the whole line: the reply is judged on its own, and nothing from the earlier
+line is kept or accepted. Otherwise run Step 14.5's one
 remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names

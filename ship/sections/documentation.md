@@ -71,11 +71,11 @@ Reentry never resets the count or authorizes a launch.
    use recovery before another writer.
 2. **Check output.** Save the output, then run
    `~/.claude/skills/gstack/bin/gstack-docs-candidate result <output> --audit-id <audit-id> --out-dir <record dir>`.
-   It parses the last line opening a JSON object, ignores prose after it, trims whitespace around keys and requires
+   It parses only the LAST nonempty line, trims whitespace around keys and requires
    every field/type, exact audit id, schema and status invariant. `DOCS_RESULT: ok`
    saves `<audit-id>-result.json` and the section unchanged as `<audit-id>-documentation.md`;
    `DOCS_RESULT_INVALID` names each bad key and prints a `RETRY_NOTE:`, or `FORMAT_REPAIR:` when
-   only the line's shape is wrong: then, once and using no attempt, send `gstack-docs-candidate
+   only the line's shape is wrong or text follows it (judged afresh): then, once and using no attempt, send `gstack-docs-candidate
    repair-prompt <output> --audit-id <audit-id>`'s output to one fresh agent with no tools (never the writer child),
    and rerun `result` on its reply adding `--repair-of <output>`; a refusal prints `RETRY_NOTE:`. Also require
    the actual spawned marker above, as echoed in the child output; state files are
