@@ -818,6 +818,54 @@ describe("files git calls binary are scanned (GST-2195)", () => {
     expect({ code, pat: stderr.includes("github.pat") }).toEqual({ code: 1, pat: true });
   });
 
+  test("an AWS secret key on the line under its keyword blocks in UTF-16LE and UTF-16BE like plain text (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const pair = `aws_secret_access_key:\n  ${["Zq3Xn7P2Lm4Rt8Wv", "Bc5Df6Gh7Jk8Lm9Np0Qr1St2"].join("")}\n`;
+    const shapes: Array<[string, string | Buffer]> = [["plain", pair], ["utf-16le", utf16(pair)], ["utf-16be", utf16(pair, true)]];
+    const results = shapes.map(([shape, content]) => {
+      git(["reset", "-q", "--hard", base]);
+      const head = commitFiles({ "creds.yml": content }, shape);
+      const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+      return { shape, code, aws: stderr.includes("aws.secret_key") };
+    });
+    expect(results).toEqual(shapes.map(([shape]) => ({ shape, code: 1, aws: true })));
+  });
+
+  test("a plain token in a binary file that also holds UTF-16 text is listed once (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commitFiles({ "mixed.bin": Buffer.concat([Buffer.from(`token ${FAKE_PAT}\n`), utf16("hello world\n")]) }, "mixed binary");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect({ code, listed: stderr.split("\n").filter((l) => l.includes("github.pat")).length }).toEqual({ code: 1, listed: 1 });
+  });
+
+  test("an allowlisted token in one file whose name git quotes does not hide another token at the same spot in a second such file (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const other = ["ghp", "Xv7Nc4Rt9Wy1Kp6Hd3Fs5Gb0Jx8Ue2Zq8Lm2"].join("_");
+    const head = commitFiles({ "café-1.txt": `token: ${FAKE_PAT}\n`, "café-2.txt": `token: ${other}\n`, ".gstack-redact-allowlist": `${FAKE_PAT}\n` }, "quoted names");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    git(["reset", "-q", "--hard", base]);
+    expect({ code, blocked: stderr.includes("BLOCKED") }).toEqual({ code: 1, blocked: true });
+  });
+
+  test("a plain-byte AWS key before its UTF-16LE keyword on one line blocks like main (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const mixed = Buffer.concat([Buffer.from(`\0x\0${["Zq3Xn7P2Lm4Rt8Wv", "Bc5Df6Gh7Jk8Lm9Np0Qr1St2"].join("")}\0y\0 `, "latin1"), Buffer.from("aws_secret_access_key:", "utf16le"), Buffer.from("\n")]);
+    const head = commitFiles({ "mixed.bin": mixed }, "mixed");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect({ code, aws: stderr.includes("aws.secret_key") }).toEqual({ code: 1, aws: true });
+  });
+
+  test("deleting a 70 MiB binary pushes clean, and adding one still blocks on the 64 MiB diff limit (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const big = commitFiles({ "big.bin": Buffer.alloc(70 * 1024 * 1024) }, "add big binary");
+    const added = runHook(`refs/heads/main ${big} refs/heads/main ${base}\n`);
+    expect({ code: added.code, overflow: added.stderr.includes("killed/overflow") }).toEqual({ code: 1, overflow: true });
+    git(["rm", "-q", "big.bin"]);
+    git(["commit", "-q", "-m", "drop big binary"]);
+    const dropped = git(["rev-parse", "HEAD"]);
+    expect(runHook(`refs/heads/main ${dropped} refs/heads/main ${big}\n`)).toEqual({ code: 0, stderr: "" });
+  });
+
   test("the real binary assets this repo stores push clean", () => {
     const root = path.resolve(import.meta.dir, "..");
     const assets = spawnSync("git", ["ls-files", "--eol"], { cwd: root, encoding: "utf8", timeout: 30_000 }).stdout.split("\n").filter((l) => l.startsWith("i/-text")).map((l) => l.split("\t").pop()!);
