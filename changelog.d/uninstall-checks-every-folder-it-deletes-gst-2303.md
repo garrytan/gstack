@@ -1,0 +1,6 @@
+---
+important: data-loss
+---
+- **`gstack-uninstall` now checks every folder it deletes for unsaved git work, not only the repo you run it from.** Each host's install (global and project-local), the gstack-made Claude per-skill folders and `~/.gstack` are searched for git checkouts before anything is removed. One with uncommitted changes, commits no remote-tracking branch holds, or a locked worktree stops the uninstall with exit 2, naming the checkout. Before, an unpushed `.gstack` repo inside `~/.claude/skills/gstack`, an edited project-local install or a notes repo under `.agents/skills/gstack-*` was deleted without a check (GST-2303).
+- **`--keep-state` no longer deletes the state it keeps.** Run from inside the gstack checkout, `--keep-state` skipped the worktree check and then deleted the whole install, taking the kept `.gstack-worktrees` lanes and tracked `.gstack` files with it. An install that holds kept state is now refused instead (GST-2303).
+- **A locked worktree whose path contains a newline is kept under `--force --force-worktrees`.** The worktree list is now read NUL-separated, so the lock check sees the real path. A clean submodule nested inside another submodule of a clean lane no longer stops the uninstall as unregistered (GST-2303).

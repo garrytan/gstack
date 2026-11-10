@@ -978,6 +978,10 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     fs.writeFileSync(path.join(install, '.git', 'info', 'exclude'), '.gstack-worktrees/\n.gstack/\n');
     git(['add', 'SKILL.md'], install);
     git(['commit', '-q', '-m', 'install'], install);
+    // Like a real git-clone install, every commit is on its origin (GST-2303 refuses unpushed ones).
+    git(['init', '-q', '--bare', path.join(tmp, 'install-origin.git')], tmp);
+    git(['remote', 'add', 'origin', path.join(tmp, 'install-origin.git')], install);
+    git(['push', '-q', 'origin', 'main'], install);
     return install;
   };
 
@@ -1106,3 +1110,255 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(fs.existsSync(path.join(home, '.gstack'))).toBe(false);
   });
 });
+
+// Value: protects=unpushed commits, uncommitted edits, locked worktrees and --keep-state state that sit inside a gstack
+//   install root, a project-local install, a Claude per-skill folder or ~/.gstack, whichever repository uninstall runs from;
+//   fails_when=uninstall deletes a target without checking every git repository beneath it (GST-2303).
+describe('every deletion target is checked for unsaved git work before anything is removed (GST-2303)', () => {
+  let tmp: string, home: string, proj: string, install: string, gitEnv: Record<string, string>;
+  const git = (args: string[], cwd = proj) => {
+    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+    return r.stdout;
+  };
+  const uninstall = (args: string[], cwd = proj) => spawnSync('bash', [UNINSTALL, ...args], {
+    cwd, encoding: 'utf-8', timeout: 30_000,
+    env: { ...gitEnv, HOME: home, GSTACK_DIR: install, GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+      GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+  });
+  // A repository with an origin it has pushed everything to, like a real git-clone install.
+  const pushedRepo = (dir: string, file = 'SKILL.md', body = 'test\n') => {
+    const origin = path.join(tmp, 'origins', path.relative(tmp, dir).replace(/[\\/]/g, '_') + '.git');
+    fs.mkdirSync(dir, { recursive: true });
+    git(['init', '-q', '--bare', origin], tmp);
+    git(['init', '-q', '-b', 'main'], dir);
+    fs.writeFileSync(path.join(dir, file), body);
+    git(['add', file], dir);
+    git(['commit', '-q', '-m', 'seed'], dir);
+    git(['remote', 'add', 'origin', origin], dir);
+    git(['push', '-q', 'origin', 'main'], dir);
+    return dir;
+  };
+  const unpushedCommit = (dir: string) => {
+    fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], dir);
+    git(['commit', '-q', '-m', 'unpushed notes'], dir);
+  };
+
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-targets-')));
+    home = path.join(tmp, 'home');
+    proj = path.join(tmp, 'proj');
+    fs.writeFileSync(path.join(tmp, 'gitconfig'), '');
+    gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string>;
+    install = pushedRepo(path.join(home, '.claude', 'skills', 'gstack'));
+    fs.writeFileSync(path.join(install, '.git', 'info', 'exclude'), '.gstack-worktrees/\n.gstack/\n');
+    fs.mkdirSync(path.join(home, '.gstack'), { recursive: true });
+    pushedRepo(proj, 'README.md', 'x\n');
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test('hold: a clean, pushed git-clone install is removed', () => {
+    const r = uninstall(['--force']);
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(install)).toBe(false);
+  });
+
+  test('--keep-state run from inside the install refuses instead of deleting its kept .gstack-worktrees lane', () => {
+    const lane = path.join(install, '.gstack-worktrees', 'run', 'lane');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
+    const r = uninstall(['--force', '--keep-state'], install);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: it holds ${install}/.gstack-worktrees, which this uninstall keeps`);
+    expect(fs.existsSync(path.join(lane, 'SKILL.md'))).toBe(true);
+  });
+
+  test('--keep-state run from inside the install refuses instead of deleting its tracked .gstack policy', () => {
+    fs.writeFileSync(path.join(install, '.git', 'info', 'exclude'), '');
+    fs.mkdirSync(path.join(install, '.gstack'));
+    fs.writeFileSync(path.join(install, '.gstack', 'ship-policy.json'), '{}\n');
+    git(['add', '.gstack/ship-policy.json'], install);
+    git(['commit', '-q', '-m', 'policy'], install);
+    git(['push', '-q', 'origin', 'main'], install);
+    const r = uninstall(['--force', '--keep-state'], install);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`it holds ${install}/.gstack, which this uninstall keeps`);
+    expect(fs.existsSync(path.join(install, '.gstack', 'ship-policy.json'))).toBe(true);
+  });
+
+  test('run from an unrelated project, a .gstack repo with unpushed commits inside the global install stops the uninstall', () => {
+    const own = path.join(install, '.gstack');
+    pushedRepo(own, 'policy.md');
+    unpushedCommit(own);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${own} has commits no remote-tracking branch contains`);
+    expect(git(['log', '-1', '--format=%s'], own)).toBe('unpushed notes\n');
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(true);
+  });
+
+  test('the install clone\'s own unpushed commit stops the uninstall', () => {
+    unpushedCommit(install);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} has commits no remote-tracking branch contains`);
+    expect(fs.existsSync(path.join(install, 'notes.md'))).toBe(true);
+  });
+
+  test('a project-local install clone with an uncommitted edit stops the uninstall', () => {
+    const local = pushedRepo(path.join(proj, '.claude', 'skills', 'gstack'));
+    fs.writeFileSync(path.join(local, 'SKILL.md'), 'my edit\n');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${local}: ${local} has uncommitted changes`);
+    expect(fs.readFileSync(path.join(local, 'SKILL.md'), 'utf-8')).toBe('my edit\n');
+    expect(fs.existsSync(install)).toBe(true);
+  });
+
+  test('a repository with unpushed commits at .agents/skills/gstack-notes stops the uninstall', () => {
+    const notes = pushedRepo(path.join(proj, '.agents', 'skills', 'gstack-notes'), 'README.md');
+    unpushedCommit(notes);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${notes}: ${notes} has commits no remote-tracking branch contains`);
+    expect(fs.existsSync(path.join(notes, 'notes.md'))).toBe(true);
+  });
+
+  test('a gstack-generated Claude per-skill folder holding an uncommitted edit stops the uninstall', () => {
+    fs.mkdirSync(path.join(install, 'review'));
+    fs.writeFileSync(path.join(install, 'review', 'SKILL.md'), 'name: review\n');
+    const skill = pushedRepo(path.join(home, '.claude', 'skills', 'review'), 'SKILL.md', '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\n');
+    fs.writeFileSync(path.join(skill, 'SKILL.md'), '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\nmy edit\n');
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${skill}: ${skill} has uncommitted changes`);
+    expect(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf-8')).toContain('my edit');
+  });
+
+  test('a repository with unpushed commits under ~/.gstack stops the uninstall', () => {
+    const notes = pushedRepo(path.join(home, '.gstack', 'projects', 'notes'), 'README.md');
+    unpushedCommit(notes);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${path.join(home, '.gstack')}: ${notes} has commits no remote-tracking branch contains`);
+    expect(fs.existsSync(path.join(notes, 'notes.md'))).toBe(true);
+    expect(fs.existsSync(install)).toBe(true);
+  });
+
+  test('a locked worktree of the install clone stops the uninstall, even outside the install', () => {
+    const lane = path.join(tmp, 'lane');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
+    git(['worktree', 'lock', lane], install);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} registers the locked worktree ${lane}`);
+    expect(fs.existsSync(path.join(install, '.git'))).toBe(true);
+  });
+});
+
+describe('locked worktrees are found by NUL-separated paths (GST-2303)', () => {
+  let tmp: string, home: string, repo: string, gitEnv: Record<string, string>;
+  const git = (args: string[], cwd = repo) => {
+    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+    return r.stdout;
+  };
+  const uninstall = (args: string[]) => spawnSync('bash', [UNINSTALL, ...args], {
+    cwd: repo, encoding: 'utf-8', timeout: 30_000,
+    env: { ...gitEnv, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'),
+      GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+      GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+  });
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-lock-')));
+    home = path.join(tmp, 'home');
+    repo = path.join(tmp, 'proj');
+    fs.writeFileSync(path.join(tmp, 'gitconfig'), '');
+    gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string>;
+    fs.mkdirSync(path.join(home, '.claude', 'skills', 'gstack'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+    fs.mkdirSync(repo, { recursive: true });
+    git(['init', '-q', '-b', 'main']);
+    fs.writeFileSync(path.join(repo, '.git', 'info', 'exclude'), '.gstack-worktrees/\n');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'x\n');
+    git(['add', 'README.md']);
+    git(['commit', '-q', '-m', 'seed']);
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test('a locked worktree whose path holds a newline survives --force --force-worktrees', () => {
+    const lane = path.join(repo, '.gstack-worktrees', 'run', 'lane\nx');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD']);
+    git(['worktree', 'lock', lane]);
+    const r = uninstall(['--force', '--force-worktrees']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('it is locked (git worktree lock)');
+    expect(fs.existsSync(path.join(lane, 'README.md'))).toBe(true);
+  });
+
+  test('a clean submodule nested inside a clean submodule of a clean lane does not stop the uninstall', () => {
+    const inner = path.join(tmp, 'inner');
+    fs.mkdirSync(inner);
+    git(['init', '-q', '-b', 'main'], inner);
+    fs.writeFileSync(path.join(inner, 'a.txt'), 'a\n');
+    git(['add', 'a.txt'], inner);
+    git(['commit', '-q', '-m', 'inner'], inner);
+    const lib = path.join(tmp, 'lib');
+    fs.mkdirSync(lib);
+    git(['init', '-q', '-b', 'main'], lib);
+    git(['submodule', 'add', '-q', inner, 'deps/inner'], lib);
+    git(['commit', '-q', '-m', 'lib'], lib);
+    git(['submodule', 'add', '-q', lib, 'vendor/lib']);
+    git(['commit', '-q', '-m', 'submodule']);
+    const lane = path.join(repo, '.gstack-worktrees', 'run', 'lane');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD']);
+    git(['submodule', 'update', '-q', '--init', '--recursive'], lane);
+    expect(fs.existsSync(path.join(lane, 'vendor', 'lib', 'deps', 'inner', 'a.txt'))).toBe(true);
+    const r = uninstall(['--force']);
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(lane)).toBe(false);
+  });
+});
+
+describe('the manual removal in docs/uninstall.md checks each folder before deleting it (GST-2303)', () => {
+  let tmp: string, gitEnv: Record<string, string>;
+  const git = (args: string[], cwd: string) => {
+    const r = spawnSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+  };
+  const checkedDelete = (dirs: string[]) => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'uninstall.md'), 'utf-8');
+    const start = doc.indexOf('# 0. A delete that stops for unsaved git work');
+    expect(start).toBeGreaterThan(-1);
+    const helper = doc.slice(start, doc.indexOf('# 1. Stop browse daemons', start));
+    return spawnSync('bash', ['-c', `${helper}\ngstack_rm_checked "$@"`, 'doc', ...dirs], { cwd: tmp, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+  };
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-doc-')));
+    fs.writeFileSync(path.join(tmp, 'gitconfig'), '');
+    gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string>;
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test('a folder holding a repo with an unpushed commit is kept, and a plain folder goes', () => {
+    const install = path.join(tmp, 'install');
+    const notes = path.join(install, '.gstack');
+    fs.mkdirSync(notes, { recursive: true });
+    fs.writeFileSync(path.join(install, 'SKILL.md'), 'test\n');
+    git(['init', '-q', '-b', 'main'], notes);
+    fs.writeFileSync(path.join(notes, 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], notes);
+    git(['commit', '-q', '-m', 'unpushed notes'], notes);
+    const plain = path.join(tmp, 'plain');
+    fs.mkdirSync(plain);
+    fs.writeFileSync(path.join(plain, 'SKILL.md'), 'test\n');
+    const r = checkedDelete([install, plain]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain(`kept ${install}: ${notes} has uncommitted changes, unpushed commits or a locked worktree`);
+    expect(fs.existsSync(path.join(notes, 'notes.md'))).toBe(true);
+    expect(fs.existsSync(plain)).toBe(false);
+  });
+});
+
