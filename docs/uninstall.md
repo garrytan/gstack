@@ -26,8 +26,8 @@ If you don't have the repo cloned (e.g. you installed via a Claude Code paste an
 # The FETCH_HEAD commits a fetch from one of checkout $1's remotes wrote.
 gstack_remote_fetch_heads() (
   cd "$1" || exit 0
-  git config --get-regexp '^remote\..*\.url$' |
-    sed -E 's/^[^ ]+ //; s#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
+  git remote | while IFS= read -r n; do git remote get-url --all "$n"; done |
+    sed -E 's#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
     awk 'NR == FNR { u[$0]; next } { n = split($0, a, " of "); if (n > 1 && (a[n] in u)) print $1 }' - "$(git rev-parse --git-path FETCH_HEAD)" 2>/dev/null
 )
 gstack_rm_checked() {

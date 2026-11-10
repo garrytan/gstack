@@ -407,13 +407,14 @@ _deletion_targets() {
   [ "$KEEP_STATE" -eq 1 ] || printf '%s\0' "$STATE_DIR"
 }
 # Prints the FETCH_HEAD commits of checkout $1 that a fetch from one of its
-# remotes wrote. Remote URLs are normalized the way git writes FETCH_HEAD
-# (credentials dropped, trailing "/" and one ".git" stripped); a fetch from "."
+# remotes wrote. Remote URLs come from git remote get-url (url.insteadOf
+# applied) and are normalized the way git writes FETCH_HEAD (credentials
+# dropped, trailing "/" and one ".git" stripped); a fetch from "."
 # or any other source counts for nothing.
 _remote_fetch_heads() (
   cd "$1" || exit 0
-  _wt_git . config --get-regexp '^remote\..*\.url$' 2>/dev/null |
-    sed -E 's/^[^ ]+ //; s#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
+  _wt_git . remote 2>/dev/null | while IFS= read -r _name; do _wt_git . remote get-url --all "$_name" 2>/dev/null; done |
+    sed -E 's#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
     awk 'NR == FNR { u[$0]; next } { n = split($0, a, " of "); if (n > 1 && (a[n] in u)) print $1 }' - "$(_wt_git . rev-parse --git-path FETCH_HEAD 2>/dev/null)" 2>/dev/null
 )
 # Prints why deleting git checkout $1, found inside deletion target $2, would

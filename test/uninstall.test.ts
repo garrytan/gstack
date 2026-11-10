@@ -1285,6 +1285,26 @@ describe('every deletion target is checked for unsaved git work before anything 
     expect(fs.existsSync(install)).toBe(false);
   });
 
+  test('a stable-channel install whose remote URL goes through url.insteadOf is removed', () => {
+    fs.rmSync(install, { recursive: true, force: true });
+    const origin = path.join(tmp, 'channel-origin.git');
+    const seed = pushedRepo(path.join(tmp, 'channel-seed'));
+    git(['remote', 'set-url', 'origin', origin], seed);
+    git(['init', '-q', '--bare', '-b', 'main', origin], tmp);
+    git(['push', '-q', 'origin', 'main'], seed);
+    fs.writeFileSync(path.join(tmp, 'gitconfig'), `[url "file://${tmp}/"]\n\tinsteadOf = alias:\n`);
+    git(['clone', '-q', '--single-branch', '--depth', '1', 'alias:channel-origin.git', install], tmp);
+    fs.writeFileSync(path.join(seed, 'SKILL.md'), 'release\n');
+    git(['commit', '-q', '-am', 'release'], seed);
+    git(['push', '-q', 'origin', 'main', 'main:stable'], seed);
+    git(['fetch', '-q', 'origin', 'stable'], install);
+    git(['merge', '-q', '--ff-only', 'FETCH_HEAD'], install);
+    const r = uninstall(['--force']);
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(install)).toBe(false);
+  });
+
   test('a local-only commit that git fetch . HEAD wrote into FETCH_HEAD still stops the uninstall', () => {
     unpushedCommit(install);
     git(['fetch', '-q', '.', 'HEAD'], install);
