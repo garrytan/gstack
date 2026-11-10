@@ -107,7 +107,7 @@ describe('gstack-review-plan --grant after round 1 (GST-2244)', () => {
   test('Step 11.5 binds a fix-check the plan dispatched under the owner\'s grant at its own tree', () => {
     const tmpl = fs.readFileSync(path.join(import.meta.dir, '..', 'ship', 'SKILL.md.tmpl'), 'utf8');
     const step = tmpl.slice(tmpl.indexOf('## Step 11.5'), tmpl.indexOf('## Step 12'));
-    expect(step.replace(/\s+/g, ' ')).toContain('A granted fix-check binds at its own tree (decision 3.5)');
+    expect(step.replace(/\s+/g, ' ')).toContain('A granted fix-check binds at its own tree (3.5)');
     expect(step).toContain('Review records missing or mismatched');
   });
 });
