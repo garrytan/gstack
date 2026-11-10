@@ -395,9 +395,10 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * ledgers than rows), a blocker no row disposes counts as fixed if a fix-check ledger started after the last ledger that raised it:
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
- * `ruled` holds the fingerprints and ids the owner's rulings close on this run's rows (lib/ruled-notes.ts rulingsFor, GST-2273):
- * a blocker no row disposes that a ruling names (a row finding by fingerprint or ledger_id; a ledger-only one, such as a Step 11
- * voice's, by its <pass dir>/<id>, its id or <path:line>:<reviewer>) is a noted disclosure; a gate finding never is.
+ * `ruled` holds the fingerprints and ids the owner's rulings close at the run's stop, its newest row (lib/ruled-notes.ts
+ * rulingsFor, GST-2273), so a ruling at an earlier head closes nothing found later: a blocker no row disposes that a ruling names
+ * (a row finding by fingerprint or ledger_id; a ledger-only one, such as a Step 11 voice's, by its run-unique <pass dir>/<id> or
+ * <path:line>:<reviewer>, never by a bare id that restarts in every pass) is a noted disclosure; a gate finding never is.
  */
 export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = [], ruled: ReadonlySet<string> = new Set()): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
@@ -485,7 +486,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const isRuled = (...keys: (string | undefined)[]) => keys.some(k => !!k && ruled.has(k));
   for (const [k, s] of blockers) if (!s.disposed && !s.gate && isRuled(k, s.ledgerId, s.fingerprint)) { s.disposed = true; noted.add(k); }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
-  const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && isRuled(l.key, l.id, l.fingerprint)).length;
+  const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && isRuled(l.key, l.fingerprint)).length;
   const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed - ledgerOnlyRuled + blockers.filter(([, s]) => !s.disposed).length;
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size + ledgerOnlyRuled, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;

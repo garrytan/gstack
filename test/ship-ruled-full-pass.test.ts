@@ -162,6 +162,27 @@ describe('a ruling closes a Step 11 voice finding (#4266, #4257, GST-2273)', () 
     expect(summary(repo, out).unrecorded).toBeUndefined();
   });
 
+  test('a bare ledger id, which restarts in every pass, closes nothing', () => {
+    const { repo, head, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }, { skill: 'adversarial-review', status: 'issues_found', completed: true, converged: true }]);
+    ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
+    ledger(path.join(out, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', VOICE]]);
+    expect(rule(repo, 'outside-voice#1', head).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 0, unrecorded: 2 });
+  });
+
+  test('a ruling at an earlier head closes nothing a later Step 11 voice found', () => {
+    const { repo, head, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }]);
+    const later = commit(repo, 'lib/review-grant.ts', 'export const grant = 2;\n', 'a round-2 fix');
+    const slug = runBin(repo, 'gstack-slug', ['--get', 'SLUG']).out.trim();
+    fs.appendFileSync(path.join(repo.home, 'projects', slug, 'feat-reviews.jsonl'), JSON.stringify({ skill: 'adversarial-review', via: 'ship', timestamp: at(30), commit_full: later, status: 'issues_found', completed: true, converged: true, review_binding: { state: 'verified', started_at: at(30) } }) + '\n');
+    ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
+    ledger(path.join(out, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', VOICE]]);
+    for (const f of ['lib/review-grant.ts:49:outside-voice', 'ship/sections/review-army.md.tmpl:262:outside-voice']) expect(rule(repo, f, head).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 0, unrecorded: 2 });
+    for (const f of ['lib/review-grant.ts:49:outside-voice', 'ship/sections/review-army.md.tmpl:262:outside-voice']) expect(rule(repo, f, later).status).toBe(0);
+    expect(summary(repo, out).unrecorded).toBeUndefined();
+  });
+
   test('a ruling at a head no row of the run read closes nothing', () => {
     const { repo, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }, { skill: 'adversarial-review', status: 'issues_found', completed: true, converged: true }]);
     ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
