@@ -1913,6 +1913,20 @@ reason (`range_base <sha12> does not hold the reviewed tree`); a link that is
 stale or ungranted refuses with its reason and `; fix-check at <sha12>, link <k>
 of <n>`. Either way nothing in the chain counts.
 
+<a id="fix-check-docs-bridge"></a>One gap is not a gap: the oldest link's `range_base` may follow the reviewed
+tree's commit by commits that change only authored docs or release metadata,
+such as the Step 14.5 docs commit (harness-evals#361, GST-2294). finish walks
+`range_base`'s first parents back to the nearest commit holding the reviewed tree
+and accepts the range when every commit after it is a single-parent commit whose
+every path it routes as docs or release metadata, printing
+`FIX_CHECK_DOCS_BRIDGE: range_base <sha12> follows the reviewed commit <sha12> by
+docs or release metadata only (<commits>)`. Those docs still take the docs route
+and its recheck. A code or test commit in between, a merge, a `range_base` the
+reviewed commit descends from, and a `range_base` on another branch still refuse.
+Pass `--reviewed-tree` as the tree the bound review read, never the fix-check's
+own tree: with the fix-check's tree, `range_base` sits before the "reviewed"
+commit and finish refuses (#4267, #4270).
+
 <a id="test-code"></a>
 <a id="uid-sidecar"></a>
 ## `test_code` and Godot UID sidecars after review

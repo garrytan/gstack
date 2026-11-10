@@ -732,7 +732,8 @@ through earlier rows whose commit is the next row's `range_base`
 is a completed clean read on committed content (freshness `CURRENT` against its own
 tree; a fix-check that stopped on findings the owner has since ruled notes reads
 clean, [ruled notes](ship-policy.md#ruled-notes)) whose commit is on the branch, the oldest link's `range_base` is a branch commit
-holding the reviewed tree, and for each link an approved `review_loop_grant` in
+holding the reviewed tree (or following its commit by docs and release metadata
+only, [docs bridge](ship-policy.md#fix-check-docs-bridge)), and for each link an approved `review_loop_grant` in
 `gstack-approvals` names a stop head inside its `range_base..commit`, each code or test path inside a link's `range_base..commit`
 that is unchanged since, or whose change against the base is still the one the
 fix-check read after a base merge also edited it (GST-1195), routes as
