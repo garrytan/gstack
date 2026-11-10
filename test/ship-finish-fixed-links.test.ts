@@ -60,10 +60,10 @@ function link(f: ShipFx, from: string, row: Record<string, unknown>, o: { grant?
   expect(logged.status, logged.stderr).toBe(0);
   return { commit, grant };
 }
-function finish(f: ShipFx, reviewed: string, reviewedBase: string) {
+function finish(f: ShipFx, reviewed: string, reviewedBase: string, extra: string[] = []) {
   const post = path.join(f.root, 'post.json');
   expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
-  return f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--reviewed-base', reviewedBase, '--lane', LANE]);
+  return f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--reviewed-base', reviewedBase, '--lane', LANE, ...extra]);
 }
 
 describe('finish counts a fix-check chain whose earlier links found issues a later clean link read (GST-1973)', () => {
@@ -238,5 +238,103 @@ describe('finish still refuses fix-check chains that do not read the fixes (GST-
       const r = finish(f, reviewed, reviewedBase);
       expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, expect.stringMatching(notCountedAt(a.commit))]);
     }
+  });
+});
+
+describe('finish counts a fix-check whose range starts after docs-only commits (GST-2294)', () => {
+  const README = { 'README.md': '# Fx\n\nHow to run the canary.\n' };
+  const notHeld = (c: string) => `FIX_CHECK: not counted (range_base ${at(c)} does not hold the reviewed tree)`;
+
+  // Value: protects=harness-evals#361's shape counts: the reviewed commit, then the Step 14.5 docs commit, then the granted
+  //   fix-check whose range starts at that docs commit; fails_when=finish refuses the range_base because its tree is not the
+  //   reviewed tree and no earlier fix-check ends at it, so src/x.ts routes as behavior; seam=finish's chain walk
+  test.each([
+    ['one docs commit', [README]],
+    ['a docs commit and a changelog stamp', [README, { 'CHANGELOG.md': '# Changelog\n\n## [Unreleased]\n\n- pending\n- canary docs\n' }]],
+  ])('a range_base after %s counts', (_name, commits) => {
+    const { f, t, reviewed, reviewedBase } = reviewedShape();
+    const between = (commits as Record<string, string>[]).map((files, k) => edit(f, files, `docs commit ${k + 1}`));
+    const from = between[between.length - 1]!;
+    edit(f, { 'src/x.ts': 'export const x = 3;\n', 'test/x.test.ts': TEST_V2 }, 'fix the round-2 blocker');
+    const c = link(f, from, CLEAN);
+    const r = finish(f, reviewed, reviewedBase, ['--docs-rechecked']);
+    expect(lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), r.stdout).toBe(`FIX_CHECK_DOCS_BRIDGE: range_base ${at(from)} follows the reviewed commit ${at(t)} by docs or release metadata only (${between.map(at).join(',')})`);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${at(c.commit)}, range from ${at(from)}, grant ${c.grant})`);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* fix_checked=2$/)]);
+  });
+
+  // Value: protects=only docs and release metadata bridge the gap: a code or test commit, alone or after a docs commit, between
+  //   the reviewed commit and range_base is a read no fix-check made; fails_when=finish accepts any range_base that descends from
+  //   the reviewed commit; seam=finish's chain walk
+  test.each([
+    ['a code commit', [{ 'src/y.ts': 'export const y = 2;\n' }]],
+    ['a test commit', [{ 'test/x.test.ts': TEST_V2 }]],
+    ['a docs commit, then a code commit', [README, { 'src/y.ts': 'export const y = 2;\n' }]],
+  ])('a range_base after %s still refuses', (_name, commits) => {
+    const { f, reviewed, reviewedBase } = reviewedShape();
+    const between = (commits as Record<string, string>[]).map((files, k) => edit(f, files, `unread commit ${k + 1}`));
+    const from = between[between.length - 1]!;
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+    link(f, from, CLEAN);
+    const r = finish(f, reviewed, reviewedBase, ['--docs-rechecked']);
+    expect(lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), r.stdout).toBe('');
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, notHeld(from)]);
+  });
+
+  // Value: protects=the bridge runs only forward from the reviewed commit: a docs-only commit before it (so the reviewed commit
+  //   descends from range_base, as when --reviewed-tree names the fix-check's own tree) is no bridge; fails_when=finish accepts a
+  //   docs-only diff between range_base and the reviewed commit in either direction; seam=finish's chain walk
+  test('a docs commit before the reviewed commit refuses: range_base is not a descendant of it', () => {
+    const { f } = reviewedShape();
+    const before = edit(f, README, 'docs before review');
+    edit(f, { 'src/y.ts': 'export const y = 2;\n' }, 'more reviewed code');
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+    link(f, before, CLEAN);
+    const r = finish(f, reviewed, reviewedBase, ['--docs-rechecked']);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, notHeld(before)]);
+  });
+
+  // Value: protects=a base merge between the reviewed commit and range_base is no bridge, even when the base change is docs;
+  //   fails_when=finish reads a merge commit's first-parent diff as the branch's own docs edit; seam=finish's chain walk
+  test('a merge commit between the reviewed commit and range_base refuses', () => {
+    const { f, reviewed, reviewedBase } = reviewedShape();
+    f.advanceBase({ 'docs/base.md': '# Base docs\n' });
+    expect(f.git('fetch', '-q', 'origin').status).toBe(0);
+    expect(f.git('merge', '-q', '--no-edit', 'origin/main').status).toBe(0);
+    const merge = headOf(f);
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+    link(f, merge, CLEAN);
+    const r = finish(f, reviewed, reviewedBase, ['--docs-rechecked']);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(notHeld(merge));
+    expect(r.status, r.stdout).toBe(3);
+  });
+
+  // Value: protects=a range_base on another branch still refuses, docs-only or not; fails_when=the bridge looks up the reviewed
+  //   commit from a range_base HEAD does not contain; seam=finish's chain walk
+  test('a docs-only range_base on another branch refuses', () => {
+    const { f, reviewed, reviewedBase } = reviewedShape();
+    expect(f.git('checkout', '-qb', 'side').status).toBe(0);
+    const side = edit(f, README, 'docs on a side branch');
+    expect(f.git('checkout', '-q', 'feat').status).toBe(0);
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+    link(f, side, CLEAN);
+    const r = finish(f, reviewed, reviewedBase);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, 'FIX_CHECK: not counted (the row names no range_base commit on this branch)']);
+  });
+
+  // Value: protects=a range_base whose tree is the reviewed tree counts with no bridge line (an empty commit after review);
+  //   fails_when=the bridge replaces the equal-tree check; seam=finish's chain walk
+  test('a range_base whose tree equals the reviewed tree counts', () => {
+    const { f, reviewed, reviewedBase } = reviewedShape();
+    expect(f.git('commit', '-q', '--allow-empty', '-m', 'an empty commit after review').status).toBe(0);
+    const same = headOf(f);
+    edit(f, { 'src/x.ts': 'export const x = 3;\n', 'test/x.test.ts': TEST_V2 }, 'fix the round-2 blocker');
+    const c = link(f, same, CLEAN);
+    const r = finish(f, reviewed, reviewedBase);
+    expect(lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), r.stdout).toBe('');
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toBe(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${at(c.commit)}, range from ${at(same)}, grant ${c.grant})`);
+    expect(r.status, r.stdout).toBe(0);
   });
 });

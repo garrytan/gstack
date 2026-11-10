@@ -249,6 +249,28 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
 }
 
 type FixLink = { row: Record<string, any>; commit: string; from: string };
+type BridgeOpts = { reviewed: string; baseRef: string; release: readonly string[]; bookkeeping: readonly string[]; testCode: readonly string[] };
+
+/**
+ * A range_base that follows the reviewed tree's commit by docs and release metadata alone (GST-2294, harness-evals#361: the
+ * fix-check range started at the Step 14.5 docs commit). Walks range_base's first parents off the base back to the nearest commit
+ * holding the reviewed tree; every commit after it, range_base included, must be a single-parent commit whose every path finish
+ * routes as release metadata or authored docs, so the paths outside the fix-check's read keep the docs route and its recheck.
+ * A merge, a code or test path, or no reviewed commit behind range_base returns null.
+ */
+function docsBridge(cwd: string, from: string, o: BridgeOpts): { reviewedAt: string; commits: string[] } | null {
+  const log = git(cwd, ['log', '--first-parent', '--format=%H %T %P', from, '--not', o.baseRef]);
+  if (log.status !== 0) return null;
+  const docsOnly = (p: string) => o.release.includes(p) || (!isTestCode(p, o.testCode) && classifyPath(p, cwd) === 'docs' && !matchesAny(o.bookkeeping, p));
+  const commits: string[] = [];
+  for (const [commit, tree, ...parents] of log.stdout.trim().split('\n').filter(Boolean).map(l => l.split(' '))) {
+    if (tree === o.reviewed) return commits.length ? { reviewedAt: commit!, commits: commits.reverse() } : null;
+    const paths = parents.length === 1 ? touchedPaths(cwd, parents[0]!, commit!) : null;
+    if (!paths || ![...paths].every(docsOnly)) return null;
+    commits.push(commit!);
+  }
+  return null;
+}
 
 /**
  * The granted fix-checks finish counts (GST-1130, GST-1627): the newest review-fix-check row and, while its range_base does
@@ -257,13 +279,14 @@ type FixLink = { row: Record<string, any>; commit: string; from: string };
  * head inside its range_base..commit, its own commit included (the post-review flow grants each fix-check at the commit it
  * reads, GST-1676); a grant counts for one link only, assigned newest link first, so one grant naming the boundary or two
  * links' commits covers one, and the older link needs a grant of its own.
- * A range_base no earlier row ends at is a gap, and the chain does not count. A link before the newest may, instead of a clean
+ * A range_base no earlier row ends at is a gap, and the chain does not count, unless docs and release metadata alone sit between
+ * the reviewed tree's commit and it (docsBridge, GST-2294). A link before the newest may, instead of a clean
  * read, be a finished read bound to its own committed content that found issues (logged converged:false, GST-1973) when its
  * findings account for its counts and each open or blocking one names a file it read: it counts no path itself, and a path its
  * findings name counts only through a clean link after it, and a finding no later clean link's range touched refuses the chain. A path counts as fix_checked when a clean link's range touched it and it is unchanged since that link,
  * or its patch against the base is still the one the link read.
  */
-function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[] } | null {
+function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[] } | null {
   const rows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
     .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
   const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
@@ -277,7 +300,9 @@ function fixChecked(cwd: string, o: { reviewed: string; now: string; baseRef: st
     chain.unshift(link);
     if (!onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
     i = commits.slice(0, i).lastIndexOf(link.from);
-    if (i < 0) gap = `range_base ${link.from.slice(0, 12)} does not hold the reviewed tree`;
+    const bridge = i < 0 ? docsBridge(cwd, link.from, o) : null;
+    if (bridge) r.add(`FIX_CHECK_DOCS_BRIDGE: range_base ${link.from.slice(0, 12)} follows the reviewed commit ${bridge.reviewedAt.slice(0, 12)} by docs or release metadata only (${bridge.commits.map(c => c.slice(0, 12)).join(',')})`);
+    else if (i < 0) gap = `range_base ${link.from.slice(0, 12)} does not hold the reviewed tree`;
   }
   const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
   const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
@@ -384,7 +409,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior.push(...packetBody.over);
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
-  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
+  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, release, bookkeeping: opts.bookkeeping, testCode: opts.testCode, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
   if (!fix) return null;
   const counted = fix.counted;
   by.fix_checked = fix.paths;
