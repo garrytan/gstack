@@ -25,6 +25,8 @@ function setupFunction(name: string): string {
 beforeAll(() => {
   fs.mkdirSync(path.join(source, 'scripts', 'resolvers'), { recursive: true });
   fs.copyFileSync(path.join(ROOT, 'scripts/resolvers/fix-check.ts'), path.join(source, 'scripts/resolvers/fix-check.ts'));
+  // Current runtime helpers also import crew/lib; let setup stage it normally.
+  fs.cpSync(path.join(ROOT, 'crew', 'lib'), path.join(source, 'crew', 'lib'), { recursive: true });
   // Mirror the installed script bin, including statically read shell constants and
   // imported parsers. The native binaries are never executed by load-only probes.
   fs.cpSync(path.join(ROOT, 'bin'), path.join(installed, 'bin'), {
