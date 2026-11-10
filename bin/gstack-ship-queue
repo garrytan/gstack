@@ -198,9 +198,9 @@ async function main(argv: string[]): Promise<number> {
   const gate = { gateExit: gateExit === undefined ? undefined : Number(gateExit), gateLog: flag(args, '--gate-log') };
   if (cmd === 'ready') {
     const unfetched = refreshBase(ctx);
-    if (unfetched) return finish('ready', { ok: false, lines: [], run: 'none', failure: unfetched });
     const loaded = loadBasePolicy(ctx);
     if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), ...gate });
+    if (unfetched) return finish('ready', { ok: false, lines: [], run: 'none', failure: unfetched });
     if (['--screen', '--no-screen', '--broad'].some(f => args.includes(f))) process.stderr.write('gstack-ship-queue ready: --screen/--no-screen/--broad ignored: the base policy declares no train block\n');
     return finish('ready', ready(ctx, { pr, pregate: flag(args, '--pregate'), ...gate }));
   }
