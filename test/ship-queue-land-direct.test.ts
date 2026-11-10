@@ -27,9 +27,11 @@ import { readTrainNotes } from '../crew/scripts/release-cut';
 import { gitIn } from '../crew/scripts/train-gate';
 import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../lib/pregate/index';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 /** The base policy with land.merged_checks: the first proves the checks see the merged tree, the second stands in for a budget cap a stale base can break (#3886). */
 const CHECKED = { ...POLICY, land: { merged_checks: ['test -e other.txt && ls pr-*.txt >/dev/null', "test ! -e budget.md || test ! -e other.txt || { echo 'budget.md over its cap' >&2; exit 1; }"] }, min_gstack_version: LAND_KEY_VERSION };
 const repos: FixtureRepo[] = [];
@@ -506,7 +508,7 @@ describe('land --pin and ready under merge: direct (GSTA-461 items 7 and 19)', (
     const head = openPr(fx, '31', { ready: false });
     fx.repo.git('checkout', '-q', 'pr-31');
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
     const env = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'ready-state') };
     const ready = () => runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '31', '--pregate', pregate, '--base', 'main'], env);
     const hook = path.join(fx.repo.origin, 'hooks', 'pre-receive');
