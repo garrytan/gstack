@@ -14,7 +14,7 @@ disable-model-invocation: true
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `99cd6cb5d373` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `sections/preamble.md` relative to the installed `gstack-ship` SKILL.md directory in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `29f9e1a8ebfe` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `sections/preamble.md` relative to the installed `gstack-ship` SKILL.md directory in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
