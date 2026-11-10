@@ -572,7 +572,8 @@ describe('setup and runtime need only production dependencies', () => {
         queue.push(target);
       }
     }
-    expect(Object.keys(reached)).toContain('scripts/discover-skills.ts');
+    expect(Object.keys(reached)).toContain('scripts/gen-agents-digest.ts');
+    expect(Object.keys({ ...files, ...reached })).toContain('scripts/discover-skills.ts');
     expect(Object.keys(reached)).toContain('test/helpers/providers/claude.ts');
     expect(nonProductionImports(PKG, reached)).toEqual([]);
   });
