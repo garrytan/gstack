@@ -827,6 +827,12 @@ once:
   record (a reuse is never evidence). Its tree equals the tree git computes for
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
+  The attempt it names is the newest one that ran a profile job itself
+  (GST-2284). A job-level rerun relists every job it did not rerun under the
+  new attempt with that job's old start and finish times, so a run where only
+  an unrelated job was rerun verifies against the attempt whose job uploaded
+  `tree.json`. A rerun of the uploading job leaves one artifact per attempt;
+  the one that names the job's newest attempt is read, and no other.
   <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
   the runner (a Docker image, a drive path or an installed gstack it lacks;
   GST-1190). A carry treats them as uncovered: the pregate tests stage runs
