@@ -790,9 +790,11 @@ _link_or_copy() {
 # residue): the preamble's jargon list, question registry and AskUserQuestion
 # docs, the review checklists and specialists, /plan-devex-review's Hall of
 # Fame, the test-value bar, design-html's vendored pretext.js and VERSION.
-# And crew/lib, which bin and lib import (the crew/ move, GST-1833): a root
-# whose bin and lib are copies (Windows) needs it beside them to start.
-# Pinned by test/runtime-root-assets.test.ts. A destination that already exists
+# And crew/lib, which bin and lib import (the crew/ move, GST-1833), plus the
+# scripts/ modules they import: a root whose bin and lib are copies (Windows)
+# needs them beside it to start (/review and /ship's review planner imports
+# fix-check.ts).
+# Pinned by test/runtime-root-assets.test.ts, which also follows those imports. A destination that already exists
 # as a real entry is left alone: in the repo-local sidecar review/ is a link to
 # the source, so its files already resolve and must never be linked over.
 _link_runtime_dists() {
@@ -813,6 +815,7 @@ _link_runtime_dists() {
     fi
   done
   for f in VERSION scripts/jargon-list.json scripts/question-registry.ts \
+    scripts/resolvers/fix-check.ts scripts/discover-skills.ts scripts/lib/ci-history.ts \
     docs/askuserquestion-split.md docs/askuserquestion-cjk.md docs/test-value-bar.md \
     review/checklist.md review/design-checklist.md review/greptile-triage.md review/TODOS-format.md \
     plan-devex-review/dx-hall-of-fame.md; do

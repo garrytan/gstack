@@ -425,8 +425,10 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 - **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
   `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
   and eval harness, so a Codex/Factory/... runtime root would need most of the
-  development tree. It is the one `$GSTACK_ROOT` path
-  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
+  development tree. `test/runtime-root-assets.test.ts` defers it, and for the
+  same reason `bin/gstack-model-benchmark` (/benchmark-models imports the
+  test tree's providers) and `bin/gstack-ship-queue` (the merge queue imports
+  the eval gate), which fail to start from a copied Windows root. Either make ship-measure
   self-contained or have the skill call it from the source checkout
   (`.source-path`). **Effort:** M. **Priority:** P3.
 - **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
