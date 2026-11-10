@@ -833,6 +833,12 @@ once:
   record (a reuse is never evidence). Its tree equals the tree git computes for
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
+  The attempt it names is the newest one that ran a profile job itself
+  (GST-2284). A job-level rerun relists every job it did not rerun under the
+  new attempt with that job's old start and finish times, so a run where only
+  an unrelated job was rerun verifies against the attempt whose job uploaded
+  `tree.json`. A rerun of the uploading job leaves one artifact per attempt;
+  the one that names the job's newest attempt is read, and no other.
   <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
   the runner (a Docker image, a drive path or an installed gstack it lacks;
   GST-1190). A carry treats them as uncovered: the pregate tests stage runs
@@ -869,11 +875,10 @@ once:
   failed, was cancelled or is still running (`run_started_at`, so a red re-run
   of an older run counts, a run started in the same second counts, and
   re-running this run does not hide a failure in between).
-- The run finished within `max_age_hours` (its jobs' latest `completed_at`,
-  else the run's `updated_at`), and on the profile's OS when it names one.
-  Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
-  that uploads `tree.json` re-runs too, because that file must name the
-  newest attempt. The 8 MiB cap is read from the artifact's zipped size before
+- The run finished within `max_age_hours` (its profile jobs' latest
+  `completed_at`, else the run's `updated_at`), and on the profile's OS when it
+  names one. A job outside the profile never dates the run, so rerunning one
+  does not refresh old test results. The 8 MiB cap is read from the artifact's zipped size before
   download, so a workflow on the branch itself can still unpack a larger file
   into the temporary directory.
 
@@ -902,7 +907,8 @@ Then, for the lane:
   (gstack's gate leaves paid test files to the paid PR gate). Those files need
   no run, and the receipt counts them as `skipped=<n>`. A file the inventory
   prints stays required even when `skipped` names it, and a failing `skipped`
-  command refuses (`skipped_failed`). When `skipped` names every selected file,
+  command refuses (`skipped_failed`); when it failed because the checkout has
+  no installed dependencies, the refusal says so. When `skipped` names every selected file,
   no selected test ran, so the clear refuses (`paid_only`), just as the gate's
   own `tests=0` report never clears. Without `skipped`, every selected file
   must appear in a run's `files`.
