@@ -445,11 +445,26 @@ The record is `.gstack/tmp/pregate.json` (`gstack-artifact validate --as pregate
 (Step 18) refuses unless the record is current for the tree being published
 (`PREGATE_STALE`: rerun after the final stamp), green (`PREGATE_LANE_FAILED`,
 `PREGATE_INCOMPLETE`, or `PREGATE_ENVIRONMENT` when every incomplete check is
-the machine's) and every `requires-remote` obligation carries a receipt
+the machine's), every `requires-remote` obligation carries a receipt
 (`PREGATE_REMOTE_UNCLEARED`: dispatch the job, wait for it to finish green, then
-`gstack-pregate clear --remote <workflow.yml/job> --run-url <url>`). The ship
+`gstack-pregate clear --remote <workflow.yml/job> --run-url <url>`), and it holds
+every registered check. The `PREGATE:` line prints `checks=N of M`. A record
+from a `--only` or `--stage preflight|tests` run that is missing checks is
+`PREGATE_INCOMPLETE` ("pregate.json holds checks=1 of 8 (missing: …)"): run
+`gstack-pregate --allow-repo-commands` with neither flag at that tree. The ship
 receipt then carries `pregate` and `requires_remote`. `gstack-pregate verify`
 runs the same check standalone.
+
+<a id="same-tree-checks"></a>
+**A staged rerun keeps the rest.** A `--only` or `--stage preflight|tests` run
+keeps the checks it skipped from the record it replaces, when that record has
+the same head, tree, base commit, policy and registry. It prints
+`PREGATE_MERGED: kept <check>=<status>,… from the record at this tree …`. So
+rerunning `--stage tests` after a full run at an unchanged tree keeps an earlier
+`secrets` failure and an earlier pass, and the full run's obligations come along
+when `lanes` is one of the kept checks. A record for another head or tree, or
+an earlier `--stage guards` run, keeps nothing. After a fix commit moves the
+tree, a staged run alone is not a full pass.
 
 **By tree.** Every record `gstack-pregate` writes is also mirrored, byte for
 byte, to `<state root>/pregate/by-tree/<tree>.json` (the state root from
@@ -461,11 +476,14 @@ printing `PREGATE: … (from the state root's pregate/by-tree/<tree12>.json,
 recorded by another checkout)`. This is for the lane whose `gstack-pregate
 --remote` had to run from a separate clone (a worktree cannot host it): the
 clone's record clears the lane's own checkout as long as both hold the same
-tree. Only a run that holds the tests stage stands in (what `--stage tests
---remote` writes, `checks=[lanes]`; a `--only timing` or preflight-only run
-is "a run without the tests stage"), and it must be recorded against
-`origin/<base>` and not under `--policy-from head`;
-otherwise the `PREGATE:` line says why the mirror cannot stand in. A record
+tree. Only a complete run stands in: the clone runs the full
+`gstack-pregate --remote` (not `--stage tests --remote`, whose `checks=[lanes]`
+record verify refuses `PREGATE_INCOMPLETE`), or the lane clears its own record
+with `gstack-pregate clear --remote pregate.json/remote_gate --receipt <file>`.
+A `--only timing` or preflight-only run is "a run without the tests stage",
+and the record must be recorded against `origin/<base>` and not under
+`--policy-from head`; otherwise the `PREGATE:` line says why the mirror cannot
+stand in. A record
 whose own checks failed or stayed incomplete is final and no mirror overrides
 it. An explicit `--pregate <file>` that verifies is used as before; a mirror
 for a different tree changes nothing. Writing the mirror is best effort (a

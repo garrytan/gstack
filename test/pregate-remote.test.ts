@@ -175,6 +175,7 @@ describe('gstack-pregate --remote (C-c)', () => {
 
   test('a gate reporting the tested tree, tests > 0 and failed = 0 clears the obligation and reports its spend', () => {
     const repo = gated();
+    expect(runBin(repo, 'gstack-pregate', ['--base', 'main', '--stage', 'preflight', '--allow-repo-commands']).status).toBe(EXIT.ok);
     const r = remote(repo, ['--remote', '--allow-repo-commands'], { GSTACK_SPEND_CAP_USD: '4', GATE_SPENT: '0.37' });
     expect(r.status).toBe(EXIT.ok);
     const file = pregateFile(repo);

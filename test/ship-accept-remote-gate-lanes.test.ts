@@ -51,8 +51,10 @@ function world(f: ShipFx, files: string[] = TESTS): void {
   fs.writeFileSync(path.join(f.root, 'world.json'), JSON.stringify(w));
   f.gh(fakeGhScript(path.join(f.root, 'world.json')));
 }
-/** The remote gate for the checked-out tree, as gbrain ran it: gstack-pregate --remote, then verify. */
+/** The remote gate for the checked-out tree, as gbrain ran it: the preflight stage, gstack-pregate --remote, then verify. */
 function gate(f: ShipFx): string {
+  const pre = f.run(path.join(BIN, 'gstack-pregate'), ['--base', 'main', '--stage', 'preflight', '--allow-repo-commands']);
+  expect(pre.status, pre.stdout + pre.stderr).toBe(0);
   const r = f.run(path.join(BIN, 'gstack-pregate'), ['--base', 'main', '--stage', 'tests', '--remote', '--no-ci-carry', '--allow-repo-commands', '--spend-cap', '5']);
   expect(r.status, r.stdout + r.stderr).toBe(0);
   const v = f.run(path.join(BIN, 'gstack-pregate'), ['verify']);
