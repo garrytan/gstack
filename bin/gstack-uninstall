@@ -16,9 +16,10 @@
 # (nested ones included) with uncommitted changes, commits no branch or tag
 # holds, a status git cannot read, or no registration as this repository's
 # worktree stops the uninstall (exit 2, before anything is removed) unless
-# --force-worktrees is given; a locked worktree stops it either way. The check
-# runs again right before .gstack-worktrees/ is deleted; if a checkout changed
-# after the prompt, the folder is kept and uninstall exits 2.
+# --force-worktrees is given; a locked worktree, or a worktree list git cannot
+# read, stops it either way. The check runs again after the prompt, still before
+# anything is removed. Run from inside the install being removed, a .gstack/
+# holding its own git repository also stops it.
 #
 # State: only the default root ~/.gstack/ is ever deleted. A state root
 # selected elsewhere (GSTACK_HOME, GSTACK_STATE_ROOT, GSTACK_STATE_DIR or
@@ -218,6 +219,10 @@ EOF
 # is kept even with --force-worktrees.
 _worktree_refusals() {
   local _wt _risk
+  if ! git -C "$_GIT_ROOT" worktree list --porcelain >/dev/null 2>&1; then
+    echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees/: git cannot list this repository's worktrees"
+    return 0
+  fi
   _REGISTERED_WORKTREES="$(_registered_worktrees)"
   _LOCKED_WORKTREES="$(_registered_worktrees locked)"
   while IFS= read -r -d '' _wt; do
@@ -233,14 +238,39 @@ _worktree_refusals() {
   done < <(_project_worktrees)
 }
 _WORKTREES_FIX="fix: commit the work to a branch or stash it, unlock a locked worktree with git worktree unlock <path>, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete the unlocked ones anyway"
-if [ "$KEEP_STATE" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
-  _REFUSALS="$(_worktree_refusals)"
-  if [ -n "$_REFUSALS" ]; then
-    printf '%s\n' "$_REFUSALS" >&2
-    echo "$_WORKTREES_FIX" >&2
+# Succeeds when the current repository sits inside a gstack install this
+# uninstall deletes, so nothing in it can be kept by keeping one folder.
+_git_root_in_install() {
+  local _install _root
+  _root="$(_real "$_GIT_ROOT")"
+  for _install in "$HOME/.claude/skills/gstack" "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack*; do
+    [ -d "$_install" ] || continue
+    _is_at_or_above "$(_real "$_install")" "$_root" && return 0
+  done
+  return 1
+}
+# Every keep decision for per-project state, made before anything is removed:
+# exits 2 when a checkout must be kept, or when the repository's .gstack/ holds
+# its own git repository inside the install being deleted. $1, when set, is
+# printed before the fix line.
+_check_project_keep() {
+  [ -n "$_GIT_ROOT" ] || return 0
+  if [ "$KEEP_STATE" -eq 0 ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _REFUSALS="$(_worktree_refusals)"
+    if [ -n "$_REFUSALS" ]; then
+      printf '%s\n' "$_REFUSALS" >&2
+      [ -z "${1:-}" ] || echo "$1" >&2
+      echo "$_WORKTREES_FIX" >&2
+      exit 2
+    fi
+  fi
+  if [ -d "$_GIT_ROOT/.gstack" ] && [ ! -L "$_GIT_ROOT/.gstack" ] && [ -n "$(find "$_GIT_ROOT/.gstack" -name .git -print -quit 2>/dev/null)" ] && _git_root_in_install; then
+    echo "gstack-uninstall: refusing to uninstall: $_GIT_ROOT/.gstack/ holds its own git repository, and it sits inside the gstack install being removed" >&2
+    echo "fix: move $_GIT_ROOT/.gstack/ out of the install (or push its commits), then re-run gstack-uninstall" >&2
     exit 2
   fi
-fi
+}
+_check_project_keep
 
 _report_left_root() {
   [ -n "$_LEAVE_ROOT" ] || return 0
@@ -287,6 +317,7 @@ if [ "$FORCE" -eq 0 ]; then
     y|Y|yes|YES) ;;
     *) echo "Aborted."; exit 0 ;;
   esac
+  _check_project_keep "nothing was removed: a checkout changed while the prompt waited"
 fi
 
 REMOVED=()
@@ -630,29 +661,20 @@ if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
     rm -f -- "$_GIT_ROOT/.gstack-worktrees"
     REMOVED+=("$_GIT_ROOT/.gstack-worktrees (link only)")
   elif [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
-    # Checked again here, after the prompt: a checkout may have changed since.
-    _REFUSALS="$(_worktree_refusals)"
-    if [ -n "$_REFUSALS" ]; then
-      printf '%s\n' "$_REFUSALS" >&2
-      echo "kept $_GIT_ROOT/.gstack-worktrees/: a checkout changed after the first check" >&2
-      echo "$_WORKTREES_FIX, then re-run gstack-uninstall" >&2
-      _EXIT=2
-    else
-      _WTS=()
-      _WT_REALS=()
-      while IFS= read -r -d '' _WT; do
-        [ -n "$_WT" ] || continue
-        _WTS+=("$_WT")
-        _WT_REALS+=("$(_real "$_WT")")
-      done < <(_project_worktrees)
-      for _WT in ${_WTS[@]+"${_WTS[@]}"}; do
-        rm -rf "$_WT"
-      done
-      for _WT_REAL in ${_WT_REALS[@]+"${_WT_REALS[@]}"}; do
-        [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
-      done
-      _remove_project_dir .gstack-worktrees
-    fi
+    _WTS=()
+    _WT_REALS=()
+    while IFS= read -r -d '' _WT; do
+      [ -n "$_WT" ] || continue
+      _WTS+=("$_WT")
+      _WT_REALS+=("$(_real "$_WT")")
+    done < <(_project_worktrees)
+    for _WT in ${_WTS[@]+"${_WTS[@]}"}; do
+      rm -rf "$_WT"
+    done
+    for _WT_REAL in ${_WT_REALS[@]+"${_WT_REALS[@]}"}; do
+      [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
+    done
+    _remove_project_dir .gstack-worktrees
   fi
 fi
 
@@ -761,4 +783,4 @@ else
   echo "Nothing to remove — gstack is not installed."
 fi
 
-exit "${_EXIT:-0}"
+exit 0

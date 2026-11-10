@@ -952,8 +952,96 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     const status = await new Promise<number | null>((resolve) => child.on('close', resolve));
     expect(status).toBe(2);
     expect(stderr).toContain(`refusing to delete ${path.join(repo, worktree)}: it has uncommitted changes`);
-    expect(stderr).toContain(`kept ${repo}/.gstack-worktrees/`);
+    expect(stderr).toContain('nothing was removed: a checkout changed while the prompt waited');
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
     expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('typed during the prompt\n');
+  });
+
+  const promptRun = (cwd: string, onPrompt: () => void) => new Promise<{ status: number | null; stderr: string }>((resolve) => {
+    const child = spawn('bash', [UNINSTALL], {
+      cwd, timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...gitEnv, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'),
+        GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    let stdout = '', stderr = '';
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.stdout.on('data', (d) => {
+      stdout += d;
+      if (stdout.includes('Continue? [y/N]') && !child.stdin.writableEnded) { onPrompt(); child.stdin.end('y\n'); }
+    });
+    child.on('close', (status) => resolve({ status, stderr }));
+  });
+  const makeInstallRepo = () => {
+    const install = path.join(home, '.claude', 'skills', 'gstack');
+    git(['init', '-q', '-b', 'main'], install);
+    fs.writeFileSync(path.join(install, '.git', 'info', 'exclude'), '.gstack-worktrees/\n.gstack/\n');
+    git(['add', 'SKILL.md'], install);
+    git(['commit', '-q', '-m', 'install'], install);
+    return install;
+  };
+
+  test('run from inside the install, a worktree edited during the prompt stops the uninstall before anything is removed', async () => {
+    const install = makeInstallRepo();
+    const lane = path.join(install, '.gstack-worktrees', 'run-1', 'lane');
+    git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
+    const r = await promptRun(install, () => fs.writeFileSync(path.join(lane, 'wip.txt'), 'typed during the prompt\n'));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`refusing to delete ${lane}: it has uncommitted changes`);
+    expect(fs.readFileSync(path.join(lane, 'wip.txt'), 'utf-8')).toBe('typed during the prompt\n');
+    expect(fs.existsSync(path.join(install, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(true);
+  });
+
+  test('run from inside the install, a .gstack that is its own repo stops the uninstall before anything is removed', () => {
+    const install = makeInstallRepo();
+    const own = path.join(install, '.gstack');
+    fs.mkdirSync(own);
+    git(['init', '-q', '-b', 'main'], own);
+    fs.writeFileSync(path.join(own, 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], own);
+    git(['commit', '-q', '-m', 'unpushed notes'], own);
+    const r = spawnSync('bash', [UNINSTALL, '--force'], {
+      cwd: install, encoding: 'utf-8', timeout: 30_000,
+      env: { ...gitEnv, HOME: home, GSTACK_DIR: install, GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`${install}/.gstack/ holds its own git repository`);
+    expect(git(['log', '--format=%s'], own)).toBe('unpushed notes\n');
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(true);
+  });
+
+  test('a failing git worktree list stops --force --force-worktrees and keeps the checkouts', () => {
+    addWorktree(true);
+    const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+    const shim = path.join(tmp, 'shim');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/sh\ncase " $* " in *" worktree list "*) echo "fatal: broken" >&2; exit 128 ;; esac\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
+    const r = spawnSync('bash', [UNINSTALL, '--force', '--force-worktrees'], {
+      cwd: repo, encoding: 'utf-8', timeout: 30_000,
+      env: { ...gitEnv, PATH: `${shim}:${process.env.PATH}`, HOME: home, GSTACK_DIR: path.join(home, '.claude', 'skills', 'gstack'),
+        GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),
+        GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("git cannot list this repository's worktrees");
+    expect(fs.readFileSync(path.join(repo, worktree, 'wip.txt'), 'utf-8')).toBe('unsaved work\n');
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack'))).toBe(true);
+  });
+
+  test('the manual cleanup in docs/uninstall.md never touches a worktree outside the project whose path contains it', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'uninstall.md'), 'utf-8');
+    const start = doc.indexOf('# 7. Per-project cleanup');
+    const block = doc.slice(start, doc.indexOf('\n```', start));
+    const external = path.join(tmp, 'mirror') + path.join(repo, '.gstack-worktrees', 'run-1', 'lane');
+    git(['worktree', 'add', '-q', '--detach', external, 'HEAD']);
+    fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), 'personal.txt\n');
+    fs.writeFileSync(path.join(external, 'personal.txt'), 'mine\n');
+    const r = spawnSync('bash', ['-c', block], { cwd: repo, encoding: 'utf-8', timeout: 30_000, env: gitEnv });
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(external, 'personal.txt'), 'utf-8')).toBe('mine\n');
+    expect(git(['worktree', 'list', '--porcelain'])).toContain(`worktree ${external}\n`);
   });
 
   test('the manual per-project cleanup in docs/uninstall.md keeps dirty and nested worktrees and tracked policy', () => {
