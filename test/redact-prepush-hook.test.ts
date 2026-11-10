@@ -847,6 +847,14 @@ describe("files git calls binary are scanned (GST-2195)", () => {
     expect({ code, blocked: stderr.includes("BLOCKED") }).toEqual({ code: 1, blocked: true });
   });
 
+  test("a plain-byte AWS key before its UTF-16LE keyword on one line blocks like main (GST-2261)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const mixed = Buffer.concat([Buffer.from(`\0x\0${["Zq3Xn7P2Lm4Rt8Wv", "Bc5Df6Gh7Jk8Lm9Np0Qr1St2"].join("")}\0y\0 `, "latin1"), Buffer.from("aws_secret_access_key:", "utf16le"), Buffer.from("\n")]);
+    const head = commitFiles({ "mixed.bin": mixed }, "mixed");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect({ code, aws: stderr.includes("aws.secret_key") }).toEqual({ code: 1, aws: true });
+  });
+
   test("deleting a 70 MiB binary pushes clean, and adding one still blocks on the 64 MiB diff limit (GST-2261)", () => {
     const base = git(["rev-parse", "HEAD"]);
     const big = commitFiles({ "big.bin": Buffer.alloc(70 * 1024 * 1024) }, "add big binary");

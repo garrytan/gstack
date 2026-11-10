@@ -222,8 +222,9 @@ Two stages with separate clocks, both printed:
   A file git calls binary (a NUL byte, UTF-16 text, or a `-diff` attribute)
   is still scanned: the diff runs with `--text`, and its added lines are read
   three ways, as bytes with control runs turned into spaces and as little- and
-  big-endian UTF-16. Each reading is scanned as its own text with the file's
-  line numbers, so a keyword and its value on the next line (an AWS secret key
+  big-endian UTF-16. The three readings are scanned side by side on each line,
+  so a keyword in one reading still meets its value in another, and each
+  reading is also scanned as its own text with the file's line numbers, so a keyword and its value on the next line (an AWS secret key
   under its YAML key) are caught in UTF-16 text as in plain text. Only
   credential findings count in such a file, so image bytes that look like a
   phone number are not reported. A file whose scanned text is over the

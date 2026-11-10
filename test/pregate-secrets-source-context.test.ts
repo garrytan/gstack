@@ -273,6 +273,15 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect(r.lines.filter(l => /github\.pat .*mixed\.bin/.test(l))).toHaveLength(1);
   });
 
+  // Value: protects=a credential whose keyword and value sit in different readings of one binary line still fails, as on main; fails_when=the readings are only scanned apart;
+  //   why_new=GST-2261 cross-family audit: a plain-byte key before its UTF-16LE keyword passed once the combined reading was dropped; seam=fixture repo; no_claim=UTF-32
+  test('a plain-byte AWS key before its UTF-16LE keyword on one line fails like main (GST-2261)', () => {
+    const mixed = Buffer.concat([Buffer.from(`\0x\0${['Zq3Xn7P2Lm4Rt8Wv', 'Bc5Df6Gh7Jk8Lm9Np0Qr1St2'].join('')}\0y\0 `, 'latin1'), Buffer.from('aws_secret_access_key:', 'utf16le'), Buffer.from('\n')]);
+    const r = repo({ 'mixed.bin': mixed }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines).toContainEqual(expect.stringMatching(/^HIGH aws\.secret_key .*\(mixed\.bin, added line 1\)$/));
+  });
+
   // Value: protects=a UTF-16 token right beside a CJK character is found, and so is a plain token beside a run of character-and-NUL pairs; fails_when=the CJK character's bytes glue onto the token, or padding the run cuts the plain token;
   //   why_new=GST-2195 review (outside voice): U+4E2D before a token read as "-N" glued to it; seam=fixture repo; no_claim=UTF-32
   test('a token right beside a CJK character in UTF-16, or beside a NUL run in binary content, fails like plain text (GST-2195)', () => {

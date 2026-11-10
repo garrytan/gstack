@@ -82,8 +82,10 @@ export function parsePostimages(diff: string): Map<string, string[]> {
  * NUL-then-character pairs, which UTF-16 text puts beside each character of
  * its ASCII range however much of the file is Cyrillic or CJK, and set the run
  * apart with a space on each side, so the bytes of a CJK character beside it
- * cannot join a token. Each distinct reading is a whole text of its own,
- * scanned separately, so a token is found in whichever one keeps it whole (a
+ * cannot join a token. The first text is main's combined reading, each line
+ * holding its distinct readings side by side, so a keyword in one reading and
+ * its value in another still meet. Each distinct reading is then also a whole
+ * text of its own, scanned separately, so a token is found in whichever one keeps it whole (a
  * plain token that a NUL-flanked byte beside it would glue or cut in a UTF-16
  * reading, or a UTF-16 token whose neighbour pairs up with it in the other
  * byte order), and a keyword and its value on the next line stay neighbours
@@ -96,8 +98,10 @@ export function scannableReadings(text: string): string[] {
   if (!text.includes('\0')) return [text];
   const noise = /[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g;
   const lines = text.split('\n');
-  const utf16 = (pairs: RegExp) => lines.map(line => line.replace(pairs, run => ` ${run.replaceAll('\0', '')} `).replace(noise, ' ')).join('\n');
-  return [...new Set([utf16(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}/g), utf16(/(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g), lines.map(line => line.replace(noise, ' ')).join('\n')])];
+  const utf16 = (pairs: RegExp) => lines.map(line => line.replace(pairs, run => ` ${run.replaceAll('\0', '')} `).replace(noise, ' '));
+  const readings = [utf16(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}/g), utf16(/(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g), lines.map(line => line.replace(noise, ' '))];
+  const combined = lines.map((_, i) => [...new Set(readings.map(reading => reading[i]))].join(' ')).join('\n');
+  return [...new Set([combined, ...readings.map(reading => reading.join('\n'))])];
 }
 
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
