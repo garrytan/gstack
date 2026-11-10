@@ -743,9 +743,12 @@ slot. The queue enforces this at every step from the PR body alone:
   `REVIEW_TARGETED:` line) when a targeted class the head needs has no done
   targeted pass in the receipt, and `QUEUE_RECEIPT_EXCEPTION_INVALID` when an
   owner exception it records does not stand ([the ship receipt](#ship-receipt)).
-  There is no flag around it. Before any of these checks, `ready` fetches
+  There is no flag around it. Before any of these checks, and before it
+  chooses the train or plain path from the policy, `ready` fetches
   `origin/<base>` and reads the policy and every receipt field against that
-  fresh ref, so a lane clone whose base is behind the remote never turns a good
+  fresh ref (a clone with a missing or stale base ref would otherwise run plain
+  `ready` under a train policy and skip the screen, conflict and READY-receipt
+  steps), so a lane clone whose base is behind the remote never turns a good
   receipt into `RECEIPT_INVALID` (GST-2232); a failed fetch refuses with
   `QUEUE_BASE_UNFETCHED` before anything is compared. The stamp path of `land`
   refuses the same way; `land --pin` (`merge: direct`) refuses a failed fetch

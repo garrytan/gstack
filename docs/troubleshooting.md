@@ -5494,8 +5494,8 @@ resumes its own lock.
 ### `QUEUE_BASE_UNFETCHED`
 
 **Meaning.** `gstack-ship-queue ready` (or the stamp path of `land`) could not
-fetch `origin/<base>`, so it stopped before reading the policy or comparing
-any receipt field. Both compare the receipt's recorded selection, depth and
+fetch `origin/<base>`, so it stopped before reading the policy (which also
+picks `ready`'s train or plain path) or comparing any receipt field. Both compare the receipt's recorded selection, depth and
 targeted classes with what the current base gives the head; a local
 `origin/<base>` a few landings old measures the PR from an older merge base,
 pulls in files of PRs that already landed, and reports a false

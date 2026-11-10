@@ -281,11 +281,21 @@ function gateLine(policy: LoadedPolicy, attempt: AttemptRecord | null): string {
   return `gate: command=${p.gate_command ? JSON.stringify(p.gate_command) : 'none'} full_e2e=${p.full_e2e ? 'yes' : 'no'} gate-ahead=${rec}`;
 }
 
+/**
+ * Refresh origin/<base>: ready reads the base policy (which also picks the train or plain path) and binds the receipt
+ * against the current base, never a ref it did not refresh.
+ */
+export function refreshBase(ctx: QueueContext): QueueFailure | null {
+  const fetched = git(ctx.repoRoot, ['fetch', '--no-tags', '-q', 'origin', `+refs/heads/${ctx.base}:refs/remotes/origin/${ctx.base}`]);
+  if (fetched.ok) return null;
+  return { code: 'QUEUE_BASE_UNFETCHED', message: `cannot fetch origin/${ctx.base} (${fetched.err.trim().split('\n')[0]?.slice(0, 200) ?? ''}); ready reads the policy and checks the receipt against the current base, never a ref it did not refresh`, fix: `fix the fetch (git fetch origin ${ctx.base}), then rerun ready` };
+}
+
 /** READY: one block, identifiers first, about the exact pushed PR head. */
 export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gateExit?: number; gateLog?: string }): StepOutput {
   const run = PREGATE_OUT_REL;
-  const fetched = git(ctx.repoRoot, ['fetch', '--no-tags', '-q', 'origin', `+refs/heads/${ctx.base}:refs/remotes/origin/${ctx.base}`]);
-  if (!fetched.ok) return fail({ code: 'QUEUE_BASE_UNFETCHED', message: `cannot fetch origin/${ctx.base} (${fetched.err.trim().split('\n')[0]?.slice(0, 200) ?? ''}); ready reads the policy and checks the receipt against the current base, never a ref it did not refresh`, fix: `fix the fetch (git fetch origin ${ctx.base}), then rerun ready` }, [], run);
+  const unfetched = refreshBase(ctx);
+  if (unfetched) return fail(unfetched, [], run);
   const policy = loadBasePolicy(ctx);
   if ('message' in policy) return fail(policy, [], run);
   const head = git(ctx.repoRoot, ['rev-parse', 'HEAD']).out;
