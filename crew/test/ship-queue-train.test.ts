@@ -26,6 +26,9 @@ import {
   GREEN_GATE, TRAIN_BLOCK, TRAIN_POLICY, dispatches, githubOrigin, line, mergeRefCommit, nonceOf, openPr, queue, readyReceipt, repoKey, setPrBody, shippedBody, trainFixture, trainJson, urlKey,
   type Rule, type TrainFixture,
 } from '../../test/helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../../lib/pregate/index';
+
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 
 const fixtures: TrainFixture[] = [];
 const make = (policy: Record<string, unknown> = TRAIN_POLICY) => { const f = trainFixture(policy); fixtures.push(f); return f; };
@@ -75,7 +78,7 @@ describe('the policy gate', () => {
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const today = queue(fx, ['ready', '--pr', '1', '--pregate', pregate]);
     expect(today.status).toBe(EXIT.ok);
     expect(today.out.split('\n')[0]).toBe(`READY #1 ${head} STAMP_VERSION=unstamped`);
@@ -98,7 +101,7 @@ describe('the policy gate', () => {
     fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'fail', checks: [{ id: 'unit', status: 'fail' }] }));
     expect(queue(fx, ['ready', '--pr', '1', '--pregate', pregate]).status).toBe(EXIT.refused);
     expect(fs.existsSync(path.join(fx.state, 'ship-queue'))).toBe(false);
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const ok = queue(fx, ['ready', '--pr', '1', '--pregate', pregate]);
     expect(ok.status).toBe(EXIT.ok);
     expect(ok.out).toMatch(new RegExp(`^READY_RECEIPT: .*ship-queue/ready/[^/]+/1-${head}\\.json \\(notes pushed to origin refs/notes/gstack-trains\\)$`, 'm'));
@@ -112,7 +115,7 @@ describe('the policy gate', () => {
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const req = { GSTACK_PLAN_RECORD: 'require' };
     const missing = queue(fx, ['ready', '--pr', '1', '--pregate', pregate], req);
     expect(missing.status).toBe(EXIT.refused);
@@ -136,7 +139,7 @@ describe('ready under a train policy: the screen choice', () => {
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     return { fx, head, pregate };
   }
 
@@ -190,7 +193,7 @@ describe('ready under a train policy: the screen choice', () => {
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const r = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain(`the Version Gate refuses ${head.slice(0, 12)}: CHANGELOG.md drops released heading 1.2.3.0`);
@@ -253,7 +256,7 @@ describe('ready under a train policy: the screen choice', () => {
     repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/pull/1/head');
     fx.write(d => { (d.prs['1'] as any).headRefOid = moved; (d.prs['1'] as any).body = shippedBody('1', moved); d.ci[moved] = [{ status: 'completed', conclusion: 'success' }]; });
     const pregate2 = path.join(repo.root, 'pregate2.json');
-    fs.writeFileSync(pregate2, JSON.stringify({ schema_version: 1, tree: runBin(repo, 'gstack-wtree', []).out.trim(), head: moved, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate2, JSON.stringify({ schema_version: 1, tree: runBin(repo, 'gstack-wtree', []).out.trim(), head: moved, verdict: 'pass', checks: FULL_CHECKS }));
     const stale = queue(fx, ['ready', '--pr', '1', '--pregate', pregate2, '--screen', '--dry-run']);
     expect([stale.status, stale.err]).toEqual([EXIT.ok, '']);
     expect(line(stale.out, 'SCREEN_MERGE:')).toMatch(new RegExp(`^SCREEN_MERGE: scratch merge [0-9a-f]{12} of #1@${moved.slice(0, 12)} onto main@[0-9a-f]{12} \\(refs/pull/1/merge [0-9a-f]{12} merges ${head.slice(0, 12)}, not ${moved.slice(0, 12)}\\); would push screen/1-${moved.slice(0, 12)} \\(dry run\\)$`));
