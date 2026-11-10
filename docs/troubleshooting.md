@@ -6889,9 +6889,22 @@ or assertion still carries; an assertion line the base removed or changed itself
 is the base's and does not count either. A skipped test or a deleted test file
 raises the review depth, and that refusal (`RECEIPT_CARRY_REFUSED`, run /ship)
 comes first. A packet section over 200 lines is `RECEIPT_CARRY_PRODUCT_CHANGED`
-instead. `test/land-merged-checks.txt` and the touchfile maps under
-`test/helpers/` are product for a carry, so any change to them is
-`RECEIPT_CARRY_PRODUCT_CHANGED`, never this code.
+instead. A base removal cancels a branch removal only when both sit in the same
+test at the same place, never by matching text alone.
+
+The check reads removed or rewritten assertion lines only, so some weakenings
+still carry as a test-only change: a value changed on its own line inside a
+multi-line matcher (`toEqual({ … })`), an added early `return` or guard that
+skips an assertion, and golden or snapshot file edits.
+
+`test/land-merged-checks.txt`, the touchfile maps under `test/helpers/`, the
+paid-eval policy and budget data (`test/helpers/periodic-exclude-data.ts`,
+`test/helpers/eval-budgets.ts`) and the ratchet allowlists
+(`test/fixtures/module-size-ratchet.json`,
+`test/fixtures/skill-md-size-allowlist.json`,
+`test/state-root-ratchet.allowlist.json`) are product for a carry, so any
+change to them is `RECEIPT_CARRY_PRODUCT_CHANGED`, never this code; on a
+retargeted stacked PR each must be unchanged since the reviewed head.
 
 **Fix.** If the assertion was loosened to make a red test pass, restore it and
 fix the product code (that needs /ship). Otherwise dispatch one fix-check

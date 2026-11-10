@@ -271,7 +271,8 @@ refusal names (a dry run writes none), one fix-check reviewer reads it, and a
 clean record reruns carry with `--scoped-review <record.json>`
 ([troubleshooting](troubleshooting.md#receipt-carry-scoped-review)).
 `CARRY: refused (RECEIPT_CARRY_TEST_WEAKENED)` means a test edit since the
-receipt removed or changed assertion lines; the same packet-then-reader route
+receipt removed or rewrote assertion lines (the check reads only those lines);
+the same packet-then-reader route
 reruns carry with `--test-review <record.json>`
 ([troubleshooting](troubleshooting.md#receipt-carry-test-weakened)). `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
 `(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused
