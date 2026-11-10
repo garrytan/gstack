@@ -176,13 +176,10 @@ _read_registered_worktrees() {
     esac
   done < <(_worktree_list git -C "$_GIT_ROOT")
 }
-# "$@" worktree list --porcelain, NUL-separated. git before 2.36 has no -z, so its
-# newline-separated list is used there (a path holding a newline then splits).
+# "$@" worktree list --porcelain, NUL-separated. git before 2.36 has no -z and
+# fails here, so the uninstall refuses instead of reading a list it cannot split.
 _worktree_list() {
-  local _list
-  "$@" worktree list --porcelain -z 2>/dev/null && return 0
-  _list="$("$@" worktree list --porcelain 2>/dev/null)" || return 1
-  printf '%s\n\n' "$_list" | tr '\n' '\0'
+  "$@" worktree list --porcelain -z 2>/dev/null
 }
 # _in_list VALUE ITEM... — VALUE equals one of the ITEMs.
 _in_list() {
@@ -429,6 +426,7 @@ _repo_risk() {
   [ -z "$_out" ] || { echo "has uncommitted changes"; return 0; }
   _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes $(_remote_fetch_heads "$1") 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
   [ -z "$_out" ] || { echo "has commits no remote-tracking branch contains"; return 0; }
+  _worktree_list _wt_git "$1" >/dev/null || { echo "has worktrees git cannot list (gstack-uninstall needs git 2.36 or later)"; return 0; }
   _target_real="$(_real "$2")"
   while IFS= read -r -d '' _field; do
     case "$_field" in

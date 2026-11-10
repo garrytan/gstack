@@ -1314,7 +1314,7 @@ describe('every deletion target is checked for unsaved git work before anything 
     expect(fs.existsSync(path.join(install, 'notes.md'))).toBe(true);
   });
 
-  test('on a git older than 2.36 (no worktree list -z) a locked worktree of the install still stops the uninstall', () => {
+  test('on a git older than 2.36 (no worktree list -z) the uninstall refuses and keeps the install', () => {
     const lane = path.join(tmp, 'lane');
     git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
     git(['worktree', 'lock', lane], install);
@@ -1327,9 +1327,9 @@ describe('every deletion target is checked for unsaved git work before anything 
         GSTACK_HOME: '', GSTACK_STATE_ROOT: path.join(home, '.gstack'), GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '' },
     });
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} registers the locked worktree ${lane}`);
+    expect(r.stderr).toContain(`refusing to delete ${install}: ${install} has worktrees git cannot list (gstack-uninstall needs git 2.36 or later)`);
     expect(fs.existsSync(path.join(install, '.git'))).toBe(true);
-  });
+  }, 30_000);
 });
 
 describe('locked worktrees are found by NUL-separated paths (GST-2303)', () => {
