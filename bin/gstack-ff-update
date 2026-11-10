@@ -126,7 +126,12 @@ gstack_lock_take() {
     if [ -e "$_gl_dir" ] || [ -L "$_gl_dir" ]; then return 1; fi
     return 2
   fi
-  if (set -o noclobber; printf '%s\n' "$_gl_content" > "$_gl_dir/$_gl_file") 2>/dev/null; then return 0; fi
+  local _gl_opened
+  _gl_opened=$(set -o noclobber; { echo o; printf '%s\n' "$_gl_content" >&3; } 2>/dev/null 3> "$_gl_dir/$_gl_file") && return 0
+  if [ "$_gl_opened" = o ]; then
+    rm -f "$_gl_dir/$_gl_file"; rmdir "$_gl_dir" 2>/dev/null || :
+    return 3
+  fi
   if [ -e "$_gl_dir/$_gl_file" ] || [ -L "$_gl_dir/$_gl_file" ] || [ ! -d "$_gl_dir" ]; then return 1; fi
   rmdir "$_gl_dir" 2>/dev/null || :
   return 3

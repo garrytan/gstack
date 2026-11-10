@@ -152,6 +152,15 @@ describe('gstack_lock_take contract (real mkdir)', () => {
     if (r.out === 'rc=3\n') expect(fs.existsSync(path.join(d, 'lock'))).toBe(false);
   });
 
+  test.skipIf(process.platform === 'win32')('an owner file whose write fails is 3, leaves no lock behind, and the next take succeeds', () => {
+    const d = fresh();
+    const r = bash(`. '${HELPER}'
+      ( ulimit -f 0; gstack_lock_take "${d}/lock"; echo "full=$?" )
+      gstack_lock_take "${d}/lock"; echo "next=$?"`);
+    expect(r.out).toBe('full=3\nnext=0\n');
+    expect(fs.readFileSync(path.join(d, 'lock', 'pid'), 'utf8')).toMatch(/^\d+\n$/);
+  });
+
   test('a missing or unwritable parent is 2, not contention', () => {
     const d = fresh();
     const ro = path.join(d, 'ro');
