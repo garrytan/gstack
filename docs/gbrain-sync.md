@@ -163,8 +163,8 @@ not held.
 The scan reads the whole staged diff twice: once as `git diff` shows it to
 you (your `diff.context` and any textconv driver apply), and once as raw text
 with three unchanged lines around each edit. A match in either reading holds
-the file. Both include file names and the unchanged lines around each edit. Each added line is also scanned with its JSON
-strings decoded, so a secret written with `\u` escapes or inside an escaped
+the file. Both readings include file names. Each added line is also
+scanned with its JSON strings decoded, so a secret written with `\u` escapes or inside an escaped
 JSON string is still caught. Each edited block is also read as the new file
 text, so a key on an unchanged line and a value added under it are matched
 together, whatever your git `diff.context` setting is. Files git treats as

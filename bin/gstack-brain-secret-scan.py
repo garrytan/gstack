@@ -193,7 +193,8 @@ def families(lines, text_reading=False):
     post_texts = [post.decode("utf-8", "replace") for post in posts]
     texts = ([raw] + [decoded_in_place(line) for line in added] + [s for line in added for s in decoded_strings(line)]
              + post_texts + [decoded_in_place(text) for text in post_texts]
-             + nul_readings([line[1:] for line in lines] + posts))
+             + [t for nul in nul_readings([line[1:] for line in lines] + posts)
+                for t in [nul, decoded_in_place(nul)] + decoded_strings(nul)])
     text = "\n".join(texts)
     found = ['binary-not-scanned'] if text_reading and unscanned_binary(lines) else []
     return found + [name for name, rx, real in patterns

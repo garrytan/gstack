@@ -1043,6 +1043,7 @@ hold_flagged_paths() {
   WAITING=0
   : > "$scan.hits"
   : > "$scan.blobs"
+  (umask 077 && : > "$scan.diff" && : > "$scan.text") || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1

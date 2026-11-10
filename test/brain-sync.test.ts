@@ -688,6 +688,31 @@ describe('gstack-brain-sync secret scan', () => {
     expect(status.held.map((h: any) => h.path)).toEqual([rel]);
   });
 
+  test('a \\u-escaped AWS key in a UTF-16 JSON file is held', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const rel = 'projects/p/ceo-plans/note.md';
+    const status = syncFile(rel, Buffer.from('{"k":"\\u0041KIA' + 'ABCDEFGHIJKLMNOP"}\n', 'utf16le'));
+    expect(status.status).toBe('held');
+    expect(status.held.map((h: any) => h.path)).toEqual([rel]);
+    expect(remoteFiles()).not.toContain(rel);
+  });
+
+  test('the scan files that hold staged bytes are private to the user', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    const shimDir = path.join(tmpHome, 'shim');
+    const modes = path.join(tmpHome, 'scan-modes.txt');
+    fs.mkdirSync(shimDir, { recursive: true });
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+    fs.writeFileSync(path.join(shimDir, 'git'), `#!/bin/sh\n"${realGit}" "$@"\nrc=$?\nfor f in "${tmpHome}"/brain-sync-paths.*.scan.diff "${tmpHome}"/brain-sync-paths.*.scan.text; do [ -f "$f" ] && ls -ln "$f" | cut -c1-10 >> '${modes}'; done\nexit $rc\n`, { mode: 0o755 });
+    const status = syncFile('projects/p/ceo-plans/note.md', '# a plan\n', { PATH: shimDir + path.delimiter + process.env.PATH, TMPDIR: tmpHome });
+    expect(status.held_count ?? 0).toBe(0);
+    const seen = fs.readFileSync(modes, 'utf-8').split('\n').filter(Boolean);
+    expect(seen.length).toBeGreaterThan(0);
+    expect([...new Set(seen)]).toEqual(['-rw-------']);
+  });
+
   test('an AWS key that only a configured textconv driver decodes is held', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
