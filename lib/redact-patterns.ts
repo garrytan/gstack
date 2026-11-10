@@ -387,9 +387,12 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
  * `/`, `(`, `[`, `<` or a quote, so `sales-actions/runs/<n>` is not one),
  * a `run_id` / `job_id` key, or any 11- or 12-digit id of a
  * `runs=<id>/<attempt>[,<id>/<attempt>…]` list (`run=` too), the receipt a
- * CI carry or run clear prints (lib/run-evidence.ts runReceiptFields); the
- * `/<attempt>` of one to three digits after every id is what tells that list
- * from a number (GST-1227). An 11-digit id (every GitHub Actions run id since
+ * CI carry or run clear prints (lib/run-evidence.ts runReceiptFields), or a
+ * `ci_carried=<lane>:<id>/<attempt>[,<lane>:<id>/<attempt>…]` list on a
+ * `SHIP_RECEIPT:` summary line (lib/ship-receipt.ts receiptSummaryLine); the
+ * `/<attempt>` of one to three digits after every id (and `<lane>:` in
+ * `ci_carried=`) is what tells that list
+ * from a number (GST-1227, #4221). An 11-digit id (every GitHub Actions run id since
  * 2025) also counts right after a run word on the same line, the way a ship
  * receipt, a READY block or an approval record names one (`screen 40477638211
  * GREEN`, `gate=40323989742`, `rerun passed 40287239206`, `run #19368712345`);
@@ -403,6 +406,8 @@ export function isNumericMetadataValue(span: string, match: RegExpExecArray): bo
 const CI_ID_POSITION_BEFORE =
   /(?:--(?:run|job)(?:-id)?(?:[ \t]+|[ \t]*=[ \t]*)|\bgh[ \t]+run[ \t]+(?:view|watch|rerun|download|cancel)[ \t]+|(?:^|[\s\/(\[<"'])actions\/runs\/|\/jobs?\/|(?:run|job)_id["']?[ \t]*[:=][ \t]*["']?)$/i;
 const CI_RUN_LIST = /(?<![\w-])runs?=\d{11,12}\/\d{1,3}(?:,\d{11,12}\/\d{1,3})*(?![\w\/])/gi;
+const CI_CARRIED_LIST =
+  /(?<![\w\/-])ci_carried=[a-z0-9_.\/-]{1,128}:\d{11,12}\/\d{1,3}(?:,[a-z0-9_.\/-]{1,128}:\d{11,12}\/\d{1,3})*(?![\w\/])/gi;
 /** A run word with an optional ':' '#' '=' right before an 11-digit token; shared with gstack-post's chained-id allowlist. */
 export const CI_RUN_WORD_BEFORE = /\b(?:runs?|screens?|gates?|backstop|bisect|rerun|dispatch(?:ed)?|failed|passed)\s*[:#=]?\s*$/i;
 export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean {
@@ -415,7 +420,13 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
   const lineEnd = input.indexOf("\n", start);
   const line = input.slice(lineStart, lineEnd < 0 ? input.length : lineEnd);
   const at = start - lineStart;
-  return [...line.matchAll(CI_RUN_LIST)].some(m => m.index! < at && at + span.length <= m.index! + m[0].length);
+  if ([...line.matchAll(CI_RUN_LIST)].some(m => m.index! < at && at + span.length <= m.index! + m[0].length)) return true;
+  return (
+    (span.length === 11 || span.length === 12) &&
+    line[at - 1] === ":" &&
+    line[at + span.length] === "/" &&
+    [...line.matchAll(CI_CARRIED_LIST)].some(m => m.index! < at && at + span.length < m.index! + m[0].length)
+  );
 }
 
 /**

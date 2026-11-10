@@ -489,6 +489,31 @@ describe("pii.phone.e164: run ids in a runs= list or an actions/runs/ path (GST-
   );
 });
 
+describe("pii.phone.e164: lane run ids in a ci_carried= summary list (#4221)", () => {
+  table(
+    "pii.phone.e164",
+    "MEDIUM",
+    [
+      // The one-line SHIP_RECEIPT summary gstack-ship-queue ready prints (lib/ship-receipt.ts receiptSummaryLine).
+      "SHIP_RECEIPT: pr=1 head=abc123abc123 version=1.0.0.0 base=main ci_carried=tests:42000000001/1,e2e:42000000002/1",
+      "SHIP_RECEIPT: pr=42 head=2f9d11a0c3e4 version=1.2.3.0 base=main ci_carried=free-tests:42574388503/1,windows_smoke:42574388504/2,ci/lint.v2:425743911771/12",
+      "(ci_carried=tests:42000000001/1).",
+    ],
+    [
+      "call +1 415 555 0123 about SHIP_RECEIPT: pr=1 head=abc123abc123 version=1.0.0.0 base=main ci_carried=tests:42000000001/1",
+      "ci_carried=tests:+14155550123/1",
+      "ci_carried=tests:4155550123/1",
+      "ci_carried=tests:1234567890123/1",
+      "ci_carried=tests:42000000001",
+      "ci_carried=tests:42000000001/1234",
+      "ci_carried=14155552671:42000000001/1",
+      "ci_carried=lane/14155552671/x:42000000001/1",
+      "my_ci_carried=tests:42000000001/1",
+      "foo/ci_carried=tests:42000000001/1",
+    ],
+  );
+});
+
 describe("pii.phone.e164: a short sha after review_loop_grant or review_loop_exception (Free Tests 41667825418, 41766865679)", () => {
   table(
     "pii.phone.e164",

@@ -2999,13 +2999,17 @@ exact tokens it finds in these positions:
 - any id inside an `actions/runs/<id>` path, with or without a host, when
   `actions/runs/` starts the line or follows whitespace, `/`, `(`, `[`,
   `<` or a quote (`see actions/runs/41629861820`; `sales-actions/runs/…`
-  is not one), and every 11- or 12-digit id of a `runs=<id>/<attempt>` list
+  is not one), every 11- or 12-digit id of a `runs=<id>/<attempt>` list
   a CI carry or run clear prints (`runs=41629861819/1,41629861820/2`;
-  `run=` too). The scanner itself exempts both (`isCiRunIdentifier`), and
-  only that shape counts: each id needs its `/<attempt>` of one to three
-  digits, so `runs=4155550123`, `runs=4155550123/1`,
-  `runs=+14155550123/1` and a phone number elsewhere on the line still
-  report (GST-1227);
+  `run=` too), and every 11- or 12-digit id of a
+  `ci_carried=<lane>:<id>/<attempt>` list on a `SHIP_RECEIPT:` summary line
+  (`ci_carried=tests:42000000001/1,e2e:42000000002/1`). The scanner itself
+  exempts all three (`isCiRunIdentifier`), and only those shapes count: each
+  id needs its `/<attempt>` of one to three digits (and `<lane>:` in
+  `ci_carried=`), so `runs=4155550123`, `runs=4155550123/1`,
+  `runs=+14155550123/1`, `ci_carried=tests:4155550123/1`,
+  `ci_carried=tests:42000000001` and a phone number elsewhere on the line or
+  in `<lane>` still report (GST-1227, #4221);
 - an 11-digit id right after a run word on the same line, with an optional
   `:`, `#` or `=` between: `run`, `runs`, `screen`, `screens`, `gate`,
   `gates`, `backstop`, `bisect`, `rerun`, `dispatched`, `dispatch`,

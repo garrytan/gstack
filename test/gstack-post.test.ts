@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EXIT, attributionCallout, mergeBodySections, runPost, type PostEnv } from "../lib/gstack-post";
-import { extractReceipt, orderReceipt, placeReceipt, receiptRuns } from "../lib/ship-receipt";
+import { extractReceipt, orderReceipt, placeReceipt, receiptRuns, receiptSummaryLine } from "../lib/ship-receipt";
 import type { ShipReceipt } from "../lib/headless-artifacts";
 
 interface Call { cmd: string; args: string[]; input?: string }
@@ -290,6 +290,41 @@ describe("gstack-post owns the redaction scan", () => {
       const f = fakeEnv({ files: { "/b": body + "\n" }, visibility: "public" });
       expect([body, run(["pr-comment", "12", "--body-file", "/b"], f)]).toEqual([body, EXIT.confirm]);
       expect(f.stdout()).toContain("RULE: pii.phone.e164 LINE: 1 PART: body");
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
+  // Value: protects=a READY comment carrying the SHIP_RECEIPT summary line that gstack-ship-queue ready prints (lib/ship-receipt.ts receiptSummaryLine,
+  //   with `ci_carried=<lane>:<id>/<attempt>,…`) posts through pr-comment without a pii.phone.e164 hold (#4221), while the same run id copied bare into
+  //   prose, a 10-digit or missing-attempt entry, or a phone number in `<lane>` or elsewhere in the comment still requires confirmation;
+  //   fails_when=every READY comment with carried CI exits 2 asking for --confirm on its `SHIP_RECEIPT:` line, or `ci_carried=` swallows a phone number
+  //   in `<lane>` or prose; why_new=receiptRunIdSpans covers only the fenced gstack-ship-receipt JSON block and CI_RUN_LIST covers only `runs=`;
+  //   seam=fake run; no_claim=real gh
+  test("a READY comment's SHIP_RECEIPT ci_carried lane run ids post without a phone hold; bare or malformed numbers still hold", () => {
+    const summary = receiptSummaryLine(orderReceipt({
+      schema_version: 1, pr: 4200, head: "68b1d0560a3f4e2b9c7d1e5f8a2b3c4d5e6f7a8b", version: "1.0.0.0", base: "main",
+      ci_carried: [
+        { lane: "tests", run: 42000000001, attempt: 1, tree: "9f2c4e1a7b3d5c8e0f6a2b4d6e8f0a1c3e5b7d9f" },
+        { lane: "e2e-gate", run: 42000000002, attempt: 2, tree: "9f2c4e1a7b3d5c8e0f6a2b4d6e8f0a1c3e5b7d9f" },
+      ],
+    }));
+    const ready = `READY\n${summary}\nREVIEW_LOOP: passes=2 blocking_found=0 deferred=0 noted=0 fixed=0\nTRIAL_MERGES: none share a file\nAttention:\nself-audited (not a risk class: no cross-family trail read)\nNo flags\n`;
+    for (const visibility of ["public", "private"] as const) {
+      const f = fakeEnv({ files: { "/b": ready }, visibility });
+      expect([visibility, run(["pr-comment", "4200", "--body-file", "/b"], f)]).toEqual([visibility, EXIT.posted]);
+      expect(f.posts()).toHaveLength(1);
+    }
+    const controls = [
+      `${ready}Carried 42000000001 in prose.\n`,
+      `${ready}Call +14155552671 if red.\n`,
+      "READY\nSHIP_RECEIPT: pr=1 head=abc123abc123 version=1.0.0.0 base=main ci_carried=tests:4155552671/1\n",
+      "READY\nSHIP_RECEIPT: pr=1 head=abc123abc123 version=1.0.0.0 base=main ci_carried=tests:42000000001\n",
+      "READY\nSHIP_RECEIPT: pr=1 head=abc123abc123 version=1.0.0.0 base=main ci_carried=14155552671:42000000001/1\n",
+    ];
+    for (const body of controls) {
+      const f = fakeEnv({ files: { "/b": body }, visibility: "public" });
+      expect([body, run(["pr-comment", "4200", "--body-file", "/b"], f)]).toEqual([body, EXIT.confirm]);
+      expect(f.stdout()).toContain("RULE: pii.phone.e164");
       expect(f.posts()).toEqual([]);
     }
   });
