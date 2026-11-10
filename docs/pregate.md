@@ -869,11 +869,10 @@ once:
   failed, was cancelled or is still running (`run_started_at`, so a red re-run
   of an older run counts, a run started in the same second counts, and
   re-running this run does not hide a failure in between).
-- The run finished within `max_age_hours` (its jobs' latest `completed_at`,
-  else the run's `updated_at`), and on the profile's OS when it names one.
-  Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
-  that uploads `tree.json` re-runs too, because that file must name the
-  newest attempt. The 8 MiB cap is read from the artifact's zipped size before
+- The run finished within `max_age_hours` (its profile jobs' latest
+  `completed_at`, else the run's `updated_at`), and on the profile's OS when it
+  names one. A job outside the profile never dates the run, so rerunning one
+  does not refresh old test results. The 8 MiB cap is read from the artifact's zipped size before
   download, so a workflow on the branch itself can still unpack a larger file
   into the temporary directory.
 

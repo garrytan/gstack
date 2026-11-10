@@ -455,7 +455,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
     const skipCommand = check.gateRuns!.skipped;
     if (skipCommand && required.size) {
       const skipped = check.inventory(skipCommand, file.tree, [...required]);
-      const noDeps = 'error' in skipped && /Cannot find (?:package|module)|node_modules/.test(skipped.error);
+      const noDeps = 'error' in skipped && /Cannot find (?:package|module) '/.test(skipped.error);
       if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed${noDeps ? ' because this checkout has no installed dependencies (install them, for example with bun install, then clear again)' : ''}: ${skipped.error}; ${lane} stays uncleared` };
       const inventory = new Set(listed);
       for (const f of skipped) if (!inventory.has(f) && required.delete(f)) skippedCount++;

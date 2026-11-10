@@ -175,7 +175,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (run.conclusion !== 'success') return fail('run_not_success', `${at} concluded ${run.conclusion}`);
     if (!SHA.test(run.head_sha)) return fail('api_error', `${at} has no head commit`);
     const jobs = deps.jobs(id, run.run_attempt);
-    const completed = jobs.map(j => j.completed_at).filter((t): t is string => !!t).sort().pop();
+    const completed = jobs.filter(j => p.jobs.includes(j.name)).map(j => j.completed_at).filter((t): t is string => !!t).sort().pop();
     const finishedAt = completed ?? run.updated_at;
     const finished = Date.parse(finishedAt ?? '');
     const maxAge = p.max_age_hours ?? DEFAULT_MAX_AGE_HOURS;

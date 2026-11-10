@@ -139,6 +139,7 @@ describe.skipIf(process.platform === 'win32')('clear --run with the Free Tests p
     expect(clear({ head, files: files.filter(f => f !== 'test/other.test.js') }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: `${SKIPPED}; echo test/other.test.js` } })).toContain('(test/other.test.js)');
     expect(clear({ head, files }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: 'exit 3' } })).toContain('reason=skipped_failed');
     expect(clear({ head, files }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: 'exit 3' } })).not.toContain('no installed dependencies');
+    expect(clear({ head, files }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: "echo 'TypeError: x at /repo/node_modules/zod/index.js:1' >&2; exit 1" } })).not.toContain('no installed dependencies');
     expect(clear({ head, files }, { gateRuns: { profiles: [PROFILE], inventory: INVENTORY, skipped: "echo \"error: Cannot find package 'zod' from '/x/test/helpers/paid-test-set.ts'\" >&2; exit 1" } })).toContain('reason=skipped_failed — the remote gate\'s skipped command failed because this checkout has no installed dependencies (install them, for example with bun install, then clear again): ');
     const paidOnly = structuredClone(file);
     paidOnly.requires_remote!.find(r => r.lane === LANE)!.tests = [PAID];

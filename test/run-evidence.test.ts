@@ -346,6 +346,14 @@ describe('job-level reruns (GST-2284, HARN-56 run 42724981450)', () => {
     expect(v.ok ? [v.evidence.run_attempt, v.evidence.tree] : v.detail).toEqual([2, TREE]);
   });
 
+  // Value: protects=freshness dates a carried run by its profile jobs; fails_when=rerunning an unrelated job refreshes old test results
+  test('rerunning an unrelated job does not refresh a carried run whose checks job finished long ago', () => {
+    const old = { ...checks1, started_at: '2026-11-02T00:02:31Z', completed_at: '2026-11-02T00:19:51Z' };
+    expect(why(rerun(2, { 1: [old, export1], 2: [export2, old] }, record(1)))).toBe('run_stale');
+    const v = verify(rerun(2, onlyExportRerun, record(1)));
+    expect(v.ok && v.evidence.finished_at).toBe(checks1.completed_at);
+  });
+
   // Value: protects=the carried attempt binds only the job's own attempt and every other field; fails_when=any recorded attempt or field is accepted
   test('a carried artifact still refuses a different tree, head, merge tree, event, run or job conclusion', () => {
     expect(why(rerun(2, onlyExportRerun, record(1, { tree: 'd'.repeat(40) })))).toBe('tree_mismatch');
