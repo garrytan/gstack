@@ -303,9 +303,12 @@ describe('browseNavigatedTo', () => {
       'cd "$HOME" && $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
       `echo "$B goto ${url}" >/dev/null && $B html`, `$B text goto ${url} >/dev/null && $B html`,
       '$B status >/dev/null || $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
-      `cd ${cwd} && $B status || $B goto "file://$PWD/fixture.html" >/dev/null && $B html`])
+      `cd ${cwd} && $B status || $B goto "file://$PWD/fixture.html" >/dev/null && $B html`,
+      'true || echo | $B goto "file://$PWD/fixture.html" >/dev/null && $B html'])
       expect(credited(command), command).toBe(false);
-    expect(credited(`test -d ${cwd} || exit 1; $B goto "file://$PWD/fixture.html" >/dev/null && $B html`)).toBe(true);
+    for (const command of [`test -d ${cwd} || exit 1; $B goto "file://$PWD/fixture.html" >/dev/null && $B html`,
+      '[ -x "$B" ] || B=/x/browse && $B goto "file://$PWD/fixture.html" >/dev/null && $B html'])
+      expect(credited(command), command).toBe(true);
     const http = 'http://127.0.0.1:9/missing';
     expect(browseNavigatedTo(bash(`$B goto ${http} >/dev/null && $B html`, '<html>Not Found</html>'), http)).toBe(false);
     const goto = '$B goto "file://$PWD/fixture.html" >/dev/null && $B html';
