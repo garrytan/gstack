@@ -7,14 +7,19 @@
 #   gstack-uninstall --keep-state — remove skills but keep all gstack state,
 #                                   including the repo's .gstack/ and .gstack-worktrees/
 #   gstack-uninstall --force-worktrees — also delete .gstack-worktrees/ checkouts
-#                                   that have uncommitted changes
+#                                   that have uncommitted changes (never a
+#                                   locked worktree)
 #
 # Per-project state: git-tracked files under .gstack/ (ship policy and the
-# like) are never deleted; only the files git ignores go. A checkout under
-# .gstack-worktrees/ with uncommitted changes, commits no branch or tag holds,
-# a status git cannot read, or no registration as this repository's worktree
-# stops the uninstall (exit 2, before anything is removed) unless
-# --force-worktrees is given.
+# like) are never deleted; only the files git ignores go, and a .gstack/ that
+# holds its own git repository is kept. A checkout under .gstack-worktrees/
+# (nested ones included) with uncommitted changes, commits no branch or tag
+# holds, a status git cannot read, or no registration as this repository's
+# worktree stops the uninstall (exit 2, before anything is removed) unless
+# --force-worktrees is given; a locked worktree, or a worktree list git cannot
+# read, stops it either way. The check runs again after the prompt, still before
+# anything is removed. Run from inside the install being removed, a .gstack/
+# holding its own git repository also stops it.
 #
 # State: only the default root ~/.gstack/ is ever deleted. A state root
 # selected elsewhere (GSTACK_HOME, GSTACK_STATE_ROOT, GSTACK_STATE_DIR or
@@ -141,16 +146,23 @@ if [ "$KEEP_STATE" -eq 0 ] && [ -e "$RESOLVED_ROOT" ]; then
   fi
 fi
 # ─── Per-project worktree safety ─────────────────────────────
-# Every checkout root on disk under .gstack-worktrees/ (a folder holding a .git),
-# registered or not, NUL-separated so no name can split into a relative path.
-# A symlinked .gstack-worktrees is never followed: uninstall removes only the link.
+# Every checkout on disk under .gstack-worktrees/ (a folder holding a .git),
+# registered or not, including checkouts nested inside another one,
+# NUL-separated so no name can split into a relative path. Symlinks are never
+# followed; a symlinked .gstack-worktrees is only unlinked.
 _project_worktrees() {
   [ -d "$_GIT_ROOT/.gstack-worktrees" ] || return 0
-  find "$_GIT_ROOT/.gstack-worktrees" -mindepth 0 -type d -exec sh -c 'test -e "$1/.git"' sh {} \; -print0 -prune 2>/dev/null
+  find "$_GIT_ROOT/.gstack-worktrees" -name .git -prune -print0 2>/dev/null | while IFS= read -r -d '' _dotgit; do
+    printf '%s\0' "${_dotgit%/.git}"
+  done
 }
-# Real paths of the worktrees this repository registered.
+# Real paths of the worktrees this repository registered (all, or with
+# "locked" only the locked ones).
 _registered_worktrees() {
-  git -C "$_GIT_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r _wt; do
+  git -C "$_GIT_ROOT" worktree list --porcelain 2>/dev/null | awk -v only="${1:-}" '
+    /^worktree / { if (path != "" && (only == "" || locked)) print path; path = substr($0, 10); locked = 0 }
+    /^locked( |$)/ { locked = 1 }
+    END { if (path != "" && (only == "" || locked)) print path }' | while IFS= read -r _wt; do
     _real "$_wt"
   done
 }
@@ -162,36 +174,105 @@ _wt_git() {
 }
 # Prints why deleting checkout $1 would lose work; prints nothing when it is safe.
 # A checkout this repository did not register is never opened with git, so its
-# own config cannot run anything.
+# own config cannot run anything; a submodule of a registered lane is the one
+# exception, read with rev-list under _wt_git.
 _worktree_risk() {
-  local _dir _status _head
+  local _dir _status _head _local
   _dir="$(_real "$1")"
   case "$_dir" in
     ""|*"
 "*) echo "it is not a registered worktree of this repository"; return 0 ;;
   esac
-  printf '%s\n' "$_REGISTERED_WORKTREES" | grep -Fxq -- "$_dir" || { echo "it is not a registered worktree of this repository"; return 0; }
+  if ! printf '%s\n' "$_REGISTERED_WORKTREES" | grep -Fxq -- "$_dir"; then
+    _is_registered_submodule "$_dir" || { echo "it is not a registered worktree of this repository"; return 0; }
+    _local="$(_wt_git "$_dir" rev-list -n 1 --all --not --remotes 2>/dev/null)" || { echo "git cannot read its history"; return 0; }
+    [ -z "$_local" ] || echo "it is a submodule with commits no remote-tracking branch contains"
+    return 0
+  fi
   [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$_dir" ] || { echo "git cannot read it as a checkout"; return 0; }
   _status="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "git cannot read its status"; return 0; }
   [ -z "$_status" ] || { echo "it has uncommitted changes"; return 0; }
   _head="$(_wt_git "$1" rev-parse -q --verify HEAD 2>/dev/null)" || return 0
   [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
 }
-if [ "$KEEP_STATE" -eq 0 ] && [ "$FORCE_WORKTREES" -eq 0 ] && [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
-  _DIRTY_WORKTREES=0
+# Succeeds when checkout $1 is a submodule of the registered worktree under
+# .gstack-worktrees that holds it: that worktree's index records exactly this
+# path as a gitlink, so its status reports the submodule's changes. Commits only
+# the submodule's own refs hold are checked by the caller.
+_is_registered_submodule() {
+  local _wt _parent="" _base _rel _entry
+  _base="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  while IFS= read -r _wt; do
+    case "$_wt" in "$_base"/*) ;; *) continue ;; esac
+    case "$1" in "$_wt"/*) [ ${#_wt} -gt ${#_parent} ] && _parent="$_wt" ;; esac
+  done <<EOF
+$_REGISTERED_WORKTREES
+EOF
+  [ -n "$_parent" ] || return 1
+  _rel="${1#"$_parent"/}"
+  _entry="$(_wt_git "$_parent" ls-files --stage -z -- ":(literal)$_rel" 2>/dev/null | tr '\0' '\n')"
+  case "$_entry" in 160000\ *) ;; *) return 1 ;; esac
+  [ "${_entry#*	}" = "$_rel" ]
+}
+# Prints one "refusing to delete" line per checkout under .gstack-worktrees/
+# that must be kept; prints nothing when every one can go. A locked worktree
+# is kept even with --force-worktrees.
+_worktree_refusals() {
+  local _wt _risk
+  if ! git -C "$_GIT_ROOT" worktree list --porcelain >/dev/null 2>&1; then
+    echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees/: git cannot list this repository's worktrees"
+    return 0
+  fi
   _REGISTERED_WORKTREES="$(_registered_worktrees)"
-  while IFS= read -r -d '' _WT; do
-    [ -n "$_WT" ] || continue
-    _WT_RISK="$(_worktree_risk "$_WT")"
-    [ -n "$_WT_RISK" ] || continue
-    echo "gstack-uninstall: refusing to delete $_WT: $_WT_RISK" >&2
-    _DIRTY_WORKTREES=1
+  _LOCKED_WORKTREES="$(_registered_worktrees locked)"
+  while IFS= read -r -d '' _wt; do
+    [ -n "$_wt" ] || continue
+    if [ -n "$_LOCKED_WORKTREES" ] && printf '%s\n' "$_LOCKED_WORKTREES" | grep -Fxq -- "$(_real "$_wt")"; then
+      _risk="it is locked (git worktree lock)"
+    elif [ "$FORCE_WORKTREES" -eq 1 ]; then
+      continue
+    else
+      _risk="$(_worktree_risk "$_wt")"
+    fi
+    [ -z "$_risk" ] || echo "gstack-uninstall: refusing to delete $_wt: $_risk"
   done < <(_project_worktrees)
-  if [ "$_DIRTY_WORKTREES" -eq 1 ]; then
-    echo "fix: commit the work to a branch or stash it, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete them anyway" >&2
+}
+_WORKTREES_FIX="fix: commit the work to a branch or stash it, unlock a locked worktree with git worktree unlock <path>, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete the unlocked ones anyway"
+# Succeeds when the current repository sits inside a gstack install this
+# uninstall deletes, so nothing in it can be kept by keeping one folder.
+_git_root_in_install() {
+  local _install _root
+  _root="$(_real "$_GIT_ROOT")"
+  for _install in "$HOME/.claude/skills/gstack" "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack* \
+    "$HOME"/.cursor/skills/gstack* "$HOME"/.config/opencode/skills/gstack* "$HOME"/.copilot/skills/gstack* \
+    "$HOME"/.gemini/antigravity-cli/skills/gstack* "$HOME"/.gemini/skills/gstack*; do
+    [ -d "$_install" ] || continue
+    _is_at_or_above "$(_real "$_install")" "$_root" && return 0
+  done
+  return 1
+}
+# Every keep decision for per-project state, made before anything is removed:
+# exits 2 when a checkout must be kept, or when the repository's .gstack/ holds
+# its own git repository inside the install being deleted. $1, when set, is
+# printed before the fix line.
+_check_project_keep() {
+  [ -n "$_GIT_ROOT" ] || return 0
+  if [ "$KEEP_STATE" -eq 0 ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _REFUSALS="$(_worktree_refusals)"
+    if [ -n "$_REFUSALS" ]; then
+      printf '%s\n' "$_REFUSALS" >&2
+      [ -z "${1:-}" ] || echo "$1" >&2
+      echo "$_WORKTREES_FIX" >&2
+      exit 2
+    fi
+  fi
+  if [ -d "$_GIT_ROOT/.gstack" ] && [ ! -L "$_GIT_ROOT/.gstack" ] && [ -n "$(find "$_GIT_ROOT/.gstack" -name .git -print -quit 2>/dev/null)" ] && _git_root_in_install; then
+    echo "gstack-uninstall: refusing to uninstall: $_GIT_ROOT/.gstack/ holds its own git repository, and it sits inside the gstack install being removed" >&2
+    echo "fix: move $_GIT_ROOT/.gstack/ out of the install (or push its commits), then re-run gstack-uninstall" >&2
     exit 2
   fi
-fi
+}
+_check_project_keep
 
 _report_left_root() {
   [ -n "$_LEAVE_ROOT" ] || return 0
@@ -238,6 +319,7 @@ if [ "$FORCE" -eq 0 ]; then
     y|Y|yes|YES) ;;
     *) echo "Aborted."; exit 0 ;;
   esac
+  _check_project_keep "nothing was removed: a checkout changed while the prompt waited"
 fi
 
 REMOVED=()
@@ -563,6 +645,10 @@ _remove_project_dir() {
     return 0
   fi
   if [ -z "$_tracked" ]; then
+    if [ -n "$(find "$_dir" -name .git -print -quit 2>/dev/null)" ]; then
+      echo "kept $_dir/: it holds its own git repository, whose commits may exist nowhere else; check it, then remove it by hand" >&2
+      return 0
+    fi
     rm -rf "$_dir"
     REMOVED+=("$_dir/")
     return 0
@@ -577,12 +663,19 @@ if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
     rm -f -- "$_GIT_ROOT/.gstack-worktrees"
     REMOVED+=("$_GIT_ROOT/.gstack-worktrees (link only)")
   elif [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _WTS=()
+    _WT_REALS=()
     while IFS= read -r -d '' _WT; do
       [ -n "$_WT" ] || continue
-      _WT_REAL="$(_real "$_WT")"
-      rm -rf "$_WT"
-      [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
+      _WTS+=("$_WT")
+      _WT_REALS+=("$(_real "$_WT")")
     done < <(_project_worktrees)
+    for _WT in ${_WTS[@]+"${_WTS[@]}"}; do
+      rm -rf "$_WT"
+    done
+    for _WT_REAL in ${_WT_REALS[@]+"${_WT_REALS[@]}"}; do
+      [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
+    done
     _remove_project_dir .gstack-worktrees
   fi
 fi

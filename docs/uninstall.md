@@ -10,7 +10,7 @@ If gstack is installed on your machine:
 
 This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the opt-in [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics; it also keeps the repo's `.gstack/` and `.gstack-worktrees/`. Use `--force` to skip confirmation.
 
-A plain uninstall keeps the git-tracked files under `.gstack/` (such as ship policy) and removes only the ones git ignores. It stops with exit 2, before removing anything, when a checkout under `.gstack-worktrees/` has uncommitted changes, has commits no branch or tag holds, or is not a worktree this repo registered. Pass `--force-worktrees` to delete those checkouts anyway. When `.gstack-worktrees` is a symlink, uninstall removes only the link and never follows it, so the folder it points at and the worktrees there are kept. It checks only the top-level checkouts: a worktree created inside another checkout under `.gstack-worktrees/` is not checked and is deleted with its parent, so commit or stash its work before you uninstall.
+A plain uninstall keeps the git-tracked files under `.gstack/` (such as ship policy) and removes only the ones git ignores. It stops with exit 2, before removing anything, when a checkout under `.gstack-worktrees/` has uncommitted changes, has commits no branch or tag holds, or is not a worktree this repo registered. Pass `--force-worktrees` to delete those checkouts anyway. Every checkout is checked, including a worktree created inside another checkout under `.gstack-worktrees/`. A git submodule inside a clean checkout is deleted with it only when every commit it holds is on a remote-tracking branch; otherwise it stops the uninstall. A locked worktree (`git worktree lock`) always stops the uninstall, even with `--force-worktrees`; unlock it with `git worktree unlock <path>` if you want it gone. If `git worktree list` fails, the uninstall stops too, even with `--force-worktrees`. The check runs again after you confirm, before anything is removed, so a checkout you edit while the confirmation prompt waits is kept: uninstall exits 2 and removes nothing. Run from inside the gstack install itself, a `.gstack/` that holds its own git repository also stops the uninstall, because deleting the install would take it along. A `.gstack/` that is its own git repository is kept, with a message saying so, because its commits may exist nowhere else. When `.gstack-worktrees` is a symlink, uninstall removes only the link and never follows it, so the folder it points at and the worktrees there are kept.
 
 ## Option 2: Manual removal (no local repo)
 
@@ -62,9 +62,31 @@ rm -rf ~/.gemini/skills/gstack* 2>/dev/null
 rm -f /tmp/gstack-* 2>/dev/null
 
 # 7. Per-project cleanup (run from each project root)
-rm -rf .gstack .gstack-worktrees .claude/skills/gstack 2>/dev/null
-rm -rf .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
+rm -rf .claude/skills/gstack .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
+# Browse state: removes only the files git ignores, so tracked files such as
+# ship policy, and a .gstack/ that is its own git repo, stay.
+git clean -fdXq -- .gstack 2>/dev/null
+# Worktrees, deepest first: each goes only when it has no uncommitted changes,
+# no commits a branch or tag lacks, and no checkout inside it. git refuses a
+# locked one. Anything printed as kept still holds work: save it, then re-run.
+root=$(git rev-parse --show-toplevel)
+git worktree list --porcelain | sed -n 's/^worktree //p' | sort -r |
+while IFS= read -r wt; do
+  case "$wt" in "$root/.gstack-worktrees/"*) ;; *) continue ;; esac
+  if [ -z "$(git -C "$wt" status --porcelain --untracked-files=all)" ] &&
+     [ -z "$(git -C "$wt" log --oneline -1 HEAD --not --branches --tags)" ] &&
+     [ -z "$(find "$wt" -mindepth 2 -name .git -print -quit)" ]; then
+    git worktree remove "$wt" || echo "kept $wt"
+  else
+    echo "kept $wt: it holds work or another checkout"
+  fi
+done
+find .gstack-worktrees -depth -type d -empty -delete 2>/dev/null || true
 ```
+
+Never `rm -rf .gstack-worktrees` by hand: a checkout there can hold uncommitted
+work, commits no branch has, or another worktree nested inside it, and `rm -rf`
+deletes all of it. Anything the loop above keeps, check and remove yourself.
 
 Manual removal leaves gstack's hook entries behind in `~/.claude/settings.json`
 (the uninstall script removes all of them for you, including entries whose
