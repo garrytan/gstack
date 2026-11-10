@@ -72,6 +72,16 @@ D) Defer
     expect(asideDriveOptions('A) Open the Aside app; if READY, I drive the dashboard.')).toHaveLength(1);
   });
 
+  test('a drive option that names Aside only as missing is not an Aside drive (gate 42748129558)', () => {
+    for (const option of ["B) I drive it in gstack's own visible browser (recommended, since Aside isn't available). I open the dashboard in a visible browser window and stop whenever you need to act.",
+      "B) Aside isn't available, so I drive it in gstack's own browser.", "B) Aside was not detected; I drive it in gstack's own browser.",
+      "B) Since the Aside browser is unavailable, I drive it in gstack's own browser.", "B) With no Aside installed, I drive it in gstack's browser."])
+      expect(asideDriveOptions(option), option).toEqual([]);
+    for (const option of ["A) Aside isn't open yet, so I open Aside and drive the dashboard.",
+      'A) I drive it in your Aside browser; Aside is not the only option.', "A) Aside wasn't running, but now I drive it in your Aside browser."])
+      expect(asideDriveOptions(option), option).toHaveLength(1);
+  });
+
   test.each(recoveryFixture.responses)('native recovery response $attempt defers drive consent to a new question', ({ text }) => {
     expect(asideDriveOptions(text)).toEqual([]);
     expect(asideDriveOptions(text.replace('option included.', 'option included; then I drive in your Aside browser.'))).toHaveLength(1);
@@ -577,8 +587,9 @@ describe('Opus consent renders (gate captures)', () => {
   test('the defer outcome counts in any words, and a refusal of it never does', () => {
     // Gate 42431616220 slice 15: the red tpa-present render's D) option, missed by the spelling list.
     for (const option of ["D) Do it later. I'll mark this step as waiting on you.", 'D) Not yet: the step stays blocked on you.',
-      'D) Later. This step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you.",
-      "D) Do it later - I'll leave this step as blocked on you."])
+      'D) Later. This step remains waiting on you.', 'D) Later, so this step remains waiting on you.', "D) Do it later \u2014 I'll leave this step as blocked on you.",
+      "D) Do it later - I'll leave this step as blocked on you.", 'D) Not now. The step stays blocked on you.',
+      'D) Sign in yourself later. The step is waiting on you.'])
       expect(offersDefer(option), option).toBe(true);
     for (const text of ['D) Continue now. I will not mark this step as blocked on you.',
       "D) Continue now. I won't mark this step as waiting on you.", 'D) Continue now. I never mark this step as blocked on you.',
@@ -598,6 +609,12 @@ describe('Opus consent renders (gate captures)', () => {
       "B) I drive it in gstack's own browser and mark this step as waiting on you.",
       "C) Manual instructions; I'll mark this step as blocked on you.",
       'C) I give you the steps to do it yourself. The step stays blocked on you.',
+      // /ship note at d98f9bb5 (PR #4223): a state line after a non-defer instruction is not a defer offer.
+      'D) Sign in yourself. Until then the step stays blocked on you.',
+      'D) Approve the token in the dashboard. The step is waiting on you.',
+      'D) Continue now. The step is waiting on you.',
+      'D) Do it now, not later. The step stays blocked on you.',
+      'D) The step is waiting on you. Do it later.',
       "I'll mark this step as waiting on you.\nA) I drive it in your Aside browser\nB) Manual instructions"])
       expect(offersDefer(text), text).toBe(false);
   });
