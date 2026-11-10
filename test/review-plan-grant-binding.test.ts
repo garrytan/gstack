@@ -61,6 +61,10 @@ describe('gstack-review-plan --grant after round 1 (GST-2244)', () => {
     const gate = r.plan([...round1.filter(a => a !== '--adversarial-ran'), '--grant', g], '1');
     expect(gate.stdout).toContain(`NEXT: fix-check (the owner's grant ${g}`);
     r.logFixCheck();
+    const respent = r.plan([...round1, '--grant', g]);
+    expect(respent.status, respent.stderr).toBe(0);
+    expect(respent.stdout).toContain('NEXT: full (a blocking finding was fixed and pass 1 ran at full depth: full pass on the range)');
+    expect(respent.stderr).toContain(`--grant ${g}: a fix-check was logged after this grant was recorded, so it already bought that fix-check and buys no other`);
     const after = ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--range-base', r.passHead, '--grant', g];
     const clean = r.plan(after);
     expect(clean.status, clean.stderr).toBe(0);
@@ -91,6 +95,11 @@ describe('gstack-review-plan --grant after round 1 (GST-2244)', () => {
       .toContain(`names ${r.stale.slice(0, 12)}, which is not the stop head: expected ${r.fix} (HEAD), or any commit at or after --range-base ${r.passHead.slice(0, 12)} and at or before HEAD`);
     expect(refused(r.add('Captain grant on #8839: unknown sha', 'review_loop_grant 0123456789abcdef on #8839'))).toContain('names 0123456789abcdef, which is not a commit in this clone');
     expect(refused(r.add('Captain grant on #8839: no sha', 'review_loop_grant on #8839'))).toContain(`names no commit sha: name the stop head, review_loop_grant ${r.fix.slice(0, 12)} on #<n>`);
+    expect(refused(r.add(`one scoped fix-check at ${r.fix.slice(0, 7)}`))).toContain(`names no review_loop_grant: record a new row whose ask or scope reads review_loop_grant ${r.fix.slice(0, 12)} on #<n>`);
+    const ok = r.add('Captain grant on #8839', `review_loop_grant ${r.fix.slice(0, 7)} on #8839`);
+    const badBase = r.plan(['--pass', '1', '--last', 'full', '--fixed-blocking', '--range-base', 'deadbeefdeadbeef', '--grant', ok]);
+    expect([badBase.status, badBase.stdout]).toEqual([3, '']);
+    expect(badBase.stderr).toContain('--range-base deadbeefdeadbeef is not a commit in this clone, so no stop head can be checked against it');
     expect(refused('a-000000000000')).toContain('no row a-000000000000 in the approval record for branch feat (');
     expect(refused(r.add('Captain grant on #8839: rejected', `review_loop_grant ${r.fix.slice(0, 7)} on #8839`, 'rejected'))).toContain('has outcome rejected, not approved');
   }, 30_000);

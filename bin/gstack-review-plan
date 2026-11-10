@@ -166,7 +166,7 @@ function main(): number {
     const bound = bindGrant({ root, env: process.env, grant, rangeBase: rangeBase!, chained });
     if (!bound.ok) { process.stderr.write(`gstack-review-plan: --grant ${grant}: ${bound.reason}\n`); return EXIT.refused; }
     inLoopLink = !chained && last === 'fix-check' && bound.stopHead === bound.passHead;
-    const spent = !chained && last === 'fix-check' ? grantSpent(path.dirname(Bun.fileURLToPath(import.meta.url)), bound.row) : null;
+    const spent = !chained ? grantSpent(path.dirname(Bun.fileURLToPath(import.meta.url)), bound.row) : null;
     if (spent && 'error' in spent) { process.stderr.write(`gstack-review-plan: --grant ${grant}: ${spent.error}; no plan is safer than a fix-check the grant may not buy\n`); return EXIT.fail; }
     if (spent?.at && inLoopLink) { process.stderr.write(`gstack-review-plan: --grant ${grant}: a fix-check was logged after this grant was recorded, so the grant already bought a link of the fix-check chain; the stop at --range-base ${rangeBase} needs a new grant recorded after the last fix-check (gstack-approvals add --ask '... (review_loop_grant ${bound.passHead.slice(0, 12)})')\n`); return EXIT.refused; }
     if (spent?.at) { process.stderr.write(`gstack-review-plan: --grant ${grant}: a fix-check was logged after this grant was recorded, so it already bought that fix-check and buys no other (a stop now needs a new grant)\n`); granted = undefined; }
