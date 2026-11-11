@@ -3727,9 +3727,11 @@ results, prereg or eval path, and names no money, security, secret or auth topic
 needs the reader again (GST-1195). With `--body`, write also refuses, writing
 nothing, a body that does not carry each line the receipt requires as one line,
 word for word: every `Ruled note: …` line `gstack-approvals rulings` prints,
+every `Gate disposition: …` line `gstack-approvals dispositions` prints,
 finish's `MECHANICAL:` lines as `Mechanical retake: …`, and accept's
 `TEST_LANE_EXCEPTION:` lines as `Test-lane exception: …`
 ([ruled notes](ship-policy.md#ruled-notes),
+[gate dispositions](ship-policy.md#gate-dispositions),
 [test-lane exceptions](ship-policy.md#test-lane-exceptions)).
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
@@ -7042,7 +7044,7 @@ against `gate.passed: 41`) with a different value. The receipt is written from
 the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
 `## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`,
-`Documentation exception: …`, `Ruled note: …`, `Mechanical retake: …` and
+`Documentation exception: …`, `Ruled note: …`, `Gate disposition: …`, `Mechanical retake: …` and
 `Test-lane exception: …` lines the receipt requires, and the inside of a
 closed code fence are never read as claims.
 
