@@ -1,4 +1,0 @@
----
-important: blocker
----
-- **/ship now accepts a granted follow-up review that starts after a docs-only commit.** When the docs commit /ship writes after its review landed before the owner granted one more scoped review of a fix, that review's range started at the docs commit, and `gstack-ship-release finish` refused it with `FIX_CHECK: not counted (range_base <sha> does not hold the reviewed tree)`, so the reviewed fix counted as unreviewed code. finish now accepts the range when every commit between the reviewed commit and the range start changes only docs or release metadata, and prints a `FIX_CHECK_DOCS_BRIDGE:` line naming those commits. The docs still get their usual recheck. A code or test commit in between, a merge, a range that starts before the reviewed commit, and a range that starts on another branch still refuse.
