@@ -1718,6 +1718,30 @@ Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
 
+<a id="ruled-notes-any-row"></a>
+**Rulings on a full pass or a Step 11 voice (GST-2273).** The same ruling closes a
+finding on any review row, not only a fix-check. `gstack-review-read` applies each
+ruling whose head lies inside the range the row reviewed (`range_base..commit` when
+the row names a range_base, else the row's own commit), so a round-2 full pass whose
+only blockers are ruled reads `CURRENT` and Step 11.5 binds it, as
+[review-policy.md](review-policy.md#how-ship-converges-review_scope-frozen-the-default)
+promises. `gstack-review-scope summary` counts a ruled blocker that no row records,
+such as a Step 11 voice's, as `noted` instead of `unrecorded`. A ruling names a
+finding by its fingerprint or its ledger id (`<pass dir>/<id>`); a finding only a
+dispatch ledger holds also answers to `<path:line>:<reviewer>`. The binding rules do
+not change: the ruling's head must be inside the reviewed range, only an approved
+`gstack-approvals rule` row rules, a gate finding is never ruled, and an edit after
+the bound head still needs review. A stopped read (an `incomplete` binding) is
+promoted only when it read one committed tree: the row must end at the commit its
+start captured (a row logged before starts captured one must end at a commit made
+before the read began), so equal start and end trees around an A→B→A read do not
+bind. On a fix-check row, a finding the fix-check itself read as `fixed` or
+`auto-fixed` no longer holds the row, and `FIX_CHECK_OPEN` names every finding
+that still does, including one no ruling can close. Reads also take the mounted
+Capy Drive's approval mirror when `GSTACK_CAPY=1` is unset, so finish, the receipt
+and `gstack-approvals rulings` see the same rulings in either shell; only
+`GSTACK_CAPY=1` writes the mirror.
+
 <a id="test-lane-exceptions"></a>
 **Test-lane exceptions (GST-1595).** A lane `accept` carries from CI refuses with
 `inventory_uncovered` when an inventory file is in no run's `tree.json`; when bun

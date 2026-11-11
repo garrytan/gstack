@@ -6871,6 +6871,10 @@ note:` line ([ship-policy.md](ship-policy.md#ruled-notes)). A ruling at a head
 outside the range is listed as `not applied`, and a path edited after the
 fix-check still routes by the post-review rules. When the owner wants the
 findings fixed instead, fix them and ask for a grant for one more fix-check.
+A line that ends `cannot be ruled` names findings no ruling closes (a gate
+finding, or one with no rulable action or id): fix them and rerun the fix-check,
+or bring them to the owner. A finding the fix-check itself read as `fixed` never
+holds it ([ship-policy.md](ship-policy.md#ruled-notes-any-row)).
 
 <a id="review-loop-exception-invalid"></a>
 ### `REVIEW_LOOP_EXCEPTION_INVALID`

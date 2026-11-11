@@ -21,11 +21,11 @@ import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
-import { holdsOpen, reviewFreshness, RULABLE } from './review-evidence';
+import { findingKeys, holdsOpen, reviewFreshness, RULABLE } from './review-evidence';
 import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
 import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
-import { readRuledNotes, ruledNoteText } from './ruled-notes';
+import { readOneTree, readRuledNotes, ruledNoteText } from './ruled-notes';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
@@ -319,11 +319,11 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
     if (g) used.add(g.id);
     granted[k] = g;
   }
-  const ruledOn = (l: FixLink) => new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding));
+  const ruledOn = (l: FixLink) => new Set(readOneTree(cwd, l.row) ? rulings.filter(n => n.links.includes(l)).map(n => n.finding) : []);
   const why = (l: FixLink) => {
     const read = l.row.wtree ?? l.row.review_binding?.end_wtree;
     const fresh = reviewFreshness(l.row, read, ruledOn(l));
-    return fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
+    return fresh?.status !== 'CURRENT' ? (!readOneTree(cwd, l.row) && rulings.some(n => n.links.includes(l)) ? 'the stopped read did not bind one committed tree (its commit moved while it ran), so no ruling can promote it' : fresh?.reason ?? 'not a review row')
       : l.row.tree !== read || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
       : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
   };
@@ -332,7 +332,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const clean = new Set(chain.filter(l => !whys.get(l)));
   const flagged = (l: FixLink): string[] | null => {
     const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
-    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint))
+    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !findingKeys(f).some(k => ruledOn(l).has(k)))
       .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
     const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
     const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);
@@ -348,8 +348,15 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
     : uncovered ? `a finding on ${uncovered.p} that no later clean fix-check's range touched${at(uncovered.d)}`
     : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
   if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
-  const rulable = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).filter((f: any) => !!f && !f.gate && RULABLE.has(f.action) && holdsOpen(f) && typeof f.fingerprint === 'string' && !ruledOn(l).has(f.fingerprint)).map((f: any) => f.fingerprint as string);
+  const canRule = (x: { f: any; key?: string }) => !!x.f && typeof x.f === 'object' && !x.f.gate && RULABLE.has(x.f.action) && !!x.key;
+  const holding = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).map((f: any, i: number) => ({ f, i, key: findingKeys(f)[0] }))
+    .filter(x => holdsOpen(x.f, true) && !(canRule(x) && findingKeys(x.f).some(k => ruledOn(l).has(k))));
+  const rulable = (l: FixLink) => holding(l).filter(canRule).map(x => x.key!);
   for (const l of notCounted ? chain : []) if (rulable(l).length) r.add(`FIX_CHECK_OPEN: ${rulable(l).join(',')} on the fix-check at ${l.commit.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${l.commit.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`);
+  for (const l of notCounted ? chain : []) {
+    const held = holding(l).filter(x => !canRule(x)).map(({ f, i, key }) => `${key ?? `finding #${i + 1}`} (${f && typeof f === 'object' ? (f.gate ? 'a gate finding' : `action ${String(f.action)}`) : 'not a finding record'})`);
+    if (held.length) r.add(`FIX_CHECK_OPEN: ${held.join(', ')} on the fix-check at ${l.commit.slice(0, 12)} cannot be ruled: fix each one and rerun the fix-check, or bring it to the owner (docs/troubleshooting.md#fix-check-open)`);
+  }
   if (!chain.length || notCounted) return { counted: false, paths: [] };
   if (bridged) r.add(bridged);
   const read: ((p: string) => boolean)[] = [];

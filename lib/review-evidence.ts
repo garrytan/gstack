@@ -209,6 +209,7 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
   writeFileSync(join(dir, `${token}.json`), JSON.stringify({
     skill, repo: env.GSTACK_REVIEW_REPO, branch: env.GSTACK_REVIEW_BRANCH,
     wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(),
+    ...(env.GSTACK_STAMP_COMMIT_FULL ? { commit: env.GSTACK_STAMP_COMMIT_FULL } : {}),
     ...(fixBase ? { scope: 'fix-range', fix_base: fixBase } : {}),
   }), { mode: 0o600, flag: 'wx' });
   return fixBase ? `${token}\nFIX_BASE=${fixBase}` : token;
@@ -316,7 +317,7 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   // so Step 11.5 cannot bind it and it never becomes CURRENT; only a later full pass can.
   rec.review_binding = narrowed && (state === 'incomplete' || state === 'verified')
     ? { state: 'fix-range', fix_base: rec.fix_base, range_start_wtree: start.wtree, range_end_wtree: end, started_at: start.started_at, ...branchId }
-    : { state, start_wtree: start?.wtree, end_wtree: end, started_at: start?.started_at, ...branchId };
+    : { state, start_wtree: start?.wtree, end_wtree: end, started_at: start?.started_at, ...(typeof start?.commit === 'string' ? { start_commit: start.commit } : {}), ...branchId };
   const verified = rec.review_binding.state === 'verified';
   if (verified) rec.wtree = end;
   if (rec.skill === 'review' && Array.isArray(rec.findings)) {
@@ -339,11 +340,18 @@ export const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'ope
   ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
   (!f.gate && isCriticalFinding(f) && isOpenByAction(f)));
 export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);
-/** What a ruling must cover before rulings can clear a row: every unresolved finding and every one the reader marked blocking, whatever its action. */
-export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f.blocking === true;
+/**
+ * What a ruling must cover before rulings can clear a row: every unresolved finding and every one the reader marked blocking,
+ * whatever its action, except, on a fix-check row, a non-gate finding the fix-check itself read as fixed (GST-2273): a full
+ * pass's `fixed` is the lane's edit after the read, unverified until a later read, but a fix-check's is its verdict.
+ */
+export const holdsOpen = (f: unknown, fixCheck = false) => !record(f) || unresolvedFinding(f) ||
+  (f.blocking === true && !(fixCheck && !f.gate && (f.action === 'fixed' || f.action === 'auto-fixed')));
+/** The ids a ruling can name for a finding: its fingerprint and its dispatch-ledger id (GST-2273). */
+export const findingKeys = (f: unknown): string[] => record(f) ? [f.fingerprint, f.ledger_id].filter((k): k is string => typeof k === 'string' && k.length > 0) : [];
 
 /**
- * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
+ * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints or ledger ids from approved
  * `gstack-approvals rule` rows, lib/ruled-notes.ts, never from the row itself) taken out, and recorded clean when the
  * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged. An open
  * finding is rulable too: a fix-check that finds a CRITICAL stops for the owner (review-army decision 3.5 sends it to decision 2)
@@ -351,11 +359,11 @@ export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f
  * answer to that stop, so a row the rulings clear binds at the tree it read (GST-2251, harness-evals#361).
  */
 function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>): Record<string, any> {
-  const isRuled = (f: unknown) => record(f) && !f.gate && RULABLE.has(f.action) && typeof f.fingerprint === 'string' && ruled.has(f.fingerprint);
+  const isRuled = (f: unknown) => record(f) && !f.gate && RULABLE.has(f.action) && findingKeys(f).some(k => ruled.has(k));
   if (!ruled.size || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
-      rec.findings.some(f => !isRuled(f) && holdsOpen(f))) return rec;
+      rec.findings.some(f => !isRuled(f) && holdsOpen(f, rec.skill === 'review-fix-check'))) return rec;
   return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
 }
 

@@ -38,14 +38,15 @@ const NOT_CLEAN = 'FIX_CHECK: not counted (review has unresolved findings or did
 const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
 const finish = (f: ShipFx, reviewed: string, post: string) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
 const rule = (f: ShipFx, finding: string, head: string, by = 'qm minder (CAPY-1)') => run(f, 'gstack-approvals', ['rule', '--finding', finding, '--head', head, '--reason', `${finding.split(':')[2]} ships as a disclosed note`, '--words', 'both are notes, not fixes', '--by', by, '--json']);
-const logFixCheck = (f: ShipFx, row: Record<string, unknown>) => {
+const logFixCheck = (f: ShipFx, row: Record<string, unknown>, during?: () => void) => {
   const start = run(f, 'gstack-review-log', ['--start', 'review-fix-check']);
   expect(start.status).toBe(0);
+  during?.();
   const logged = run(f, 'gstack-review-log', [JSON.stringify({ skill: 'review-fix-check', timestamp: '2026-11-05T00:00:00Z', via: 'ship', review_scope: 'frozen', ...row }), '--finish', start.stdout.trim()]);
   expect(logged.status, logged.stderr).toBe(0);
 };
 /** Round 2 stopped at passHead, the owner granted one scoped fix-check, the fix landed, and the fix-check read it. */
-function grantedFixCheck(row: Record<string, unknown>, beforeLog?: (f: ShipFx, passHead: string) => void) {
+function grantedFixCheck(row: Record<string, unknown>, beforeLog?: (f: ShipFx, passHead: string) => void, during?: (f: ShipFx) => void) {
   const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST_V1 });
   ships.push(f);
   const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
@@ -57,7 +58,7 @@ function grantedFixCheck(row: Record<string, unknown>, beforeLog?: (f: ShipFx, p
   const grant = run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${passHead.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'qm minder (CAPY-1)', '--scope', 'this /ship invocation', '--json']);
   expect(grant.status).toBe(0);
   beforeLog?.(f, passHead);
-  logFixCheck(f, { range_base: passHead, ...row });
+  logFixCheck(f, { range_base: passHead, ...row }, during && (() => during(f)));
   return { f, passHead, fixHead, reviewed, post, grant: JSON.parse(grant.stdout).added[0] as string };
 }
 
@@ -480,6 +481,45 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     expect(rule(f, NEW_A, fixHead).status).toBe(0);
     const r = finishLoop(f, reviewed, post, fixHead);
     expect([r.status, lineOf(r.stdout, 'FIX_CHECK'), lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([SKIPPED], fixHead)]);
+  });
+
+  // Value: protects=a finding the fix-check itself read as fixed does not hold the row (GST-2273, harness-evals#361's real row
+  //   carried its fixed findings beside the two accepted CRITICALs), and whatever does hold it is named; fails_when=a verified
+  //   fixed finding keeps the row unbound after both rulings, or a gate finding holds it with no FIX_CHECK_OPEN naming it;
+  //   seam=holdsOpen on a fix-check row and FIX_CHECK_OPEN
+  test('#361 with its fixed findings: the fix-check\'s own fixed verdicts do not hold the row, and it binds once both CRITICALs are ruled', () => {
+    const row = { ...HE361, findings: [...HE361.findings,
+      { fingerprint: 'src/x.ts:1:retry-cap', severity: 'CRITICAL', action: 'fixed', locus: 'diff', blocking: true, raised_by: 'red-team' },
+      { fingerprint: 'src/x.ts:1:ack-order', severity: 'INFORMATIONAL', action: 'auto-fixed', locus: 'diff', blocking: true, raised_by: 'fix-check' }] };
+    const { f, fixHead, reviewed, post } = grantedFixCheck(row);
+    for (const finding of [NEW_A, NEW_B]) expect(rule(f, finding, fixHead, 'harness minder (HARN-1)').status).toBe(0);
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect(lineOf(r.stdout, 'FIX_CHECK'), r.stdout).toStartWith(`FIX_CHECK: reviewed src/x.ts,test/x.test.ts (fix-check at ${fixHead.slice(0, 12)}`);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([0, '']);
+  });
+
+  test('a gate finding holding the fix-check is named as one no ruling can close', () => {
+    const GATE = 'src/x.ts:1:gate-kept';
+    const row = { ...HE361, findings: [...HE361.findings, { fingerprint: GATE, severity: 'CRITICAL', action: 'kept', gate: 'test-weakening', locus: 'diff', blocking: true, raised_by: 'fix-check' }] };
+    const { f, fixHead, reviewed, post } = grantedFixCheck(row);
+    for (const finding of [NEW_A, NEW_B, GATE]) expect(rule(f, finding, fixHead).status).toBe(0);
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect(r.status, r.stdout).toBe(3);
+    expect(r.stdout.split('\n').filter(l => l.startsWith('FIX_CHECK_OPEN: ')), r.stdout).toEqual([`FIX_CHECK_OPEN: ${GATE} (a gate finding) on the fix-check at ${fixHead.slice(0, 12)} cannot be ruled: fix each one and rerun the fix-check, or bring it to the owner (docs/troubleshooting.md#fix-check-open)`]);
+  });
+
+  // Value: protects=a stopped read binds only on one committed tree (GST-2273 Q5): equal start and end trees alone let an
+  //   A to B to A read during the fix-check bind as one tree; fails_when=rulings promote a fix-check whose commit moved while it
+  //   ran; seam=readOneTree in finish's fix-check chain
+  test('a fix-check whose commit moved while it read (A to B to A) is not promoted by rulings', () => {
+    const { f, reviewed, post } = grantedFixCheck(HE361, undefined, fx => {
+      fx.write({ 'src/x.ts': 'export const x = 9;\n' }); fx.commit('an edit during the read');
+      expect(fx.git('revert', '--no-edit', 'HEAD').status).toBe(0);
+    });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    for (const finding of [NEW_A, NEW_B]) expect(rule(f, finding, head).status).toBe(0);
+    const r = finishLoop(f, reviewed, post, head);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK')]).toEqual([3, 'FIX_CHECK: not counted (the stopped read did not bind one committed tree (its commit moved while it ran), so no ruling can promote it)']);
   });
 
   test('an edit after the fix-check head still routes as behavior without an exception that accepts it', () => {

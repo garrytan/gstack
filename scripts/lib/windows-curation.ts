@@ -456,6 +456,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-evidence, gstack-ship-preflight and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-remote-gate-lanes.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42382484796)',
   },
   {
+    file: 'test/ship-ruled-full-pass.test.ts',
+    reason: 'spawns the bash bins gstack-review-log and gstack-review-read (and gstack-review-scope and gstack-approvals through them) against git fixtures that commit and revert mid-read; never run on windows-latest, so it stays out of the curated lane beside test/ship-finish-ruled-notes.test.ts until a Windows run proves it',
+  },
+  {
     file: 'test/ship-finish-fixed-links.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-review-log, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts; windows-latest fails every case at the first bin spawn (windows-free-shard 3, run 42593329215)',
   },

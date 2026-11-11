@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
+import { readRuledNotes, rulingsFor } from '../lib/ruled-notes';
 import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import {
@@ -213,7 +214,12 @@ function cmdSummary(rest: string[], json: boolean): number {
   const log = spawnSync('git', ['log', '--first-parent', '--no-merges', `--since=${since}`, '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', 'HEAD'], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   if (log.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `git log for Review-Finding trailers failed: ${(log.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
-  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers);
+  const notes = readRuledNotes(process.cwd());
+  const sinceMs = Date.parse(since);
+  const startOf = (r: Record<string, unknown>) => Date.parse(String((r.review_binding as any)?.started_at ?? r.timestamp));
+  const stop = rows.filter(r => ['review', 'review-fix-check', 'adversarial-review'].includes(String(r.skill)) && startOf(r) >= sinceMs).sort((a, b) => startOf(a) - startOf(b)).at(-1);
+  const ruled = stop ? rulingsFor(process.cwd(), stop as Record<string, any>, notes) : new Set<string>();
+  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers, ruled);
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
   for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);
