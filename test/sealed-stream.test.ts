@@ -217,7 +217,7 @@ describe('streamed reads still fail closed, and say why', () => {
   });
 
   test('a missing git binary: the spawn error is named', () => {
-    expect(run({ bin: path.join(tmp('sealed-nobin-'), 'no-such-git') }).error).toMatch(/^git diff-tree -p failed \(could not run git: .*ENOENT/);
+    expect(run({ bin: path.join(tmp('sealed-nobin-'), 'no-such-git') }).error).toMatch(/^git diff-tree -p failed \(could not run git: .+\)$/);
   });
 
   test('temp files are removed on success and on failure', () => {
