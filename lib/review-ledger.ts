@@ -159,11 +159,11 @@ const NONE_BLOCKS_ALL = new RegExp(NONE_BLOCKS.source, 'gi');
 const BUT_NONE_BLOCKS = new RegExp(`(?<![A-Za-z])but\\s+(?=${NONE_BLOCKS.source})`, 'gi');
 const BLOCK_WORD = /(?<![A-Za-z])block(?:s|ing|ed|ers?)?(?![A-Za-z])/i;
 const TAG = '[*`]*(?:FIXABLE|INVESTIGATE)[*`]*';
-const COUNTED = `(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+|a\\s+few|several|some|an?)\\s+(?:${SEV_LIST}|${TAG})`;
+const COUNTED = `(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|\\d+|[Aa]\\s+few|[Ss]everal|[Ss]ome|[Aa]n?)\\s+(?:${SEV_LIST}|${TAG})`;
 const SUMMARY_TAG = new RegExp(`(?<![A-Za-z])(?:${COUNTED}(?:\\s*(?:,|\\band\\b|\\bor\\b)\\s*${COUNTED})*\\s+${NOUN}`
   + `|(?:(?:all|each|both)(?:\\s+of\\s+(?:them|these|those))?(?:\\s+(?:are|is))?|(?:are|were)(?:\\s+(?:all|both))?)\\s+${TAG})(?![A-Za-z0-9])`, 'g');
 const quietSummary = (t: string): string | undefined => {
-  if (!ANY_LABEL.test(t) || !NONE_BLOCKS.test(t) || LOCUS.test(t) || PATH_LOCUS.test(t) || LIST_ITEM.test(t) || HEADING.test(t) || LEAD_LABEL.test(t)
+  if (t.length > 2000 || !ANY_LABEL.test(t) || !NONE_BLOCKS.test(t) || LOCUS.test(t) || PATH_LOCUS.test(t) || LIST_ITEM.test(t) || HEADING.test(t) || LEAD_LABEL.test(t)
     || t.match(SEVERITY_FIELD) || t.match(STATED_BLOCKS) || BLOCK_WORD.test(t.replace(NONE_BLOCKS_ALL, ' ')) || EXCEPTION.test(t.replace(BUT_NONE_BLOCKS, ''))
     || ANY_LABEL.test(t.replace(SUMMARY_TAG, ' '))) return undefined;
   return [...t.matchAll(SUMMARY_TAG)].flatMap(m => [...m[0].matchAll(ALL_LABELS)].map(l => l[1]!)).reduce((a, b) => stronger(a, b), 'FIXABLE');

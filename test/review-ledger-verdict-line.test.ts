@@ -82,6 +82,12 @@ describe('native verdict line that counts its findings at a severity (FOUN-298)'
     }
     expect(labels('There are three findings, all FIXABLE, but none blocks.')).toEqual(['FIXABLE']);
     expect(labels('Nothing that blocks: one Medium and two Low findings, all FIXABLE.')).toEqual(['Medium']);
+    expect(labels('Three Low findings, all FIXABLE, and nothing blocks.')).toEqual(['Low']);
+    expect(labels('Two Low findings, all FIXABLE; none of them would block.')).toEqual(['Low']);
+  });
+
+  test('a looping reader\'s very long count line is not read as a verdict line and collects as CRITICAL', () => {
+    expect(labels(`I found nothing that blocks. There are ${'three Low and '.repeat(5000)}two Low findings, all FIXABLE.`)).toEqual(['CRITICAL']);
   });
 
   test('a counted severity is kept as written, never lowered', () => {
