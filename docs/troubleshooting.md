@@ -5007,6 +5007,17 @@ destination sets `"visibility": "private"` under `sealed` in the base branch's
 `.gstack/pregate.json`. Capy's pull-request tool may not run local hooks, so
 run `gstack-pregate sealed` yourself before any push or PR creation.
 
+**`could not read the published commits: git diff-tree -p failed (<why>)`.**
+The guard could not read the published patches, so it refuses instead of
+passing them unread. `<why>` names what failed: an exit code followed by git's
+own error (`exit 128): fatal: ...`), a signal (`killed by SIGKILL`), the
+120-second timeout, or a git that could not start. The guard writes git's
+output to a temporary file in the system temp directory and reads it a line at
+a time, so patch size has no limit, but that directory needs free space about
+the size of the patch (hundreds of MB for millions of generated lines); a full
+disk shows up as a git exit. Fix the cause and rerun `gstack-pregate sealed`.
+Older gstack refused any patch over 256 MiB here with nothing after the colon.
+
 <a id="eval-gate-unpriced"></a>
 ### `EVAL_GATE_UNPRICED`
 
