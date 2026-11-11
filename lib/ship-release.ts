@@ -26,7 +26,7 @@ import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
 import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
-import { dispositionedOn, gateDispositionText, readGateDispositions } from './gate-dispositions';
+import { dispositionedOn, gateDispositionText, gateKey, readGateDispositions } from './gate-dispositions';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
@@ -313,8 +313,8 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
   for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
   const gates = readGateDispositions(cwd);
-  for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).size) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
-  const gatedOn = (l: FixLink) => dispositionedOn(cwd, l.row, gates);
+  for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
+  const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
   const grants = chain.length ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })).filter(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')) : [];
   const granted: (typeof grants[number] | undefined)[] = [];
   const used = new Set<string>();
@@ -339,7 +339,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const clean = new Set(chain.filter(l => !whys.get(l)));
   const flagged = (l: FixLink): string[] | null => {
     const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
-    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint) && !gatedOn(l).has(f.fingerprint))
+    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint) && !gatedOn(l).has(gateKey(f.fingerprint, f.gate_id)))
       .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
     const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
     const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);

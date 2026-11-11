@@ -1720,38 +1720,43 @@ line word for word, and the READY block prints each as `RULED_NOTE:`.
 
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened
-gate the review logged with a `gate` tag). In an interactive session the human
-answers `review-gate-disposition`; in an unattended one `gstack-review-log` logs
-every gate finding `open`, and that stays so. When the owner approved the gate
-change, the owner's answer goes through the approval record instead, recorded
-outside the lane's /ship run at the stop head, one finding per row:
+gate the review logged with a `gate` tag and the hunk identity `gate_id`). In an
+interactive session the human answers `review-gate-disposition`; in an unattended
+one `gstack-review-log` logs every gate finding `open`, and the log stays so. When
+the owner approved the gate change, the owner's answer goes through the approval
+record instead, recorded outside the lane's /ship run at the stop head, one finding
+per row:
 
 ```bash
-gstack-approvals gate --finding '<the gate finding's fingerprint>' --head <stop head> \
+gstack-approvals gate --finding '<the gate finding's fingerprint>' --gate-id <its gate_id> --head <stop head> \
   --reason '<the gate change, one line>' --words '<the owner's exact words>' --by '<who recorded>'
 ```
 
 The row is an approved `gstack-approvals` row with scope `gate_disposition
-<fingerprint> <head>`, ask `gate_disposition <fingerprint> at <head>: <reason>`
-and the owner's words in `words` (`lib/gate-dispositions.ts`). `gate` refuses
-empty `--words`, a reason or words with a newline or control character, a `--head`
-that is not a commit, a `--by` naming gstack and any call while this checkout
-holds an open /ship run's marker; `add` refuses the scope, so `gate` is the only
-path, and a row gstack wrote is ignored. A disposition closes an `open` gate
-finding only on a review row that carries that exact fingerprint and whose
-`range_base..commit` holds the head (a first pass, with no `range_base`: its own
-commit). A disposition at another fingerprint or head closes nothing, and a
-review-log field (`kept`, `reason`, `gate_dispositions` or any claim the lane
-writes on its row) never makes one. `gstack-review-read` lists the closed
-fingerprints in the row's `gate_dispositions` and reads the row as if they were
-kept, so /ship passes no `--blocking-open` or `--gate-open` for them and opens no
-draft for them. Nothing is hidden: finish prints each as `GATE_DISPOSITION:
-<fingerprint> at <head12> by <who> at <time>: <reason> — "<words>" (approval
-<id>)`, ending `(… not applied)` when no review row's range holds it;
-`gstack-approvals dispositions` prints one `Gate disposition: …` line each for
-the PR body; `gstack-ship-receipt write` records them as `gate_dispositions` and
-refuses a `--body` that does not carry each line word for word; and the READY
-block prints each as `GATE_DISPOSITION:`
+<fingerprint> <gate_id> <head>`, ask `gate_disposition <fingerprint> <gate_id> at
+<head>: <reason>` and the owner's words in `words` (`lib/gate-dispositions.ts`).
+`gate` refuses a missing `--gate-id`, empty `--words`, a reason or words with a
+newline or control character, a `--head` that is not a commit, a `--by` naming
+gstack and any call while this checkout holds an open /ship run's marker; `add`
+refuses the scope, so `gate` is the only path, and a row gstack wrote is ignored. A
+disposition closes a gate finding only on a review row that carries that exact
+fingerprint and `gate_id` and whose `range_base..commit` holds the head (a first
+pass, with no `range_base`: its own commit), so a later, different loosening of the
+same line (a new `gate_id`) stays open. Anything else closes nothing, and a
+review-log field (`kept`, `reason`, `disposition`, `gate_dispositions` or any claim
+the lane writes on its row) never makes one. `gstack-review-read` shows each closed
+finding as `kept` with `reason: owner disposition <id>: <reason>` and
+`disposition: <id>`, lists the ids in the row's `gate_dispositions` and grades the
+row as if the findings were kept, so /ship's gate rules (`--blocking-open`,
+`--gate-open`, the draft state, the `Gate edits:` counts) read them as kept once it
+reads the row again. As with rulings, a row derived from a findings file
+(`status_source: derived`) is not cleared. Nothing is hidden: finish prints each as
+`GATE_DISPOSITION: <fingerprint> [gate <gate_id>] at <head12> by <who> at <time>:
+<reason> — "<words>" (approval <id>)`, ending `(… not applied)` when no review row's
+range holds it; `gstack-approvals dispositions` prints one `Gate disposition: …`
+line each for the PR body; `gstack-ship-receipt write` records them as
+`gate_dispositions` and refuses a `--body` that does not carry each line word for
+word; and the READY block prints each as `GATE_DISPOSITION:`
 ([troubleshooting](troubleshooting.md#gate-finding-open-unattended)).
 
 <a id="test-lane-exceptions"></a>

@@ -348,12 +348,12 @@ export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f
  * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged. An open
  * finding is rulable too: a fix-check that finds a CRITICAL stops for the owner (review-army decision 3.5 sends it to decision 2)
  * with the finding open and the row converged:false, bound `incomplete` on unchanged content, and the ruling is the owner's
- * answer to that stop, so a row the rulings clear binds at the tree it read (GST-2251, harness-evals#361). An `open` gate
- * finding is taken out the same way only when `gated` holds its fingerprint (the owner's gate_disposition rows whose head lies
- * in this row's range, lib/gate-dispositions.ts, GST-2491); a ruling never closes a gate finding.
+ * answer to that stop, so a row the rulings clear binds at the tree it read (GST-2251, harness-evals#361). A gate finding is
+ * taken out the same way only when `gated` holds its `<fingerprint> <gate_id>` key (the owner's gate_disposition rows whose
+ * head lies in this row's range, lib/gate-dispositions.ts, GST-2491); a ruling never closes a gate finding.
  */
 function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): Record<string, any> {
-  const isRuled = (f: unknown) => record(f) && typeof f.fingerprint === 'string' && (f.gate ? f.action === 'open' && gated.has(f.fingerprint) : RULABLE.has(f.action) && ruled.has(f.fingerprint));
+  const isRuled = (f: unknown) => record(f) && typeof f.fingerprint === 'string' && (f.gate ? (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`) : RULABLE.has(f.action) && ruled.has(f.fingerprint));
   if ((!ruled.size && !gated.size) || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||

@@ -6860,20 +6860,20 @@ closes a gate finding, and nothing the lane writes on its review row does either
 
 **Fix.** When the owner approved the gate change, record the owner's answer from a
 session that holds no open /ship run on that checkout, at the stop head the review
-read, then resume the parked /ship at the same head with no push. On resume, the
-repeat decision drops `--blocking-open` for that finding, Step 17 leaves it out of
-`--gate-open`, and the PR is no draft on its account:
+read, with the `fingerprint` and `gate_id` from the review row:
 
 ```bash
-gstack-approvals gate --finding '<fingerprint from the review row>' --head <stop head> \
+gstack-approvals gate --finding '<fingerprint>' --gate-id <gate_id> --head <stop head> \
   --reason '<the gate change, one line>' --words '<the owner's exact words>' --by '<who recorded>'
 ```
 
-`gstack-review-read` then lists the fingerprint in that row's `gate_dispositions`
-and the row reads `CURRENT`; finish prints `GATE_DISPOSITION: …`, and the PR body
-carries the `Gate disposition: …` line `gstack-approvals dispositions` prints. When
-the owner did not approve it, restore the gate. See
-[gate dispositions](ship-policy.md#gate-dispositions).
+Then resume the parked /ship at the same head with no push, starting by reading
+`gstack-review-read` again: the finding now reads `kept` with its `disposition`, the
+row reads `CURRENT`, so the repeat decision has no `--blocking-open` for it, Step 17
+leaves it out of `--gate-open` and the PR is no draft on its account. finish prints
+`GATE_DISPOSITION: …`, and the PR body carries the `Gate disposition: …` line
+`gstack-approvals dispositions` prints. When the owner did not approve it, restore
+the gate. See [gate dispositions](ship-policy.md#gate-dispositions).
 
 <a id="fix-check-open"></a>
 ### `FIX_CHECK_OPEN`

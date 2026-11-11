@@ -10,7 +10,7 @@
  *   gstack-approvals plan-check --plan <the brief's Plan line>
  *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
- *   gstack-approvals gate --finding <fingerprint> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
+ *   gstack-approvals gate --finding <fingerprint> --gate-id <gate_id> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
  *   gstack-approvals dispositions [--branch <name>]
  *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
  *   gstack-approvals list [--json] [--branch <name>]
@@ -46,10 +46,11 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
           list it; refused inside this checkout's open /ship run
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
-  gate    --finding <the gate finding's fingerprint> --head <the stop head the owner answered at> --reason <the gate change, one line>
-          --words <the owner's exact words, one line> --by <who recorded them>
+  gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>
+          --reason <the gate change, one line> --words <the owner's exact words, one line> --by <who recorded them>
           the owner's disposition of a gate finding an unattended /ship logged open (docs/ship-policy.md#gate-dispositions);
-          it closes that fingerprint on a review row whose range_base..commit holds the head (a first pass: its commit);
+          it closes that fingerprint and gate_id on a review row whose range_base..commit holds the head (a first pass: its
+          commit), and gstack-review-read shows it kept;
           finish prints it, and the receipt, PR body and READY carry it; refused inside this checkout's open /ship run
   dispositions                    the "Gate disposition: …" lines the Pre-Landing Review and the PR body carry
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
@@ -78,7 +79,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -185,8 +186,8 @@ function main(argv: string[]): number {
       rows = [built];
     } else if (cmd === 'gate') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
-      const finding = (flags['--finding'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim(), words = (flags['--words'] ?? '').trim();
-      if (!finding || /\s/.test(finding) || !reason) return invalid('gate needs --finding <the gate finding\'s fingerprint, no spaces> and --reason <the gate change, one line>');
+      const finding = (flags['--finding'] ?? '').trim(), gateId = (flags['--gate-id'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim(), words = (flags['--words'] ?? '').trim();
+      if (!finding || /\s/.test(finding) || !gateId || /\s/.test(gateId) || !reason) return invalid('gate needs --finding <the gate finding\'s fingerprint>, --gate-id <its gate_id from the review row>, both without spaces, and --reason <the gate change, one line>');
       if (!words) return invalid('gate needs --words <the owner\'s exact words>: a gate disposition is the owner\'s, in the owner\'s words');
       if (!ONE_LINE.test(reason) || !ONE_LINE.test(words)) return invalid('--reason and --words are one line each: no newline or control character');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
@@ -194,7 +195,7 @@ function main(argv: string[]): number {
       if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
       const open = openShipRun(process.cwd());
       if (open) return invalid(`/ship run ${open} is open on this checkout: a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session`);
-      const built = buildRow({ ...gateDispositionRow(finding, head.stdout.trim(), reason), words, by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
+      const built = buildRow({ ...gateDispositionRow(finding, gateId, head.stdout.trim(), reason), words, by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
     } else if (cmd === 'add') {

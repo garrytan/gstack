@@ -19,6 +19,7 @@ afterEach(() => { while (ships.length) ships.pop()!.cleanup(); });
 
 const GATE = 'tests/balance.test.ts:3:gate-integrity';
 const OTHER = 'tests/balance.test.ts:9:gate-integrity';
+const GATE_ID = '69c7c3432501';
 const WORDS = 'Do it';
 const REASON = 'fed-careless gate allows 6 of 48 seeds';
 const BY = 'Founderstar Captain (FOUN-1)';
@@ -28,15 +29,15 @@ const TEST_V2 = "import { expect, test } from 'bun:test';\ntest('a', () => { exp
 const gateRow = (extra: Record<string, unknown> = {}) => ({
   completed: true, converged: true, status: 'issues_found', issues_found: 1, critical: 1, informational: 0,
   findings: [
-    { fingerprint: GATE, severity: 'CRITICAL', locus: 'diff', kind: 'defect', blocking: true, raised_by: 'core', gate: 'RH-15', gate_id: '69c7c3432501', action: 'kept', reason: 'owner approved', ...extra },
+    { fingerprint: GATE, severity: 'CRITICAL', locus: 'diff', kind: 'defect', blocking: true, raised_by: 'core', gate: 'RH-15', gate_id: GATE_ID, action: 'kept', reason: 'owner approved', ...extra },
     { fingerprint: 'src/x.ts:1:naming', severity: 'INFORMATIONAL', action: 'noted', blocking: false, raised_by: 'red-team' },
   ],
 });
 const NOT_CLEAN = 'FIX_CHECK: not counted (review has unresolved findings or did not finish clean)';
 
 const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
-const gate = (f: ShipFx, finding: string, head: string, o: { words?: string; by?: string; reason?: string } = {}) =>
-  run(f, 'gstack-approvals', ['gate', '--finding', finding, '--head', head, '--reason', o.reason ?? REASON, '--words', o.words ?? WORDS, '--by', o.by ?? BY]);
+const gate = (f: ShipFx, finding: string, head: string, o: { words?: string; by?: string; reason?: string; gateId?: string } = {}) =>
+  run(f, 'gstack-approvals', ['gate', '--finding', finding, '--gate-id', o.gateId ?? GATE_ID, '--head', head, '--reason', o.reason ?? REASON, '--words', o.words ?? WORDS, '--by', o.by ?? BY]);
 const log = (f: ShipFx, skill: string, row: Record<string, unknown>) => {
   const env = { GSTACK_APPROVALS_MIRROR: '0', GSTACK_SESSION_KIND: 'unattended' };
   const start = f.run(path.join(BIN, 'gstack-review-log'), ['--start', skill], env);
@@ -68,25 +69,29 @@ describe('a recorded owner disposition closes an unattended gate finding (GST-24
     expect([before.review_freshness.status, before.gate_dispositions]).toEqual(['UNVERIFIED', undefined]);
     const rec = gate(f, GATE, head);
     expect([rec.status, rec.stdout]).toEqual([0, expect.stringMatching(/^APPROVAL_RECORDED: a-[0-9a-f]{12} /)]);
+    const approval = rec.stdout.split(' ')[1]!;
     const after = read(f);
-    expect([after.review_freshness.status, after.gate_dispositions]).toEqual(['CURRENT', [GATE]]);
-    expect(run(f, 'gstack-approvals', ['dispositions']).stdout).toMatch(new RegExp(`^Gate disposition: ${GATE} at ${head.slice(0, 12)} by Founderstar Captain \\(FOUN-1\\) at \\d{4}-\\d\\d-\\d\\dT[^ ]+Z: ${REASON} — "Do it" \\(approval a-[0-9a-f]{12}\\)\\n$`));
+    expect([after.review_freshness.status, after.gate_dispositions]).toEqual(['CURRENT', [approval]]);
+    expect(after.findings[0]).toMatchObject({ action: 'kept', actor: 'unattended', disposition: approval, reason: `owner disposition ${approval}: ${REASON}` });
+    expect(run(f, 'gstack-approvals', ['dispositions']).stdout).toMatch(new RegExp(`^Gate disposition: ${GATE} \\[gate ${GATE_ID}\\] at ${head.slice(0, 12)} by Founderstar Captain \\(FOUN-1\\) at \\d{4}-\\d\\d-\\d\\dT[^ ]+Z: ${REASON} — "Do it" \\(approval a-[0-9a-f]{12}\\)\\n$`));
   });
 
-  test('negative controls stay open: no row, another fingerprint, a head outside the range, a ruling, a gstack row', () => {
+  test('negative controls stay open: no row, another fingerprint or gate_id, a head outside the range, a ruling, a gstack row', () => {
     const { f, head, mergeBase } = firstPass();
-    const open = () => [read(f).review_freshness.status, read(f).gate_dispositions];
-    expect(open()).toEqual(['UNVERIFIED', undefined]);
+    const open = () => [read(f).review_freshness.status, read(f).gate_dispositions, read(f).findings[0].action];
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
     expect(gate(f, OTHER, head).status).toBe(0);
-    expect(open()).toEqual(['UNVERIFIED', undefined]);
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
+    expect(gate(f, GATE, head, { gateId: '0123456789ab' }).status).toBe(0);
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
     expect(gate(f, GATE, mergeBase).status).toBe(0);
-    expect(open()).toEqual(['UNVERIFIED', undefined]);
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
     const ruling = run(f, 'gstack-approvals', ['rule', '--finding', GATE, '--head', head, '--reason', REASON, '--words', WORDS, '--by', BY]);
     expect(ruling.status).toBe(0);
-    expect(open()).toEqual(['UNVERIFIED', undefined]);
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
     const self = gate(f, GATE, head, { by: 'gstack no-stop default (K1)' });
     expect([self.status, self.stderr]).toEqual([EXIT.usage, expect.stringContaining('--by names gstack')]);
-    expect(open()).toEqual(['UNVERIFIED', undefined]);
+    expect(open()).toEqual(['UNVERIFIED', undefined, 'open']);
   });
 
   test('a later head is outside a first pass too: the owner answers at the commit the review read', () => {
@@ -108,18 +113,20 @@ describe('a recorded owner disposition closes an unattended gate finding (GST-24
       const empty = gate(f, GATE, head, { words });
       expect([empty.status, empty.stderr]).toEqual([EXIT.usage, expect.stringContaining('--words')]);
     }
+    const noId = gate(f, GATE, head, { gateId: '' });
+    expect([noId.status, noId.stderr]).toEqual([EXIT.usage, expect.stringContaining('--gate-id')]);
     const lines = gate(f, GATE, head, { words: 'Do it\nand more' });
     expect([lines.status, lines.stderr]).toEqual([EXIT.usage, expect.stringContaining('one line')]);
-    const add = run(f, 'gstack-approvals', ['add', '--ask', `gate_disposition ${GATE} at ${head}: ${REASON}`, '--words', WORDS, '--by', BY, '--scope', `gate_disposition ${GATE} ${head}`]);
+    const add = run(f, 'gstack-approvals', ['add', '--ask', `gate_disposition ${GATE} ${GATE_ID} at ${head}: ${REASON}`, '--words', WORDS, '--by', BY, '--scope', `gate_disposition ${GATE} ${GATE_ID} ${head}`]);
     expect([add.status, add.stderr]).toEqual([EXIT.usage, expect.stringContaining('gstack-approvals gate')]);
     expect(run(f, 'gstack-approvals', ['dispositions']).stdout).toBe('GATE_DISPOSITIONS: none\n');
     expect(read(f).review_freshness.status).toBe('UNVERIFIED');
   });
 
   test('the lane\'s own review-log claim closes nothing', () => {
-    const { f, head } = firstPass({ gate_disposition: 'a-6dcd9c1d8fad', approval: 'a-6dcd9c1d8fad', disposition_by: BY }, { gate_dispositions: [GATE] });
+    const { f, head } = firstPass({ disposition: 'a-6dcd9c1d8fad', approval: 'a-6dcd9c1d8fad', disposition_by: BY }, { gate_dispositions: ['a-6dcd9c1d8fad'] });
     const row = read(f);
-    expect([row.findings[0].action, row.review_freshness.status, row.gate_dispositions]).toEqual(['open', 'UNVERIFIED', undefined]);
+    expect([row.findings[0].action, row.findings[0].disposition, row.review_freshness.status, row.gate_dispositions]).toEqual(['open', undefined, 'UNVERIFIED', undefined]);
     expect(run(f, 'gstack-approvals', ['add', '--ask', `Owner approved the gate change at ${head}`, '--words', WORDS, '--by', BY, '--scope', 'this gate edit']).status).toBe(0);
     expect(read(f).review_freshness.status).toBe('UNVERIFIED');
   });
@@ -159,7 +166,7 @@ describe('finish with a gate disposition (GST-2491)', () => {
     expect(lineOf(r.stdout, 'FIX_CHECK')).toStartWith(`FIX_CHECK: reviewed src/x.ts,tests/balance.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}`);
     expect(dispositionLines(r.stdout)).toEqual([
       expect.stringMatching(/; not applied\)$/),
-      expect.stringMatching(new RegExp(`^GATE_DISPOSITION: ${GATE} at ${passHead.slice(0, 12)} by Founderstar Captain \\(FOUN-1\\) at [^ ]+Z: ${REASON} — "Do it" \\(approval a-[0-9a-f]{12}\\)$`)),
+      expect.stringMatching(new RegExp(`^GATE_DISPOSITION: ${GATE} \\[gate ${GATE_ID}\\] at ${passHead.slice(0, 12)} by Founderstar Captain \\(FOUN-1\\) at [^ ]+Z: ${REASON} — "Do it" \\(approval a-[0-9a-f]{12}\\)$`)),
     ]);
   });
 
@@ -180,7 +187,7 @@ describe('finish with a gate disposition (GST-2491)', () => {
     expect(ok.status, ok.stderr).toBe(EXIT.ok);
     const receipt = extractReceipt(ok.stdout);
     expect(receipt.errors).toEqual([]);
-    expect(receipt.receipt?.gate_dispositions).toEqual([{ finding: GATE, head, by: BY, reason: REASON, words: WORDS, at: expect.stringMatching(/Z$/), approval: expect.stringMatching(/^a-[0-9a-f]{12}$/) }]);
+    expect(receipt.receipt?.gate_dispositions).toEqual([{ finding: GATE, gate_id: GATE_ID, head, by: BY, reason: REASON, words: WORDS, at: expect.stringMatching(/Z$/), approval: expect.stringMatching(/^a-[0-9a-f]{12}$/) }]);
     expect(readyTailLines(receipt.receipt).filter(l => l.startsWith('GATE_DISPOSITION: '))).toEqual([`GATE_DISPOSITION: ${line.slice('Gate disposition: '.length)}`]);
   });
 });
