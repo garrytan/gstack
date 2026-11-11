@@ -19,7 +19,11 @@
  * failed, and the trains notes ref (--notes-ref, default
  * refs/notes/gstack-trains) holds no active freeze. The newest such commit in
  * the window (7 days, 200 first-parent commits) is the candidate; a commit
- * with a check run still going is skipped, not waited for.
+ * with a check run still going is skipped, not waited for. Check runs this
+ * workflow produced itself (CUT_WORKFLOW: the github-actions app's check runs
+ * in the check suite of a workflow run whose path is that file) are set aside,
+ * running or finished: a cut lands its own job on main's head, the commit it
+ * may cut. When the workflow runs cannot be read, nothing is set aside.
  *
  * Gated means one of three kinds of evidence. Either the backstop check run
  * (--backstop-check, default main-backstop) succeeded: evals-main-backstop.yml
@@ -70,6 +74,7 @@ export type Git = (args: string[]) => { ok: boolean; out: string };
 export const REQUIRED_CHECK = 'free-tests';
 export const BACKSTOP_CHECK = 'main-backstop';
 export const NOTES_REF = 'refs/notes/gstack-trains';
+export const CUT_WORKFLOW = '.github/workflows/weekly-release.yml';
 const NOTES_LOCAL = 'refs/notes/gstack-trains-release';
 const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale']);
 export const WINDOW_DAYS = 7;
@@ -103,7 +108,7 @@ export function compareVersions(a: string, b: string): number {
 
 /** Green names what gated the commit: the backstop check's name, or `train <nonce>`. Pending means a check run on it is still going. */
 export type Verdict = { green: true; via: string } | { green: false; why: string; pending: boolean };
-interface CheckRun { name: string; status: string; conclusion: string | null }
+interface CheckRun { name: string; status: string; conclusion: string | null; app?: { slug?: string } | null; check_suite?: { id?: number } | null }
 
 /** Main commits a green, merging or merged train record lists in merged[], by sha and by tree, each naming the train; `release` maps a commit a green release gate passed to its run (crew/lib/release-gate.ts). */
 export interface TrainEvidence { bySha: Map<string, string>; byTree: Map<string, string>; release?: Map<string, string> }
@@ -116,7 +121,13 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
   const paged = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/commits/${sha}/check-runs?per_page=100`]));
   if (!paged) return { green: false, why: 'cannot read its check runs', pending: false };
   const pages = (Array.isArray(paged) ? paged : [paged]) as Array<{ check_runs?: CheckRun[] }>;
-  const runs = pages.flatMap(p => p.check_runs ?? []);
+  let runs = pages.flatMap(p => p.check_runs ?? []);
+  if (runs.some(c => c.status !== 'completed' || RED.has(c.conclusion ?? ''))) {
+    const wf = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`]));
+    const wfRuns = (Array.isArray(wf) ? wf : wf ? [wf] : []) as Array<{ workflow_runs?: Array<{ path?: string; check_suite_id?: number }> }>;
+    const own = new Set(wfRuns.flatMap(p => p.workflow_runs ?? []).filter(w => w.path === CUT_WORKFLOW && typeof w.check_suite_id === 'number').map(w => w.check_suite_id));
+    runs = runs.filter(c => !(c.app?.slug === 'github-actions' && own.has(c.check_suite?.id)));
+  }
   let via = backstop;
   for (const name of [required, backstop]) {
     const named = runs.filter(c => c.name === name);

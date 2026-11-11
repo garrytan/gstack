@@ -46,7 +46,11 @@ regression fix (below).
 it has completed and none failed, and `refs/notes/gstack-trains` holds no
 active freeze. A cancelled check run counts as red. A commit with a check run
 still going is skipped and the next older one is considered, back through 7
-days or 200 first-parent commits. The workflow runs no tests and no paid evals
+days or 200 first-parent commits. The cut's own job lands a check run on
+main's head, the very commit it may cut, so check runs from this workflow's
+own runs (its file path, `.github/workflows/weekly-release.yml`, matched
+through the workflow run's check suite) are set aside whether running or
+failed; every other check run counts as above. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate
 already recorded.
 With nothing green in the window it fails and lists why each commit was
