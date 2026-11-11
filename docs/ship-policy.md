@@ -1735,10 +1735,19 @@ gstack-approvals gate --finding '<the gate finding's fingerprint>' --gate-id <it
 The row is an approved `gstack-approvals` row with scope `gate_disposition
 <fingerprint> <gate_id> <head>`, ask `gate_disposition <fingerprint> <gate_id> at
 <head>: <reason>` and the owner's words in `words` (`lib/gate-dispositions.ts`).
-`gate` refuses a missing `--gate-id`, empty `--words`, a reason or words with a
-newline or control character, a `--head` that is not a commit, a `--by` naming
-gstack and any call while this checkout holds an open /ship run's marker; `add`
-refuses the scope, so `gate` is the only path, and a row gstack wrote is ignored. A
+`gate` refuses a missing `--gate-id` (or a literal `undefined` or `null`), empty
+`--words`, a reason or words with a newline or control character, a `--head` that
+is not a commit, a `--by` naming gstack, and any call while a /ship run's marker is
+open on the branch in any worktree of the repository. It finds those worktrees
+through the git common dir, and it checks and appends under a lock there that
+/ship's preflight also takes to write its marker. `add` refuses the scope and
+`--source gate`, so `gate` is the only writer. A row counts only when it has every
+field `gate` writes: an approval-shaped id that its hash reproduces, `source: gate`,
+`pending: none`, the store's own branch, `date`, `recorded_at`, `by`, one-line
+`words` and a `digest` over those fields. The digest catches a row that was edited
+or typed by hand. It isn't authentication: anyone who can read the code can compute
+it. A gate finding with no `gate_id` is never closed, and a row gstack wrote is
+ignored. A
 disposition closes a gate finding only on a review row that carries that exact
 fingerprint and `gate_id` and whose `range_base..commit` holds the head (a first
 pass, with no `range_base`: its own commit), so a later, different loosening of the
@@ -1758,6 +1767,35 @@ line each for the PR body; `gstack-ship-receipt write` records them as
 `gate_dispositions` and refuses a `--body` that does not carry each line word for
 word; and the READY block prints each as `GATE_DISPOSITION:`
 ([troubleshooting](troubleshooting.md#gate-finding-open-unattended)).
+
+<a id="gate-disposition-acceptance"></a>
+**Who authorizes a disposition.** A lane is a same-user agent, so it can still forge
+a well-formed disposition row in its own approval store. What authorizes a
+disposition is the lander's explicit acceptance: `gstack-ship-queue land --pin`
+merges one only when the lander passes `--accept-gate-disposition <approval id>`
+for it.
+
+Land works the dispositions out again at the pin from the PR branch's approval
+store: the local record and its mirror. A lander on another machine reads the
+mirror the owner recorded into, so set `GSTACK_APPROVALS_DIR` to that directory
+when it isn't the default. Land counts every disposition whose head the pin
+contains. It never trusts the receipt or the PR body for this, because the lane
+writes both. It prints each one as a `GATE_DISPOSITION:` line, then
+`GATE_DISPOSITIONS: applied=<ids> accepted=<ids> store=<file>`. It refuses with
+[`QUEUE_GATE_DISPOSITION`](troubleshooting.md#queue-gate-disposition), and merges
+nothing, when an applied disposition isn't accepted, an accepted id isn't applied,
+the receipt's `gate_dispositions` leave one out, change one or add one, or the PR
+body lacks its `Gate disposition:` line. The review rows stay on the lane's
+machine, so land can't tell which finding a disposition closed. It asks the lander
+to accept every disposition the store holds for the pin, which is never fewer.
+
+`gstack-ship-queue verify --pr <n> --pin <sha> [--accept-gate-disposition <id>]...`
+runs the same check read-only (`pinAcceptance`, the function land calls), for a
+lander that merges some other way, such as a REST merge pinned to the head. It
+exits 0 only when every disposition is accepted. `ready` prints the same lines and
+refuses the same receipt and body mismatches, but asks for no acceptance.
+`gstack-ship-receipt write` refuses to write a receipt while a disposition applies
+at HEAD unless `--body` carries each `Gate disposition:` line.
 
 <a id="test-lane-exceptions"></a>
 **Test-lane exceptions (GST-1595).** A lane `accept` carries from CI refuses with
@@ -2553,6 +2591,7 @@ release-file rows):
 | the PR head is the pin | [`QUEUE_LAND_PIN_MOVED`](troubleshooting.md#queue-land-pin-moved) |
 | the PR body's /ship receipt is bound to the pin | `QUEUE_RECEIPT_MISSING`, `QUEUE_RECEIPT_STALE` |
 | the receipt's `base` is the queue's base | [`QUEUE_RECEIPT_BASE_MISMATCH`](troubleshooting.md#queue-receipt-base-mismatch) |
+| every owner gate disposition the approval store applies at the pin is accepted with `--accept-gate-disposition <id>`, every accepted id is applied, and the receipt and PR body list exactly those ([gate dispositions](#gate-disposition-acceptance)) | [`QUEUE_GATE_DISPOSITION`](troubleshooting.md#queue-gate-disposition) |
 | a READY note from `ready` exists at the pin | `QUEUE_NOT_READY` |
 | no freeze is active (with `--repair`: one is, and its repair slot is free or already this pin; a backstop freeze left from before `release_gate` only warns; see [direct freeze](#direct-freeze)) and no land lock is held | [`QUEUE_TRAIN_FROZEN`](troubleshooting.md#queue-train-frozen), `QUEUE_NOT_READY`, `QUEUE_LAND_LOCKED` |
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |

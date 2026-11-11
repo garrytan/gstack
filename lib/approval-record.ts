@@ -45,6 +45,8 @@ export interface ApprovalRow {
   scope: string; pending: string; outcome: Outcome; source: string; branch: string; recorded_at: string;
   /** Set by import when the gate was answered in an agent's own words (--words-by); lib/plan-record.ts refuses such a row as a plan approval. */
   words_by?: string;
+  /** Set by gstack-approvals gate only: lib/gate-dispositions.ts's checksum over the row's canonical fields (catches an edit; not authentication). */
+  digest?: string;
 }
 export type MirrorSource = 'GSTACK_APPROVALS_DIR' | 'captain drive' | 'project-user drive';
 /** `mirror` is written and read; `read_also` are the other mirror roots' copies, read so a row mirrored under an earlier rule stays visible. */

@@ -58,7 +58,7 @@ import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
-import { gateDispositionText, readGateDispositions } from '../lib/gate-dispositions';
+import { appliedGateDispositions, gateDispositionText } from '../lib/gate-dispositions';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
@@ -271,7 +271,8 @@ function cmdWrite(rest: string[], json: boolean): number {
   const ruledNotes = readRuledNotes(repoRoot);
   const unlisted = bodyFile ? ruledNotes.map(n => `Ruled note: ${ruledNoteText(n)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlisted) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ruled note ${JSON.stringify(unlisted)} (gstack-approvals rulings prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
-  const gateDispositions = readGateDispositions(repoRoot);
+  const gateDispositions = (() => { try { return appliedGateDispositions(repoRoot, { pin: 'HEAD' }).applied; } catch { return []; } })();
+  if (gateDispositions.length && !bodyFile) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the approval store applies ${gateDispositions.length} owner gate disposition(s) at HEAD (${gateDispositions.map(d => d.approval).join(', ')}), so write needs --body <the PR body> carrying each "Gate disposition: …" line gstack-approvals dispositions prints; nothing written`) + '\n'); return EXIT.fail; }
   const undisclosed = bodyFile ? gateDispositions.map(d => `Gate disposition: ${gateDispositionText(d)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (undisclosed) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list gate disposition ${JSON.stringify(undisclosed)} (gstack-approvals dispositions prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
   const carried = ciCarried(base);

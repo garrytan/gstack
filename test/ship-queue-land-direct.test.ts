@@ -28,6 +28,8 @@ import { gitIn } from '../crew/scripts/train-gate';
 import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
 import { CHECK_IDS } from '../lib/pregate/index';
+import { appliedGateDispositions, GATE_SOURCE, gateDispositionDigest, gateDispositionRow, gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
+import { buildRow, locate, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -1233,4 +1235,112 @@ describe('the backstop rewrites a freeze by compare-and-swap (GST-1354)', () => 
     const green = backstopOn(fx, 'success', 703);
     expect(freezeOf(fx).cleared_by).toBe(`repair #7; backstop 703 green on ${green.sha}`);
   }, 180_000);
+});
+
+// Value: protects=the authority for an owner gate disposition is the lander's explicit acceptance, re-derived from the approval
+//   store at the pin (GSTA-518 audit B1, N5): a row the lane wrote itself, a receipt or PR body that hides or invents one, and an
+//   accepted id that names nothing all refuse, and verify --pin agrees with land line for line; fails_when=land trusts the
+//   receipt, merges an unaccepted disposition, or verify and land print different GATE_DISPOSITION lines; seam=pinAcceptance
+//   (lib/ship-queue-land-direct.ts) over gateAcceptance (lib/gate-dispositions.ts); no_claim=who wrote a well-formed row
+describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)', () => {
+  const F = 'tests/balance.test.ts:3:gate-integrity', G = '69c7c3432501', REASON = 'fed-careless gate allows 6 of 48 seeds';
+  const prep = () => { const fx = setup(); fx.env.GSTACK_APPROVALS_MIRROR = '0'; return fx; };
+  const storeEnv = (fx: Fx) => ({ ...process.env, ...fx.repo.env, ...fx.env });
+  const record = (fx: Fx, pr: string, head: string) => runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-' + pr, '--finding', F, '--gate-id', G, '--head', head, '--reason', REASON, '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+  const applied = (fx: Fx, pr: string, head: string) => appliedGateDispositions(fx.repo.work, { branch: 'pr-' + pr, pin: head, env: storeEnv(fx) }).applied;
+  const bodyWith = (pr: string, head: string, ds: GateDisposition[], lines = ds) => shippedBody(pr, head, ds.length ? { gate_dispositions: ds } : {}) + lines.map(d => `\nGate disposition: ${gateDispositionText(d)}\n`).join('');
+  const setBody = (fx: Fx, pr: string, body: string) => fx.write(d => { d.prs[pr].body = body; });
+  const verify = (fx: Fx, pr: string, pin: string, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['verify', '--pr', pr, '--pin', pin, '--base', 'main', ...extra], fx.env);
+  const gateLines = (out: string) => out.split('\n').filter(l => l.startsWith('GATE_DISPOSITION'));
+  const why = (err: string) => err.replace(/^gstack-ship-queue (?:land|verify): /m, '');
+
+  test('end to end: the owner records, the unattended review reads CURRENT, ready prints it, land refuses until the lander accepts it, and verify agrees', () => {
+    const fx = prep();
+    const head = openPr(fx, '41', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-41');
+    const lane = { ...fx.env, GSTACK_SESSION_KIND: 'unattended' };
+    const start = runBin(fx.repo, 'gstack-review-log', ['--start', 'review'], lane);
+    expect(start.status, start.err).toBe(0);
+    const row = { skill: 'review', timestamp: '2026-11-11T20:30:13Z', via: 'ship', review_scope: 'frozen', pass: 1, range_base: null, completed: true, converged: true, status: 'issues_found', issues_found: 1, critical: 1, informational: 0,
+      findings: [{ fingerprint: F, severity: 'CRITICAL', locus: 'diff', kind: 'defect', blocking: true, raised_by: 'core', gate: 'RH-15', gate_id: G, action: 'kept', reason: 'owner approved' }] };
+    const logged = runBin(fx.repo, 'gstack-review-log', [JSON.stringify(row), '--finish', start.out.trim()], lane);
+    expect(logged.status, logged.err).toBe(0);
+    const review = () => runBin(fx.repo, 'gstack-review-read', [], fx.env).out.split('\n---CONFIG---')[0]!.split('\n')
+      .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' ? [v] : []; } catch { return []; } }).at(-1);
+    expect([review().review_freshness.status, review().findings[0].action]).toEqual(['UNVERIFIED', 'open']);
+    const rec = record(fx, '41', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    expect([review().review_freshness.status, review().findings[0].action, review().findings[0].disposition]).toEqual(['CURRENT', 'kept', id]);
+    const ds = applied(fx, '41', head);
+    expect(ds.map(d => d.approval)).toEqual([id]);
+    setBody(fx, '41', bodyWith('41', head, ds));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '41', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    expect(gateLines(ready.out)).toEqual([`GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`, expect.stringMatching(new RegExp(`^GATE_DISPOSITIONS: applied=${id} store=`))]);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const bare = land(fx, '41', head);
+    expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);
+    expect(bare.err).toContain('(QUEUE_GATE_DISPOSITION)');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    const checked = verify(fx, '41', head);
+    expect([checked.status, why(checked.err)]).toEqual([EXIT.refused, why(bare.err)]);
+    expect(gateLines(checked.out)).toEqual(gateLines(bare.out));
+    const ok = verify(fx, '41', head, ['--accept-gate-disposition', id]);
+    expect(ok.status, ok.out + ok.err).toBe(EXIT.ok);
+    expect(ok.out).toContain(`VERIFY_PIN: ok #41 at ${head.slice(0, 12)}`);
+    expect(fx.read().mergeArgs).toBeUndefined();
+    const landed = land(fx, '41', head, ['--accept-gate-disposition', id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #41 as ');
+    expect(gateLines(landed.out)).toEqual(gateLines(ok.out));
+    expect(gateLines(landed.out)[1]).toContain(`accepted=${id}`);
+  }, 180_000);
+
+  test('a row the lane appends to the store by hand, digest and all, still needs the lander: land refuses and prints it, a wrong id refuses, and the accepted id lands', () => {
+    const fx = prep();
+    const head = openPr(fx, '42');
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-42' }) as StoreLocation;
+    const forged = buildRow({ ...gateDispositionRow(F, G, head, 'the lane says the owner agreed'), words: 'Do it', by: 'Owner', source: GATE_SOURCE }, 'pr-42') as ApprovalRow;
+    fs.mkdirSync(path.dirname(loc.file), { recursive: true });
+    fs.appendFileSync(loc.file, JSON.stringify({ ...forged, digest: gateDispositionDigest(forged as unknown as Record<string, unknown>) }) + '\n');
+    const ds = applied(fx, '42', head);
+    expect(ds.map(d => d.approval)).toEqual([forged.id]);
+    setBody(fx, '42', bodyWith('42', head, ds));
+    const line = `GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`;
+    const bare = land(fx, '42', head);
+    expect([bare.status, gateLines(bare.out)[0], bare.err]).toEqual([EXIT.refused, line, expect.stringContaining(`disposition ${forged.id} is not accepted`)]);
+    const wrong = land(fx, '42', head, ['--accept-gate-disposition', forged.id, '--accept-gate-disposition', 'a-000000000000']);
+    expect([wrong.status, wrong.err]).toEqual([EXIT.refused, expect.stringContaining('--accept-gate-disposition a-000000000000 names no disposition the store applies')]);
+    expect(verify(fx, '42', head, ['--accept-gate-disposition', 'a-000000000000']).status).toBe(EXIT.refused);
+    expect(land(fx, '42', head, ['--accept-gate-disposition', 'undefined']).status).toBe(EXIT.usage);
+    const landed = land(fx, '42', head, ['--accept-gate-disposition', forged.id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(gateLines(landed.out)[0]).toBe(line);
+  }, 120_000);
+
+  test('the receipt omitting a disposition, the body dropping its line, and the receipt listing one the store lacks refuse land and verify alike', () => {
+    const fx = prep();
+    const head = openPr(fx, '43');
+    const rec = record(fx, '43', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '43', head);
+    const invented = { ...ds[0]!, approval: 'a-111111111111' };
+    for (const [body, problem] of [
+      [bodyWith('43', head, [], ds), `the receipt omits applied disposition ${id}`],
+      [bodyWith('43', head, ds, []), 'the PR body lacks the line "Gate disposition: '],
+      [bodyWith('43', head, [...ds, invented]), 'the receipt lists disposition a-111111111111, which the store'],
+    ] as const) {
+      setBody(fx, '43', body);
+      const l = land(fx, '43', head, ['--accept-gate-disposition', id, '--dry-run']);
+      const v = verify(fx, '43', head, ['--accept-gate-disposition', id]);
+      expect([l.status, l.err]).toEqual([EXIT.refused, expect.stringContaining(problem)]);
+      expect([v.status, why(v.err), gateLines(v.out)]).toEqual([EXIT.refused, why(l.err), gateLines(l.out)]);
+    }
+    setBody(fx, '43', bodyWith('43', head, ds));
+    expect(verify(fx, '43', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.ok);
+  }, 120_000);
 });

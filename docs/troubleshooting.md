@@ -3727,7 +3727,8 @@ results, prereg or eval path, and names no money, security, secret or auth topic
 needs the reader again (GST-1195). With `--body`, write also refuses, writing
 nothing, a body that does not carry each line the receipt requires as one line,
 word for word: every `Ruled note: …` line `gstack-approvals rulings` prints,
-every `Gate disposition: …` line `gstack-approvals dispositions` prints,
+every `Gate disposition: …` line `gstack-approvals dispositions` prints (and while
+a gate disposition applies at HEAD, write refuses to run without `--body`),
 finish's `MECHANICAL:` lines as `Mechanical retake: …`, and accept's
 `TEST_LANE_EXCEPTION:` lines as `Test-lane exception: …`
 ([ruled notes](ship-policy.md#ruled-notes),
@@ -5768,6 +5769,26 @@ doesn't describe what would merge. Nothing was merged.
 **Fix.** The lane runs /ship and `ready --pr <n> --no-screen` at the new head
 and sends a new READY; land that pin.
 
+<a id="queue-gate-disposition"></a>
+### `QUEUE_GATE_DISPOSITION`
+
+**Meaning.** The approval store holds an owner gate disposition that applies at the
+pin, and `land --pin` or `verify --pin` wasn't told to accept it. Or an
+`--accept-gate-disposition` id names no disposition the store applies there. Or the
+receipt's `gate_dispositions`, or the PR body's `Gate disposition:` lines, differ
+from the store (`ready` refuses those too). Nothing was merged. The
+`GATE_DISPOSITION:` lines above the refusal are what the store holds at the pin;
+the receipt and the body aren't trusted for this, because the lane writes them.
+
+**Fix.** Read each `GATE_DISPOSITION:` line: the fingerprint, gate id, head, who
+recorded it, the reason and the owner's words. If the owner did approve that gate
+change, rerun with `--accept-gate-disposition <approval id>` for each one. If not,
+don't accept it; the lane restores the gate. When the store can't be read, or holds
+none while the receipt lists some, point `GSTACK_APPROVALS_DIR` at the directory the
+owner recorded into. When the receipt or the body is what differs, the lane reruns
+/ship and `ready` at the pin. See
+[gate dispositions](ship-policy.md#gate-disposition-acceptance).
+
 <a id="queue-land-checks"></a>
 ### `QUEUE_LAND_CHECKS`
 
@@ -6860,9 +6881,9 @@ session cannot answer `review-gate-disposition`, so `gstack-review-log` stored i
 (a blocking finding is still open …)`. A ruling (`gstack-approvals rule`) never
 closes a gate finding, and nothing the lane writes on its review row does either.
 
-**Fix.** When the owner approved the gate change, record the owner's answer from a
-session that holds no open /ship run on that checkout, at the stop head the review
-read, with the `fingerprint` and `gate_id` from the review row:
+**Fix.** When the owner approved the gate change, record the owner's answer at the
+stop head the review read, with the `fingerprint` and `gate_id` from the review row,
+while no /ship run is open on that branch in any worktree:
 
 ```bash
 gstack-approvals gate --finding '<fingerprint>' --gate-id <gate_id> --head <stop head> \
@@ -6875,7 +6896,10 @@ row reads `CURRENT`, so the repeat decision has no `--blocking-open` for it, Ste
 leaves it out of `--gate-open` and the PR is no draft on its account. finish prints
 `GATE_DISPOSITION: …`, and the PR body carries the `Gate disposition: …` line
 `gstack-approvals dispositions` prints. When the owner did not approve it, restore
-the gate. See [gate dispositions](ship-policy.md#gate-dispositions).
+the gate. The lander then accepts each disposition by its approval id:
+`gstack-ship-queue land --pr <n> --pin <sha> --accept-gate-disposition <id>`, or
+`gstack-ship-queue verify` with the same flags before a merge that doesn't go
+through land. See [gate dispositions](ship-policy.md#gate-dispositions).
 
 <a id="fix-check-open"></a>
 ### `FIX_CHECK_OPEN`

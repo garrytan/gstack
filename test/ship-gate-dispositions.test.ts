@@ -10,6 +10,9 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, readyTailLines } from '../lib/ship-receipt';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { spawnSync } from 'node:child_process';
+import { buildRow, locate, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
+import { GATE_SOURCE, gateDispositionDigest, gateDispositionRow } from '../lib/gate-dispositions';
 
 setDefaultTimeout(90_000);
 const BIN = path.dirname(RELEASE);
@@ -189,5 +192,65 @@ describe('finish with a gate disposition (GST-2491)', () => {
     expect(receipt.errors).toEqual([]);
     expect(receipt.receipt?.gate_dispositions).toEqual([{ finding: GATE, gate_id: GATE_ID, head, by: BY, reason: REASON, words: WORDS, at: expect.stringMatching(/Z$/), approval: expect.stringMatching(/^a-[0-9a-f]{12}$/) }]);
     expect(readyTailLines(receipt.receipt).filter(l => l.startsWith('GATE_DISPOSITION: '))).toEqual([`GATE_DISPOSITION: ${line.slice('Gate disposition: '.length)}`]);
+  });
+});
+
+// Value: protects=the GSTA-518 audit's lane-side paths (B1 sibling writer, N1 lock, N2 undefined gate id, N4 malformed rows, N5
+//   skipped --body) are refused or ignored; fails_when=a sibling worktree records while the branch's /ship run is open, a row
+//   missing a writer field or edited after writing closes the finding, --gate-id undefined records, or write skips the body check;
+//   seam=gstack-approvals gate, gstack-review-read and gstack-ship-receipt write; no_claim=a well-formed row a same-user lane
+//   forges (the lander's --accept-gate-disposition is that boundary, test/ship-queue-land-direct.test.ts)
+describe('a disposition the lane makes for itself is refused or ignored (GST-2491)', () => {
+  const store = (f: ShipFx) => locate({ cwd: f.work, env: { ...process.env, GSTACK_STATE_ROOT: f.state, GSTACK_HOME: f.state, GSTACK_APPROVALS_MIRROR: '0' }, branch: 'feat' }) as StoreLocation;
+
+  test('a sibling worktree cannot record while the branch has an open /ship run, and records once it closes', () => {
+    const { f, head } = firstPass();
+    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    fs.writeFileSync(marker, 'ship-906-3a27393\n');
+    const sib = path.join(f.root, 'sib');
+    expect(f.git('worktree', 'add', '-q', '-b', 'owner-side', sib, 'HEAD').status).toBe(0);
+    const fromSib = () => spawnSync(path.join(BIN, 'gstack-approvals'), ['gate', '--branch', 'feat', '--finding', GATE, '--gate-id', GATE_ID, '--head', head, '--reason', REASON, '--words', WORDS, '--by', BY],
+      { cwd: sib, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: f.state, GSTACK_HOME: f.state, GSTACK_APPROVALS_MIRROR: '0', GIT_CONFIG_GLOBAL: path.join(f.root, 'gitconfig') } });
+    const refused = fromSib();
+    expect([refused.status, refused.stderr]).toEqual([EXIT.usage, expect.stringContaining(`/ship run ship-906-3a27393 is open in the worktree ${f.work} (branch feat)`)]);
+    expect(read(f).review_freshness.status).toBe('UNVERIFIED');
+    fs.rmSync(marker);
+    const recorded = fromSib();
+    expect(recorded.status, recorded.stderr).toBe(0);
+    expect(read(f).review_freshness.status).toBe('CURRENT');
+  });
+
+  test('a raw row missing a writer field, edited after writing, or for another branch closes nothing; the written row does', () => {
+    const { f, head } = firstPass();
+    expect(gate(f, GATE, head).status).toBe(0);
+    const file = store(f).file;
+    const good = JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').at(-1)!);
+    expect([good.source, good.digest]).toEqual(['gate', expect.stringMatching(/^sha256:[0-9a-f]{64}$/)]);
+    const { digest: _d, ...noDigest } = good, { by: _b, ...noBy } = good, { recorded_at: _r, ...noTime } = good;
+    for (const bad of [noDigest, noBy, noTime, { ...good, source: 'manual' }, { ...good, words: 'Do it all' }, { ...good, branch: 'other' }, { ...good, id: 'gate-1' }, { ...good, ask: good.ask.replace(REASON, 'any gate change') }]) {
+      fs.writeFileSync(file, JSON.stringify(bad) + '\n');
+      expect([read(f).review_freshness.status, run(f, 'gstack-approvals', ['dispositions']).stdout]).toEqual(['UNVERIFIED', 'GATE_DISPOSITIONS: none\n']);
+    }
+    fs.writeFileSync(file, JSON.stringify(good) + '\n');
+    expect(read(f).review_freshness.status).toBe('CURRENT');
+  });
+
+  test('a literal undefined gate id is refused, and an id-less gate finding stays open even under a digest-correct row', () => {
+    const { f, head } = firstPass({ gate_id: undefined });
+    for (const gateId of ['undefined', 'null']) {
+      const lit = gate(f, GATE, head, { gateId });
+      expect([lit.status, lit.stderr]).toEqual([EXIT.usage, expect.stringContaining('--gate-id')]);
+    }
+    const row = buildRow({ ...gateDispositionRow(GATE, 'undefined', head, REASON), words: WORDS, by: BY, source: GATE_SOURCE }, 'feat') as ApprovalRow;
+    fs.mkdirSync(path.dirname(store(f).file), { recursive: true });
+    fs.appendFileSync(store(f).file, JSON.stringify({ ...row, digest: gateDispositionDigest(row as unknown as Record<string, unknown>) }) + '\n');
+    expect([read(f).review_freshness.status, read(f).findings[0].action]).toEqual(['UNVERIFIED', 'open']);
+  });
+
+  test('write refuses a receipt without --body while a disposition applies at HEAD', () => {
+    const { f, head } = firstPass();
+    expect(gate(f, GATE, head).status).toBe(0);
+    const w = f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '906', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended'], { GSTACK_APPROVALS_MIRROR: '0' });
+    expect([w.status, w.stderr]).toEqual([EXIT.fail, expect.stringContaining('so write needs --body <the PR body>')]);
   });
 });
