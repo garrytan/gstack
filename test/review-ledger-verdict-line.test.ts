@@ -46,3 +46,62 @@ describe('native verdict line (collector severity inflation)', () => {
     expect(labels('All FIXABLE, none blocks. Blocks: yes')).toEqual(['CRITICAL']);
   });
 });
+
+// FOUN-298 (founderstar#926, gstack 1.99.1.0): the native reader's verdict line counted its findings at a severity and tagged them
+// FIXABLE ("I found nothing that blocks. There are three Low findings, all FIXABLE, ..."), which neither the FIXABLE-only verdict line
+// nor the closing summary covered, so it collected as CRITICAL and the receipt said blocking_found=1. Excerpt of that output.
+const CAPTURED_FOUN298_P1 = [
+  'REVIEWED_TREE: 139756ffddaf11a8ca20037b5844e1f68d829a62 /workspace/founderstar',
+  '',
+  'I found nothing that blocks. There are three Low findings, all FIXABLE, and none can change outcomes, draws or save replay.',
+  '',
+  '**Findings**',
+  '',
+  '1. **A meeting take is checked against a different line than the one it replaces at runtime.** `_validate_takes` (content.gd ~1160) compares a take\'s slots with the voice\'s `lines.open`. No take has slots today, so this can\'t happen yet. FIXABLE: validate takes against each stock `open_*` line with `Meeting.slots`. Severity: Low. Blocks: no.',
+  '',
+  '2. **Which typed line shows depends on the stock line\'s text being unique.** Both `typed_line` (game.gd ~7101) and `_demo_line` (game.gd ~12476) find the drawn line\'s position with `stock.find(line)`. There are no duplicates today. FIXABLE: reject duplicate stock lines in `_validate_shadow`. Severity: Low. Blocks: no.',
+  '',
+  '3. **Some new support has no content behind it.** `TYPED_POOLS` and five call sites send `sideways`, `polite`, `maybe`, `paid` and `callback` through `typed_line`. INVESTIGATE: either fill these pools in a content follow-up or drop them from `TYPED_POOLS`. Severity: Low. Blocks: no.',
+  '',
+  'Recommendation: Ship as-is because the strongest finding is the take-validation mismatch at meeting.gd:36.',
+].join('\n');
+
+describe('native verdict line that counts its findings at a severity (FOUN-298)', () => {
+  test('the captured FOUN-298 verdict line collects at its counted Low on both classes, never CRITICAL', () => {
+    expect(labels(CAPTURED_FOUN298_P1)).toEqual(['Low', 'Low', 'Low', 'Low']);
+    expect(parseFindings('adversarial-native', CAPTURED_FOUN298_P1, false).map(f => f.label)).toEqual(['Low', 'Low', 'Low', 'Low']);
+    expect(parseFindings('adversarial-native', CAPTURED_3901_P2, false).map(f => f.label)).toEqual(['FIXABLE', 'Low']);
+  });
+
+  test('the no-blocker clause is read in its common phrasings, with or without a counted severity', () => {
+    const denials = ['nothing that blocks', 'nothing blocking', 'nothing which would block', 'none of which blocks', 'none of them is a blocker',
+      'no finding that would block', 'no blockers', 'no blocking issues', 'nothing here blocks', 'none blocks', 'neither is blocking'];
+    for (const d of denials) {
+      expect([d, labels(`I found ${d}. There are two Low findings, all FIXABLE.`)]).toEqual([d, ['Low']]);
+      expect([d, labels(`Two findings, both FIXABLE, and ${d}.`)]).toEqual([d, ['FIXABLE']]);
+    }
+    expect(labels('There are three findings, all FIXABLE, but none blocks.')).toEqual(['FIXABLE']);
+    expect(labels('Nothing that blocks: one Medium and two Low findings, all FIXABLE.')).toEqual(['Medium']);
+  });
+
+  test('a counted severity is kept as written, never lowered', () => {
+    expect(labels('I found nothing that blocks. There are three High findings, all FIXABLE.')).toEqual(['High']);
+    expect(labels('I found nothing that blocks. There are two CRITICAL findings, all FIXABLE.')).toEqual(['CRITICAL']);
+  });
+
+  test('negative controls: blockers, exceptions, named findings and mixed text still collect as CRITICAL', () => {
+    expect(labels('CRITICAL: the token leak in log.ts:3 ships the API key.')).toEqual(['CRITICAL']);
+    expect(labels('1. **The cache key drops the tree (key.ts:3).** FIXABLE: key on the tree hash.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks except the token leak, and it is FIXABLE. There are two Low findings.')).toEqual(['CRITICAL']);
+    expect(labels('Apart from the token leak, nothing that blocks; three Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('Nothing that blocks, but the cache key drops the tree; three Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I found one blocker. There are three Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('Nothing else blocks. Blocks: the cache key drops the tree, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. One finding blocks the merge: three Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. The cache key drops the reviewed tree, FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. Three Low findings, all FIXABLE; the token leak in log.ts:3 is FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. There are two Low findings, all FIXABLE. Blocks: yes')).toEqual(['CRITICAL']);
+    expect(labels(['I found nothing that blocks. There are two Low findings, all FIXABLE.', '', '1. **The cache key drops the tree (key.ts:3).** FIXABLE: key on the tree hash.'].join('\n')))
+      .toEqual(['Low', 'CRITICAL']);
+  });
+});

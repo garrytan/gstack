@@ -147,13 +147,27 @@ export const closingSummary = (t: string): { labels: string[]; prose: boolean } 
   return { labels: labelled.flatMap(s => [...s.replace(DENIED, ' ').matchAll(ALL_LABELS)].map(m => m[1]!)), prose: labelled.length < sentences.length };
 };
 /**
- * The native reader's own verdict line (GSTA-258 L4: #3901 "There are three low-severity findings, all FIXABLE, and none blocks."): a prose
- * line, no list item, heading, lead label, file:line, Severity or Blocks field, whose only labels are FIXABLE or INVESTIGATE and which says
- * nothing blocks. It collects at FIXABLE as written, never raised to CRITICAL; the findings it summarizes collect on their own lines.
+ * The native reader's own verdict line (GSTA-258 L4: #3901 "There are three low-severity findings, all FIXABLE, and none blocks.";
+ * FOUN-298: "I found nothing that blocks. There are three Low findings, all FIXABLE, and none can change outcomes"): a prose line, no list
+ * item, heading, lead label, file:line, Severity or Blocks field, that says nothing blocks (`nothing that blocks`, `none of which would
+ * block`, `no blockers`), with no other mention of blocking and no exception clause but a `but` that opens the denial, and whose every
+ * label sits in a count (`three Low findings`) or a summary tag (`all FIXABLE`, `both are INVESTIGATE`). It collects at the most severe
+ * counted label, else FIXABLE, never raised to CRITICAL; the findings it summarizes collect on their own lines.
  */
-const NONE_BLOCKS = /(?<![A-Za-z])(?:(?:none|nothing|neither)(?:\s+of\s+(?:them|these|those))?\s+(?:blocks?|is\s+blocking|are\s+blocking|would\s+block)|no\s+(?:finding|issue|one)s?\s+(?:blocks?|would\s+block)|no\s+blocking\s+(?:defects?|findings?|issues?))(?![A-Za-z])/i;
-const quietSummary = (t: string) => ANY_LABEL.test(t) && NONE_BLOCKS.test(t) && !LOCUS.test(t) && !PATH_LOCUS.test(t) && !LIST_ITEM.test(t) && !HEADING.test(t) && !LEAD_LABEL.test(t)
-  && !t.match(SEVERITY_FIELD) && !t.match(STATED_BLOCKS) && [...t.matchAll(ALL_LABELS)].every(m => rank(m[1]) === 0);
+const NONE_BLOCKS = /(?<![A-Za-z])(?:(?:none|nothing|neither|no\s+(?:finding|issue|defect|problem|one)s?)(?:\s+of\s+(?:them|these|those|which))?(?:\s+here)?(?:\s+(?:that|which))?(?:\s+(?:would|will|could|can|does|do|should))?(?:\s+(?:is|are|was|were|be))?(?:\s+an?)?\s+(?:blocks?|blocking|blockers?)|no\s+(?:blockers?|blocking\s+(?:defects?|findings?|issues?|problems?)))(?![A-Za-z])/i;
+const NONE_BLOCKS_ALL = new RegExp(NONE_BLOCKS.source, 'gi');
+const BUT_NONE_BLOCKS = new RegExp(`(?<![A-Za-z])but\\s+(?=${NONE_BLOCKS.source})`, 'gi');
+const BLOCK_WORD = /(?<![A-Za-z])block(?:s|ing|ed|ers?)?(?![A-Za-z])/i;
+const TAG = '[*`]*(?:FIXABLE|INVESTIGATE)[*`]*';
+const COUNTED = `(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+|a\\s+few|several|some|an?)\\s+(?:${SEV_LIST}|${TAG})`;
+const SUMMARY_TAG = new RegExp(`(?<![A-Za-z])(?:${COUNTED}(?:\\s*(?:,|\\band\\b|\\bor\\b)\\s*${COUNTED})*\\s+${NOUN}`
+  + `|(?:(?:all|each|both)(?:\\s+of\\s+(?:them|these|those))?(?:\\s+(?:are|is))?|(?:are|were)(?:\\s+(?:all|both))?)\\s+${TAG})(?![A-Za-z0-9])`, 'g');
+const quietSummary = (t: string): string | undefined => {
+  if (!ANY_LABEL.test(t) || !NONE_BLOCKS.test(t) || LOCUS.test(t) || PATH_LOCUS.test(t) || LIST_ITEM.test(t) || HEADING.test(t) || LEAD_LABEL.test(t)
+    || t.match(SEVERITY_FIELD) || t.match(STATED_BLOCKS) || BLOCK_WORD.test(t.replace(NONE_BLOCKS_ALL, ' ')) || EXCEPTION.test(t.replace(BUT_NONE_BLOCKS, ''))
+    || ANY_LABEL.test(t.replace(SUMMARY_TAG, ' '))) return undefined;
+  return [...t.matchAll(SUMMARY_TAG)].flatMap(m => [...m[0].matchAll(ALL_LABELS)].map(l => l[1]!)).reduce((a, b) => stronger(a, b), 'FIXABLE');
+};
 export function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
   const severity = [...raw.matchAll(STATED_SEVERITY)].at(-1)?.[1];
@@ -208,7 +222,8 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string, continued: boolean) => {
-    if (role === 'adversarial-native' && quietSummary(t)) return 'FIXABLE';
+    const quiet = role === 'adversarial-native' ? quietSummary(t) : undefined;
+    if (quiet) return quiet;
     const led = /^(?:(?:[-*+]|\d+[.)])\s+)?\*\*([^*]+?)(?::\*\*|\*\*:)\s+(.+)$/.exec(t);
     const summary = continued ? undefined : closingSummary(led && !ANY_LABEL.test(led[1]!) ? led[2]! : t);
     if (summary) return strongestOf([...summary.labels.map(named), summary.prose ? 'INFORMATIONAL' : undefined]);
@@ -309,7 +324,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw);
+  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw) || !!quietSummary(f.raw);
   const relaxed = fixableRaises && role === 'adversarial-native' ? parseLabelled(reader, output, false) : undefined;
   const statesSeverity = (raw: string) => { const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && !!rank(ls[0]); };
   const shaped = (f: Finding) => f.section || f.heading || [...f.raw.split(' | '), f.context ?? ''].some(t => t.startsWith('{') || LEAD_LABEL.test(t) || META.test(t) || !!t.match(STATED_SEVERITY) || BLOCKS_YES.test(t)
