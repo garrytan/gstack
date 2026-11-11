@@ -307,22 +307,24 @@ describe('release-cut: the release gate holds and gates (crew/lib/release-gate.t
 });
 
 describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => {
-  const OWN_SUITE = 9001;
-  const ownRun = (status: string, conclusion: string | null, suite = OWN_SUITE, slug = 'github-actions') => ({ name: 'Cut the release', status, conclusion, app: { slug }, check_suite: { id: suite } }) as CheckRun;
-  const workflowRuns = (sha: string, runs: Array<{ path: string; check_suite_id: number }>) => ({ ['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100']: [{ total_count: runs.length, workflow_runs: runs }] });
-  const ownWorkflow = { path: CUT_WORKFLOW, check_suite_id: OWN_SUITE };
+  const OWN_JOB = 70001;
+  const ownRun = (status: string, conclusion: string | null, id = OWN_JOB) => ({ id, name: 'Cut the release', status, conclusion }) as CheckRun;
+  const workflowRuns = (sha: string, runs: Array<{ id: number; path: string; jobs: number[] }>) => Object.assign(
+    { ['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100']: [{ total_count: runs.length, workflow_runs: runs.map(({ id, path }) => ({ id, path, check_suite_id: id })) }] },
+    ...runs.map(r => ({ ['repos/o/r/actions/runs/' + r.id + '/jobs?filter=all&per_page=100']: [{ total_count: r.jobs.length, jobs: r.jobs.map(id => ({ id })) }] })));
+  const ownWorkflow = { id: 9001, path: CUT_WORKFLOW, jobs: [OWN_JOB] };
   const unbacked = GREEN.filter(c => c.name !== BACKSTOP_CHECK);
   const gatedBy = (sha: string, run: string): TrainEvidence => ({ bySha: new Map(), byTree: new Map(), release: new Map([[sha, run]]) });
   const sha = 'c'.repeat(40);
-  const ghFor = (checks: CheckRun[], api: Record<string, unknown> = workflowRuns(sha, [ownWorkflow, { path: '.github/workflows/evals.yml', check_suite_id: 555 }])) =>
+  const ghFor = (checks: CheckRun[], api: Record<string, unknown> = workflowRuns(sha, [ownWorkflow, { id: 555, path: '.github/workflows/evals.yml', jobs: [70555] }])) =>
     fakeGh({ checks: { [sha]: checks }, released: new Set(), calls: [], api });
 
   // Value: protects=the stable cut's own check run (in progress while it runs, red once it fails) never keeps a commit gated by a GREEN release record out
-  // of the cut, while a red or running check run from any other workflow, a running required check, a missing gate and a same-named run from another
-  // workflow or app still do, and an unreadable workflow-runs API sets nothing aside; fails_when=the cut skips main's head because its own job is still
-  // running, a failed cut poisons the commit, or the exclusion is keyed on the display name alone; why_new=gateVerdict judged every check run on the
-  // commit, including the cut's own (run 43076123863 on 19ed2ac5); seam=gh is faked with the check-runs and actions/runs payload shapes read live on
-  // 19ed2ac5; no_claim=a live workflow run
+  // of the cut, while a red or running check run from any other workflow, a running required check, a missing gate, a same-named job of another
+  // workflow and a check run another workflow created through the API (which GitHub may file under the cut's check suite) still do, and an unreadable
+  // workflow-runs API sets nothing aside; fails_when=the cut skips main's head because its own job is still running, a failed cut poisons the commit,
+  // or the exclusion is keyed on the display name or the check suite; why_new=gateVerdict judged every check run on the commit, including the cut's
+  // own (run 43076123863 on 19ed2ac5); seam=gh is faked with the check-runs, actions/runs and jobs payload shapes; no_claim=a live workflow run
   test('gateVerdict: the cut\'s own running or failed check run is set aside; every other not-green signal still refuses', () => {
     const evidence = gatedBy(sha, '43072520821');
     for (const own of [ownRun('in_progress', null), ownRun('queued', null), ownRun('completed', 'failure')]) {
@@ -330,10 +332,12 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     }
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure'), { name: 'quality', status: 'completed', conclusion: 'failure' }]), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'red check runs: quality', pending: false });
-    expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure', 555)]), 'o/r', sha, { evidence }))
+    expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure', 70555)]), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
-    expect(gateVerdict(ghFor([...unbacked, ownRun('in_progress', null, OWN_SUITE, 'some-other-app')]), 'o/r', sha, { evidence }))
+    expect(gateVerdict(ghFor([...unbacked, ownRun('in_progress', null, 80002)]), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'check runs still going: Cut the release', pending: true });
+    expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure'), { id: 80001, name: BACKSTOP_CHECK, status: 'completed', conclusion: 'failure', app: { slug: 'github-actions' }, check_suite: { id: 9001 } } as CheckRun]), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: ' + BACKSTOP_CHECK, pending: false });
     expect(gateVerdict(ghFor([{ name: REQUIRED_CHECK, status: 'in_progress', conclusion: null }, ownRun('in_progress', null)]), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: REQUIRED_CHECK + ' is still running', pending: true });
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')]), 'o/r', sha))
@@ -361,9 +365,9 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     const head = f.release('1.0.4', 'Fifth is still being gated.');
     f.refresh();
     note(f, releaseRecord(gated, 'GREEN', 43072520821), gated);
-    f.state.checks[head] = [...backstop('in_progress', null), ownRun('in_progress', null, 9002)];
+    f.state.checks[head] = [...backstop('in_progress', null), ownRun('in_progress', null, 70002)];
     f.state.checks[gated] = [...unbacked, ownRun('completed', 'failure')];
-    f.state.api = { ...workflowRuns(head, [{ path: CUT_WORKFLOW, check_suite_id: 9002 }]), ...workflowRuns(gated, [ownWorkflow]) };
+    f.state.api = { ...workflowRuns(head, [{ id: 9002, path: CUT_WORKFLOW, jobs: [70002] }]), ...workflowRuns(gated, [ownWorkflow]) };
     const r = planRelease({ repo: f.repo, git: f.git, gh: f.gh, now: pastFloor });
     expect(r.ok, JSON.stringify(r)).toBe(true);
     if (!r.ok) return;
