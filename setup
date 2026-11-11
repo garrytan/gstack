@@ -793,7 +793,9 @@ _link_or_copy() {
 # And crew/lib, which bin and lib import (the crew/ move, GST-1833), plus the
 # scripts/ modules they import: a root whose bin and lib are copies (Windows)
 # needs them beside it to start (/review and /ship's review planner imports
-# fix-check.ts).
+# fix-check.ts), and the two classifiers bin/gstack-question-preference
+# imports inside its bun -e (one-way-doors.ts, psychographic-signals.ts),
+# which the import walk cannot see.
 # Pinned by test/runtime-root-assets.test.ts, which also follows those imports. A destination that already exists
 # as a real entry is left alone: in the repo-local sidecar review/ is a link to
 # the source, so its files already resolve and must never be linked over.
@@ -816,6 +818,7 @@ _link_runtime_dists() {
   done
   for f in VERSION scripts/jargon-list.json scripts/question-registry.ts \
     scripts/resolvers/fix-check.ts scripts/discover-skills.ts scripts/lib/ci-history.ts \
+    scripts/one-way-doors.ts scripts/psychographic-signals.ts \
     docs/askuserquestion-split.md docs/askuserquestion-cjk.md docs/test-value-bar.md \
     review/checklist.md review/design-checklist.md review/greptile-triage.md review/TODOS-format.md \
     plan-devex-review/dx-hall-of-fame.md; do

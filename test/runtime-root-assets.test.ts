@@ -197,6 +197,29 @@ describe.skipIf(process.platform === 'win32')('runtime roots carry every $GSTACK
     expect(r.stdout).toContain('--fix-check-prompt');
   });
 
+  // Value: protects=the question helper's --check and --signal-keys start from a
+  //   runtime root, linked or copied; fails_when=setup's asset list drops
+  //   scripts/one-way-doors.ts or scripts/psychographic-signals.ts;
+  //   why_new=the helper imports them inside a bash-quoted bun -e, which the
+  //   static import walk above cannot see; seam=none; no_claim=native Windows.
+  for (const windows of [false, true]) {
+    test(`the question helper's checks start from a ${windows ? 'copied (Windows)' : 'linked'} runtime root`, () => {
+      const { root, stderr, status } = buildRoot('codex', windows);
+      expect(stderr).toBe('');
+      expect(status).toBe(0);
+      const home = path.join(tmp, windows ? 'home-windows' : 'home');
+      for (const [args, expected] of [[['--check', 'land-and-deploy-merge'], 'ASK_NORMALLY'], [['--signal-keys'], 'scope-appetite']] as const) {
+        const r = spawnSync('bash', [path.join(root, 'bin', 'gstack-question-preference'), ...args], {
+          cwd: tmp, encoding: 'utf8', timeout: 30_000,
+          env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, GSTACK_STATE_ROOT: path.join(home, 'question-state') },
+        });
+        expect(r.stderr).not.toContain('Cannot find module');
+        expect(r.status, r.stdout + r.stderr).toBe(0);
+        expect(r.stdout).toContain(expected);
+      }
+    });
+  }
+
   test('a runtime root never gains a whole skill directory beside the rendered copies', () => {
     const { root } = buildRoot('codex');
     for (const dir of ['plan-design-review', 'office-hours']) {
