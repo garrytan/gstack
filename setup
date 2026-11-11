@@ -815,6 +815,7 @@ _link_runtime_dists() {
     fi
   done
   for f in VERSION scripts/jargon-list.json scripts/question-registry.ts \
+    scripts/one-way-doors.ts scripts/psychographic-signals.ts \
     scripts/resolvers/fix-check.ts scripts/discover-skills.ts scripts/lib/ci-history.ts \
     docs/askuserquestion-split.md docs/askuserquestion-cjk.md docs/test-value-bar.md \
     review/checklist.md review/design-checklist.md review/greptile-triage.md review/TODOS-format.md \

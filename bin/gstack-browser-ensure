@@ -27,6 +27,14 @@ set -u
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)" || { echo "gstack-browser-ensure: cannot resolve the install root" >&2; exit 1; }
+# Copied host runtimes omit dependencies. Setup records the owning checkout
+# for the browser server; probe and install its Playwright dependencies there.
+if [ ! -f "$ROOT/package.json" ] && [ -f "$ROOT/.source-path" ]; then
+  _source=$(head -1 "$ROOT/.source-path" | tr -d '\r')
+  if [ -n "$_source" ] && [ -f "$_source/package.json" ] && [ -f "$_source/bin/gstack-browser-ensure" ]; then
+    ROOT="$(cd "$_source" && pwd -P)" || exit 1
+  fi
+fi
 DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browser-ensure-failed"
 CHECK=0 QUIET=0 WITH_DEPS=""
 for _arg in "$@"; do

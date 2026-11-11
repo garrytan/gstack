@@ -197,6 +197,28 @@ describe.skipIf(process.platform === 'win32')('runtime roots carry every $GSTACK
     expect(r.stdout).toContain('--fix-check-prompt');
   });
 
+  // Value: protects=setup ships the dynamically imported question classifiers in
+  //   copied runtimes; fails_when=either classifier is absent from the asset list;
+  //   why_new=the static import walker cannot see imports inside Bash's bun -e;
+  //   seam=none; no_claim=a full interactive skill run or native Windows setup.
+  test('question checks and signal hints start from a copied (Windows) runtime root', () => {
+    const { root, stderr, status } = buildRoot('codex', true);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    for (const [args, output] of [
+      [['--check', 'land-and-deploy-merge'], 'ASK_NORMALLY'],
+      [['--signal-keys'], 'scope-appetite'],
+    ] as const) {
+      const r = spawnSync('bash', [path.join(root, 'bin/gstack-question-preference'), ...args], {
+        cwd: tmp, encoding: 'utf8', timeout: 30_000,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: path.join(tmp, 'home-windows'), GSTACK_STATE_ROOT: path.join(tmp, 'question-state') },
+      });
+      expect(r.stderr).not.toContain('Cannot find module');
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toContain(output);
+    }
+  });
+
   test('a runtime root never gains a whole skill directory beside the rendered copies', () => {
     const { root } = buildRoot('codex');
     for (const dir of ['plan-design-review', 'office-hours']) {

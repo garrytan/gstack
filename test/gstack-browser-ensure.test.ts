@@ -11,6 +11,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { runScriptSync } from '../lib/script-invocation';
 import { generateBrowseFallback, generateBrowseSetup } from '../scripts/resolvers/browse';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -56,6 +57,72 @@ function fixture(opts: { playwright?: boolean } = {}) {
 }
 
 const lastLine = (s: string) => s.trim().split('\n').at(-1);
+
+// Value: protects=copied roots use their recorded source dependencies, invalid pointers
+//   stay local, and source installs keep their own dependencies;
+//   fails_when=the fallback is absent, loses spaces/CRLF, trusts a non-gstack directory,
+//   or overrides a source install; why_new=the existing fixture has no .source-path;
+//   seam=none; no_claim=a real Chromium launch (Playwright is a local stub).
+describe('gstack-browser-ensure copied runtime source', () => {
+  function copied(sourceName = 'source') {
+    const f = fixture({ playwright: false });
+    const source = path.join(f.base, sourceName);
+    write(path.join(source, 'package.json'), '{}\n');
+    write(path.join(source, 'bin/gstack-browser-ensure'), fs.readFileSync(path.join(REPO, 'bin/gstack-browser-ensure'), 'utf8'), 0o755);
+    const playwright = (root: string, version: string) => write(path.join(root, 'node_modules/playwright/index.js'),
+      `module.exports.chromium = { launch: async () => ({ version: () => ${JSON.stringify(version)}, close: async () => {}, newPage: async () => ({ setContent: async () => {}, title: async () => "gstack smoke test" }) }) };\n`);
+    playwright(source, '141.1.0');
+    const pointer = (value: string) => write(path.join(f.root, '.source-path'), value);
+    const run = () => runScriptSync(path.join(f.root, 'bin/gstack-browser-ensure'), ['--check'], {
+      cwd: f.base, encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, HOME: f.base, TMPDIR: f.base },
+    });
+    return { ...f, source, playwright, pointer, run };
+  }
+
+  for (const [name, sourceName, newline] of [
+    ['a recorded checkout', 'source', '\n'],
+    ['a checkout path with spaces', 'source checkout', '\n'],
+    ['a CRLF source pointer', 'source checkout', '\r\n'],
+  ]) {
+    test(`--check probes ${name} without installing in the copied root`, () => {
+      const f = copied(sourceName);
+      f.pointer(f.source.replace(/\\/g, '/') + newline);
+      const r = f.run();
+      expect(r.error).toBeUndefined();
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(lastLine(r.stdout)).toBe('BROWSER_OK node 141.1.0');
+      expect(fs.existsSync(path.join(f.root, 'node_modules'))).toBe(false);
+      expect(f.calls()).toBe('');
+    });
+  }
+
+  for (const kind of ['empty', 'stale', 'not-gstack'] as const) {
+    test(`--check keeps a ${kind} pointer local without installing`, () => {
+      const f = copied();
+      if (kind === 'not-gstack') fs.unlinkSync(path.join(f.source, 'bin/gstack-browser-ensure'));
+      f.pointer(kind === 'empty' ? '\n' : (kind === 'stale' ? path.join(f.base, 'gone') : f.source).replace(/\\/g, '/') + '\n');
+      const r = f.run();
+      expect(r.error).toBeUndefined();
+      expect(r.status, r.stdout + r.stderr).toBe(1);
+      expect(lastLine(r.stdout)).toMatch(/^BROWSER_UNAVAILABLE playwright is not installed under .*\/gstack\/node_modules$/);
+      expect(fs.existsSync(path.join(f.root, 'node_modules'))).toBe(false);
+      expect(f.calls()).toBe('');
+    });
+  }
+
+  test('a source install ignores a pointer to another checkout', () => {
+    const f = copied();
+    write(path.join(f.root, 'package.json'), '{}\n');
+    f.playwright(f.root, '142.2.0');
+    f.pointer(f.source.replace(/\\/g, '/') + '\n');
+    const r = f.run();
+    expect(r.error).toBeUndefined();
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(lastLine(r.stdout)).toBe('BROWSER_OK node 142.2.0');
+    expect(f.calls()).toBe('');
+  });
+});
 
 describe('gstack-browser-ensure', () => {
   test('--check never installs: unavailable Chromium is BROWSER_UNAVAILABLE, exit 1, with the fix line and code', () => {
