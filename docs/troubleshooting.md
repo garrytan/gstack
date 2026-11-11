@@ -6849,6 +6849,30 @@ PR whose older receipt lost its parent branch, or a depth, targeted or exception
 refusal, run /ship on the new head. When `--head` is not the checked-out HEAD,
 check it out and carry there.
 
+<a id="gate-finding-open-unattended"></a>
+### An unattended /ship stops on an open gate finding
+
+**Meaning.** The review logged a loosened gate as a gate finding, and an unattended
+session cannot answer `review-gate-disposition`, so `gstack-review-log` stored it
+`"action":"open","actor":"unattended"` and the repeat decision printed `NEXT: stop
+(a blocking finding is still open …)`. A ruling (`gstack-approvals rule`) never
+closes a gate finding, and nothing the lane writes on its review row does either.
+
+**Fix.** When the owner approved the gate change, record the owner's answer from a
+session that holds no open /ship run on that checkout, at the stop head the review
+read, then resume the parked /ship at the same head with no push:
+
+```bash
+gstack-approvals gate --finding '<fingerprint from the review row>' --head <stop head> \
+  --reason '<the gate change, one line>' --words '<the owner's exact words>' --by '<who recorded>'
+```
+
+`gstack-review-read` then lists the fingerprint in that row's `gate_dispositions`
+and the row reads `CURRENT`; finish prints `GATE_DISPOSITION: …`, and the PR body
+carries the `Gate disposition: …` line `gstack-approvals dispositions` prints. When
+the owner did not approve it, restore the gate. See
+[gate dispositions](ship-policy.md#gate-dispositions).
+
 <a id="fix-check-open"></a>
 ### `FIX_CHECK_OPEN`
 
