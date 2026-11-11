@@ -6860,7 +6860,9 @@ closes a gate finding, and nothing the lane writes on its review row does either
 
 **Fix.** When the owner approved the gate change, record the owner's answer from a
 session that holds no open /ship run on that checkout, at the stop head the review
-read, then resume the parked /ship at the same head with no push:
+read, then resume the parked /ship at the same head with no push. On resume, the
+repeat decision drops `--blocking-open` for that finding, Step 17 leaves it out of
+`--gate-open`, and the PR is no draft on its account:
 
 ```bash
 gstack-approvals gate --finding '<fingerprint from the review row>' --head <stop head> \

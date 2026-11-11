@@ -225,12 +225,7 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   (for `kept`) and ACTION `"kept"`, `"restored"` or `"open"`; never store hunk text.
   `open` counts in `issues_found` and by severity. The logger stamps `actor` from
   `gstack-session-kind` (a supplied `actor` is discarded) and forces `"open"` on
-  gate findings in a non-interactive session. An `open` gate finding whose fingerprint
-  `gstack-review-read` lists in that row's `gate_dispositions` (the owner's
-  `gstack-approvals gate` row, never a field you write) counts as kept: not
-  `--blocking-open`, `--gate-open` or a draft reason; Step 19's body carries its
-  `Gate disposition:` line. Any other one stops an unattended run naming
-  `gstack-approvals gate` for the owner (ship-policy.md#gate-dispositions).
+  gate findings in a non-interactive session.
 Save the review output and `Gate edits:` line for Step 19's PR body; an `open` gate
 finding makes that PR a draft.
 

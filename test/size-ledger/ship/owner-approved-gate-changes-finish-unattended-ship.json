@@ -1,4 +1,4 @@
 {
-  "bytes": 528,
-  "why": "gate dispositions (GST-2491): an owner-dispositioned gate finding counts as kept; the PR body carries its Gate disposition line"
+  "bytes": 105,
+  "why": "gate dispositions (GST-2491): the PR body carries each Gate disposition line"
 }
