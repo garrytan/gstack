@@ -57,6 +57,97 @@ function fixture(opts: { playwright?: boolean } = {}) {
 
 const lastLine = (s: string) => s.trim().split('\n').at(-1);
 
+// Value: protects=a runtime root with no package.json (~/.codex/skills/gstack and
+//   the other host roots) probes the dependencies of the gstack checkout its
+//   .source-path names, and only of a real gstack checkout; fails_when=the
+//   helper ignores the pointer, or follows an empty, stale, relative, linked or
+//   non-gstack one, or lets a pointer override a root's own package.json, or
+//   --check writes anything; why_new=no fixture had a .source-path;
+//   seam=none; no_claim=a real Chromium launch (Playwright is a stub).
+describe('gstack-browser-ensure in a runtime root without package.json', () => {
+  const playwrightStub = (version: string) =>
+    `module.exports.chromium = { launch: async () => ({ version: () => ${JSON.stringify(version)}, close: async () => {}, newPage: async () => ({ setContent: async () => {}, title: async () => "gstack smoke test" }) }) };\n`;
+  function runtime(checkoutName = 'checkout') {
+    const f = fixture({ playwright: false });
+    const checkout = path.join(f.base, checkoutName);
+    write(path.join(checkout, 'package.json'), '{\n  "name": "gstack",\n  "version": "0.0.0"\n}\n');
+    write(path.join(checkout, 'bin/gstack-browser-ensure'), '#!/usr/bin/env bash\n', 0o755);
+    write(path.join(checkout, 'node_modules/playwright/index.js'), playwrightStub('141.1.0'));
+    const point = (text: string) => write(path.join(f.root, '.source-path'), text);
+    const tree = () => walkFiles(f.base).filter(p => !p.startsWith(path.join(f.base, 'stub'))).sort();
+    return { ...f, checkout, point, tree };
+  }
+  const walkFiles = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap(e => e.isDirectory() ? walkFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]);
+  const unavailable = (root: string) => `BROWSER_UNAVAILABLE playwright is not installed under ${root}/node_modules`;
+
+  for (const [label, name, eol] of [
+    ['the recorded checkout', 'checkout', '\n'],
+    ['a checkout path with spaces', 'gstack checkout', '\n'],
+    ['a CRLF pointer', 'checkout', '\r\n'],
+  ] as const) {
+    test(`--check probes ${label} and writes nothing`, () => {
+      const f = runtime(name);
+      f.point(f.checkout + eol);
+      const files = f.tree();
+      const r = f.run(['--check']);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(lastLine(r.stdout)).toBe('BROWSER_OK node 141.1.0');
+      expect(f.tree()).toEqual(files);
+      expect(f.calls()).toBe('');
+    });
+  }
+
+  test('without --check a valid pointer is a probe only, and a link to the checkout resolves to it', () => {
+    const f = runtime();
+    const link = path.join(f.base, 'checkout-link');
+    fs.symlinkSync(f.checkout, link);
+    f.point(link + '\n');
+    const r = f.run();
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(lastLine(r.stdout)).toBe('BROWSER_OK node 141.1.0');
+    expect(fs.existsSync(path.join(f.root, 'node_modules'))).toBe(false);
+    expect(f.calls()).toBe('');
+  });
+
+  const refused: Array<[string, (f: ReturnType<typeof runtime>) => void]> = [
+    ['an empty pointer', f => f.point('\n')],
+    ['a stale pointer', f => f.point(path.join(f.base, 'gone') + '\n')],
+    ['a relative pointer', f => f.point(path.relative(process.cwd(), f.checkout) + '\n')],
+    ['a pointer file that is a link', f => { write(path.join(f.base, 'elsewhere'), f.checkout + '\n'); fs.symlinkSync(path.join(f.base, 'elsewhere'), path.join(f.root, '.source-path')); }],
+    ['a directory whose package.json is not gstack\'s', f => { write(path.join(f.checkout, 'package.json'), '{\n  "name": "left-pad"\n}\n'); f.point(f.checkout + '\n'); }],
+    ['a directory whose package.json is a link', f => {
+      write(path.join(f.base, 'real-package.json'), fs.readFileSync(path.join(f.checkout, 'package.json'), 'utf8'));
+      fs.rmSync(path.join(f.checkout, 'package.json'));
+      fs.symlinkSync(path.join(f.base, 'real-package.json'), path.join(f.checkout, 'package.json'));
+      f.point(f.checkout + '\n');
+    }],
+    ['a directory without gstack-browser-ensure', f => { fs.rmSync(path.join(f.checkout, 'bin'), { recursive: true }); f.point(f.checkout + '\n'); }],
+  ];
+  for (const [label, setUp] of refused) {
+    test(`--check ignores ${label} and reports the runtime root, as before`, () => {
+      const f = runtime();
+      setUp(f);
+      const files = f.tree();
+      const r = f.run(['--check']);
+      expect(r.status, r.stdout + r.stderr).toBe(1);
+      expect(lastLine(r.stdout)).toBe(unavailable(f.root));
+      expect(f.tree()).toEqual(files);
+      expect(f.calls()).toBe('');
+    });
+  }
+
+  test('a root with its own package.json keeps its own dependencies over a valid pointer', () => {
+    const f = runtime();
+    write(path.join(f.root, 'package.json'), '{\n  "name": "gstack"\n}\n');
+    write(path.join(f.root, 'node_modules/playwright/index.js'), playwrightStub('142.2.0'));
+    f.point(f.checkout + '\n');
+    const r = f.run(['--check']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(lastLine(r.stdout)).toBe('BROWSER_OK node 142.2.0');
+  });
+});
+
 describe('gstack-browser-ensure', () => {
   test('--check never installs: unavailable Chromium is BROWSER_UNAVAILABLE, exit 1, with the fix line and code', () => {
     const f = fixture();
