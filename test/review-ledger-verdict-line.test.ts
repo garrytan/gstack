@@ -110,4 +110,25 @@ describe('native verdict line that counts its findings at a severity (FOUN-298)'
     expect(labels(['I found nothing that blocks. There are two Low findings, all FIXABLE.', '', '1. **The cache key drops the tree (key.ts:3).** FIXABLE: key on the tree hash.'].join('\n')))
       .toEqual(['Low', 'CRITICAL']);
   });
+
+  // #4301 review (outside voice): a "nothing blocks" line that also names a blocker, in a shape the first rule missed, collected at Low.
+  test('negative controls: a verdict line with any sentence beyond the verdict clauses still collects as CRITICAL', () => {
+    expect(labels('I found nothing that blocks. There are three Low findings, all FIXABLE, with one exception: the migration drops user rows.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. However, the API key is logged in plain text. There are two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('Nothing blocks, though the API key is logged; two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('There are two Low findings, all FIXABLE, and none of them matter though the key is logged.')).toEqual(['CRITICAL']);
+    expect(labels('I found nothing that blocks. The migration drops user rows on retry. There are two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('The migration drops user rows, but nothing blocks; two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels(['I reviewed the migration, and apart from the dropped user rows', 'nothing that blocks; two Low findings, all FIXABLE.'].join('\n'))).toEqual(['CRITICAL']);
+    expect(labels('Nothing blocking an unauthenticated caller from the admin route; two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('There are two Low findings, all FIXABLE, and nothing blocking an unauthenticated caller from the admin route.')).toEqual(['CRITICAL']);
+    expect(labels('Probably nothing blocks; two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+    expect(labels('I think nothing should block. There are two Low findings, all FIXABLE.')).toEqual(['CRITICAL']);
+  });
+
+  // #4301 review (adversarial-native): on the relaxed class the verdict line was re-read with its joined continuation and raised again.
+  test('a verdict line keeps its label on the relaxed class when a field line binds to it', () => {
+    const out = ['I found nothing that blocks. There are two Low findings, all FIXABLE.', 'Severity: Low'].join('\n');
+    expect(parseFindings('adversarial-native', out, false).map(f => f.label)).toEqual(labels(out));
+  });
 });

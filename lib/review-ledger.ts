@@ -148,25 +148,28 @@ export const closingSummary = (t: string): { labels: string[]; prose: boolean } 
 };
 /**
  * The native reader's own verdict line (GSTA-258 L4: #3901 "There are three low-severity findings, all FIXABLE, and none blocks.";
- * FOUN-298: "I found nothing that blocks. There are three Low findings, all FIXABLE, and none can change outcomes"): a prose line, no list
- * item, heading, lead label, file:line, Severity or Blocks field, that says nothing blocks (`nothing that blocks`, `none of which would
- * block`, `no blockers`), with no other mention of blocking and no exception clause but a `but` that opens the denial, and whose every
- * label sits in a count (`three Low findings`) or a summary tag (`all FIXABLE`, `both are INVESTIGATE`). It collects at the most severe
- * counted label, else FIXABLE, never raised to CRITICAL; the findings it summarizes collect on their own lines.
+ * FOUN-298: "I found nothing that blocks. There are three Low findings, all FIXABLE, and none can change outcomes, draws or save replay."):
+ * a line that does not continue the one above, says nothing blocks, and whose every sentence is wholly made of verdict clauses: the
+ * no-blocker clause (`nothing that blocks`, `none of which would block`, `no blockers`, no hedge), a count (`three Low findings`), a tag
+ * (`all FIXABLE`, `both are INVESTIGATE`), joined by commas, `and` or `but`, and at most one trailing lower-case denial (`and none can
+ * change outcomes`) with no exception, hedge or blocking word. Any other sentence (a defect, an exception, a file:line, a field) keeps the
+ * line as it was. It collects at the most severe counted label, else FIXABLE, never raised to CRITICAL; its findings collect on their own lines.
  */
-const NONE_BLOCKS = /(?<![A-Za-z])(?:(?:none|nothing|neither|no\s+(?:finding|issue|defect|problem|one)s?)(?:\s+of\s+(?:them|these|those|which))?(?:\s+here)?(?:\s+(?:that|which))?(?:\s+(?:would|will|could|can|does|do|should))?(?:\s+(?:is|are|was|were|be))?(?:\s+an?)?\s+(?:blocks?|blocking|blockers?)|no\s+(?:blockers?|blocking\s+(?:defects?|findings?|issues?|problems?)))(?![A-Za-z])/i;
-const NONE_BLOCKS_ALL = new RegExp(NONE_BLOCKS.source, 'gi');
-const BUT_NONE_BLOCKS = new RegExp(`(?<![A-Za-z])but\\s+(?=${NONE_BLOCKS.source})`, 'gi');
-const BLOCK_WORD = /(?<![A-Za-z])block(?:s|ing|ed|ers?)?(?![A-Za-z])/i;
+const NONE_BLOCKS = /(?<![A-Za-z])(?:(?:none|nothing|neither|no\s+(?:finding|issue|defect|problem|one)s?)(?:\s+of\s+(?:them|these|those|which))?(?:\s+here)?(?:\s+(?:that|which))?(?:\s+(?:would|will|does|do))?(?:\s+(?:is|are|was|were|be))?(?:\s+an?)?\s+(?:blocks?|blocking|blockers?)|no\s+(?:blockers?|blocking\s+(?:defects?|findings?|issues?|problems?)))(?![A-Za-z])/i;
 const TAG = '[*`]*(?:FIXABLE|INVESTIGATE)[*`]*';
-const COUNTED = `(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|\\d+|[Aa]\\s+few|[Ss]everal|[Ss]ome|[Aa]n?)\\s+(?:${SEV_LIST}|${TAG})`;
-const SUMMARY_TAG = new RegExp(`(?<![A-Za-z])(?:${COUNTED}(?:\\s*(?:,|\\band\\b|\\bor\\b)\\s*${COUNTED})*\\s+${NOUN}`
-  + `|(?:(?:all|each|both)(?:\\s+of\\s+(?:them|these|those))?(?:\\s+(?:are|is))?|(?:are|were)(?:\\s+(?:all|both))?)\\s+${TAG})(?![A-Za-z0-9])`, 'g');
+const NUM = '(?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+|a\\s+few|several|some|an?)';
+const COUNT = `${NUM}(?:\\s+(?:${SEV_LIST}|${TAG}))?(?:\\s*(?:,|\\band\\b|\\bor\\b)\\s*${NUM}(?:\\s+(?:${SEV_LIST}|${TAG}))?)*(?:\\s+[a-z][a-z-]*)?\\s+${NOUN}`;
+const VERDICT_ITEM = `(?:(?:(?:I|we)\\s+(?:also\\s+)?(?:found|find|see|saw|have|had)\\s+|there(?:'s|\\s+is|\\s+are|\\s+was|\\s+were)\\s+)?(?:${NONE_BLOCKS.source}|${COUNT})`
+  + `(?:\\s+(?:here|found|to\\s+report|in\\s+(?:this|the)\\s+(?:diff|change|changes|range|PR|review|pass|patch)))*`
+  + `|(?:(?:all|each|both)(?:\\s+of\\s+(?:them|these|those))?(?:\\s+(?:are|is))?|(?:they\\s+)?(?:are|were)(?:\\s+(?:all|both))?)\\s+${TAG})`;
+const VERDICT_TRAIL = `(?:none|nothing|neither)(?:\\s+of\\s+(?:them|these|those))?\\s+`
+  + `(?![^.;:!?]*(?<![A-Za-z])(?:block\\w*|except\\w*|but|though|although|however|unless|besides|apart|aside|save\\s+for|other\\s+than|still|yet)(?![A-Za-z]))[a-z][a-z ,'’-]*`;
+const VERDICT_SEP = '(?:\\s*[,;:]\\s*(?:(?:and|but)\\s+)?|\\s+(?:and|but)\\s+)';
+const VERDICT_SENTENCE = new RegExp(`^(?:(?:so|overall|in\\s+short|in\\s+summary)[,:]?\\s+)?${VERDICT_ITEM}(?:${VERDICT_SEP}${VERDICT_ITEM})*(?:${VERDICT_SEP}${VERDICT_TRAIL})?\\s*[.!]*$`);
 const quietSummary = (t: string): string | undefined => {
-  if (t.length > 2000 || !ANY_LABEL.test(t) || !NONE_BLOCKS.test(t) || LOCUS.test(t) || PATH_LOCUS.test(t) || LIST_ITEM.test(t) || HEADING.test(t) || LEAD_LABEL.test(t)
-    || t.match(SEVERITY_FIELD) || t.match(STATED_BLOCKS) || BLOCK_WORD.test(t.replace(NONE_BLOCKS_ALL, ' ')) || EXCEPTION.test(t.replace(BUT_NONE_BLOCKS, ''))
-    || ANY_LABEL.test(t.replace(SUMMARY_TAG, ' '))) return undefined;
-  return [...t.matchAll(SUMMARY_TAG)].flatMap(m => [...m[0].matchAll(ALL_LABELS)].map(l => l[1]!)).reduce((a, b) => stronger(a, b), 'FIXABLE');
+  if (t.length > 2000 || !ANY_LABEL.test(t) || !NONE_BLOCKS.test(t)
+    || !t.split(SENTENCE).every(s => VERDICT_SENTENCE.test(s.trim().replace(/^[A-Z](?=[a-z])/, c => c.toLowerCase())))) return undefined;
+  return [...t.matchAll(ALL_LABELS)].map(m => m[1]!).reduce((a, b) => stronger(a, b), 'FIXABLE');
 };
 export function stated(raw: string): Stated | undefined {
   if (raw.startsWith('{')) return undefined;
@@ -206,7 +209,7 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * nothing; elsewhere it collects as above. A line led by a bold, unlabelled lead ("**1. Coverage:** …") is read for a closing summary after it.
  */
 function parseLabelled(reader: string, output: string, fixableRaises: boolean): Array<{ label: string; raw: string; shaped: boolean }> {
-  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; closed?: boolean; section?: boolean; context?: string };
+  type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; closed?: boolean; section?: boolean; quiet?: boolean; context?: string };
   const out: Finding[] = [];
   let section: string | null = null;
   let current: Finding | null = null;
@@ -222,7 +225,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
   const labelOf = (t: string, continued: boolean) => {
-    const quiet = role === 'adversarial-native' ? quietSummary(t) : undefined;
+    const quiet = role === 'adversarial-native' && !continued ? quietSummary(t) : undefined;
     if (quiet) return quiet;
     const led = /^(?:(?:[-*+]|\d+[.)])\s+)?\*\*([^*]+?)(?::\*\*|\*\*:)\s+(.+)$/.exec(t);
     const summary = continued ? undefined : closingSummary(led && !ANY_LABEL.test(led[1]!) ? led[2]! : t);
@@ -311,6 +314,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
       current = push(blocks ? 'CRITICAL' : found, t, [], strongestOf([leadOf(t), inherited, fieldOf(t)]));
       current.fixable = inherited?.toUpperCase() === 'FIXABLE';
       current.section = !!inherited;
+      current.quiet = role === 'adversarial-native' && !continued && !!quietSummary(t);
       if (continued) current.context = before;
       current.heading = !indented && NUMBERED_HEAD.test(t);
       current.item = role === 'adversarial-native' && !indented && /^\d+[.)]\s/.test(t) && field === undefined && !t.match(BLOCKS_FIELD);
@@ -324,7 +328,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
     }
     if (!fresh && !current && (!LIST_ITEM.test(head) || locus)) head = t;
   }
-  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw) || !!quietSummary(f.raw);
+  const unblocked = (f: Finding) => fixableRaises || role !== 'adversarial-native' || !(f.fixable || f.label.toUpperCase() === 'FIXABLE' || /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(f.raw)) || statesNoBlocks(f.raw) || !!f.quiet;
   const relaxed = fixableRaises && role === 'adversarial-native' ? parseLabelled(reader, output, false) : undefined;
   const statesSeverity = (raw: string) => { const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && !!rank(ls[0]); };
   const shaped = (f: Finding) => f.section || f.heading || [...f.raw.split(' | '), f.context ?? ''].some(t => t.startsWith('{') || LEAD_LABEL.test(t) || META.test(t) || !!t.match(STATED_SEVERITY) || BLOCKS_YES.test(t)
