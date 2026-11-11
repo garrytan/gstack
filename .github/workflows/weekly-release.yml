@@ -77,6 +77,8 @@ jobs:
       contents: write
       # Reads the candidate's check runs.
       checks: read
+      # Finds this workflow's own runs on the candidate, whose check runs the gate sets aside.
+      actions: read
       # A security or regression cut reads the label on the #<n> its reason names.
       issues: read
       pull-requests: read
@@ -143,6 +145,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
