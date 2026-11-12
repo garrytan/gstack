@@ -261,7 +261,11 @@ Other scopes apply decisions 2–4 in order.
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
    --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
    row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
-   CRITICAL goes to decision 2; otherwise decision 4.
+   CRITICAL goes to decision 2; otherwise decision 4. A fix-check the plan named the
+   owner's grant for (`NEXT: fix-check (the owner's grant <id> …`) whose
+   `range_base`..`commit_full` holds Step 11's native commit binds at Step 11.5 at its
+   own tree: its `start_wtree` and `end_wtree` equal its `wtree` (`verified`, `CURRENT`),
+   the native record stays at its earlier tree, and its tree is the reviewed tree.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it
    clears may you continue to Step 10. A pass whose only findings were deferred or
    noted applied no edits and continues here: the loop converges below the floor.

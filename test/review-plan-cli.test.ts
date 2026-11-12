@@ -154,7 +154,8 @@ describe('gstack-review-plan', () => {
     expect(plan(['--fixed-blocking', '--grant', g2]).stdout).toContain('NEXT: stop');
     const reused = plan(['--post-review', '--grant', g1]);
     expect([reused.status, reused.stdout]).toEqual([3, '']);
-    expect(reused.stderr).toContain(`--grant ${g1}: no approved row ${g1} naming review_loop_grant and this invocation's stop head (a commit after --range-base ${link1}, the last fix-check's commit`);
+    expect(reused.stderr).toContain(`--grant ${g1}: row ${g1} names ${link1.slice(0, 12)}, which is not the stop head: expected `);
+    expect(reused.stderr).toContain(`any commit after --range-base ${link1.slice(0, 12)}, the last fix-check's commit, whose own grant does not carry over`);
   }, 30_000);
   // Value: protects=a Captain's grant for a third fix round past a fix-check is planned, not hand-rendered: GEVA-363 (gstack-evals#254)
   //   ran pass 1 full, fc1 (round 2), fc2 under a grant at fc1's stop, then the owner granted a third round at fc2's stop head (its
@@ -190,7 +191,9 @@ describe('gstack-review-plan', () => {
     expect(plan(['--fixed-blocking', '--grant', g3]).stdout).toContain('NEXT: stop');
     const reused = plan(['--fixed-blocking', '--grant', g1]);
     expect([reused.status, reused.stdout]).toEqual([3, '']);
-    expect(reused.stderr).toContain(`--grant ${g1}: no approved row ${g1} naming review_loop_grant and this invocation's stop head (a commit at or after --range-base ${fc2}`);
+    expect(reused.stderr).toContain(`--grant ${g1}: row ${g1} names `);
+    expect(reused.stderr).toContain(`which is not the stop head: expected `);
+    expect(reused.stderr).toContain(`any commit at or after --range-base ${fc2.slice(0, 12)} and at or before HEAD`);
     const gbra336 = plan(['--post-review', '--grant', g3]);
     expect(gbra336.status, gbra336.stderr).toBe(0);
     expect(gbra336.stdout).toContain(`NEXT: fix-check (edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: the owner's grant ${g3} adds one scoped fix-check for the edits after the last fix-check`);

@@ -499,18 +499,18 @@ repeat Step 2 (decisions included) on the merged content, then Step 4.
    none after `ADVERSARIAL: skipped`). Match each to its saved
    handle, original token and source; reject outside-provider or older records.
 2. **Compare their content.** All three snapshots must match: the native record's
-   `wtree` (its `review_binding.state` `verified`), the Step 9 record's
+   `wtree` (`review_binding.state` `verified`), the Step 9 record's
    `review_binding.start_wtree` and `review_binding.end_wtree`; after a planned skip, the
-   last two with `review_freshness` `CURRENT`. A mismatch or a missing required
-   record/field blocks release preparation: report **Review records missing or mismatched**
-   and insert `9 → 10 → 11 → 11.5` before Step 12. Bind the new records at 11.5.
-   Never attach new tokens to old work.
+   last two with `review_freshness` `CURRENT`. A granted fix-check binds at its own tree
+   (3.5). A mismatch or missing record/field blocks release preparation: report
+   **Review records missing or mismatched** and insert `9 → 10 → 11 → 11.5` before
+   Step 12. Bind new records at 11.5. Never attach new tokens to old work.
 3. **Preserve any QA exception.** A named probe-risk exception may leave Step 9.4's
    root `wtree` absent; item 2 still compares its start/end snapshots. Matching content
    does not mean failed or unrun probes passed. Keep Step 9.4's incomplete flags
    and the user's exception.
-4. **Save the evidence.** Save both records and matching **reviewed tree** for
-   Step 16, with its merge base. Continue to Step 12.
+4. **Save the evidence.** Save both records and **reviewed tree** for Step 16,
+   with its merge base.
 
 ## Step 12: Version bump (auto-decide)
 

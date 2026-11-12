@@ -378,7 +378,7 @@ export interface History {
   gate?: boolean;
   /** Step 11's native adversarial pass already ran (planReview sets it from PlanInput.adversarialRan). */
   adversarialRan?: boolean;
-  /** The approval id of the owner's recorded grant of one scoped fix-check after round 2 (review_loop_exception). */
+  /** The approval id of the owner's recorded grant of one scoped fix-check (review_loop_exception): after round 2, or in place of round 2's pass (GST-2244). */
   granted?: string;
   /** R65's lean table (planReview sets it from the base policy's review.panel): one reviewer, then at most one fix-check. */
   lean?: boolean;
@@ -402,12 +402,16 @@ export interface NextStep { step: Step; reason: string }
  * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
  * and the owner's recorded grant (`granted`) turns the stop after a round-2 full pass with a fixed finding, or after a round-2
  * fix-check when `fixChecks` says it was the only one (GEVA-223), into its one fix-check; a fix-check never earns another, so
- * the grant cannot repeat. Edits after the review bound (`postReview`) that follow a fix-check are a new stop, and a new grant
+ * the grant cannot repeat. A grant after round 1 replaces round 2's full or scoped pass with that one fix-check (GST-2244,
+ * gbrain #8839: "one scoped fix-check ... no rerun of Steps 9 to 11.5"). Edits after the review bound (`postReview`) that follow a fix-check are a new stop, and a new grant
  * there adds one fix-check, the next link of the chain finish counts (GST-1676, docs/ship-policy.md#fix-check-chain). In the
  * loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) adds one more the same way (GST-1681).
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
   const n = h.lean ? leanStep(h, depth) : loopStep(h, depth);
+  if (!h.lean && h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP - 1 && (n.step === 'full' || n.step === 'scoped')) {
+    return { step: 'fix-check', reason: `the owner's grant ${h.granted} replaces round ${FULL_PASS_CAP}'s ${n.step} pass with one scoped fix-check on the fix range (review_loop_exception; ${n.reason})` };
+  }
   if (n.step !== 'stop') return n;
   if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
   const afterFixCheck = h.last === 'fix-check' && h.fullPasses === FULL_PASS_CAP - 1 && h.fixChecks === 1;

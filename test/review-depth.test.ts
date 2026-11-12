@@ -123,7 +123,8 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect(nextStep({ ...h, gate: true }).step).toBe('voices');
     expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
     for (const o of [{ granted: undefined }, { blockingOpen: true }, { postReview: false }, { postReview: undefined }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
-    expect(nextStep({ ...h, last: 'full', fullPasses: 1, fixedBelow: true }).step).toBe('full');
+    expect(nextStep({ ...h, last: 'full', fullPasses: 1, fixedBelow: true, granted: undefined }).step).toBe('full');
+    expect(nextStep({ ...h, last: 'full', fullPasses: 1, fixedBelow: true }).step).toBe('fix-check');
   });
   // Value: protects=in the loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) plans one more fix-check
   //   after any number of fix-checks (GEVA-363's third round), after Step 11 on gate class; without that binding a fix-check still
@@ -156,7 +157,7 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
  * not, Step 11 run or not, grant recorded or not.
  */
 describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; a recorded grant always gets its fix-check', () => {
-  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant always turns the stop after a round-2 full pass with a fixed finding into exactly one fix-check while changing nothing else, so it never repeats; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
+  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant always turns the stop after a round-2 full pass with a fixed finding, or round 2's full or scoped pass after round 1 (GST-2244), into exactly one fix-check while changing nothing else, so it never repeats; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
   //   why_new=GST-967 (three earlier fixes failed open and a reviewer caught each after the fact); seam=nextStep, planReview; no_claim=the parent following NEXT
   test('every state of the table holds the property', () => {
     let states = 0, voices = 0, grants = 0;
@@ -171,7 +172,8 @@ describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; 
           if (n.step === 'voices') expect([gate, adversarialRan, ungatedStop]).toEqual([true, false, true]);
         }
         if (plain.step === 'voices') voices++;
-        const owed = ungatedStop && !h.blockingOpen && last === 'full' && fullPasses === FULL_PASS_CAP && (!gate || adversarialRan);
+        const owed = (ungatedStop && !h.blockingOpen && last === 'full' && fullPasses === FULL_PASS_CAP && (!gate || adversarialRan))
+          || (!h.blockingOpen && last === 'full' && fullPasses === FULL_PASS_CAP - 1 && (plain.step === 'full' || plain.step === 'scoped'));
         if (owed) grants++;
         expect([granted.step === 'fix-check' && plain.step !== 'fix-check', granted.step === plain.step]).toEqual([owed, !owed]);
         if (owed) expect(granted.reason).toContain('a-1');
