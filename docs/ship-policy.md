@@ -1779,7 +1779,11 @@ Land works the dispositions out again at the pin from the PR branch's approval
 store: the local record and its mirror. A lander on another machine reads the
 mirror the owner recorded into, so set `GSTACK_APPROVALS_DIR` to that directory
 when it isn't the default. Land counts every disposition whose head the pin
-contains. It never trusts the receipt or the PR body for this, because the lane
+contains. In a full clone, a row whose head commit is gone (the branch was
+rewritten and garbage-collected, or the name reused) doesn't apply, because the
+pin's history is all there and can't contain it. A pin missing from the clone
+refuses, and so does a shallow clone that can't prove a row's ancestry: deepen it
+with `git fetch --unshallow` and rerun. It never trusts the receipt or the PR body for this, because the lane
 writes both. It prints each one as a `GATE_DISPOSITION:` line, then
 `GATE_DISPOSITIONS: applied=<ids> accepted=<ids> store=<file>`. It refuses with
 [`QUEUE_GATE_DISPOSITION`](troubleshooting.md#queue-gate-disposition), and merges

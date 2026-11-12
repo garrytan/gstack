@@ -5781,15 +5781,18 @@ from the store (`ready` refuses those too). Nothing was merged. The
 the receipt and the body aren't trusted for this, because the lane writes them.
 A receipt id the store lacks usually means this lander reads another
 `GSTACK_STATE_ROOT` or approvals mirror than the owner recorded into, or that the row
-was removed after the receipt was written. A git error while checking a head also
-refuses here.
+was removed after the receipt was written. A pin missing from the clone, a shallow
+clone that can't prove whether a row's head is in the pin's history, and any other
+git error while checking a head also refuse here. In a full clone, a row whose head
+commit is gone after a rewrite and gc just doesn't apply.
 
 **Fix.** Read each `GATE_DISPOSITION:` line: the fingerprint, gate id, head, who
 recorded it, the reason and the owner's words. If the owner did approve that gate
 change, rerun with `--accept-gate-disposition <approval id>` for each one. If not,
 don't accept it; the lane restores the gate. When the store can't be read, or holds
 none while the receipt lists some, point `GSTACK_APPROVALS_DIR` at the directory the
-owner recorded into. When the receipt or the body is what differs, the lane reruns
+owner recorded into. In a shallow clone, run `git fetch --unshallow` and rerun.
+When the receipt or the body is what differs, the lane reruns
 /ship and `ready` at the pin. See
 [gate dispositions](ship-policy.md#gate-disposition-acceptance).
 

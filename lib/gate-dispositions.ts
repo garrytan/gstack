@@ -72,13 +72,24 @@ export function readGateDispositions(cwd: string, env: Env = process.env): GateD
   return 'code' in loc ? [] : gateDispositions(readRecord(loc).rows, loc.branch);
 }
 
-/** The dispositions `branch`'s store applies at `pin`: every counted row whose head the pin contains. Throws when the store is unreadable. */
+/**
+ * The dispositions `branch`'s store applies at `pin`: every counted row whose head the pin contains. Throws when the store is
+ * unreadable, when the pin is not in this clone, or when a shallow clone cannot prove a row's head is or is not an ancestor. In a
+ * full clone a row whose head commit is gone (a rewritten and collected branch, a reused name) is not applied: the pin's history
+ * is all present, so a missing commit cannot be in it.
+ */
 export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: string; env?: Env }): { applied: GateDisposition[]; loc: StoreLocation } {
   const loc = locate({ cwd, env: o.env ?? process.env, branch: o.branch });
   if ('code' in loc) throw new Error(loc.message);
+  const git = (...args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
+  if (git('cat-file', '-e', `${o.pin}^{commit}`).status !== 0) throw new Error(`the pin ${o.pin.slice(0, 12)} is not a commit in this clone; fetch it and rerun`);
+  let shallow: boolean | undefined;
   const contains = (head: string) => {
-    const r = spawnSync('git', ['merge-base', '--is-ancestor', head, o.pin], { cwd, encoding: 'utf8', timeout: 10_000 });
-    if (r.status === 0 || r.status === 1) return r.status === 0;
+    const r = git('merge-base', '--is-ancestor', head, o.pin);
+    if (r.status === 0) return true;
+    shallow ??= git('rev-parse', '--is-shallow-repository').stdout?.trim() !== 'false';
+    if (shallow) throw new Error(`this clone is shallow, so whether disposition head ${head.slice(0, 12)} is in the pin's history cannot be proved; deepen the clone (git fetch --unshallow) and rerun`);
+    if (r.status === 1 || git('cat-file', '-e', `${head}^{commit}`).status !== 0) return false;
     throw new Error(`git merge-base --is-ancestor ${head.slice(0, 12)} ${o.pin.slice(0, 12)} failed (${(r.stderr ?? r.error?.message ?? '').trim().slice(0, 120) || `exit ${r.status}`})`);
   };
   return { applied: gateDispositions(readRecord(loc).rows, loc.branch).filter(d => contains(d.head)), loc };

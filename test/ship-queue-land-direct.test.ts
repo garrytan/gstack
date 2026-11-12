@@ -1385,6 +1385,44 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     const head = openPr(fx, '46');
     expect(record(fx, '46', head).status).toBe(0);
     const r = gateAcceptance({ cwd: fx.repo.work, branch: 'pr-46', pin: 'f'.repeat(40), body: '', receipt: { gate_dispositions: [] } as any, env: storeEnv(fx) });
+    expect(r.failure?.message).toContain(`the pin ${'f'.repeat(12)} is not a commit in this clone`);
     expect(r.failure).toMatchObject({ code: 'QUEUE_GATE_DISPOSITION', message: expect.stringContaining('cannot be derived') });
   }, 60_000);
+
+  // Value: protects=a row whose head a rewrite and gc removed never strands land, verify or ready (the 0a9a0c4 review's blocker),
+  //   while a shallow clone, which cannot prove ancestry, refuses; fails_when=git's exit 128 on the missing head refuses for good,
+  //   or a shallow clone reads an unprovable row as not applied; seam=appliedGateDispositions via ready, verify and land
+  test('a row whose head a rewrite and gc removed is not applied: ready, verify and land proceed; a shallow clone refuses and says to deepen it', () => {
+    const fx = prep();
+    const old = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', old).status).toBe(0);
+    fx.repo.git('checkout', '-q', 'pr-47');
+    fx.repo.git('commit', '-q', '--amend', '-m', 'pr 47 rewritten');
+    fx.repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-47');
+    const head = fx.repo.git('rev-parse', 'HEAD');
+    for (const dir of [['-C', fx.repo.work], ['--git-dir', fx.repo.origin]]) {
+      fx.repo.git(...dir, 'reflog', 'expire', '--expire=now', '--all');
+      fx.repo.git(...dir, 'gc', '-q', '--prune=now');
+    }
+    expect([spawnCheck(fx.repo.work, old), spawnCheck(fx.repo.origin, old), spawnCheck(fx.repo.work, head)]).toEqual([false, false, true]);
+    expect(applied(fx, '47', head)).toEqual([]);
+    setBody(fx, '47', shippedBody('47', head, { gate_dispositions: [] }));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '47', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    expect(gateLines(ready.out)).toEqual([]);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const ok = verify(fx, '47', head);
+    expect(ok.status, ok.out + ok.err).toBe(EXIT.ok);
+    const landed = land(fx, '47', head);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #47 as ');
+    const shallow = path.join(fx.repo.root, 'shallow');
+    fx.repo.git('clone', '-q', '--depth', '1', '--branch', 'pr-47', 'file://' + fx.repo.origin, shallow);
+    fx.repo.git('-C', shallow, 'config', 'remote.origin.url', fx.repo.git('config', 'remote.origin.url'));
+    const r = gateAcceptance({ cwd: shallow, branch: 'pr-47', pin: head, body: '', receipt: { gate_dispositions: [] } as any, env: storeEnv(fx) });
+    expect([r.failure?.code, r.failure?.message]).toEqual(['QUEUE_GATE_DISPOSITION', expect.stringContaining('this clone is shallow')]);
+    expect(r.failure?.message).toContain('deepen the clone (git fetch --unshallow)');
+  }, 180_000);
 });
