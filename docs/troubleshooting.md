@@ -7146,7 +7146,10 @@ exception.
 last nonempty line and it does not meet /ship Step 14.5's result contract: a key
 is missing, unknown or appears twice once whitespace around keys is trimmed, a
 field has the wrong type, the audit id, schema version or status invariant is
-wrong, or `documentation_section` is empty, a placeholder (such as `"x"`) or
+wrong, a `files_updated` or `files_reviewed` entry is a duplicate, an absolute
+path or a glob (a path holding `*`, `?`, `[` or `]` counts as a file only when that
+exact file exists from the repository root, so a route such as
+`app/api/items/[id]/route.ts` passes), or `documentation_section` is empty, a placeholder (such as `"x"`) or
 carries a `## Documentation` heading. Whitespace around a key is trimmed first and reported as
 `KEYS_TRIMMED:`, so `" documentation_section"` counts as `documentation_section`.
 The line names each problem. Nothing was saved: the audit's result cannot be
