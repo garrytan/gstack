@@ -1797,6 +1797,17 @@ refuses the same receipt and body mismatches, but asks for no acceptance.
 `gstack-ship-receipt write` refuses to write a receipt while a disposition applies
 at HEAD unless `--body` carries each `Gate disposition:` line.
 
+The receipt always records `gate_dispositions`, as an empty list when none
+applies, and write refuses, writing nothing, when the store or git can't be read.
+Land, verify and ready refuse when the receipt's set and the store's set at the pin
+differ either way. A receipt id the store lacks usually means the lander reads
+another `GSTACK_STATE_ROOT` or approvals mirror than the owner recorded into, or
+that the row was removed. A git error while checking a head refuses too. A receipt
+with no `gate_dispositions` field was written before receipts recorded it, and it
+lands only when the store applies nothing. The receipt is written by the lane, like
+every other gate signal it carries. The lander's acceptance guards against a
+mistaken or missing store, not against a lane that falsifies its own receipt.
+
 <a id="test-lane-exceptions"></a>
 **Test-lane exceptions (GST-1595).** A lane `accept` carries from CI refuses with
 `inventory_uncovered` when an inventory file is in no run's `tree.json`; when bun

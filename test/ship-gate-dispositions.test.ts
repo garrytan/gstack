@@ -253,4 +253,19 @@ describe('a disposition the lane makes for itself is refused or ignored (GST-249
     const w = f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '906', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended'], { GSTACK_APPROVALS_MIRROR: '0' });
     expect([w.status, w.stderr]).toEqual([EXIT.fail, expect.stringContaining('so write needs --body <the PR body>')]);
   });
+
+  test('write records an explicit empty gate_dispositions, and a git error while checking a row writes nothing', () => {
+    const { f } = firstPass();
+    const body = path.join(f.root, 'body.md');
+    fs.writeFileSync(body, '## Pre-Landing Review\n\nNo issues found.\n');
+    const write = () => f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '906', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { GSTACK_APPROVALS_MIRROR: '0' });
+    const ok = write();
+    expect(ok.status, ok.stderr).toBe(EXIT.ok);
+    expect(extractReceipt(ok.stdout).receipt?.gate_dispositions).toEqual([]);
+    const row = buildRow({ ...gateDispositionRow(GATE, GATE_ID, 'f'.repeat(40), REASON), words: WORDS, by: BY, source: GATE_SOURCE }, 'feat') as ApprovalRow;
+    fs.mkdirSync(path.dirname(store(f).file), { recursive: true });
+    fs.appendFileSync(store(f).file, JSON.stringify({ ...row, digest: gateDispositionDigest(row as unknown as Record<string, unknown>) }) + '\n');
+    const bad = write();
+    expect([bad.status, bad.stderr]).toEqual([EXIT.fail, expect.stringContaining('cannot be derived')]);
+  });
 });

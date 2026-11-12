@@ -48,7 +48,7 @@ describe('gstack-ship-receipt write', () => {
     const parsed = extractReceipt(ok.out);
     expect(parsed.found).toBe(true);
     expect(parsed.errors).toEqual([]);
-    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history', 'head_tree', 'product_patch_id', 'gstack_version', 'review_depth']);
+    expect(Object.keys(parsed.receipt!)).toEqual(['schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'spend_usd', 'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history', 'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'gate_dispositions']);
     expect(parsed.receipt).toMatchObject({ schema_version: 1, pr: 42, head, version: '1.2.4.0', base: 'main', tree: 'same-modulo-stamps', spend_usd: 0.42, ci: { checks: { pass: 3 } } });
     expect(parsed.receipt!.head_tree).toBe(repo.git('rev-parse', 'HEAD^{tree}'));
     expect(parsed.receipt!.product_patch_id).toMatch(/^([0-9a-f]{40}|none)$/);
@@ -714,7 +714,7 @@ describe('review_loop receipt input (harness lane E: the factory scorecard count
     expect(extractReceipt(withLoop.out).receipt).toMatchObject({ pr: 42, review_loop: { passes: 2, blocking_found: 1, deferred: 1, noted: 3, fixed: 1, scope: 'frozen' } });
     const written = extractReceipt(fs.readFileSync(loopBody, 'utf8'));
     expect(written.errors).toEqual([]);
-    expect(Object.keys(written.receipt!).slice(-1)).toEqual(['review_loop']);
+    expect(Object.keys(written.receipt!).slice(-2)).toEqual(['review_loop', 'gate_dispositions']);
   });
 
   test('parseReviewLoop keeps integer counters and drops the rest; write --review-loop refuses a malformed record and writes nothing', () => {

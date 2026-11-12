@@ -28,7 +28,7 @@ import { gitIn } from '../crew/scripts/train-gate';
 import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
 import { CHECK_IDS } from '../lib/pregate/index';
-import { appliedGateDispositions, GATE_SOURCE, gateDispositionDigest, gateDispositionRow, gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
+import { appliedGateDispositions, gateAcceptance, GATE_SOURCE, gateDispositionDigest, gateDispositionRow, gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
 import { buildRow, locate, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
@@ -1330,7 +1330,8 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     const ds = applied(fx, '43', head);
     const invented = { ...ds[0]!, approval: 'a-111111111111' };
     for (const [body, problem] of [
-      [bodyWith('43', head, [], ds), `the receipt omits applied disposition ${id}`],
+      [bodyWith('43', head, [], ds), 'the receipt has no gate_dispositions field'],
+      [shippedBody('43', head, { gate_dispositions: [] }) + `\nGate disposition: ${gateDispositionText(ds[0]!)}\n`, `the receipt omits applied disposition ${id}`],
       [bodyWith('43', head, ds, []), 'the PR body lacks the line "Gate disposition: '],
       [bodyWith('43', head, [...ds, invented]), 'the receipt lists disposition a-111111111111, which the store'],
     ] as const) {
@@ -1343,4 +1344,47 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     setBody(fx, '43', bodyWith('43', head, ds));
     expect(verify(fx, '43', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.ok);
   }, 120_000);
+
+  // Value: protects=a merger that reads another state root, or a store that lost the row after the receipt was written, never lands a
+  //   PR whose review an owner disposition cleared with zero accepted ids (the ab73c3f audit's B1); fails_when=a receipt id the store
+  //   lacks, or a field-less receipt beside a row, reads as nothing to accept; seam=gateAcceptance via land and verify
+  test('another state root at merge, a row removed after the receipt, or a field-less receipt beside a row refuses; an explicit [] with an empty store lands', () => {
+    const fx = prep();
+    const head = openPr(fx, '44');
+    const rec = record(fx, '44', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '44', head);
+    setBody(fx, '44', bodyWith('44', head, ds));
+    const other = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'merger-state'), GSTACK_HOME: path.join(fx.repo.root, 'merger-state') };
+    const elsewhere = runBin(fx.repo, 'gstack-ship-queue', ['verify', '--pr', '44', '--pin', head, '--base', 'main', '--accept-gate-disposition', id], other);
+    expect([elsewhere.status, elsewhere.err]).toEqual([EXIT.refused, expect.stringContaining('may read another GSTACK_STATE_ROOT or approvals mirror')]);
+    const landElsewhere = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', '--dry-run', '--accept-gate-disposition', id], other);
+    expect([landElsewhere.status, why(landElsewhere.err)]).toEqual([EXIT.refused, why(elsewhere.err)]);
+    const store = (locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-44' }) as StoreLocation).file;
+    const kept = fs.readFileSync(store, 'utf8');
+    fs.rmSync(store);
+    const removed = land(fx, '44', head, ['--dry-run', '--accept-gate-disposition', id]);
+    expect([removed.status, removed.err]).toEqual([EXIT.refused, expect.stringContaining(`the receipt lists disposition ${id}, which the store at`)]);
+    expect(verify(fx, '44', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.refused);
+    fs.writeFileSync(store, kept);
+    setBody(fx, '44', shippedBody('44', head) + `\nGate disposition: ${gateDispositionText(ds[0]!)}\n`);
+    const fieldless = land(fx, '44', head, ['--dry-run', '--accept-gate-disposition', id]);
+    expect([fieldless.status, fieldless.err]).toEqual([EXIT.refused, expect.stringContaining('the receipt has no gate_dispositions field')]);
+    expect(verify(fx, '44', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.refused);
+    const pin = openPr(fx, '45');
+    setBody(fx, '45', shippedBody('45', pin, { gate_dispositions: [] }));
+    expect(verify(fx, '45', pin).status).toBe(EXIT.ok);
+    const landed = land(fx, '45', pin);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(gateLines(landed.out)).toEqual([]);
+  }, 180_000);
+
+  test('a git error while deriving the dispositions refuses instead of reading as not applied (N1)', () => {
+    const fx = prep();
+    const head = openPr(fx, '46');
+    expect(record(fx, '46', head).status).toBe(0);
+    const r = gateAcceptance({ cwd: fx.repo.work, branch: 'pr-46', pin: 'f'.repeat(40), body: '', receipt: { gate_dispositions: [] } as any, env: storeEnv(fx) });
+    expect(r.failure).toMatchObject({ code: 'QUEUE_GATE_DISPOSITION', message: expect.stringContaining('cannot be derived') });
+  }, 60_000);
 });

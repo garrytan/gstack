@@ -5779,6 +5779,10 @@ receipt's `gate_dispositions`, or the PR body's `Gate disposition:` lines, diffe
 from the store (`ready` refuses those too). Nothing was merged. The
 `GATE_DISPOSITION:` lines above the refusal are what the store holds at the pin;
 the receipt and the body aren't trusted for this, because the lane writes them.
+A receipt id the store lacks usually means this lander reads another
+`GSTACK_STATE_ROOT` or approvals mirror than the owner recorded into, or that the row
+was removed after the receipt was written. A git error while checking a head also
+refuses here.
 
 **Fix.** Read each `GATE_DISPOSITION:` line: the fingerprint, gate id, head, who
 recorded it, the reason and the owner's words. If the owner did approve that gate
