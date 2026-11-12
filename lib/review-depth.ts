@@ -597,12 +597,13 @@ export function planReview(i: PlanInput): ReviewPlan {
       add('specialist', 'batched', ROLE_EFFORT['red-team'], docsAndOutputs, { checklists: [...batchChecklists('code', i, skipped), 'red-team'] });
       skipped.push('red-team (light depth: the batched specialist carries the Red Team prompt)');
       if (firstVoices) add('adversarial-native', 'adversarial', 'full', [], { reason: LIGHT_ADVERSARIAL_REASON });
-    } else if (cls === 'docs') {
-      for (const n of SPECIALISTS.filter(forced)) add('specialist', n, specialist);
-      skipped.push('specialists, red-team and adversarial-native (light depth, runtime 0)');
     } else {
-      add('specialist', 'batched', specialist, cls === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(cls, i, skipped) });
-      skipped.push(`red-team and adversarial-native (light depth, runtime 0: one batched reader reads the ${cls} diff, R51)`);
+      for (const n of SPECIALISTS.filter(forced)) add('specialist', n, specialist);
+      if (cls === 'docs' || dispatches.length) skipped.push('specialists, red-team and adversarial-native (light depth, runtime 0)');
+      else {
+        add('specialist', 'batched', specialist, cls === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(cls, i, skipped) });
+        skipped.push(`red-team and adversarial-native (light depth, runtime 0: one batched reader reads the ${cls} diff, R51)`);
+      }
     }
     if (h.fullPasses === 0 && i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
     else if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
@@ -658,7 +659,8 @@ export function planReview(i: PlanInput): ReviewPlan {
  * review.reader_model (the lane's model by default: FOUN-32, ggstack#52). A risk-class diff under review.panel off gets the merged
  * reader: the gate-class checklists, the Red Team checklist and the targeted brief for its classes; a non-risk code diff gets the
  * code-class checklists and the Red Team. Docs keep the core read; a tests diff, or code with no runtime lines, gets one batched
- * reader on its class's checklists (R51: tests get one reviewer, so no non-docs pass 1 plans zero readers). A docs or tests diff with no numeric, results or prereg
+ * reader on its class's checklists unless a forced specialist already reads it (R51: tests get one reviewer, so no non-docs pass 1
+ * plans zero readers). A docs or tests diff with no numeric, results or prereg
  * claims, under review.platform on, with the platform review at HEAD, runs no reader at all (mode platform).
  */
 /** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
@@ -695,8 +697,8 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     skipped.push(`specialists, red-team and outside-voice as their own readers (R65: the one ${risky ? 'risk-class' : 'light'} reader carries them)`);
   } else if (next.step === 'full') {
     const effort: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;
-    if (depth.class === 'docs') for (const n of SPECIALISTS.filter(forcedBy(i))) add('specialist', n, effort);
-    else add('specialist', 'batched', effort, depth.class === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(depth.class, i, skipped) });
+    for (const n of SPECIALISTS.filter(forcedBy(i))) add('specialist', n, effort);
+    if (depth.class !== 'docs' && !dispatches.length) add('specialist', 'batched', effort, depth.class === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(depth.class, i, skipped) });
     if (i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
     else skipped.push(`outside-voice (${depth.class} class, no numeric claims)`);
   } else if (next.step === 'voices') reader();

@@ -341,6 +341,10 @@ describe('GST-2547: a tests-only diff gets one reader (R51)', () => {
       expect(planReview(base({ paths: ['README.md'], scope: {}, gateTagged: null, shape })).dispatches).toEqual([]);
     }
   });
+  test('a forced specialist on a tests diff stays its own reader and is the one reader, as on main', () => {
+    const p = planReview(base({ ...tests, force: ['performance'] }));
+    expect([roles(p), p.skipped[0]]).toEqual([['specialist:performance:medium'], 'specialists, red-team and adversarial-native (light depth, runtime 0)']);
+  });
   test('code with no runtime lines (registered outputs only) gets one batched reader on the code checklists over the whole diff', () => {
     const p = planReview(base({ paths: ['src/gen.ts'], perPath: [{ path: 'src/gen.ts', lines: 30, binary: false }], registry: { sha: 'a', outputs: ['src/gen.ts'] } }));
     expect([p.class, p.runtimeLines, p.dispatches]).toEqual(['code', 0, [{ role: 'specialist', name: 'batched', effort: 'medium', exclude: [], checklists: ['testing', 'security'] }]]);
