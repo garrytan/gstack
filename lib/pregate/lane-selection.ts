@@ -23,7 +23,7 @@ import type { Lane } from './workflows';
 /** Whole-tree tests every selection that runs a test must include (GST-98). Kept out of pregate.json so older readers, which reject unknown keys, keep working. */
 export const ALWAYS_RUN_PATH = '.gstack/always-run.json';
 
-/** A glob naming a folder inside a test directory (`tests/live/**`, never `test/**`): its `[]` declaration keeps the tests under it out of the local lane. */
+/** A glob naming a folder inside a test directory (`tests/live/**`, never `test/**` or a single file): its `[]` declaration keeps the tests under it out of the local lane. */
 const TEST_SUBTREE = /(?:^|\/)(?:test|tests|spec|__tests__)\/[^*?[{/]+\//;
 
 /** The `tests` globs of one `.gstack/always-run.json` text; `label` names the copy in errors. */
@@ -313,7 +313,7 @@ export function selectLanes(ctx: PregateContext): Selection {
   }
   if (anyLocalAll || ctx.lanes.filter(l => l.runsTests && !l.manual && l.tier !== 'platform').length === 0) for (const t of selected) local.add(t);
   for (const t of selected) if (!local.has(t) && !remote.some(r => r.tests.includes(t))) local.add(t);
-  const declaredTier = Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_SUBTREE.test(glob)).map(([glob]) => ({ glob, tests: [] as string[] }));
+  const declaredTier = Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_SUBTREE.test(glob) && /\/\*\*?$/.test(glob)).map(([glob]) => ({ glob, tests: [] as string[] }));
   for (const t of [...local].sort()) {
     const tier = declaredTier.find(d => matchesAny([d.glob], t));
     if (!tier) continue;

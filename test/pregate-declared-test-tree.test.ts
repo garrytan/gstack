@@ -53,7 +53,7 @@ describe('declared test trees', () => {
   });
 
   test('with no declaration, a glob that does not match, or a [] on the whole test directory, the tier test is still selected and run', () => {
-    for (const declared of [{}, { 'tests/container/**': [] }, { 'tests/**': [] }] as Array<Record<string, string[]>>) {
+    for (const declared of [{}, { 'tests/container/**': [] }, { 'tests/**': [] }, { 'tests/live/x.test.js': [] }] as Array<Record<string, string[]>>) {
       const repo = fixture(declared);
       commit(repo, { 'tests/live/x.test.js': TIER_TEST + '\n' });
       const r = lanes(repo);
