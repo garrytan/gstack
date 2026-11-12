@@ -239,7 +239,8 @@ Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 |---|---|---|
 | Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
 | Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
-| Docs and tests | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Docs | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
 | Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
 
 `review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
@@ -315,7 +316,7 @@ in a data file still schedules the outside voice.
 
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | one reader: the core checklist; the outside voice instead reads a diff that publishes numbers |
+| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | docs: the core checklist only (R81). Tests: one **batched** reader on the Testing checklist, which leaves docs and registered outputs out of its diff (R51: tests get one reviewer). Only registered outputs: one batched reader on the code checklists over the whole diff. The outside voice also reads a diff that publishes numbers |
 | **light**, runtime above 0 | code with no risk class, at any size (R51: size never raises the depth) | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
 | **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
 | **full** | gate class, a [risk class](#risk-classes), or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
@@ -446,8 +447,10 @@ the specialists, audits and watchers at the host default too
   most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
   Team on the range, plus the native adversarial pass (on the range once Step 11 has
   run, otherwise on the whole branch), instead of the specialist army.
-- A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
-  core checklist and the gate scan review it.
+- A tests-only diff (runtime 0) dispatches one batched reader on the Testing
+  checklist, beside the core checklist and the gate scan (GST-2547). Before, it
+  dispatched nothing, so the only review was the author's own core read; R51 gives
+  tests one reviewer. Only a docs diff plans no reader on pass 1.
 - Every depth dispatches one batched specialist instead of one reader per
   checklist; Maintainability, Performance and Simplification run only when forced.
 - Light no longer runs a separate Red Team: the batched specialist carries its
