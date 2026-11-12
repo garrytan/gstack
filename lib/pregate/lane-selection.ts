@@ -15,7 +15,7 @@ import { PREGATE_CONFIG_PATH } from './config';
 import { isDocsEmptyLane, isInertNoTests, isProtectedTree } from './docs-lane';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { buildGraph, isTestFile, listRepoFiles, testsFor, type Graph } from './import-graph';
+import { buildGraph, isTestFile, listRepoFiles, TEST_TREE, testsFor, type Graph } from './import-graph';
 import { stampFileKind, versionStampOnly } from './stamp-only';
 import type { PregateContext, RemoteObligation } from './types';
 import type { Lane } from './workflows';
@@ -68,6 +68,8 @@ export interface Selection {
   inert: string[];
   /** Release manifests whose diff against the merge base changes only version values (lib/pregate/stamp-only.ts): waived, no lane needed. */
   stampOnly: string[];
+  /** Selected tests a `[]` declaration on a test-tree glob (one naming a test/, tests/, spec/ or __tests__/ directory) kept out, per glob: the repo runs them in their own tier. */
+  declaredTier: Array<{ glob: string; tests: string[] }>;
   /** Every test the touched files select, sorted. */
   tests: string[];
   /** Tests that run on this machine. */
@@ -283,6 +285,15 @@ export function selectLanes(ctx: PregateContext): Selection {
     }
     noLane.push(file);
   }
+  const tierGlobs = Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_TREE.test(glob)).map(([glob]) => glob);
+  const declaredTier = tierGlobs.map(glob => ({ glob, tests: [] as string[] }));
+  for (const t of [...tests].sort()) {
+    const tier = declaredTier.find(d => matchesAny([d.glob], t));
+    if (!tier) continue;
+    tier.tests.push(t);
+    tests.delete(t);
+    provenance.push(`${t}: not run here; ${tier.glob} is declared [] in ${PREGATE_CONFIG_PATH} (its own tier)`);
+  }
   if (tests.size || noLane.length || seeds.has(ALWAYS_RUN_PATH)) {
     const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)), readAtMergeBase(ctx, ALWAYS_RUN_PATH, ['100644', '100755']));
     for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${always.baseOnly.includes(t) ? 'merge base ' : ''}${ALWAYS_RUN_PATH})`); }
@@ -309,7 +320,7 @@ export function selectLanes(ctx: PregateContext): Selection {
   if (anyLocalAll || ctx.lanes.filter(l => l.runsTests && !l.manual && l.tier !== 'platform').length === 0) for (const t of selected) local.add(t);
   for (const t of selected) if (!local.has(t) && !remote.some(r => r.tests.includes(t))) local.add(t);
   if (local.size && tiers.size === 0) tiers.add('unit');
-  return { noLane: noLane.sort(), removed: removed.sort((a, b) => a.file.localeCompare(b.file)), emptyLane: emptyLane.sort(), inert: inert.sort(), stampOnly: stampOnly.sort(), tests: selected, localTests: [...local].sort(), remote, tiersRan: [...tiers].sort(), laneSets, provenance };
+  return { noLane: noLane.sort(), removed: removed.sort((a, b) => a.file.localeCompare(b.file)), emptyLane: emptyLane.sort(), inert: inert.sort(), stampOnly: stampOnly.sort(), declaredTier: declaredTier.filter(d => d.tests.length), tests: selected, localTests: [...local].sort(), remote, tiersRan: [...tiers].sort(), laneSets, provenance };
 }
 
 export function isTest(file: string): boolean { return isTestFile(file); }

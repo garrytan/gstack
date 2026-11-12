@@ -448,7 +448,7 @@ export function referencesIn(files: Set<string>, dirs: Set<string>, rel: string,
   return out;
 }
 
-const TEST_TREE = /(?:^|\/)(?:test|tests|spec|__tests__)\//;
+export const TEST_TREE = /(?:^|\/)(?:test|tests|spec|__tests__)\//;
 
 /** Test-tree files (tests, helpers, fixtures), bin/ entrypoints and shell sources carry literal dependencies. */
 export function scansLiterals(rel: string): boolean {

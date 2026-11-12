@@ -441,6 +441,7 @@ function describe(ctx: PregateContext, sel: Selection, mode: NoLaneMode): string
   for (const r of sel.removed) lines.push(`removed (no lane owed): ${r.file} — ${r.note}`);
   if (sel.emptyLane.length) lines.push(`docs/no-tests (empty lane): ${sel.emptyLane.join(' ')}`);
   if (sel.inert.length) lines.push(`no-tests (assets and tool config): ${sel.inert.join(' ')}`);
+  for (const d of sel.declaredTier) lines.push(`declared test tree ${d.glob}: ${d.tests.length} test file(s) not run in the local lane (declared [] in ${ctx.configLabel}; the repo runs them in their own tier)`);
   if (sel.stampOnly.length) lines.push(`version-stamp-only (no lane needed): ${sel.stampOnly.join(' ')} — only version values changed against the merge base; a manifest whose other content changed still needs a lane`);
   for (const r of sel.remote) lines.push(`requires-remote ${r.lane} (${r.platform}): ${r.tests.length} test(s) — ${r.tests.slice(0, 8).join(' ')}${r.tests.length > 8 ? ' …' : ''}`);
   lines.push(`Tiers ran: ${sel.tiersRan.join(' ') || '(none)'}; requires-remote: ${[...new Set(sel.remote.map(r => r.platform))].join(' ') || 'none'}`);
@@ -540,7 +541,8 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     const label = sel.emptyLane.length ? 'docs/no-tests' : sel.inert.length ? 'no-tests' : 'version-stamp-only';
     const detail = classes.length ? `${label}: ${classes.join(' and ')}; nothing touched selects a test`
       : ctx.touched.length ? 'nothing touched selects a test' : 'no touched files';
-    return { ...base, detail };
+    const tier = sel.declaredTier.reduce((n, d) => n + d.tests.length, 0);
+    return { ...base, detail: tier ? `${detail}; ${tier} test file(s) in declared test trees not run here` : detail };
   }
   if (ctx.remote && sel.localTests.length) return runRemote(ctx, sel, base);
   const smallMachine = ctx.cores < SMALL_MACHINE_CORES && sel.localTests.length > 0 && (ctx.config.remote_gate || ctx.testBackend !== 'local');
