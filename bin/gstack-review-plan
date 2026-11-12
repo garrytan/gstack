@@ -61,7 +61,7 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
   --force a,b|all           specialists forced by prompt flags (--all-specialists is all): at standard and full depth they join the
                             batched specialist's checklists, where maintainability, performance and simplification are read only when
-                            forced; light runtime-0 and scoped passes dispatch them one reader each; targeted is no specialist and
+                            forced; light runtime-0 docs and scoped passes dispatch them one reader each; targeted is no specialist and
                             refuses (exit 2): the plan dispatches it itself
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
@@ -104,7 +104,7 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
 Mode (R65, the base policy's review key): review.panel all (default) keeps today's panel on every class. review.panel risk
 (opt-in; its one-reader shape has not passed a no-loss replay) runs lean off risk class, and review.panel off everywhere: lean runs one reader: risk class gets the merged reader on review.risk_model
 (the native adversarial brief plus the checklists, the Red Team and the targeted brief), non-risk code the single reader at the
-lane's reasoning (cross-family when it publishes numbers), docs and tests the core read; one fix-check after fixes, never more
+lane's reasoning (cross-family when it publishes numbers), docs the core read, tests one batched testing reader (R51); one fix-check after fixes, never more
 than 2 rounds. review.platform on (any panel): a light diff with no numeric claims whose PR
 carries capy-ai[bot]'s review at HEAD plans NEXT: platform and a planned SKIP for every reader.
 Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data, review.risk_paths) or any DEPTH_ERROR;
