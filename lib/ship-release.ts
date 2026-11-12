@@ -26,6 +26,7 @@ import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
 import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
+import { dispositionedOn, gateDispositionText, gateKey, readGateDispositions } from './gate-dispositions';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { resolveStateRoot } from './state-root';
@@ -210,7 +211,9 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * row, chained through earlier rows back to the reviewed tree, each under its own approved review_loop_grant): the owner's
  * granted fix-check after Step 11 is a review (GST-1130, GST-1627). A finding on a link the owner ruled a disclosed note (an
  * approved gstack-approvals rule row whose stop head lies inside that link's range_base..commit, never the row's own claim) is closed, and every ruling
- * prints as RULED_NOTE (GST-1537). Authored docs keep the stage 2.2 recheck.
+ * prints as RULED_NOTE (GST-1537). An open gate finding the owner dispositioned (an approved gstack-approvals gate row at its
+ * fingerprint, head in range, lib/gate-dispositions.ts) is closed the same way, and each prints as GATE_DISPOSITION (GST-2491).
+ * Authored docs keep the stage 2.2 recheck.
  */
 type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
 type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'accepted' | 'fix_checked' | 'sidecar', string[]>;
@@ -288,8 +291,9 @@ function docsBridge(cwd: string, from: string, o: BridgeOpts): { reviewedAt: str
  * or its patch against the base is still the one the link read.
  */
 function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[] } | null {
-  const rows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
-    .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
+  const reviewRows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
+    .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' || v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
+  const rows = reviewRows.filter(v => v.skill === 'review-fix-check');
   const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   const onBranch = (c: string) => !!c && ancestor(c, 'HEAD');
@@ -308,6 +312,9 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
   const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
   for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
+  const gates = readGateDispositions(cwd);
+  for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
+  const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
   const grants = chain.length ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })).filter(g => g.outcome === 'approved' && `${g.ask} ${g.scope}`.includes('review_loop_grant')) : [];
   const granted: (typeof grants[number] | undefined)[] = [];
   const used = new Set<string>();
@@ -322,7 +329,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const ruledOn = (l: FixLink) => new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding));
   const why = (l: FixLink) => {
     const read = l.row.wtree ?? l.row.review_binding?.end_wtree;
-    const fresh = reviewFreshness(l.row, read, ruledOn(l));
+    const fresh = reviewFreshness(l.row, read, ruledOn(l), gatedOn(l));
     return fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
       : l.row.tree !== read || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
       : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
@@ -332,7 +339,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const clean = new Set(chain.filter(l => !whys.get(l)));
   const flagged = (l: FixLink): string[] | null => {
     const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
-    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint))
+    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint) && !gatedOn(l).has(gateKey(f.fingerprint, f.gate_id)))
       .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
     const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
     const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);

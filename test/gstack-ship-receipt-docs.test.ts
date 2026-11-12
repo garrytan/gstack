@@ -145,7 +145,7 @@ describe('E11: the documentation audit record and the doc caps', () => {
     const receipt = extractReceipt(fs.readFileSync(body, 'utf8'));
     expect(receipt.errors).toEqual([]);
     expect((receipt.receipt as any).docs).toEqual({ status: 'blocked', scope: 'docs/', exception: { accepted_by: 'owner', date: '2026-10-26', via: 'PR #9 review', reason: 'removed page republished in the next release' } });
-    expect(Object.keys(receipt.receipt!).slice(-2)).toEqual(['docs', 'review_loop']);
+    expect(Object.keys(receipt.receipt!).slice(-3)).toEqual(['docs', 'review_loop', 'gate_dispositions']);
     expect(runBin(repo, 'gstack-ship-receipt', ['read', '--body', body]).status).toBe(EXIT.ok);
     const malformed = runBin(repo, 'gstack-ship-receipt', [...common, '--docs', '{"status":"done","scope":"docs/"}']);
     expect(malformed.status).toBe(EXIT.fail);

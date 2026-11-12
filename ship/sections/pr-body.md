@@ -116,7 +116,7 @@ ZERO-RUN lane never reaches this body unresolved.>
 ## Pre-Landing Review
 <findings from Step 9 code review, or "No issues found."; then Step 9.4's `REVIEW_LOOP:` line.>
 <Each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
-with its ruler and reason; finish's `MECHANICAL: x` as `Mechanical retake: x` and its `UID_SIDECAR: x (beside y)` as `Godot UID sidecar: x (beside y)`. `gstack-ship-receipt write --body` refuses a body missing one.>
+with its ruler and reason; each `Gate disposition: …` line `gstack-approvals dispositions` prints, verbatim; finish's `MECHANICAL: x` as `Mechanical retake: x` and its `UID_SIDECAR: x (beside y)` as `Godot UID sidecar: x (beside y)`. `gstack-ship-receipt write --body` refuses a body missing one.>
 <Gate edits: Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
 `N listed, M read, K findings — J kept, R restored, O open`, `partial (...)` or
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
@@ -194,7 +194,7 @@ the receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>
 <details><summary>Agent notes</summary>
 
 <Machine-read lines, last: `Refs <issue codes>`, the `## Approvals` output (Capy) with its Plan line,
-and the Pre-Landing Review section's `REVIEW_LOOP:`, `Gate edits:`, `Ruled note:`, `Review-loop exception:`
+and the Pre-Landing Review section's `REVIEW_LOOP:`, `Gate edits:`, `Ruled note:`, `Gate disposition:`, `Review-loop exception:`
 and exception lines. `gstack-ship-receipt write` adds the receipt here; never type it.>
 
 </details>

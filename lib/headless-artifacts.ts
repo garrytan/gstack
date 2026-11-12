@@ -128,6 +128,8 @@ export interface ShipReceipt {
   review_loop_exception?: { accepted_by: string; date: string; via: string; reason: string; fix_check?: { head: string; findings: number; files?: string[] }; second_pass?: { head: string; deferred: string[] } };
   /** The owner's rulings that a finding ships as a disclosed note (gstack-approvals rule, lib/ruled-notes.ts); the PR body lists each one word for word (GST-1537). */
   ruled_notes?: Array<{ finding: string; head: string; by: string; reason: string; at: string; approval: string }>;
+  /** The owner's dispositions of gate findings (gstack-approvals gate, lib/gate-dispositions.ts); the PR body lists each one word for word (GST-2491). */
+  gate_dispositions?: Array<{ finding: string; gate_id: string; head: string; by: string; reason: string; words: string; at: string; approval: string }>;
   /** The `Mechanical retake: <path> (<what>)` lines /ship finish proved for this head's tree (lib/ship-mechanical.ts); the PR body lists each one word for word (GST-1560). */
   mechanical?: string[];
   /** The targeted pass on money, gate, auth and secret code (lib/review-targeted.ts), bound to the receipt's product_patch_id; `done` only with its output collected. */
@@ -277,6 +279,7 @@ export const ARTIFACT_SCHEMAS = {
       review_exclude: { type: 'object', required: ['source', 'patterns', 'applied', 'excluded', 'excluded_bytes', 'kept', 'gate_tagged', 'patterns_sha256', 'list_sha256', 'digest'], properties: { source: str, patterns: strList, applied: strList, excluded: { type: 'integer', minimum: 0 }, excluded_bytes: { type: 'integer', minimum: 0 }, kept: { type: 'integer', minimum: 0 }, gate_tagged: strList, patterns_sha256: str, list_sha256: str, digest: str } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } }, second_pass: { type: 'object', required: ['head', 'deferred'], properties: { head: str, deferred: strList } } } },
       ruled_notes: { type: 'array', items: { type: 'object', required: ['finding', 'head', 'by', 'reason', 'at', 'approval'], properties: { finding: str, head: str, by: str, reason: str, at: str, approval: str } } },
+      gate_dispositions: { type: 'array', items: { type: 'object', required: ['finding', 'gate_id', 'head', 'by', 'reason', 'words', 'at', 'approval'], properties: { finding: str, gate_id: str, head: str, by: str, reason: str, words: str, at: str, approval: str } } },
       mechanical: strList,
       design: { type: 'object', required: ['mode', 'reason'], properties: { mode: { enum: ['static'] }, reason: str } },
       no_stop: { type: 'array', items: { type: 'object', required: ['class', 'reason', 'evidence'], properties: { class: { enum: [...NO_STOP_CLASSES] }, reason: str, evidence: str } } },

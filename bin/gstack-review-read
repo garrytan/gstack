@@ -7,7 +7,9 @@
 # bin/gstack-wtree --review, or "unknown"), ---TREE--- (HEAD tree, informational) and
 # ---DIRTY--- (tracked-file dirty flag). Consumers grade diff-scoped review
 # rows using review_freshness; legacy or uncaptured diff evidence cannot fall
-# back to HEAD equality. Plan rows are unchanged.
+# back to HEAD equality. Plan rows are unchanged. A gate finding the owner's gstack-approvals
+# gate row closes reads `kept` with its `disposition`, and the row's `gate_dispositions` lists
+# those approval ids (lib/gate-dispositions.ts); values the row itself carried are discarded.
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,14 +23,22 @@ gstack_state_root_select
 GSTACK_HOME="$_gstack_sr_root"
 WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
-  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_GATE_LIB="$SCRIPT_DIR/../lib/gate-dispositions.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
+    const { dispositionedOn, gateKey, readGateDispositions, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
+    let dispositions = [];
+    try { dispositions = readGateDispositions(process.cwd()); }
+    catch (e) { console.error("gstack-review-read: gate dispositions unreadable, none applied: " + e.message); }
     for (const line of (await Bun.stdin.text()).split("\n").filter(Boolean)) {
       try {
         const rec = JSON.parse(line);
         delete rec.review_freshness;
-        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE);
+        delete rec.gate_dispositions;
+        for (const f of Array.isArray(rec.findings) ? rec.findings : []) if (f && typeof f === "object") delete f.disposition;
+        const closed = dispositionedOn(process.cwd(), rec, dispositions);
+        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE, new Set(), new Set(closed.map(d => gateKey(d.finding, d.gate_id))));
         if (freshness) rec.review_freshness = freshness;
+        showDispositioned(rec, closed);
         console.log(JSON.stringify(rec));
       } catch { console.error("gstack-review-read: skipping malformed review row"); }
     }

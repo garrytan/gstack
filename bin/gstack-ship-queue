@@ -14,7 +14,8 @@
  *   gstack-ship-queue gate-ahead --list --pr <n>
  *   gstack-ship-queue verify --pr <n> --screen                  (train policy: the head's screen verdict from its run)
  *   gstack-ship-queue verify --post-merge <sha> [--timeout <s>] (after a merge: main's push workflows at that commit until they settle)
- *   gstack-ship-queue land --pr <n> --pin <sha> [--repair] [--dry-run] [--allow-repo-commands] [--break-lock]   (merge: direct; lib/ship-queue-land-direct.ts)
+ *   gstack-ship-queue land --pr <n> --pin <sha> [--accept-gate-disposition <id>]... [--repair] [--dry-run] [--allow-repo-commands] [--break-lock]   (merge: direct; lib/ship-queue-land-direct.ts)
+ *   gstack-ship-queue verify --pr <n> --pin <sha> [--accept-gate-disposition <id>]...   (land's receipt and gate-disposition acceptance, read-only, for a lander that merges another way)
  *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock [--break-train-lock]]   (the merge step; lib/ship-queue-land.ts)
  *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
  *   gstack-ship-queue land --census
@@ -59,15 +60,20 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   gate-ahead --record --pr <n> --attempt <id> --exit <rc> --log <file>
                                            bind the gate result to that attempt's gated tree; removes its worktree
   gate-ahead --list --pr <n>               attempts for a PR, newest last (the current one)
+  verify --pr <n> --pin <sha> [--accept-gate-disposition <id>]...
+                                           land --pin's receipt and gate-disposition check, read-only, for a lander that merges
+                                           another way: prints each GATE_DISPOSITION line and exits 0 only when every one is accepted
   verify --pr <n> --screen                 (train policy) the PR head's screen verdict read from its run (SCREEN_VERDICT)
   verify --post-merge <sha> [--timeout <s>] wait for every check run at a merged commit to settle: POST_MERGE: green|red|pending
                                            and one CHECK: line per workflow; resumable, default timeout 2700 s
-  land --pr <n> --pin <sha> [--repair] [--dry-run] [--allow-repo-commands] [--break-lock]
+  land --pr <n> --pin <sha> [--accept-gate-disposition <id>]... [--repair] [--dry-run] [--allow-repo-commands] [--break-lock]
                                            merge: direct: merge the PR at its own green head (receipt and READY at the pin, no stamp
                                            files, checks green, mergeable clean), verify the tree, write a land note; a stale base
                                            runs land.merged_checks, repo commands, only with --allow-repo-commands (never --dry-run);
                                            it holds the land lock from the re-fetch to the merge (--break-lock: a stale one);
-                                           --repair: while frozen, land the one repair PR the freeze admits (recorded under the lock)
+                                           --repair: while frozen, land the one repair PR the freeze admits (recorded under the lock);
+                                           an owner gate disposition the approval store applies at the pin merges only when the
+                                           lander passes --accept-gate-disposition <its approval id> (docs/ship-policy.md#gate-dispositions)
   land --pr <n> [--dry-run] [--no-wait] [--timeout <min>] [--break-lock [--break-train-lock]] [--allow-repo-commands]
                                            the merge step: lock, merge the base, stamp (fragments folded), push the stamp commit,
                                            wait for its checks, squash with --match-head-commit, confirm the base tree; resumable
@@ -87,6 +93,12 @@ ${exitTableHelp()}`;
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
+}
+
+/** Every --accept-gate-disposition value, or the first one that is not an approval id. */
+function acceptedIds(args: string[]): { ids: string[]; bad?: string } {
+  const ids = args.flatMap((a, i) => a === '--accept-gate-disposition' ? [args[i + 1] ?? ''] : []);
+  return { ids, bad: ids.find(id => !/^a-[0-9a-f]{12}$/.test(id)) };
 }
 
 function finish(cmd: string, out: StepOutput): number {
@@ -187,7 +199,9 @@ async function main(argv: string[]): Promise<number> {
     if (args.includes('--pin')) {
       const pin = flag(args, '--pin') ?? '';
       if (!/^[0-9a-f]{40,64}$/.test(pin)) return usage('--pin needs the full head sha the READY names');
-      return finish('land', (await import('../lib/ship-queue-land-direct')).landDirect(ctx, { pr, pin, dryRun: args.includes('--dry-run'), allowRepoCommands: args.includes('--allow-repo-commands'), breakLock: args.includes('--break-lock'), repair: args.includes('--repair') }));
+      const accept = acceptedIds(args);
+      if (accept.bad !== undefined) return usage(`--accept-gate-disposition needs an approval id (a-<12 hex>), not ${JSON.stringify(accept.bad)}`);
+      return finish('land', (await import('../lib/ship-queue-land-direct')).landDirect(ctx, { pr, pin, acceptGateDispositions: accept.ids, dryRun: args.includes('--dry-run'), allowRepoCommands: args.includes('--allow-repo-commands'), breakLock: args.includes('--break-lock'), repair: args.includes('--repair') }));
     }
     const timeout = flag(args, '--timeout');
     return finish('land', l.land(ctx, { pr, repair: args.includes('--repair'), dryRun: args.includes('--dry-run'), noWait: args.includes('--no-wait'), breakLock: args.includes('--break-lock'), breakTrainLock: args.includes('--break-train-lock'), allowRepoCommands: args.includes('--allow-repo-commands'), waitTimeoutMin: timeout && /^\d+$/.test(timeout) ? Number(timeout) : undefined }));
@@ -214,6 +228,13 @@ async function main(argv: string[]): Promise<number> {
       allowRepoCommands: args.includes('--allow-repo-commands'), ...gate,
       failAfter: process.env.GSTACK_SHIP_QUEUE_FAIL_AFTER,
     }));
+  }
+  if (cmd === 'verify' && args.includes('--pin')) {
+    const pin = flag(args, '--pin') ?? '';
+    if (!/^[0-9a-f]{40,64}$/.test(pin)) return usage('--pin needs the full head sha the READY names');
+    const accept = acceptedIds(args);
+    if (accept.bad !== undefined) return usage(`--accept-gate-disposition needs an approval id (a-<12 hex>), not ${JSON.stringify(accept.bad)}`);
+    return finish('verify', (await import('../lib/ship-queue-land-direct')).verifyPin(ctx, { pr, pin, acceptGateDispositions: accept.ids }));
   }
   if (cmd === 'verify') {
     if (flag(args, '--train') || args.includes('--screen')) return (await import('../crew/lib/ship-queue-train-cli')).verifyMain(ctx, args, pr);

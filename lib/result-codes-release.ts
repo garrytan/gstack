@@ -513,6 +513,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR head is not the pin land was given, so the READY it was given does not describe what would merge',
     fix: 'the lane runs /ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
   },
+  QUEUE_GATE_DISPOSITION: {
+    anchor: 'queue-gate-disposition',
+    summary: 'the owner gate dispositions the approval store applies at the pin are not all accepted by the lander, an accepted id is not applied, or the receipt or PR body differs from the store',
+    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /ship and ready at the pin',
+  },
   QUEUE_LAND_CHECKS: {
     anchor: 'queue-land-checks',
     summary: 'a check at the pin is red or pending, or a required check never ran there',

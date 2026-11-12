@@ -10,6 +10,8 @@
  *   gstack-approvals plan-check --plan <the brief's Plan line>
  *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
+ *   gstack-approvals gate --finding <fingerprint> --gate-id <gate_id> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
+ *   gstack-approvals dispositions [--branch <name>]
  *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
@@ -30,6 +32,7 @@ import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, 
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
+import { GATE_DISPOSITION_SCOPE, GATE_SOURCE, gateDispositionRow, gateDispositions, gateDispositionText, ONE_LINE, recordGateDisposition, validGateId } from '../lib/gate-dispositions';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
 
@@ -43,6 +46,14 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
           list it; refused inside this checkout's open /ship run
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
+  gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>
+          --reason <the gate change, one line> --words <the owner's exact words, one line> --by <who recorded them>
+          the owner's disposition of a gate finding an unattended /ship logged open (docs/ship-policy.md#gate-dispositions);
+          it closes that fingerprint and gate_id on a review row whose range_base..commit holds the head (a first pass: its
+          commit), and gstack-review-read shows it kept;
+          finish prints it, and the receipt, PR body and READY carry it; refused while any worktree holds an open /ship run on
+          the branch; the lander accepts each one with gstack-ship-queue land|verify --accept-gate-disposition <id>
+  dispositions                    the "Gate disposition: …" lines the Pre-Landing Review and the PR body carry
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
           --reason <why, one line> --words <the owner's exact words> --by <who granted>
           the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
@@ -69,7 +80,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -146,7 +157,7 @@ function main(argv: string[]): number {
   const json = bools.has('--json');
   const recorded = (where: StoreLocation) => `${where.file}${where.mirror ? ` mirror=${where.mirror}` : ''}`;
 
-  if (cmd === 'add' || cmd === 'import' || cmd === 'rule' || cmd === 'lane-exception') {
+  if (cmd === 'add' || cmd === 'import' || cmd === 'rule' || cmd === 'lane-exception' || cmd === 'gate') {
     let rows;
     if (cmd === 'lane-exception') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
@@ -174,8 +185,25 @@ function main(argv: string[]): number {
       const built = buildRow({ ...ruledNoteRow(finding, head.stdout.trim(), reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
+    } else if (cmd === 'gate') {
+      const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
+      const finding = (flags['--finding'] ?? '').trim(), gateId = (flags['--gate-id'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim(), words = (flags['--words'] ?? '').trim(), by = (flags['--by'] ?? '').trim();
+      if (!finding || /\s/.test(finding) || !validGateId(gateId) || !reason) return invalid('gate needs --finding <the gate finding\'s fingerprint>, --gate-id <its gate_id from the review row>, both without spaces (a finding with no gate_id, or a literal undefined, cannot be dispositioned), and --reason <the gate change, one line>');
+      if (!words) return invalid('gate needs --words <the owner\'s exact words>: a gate disposition is the owner\'s, in the owner\'s words');
+      if (!ONE_LINE.test(reason) || !ONE_LINE.test(words) || !ONE_LINE.test(by)) return invalid('--reason, --words and --by are one line each: no newline or control character');
+      const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
+      if (!flags['--head'] || head.status !== 0) return invalid('gate needs --head <the stop head the owner answered at, a commit in this repository>');
+      if (GSTACK_ACTOR.test(by)) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
+      const built = buildRow({ ...gateDispositionRow(finding, gateId, head.stdout.trim(), reason), words, by, date: flags['--date'], source: GATE_SOURCE }, loc.branch);
+      if ('code' in built) return fail(cmd, built);
+      const res = recordGateDisposition(process.cwd(), loc, built);
+      if ('code' in res) return fail(cmd, res);
+      if (json) process.stdout.write(JSON.stringify({ added: res.added.map(r => r.id), skipped: res.skipped, file: loc.file, mirror: loc.mirror ?? null }) + '\n');
+      else process.stdout.write(`APPROVAL_RECORDED: ${built.id}${res.skipped ? ' (already present)' : ''} ${recorded(loc)}\n`);
+      return res.mirrorError ? fail(cmd, res.mirrorError) : EXIT.ok;
     } else if (cmd === 'add') {
       if (RULED_NOTE_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a ruled_note scope is recorded with gstack-approvals rule' });
+      if (GATE_DISPOSITION_SCOPE.test(flags['--scope'] ?? '') || (flags['--source'] ?? '').trim() === GATE_SOURCE) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a gate_disposition scope is recorded with gstack-approvals gate' });
       if (TEST_LANE_EXCEPTION_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a test_lane_exception scope is recorded with gstack-approvals lane-exception' });
       const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: flags['--source'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
@@ -228,6 +256,11 @@ function main(argv: string[]): number {
   if (cmd === 'rulings') {
     const notes = ruledNotes(readRecord(loc).rows);
     process.stdout.write(notes.length ? notes.map(n => `Ruled note: ${ruledNoteText(n)}\n`).join('') : 'RULED_NOTES: none\n');
+    return EXIT.ok;
+  }
+  if (cmd === 'dispositions') {
+    const ds = gateDispositions(readRecord(loc).rows, loc.branch);
+    process.stdout.write(ds.length ? ds.map(d => `Gate disposition: ${gateDispositionText(d)}\n`).join('') : 'GATE_DISPOSITIONS: none\n');
     return EXIT.ok;
   }
   if (cmd === 'sync') {

@@ -43,6 +43,7 @@ import {
 import { wtreeFingerprint } from './script-invocation';
 import { nowIso, persist, readyNoteUnpushed, readyPath, repoIdentity } from '../crew/lib/ship-queue-train-record';
 import { buildReceipt, type TreeReceipt } from './tree-receipt';
+import { gateAcceptance } from './gate-dispositions';
 
 export type Gh = (args: string[]) => { ok: boolean; out: string; err?: string };
 export interface QueueContext { repoRoot: string; base: string; gh: Gh; remote?: string }
@@ -344,6 +345,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   const foreign = accepted && exceptionConsumerProblem(accepted, head, o.pr);
   if (foreign) { pregateOk = false; accepted = null; pregateLine += ` — ${foreign} (PREGATE_REMOTE_UNCLEARED)`; }
   const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
+  const gates = receipt.ok ? gateAcceptance({ cwd: ctx.repoRoot, branch: info.headRefName ?? '', pin: head, body: info.body ?? '', receipt: receipt.receipt }) : null;
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
   const lines = [
@@ -361,7 +363,8 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     receipt.line,
     ...(receipt.depthLine ? [receipt.depthLine] : []),
     ...(receipt.targetedLine ? [receipt.targetedLine] : []),
-    ...readyTailLines(receipt.ok ? receipt.receipt : undefined),
+    ...(gates?.lines ?? []),
+    ...readyTailLines(receipt.ok ? { ...receipt.receipt, gate_dispositions: undefined } : undefined),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);
@@ -369,6 +372,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (!pregateOk) return fail({ code: 'QUEUE_NOT_READY', message: `the pregate result is not a current pass: ${pregateLine}` }, lines, run);
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
+  if (gates?.failure) return fail(gates.failure, lines, run);
   const changed = git(ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
   const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir });
   if (plan.line) lines.push(plan.line);

@@ -58,6 +58,7 @@ import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { appliedGateDispositions, gateDispositionText } from '../lib/gate-dispositions';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
@@ -270,6 +271,12 @@ function cmdWrite(rest: string[], json: boolean): number {
   const ruledNotes = readRuledNotes(repoRoot);
   const unlisted = bodyFile ? ruledNotes.map(n => `Ruled note: ${ruledNoteText(n)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlisted) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ruled note ${JSON.stringify(unlisted)} (gstack-approvals rulings prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
+  let gateDispositions: ReturnType<typeof appliedGateDispositions>['applied'];
+  try { gateDispositions = appliedGateDispositions(repoRoot, { pin: 'HEAD' }).applied; }
+  catch (e: any) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the owner gate dispositions at HEAD cannot be derived (${e.message}); the receipt always records them, so an unreadable approval store or a git error writes nothing`) + '\n'); return EXIT.fail; }
+  if (gateDispositions.length && !bodyFile) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the approval store applies ${gateDispositions.length} owner gate disposition(s) at HEAD (${gateDispositions.map(d => d.approval).join(', ')}), so write needs --body <the PR body> carrying each "Gate disposition: …" line gstack-approvals dispositions prints; nothing written`) + '\n'); return EXIT.fail; }
+  const undisclosed = bodyFile ? gateDispositions.map(d => `Gate disposition: ${gateDispositionText(d)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
+  if (undisclosed) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list gate disposition ${JSON.stringify(undisclosed)} (gstack-approvals dispositions prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
   const carried = ciCarried(base);
   const unlistedException = bodyFile ? laneExceptionBodyLines(carried).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlistedException) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ${JSON.stringify(unlistedException)} (accept's TEST_LANE_EXCEPTION: line; the body carries it as one line); nothing written`) + '\n'); return EXIT.fail; }
@@ -331,7 +338,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
-      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, ruled_notes: ruledNotes.length ? ruledNotes : undefined, mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, ruled_notes: ruledNotes.length ? ruledNotes : undefined, gate_dispositions: gateDispositions, mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       design: review.frontend ? { mode: 'static', reason: 'no preview declared' } : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
