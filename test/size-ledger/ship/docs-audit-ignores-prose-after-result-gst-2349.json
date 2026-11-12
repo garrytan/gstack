@@ -1,0 +1,4 @@
+{
+  "bytes": 35,
+  "why": "Step 14.5 says text after the result line gets the free whole-line re-ask, judged afresh (GST-2349)"
+}

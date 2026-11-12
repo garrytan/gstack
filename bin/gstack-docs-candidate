@@ -54,11 +54,12 @@
  * <audit-id>-result.json and the section, unchanged, as <audit-id>-documentation.md
  * in --out-dir and prints DOCS_RESULT: ok. Otherwise it writes nothing, prints a
  * DOCS_RESULT_INVALID line naming each bad key and a RETRY_NOTE: for the re-audit's
- * prompt, and exits 1 (GST-1843). When the line's only fault is its shape it prints
- * FORMAT_REPAIR: instead of RETRY_NOTE:, and the step re-asks for the line once without
- * spending an attempt: repair-prompt prints that re-ask (the schema, the problems and the
- * child's own output), and result --repair-of <first output> checks the reply, refusing a
- * second repair of the same audit and any change to a value the first line gave correctly.
+ * prompt, and exits 1 (GST-1843). When the line's only fault is its shape, or text follows
+ * a JSON line carrying the audit id, it prints FORMAT_REPAIR: instead of RETRY_NOTE:, and the
+ * step re-asks for the line once without spending an attempt: repair-prompt prints that re-ask
+ * (the schema, the problems and the child's own output), and result --repair-of <first output>
+ * checks the reply, refusing a second repair of the same audit and any change to a value the
+ * first line gave correctly; after trailing text nothing is kept, and the reply stands alone.
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -370,7 +371,7 @@ function main(argv: string[]): void {
     const output = fs.readFileSync(file, 'utf8');
     const check = checkDocsResult(output, auditId);
     if (check.ok || !check.repairable) throw new Error(`${file} is not a format-only failure of the last line, so it has no format repair: ${check.ok ? 'it is a valid result' : 'a content failure counts as an attempt (Blocked recovery, RETRY_NOTE:)'}`);
-    process.stdout.write(docsRepairPrompt(output, auditId, check.problems));
+    process.stdout.write(docsRepairPrompt(output, auditId, check.problems, check.whole));
     return;
   }
   throw new Error(USAGE);
