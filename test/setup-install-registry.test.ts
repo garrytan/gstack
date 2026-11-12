@@ -183,6 +183,34 @@ describe.skipIf(process.platform === 'win32')('disabled_skills (#1206)', () => {
     expect(config('').status).toBe(0);
     expect(existsSync(join(f.home, '.claude/skills/make-pdf/SKILL.md'))).toBe(true);
   }, 120_000);
+
+  // Value: protects=a disabled skill's backwards-compat alias leaves with it, stays off across ./setup, and returns once the skill is enabled again; fails_when=relink keeps the alias copy setup wrote, or setup writes it back for a disabled skill; why_new=no setup test disabled a skill that has an alias; seam=none
+  test('disabling open-gstack-browser takes /connect-chrome with it, across setup runs, until the skill is enabled again (#4308)', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, '.claude/skills/gstack'));
+    const setup = () => runSetup(f, join(src, 'setup'), ['--host', 'claude', '--no-prefix']);
+    const config = (value: string) => spawnSync('bash', [join(src, 'bin/gstack-config'), 'set', 'disabled_skills', value], { cwd: f.home, env: f.env, encoding: 'utf8', timeout: 30_000 });
+    const alias = join(f.home, '.claude/skills/connect-chrome');
+
+    expect(setup().status).toBe(0);
+    expect(readFileSync(join(alias, 'SKILL.md'), 'utf8')).toMatch(/^name: connect-chrome$/m);
+
+    const set = config('open-gstack-browser');
+    expect(set.status, set.stderr).toBe(0);
+    expect(existsSync(join(f.home, '.claude/skills/open-gstack-browser'))).toBe(false);
+    expect(existsSync(alias)).toBe(false);
+    expect(existsSync(join(src, 'open-gstack-browser/SKILL.md'))).toBe(true);
+
+    const again = setup();
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(existsSync(alias)).toBe(false);
+
+    expect(config('').status).toBe(0);
+    const enabled = setup();
+    expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
+    expect(existsSync(join(f.home, '.claude/skills/open-gstack-browser/SKILL.md'))).toBe(true);
+    expect(readFileSync(join(alias, 'SKILL.md'), 'utf8')).toMatch(/^name: connect-chrome$/m);
+  }, 120_000);
 });
 
 describe.skipIf(process.platform === 'win32')('Antigravity CLI shares ~/.gemini with Gemini CLI', () => {

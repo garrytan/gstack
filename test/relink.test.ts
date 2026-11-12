@@ -1261,3 +1261,67 @@ describe('gstack-relink cycle-3 hardening: foreign dir links, failed backups, fl
     expect(fs.readFileSync(path.join(skillsDir, '_gstack-command', 'notes.md'), 'utf-8')).toBe('mine\n');
   });
 });
+
+// ============================================================
+// #4308: connect-chrome is setup's rewritten-copy alias of open-gstack-browser.
+// The discovery loop skips the symlinked source dir (#2201), and a checkout
+// without symlinks has no such dir at all, so disabling the skill used to
+// leave /connect-chrome registered.
+// ============================================================
+describe('gstack-relink: a disabled skill takes its alias with it (#4308)', () => {
+  const OGB = '---\nname: open-gstack-browser\ndescription: test\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n# open-gstack-browser\n';
+  const env = () => ({
+    GSTACK_INSTALL_DIR: installDir, GSTACK_SKILLS_DIR: skillsDir, GSTACK_HOME: path.join(tmpDir, 'home'), GSTACK_USER_RENDER_DIR: path.join(tmpDir, 'no-render'),
+  });
+  const relink = () => run(`${path.join(installDir, 'bin', 'gstack-relink')} 2>&1`, env());
+  const disable = (skills: string) => run(`${path.join(installDir, 'bin', 'gstack-config')} set disabled_skills '${skills}' 2>&1`, env());
+  // The alias exactly as setup's _install_alias_skill_md writes it: the source
+  // with name: rewritten, plus the marker when setup created the directory.
+  function aliasCopy(name: string, marked: boolean) {
+    fs.mkdirSync(path.join(skillsDir, name));
+    fs.writeFileSync(path.join(skillsDir, name, 'SKILL.md'), OGB.replace('name: open-gstack-browser', `name: ${name}`));
+    if (marked) fs.writeFileSync(path.join(skillsDir, name, '.gstack-owned'), `${installDir}\n`);
+  }
+
+  beforeEach(() => {
+    // No connect-chrome dir in the install: the shape of a checkout made
+    // without symlink support, where the alias has no source dir to discover.
+    setupMockInstall(['open-gstack-browser', 'qa']);
+    fs.writeFileSync(path.join(installDir, 'open-gstack-browser', 'SKILL.md'), OGB);
+    // disabled_skills is read through the registry library.
+    fs.copyFileSync(path.join(BIN, 'gstack-install-registry.sh'), path.join(installDir, 'bin', 'gstack-install-registry.sh'));
+  });
+
+  // Value: protects=disabling open-gstack-browser unregisters /connect-chrome too, under the flat and the prefixed alias name; fails_when=relink cleans only the entries named after the skill, or drops the alias while the skill is enabled; why_new=no test disabled a skill that has an alias; seam=none
+  test('disabling open-gstack-browser removes its connect-chrome alias under both names, and an enabled skill keeps it', () => {
+    aliasCopy('connect-chrome', true);
+    // An alias an older install left as a symlink, replaced in place: no marker.
+    aliasCopy('gstack-connect-chrome', false);
+
+    relink();
+    expect(fs.existsSync(path.join(skillsDir, 'open-gstack-browser', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skillsDir, 'connect-chrome', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-connect-chrome', 'SKILL.md'))).toBe(true);
+
+    const out = disable('open-gstack-browser');
+    expect(fs.existsSync(path.join(skillsDir, 'open-gstack-browser'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'connect-chrome'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-connect-chrome'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
+    expect(out).not.toContain('skipped');
+  });
+
+  // Value: protects=a user's own skill named connect-chrome survives disabling open-gstack-browser; fails_when=the alias cleanup deletes by name instead of going through the ownership gate; why_new=the alias name is a new cleanup target; seam=none
+  test("a user's own connect-chrome skill is reported and left byte-identical", () => {
+    const mine = '---\nname: connect-chrome\ndescription: my own chrome helper\n---\n# mine\n';
+    fs.mkdirSync(path.join(skillsDir, 'connect-chrome'));
+    fs.writeFileSync(path.join(skillsDir, 'connect-chrome', 'SKILL.md'), mine);
+    fs.writeFileSync(path.join(skillsDir, 'connect-chrome', 'notes.md'), 'mine\n');
+
+    const out = disable('open-gstack-browser');
+    expect(fs.existsSync(path.join(skillsDir, 'open-gstack-browser'))).toBe(false);
+    expect(fs.readFileSync(path.join(skillsDir, 'connect-chrome', 'SKILL.md'), 'utf-8')).toBe(mine);
+    expect(fs.readFileSync(path.join(skillsDir, 'connect-chrome', 'notes.md'), 'utf-8')).toBe('mine\n');
+    expect(out).toContain('skipped connect-chrome');
+  });
+});

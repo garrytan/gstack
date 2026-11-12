@@ -400,6 +400,15 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     *" ${skill#gstack-} "*)
       _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
       case "$skill" in gstack-*) ;; *) _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill" ;; esac
+      # /connect-chrome is setup's rewritten-copy alias of this skill
+      # (_install_alias_skill_md), so it goes with it (#4308). Named here
+      # because the loop skips the symlinked alias dir, and a checkout made
+      # without symlinks has none. Once the skill is enabled again, the next
+      # ./setup writes the alias back.
+      if [ "$skill" = open-gstack-browser ]; then
+        _cleanup_skill_entry "$SKILLS_DIR/connect-chrome" "$skill"
+        _cleanup_skill_entry "$SKILLS_DIR/gstack-connect-chrome" "$skill"
+      fi
       case "$DISABLED" in *" ${skill#gstack-} "*) DISABLED_COUNT=$((DISABLED_COUNT + 1)) ;; esac
       continue ;;
   esac

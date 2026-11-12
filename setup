@@ -2807,6 +2807,8 @@ link_claude_skill_dirs() {
 # connect-chrome, gstack-connect-chrome) is hardcoded in the _INVENTORY seed
 # list in bin/gstack-uninstall — keep the two sites in sync when adding or
 # renaming an alias, or uninstall will refuse to delete the new alias dir.
+# bin/gstack-relink names the connect-chrome pair as well: it removes the
+# alias when open-gstack-browser is disabled (#4308).
 _install_alias_skill_md() {
   case "${_DISABLED_SKILLS:- }" in *" $(basename "$(dirname "$1")") "*) return 0 ;; esac
   local src_skill_md="$1"
