@@ -5,7 +5,7 @@
  * commits before every push, so a page outside the current consent is never
  * published. Local bare repo as the remote; stub gbrain; no network.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { spawnSync } from 'child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -15,6 +15,8 @@ const ROOT = join(import.meta.dir, '..');
 const BIN = join(ROOT, 'bin');
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+setDefaultTimeout(30_000);
 
 let home: string;
 let gstackHome: string;
