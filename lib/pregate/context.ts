@@ -218,6 +218,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   let configLoad: ConfigLoad = loadConfigFromBase(o.repoRoot, base, o.knownChecks);
   const explain: string[] = [];
   let absentUserPolicy: string | undefined;
+  let headBootstrap = false;
   if (o.userConfigPath && !isConfigUnavailable(configLoad) && configLoad.kind === 'none') {
     const rejected = userConfigRejection(o.repoRoot, o.userConfigPath);
     const user = rejected ? null : loadConfigFromUser(o.userConfigPath, o.knownChecks);
@@ -228,6 +229,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   if (isConfigUnavailable(configLoad)) return { refused: { code: 'POLICY_SOURCE_UNAVAILABLE', message: configLoad.detail } };
   if (o.policyFrom === 'head' && !configLoad.errors.length) {
     if (o.remote && configLoad.kind === 'none') return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: '--remote under --policy-from head needs a trusted policy (the base copy or the user-owned file); with none, the head file is a bootstrap and its remote_gate cannot clear its own obligation' } };
+    headBootstrap = configLoad.kind === 'none';
     const head = headPolicy(o.repoRoot, configLoad, mergeBase, base, o.knownChecks ?? []);
     if ('loosens' in head) return { refused: { code: 'PREGATE_HEAD_POLICY_LOOSENS', message: head.loosens.join('; ') } };
     configLoad = head.load;
@@ -250,7 +252,7 @@ export function buildContext(o: BuildContextOptions): ContextLoad {
   return {
     ctx: {
       repoRoot: o.repoRoot, base, baseRef, baseSha: baseSha.out, mergeBase, head, wtree, touched: touchedFiles(o.repoRoot, mergeBase),
-      config, configLabel: configLoad.label, configKind: configLoad.kind, policyDeclaresLanes: configLoad.declaresLanes !== false, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
+      config, configLabel: configLoad.label, configKind: configLoad.kind, policyDeclaresLanes: configLoad.declaresLanes !== false, scratch, configFile: configLoad.kind === 'user' && o.userConfigPath ? o.userConfigPath : PREGATE_CONFIG_PATH, ...(configLoad.digest ? { configDigest: configLoad.digest } : {}), ...(absentUserPolicy ? { absentUserPolicy } : {}), ...(headBootstrap ? { headBootstrap } : {}), registry: registryLoad.registry as Registry, registryLabel: registryLoad.source.label,
       lanes, platform, allowRepoCommands: o.allowRepoCommands, timeoutMs: o.timeoutMs ?? (config.timeout_s ?? 600) * 1000, timeoutSource: o.timeoutMs !== undefined ? '--timeout' : config.timeout_s ? `timeout_s from ${configLoad.label}` : 'the 600 s default',
       stallTimeoutMs: o.stallTimeoutMs ?? (config.stall_timeout_s ?? DEFAULT_STALL_TIMEOUT_S) * 1000,
       progress: o.progress ?? (line => process.stderr.write(`${line}\n`)),

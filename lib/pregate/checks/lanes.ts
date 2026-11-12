@@ -441,6 +441,7 @@ function describe(ctx: PregateContext, sel: Selection, mode: NoLaneMode): string
   for (const r of sel.removed) lines.push(`removed (no lane owed): ${r.file} — ${r.note}`);
   if (sel.emptyLane.length) lines.push(`docs/no-tests (empty lane): ${sel.emptyLane.join(' ')}`);
   if (sel.inert.length) lines.push(`no-tests (assets and tool config): ${sel.inert.join(' ')}`);
+  for (const d of sel.declaredTier) lines.push(`declared test tree ${d.glob}: ${d.tests.length} test file(s) not run in the local lane (declared [] in ${ctx.configLabel}; the repo runs them in their own tier)`);
   if (sel.stampOnly.length) lines.push(`version-stamp-only (no lane needed): ${sel.stampOnly.join(' ')} — only version values changed against the merge base; a manifest whose other content changed still needs a lane`);
   for (const r of sel.remote) lines.push(`requires-remote ${r.lane} (${r.platform}): ${r.tests.length} test(s) — ${r.tests.slice(0, 8).join(' ')}${r.tests.length > 8 ? ' …' : ''}`);
   lines.push(`Tiers ran: ${sel.tiersRan.join(' ') || '(none)'}; requires-remote: ${[...new Set(sel.remote.map(r => r.platform))].join(' ') || 'none'}`);
@@ -458,10 +459,10 @@ const GSTACK_ROOT = path.resolve(import.meta.dir, '..', '..', '..');
  */
 function remoteObligation(ctx: PregateContext, sel: Selection): RemoteObligation {
   const declared = ctx.config.remote_gate;
-  const runner = detectRunner(ctx, sel.localTests);
-  const command = declared ?? `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)} -- ${quote(runner ? runner.replace('{files}', sel.localTests.map(quote).join(' ')) : '<test runner> <selected files>')}`;
+  const runner = detectRunner(ctx, sel.gateTests);
+  const command = declared ?? `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)} -- ${quote(runner ? runner.replace('{files}', sel.gateTests.map(quote).join(' ')) : '<test runner> <selected files>')}`;
   const [workflow, job] = declared ? REMOTE_GATE_LANE.split('/') as [string, string] : ['test_backend', ctx.testBackend];
-  return { lane: `${workflow}/${job}`, platform: 'remote', workflow, job, tests: sel.localTests, receipt: null, command };
+  return { lane: `${workflow}/${job}`, platform: 'remote', workflow, job, tests: sel.gateTests, receipt: null, command };
 }
 
 export const REMOTE_GATE_LANE = 'pregate.json/remote_gate';
@@ -508,7 +509,7 @@ async function runRemote(ctx: PregateContext, sel: Selection, base: CheckResult)
   const log = path.join(dir, 'remote.log');
   const filesFile = path.join(dir, 'files.txt');
   fs.writeFileSync(log, '');
-  fs.writeFileSync(filesFile, sel.localTests.join('\n') + '\n');
+  fs.writeFileSync(filesFile, sel.gateTests.join('\n') + '\n');
   const r = await supervise({ command: obligation.command!, cwd: ctx.repoRoot, env: { ...ctx.env, PREGATE_TREE: ctx.wtree, PREGATE_FILES_FILE: filesFile, PREGATE_SPEND_CAP_USD: String(cap), PREGATE_TIMEOUT_S: String(Math.floor(ctx.timeoutMs / 1000)) }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: 0, lastLine: true, label: `remote gate ${obligation.lane}`, progress: ctx.progress });
   const output = readRange(log, r.start, r.end);
   const reported = parseRemoteReport(output);
@@ -542,17 +543,18 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
       : ctx.touched.length ? 'nothing touched selects a test' : 'no touched files';
     return { ...base, detail };
   }
-  if (ctx.remote && sel.localTests.length) return runRemote(ctx, sel, base);
-  const smallMachine = ctx.cores < SMALL_MACHINE_CORES && sel.localTests.length > 0 && (ctx.config.remote_gate || ctx.testBackend !== 'local');
+  if (ctx.remote && sel.gateTests.length) return runRemote(ctx, sel, base);
+  const smallMachine = ctx.cores < SMALL_MACHINE_CORES && sel.gateTests.length > 0 && (ctx.config.remote_gate || ctx.testBackend !== 'local');
   if (smallMachine) {
     const obligation = remoteObligation(ctx, sel);
     const route = obligation.lane === REMOTE_GATE_LANE && ctx.config.remote_gate_runs && ctx.ciCarry !== false
       ? `a verified CI run at this tree clears it: push, then gstack-ci-carry wait --base ${ctx.base} and rerun gstack-pregate --allow-repo-commands (a pull_request run of a branch behind its base tested the merge, another tree: dispatch the workflow on the branch); or opt in to the VM: gstack-pregate --remote --spend-cap <usd> --allow-repo-commands`
       : `run it, then ${clearHint(obligation.lane)}, or gstack-pregate --remote --spend-cap <usd> --allow-repo-commands`;
-    return { ...base, status: 'requires-remote', remote: [...sel.remote, obligation], lines: [...lines, `requires-remote ${obligation.lane}: ${ctx.cores} cores (under ${SMALL_MACHINE_CORES}); ${sel.localTests.length} local test file(s) recorded for the remote gate, not run here`, `run: ${obligation.command}`], detail: `${sel.localTests.length} local test file(s) recorded as requires-remote ${obligation.lane} (${ctx.cores} cores, under ${SMALL_MACHINE_CORES}); ${route}` };
+    return { ...base, status: 'requires-remote', remote: [...sel.remote, obligation], lines: [...lines, `requires-remote ${obligation.lane}: ${ctx.cores} cores (under ${SMALL_MACHINE_CORES}); ${sel.gateTests.length} local test file(s) recorded for the remote gate, not run here`, `run: ${obligation.command}`], detail: `${sel.gateTests.length} local test file(s) recorded as requires-remote ${obligation.lane} (${ctx.cores} cores, under ${SMALL_MACHINE_CORES}); ${route}` };
   }
   if (!ctx.allowRepoCommands) return { ...base, status: 'incomplete', code: 'REPO_COMMANDS_NOT_ALLOWED', detail: `${sel.localTests.length} local test file(s) selected but not run (pass --allow-repo-commands)`, fix: 'rerun with --allow-repo-commands (what /ship passes)' };
-  if (sel.localTests.length === 0) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no local lane; ${sel.remote.length} requires-remote obligation(s)` };
+  const tier = sel.declaredTier.reduce((n, d) => n + d.tests.length, 0);
+  if (sel.localTests.length === 0) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no local lane; ${sel.remote.length} requires-remote obligation(s)${tier ? `; ${tier} test file(s) in declared test trees not run here` : ''}` };
   // Runnable groups run even when other files are unclaimed: a real failure is reported as one, and an all-green run is still incomplete.
   const plan = planRuns(ctx, sel.localTests);
   const gap = plan.unclaimed.length ? planGap(ctx, plan, sel.localTests.length) : null;
@@ -636,7 +638,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   }
   const reuse = ctx.fromRun ? fromRun(ctx, sel) : null;
   if (reuse) ctx.progress(reuse.line);
-  const rest = reuse?.passed.length ? { ...sel, localTests: sel.localTests.filter(t => !reuse.passed.includes(t)) } : sel;
+  const rest = reuse?.passed.length ? { ...sel, localTests: sel.localTests.filter(t => !reuse.passed.includes(t)), gateTests: sel.gateTests.filter(t => !reuse.passed.includes(t)) } : sel;
   const ran = await runSelected(ctx, rest, base);
   const reused = !reuse ? ran : { ...ran, lines: [reuse.line, ...(ran.lines ?? [])], ...(reuse.receipt ? { from_run: { receipt: reuse.receipt, files: reuse.passed }, detail: `${reuse.passed.length} of ${sel.localTests.length} local test file(s) passed in the --from-run run; ${ran.detail ?? ran.status}` } : {}) };
   const result = withRemoved(reused);
