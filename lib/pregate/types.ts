@@ -36,6 +36,8 @@ export interface PregateContext {
   configLabel: string;
   /** Where the policy came from: the base branch, the unreviewed head, the user-owned file, or nowhere (defaults). */
   configKind: 'base' | 'head' | 'user' | 'none';
+  /** A `--policy-from head` run with no base or user policy: the head file is a bootstrap, so its `[]` declarations on test folders drop nothing. */
+  headBootstrap?: boolean;
   /** The active policy has a `dependencies`, `empty_lanes`, `selection` or `local` key (config LANE_KEYS); false keeps the no-policy lane verdicts. Absent counts as declared. */
   policyDeclaresLanes?: boolean;
   /** This run's scratch directory under the state root (lib/pregate/run-scratch.ts): logs and scan files, never os.tmpdir(). */

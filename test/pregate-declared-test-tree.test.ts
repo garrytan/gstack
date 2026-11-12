@@ -9,6 +9,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { lanesCheck } from '../lib/pregate/checks/lanes';
+import { buildContext } from '../lib/pregate/context';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const TIER_TEST = "const test = require('node:test');\nconst { v } = require('./fixture');\ntest('needs the live tier', () => { throw new Error('tier test ran in the local lane ' + v); });\n";
@@ -81,6 +83,39 @@ describe('declared test trees', () => {
     const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--only', 'lanes', '--policy-from', 'head']);
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain('(PREGATE_HEAD_POLICY_LOOSENS');
+  });
+
+  test('an always_run test inside the declared tree still runs, whether always_run added it or the diff selected it first', () => {
+    for (const touched of <Array<Record<string, string>>>[{ 'lib/util.js': 'exports.add = (a, b) => a + b + 0;\n' }, { 'tests/live/x.test.js': TIER_TEST + '\n' }]) {
+      const repo = makeFixtureRepo({ pregate: { ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, 'tests/live/**': [] } }, baseFiles: { ...BASE_FILES, '.gstack/always-run.json': JSON.stringify({ tests: ['tests/live/**'] }) } });
+      repos.push(repo);
+      commit(repo, touched);
+      const r = lanes(repo);
+      expect(r.status).not.toBe(EXIT.ok);
+      expect(r.out).toContain('tier test ran in the local lane');
+      expect(r.out).not.toContain('declared test tree');
+    }
+  });
+
+  test('with no base or user policy, a [] the branch adds in its bootstrap policy drops nothing under --policy-from head', () => {
+    const repo = makeFixtureRepo({ pregate: null, baseFiles: BASE_FILES });
+    repos.push(repo);
+    commit(repo, { '.gstack/pregate.json': JSON.stringify({ ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, 'tests/live/**': [] } }) + '\n', 'tests/live/x.test.js': TIER_TEST + '\n' });
+    const r = runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--only', 'lanes', '--policy-from', 'head']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.out).toContain('tier test ran in the local lane');
+    expect(r.out).not.toContain('declared test tree');
+  });
+
+  test('on a small machine the remote gate still owes a declared-tree test: the exclusion is local-only', async () => {
+    const repo = makeFixtureRepo({ pregate: { ...BASE_PREGATE, remote_gate: 'node scripts/remote-gate.js', dependencies: { ...BASE_PREGATE.dependencies, 'tests/live/**': [] } }, baseFiles: BASE_FILES });
+    repos.push(repo);
+    commit(repo, { 'tests/live/x.test.js': TIER_TEST + '\n' });
+    const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 4, testBackend: 'local' });
+    if (!('ctx' in loaded)) throw new Error('fixture context refused');
+    const r = await lanesCheck.run(loaded.ctx);
+    expect(r.status).toBe('requires-remote');
+    expect(r.remote?.find(o => o.lane === 'pregate.json/remote_gate')?.tests).toEqual(['tests/live/x.test.js']);
   });
 
   test('a [] declaration on a glob that names no test directory keeps running the tests under it', () => {
