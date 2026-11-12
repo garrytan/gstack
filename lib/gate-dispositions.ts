@@ -20,6 +20,7 @@ import { appendRows, locate, readRecord, type ApprovalRow, type Env, type Record
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 import { GSTACK_ACTOR } from './ruled-notes';
+import { BIN_DIR, runScriptSync } from './script-invocation';
 
 export interface GateDisposition { finding: string; gate_id: string; head: string; by: string; reason: string; words: string; at: string; approval: string }
 
@@ -40,7 +41,7 @@ export const gateDispositionDigest = (r: Record<string, unknown>) => 'sha256:' +
 function writerShaped(r: Record<string, any>, branch: string): boolean {
   const str = (v: unknown) => typeof v === 'string' && v.trim() === v && v !== '';
   return r.schema_version === 1 && typeof r.id === 'string' && APPROVAL_ID.test(r.id) && r.source === GATE_SOURCE && r.outcome === 'approved' &&
-    r.pending === 'none' && str(r.by) && !GSTACK_ACTOR.test(r.by) && str(r.words) && ONE_LINE.test(r.words) && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
+    r.pending === 'none' && str(r.by) && ONE_LINE.test(r.by) && !GSTACK_ACTOR.test(r.by) && str(r.words) && ONE_LINE.test(r.words) && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
     typeof r.recorded_at === 'string' && ISO_TIME.test(r.recorded_at) && r.branch === branch && typeof r.ask === 'string' && typeof r.scope === 'string' &&
     r.id === 'a-' + createHash('sha256').update([r.source, r.date, r.ask, r.words, r.by].join('\u0000')).digest('hex').slice(0, 12) &&
     r.digest === gateDispositionDigest(r);
@@ -95,7 +96,11 @@ export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: 
   return { applied: gateDispositions(readRecord(loc).rows, loc.branch).filter(d => contains(d.head)), loc };
 }
 
-/** The /ship runs open on `branch` in any worktree of this repository (found through the git common dir); a detached worktree's run counts too. */
+/**
+ * The /ship runs open on `branch` in any worktree of this repository (found through the git common dir); a detached worktree's run
+ * counts too. A marker counts while its run's lease is open (`gstack-lease open`, the test preflight uses), so a run parked before
+ * finish stops counting once its 120-minute lease ends; a lease check that cannot run counts the marker as open.
+ */
 export function openShipRunsOn(cwd: string, branch: string): string[] {
   const list = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd, encoding: 'utf8', timeout: 10_000 });
   if (list.status !== 0) return [`unknown (git worktree list failed: ${(list.stderr ?? '').trim().slice(0, 120)})`];
@@ -110,7 +115,8 @@ export function openShipRunsOn(cwd: string, branch: string): string[] {
     if (marker.status !== 0 || !marker.stdout.trim()) continue;
     let run = '';
     try { run = fs.readFileSync(path.resolve(dir, marker.stdout.trim()), 'utf8').trim(); } catch { continue; }
-    if (run) open.push(real(dir) === real(here) ? `${run} is open on this checkout` : `${run} is open in the worktree ${dir}`);
+    if (!run || runScriptSync(path.join(BIN_DIR, 'gstack-lease'), ['open', '--root', dir, '--run', run], { cwd: dir, encoding: 'utf8', timeout: 60_000 }).status === 1) continue;
+    open.push(real(dir) === real(here) ? `${run} is open on this checkout` : `${run} is open in the worktree ${dir}`);
   }
   return open;
 }
@@ -134,10 +140,12 @@ export function withGateLock<T>(cwd: string, fn: () => T, waitMs = 15_000): T | 
 
 /** Append one disposition row under the lock, refused while any /ship run is open on its branch in any worktree (the check and the append are one step). */
 export function recordGateDisposition(cwd: string, loc: StoreLocation, row: ApprovalRow): ReturnType<typeof appendRows> {
+  const signed = { ...row, digest: gateDispositionDigest(row as unknown as Record<string, unknown>) } as ApprovalRow;
+  if (!gateDispositions([signed], loc.branch).length) return { code: 'APPROVAL_RECORD_INVALID', message: 'the row would not count as a gate disposition (gstack-approvals dispositions would not list it: a 40-hex --head and one-line fields are required), so it would close nothing; nothing was written' };
   const held = withGateLock(cwd, () => {
     const open = openShipRunsOn(cwd, loc.branch);
     if (open.length) return { code: 'APPROVAL_RECORD_INVALID' as const, message: `/ship run ${open.join('; /ship run ')} (branch ${loc.branch}): a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session once no /ship run is open on the branch` };
-    return appendRows(loc, [{ ...row, digest: gateDispositionDigest(row as unknown as Record<string, unknown>) } as ApprovalRow]);
+    return appendRows(loc, [signed]);
   });
   return held;
 }

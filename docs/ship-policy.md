@@ -1736,9 +1736,12 @@ The row is an approved `gstack-approvals` row with scope `gate_disposition
 <fingerprint> <gate_id> <head>`, ask `gate_disposition <fingerprint> <gate_id> at
 <head>: <reason>` and the owner's words in `words` (`lib/gate-dispositions.ts`).
 `gate` refuses a missing `--gate-id` (or a literal `undefined` or `null`), empty
-`--words`, a reason or words with a newline or control character, a `--head` that
-is not a commit, a `--by` naming gstack, and any call while a /ship run's marker is
-open on the branch in any worktree of the repository. It finds those worktrees
+`--words`, a reason, words or `--by` with a newline or control character (each is
+trimmed first), a `--head` that is not a commit, a `--by` naming gstack, a row that
+`dispositions` would not list (a head that is not 40 hex, for one), and any call
+while a /ship run is open on the branch in any worktree of the repository: its
+marker counts while its lease is open, the same test preflight uses, so a run parked
+before finish stops counting once its 120-minute lease ends. It finds those worktrees
 through the git common dir, and it checks and appends under a lock there that
 /ship's preflight also takes to write its marker. `add` refuses the scope and
 `--source gate`, so `gate` is the only writer. A row counts only when it has every

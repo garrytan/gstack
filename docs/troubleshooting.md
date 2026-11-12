@@ -6890,7 +6890,8 @@ closes a gate finding, and nothing the lane writes on its review row does either
 
 **Fix.** When the owner approved the gate change, record the owner's answer at the
 stop head the review read, with the `fingerprint` and `gate_id` from the review row,
-while no /ship run is open on that branch in any worktree:
+while no /ship run is open on that branch in any worktree (a parked run's marker stops
+counting once its 120-minute lease ends, as it does for preflight):
 
 ```bash
 gstack-approvals gate --finding '<fingerprint>' --gate-id <gate_id> --head <stop head> \

@@ -48,6 +48,14 @@ const log = (f: ShipFx, skill: string, row: Record<string, unknown>) => {
   const logged = f.run(path.join(BIN, 'gstack-review-log'), [JSON.stringify({ skill, timestamp: '2026-11-11T20:30:13Z', via: 'ship', review_scope: 'frozen', ...row }), '--finish', start.stdout.trim()], env);
   expect(logged.status, logged.stderr).toBe(0);
 };
+/** A /ship run open on `dir` as preflight leaves it: the run marker plus an open lease held by this live test process. */
+const openRun = (f: ShipFx, dir = f.work) => {
+  const marker = path.resolve(dir, spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd: dir, encoding: 'utf8', timeout: 60_000 }).stdout.trim());
+  fs.writeFileSync(marker, 'ship-906-3a27393\n');
+  const lease = spawnSync(path.join(BIN, 'gstack-lease'), ['touch', '--root', dir, '--pid', String(process.pid), '--run', 'ship-906-3a27393'], { encoding: 'utf8', timeout: 60_000 });
+  expect(lease.status, lease.stderr).toBe(0);
+  return marker;
+};
 /** The newest row of a skill as gstack-review-read prints it. */
 const read = (f: ShipFx, skill = 'review') => run(f, 'gstack-review-read', []).stdout.split('\n---CONFIG---')[0]!.split('\n')
   .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === skill ? [v] : []; } catch { return []; } }).at(-1);
@@ -107,8 +115,7 @@ describe('a recorded owner disposition closes an unattended gate finding (GST-24
 
   test('gate refuses a call inside the open /ship run, empty or multi-line words, and add with the scope', () => {
     const { f, head } = firstPass();
-    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
-    fs.writeFileSync(marker, 'ship-906-3a27393\n');
+    const marker = openRun(f);
     const inRun = gate(f, GATE, head);
     expect([inRun.status, inRun.stderr]).toEqual([EXIT.usage, expect.stringContaining('/ship run ship-906-3a27393 is open on this checkout')]);
     fs.rmSync(marker);
@@ -203,10 +210,21 @@ describe('finish with a gate disposition (GST-2491)', () => {
 describe('a disposition the lane makes for itself is refused or ignored (GST-2491)', () => {
   const store = (f: ShipFx) => locate({ cwd: f.work, env: { ...process.env, GSTACK_STATE_ROOT: f.state, GSTACK_HOME: f.state, GSTACK_APPROVALS_MIRROR: '0' }, branch: 'feat' }) as StoreLocation;
 
+  test('a recorder name is trimmed and one line, and a parked run whose lease ended no longer refuses', () => {
+    const { f, head } = firstPass();
+    const lines = gate(f, GATE, head, { by: 'Founderstar\nCaptain' });
+    expect([lines.status, lines.stderr]).toEqual([EXIT.usage, expect.stringContaining('one line')]);
+    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    fs.writeFileSync(marker, 'ship-906-parked\n');
+    const spaced = gate(f, GATE, head, { by: ` ${BY} ` });
+    expect(spaced.status, spaced.stderr).toBe(0);
+    expect(run(f, 'gstack-approvals', ['dispositions']).stdout).toContain(`by ${BY} at`);
+    expect(read(f).review_freshness.status).toBe('CURRENT');
+  });
+
   test('a sibling worktree cannot record while the branch has an open /ship run, and records once it closes', () => {
     const { f, head } = firstPass();
-    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
-    fs.writeFileSync(marker, 'ship-906-3a27393\n');
+    const marker = openRun(f);
     const sib = path.join(f.root, 'sib');
     expect(f.git('worktree', 'add', '-q', '-b', 'owner-side', sib, 'HEAD').status).toBe(0);
     const fromSib = () => spawnSync(path.join(BIN, 'gstack-approvals'), ['gate', '--branch', 'feat', '--finding', GATE, '--gate-id', GATE_ID, '--head', head, '--reason', REASON, '--words', WORDS, '--by', BY],

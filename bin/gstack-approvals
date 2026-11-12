@@ -187,14 +187,14 @@ function main(argv: string[]): number {
       rows = [built];
     } else if (cmd === 'gate') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
-      const finding = (flags['--finding'] ?? '').trim(), gateId = (flags['--gate-id'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim(), words = (flags['--words'] ?? '').trim();
+      const finding = (flags['--finding'] ?? '').trim(), gateId = (flags['--gate-id'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim(), words = (flags['--words'] ?? '').trim(), by = (flags['--by'] ?? '').trim();
       if (!finding || /\s/.test(finding) || !validGateId(gateId) || !reason) return invalid('gate needs --finding <the gate finding\'s fingerprint>, --gate-id <its gate_id from the review row>, both without spaces (a finding with no gate_id, or a literal undefined, cannot be dispositioned), and --reason <the gate change, one line>');
       if (!words) return invalid('gate needs --words <the owner\'s exact words>: a gate disposition is the owner\'s, in the owner\'s words');
-      if (!ONE_LINE.test(reason) || !ONE_LINE.test(words)) return invalid('--reason and --words are one line each: no newline or control character');
+      if (!ONE_LINE.test(reason) || !ONE_LINE.test(words) || !ONE_LINE.test(by)) return invalid('--reason, --words and --by are one line each: no newline or control character');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('gate needs --head <the stop head the owner answered at, a commit in this repository>');
-      if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
-      const built = buildRow({ ...gateDispositionRow(finding, gateId, head.stdout.trim(), reason), words, by: flags['--by'] ?? '', date: flags['--date'], source: GATE_SOURCE }, loc.branch);
+      if (GSTACK_ACTOR.test(by)) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
+      const built = buildRow({ ...gateDispositionRow(finding, gateId, head.stdout.trim(), reason), words, by, date: flags['--date'], source: GATE_SOURCE }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       const res = recordGateDisposition(process.cwd(), loc, built);
       if ('code' in res) return fail(cmd, res);
