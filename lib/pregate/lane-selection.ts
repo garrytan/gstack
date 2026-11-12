@@ -15,13 +15,16 @@ import { PREGATE_CONFIG_PATH } from './config';
 import { isDocsEmptyLane, isInertNoTests, isProtectedTree } from './docs-lane';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { buildGraph, isTestFile, listRepoFiles, TEST_TREE, testsFor, type Graph } from './import-graph';
+import { buildGraph, isTestFile, listRepoFiles, testsFor, type Graph } from './import-graph';
 import { stampFileKind, versionStampOnly } from './stamp-only';
 import type { PregateContext, RemoteObligation } from './types';
 import type { Lane } from './workflows';
 
 /** Whole-tree tests every selection that runs a test must include (GST-98). Kept out of pregate.json so older readers, which reject unknown keys, keep working. */
 export const ALWAYS_RUN_PATH = '.gstack/always-run.json';
+
+/** A glob naming a folder inside a test directory (`tests/live/**`, never `test/**`): its `[]` declaration keeps the tests under it out of the local lane. */
+const TEST_SUBTREE = /(?:^|\/)(?:test|tests|spec|__tests__)\/[^*?[{/]+\//;
 
 /** The `tests` globs of one `.gstack/always-run.json` text; `label` names the copy in errors. */
 export function parseAlwaysRun(text: string, label: string = ALWAYS_RUN_PATH): string[] {
@@ -68,7 +71,7 @@ export interface Selection {
   inert: string[];
   /** Release manifests whose diff against the merge base changes only version values (lib/pregate/stamp-only.ts): waived, no lane needed. */
   stampOnly: string[];
-  /** Selected tests a `[]` declaration on a test-tree glob (one naming a test/, tests/, spec/ or __tests__/ directory) kept out, per glob: the repo runs them in their own tier. */
+  /** Local-lane tests a `[]` declaration on a folder inside a test directory (TEST_SUBTREE) kept out, per glob: the repo runs them in their own tier. They stay in `tests` and in any remote obligation. */
   declaredTier: Array<{ glob: string; tests: string[] }>;
   /** Every test the touched files select, sorted. */
   tests: string[];
@@ -285,15 +288,6 @@ export function selectLanes(ctx: PregateContext): Selection {
     }
     noLane.push(file);
   }
-  const tierGlobs = Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_TREE.test(glob)).map(([glob]) => glob);
-  const declaredTier = tierGlobs.map(glob => ({ glob, tests: [] as string[] }));
-  for (const t of [...tests].sort()) {
-    const tier = declaredTier.find(d => matchesAny([d.glob], t));
-    if (!tier) continue;
-    tier.tests.push(t);
-    tests.delete(t);
-    provenance.push(`${t}: not run here; ${tier.glob} is declared [] in ${PREGATE_CONFIG_PATH} (its own tier)`);
-  }
   if (tests.size || noLane.length || seeds.has(ALWAYS_RUN_PATH)) {
     const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)), readAtMergeBase(ctx, ALWAYS_RUN_PATH, ['100644', '100755']));
     for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${always.baseOnly.includes(t) ? 'merge base ' : ''}${ALWAYS_RUN_PATH})`); }
@@ -319,6 +313,15 @@ export function selectLanes(ctx: PregateContext): Selection {
   }
   if (anyLocalAll || ctx.lanes.filter(l => l.runsTests && !l.manual && l.tier !== 'platform').length === 0) for (const t of selected) local.add(t);
   for (const t of selected) if (!local.has(t) && !remote.some(r => r.tests.includes(t))) local.add(t);
+  const declaredTier = Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_SUBTREE.test(glob)).map(([glob]) => ({ glob, tests: [] as string[] }));
+  for (const t of [...local].sort()) {
+    const tier = declaredTier.find(d => matchesAny([d.glob], t));
+    if (!tier) continue;
+    tier.tests.push(t);
+    local.delete(t);
+    provenance.push(`${t}: not run in the local lane; ${tier.glob} is declared [] in ${PREGATE_CONFIG_PATH} (its own tier)`);
+  }
+  if (!local.size) tiers.clear();
   if (local.size && tiers.size === 0) tiers.add('unit');
   return { noLane: noLane.sort(), removed: removed.sort((a, b) => a.file.localeCompare(b.file)), emptyLane: emptyLane.sort(), inert: inert.sort(), stampOnly: stampOnly.sort(), declaredTier: declaredTier.filter(d => d.tests.length), tests: selected, localTests: [...local].sort(), remote, tiersRan: [...tiers].sort(), laneSets, provenance };
 }

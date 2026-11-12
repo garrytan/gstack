@@ -541,8 +541,7 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     const label = sel.emptyLane.length ? 'docs/no-tests' : sel.inert.length ? 'no-tests' : 'version-stamp-only';
     const detail = classes.length ? `${label}: ${classes.join(' and ')}; nothing touched selects a test`
       : ctx.touched.length ? 'nothing touched selects a test' : 'no touched files';
-    const tier = sel.declaredTier.reduce((n, d) => n + d.tests.length, 0);
-    return { ...base, detail: tier ? `${detail}; ${tier} test file(s) in declared test trees not run here` : detail };
+    return { ...base, detail };
   }
   if (ctx.remote && sel.localTests.length) return runRemote(ctx, sel, base);
   const smallMachine = ctx.cores < SMALL_MACHINE_CORES && sel.localTests.length > 0 && (ctx.config.remote_gate || ctx.testBackend !== 'local');
@@ -554,7 +553,8 @@ async function runSelected(ctx: PregateContext, sel: Selection, base: CheckResul
     return { ...base, status: 'requires-remote', remote: [...sel.remote, obligation], lines: [...lines, `requires-remote ${obligation.lane}: ${ctx.cores} cores (under ${SMALL_MACHINE_CORES}); ${sel.localTests.length} local test file(s) recorded for the remote gate, not run here`, `run: ${obligation.command}`], detail: `${sel.localTests.length} local test file(s) recorded as requires-remote ${obligation.lane} (${ctx.cores} cores, under ${SMALL_MACHINE_CORES}); ${route}` };
   }
   if (!ctx.allowRepoCommands) return { ...base, status: 'incomplete', code: 'REPO_COMMANDS_NOT_ALLOWED', detail: `${sel.localTests.length} local test file(s) selected but not run (pass --allow-repo-commands)`, fix: 'rerun with --allow-repo-commands (what /ship passes)' };
-  if (sel.localTests.length === 0) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no local lane; ${sel.remote.length} requires-remote obligation(s)` };
+  const tier = sel.declaredTier.reduce((n, d) => n + d.tests.length, 0);
+  if (sel.localTests.length === 0) return { ...base, status: sel.remote.length ? 'requires-remote' : 'pass', detail: `no local lane; ${sel.remote.length} requires-remote obligation(s)${tier ? `; ${tier} test file(s) in declared test trees not run here` : ''}` };
   // Runnable groups run even when other files are unclaimed: a real failure is reported as one, and an all-green run is still incomplete.
   const plan = planRuns(ctx, sel.localTests);
   const gap = plan.unclaimed.length ? planGap(ctx, plan, sel.localTests.length) : null;
