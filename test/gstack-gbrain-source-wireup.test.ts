@@ -755,3 +755,36 @@ describe('gstack-gbrain-source-wireup --check-target (#4325)', () => {
     expect(fs.existsSync(worktreeDir)).toBe(false);
   });
 });
+
+// The shared helper itself (#4325): every gstack shell read of gbrain's config
+// resolves through bin/gstack-gbrain-home.sh, which follows gbrain's configDir().
+describe('bin/gstack-gbrain-home.sh (#4325)', () => {
+  const HELPER = path.join(ROOT, 'bin/gstack-gbrain-home.sh');
+
+  function configPath(gbrainHome?: string) {
+    const env: Record<string, string> = { PATH: HERMETIC_PATH, HOME: '/home/fixture' };
+    if (gbrainHome !== undefined) env.GBRAIN_HOME = gbrainHome;
+    const r = spawnSync('bash', ['-c', '. "$1" && gstack_gbrain_config_path', 'helper', HELPER], {
+      env,
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    return { status: r.status, out: r.stdout };
+  }
+
+  test('unset or blank GBRAIN_HOME means ~/.gbrain', () => {
+    for (const home of [undefined, '', '   ']) {
+      expect(configPath(home)).toEqual({ status: 0, out: '/home/fixture/.gbrain/config.json\n' });
+    }
+  });
+
+  test('GBRAIN_HOME is trimmed and is the parent of .gbrain', () => {
+    expect(configPath('  /srv/brain/ ')).toEqual({ status: 0, out: '/srv/brain/.gbrain/config.json\n' });
+  });
+
+  test('a GBRAIN_HOME gbrain refuses prints nothing and fails, with no ~/.gbrain fallback', () => {
+    for (const home of ['relative/home', '/srv/../brain', '/srv/brain/..']) {
+      expect(configPath(home)).toEqual({ status: 1, out: '' });
+    }
+  });
+});
