@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **/ship's test lane now runs test files under hidden folders such as `.github/scripts/` instead of failing on them.** The lane passed each selected test to `bun test` as a bare relative path. Bun 1.4 reads a bare path as a name filter, and that search skips hidden folders, so `bun test .github/scripts/x.test.mjs` found nothing, exited 1, and the pregate reported `PREGATE_LANE_FAILED` on a green test. That blocked /ship on any gbrain PR touching `.github/scripts/`. Every relative path now reaches `bun test` as an explicit path (`./` added unless it already starts with `./`, `../` or `/`): the local lane, the small-machine remote gate command, the docs-only reader tests and /ship's base-red check all share one helper with the CI carry's per-file command, which already did this. A failing test in a hidden folder still fails the lane.
