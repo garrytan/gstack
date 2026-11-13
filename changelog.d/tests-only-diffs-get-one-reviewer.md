@@ -1,4 +1,0 @@
----
-important: regression
----
-- **A change that only edits tests now gets one reviewer in /ship.** A pull request whose diff touched only test files (for example, a test switched to a scripted clock) made `gstack-review-plan` print a plan with zero readers, so the only review was the author's own core checklist read, and /ship carried on as if the change had been reviewed. Review policy (R51) gives tests one reviewer and one round. Now a tests-only diff plans one batched reader on the Testing checklist (`DISPATCH: specialist batched effort=medium checklists=testing`), which leaves any docs in the diff out of what it reads, and a clean pass or below-floor fixes still end the loop after that one round. A change that only touches registered generated outputs gets one batched reader on the code checklists too. A docs-only diff still plans no reader, and the plans for code, gate-class and security changes are unchanged.
