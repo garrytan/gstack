@@ -20,7 +20,7 @@ import { PREGATE_CONFIG_PATH, loadConfigFromHead, parseConfig, type ConfigLoad, 
 
 type Loaded = Exclude<ConfigLoad, { unavailable: true }>;
 
-const FROZEN = ['runner', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'stall_timeout_s', 'timeout_s', 'remote_gate', 'allowlist'] as const;
+const FROZEN = ['runner', 'runners', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'stall_timeout_s', 'timeout_s', 'remote_gate', 'allowlist'] as const;
 
 const canonical = (v: unknown): unknown => {
   if (Array.isArray(v)) return v.map(canonical).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
