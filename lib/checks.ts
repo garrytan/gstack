@@ -18,6 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
 import { resolveStateRoot } from './state-root';
+import { gbrainConfigDir } from './gbrain-exec';
 import { wtreeFingerprint } from './script-invocation';
 import type { PregateConfig } from './pregate/config';
 import { buildContext, defaultUserConfigPath, describeRefusal, withFingerprint } from './pregate/context';
@@ -151,6 +152,8 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   try { testScript = pkgText?.includes('"test"') ? JSON.parse(pkgText).scripts?.test : undefined; } catch { /* an unreadable package.json declares nothing */ }
   const listDir = (dir: string) => { try { return fs.readdirSync(dir); } catch { return []; } };
   const shellFiles = ['.', 'scripts', 'bin'].some(dir => listDir(path.join(root, dir)).some(f => f.endsWith('.sh')));
+  const gbrainDir = gbrainConfigDir(env);
+  const gbrainConfigLabel = env.GBRAIN_HOME?.trim() ? '$GBRAIN_HOME/.gbrain/config.json' : '~/.gbrain/config.json';
   const found: Array<[string, string, string] | false> = [
     has('tsconfig.json') && ['typecheck', 'tsc --noEmit', 'tsconfig.json'],
     (has('biome.json') || has('biome.jsonc')) && ['lint', 'biome check .', 'biome.json'],
@@ -163,7 +166,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     which('knip') && ['deadcode', 'knip', 'PATH'],
     !!pkgText?.includes('"knip"') && ['deadcode', 'npx knip', 'package.json'],
     which('shellcheck') && shellFiles && ['shell', 'shellcheck', 'PATH, *.sh in the root, scripts/ or bin/'],
-    which('gbrain') && !!env.HOME && fs.existsSync(path.join(env.HOME, '.gbrain', 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', 'PATH, ~/.gbrain/config.json'],
+    which('gbrain') && !!env.HOME && !!gbrainDir && fs.existsSync(path.join(gbrainDir, 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', `PATH, ${gbrainConfigLabel}`],
   ];
   const checks = found.filter((c): c is [string, string, string] => !!c).map(([dimension, command, source]) => ({ dimension, command, source }));
   const reasons: Record<string, string> = {
@@ -172,7 +175,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     test: typeof testScript === 'string' && /[\r\n]/.test(testScript) ? 'the package.json test script spans lines; list it in a CLAUDE.md Health Stack section' : 'no package.json test script, pytest in pyproject.toml, Cargo.toml or go.mod',
     deadcode: 'knip is not on PATH or in package.json',
     shell: which('shellcheck') ? 'no *.sh file in the root, scripts/ or bin/' : 'shellcheck is not on PATH',
-    gbrain: 'gbrain is not on PATH or ~/.gbrain/config.json is absent',
+    gbrain: gbrainDir ? `gbrain is not on PATH or ${gbrainConfigLabel} is absent` : 'GBRAIN_HOME is relative or has a ".." segment, which gbrain refuses',
   };
   return { checks, missing: HEALTH_DIMENSIONS.filter(d => !checks.some(c => c.dimension === d)).map(dimension => ({ dimension, reason: reasons[dimension] })) };
 }

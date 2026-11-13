@@ -73,8 +73,10 @@ export function isLoopbackMcpUrl(url: string | undefined | null): boolean {
  * isThinClient).
  */
 export function hasLocalPostgresEngine(env: NodeJS.ProcessEnv = process.env): boolean {
+  const configDir = gbrainConfigDir(env);
+  if (!configDir) return false;
   try {
-    const cfg = JSON.parse(readFileSync(join(gbrainConfigDir(env), "config.json"), "utf-8")) as {
+    const cfg = JSON.parse(readFileSync(join(configDir, "config.json"), "utf-8")) as {
       engine?: unknown;
       database_url?: unknown;
       remote_mcp?: unknown;

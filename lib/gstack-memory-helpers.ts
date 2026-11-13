@@ -382,8 +382,9 @@ export function detectEngineTier(): EngineDetect {
 // gbrain >=0.25 dropped the top-level `engine` field
 // from doctor output, so this file is the only reliable source for engine
 // detection on that version. See #1415.
-function gbrainConfigPath(): string {
-  return join(gbrainConfigDir(process.env), "config.json");
+function gbrainConfigPath(): string | null {
+  const dir = gbrainConfigDir(process.env);
+  return dir && join(dir, "config.json");
 }
 
 // Best-effort JSONL append to ~/.gstack/.gbrain-errors.jsonl. Never throws.
@@ -433,9 +434,10 @@ function freshDetectEngineTier(): EngineDetect {
   // uses engine:"postgres" for real Supabase AND any other remote postgres
   // (e.g. local-postgres-for-testing). Downstream sync code treats them the
   // same, so the label compression is intentional.
-  if (engine === "unknown") {
+  const configPath = gbrainConfigPath();
+  if (engine === "unknown" && configPath) {
     try {
-      const cfg = JSON.parse(readFileSync(gbrainConfigPath(), "utf-8"));
+      const cfg = JSON.parse(readFileSync(configPath, "utf-8"));
       if (cfg?.engine === "pglite") engine = "pglite";
       else if (cfg?.engine === "postgres" || cfg?.database_url) engine = "supabase";
     } catch (cfgErr) {
