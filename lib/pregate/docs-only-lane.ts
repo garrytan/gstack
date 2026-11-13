@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../bun-isolation';
 import { addedLines, brokenLinks } from '../doc-links';
 import { classifyDocsOnly } from '../docs-only';
+import { explicitPath } from '../test-paths';
 import type { CheckResult, PregateContext } from './types';
 
 /** The lanes result for a docs-only change, or null when the change is not docs-only (or cannot be classified). */
@@ -34,8 +35,8 @@ export function docsOnlyLane(ctx: PregateContext, base: CheckResult): CheckResul
   const done = (detail: string): CheckResult => ({ ...base, lines, status: 'pass', remote: [], detail });
   if (!tests.length) return done(`docs-only: ${r.files.length} file(s); links on added lines resolve; no docs reader tests; the test suites are not owed`);
   if (!ctx.allowRepoCommands) return { ...base, lines, status: 'incomplete', code: 'REPO_COMMANDS_NOT_ALLOWED', detail: `docs-only: ${tests.length} docs reader test file(s) selected but not run (pass --allow-repo-commands)`, fix: 'rerun with --allow-repo-commands (what /ship passes)' };
-  const run = spawnSync(process.execPath, [...bunIsolationArgs(), 'test', '--timeout=30000', ...tests], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 600_000, maxBuffer: 64 * 1024 * 1024 });
+  const run = spawnSync(process.execPath, [...bunIsolationArgs(), 'test', '--timeout=30000', ...tests.map(explicitPath)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 600_000, maxBuffer: 64 * 1024 * 1024 });
   const tail = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim().split('\n').slice(-3).join(' | ');
-  if (run.status !== 0) return { ...base, lines: [...lines, tail], status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `docs-only: docs reader tests failed (${run.error ? run.error.message : `exit ${run.status}`})`, fix: `bun test ${tests.join(' ')}` };
+  if (run.status !== 0) return { ...base, lines: [...lines, tail], status: 'fail', cause: 'diff', code: 'PREGATE_LANE_FAILED', detail: `docs-only: docs reader tests failed (${run.error ? run.error.message : `exit ${run.status}`})`, fix: `bun test ${tests.map(explicitPath).join(' ')}` };
   return done(`docs-only: ${r.files.length} file(s); links on added lines resolve; ${tests.length} docs reader test file(s) passed; the test suites are not owed`);
 }

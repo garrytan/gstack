@@ -30,6 +30,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pollDelayMs } from './gh-poll';
+import { explicitPath } from './test-paths';
 import { normalPath, runChanged, runInventory, runReceiptFields, uncoveredFiles, verifyRun, type ApiRun, type RunDeps, type RunEvidence, type RunProfile, type RunSource } from './run-evidence';
 
 export type CarryRefusal = 'dirty_tree' | 'no_profile' | 'no_run' | 'no_verified_run' | 'tree_mismatch' | 'no_tests'
@@ -231,7 +232,7 @@ export function recordCiResult(stderr: string): { runs?: string; tests?: string;
 
 /** The per_file runner command for `files`: `{files}` replaced by the paths, each anchored with ./ (Bun reads a bare relative path as a substring filter) and single-quoted for bash. */
 export const perFileCommand = (template: string, files: string[]): string =>
-  template.replaceAll('{files}', files.map(f => `'${(/^(\/|\.\/)/.test(f) ? f : `./${f}`).replace(/'/g, `'\\''`)}'`).join(' '));
+  template.replaceAll('{files}', files.map(f => `'${explicitPath(f).replace(/'/g, `'\\''`)}'`).join(' '));
 
 /** `<path>: <message>` errors for `ship_lanes_from`; empty when valid. Shared with lib/pregate/config.ts. */
 export function shipLanesErrors(raw: unknown, profileNames: readonly string[]): Array<{ path: string; message: string }> {
