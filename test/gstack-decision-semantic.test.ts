@@ -126,6 +126,42 @@ exit 1
     expect(semanticRecall("anything", env())).toBeNull();
   });
 
+  test("GSTACK_BRAIN_SOURCE_ID names a source outside the worktree and wins over it", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then
+  echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"},{"id":"team-artifacts","local_path":"/srv/brain/team-artifacts"}]}'
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  if printf '%s ' "$@" | grep -q -- "--source team-artifacts"; then
+    echo "[0.80] decisions/bar -- We kept the host-side clone"
+  else
+    echo "[0.80] WRONG-SOURCE -- not the named source"
+  fi
+  exit 0
+fi
+exit 1
+`,
+    );
+    const named = { ...env(), GSTACK_BRAIN_SOURCE_ID: "team-artifacts" };
+    expect(resolveMemorySourceId(named)).toBe("team-artifacts"); // not the worktree's "default"
+    expect(semanticRecall("clone", named)![0].slug).toBe("decisions/bar");
+  });
+
+  test("an unregistered GSTACK_BRAIN_SOURCE_ID degrades to null (no fallback, no unscoped search)", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "search" ]; then echo "[0.50] code/x -- should not be searched"; exit 0; fi
+exit 1
+`,
+    );
+    const named = { ...env(), GSTACK_BRAIN_SOURCE_ID: "missing-source" };
+    expect(resolveMemorySourceId(named)).toBeNull();
+    expect(semanticRecall("anything", named)).toBeNull();
+  });
+
   test("degrades to null when gbrain search exits non-zero", () => {
     writeShim(
       `#!/usr/bin/env bash

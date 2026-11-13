@@ -244,6 +244,7 @@ describe("gstack-decision-search --semantic (optional gbrain enhancement)", () =
   }
   function searchWithPath(args: string, pathPrefix?: string): string {
     const env = { ...process.env, GSTACK_HOME: tmpDir } as NodeJS.ProcessEnv;
+    delete env.GSTACK_BRAIN_SOURCE_ID; // a developer's override would bypass the shim's worktree source
     if (pathPrefix) env.PATH = `${pathPrefix}:${process.env.PATH}`;
     try {
       return execSync(`${SEARCH} ${args}`, { cwd: ROOT, env, encoding: "utf-8", timeout: 20000 }).trim();
