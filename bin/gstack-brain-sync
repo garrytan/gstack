@@ -1197,6 +1197,55 @@ subcmd_publish_removals() {
   esac
 }
 
+# Advance the brain worktree gbrain indexes to the artifacts repo's HEAD.
+# Called from the drain's EXIT trap, so it runs AFTER this run's commit and
+# any fetch-and-merge, on every exit path, while the drain lock is still held
+# (the advance's own lock call reuses the inherited lock token). Before this,
+# the advance ran once per 24h at the START of a drain, so it always pinned
+# the HEAD from before the drain's own commit and gbrain served artifacts up
+# to a day old (#2516 follow-up).
+#
+# Change-driven, not time-driven: a rev-parse comparison decides whether to
+# advance at all, so an up-to-date worktree costs two git calls. Only a run
+# that leaves the worktree behind (an advance error, or a refusal such as a
+# dirty or unmanaged worktree) writes the failure stamp, which holds further
+# attempts (and their warnings) for 24h. A later successful advance clears it.
+# INT/TERM disarm this, so a cancelled drain never runs a checkout.
+_BRAIN_ADVANCE_ARMED=0
+_brain_worktree_advance() {
+  [ "${_BRAIN_ADVANCE_ARMED:-0}" = 1 ] || return 0
+  _BRAIN_ADVANCE_ARMED=0
+  local wt="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}"
+  [ -e "$wt" ] || return 0
+  local parent cur
+  parent=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 0
+  cur=$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo "")
+  local fail_stamp="$GSTACK_HOME/.brain-worktree-advance-failed"
+  # The pre-fix attempt stamp would otherwise sit there forever.
+  rm -f "$GSTACK_HOME/.brain-worktree-last-advance" 2>/dev/null || true
+  if [ "$cur" = "$parent" ]; then
+    rm -f "$fail_stamp" 2>/dev/null || true
+    return 0
+  fi
+  local now last
+  now=$(date +%s)
+  last=$(cat "$fail_stamp" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $(( now - last )) -ge 86400 ] || return 0
+  local rc=0
+  "$SCRIPT_DIR/gstack-gbrain-source-wireup" --advance-only 1>&2 || rc=$?
+  cur=$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo "")
+  if [ "$cur" = "$parent" ]; then
+    rm -f "$fail_stamp" 2>/dev/null || true
+    return 0
+  fi
+  echo "$now" > "$fail_stamp" 2>/dev/null || true
+  if [ "$rc" -ne 0 ]; then
+    echo "BRAIN_SYNC: warning: brain worktree advance failed — gbrain may be indexing stale code (run gstack-gbrain-source-wireup to repair)" >&2
+  fi
+  return 0
+}
+
 subcmd_once() {
   if ! sync_active; then
     # Silent no-op when feature not initialized / disabled.
@@ -1209,7 +1258,11 @@ subcmd_once() {
   # including the empty-queue fast path and an INT during the detector's
   # network push; the mktemp block below re-traps with tempfile cleanup added.
   gstack_brain_lock_acquire "$GSTACK_HOME" try || exit 0
-  trap 'gstack_brain_lock_release' EXIT INT TERM
+  # The EXIT trap also advances the brain worktree (see _brain_worktree_advance);
+  # INT/TERM disarm that advance and only release.
+  _BRAIN_ADVANCE_ARMED=1
+  trap '_brain_worktree_advance; gstack_brain_lock_release' EXIT
+  trap '_BRAIN_ADVANCE_ARMED=0; gstack_brain_lock_release' INT TERM
 
   validate_outgoing_paths || exit 0
 
@@ -1226,29 +1279,6 @@ subcmd_once() {
 
   local mode
   mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-  # #2516: advance the brain worktree gbrain indexes to the artifacts repo's
-  # HEAD once a day — previously it only moved when setup-gbrain / sync-gbrain
-  # / brain-restore ran, so brains silently served stale code forever. Runs
-  # inside THIS run lock (never concurrent with the ingest steps below) and
-  # before they touch the worktree. Attempt-throttled: the stamp is written on
-  # ATTEMPT, so a persistently-failing advance warns once per 24h, not at
-  # every skill boundary. The advance itself refuses dirty or unmanaged
-  # worktrees and never force-removes (see gstack-gbrain-source-wireup).
-  if [ -e "${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}" ]; then
-    local adv_stamp adv_now adv_last adv_age
-    adv_stamp="$GSTACK_HOME/.brain-worktree-last-advance"
-    adv_now=$(date +%s)
-    adv_last=$(cat "$adv_stamp" 2>/dev/null || echo 0)
-    case "$adv_last" in ''|*[!0-9]*) adv_last=0 ;; esac
-    adv_age=$(( adv_now - adv_last ))
-    if [ "$adv_age" -ge 86400 ]; then
-      echo "$adv_now" > "$adv_stamp" 2>/dev/null || true
-      if ! "$SCRIPT_DIR/gstack-gbrain-source-wireup" --advance-only 1>&2; then
-        echo "BRAIN_SYNC: warning: brain worktree advance failed — gbrain may be indexing stale code (run gstack-gbrain-source-wireup to repair)" >&2
-      fi
-    fi
-  fi
 
   # Removals go first, so a removal commit whose push fails is one more
   # unpushed commit for the detector below.
@@ -1334,7 +1364,8 @@ subcmd_once() {
   groups_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-groups.XXXXXX") || { rm -f "$paths_file" "$class_file" "$snapshot_file"; write_status "error" "mktemp failed"; exit 1; }
   # Single trap covers all: lock release AND tempfile cleanup (the siblings
   # are the staging and hold steps' scratch files).
-  trap 'rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; gstack_brain_lock_release' EXIT INT TERM
+  trap 'rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; _brain_worktree_advance; gstack_brain_lock_release' EXIT
+  trap '_BRAIN_ADVANCE_ARMED=0; rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; gstack_brain_lock_release' INT TERM
 
   # Fail-safe (G1): a classifier that dies mid-run (ENOSPC/OOM/SIGKILL, or a
   # shape the defensive filters don't cover) may have already written the

@@ -111,12 +111,6 @@ EOF
   fi
 fi
 
-# ---- detect available providers ----
-gh_ok=false
-glab_ok=false
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then gh_ok=true; fi
-if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then glab_ok=true; fi
-
 # ---- choose remote URL ----
 if [ -z "$REMOTE_URL" ] && [ -n "$EXISTING_REMOTE" ]; then
   REMOTE_URL="$EXISTING_REMOTE"
@@ -127,8 +121,14 @@ fi
 REPO_NAME="gstack-artifacts-${USER:-$(whoami)}"
 DESCRIPTION="gstack artifacts (CEO plans, designs, reports) — synced from ~/.gstack/projects/"
 
-# Decide host preference if not pinned by --host.
+# Decide host preference if not pinned by --host. Only this choice needs the
+# providers' auth status, so an explicit --remote, an existing remote or --host
+# never asks: `glab auth status` without a glab config can block for ~30s.
 if [ -z "$REMOTE_URL" ] && [ -z "$HOST_PREF" ]; then
+  gh_ok=false
+  glab_ok=false
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then gh_ok=true; fi
+  if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then glab_ok=true; fi
   if $gh_ok && $glab_ok; then
     cat >&2 <<EOF
 

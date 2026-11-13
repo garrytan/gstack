@@ -130,29 +130,75 @@ describe('gstack-gbrain-source-wireup --advance-only (#2516)', () => {
   });
 });
 
-describe('brain-sync --once daily advance wiring (#2516)', () => {
-  test('once advances the worktree behind a 24h attempt stamp', () => {
+describe('brain-sync --once worktree advance wiring (#2516)', () => {
+  const failStamp = () => path.join(tmpHome, '.brain-worktree-advance-failed');
+  const wtHead = () => git(['rev-parse', 'HEAD'], worktreePath()).stdout;
+
+  test("a drain that commits advances the worktree to that drain's own commit", () => {
+    // The pre-fix advance ran before the commit, so gbrain always indexed
+    // the HEAD from before the drain's own artifacts.
+    const bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'wtree-adv-remote-'));
+    try {
+      spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote], { timeout: 30_000 });
+      expect(run(['gstack-artifacts-init', '--remote', bareRemote]).status).toBe(0);
+      run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+      git(['worktree', 'add', '--detach', worktreePath(), 'HEAD'], tmpHome);
+      const before = wtHead();
+
+      fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'),
+        '{"skill":"x","insight":"y","ts":"2026-01-01T00:00:00Z"}\n');
+      run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+      expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+
+      const parent = git(['rev-parse', 'HEAD'], tmpHome).stdout;
+      expect(git(['log', '-1', '--format=%s'], tmpHome).stdout).toMatch(/^sync: 1 file/);
+      expect(parent).not.toBe(before);
+      expect(wtHead()).toBe(parent);
+      expect(fs.existsSync(path.join(worktreePath(), 'projects/p/learnings.jsonl'))).toBe(true);
+    } finally {
+      fs.rmSync(bareRemote, { recursive: true, force: true });
+    }
+  });
+
+  test('advances on every run that finds the worktree behind, with no time window', () => {
     makeArtifactsRepoWithWorktree();
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'artifacts-only']);
-    const second = commit(tmpHome, 'second');
 
+    const second = commit(tmpHome, 'second');
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    expect(wtHead()).toBe(second);
+
+    const third = commit(tmpHome, 'third');
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    expect(wtHead()).toBe(third);
+    expect(fs.existsSync(failStamp())).toBe(false);
+  });
+
+  test('a worktree left behind holds retries for 24h, then a successful advance clears the hold', () => {
+    const { head } = makeArtifactsRepoWithWorktree();
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'artifacts-only']);
+    const second = commit(tmpHome, 'second');
+    fs.writeFileSync(path.join(worktreePath(), 'artifact.md'), 'local edit\n');
+
+    // First run: the advance refuses the dirty worktree and records the hold.
     const r1 = run(['gstack-brain-sync', '--once']);
     expect(r1.status).toBe(0);
-    const stamp = path.join(tmpHome, '.brain-worktree-last-advance');
-    expect(fs.existsSync(stamp)).toBe(true);
-    expect(git(['rev-parse', 'HEAD'], worktreePath()).stdout).toBe(second);
+    expect(r1.stderr).toContain('local changes');
+    expect(wtHead()).toBe(head);
+    expect(fs.existsSync(failStamp())).toBe(true);
 
-    // Within the 24h window: parent advances again, --once does NOT re-advance.
-    const third = commit(tmpHome, 'third');
+    // Within 24h: no new attempt, so no repeated warning at every skill start.
     const r2 = run(['gstack-brain-sync', '--once']);
     expect(r2.status).toBe(0);
-    expect(git(['rev-parse', 'HEAD'], worktreePath()).stdout).toBe(second);
-    expect(git(['rev-parse', 'HEAD'], worktreePath()).stdout).not.toBe(third);
+    expect(r2.stderr).not.toContain('local changes');
+    expect(wtHead()).toBe(head);
 
-    // Expire the stamp → the next --once advances again.
-    fs.writeFileSync(stamp, String(Math.floor(Date.now() / 1000) - 90000));
-    const r3 = run(['gstack-brain-sync', '--once']);
-    expect(r3.status).toBe(0);
-    expect(git(['rev-parse', 'HEAD'], worktreePath()).stdout).toBe(third);
+    // The worktree is clean again and the hold has expired: it advances and clears.
+    git(['checkout', '--', 'artifact.md'], worktreePath());
+    fs.writeFileSync(failStamp(), String(Math.floor(Date.now() / 1000) - 90000));
+    expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+    expect(wtHead()).toBe(second);
+    expect(fs.existsSync(failStamp())).toBe(false);
   });
 });

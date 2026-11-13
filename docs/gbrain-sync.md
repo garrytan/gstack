@@ -268,10 +268,15 @@ this — it happens automatically at the first skill invocation each day.
 Historical note (#2516): that daily pull refreshed only `~/.gstack` itself —
 NOT the detached worktree at `~/.gstack-brain-worktree` that gbrain actually
 indexes, so the brain silently served stale pages until the next
-setup-gbrain/sync-gbrain run. Since this fix, the daily sync also advances
-the brain worktree (`gstack-gbrain-source-wireup --advance-only`, throttled
-via `~/.gstack/.brain-worktree-last-advance`); a failed advance warns instead
-of failing silently, and never force-resets a dirty worktree.
+setup-gbrain/sync-gbrain run. Now every `gstack-brain-sync --once` (each
+skill start) ends by advancing the brain worktree to `~/.gstack`'s HEAD when
+it is behind (`gstack-gbrain-source-wireup --advance-only`). It runs after
+that sync's own commit and any merge from the remote, so gbrain's next pass
+indexes them. A pull made by the daily preamble reaches the worktree at the
+next skill start. An advance that leaves the worktree behind (an error, or a
+refusal such as local changes) warns and holds further attempts for 24h via
+`~/.gstack/.brain-worktree-advance-failed`; it never force-resets a dirty
+worktree.
 
 ## Uninstall
 
