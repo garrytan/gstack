@@ -34,7 +34,7 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { homedir, tmpdir } from "os";
 import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
 import { resolveWindowsBash, type BashProbe } from "./script-invocation";
@@ -80,16 +80,22 @@ export function isTransactionModePooler(url: string): boolean {
 }
 
 /**
- * gbrain's config directory, matching gbrain's own configDir() contract
- * (#2521): `GBRAIN_HOME` is a PARENT directory — gbrain always appends
- * `.gbrain` itself, so GBRAIN_HOME=/tmp/x reads /tmp/x/.gbrain/config.json.
- * Unset → ~/.gbrain. Every gstack-side gbrain-config read MUST resolve
- * through this helper, or gstack classifies engine status from a file
- * gbrain never reads.
+ * gbrain's config directory, by gbrain's own configDir() rule (src/core/config.ts
+ * in garrytan/gbrain, #2521): `GBRAIN_HOME`, trimmed with JavaScript trim(), is a
+ * PARENT directory and `.gbrain` is appended, so GBRAIN_HOME=/tmp/x reads
+ * /tmp/x/.gbrain/config.json. Unset or blank → ~/.gbrain. gbrain refuses a
+ * GBRAIN_HOME that is not absolute or has a `..` segment, so for one of those
+ * this returns null and the caller treats it as no config; falling back to
+ * ~/.gbrain would read a brain gbrain never uses. bin/gstack-gbrain-home.sh is
+ * the shell twin, and test/gbrain-home-parity.test.ts holds both to one table.
+ * Every gstack-side gbrain-config read MUST resolve through this helper, or
+ * gstack classifies engine status from a file gbrain never reads.
  */
-export function gbrainConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.GBRAIN_HOME) return join(env.GBRAIN_HOME, ".gbrain");
-  return join(env.HOME || homedir(), ".gbrain");
+export function gbrainConfigDir(env: NodeJS.ProcessEnv = process.env): string | null {
+  const home = env.GBRAIN_HOME?.trim();
+  if (!home) return join(env.HOME || homedir(), ".gbrain");
+  if (!isAbsolute(home) || home.split(/[\\/]/).includes("..")) return null;
+  return join(home, ".gbrain");
 }
 
 /**
@@ -122,7 +128,9 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   const out: NodeJS.ProcessEnv = { ...baseEnv };
   if (baseEnv.GSTACK_RESPECT_ENV_DATABASE_URL === "1") return out;
 
-  const configPath = join(gbrainConfigDir(baseEnv), "config.json");
+  const configDir = gbrainConfigDir(baseEnv);
+  if (!configDir) return out;
+  const configPath = join(configDir, "config.json");
   if (!existsSync(configPath)) return out;
 
   let cfg: GbrainConfig = {};
@@ -244,7 +252,7 @@ export function gbrainInvocation(args: string[]): { cmd: string; argv: string[];
 export function gbrainChildCwd(cwd?: string, env: NodeJS.ProcessEnv = process.env): string {
   if (cwd) return cwd;
   const dir = gbrainConfigDir(env);
-  return existsSync(dir) ? dir : tmpdir();
+  return dir && existsSync(dir) ? dir : tmpdir();
 }
 
 export interface SpawnGbrainOptions {

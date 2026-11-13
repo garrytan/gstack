@@ -2406,8 +2406,10 @@ export function transcriptSourceId(remote: string): string {
  */
 function brainIsRemote(remoteHttpMode: boolean): boolean {
   if (remoteHttpMode) return true;
+  const configDir = gbrainConfigDir();
+  if (!configDir) return false;
   try {
-    const cfg = JSON.parse(readFileSync(join(gbrainConfigDir(), "config.json"), "utf-8"));
+    const cfg = JSON.parse(readFileSync(join(configDir, "config.json"), "utf-8"));
     return (typeof cfg?.database_url === "string" && cfg.database_url.trim() !== "" && cfg.engine !== "pglite") || !!cfg?.remote_mcp;
   } catch {
     return false;
