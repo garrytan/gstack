@@ -611,8 +611,8 @@ describe('gstack-gbrain-source-wireup without jq (B8)', () => {
 // gbrain's configDir() does. Two homes hold different database_urls; the
 // GBRAIN_HOME one is the brain gbrain itself would use.
 describe('gstack-gbrain-source-wireup — GBRAIN_HOME (#4325)', () => {
-  const DEFAULT_URL = 'postgresql://postgres.default:pw-default@default.example.com:5432/default_brain';
-  const NAMED_URL = 'postgresql://postgres.named:pw-named@named.example.com:5432/named_brain';
+  const DEFAULT_URL = 'postgresql://postgres:postgres@localhost:5432/default_brain';
+  const NAMED_URL = 'postgresql://postgres:postgres@localhost:5433/named_brain';
   let gbrainHome: string;
 
   function writeConfig(dir: string, config: Record<string, unknown>) {
@@ -692,8 +692,8 @@ describe('gstack-gbrain-source-wireup — GBRAIN_HOME (#4325)', () => {
 // with GBRAIN_HOME set could have written to the default brain. Read-only, and
 // it never prints a database URL or any part of one.
 describe('gstack-gbrain-source-wireup --check-target (#4325)', () => {
-  const DEFAULT_URL = 'postgresql://postgres.default:pw-default@default.example.com:5432/default_brain';
-  const NAMED_URL = 'postgresql://postgres.named:pw-named@named.example.com:5432/named_brain';
+  const DEFAULT_URL = 'postgresql://postgres:postgres@localhost:5432/default_brain';
+  const NAMED_URL = 'postgresql://postgres:postgres@localhost:5433/named_brain';
   let gbrainHome: string;
 
   function writeConfig(dir: string, config: Record<string, unknown>) {
@@ -704,7 +704,7 @@ describe('gstack-gbrain-source-wireup --check-target (#4325)', () => {
   function check(env: Record<string, string>) {
     const r = run(['--check-target'], { env: { GBRAIN_DATABASE_URL: '', DATABASE_URL: '', ...env } });
     const out = r.stdout + r.stderr;
-    for (const secret of [DEFAULT_URL, NAMED_URL, 'pw-default', 'pw-named', 'default.example.com', 'named.example.com', 'postgres.default', 'postgres.named', 'postgresql://']) {
+    for (const secret of [DEFAULT_URL, NAMED_URL, 'postgres:postgres', 'localhost', ':5432', ':5433', 'default_brain', 'named_brain', 'postgresql://']) {
       expect(out).not.toContain(secret);
     }
     expect(gbrainCalls()).toEqual([]);
