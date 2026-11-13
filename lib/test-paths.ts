@@ -5,8 +5,8 @@
  * an error, so a caller rejects a missing file before Bun runs.
  */
 
-/** A command that runs `bun test` as a whole command word. */
-export const BUN_TEST = /(?:^|[\s;&|(])bun\s+test\b/;
+/** A command that runs `bun test` as a whole command word, with or without Bun's own flags before `test`. */
+export const BUN_TEST = /(?:^|[\s;&|(])bun(?:\s+--?[\w-]+(?:=\S+)?)*\s+test\b/;
 
 /** `file` as a path Bun reads as a path: `./` added unless it already starts with `./`, `../` or `/`. */
 export const explicitPath = (file: string): string => (/^\.{0,2}\//.test(file) ? file : `./${file}`);

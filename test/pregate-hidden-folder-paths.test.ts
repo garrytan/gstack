@@ -10,6 +10,9 @@ import * as path from 'node:path';
 import { buildContext } from '../lib/pregate/context';
 import { runPregate } from '../lib/pregate/index';
 import { explicitPath, testFileArgs } from '../lib/test-paths';
+import { runAt } from '../lib/base-red';
+import { perFileCommand } from '../lib/ci-carry';
+import { execFileSync } from 'node:child_process';
 import { cleanup, commit, makeFixtureRepo, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -21,12 +24,12 @@ const RED = "import { expect, test } from 'bun:test';\nimport { pick } from './s
 const DETECTED = { $schema: 'https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1', dependencies: { '.github/scripts/**': [TEST], 'docs/**': [], 'README.md': [] } };
 const DECLARED = { ...DETECTED, runner: 'bun test {files}' };
 
-async function lanes(policy: Record<string, unknown>, files: Record<string, string>, unlink: string[] = []) {
+async function lanes(policy: Record<string, unknown>, files: Record<string, string>, unlink: string[] = [], machine: { cores: number; testBackend: string } = { cores: 64, testBackend: 'local' }) {
   const repo = makeFixtureRepo({ pregate: policy, baseFiles: { 'bun.lock': '' } });
   repos.push(repo);
   commit(repo, { '.github/scripts/select.mjs': 'export const pick = (lanes) => lanes[0];\n', ...files }, 'add the lane selector');
   for (const rel of unlink) fs.rmSync(path.join(repo.work, rel));
-  const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 64, testBackend: 'local' });
+  const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, ...machine } as never);
   if (!('ctx' in loaded)) throw new Error('fixture context refused');
   const file = await runPregate(loaded.ctx, { stage: 'tests', only: ['lanes'] });
   return file.checks.find(c => c.id === 'lanes')!;
@@ -39,7 +42,15 @@ describe('explicit test paths for bun test', () => {
     expect(['.github/scripts/x.test.mjs', 'test/a.test.ts', './b.test.ts', '../c.test.ts', '/abs/d.test.ts'].map(explicitPath))
       .toEqual(['./.github/scripts/x.test.mjs', './test/a.test.ts', './b.test.ts', '../c.test.ts', '/abs/d.test.ts']);
     expect(testFileArgs('bun test --timeout=30000 {files}', ['.github/x.test.ts'])).toEqual(['./.github/x.test.ts']);
+    expect(testFileArgs('bun --no-env-file --config=/dev/null test {files}', ['.github/x.test.ts'])).toEqual(['./.github/x.test.ts']);
     expect(testFileArgs('npx vitest run {files}', ['.github/x.test.ts'])).toEqual(['.github/x.test.ts']);
+  });
+
+  // Value: protects=perFileCommand single-quotes each path after anchoring it with one ./; fails_when=quoting runs before the prefix, ./ doubles, or an absolute path gains ./;
+  //   why_new=no test called perFileCommand after it moved to explicitPath; seam=none; no_claim=bash execution of the command (string only)
+  test('perFileCommand anchors and quotes per-file paths', () => {
+    expect(perFileCommand('bun test {files}', [".github/it's.test.ts", './a.test.ts', '/abs/b.test.ts']))
+      .toBe("bun test './.github/it'\\''s.test.ts' './a.test.ts' '/abs/b.test.ts'");
   });
 });
 
@@ -56,6 +67,16 @@ describe.skipIf(process.platform === 'win32')('lanes check on a test under a hid
     }, 120_000);
   }
 
+  // Value: protects=the remote-gate command a small machine records carries ./-prefixed bun paths; fails_when=remoteObligation drops testFileArgs and records the bare .github path;
+  //   why_new=only the local lane was tested; seam=none (runPregate on a 4-core ubicloud-backend context); no_claim=the remote VM run itself
+  test('a small machine records the remote-gate command with ./ paths', async () => {
+    const result = await lanes(DETECTED, { [TEST]: GREEN }, [], { cores: 4, testBackend: 'ubicloud' });
+    expect(result.status).toBe('requires-remote');
+    const run = result.lines?.find(l => l.startsWith('run: ')) ?? '';
+    expect(run).toContain('./.github/scripts/select.test.mjs');
+    expect(run).not.toMatch(/'\.github\/scripts/);
+  }, 120_000);
+
   // Value: protects=the lane still runs and judges a hidden-folder test; fails_when=the fix passes the lane without running the test
   test('a failing hidden-folder test still fails the lane', async () => {
     const result = await lanes(DETECTED, { [TEST]: RED });
@@ -70,4 +91,23 @@ describe.skipIf(process.platform === 'win32')('lanes check on a test under a hid
     expect(result.lines).toContain("ran: bun test './.github/scripts/select.test.mjs'");
     expect(result.lines?.join('\n')).not.toContain('gone.test.mjs');
   }, 120_000);
+});
+
+describe.skipIf(process.platform === 'win32')('base-red select anchors bun test paths', () => {
+  // Value: protects=runAt hands a bun select ./-prefixed, quoted paths; fails_when=runAt drops testFileArgs and passes the bare .github path;
+  //   why_new=no test reached runAt's select string; seam=none (runAt's existing Runner parameter); no_claim=bun execution (recording runner)
+  test('runAt passes ./-prefixed paths to a bun select', () => {
+    const repo = makeFixtureRepo({ pregate: DETECTED });
+    repos.push(repo);
+    const prev = process.env.GSTACK_STATE_ROOT;
+    process.env.GSTACK_STATE_ROOT = path.join(repo.work, '..', 'state');
+    try {
+      const seen: string[] = [];
+      const sha = execFileSync('git', ['-C', repo.work, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim();
+      runAt(repo.work, sha, { select: 'bun test {files}', timeout_sec: 30 } as never, [TEST, 'test/a.test.ts'], (_d, cmd) => { seen.push(cmd); return { status: 0, out: '' }; });
+      expect(seen).toEqual(["bun test './.github/scripts/select.test.mjs' './test/a.test.ts'"]);
+    } finally {
+      if (prev === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prev;
+    }
+  });
 });
