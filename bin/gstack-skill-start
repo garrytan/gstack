@@ -390,8 +390,9 @@ _BRAIN_CONFIG_BIN="$_BIN/gstack-config"
 
 # /sync-gbrain context-load hint. Per-worktree pin via kubectl-style
 # .gbrain-source at the git toplevel; empty output when gbrain is not
-# configured (zero context cost for non-gbrain users).
-_GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+# configured (zero context cost for non-gbrain users). GBRAIN_HOME is the
+# parent of .gbrain, as in gbrainConfigDir (lib/gbrain-exec.ts).
+_GBRAIN_CONFIG="${GBRAIN_HOME:-$HOME}/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || true)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then

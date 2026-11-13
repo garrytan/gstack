@@ -637,6 +637,21 @@ describe('gstack-skill-start behavior', () => {
     expect(out).toMatch(/^ARTIFACTS_SYNC: off$/m);
   });
 
+  test('the GBrain hint finds gbrain\'s config under GBRAIN_HOME', () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-bin-'));
+    const gbrainHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-home-'));
+    try {
+      fs.writeFileSync(path.join(bin, 'gbrain'), '#!/bin/sh\necho "gbrain 0.0.0"\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(gbrainHome, '.gbrain'));
+      fs.writeFileSync(path.join(gbrainHome, '.gbrain', 'config.json'), '{}\n');
+      const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+      expect(runStart([], env)).not.toContain('GBrain configured');
+      expect(runStart([], { ...env, GBRAIN_HOME: gbrainHome })).toContain('GBrain configured');
+    } finally {
+      for (const dir of [bin, gbrainHome]) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('artifacts-sync consent is asked before any artifacts egress, and only in interactive sessions', () => {
     const gh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-privacy-'));
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-privacy-bin-'));

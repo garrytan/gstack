@@ -493,6 +493,34 @@ describe('gstack-gbrain-source-wireup — --database-url lock (defends against e
     expect(writingCalls[0]).not.toContain(ENV_URL);
     expect(writingCalls[0]).not.toContain(FILE_URL);
   });
+
+  test('with GBRAIN_HOME set, locks the URL from $GBRAIN_HOME/.gbrain/config.json, not ~/.gbrain', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    const HOME_URL = 'postgresql://localhost:5432/decoy_brain';
+    const GBRAIN_HOME_URL = 'postgresql://localhost:5432/named_brain';
+    const gbrainHome = path.join(tmpHome, 'gbrain-home');
+    for (const [dir, url] of [[tmpHome, HOME_URL], [gbrainHome, GBRAIN_HOME_URL]]) {
+      fs.mkdirSync(path.join(dir, '.gbrain'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, '.gbrain', 'config.json'),
+        JSON.stringify({ engine: 'postgres', database_url: url })
+      );
+    }
+    const r = run([], {
+      env: {
+        GSTACK_BRAIN_NO_SYNC: '1',
+        GBRAIN_DATABASE_URL: '',
+        DATABASE_URL: '',
+        GBRAIN_HOME: gbrainHome,
+      },
+    });
+    expect(r.status).toBe(0);
+    const writingCalls = gbrainCalls().filter((c) => c.includes('sources add'));
+    expect(writingCalls.length).toBe(1);
+    expect(writingCalls[0]).toContain(`[GBRAIN_DATABASE_URL=${GBRAIN_HOME_URL}]`);
+    expect(writingCalls[0]).not.toContain(HOME_URL);
+  });
 });
 
 describe('gstack-gbrain-source-wireup — uninstall mode', () => {

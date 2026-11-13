@@ -28,9 +28,10 @@
 #   GSTACK_BRAIN_NO_SYNC — skip the gbrain sync step (tests; helper still
 #                          ensures source registration)
 #
-# Defense against external rewrites of ~/.gbrain/config.json:
+# Defense against external rewrites of gbrain's config.json:
 # At helper startup we capture the database URL ONCE — from --database-url,
-# from GBRAIN_DATABASE_URL/DATABASE_URL env, or from ~/.gbrain/config.json —
+# from GBRAIN_DATABASE_URL/DATABASE_URL env, or from the config.json gbrain
+# itself reads (${GBRAIN_HOME:-$HOME}/.gbrain, as in gbrainConfigDir) —
 # and export it as GBRAIN_DATABASE_URL for every child `gbrain` invocation.
 # That env var overrides whatever's in config.json (per gbrain's loadConfig
 # at src/core/config.ts:53), so a process that flips config.json mid-sync
@@ -55,7 +56,7 @@ else
   REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 fi
 PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"
-GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+GBRAIN_CONFIG="${GBRAIN_HOME:-$HOME}/.gbrain/config.json"
 
 # Git writes to $GSTACK_HOME (worktree add/prune/remove, the daily advance)
 # take the drain lock every gstack writer shares. A caller that already holds
@@ -91,7 +92,7 @@ done
 
 # ---- lock the database URL at startup ----
 # Precedence: --database-url flag > existing GBRAIN_DATABASE_URL/DATABASE_URL
-# env > read once from ~/.gbrain/config.json. Whichever wins gets exported as
+# env > read once from gbrain's config.json. Whichever wins gets exported as
 # GBRAIN_DATABASE_URL so every child `gbrain` invocation uses THAT brain even
 # if config.json is rewritten by another process during the wireup.
 _locked_url=""
