@@ -10,9 +10,10 @@
 # ".gbrain" is appended; unset or blank means $HOME/.gbrain. gbrain refuses a
 # GBRAIN_HOME that is not absolute or that has a ".." segment, so for one of
 # those this prints nothing and returns 1, and the caller must not fall back to
-# $HOME/.gbrain (that would be a brain gbrain never reads). The TypeScript twin
-# is gbrainConfigDir() in lib/gbrain-exec.ts. Every gstack shell read of
-# gbrain's config goes through here (#4325).
+# $HOME/.gbrain (that would be a brain gbrain never reads). gbrainConfigDir() in
+# lib/gbrain-exec.ts applies the same parent-directory rule for TypeScript
+# callers but does not yet trim or refuse. Every gstack shell read of gbrain's
+# config goes through here (#4325).
 gstack_gbrain_config_path() {
   local home="${GBRAIN_HOME:-}"
   home="${home#"${home%%[![:space:]]*}"}"

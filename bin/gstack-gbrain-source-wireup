@@ -109,6 +109,8 @@ die()    { warn "$1"; exit "${2:-1}"; }
 if [ "$GBRAIN_HOME_VALID" = "0" ]; then
   warn "GBRAIN_HOME must be an absolute path with no '..' segments (gbrain refuses this one); not reading any gbrain config"
 fi
+# --check-target reports the caller's URL env, before the lock below sets it.
+_URL_ENV="GBRAIN_DATABASE_URL $([ -n "${GBRAIN_DATABASE_URL:-}" ] && echo set || echo unset), DATABASE_URL $([ -n "${DATABASE_URL:-}" ] && echo set || echo unset)"
 _locked_url=""
 if [ -n "$DATABASE_URL_ARG" ]; then
   _locked_url="$DATABASE_URL_ARG"
@@ -478,7 +480,7 @@ do_check_target() {
     state=unset
   fi
   echo "SOURCE_ID: $id"
-  echo "URL_ENV: GBRAIN_DATABASE_URL $([ -n "${GBRAIN_DATABASE_URL:-}" ] && echo set || echo unset), DATABASE_URL $([ -n "${DATABASE_URL:-}" ] && echo set || echo unset) (a run with either set used that URL before and after the fix)"
+  echo "URL_ENV: $_URL_ENV (a run with either set used that URL before and after the fix)"
   CT_STATE="$state" CT_DEFAULT="$HOME/.gbrain/config.json" CT_NAMED="$GBRAIN_CONFIG" python3 -c '
 import json, os
 

@@ -722,6 +722,7 @@ describe('gstack-gbrain-source-wireup --check-target (#4325)', () => {
     const r = check({ GBRAIN_HOME: gbrainHome });
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/^TARGET: MISMATCH /m);
+    expect(r.stdout).toMatch(/^URL_ENV: GBRAIN_DATABASE_URL unset, DATABASE_URL unset /m);
   });
 
   test('GBRAIN_HOME unset → MATCH', () => {
