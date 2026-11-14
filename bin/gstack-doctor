@@ -555,16 +555,26 @@ check_windows_bash() {
 # skills itself, and a pasted list goes stale with each release. A section is
 # a heading whose title starts with "gstack", up to the next heading of its
 # level or higher; it enumerates when it has an "Available skills" line or
-# names 8 or more distinct /skill tokens (paths are not tokens).
+# names 8 or more distinct /skill tokens (paths are not tokens). gstack's own
+# CLAUDE.md is skipped, and the row says so: its "# gstack development" title
+# makes the whole development guide one section, and every `cd <root> &&
+# ./setup` fix line leaves the next doctor run inside that checkout. A
+# CLAUDE.md is gstack's own at the root of a gstack tree (setup + VERSION +
+# bin/gstack-relink, the rule setup's _gstack_target_is_ours uses).
 check_claude_md() {
-  local user project file f n checked="" listed="" seen=""
+  local user project file dir f n checked="" listed="" seen=""
   user="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md"
   project="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/CLAUDE.md"
   for file in "$user" "$project"; do
     [ -f "$file" ] || continue
-    f=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P)/CLAUDE.md
+    dir=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P)
+    f=$dir/CLAUDE.md
     case "|$seen|" in *"|$f|"*) continue ;; esac
     seen="$seen|$f"
+    if [ -f "$dir/VERSION" ] && [ -f "$dir/setup" ] && [ -f "$dir/bin/gstack-relink" ]; then
+      checked="${checked:+$checked, }skipped gstack's own $file"
+      continue
+    fi
     checked="${checked:+$checked, }$file"
     n=$(awk '
       /^#+[ \t]/ {
