@@ -26,7 +26,7 @@ if (!key) {
   process.exit(2);
 }
 const gemini = { provider: "gemini" as const, key, source: "GEMINI_API_KEY environment variable" };
-const redact = (s: string) => s.replace(/\bAIza[0-9A-Za-z_-]{10,}/g, "[redacted]").slice(0, 400);
+const redact = (s: string) => s.replace(/\b(?:AIza[0-9A-Za-z_-]{10,}|AQ\.[0-9A-Za-z_-]{10,}|AQ[0-9A-Za-z_-]{10,})/g, "[redacted]").slice(0, 400);
 let failed = false;
 const report = (call: string, ok: boolean, detail: string) => {
   if (!ok) failed = true;
