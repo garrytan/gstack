@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPage, cleanText, diffLines, hunks, pathSides, resolveCommit } from '../lib/pr-shots';
+import { buildPage, cleanText, defaultBase, diffLines, hunks, pathSides, resolveCommit } from '../lib/pr-shots';
 import { wtreeFingerprint } from '../lib/script-invocation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -18,13 +18,17 @@ const tmp = (prefix: string) => { const d = fs.mkdtempSync(path.join(os.tmpdir()
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
-function repo(files: Record<string, string>): { dir: string; base: string } {
+function repo(files: Record<string, string>): { dir: string; base: string; git: (...args: string[]) => string } {
   const dir = tmp('shots-repo-');
-  const git = (...a: string[]) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', env: GIT_ENV, timeout: 30_000 });
+  const git = (...args: string[]) => {
+    const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ENV, timeout: 30_000 });
+    if (r.status !== 0) throw new Error(`fixture git ${args.join(' ')} failed: ${r.stderr}`);
+    return r.stdout.trim();
+  };
   git('init', '-q', '-b', 'main');
   for (const [f, c] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), c); }
   git('add', '-A'); git('commit', '-q', '-m', 'base');
-  return { dir, base: git('rev-parse', 'HEAD').stdout.trim() };
+  return { dir, base: git('rev-parse', 'HEAD'), git };
 }
 
 describe('diff and hunks', () => {
@@ -76,6 +80,123 @@ describe('diff and hunks', () => {
     expect(cleanText('\x1b[31mred\x1b[0m\r\n', 'x')).toBe('red\n');
     expect(cleanText(Buffer.from([65, 0, 66]), 'x')).toMatchObject({ code: 'PR_SHOTS_INPUT_REFUSED' });
     expect(cleanText('x'.repeat(600 * 1024), 'x')).toMatchObject({ code: 'PR_SHOTS_INPUT_REFUSED' });
+  });
+});
+
+describe('default base', () => {
+  const featureRepo = (baseBranch = 'main') => {
+    const r = repo({ 'doc.md': 'before\n' });
+    if (baseBranch !== 'main') r.git('branch', '-m', baseBranch);
+    const origin = tmp('shots-origin-');
+    r.git('init', '-q', '--bare', '--initial-branch', baseBranch, origin);
+    r.git('remote', 'add', 'origin', origin);
+    r.git('push', '-q', '-u', 'origin', baseBranch);
+    r.git('remote', 'set-head', 'origin', baseBranch);
+    r.git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(r.dir, 'doc.md'), 'after\n');
+    r.git('add', 'doc.md'); r.git('commit', '-q', '-m', 'feature text');
+    r.git('push', '-q', '-u', 'origin', 'feature');
+    return { ...r, baseBranch };
+  };
+
+  // Value: protects=default comparisons show committed PR changes and preserve explicit/local fallbacks;
+  //   fails_when=the feature head, moved base tip or stale local base is used, or missing bases stop refusing;
+  //   why_new=existing path-mode tests supply a base instead of exercising remote default selection; seam=none
+  test.each(['main', 'develop'])('a local origin/HEAD naming feature still compares against %s', baseBranch => {
+    const r = featureRepo(baseBranch);
+    expect(defaultBase(r.dir)).toBe(r.base); // ordinary remote-HEAD control
+    r.git('remote', 'set-head', 'origin', 'feature');
+    expect(resolveCommit(r.dir, baseBranch)).toBe(r.base); // explicit --base stays usable
+    const chosen = defaultBase(r.dir);
+    expect(chosen).toBe(r.base);
+    if (typeof chosen !== 'string') throw new Error(chosen.message);
+    const sides = pathSides(r.dir, 'doc.md', chosen);
+    if ('code' in sides) throw new Error(sides.message);
+    expect(sides.before.text).toBe('before\n');
+    expect(sides.after.text).toBe('after\n');
+    const page = buildPage({ ...sides, title: 'doc.md', caption: 'Changed text', kind: 'prompt' });
+    expect('code' in page).toBe(false); // not PR_SHOTS_IDENTICAL for a committed change
+  });
+
+  // Value: protects=a stale remote HEAD cannot hide a usable origin/main before-image;
+  //   fails_when=a dangling or unrelated HEAD target is accepted without trying the real base;
+  //   why_new=the feature-HEAD cases have a resolving target that shares history; seam=none
+  test.each(['dangling', 'unrelated'])('an unusable origin/HEAD (%s) falls back to main', state => {
+    const r = featureRepo();
+    const target = 'refs/remotes/origin/retired';
+    if (state === 'unrelated') {
+      const unrelated = r.git('commit-tree', 'HEAD^{tree}', '-m', 'unrelated root');
+      r.git('update-ref', target, unrelated);
+    }
+    r.git('symbolic-ref', 'refs/remotes/origin/HEAD', target);
+    expect(r.git('rev-parse', 'refs/remotes/origin/main')).toBe(r.base);
+    const chosen = defaultBase(r.dir);
+    expect(chosen).toBe(r.base);
+    if (typeof chosen !== 'string') throw new Error(chosen.message);
+    const sides = pathSides(r.dir, 'doc.md', chosen);
+    if ('code' in sides) throw new Error(sides.message);
+    expect(sides.before.text).toBe('before\n');
+    expect(sides.after.text).toBe('after\n');
+  });
+
+  test('a moved remote base still compares from the branch fork point, not its tip', () => {
+    const r = featureRepo();
+    r.git('checkout', '-q', 'main');
+    fs.writeFileSync(path.join(r.dir, 'base-only.txt'), 'upstream change\n');
+    r.git('add', 'base-only.txt'); r.git('commit', '-q', '-m', 'advance base');
+    r.git('push', '-q', 'origin', 'main');
+    const tip = r.git('rev-parse', 'HEAD');
+    r.git('checkout', '-q', 'feature');
+    r.git('remote', 'set-head', 'origin', 'feature');
+    expect(tip).not.toBe(r.base);
+    expect(defaultBase(r.dir)).toBe(r.base);
+  });
+
+  test('an unset remote HEAD uses the tracking base rather than a stale local branch', () => {
+    const r = featureRepo();
+    r.git('checkout', '-q', 'main');
+    fs.writeFileSync(path.join(r.dir, 'base-only.txt'), 'upstream change\n');
+    r.git('add', 'base-only.txt'); r.git('commit', '-q', '-m', 'advance base');
+    r.git('push', '-q', 'origin', 'main');
+    const tip = r.git('rev-parse', 'HEAD');
+    r.git('checkout', '-q', '-b', 'rebased-feature', 'origin/main');
+    fs.writeFileSync(path.join(r.dir, 'doc.md'), 'rebased change\n');
+    r.git('add', 'doc.md'); r.git('commit', '-q', '-m', 'rebased feature');
+    r.git('update-ref', 'refs/heads/main', r.base);
+    r.git('symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
+    expect(r.git('rev-parse', 'main')).toBe(r.base);
+    expect(defaultBase(r.dir)).toBe(tip);
+  });
+
+  test('a local-only main keeps its before-image for uncommitted changes', () => {
+    const r = repo({ 'doc.md': 'before\n' });
+    fs.writeFileSync(path.join(r.dir, 'doc.md'), 'after\n');
+    expect(defaultBase(r.dir)).toBe(r.base);
+    const sides = pathSides(r.dir, 'doc.md', r.base);
+    expect(sides).toMatchObject({ before: { text: 'before\n' }, after: { text: 'after\n' } });
+  });
+
+  test('no usable local base still refuses with the explicit-base escape', () => {
+    const r = repo({ 'doc.md': 'before\n' });
+    r.git('branch', '-m', 'feature');
+    const result = defaultBase(r.dir);
+    expect(result).toMatchObject({ code: 'PR_SHOTS_INPUT_NOT_FOUND' });
+    if (typeof result === 'string') throw new Error('expected a missing-base refusal');
+    expect(result.message).toContain('--base');
+    expect(resolveCommit(r.dir, r.base)).toBe(r.base);
+  });
+
+  test('a self-referential remote HEAD with no resolvable base does not fall back to itself', () => {
+    const r = featureRepo();
+    r.git('remote', 'set-head', 'origin', 'feature');
+    r.git('update-ref', '-d', 'refs/remotes/origin/main');
+    r.git('branch', '-D', 'main');
+    r.git('remote', 'set-url', 'origin', path.join(tmp('shots-offline-'), 'missing.git'));
+    const result = defaultBase(r.dir);
+    expect(result).toMatchObject({ code: 'PR_SHOTS_INPUT_NOT_FOUND' });
+    if (typeof result === 'string') throw new Error('expected a missing-base refusal');
+    expect(result.message).toContain('--base');
+    expect(resolveCommit(r.dir, r.base)).toBe(r.base);
   });
 });
 
