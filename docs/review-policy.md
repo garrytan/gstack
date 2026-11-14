@@ -110,6 +110,9 @@ incomplete coverage, which blocks until the reviewer is rerun.
    including a grant for a stop head before `--range-base` (an earlier /ship).
    A fix-check never earns another, so the grant cannot repeat, and a stop after
    the granted fix-check still goes to the owner. The cap approves nothing.
+   This cap counts rounds inside one run. Across heads and runs the PR's own
+   count applies ([rounds per pull request](#rounds-per-pull-request)), and an
+   extra round there is the lane's or Captain's grant, never an owner ask.
    Edits that /ship Step 16 later finds after the review bound are a new stop: a
    new grant at a stop head after the last fix-check's commit, passed as
    `gstack-review-plan --post-review --last fix-check --range-base <that commit>
@@ -127,6 +130,54 @@ incomplete coverage, which blocks until the reviewer is rerun.
    targeted-class diff needs the read, with no grant (GST-1702). An executable,
    symlink or gitlink file in that range, or a commit the gate scan tags there
    (a `[skip ci]` message), still stops.
+
+<a id="rounds-per-pull-request"></a>
+### Rounds per pull request (R51, GST-2673)
+
+The two-round cap is per pull request, counted across every head, every `/ship`
+run and every reader. Each run used to start its own count, so a PR pushed five
+times could be reviewed ten times. The count now lives where every host can read
+it: the PR body, which already keeps each run's `review_loop` in the receipt and
+the `gstack-receipt-runs` block.
+
+1. **Count.** `gstack-ship-receipt history --pr <n>` adds up the rounds the body
+   records (full passes, scoped passes and fix-checks; a run listed twice counts
+   once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
+   --prior-rounds <n>` and `PR_REVIEW_ROUTE:`. `/ship` Step 1 prints all three.
+   A clean scoped re-check that carried the receipt adds no round.
+2. **Runs that stop count too.** After each Step 9 pass, `gstack-ship-receipt
+   stub --pr <n> --run <id> --review-loop <summary>` writes a `status: started`
+   entry, so a run that stops before its receipt still counts. The run's receipt
+   write (same `--run`) replaces its stub; `--void` marks a stub that reviewed
+   nothing.
+3. **Route.** On a PR with a review round, a new head takes the scoped re-check
+   of what changed since the last reviewed head (the [carry
+   re-check](troubleshooting.md#receipt-carry-recheck)), with the other results
+   carried forward. A review round is due instead when a round grant of kind
+   `design-change` names the head, when two re-checks found a blocker since the
+   last full round, or when the product diff drifted more than 400 lines
+   (`PR_DRIFT_LINES`, tests and release metadata excluded) since the first full
+   round. Preflight is the only router.
+4. **A blocking re-check.** A re-check reader that finds a blocker writes
+   `"verdict":"blocking"`; carry records it in the runs block and refuses. Fix,
+   push and carry again. The second one routes to `/ship`.
+5. **Stop rule.** `gstack-review-plan --prior-rounds <n>` adds earlier rounds to
+   this run's. At the cap it stops with `PR_ROUND_CAP` and prints the exact
+   `gstack-approvals round-grant` command; a below-floor fix at the cap finishes
+   with its notes listed. The stop is the lane's or Captain's call, never an
+   owner ask ([troubleshooting](troubleshooting.md#pr_round_cap)).
+6. **Round grant.** `gstack-approvals round-grant --pr <n> --head <sha> --kind
+   design-change|extra-round --reason <why> --by <lane or Captain>` records one
+   grant for one head. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant
+   <id>`, which raises that run's cap by one round,
+   and the plan refuses a grant for another head or PR. gstack never grants
+   itself a round: `--by gstack` and a grant from inside an open `/ship` run are
+   refused, and `add` refuses the scope. The receipt lists grants under
+   `review_round_grants`.
+
+The 400-line drift figure is a starting value, to check against the replay in
+[docs/evals/pr-round-count-prereg.md](evals/pr-round-count-prereg.md) and 14 days
+of receipts after merge.
 
 <a id="transitions"></a>
 ### Transitions

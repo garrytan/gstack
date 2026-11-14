@@ -657,6 +657,9 @@ case-kind change, closing a contribution without landing it, and anything destru
 Standing spend is the commonest standing approval: `SPEND` in CREW.md names what the
 owner pre-approved (train gates, screens, bisects, the backstop, focused paid cases) with
 the owner's date and words and the cap per rerun; anything over the cap is a fresh ask.
+A review round past a PR's two (`PR_ROUND_CAP`) is the lane's or the controller's call, recorded
+with `gstack-approvals round-grant`, never an owner ask
+([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)).
 
 **B. The plan ask** ([template](../../captain/templates/plan-ask.md)): before → after, why it
 matters, what caused this work, the big decisions, and what we need from you in the ask

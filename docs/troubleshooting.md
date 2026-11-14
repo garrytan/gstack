@@ -7101,8 +7101,32 @@ refuses) and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The 
 reason records the reader and the range-diff size, and with moved context the
 context paths and `range_base`. Carry still refuses when
 HEAD needs a deeper review depth or a different risk class than the receipt
-recorded; that, or a blocking finding, means /ship on the new head. In /ship
+recorded; that means /ship on the new head. A reader that finds a blocker
+writes the same record with `"verdict":"blocking"`: carry records it in the
+runs block and refuses, so fix, push and carry again; the second blocker since
+the last full round routes to /ship ([rounds per pull
+request](review-policy.md#rounds-per-pull-request)). In /ship
 Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
+
+<a id="pr_round_cap"></a>
+### `PR_ROUND_CAP`
+
+**Meaning.** `gstack-review-plan --prior-rounds <n>` found that this pull
+request already had its two review rounds (R51), counted across every head and
+`/ship` run from the PR body's receipt history, so it planned no new round.
+`/ship` Step 1 prints the count as `PR_REVIEW_HISTORY:` and passes it on from
+`PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes
+listed instead of stopping.
+
+**Fix.** Ship with the open notes listed, or, when a finding above the floor is
+open in this PR's own change or the design changed, have the lane or Captain
+record one round with the command the `NEXT:` line prints,
+`gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason
+<why> --by <lane or Captain>`, then rerun `gstack-ship-preflight`: its
+`PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
+The grant names one head; a new push needs a new grant. This is not an owner
+ask, and gstack cannot grant itself one (`--by gstack` is refused)
+([review-policy.md](review-policy.md#rounds-per-pull-request)).
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

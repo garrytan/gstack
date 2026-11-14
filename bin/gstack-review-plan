@@ -25,6 +25,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { baseContainsHead } from '../lib/default-base';
 import { locate, readRecord } from '../lib/approval-record';
+import { reviewRoundGrants } from '../lib/review-round-grant';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
@@ -96,7 +97,14 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             line-exact) and docs (docsChangeSince, the receipt's classifier), with no executable, symlink or gitlink mode and no gate-scan
                             tag in the range, are no gate-class edit: done, or targeted
                             when a docs claim needs the targeted read on a targeted-class diff (GST-1702)
-  --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR)
+  --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR); with
+                            --round-grant, the PR the grant must name
+  --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent: the PR_REVIEW_FLAGS: line gstack-ship-preflight
+                            prints (gstack-ship-receipt history). They count against the cap of 2 with this run's rounds, so pass 1
+                            of a PR with 2 is NEXT: stop (PR_ROUND_CAP), which goes to the lane or its Captain, never the owner
+                            (docs/review-policy.md#rounds-per-pull-request; GST-2673)
+  --round-grant <id>        a review round grant at HEAD, recorded with gstack-approvals round-grant by the lane or its Captain:
+                            one more round for the PR at this head; any other row is refused (exit 3)
   --declare-risk <classes>  risk classes the lane declares for the diff (comma list of ${RISK_CLASSES.join(', ')}): they join
                             the detected classes and only raise the depth; RISK_DECLARED: prints both (GST-1129)
   --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
@@ -170,6 +178,16 @@ function main(): number {
     const logged = inLoopLink ? runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
     if (logged && logged.status !== 0) { process.stderr.write(`gstack-review-plan: --grant ${grant}: gstack-review-read exited ${logged.status}, so whether a fix-check already spent this grant is unknown; no plan is safer than a fix-check the grant may not buy\n`); return EXIT.fail; }
     if (logged && row && (logged.stdout ?? '').split('\n---CONFIG---')[0]!.split('\n').some(l => { try { const v = JSON.parse(l); return v?.skill === 'review-fix-check' && Date.parse(v.timestamp) > Date.parse(row.recorded_at); } catch { return false; } })) { process.stderr.write(`gstack-review-plan: --grant ${grant}: a fix-check was logged after this grant was recorded, so the grant already bought a link of the fix-check chain; the stop at --range-base ${rangeBase} needs a new grant recorded after the last fix-check (gstack-approvals add --ask '... (review_loop_grant ${passHead!.slice(0, 12)})')\n`); return EXIT.refused; }
+  }
+  const priorRounds = Number(flag('--prior-rounds') ?? '0');
+  if (!Number.isInteger(priorRounds) || priorRounds < 0) { process.stderr.write('gstack-review-plan: --prior-rounds needs an integer >= 0 (PR_REVIEW_FLAGS: from gstack-ship-preflight)\n'); return EXIT.usage; }
+  const roundGrant = flag('--round-grant');
+  if (has('--round-grant')) {
+    const at = git(['rev-parse', 'HEAD'])?.trim();
+    const loc = locate({ cwd: root, env: process.env });
+    const g = reviewRoundGrants('file' in loc ? readRecord(loc).rows : []).find(x => x.approval === roundGrant);
+    const pr = flag('--pr');
+    if (!roundGrant || !g || g.head !== at || (pr !== undefined && String(g.pr) !== pr)) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant ?? ''}: no approved review_round_grant row ${roundGrant ?? ''} naming HEAD ${(at ?? 'unknown').slice(0, 12)}${pr ? ` and PR #${pr}` : ''} in this branch's approval record; record one with gstack-approvals round-grant (docs/troubleshooting.md#pr_round_cap)\n`); return EXIT.refused; }
   }
   const collected = collectLive(root, base);
   if (collected.errors.length) {
@@ -254,8 +272,9 @@ function main(): number {
   const plan = planReview({
     ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: (has('--fixed-below') || (postReview && pass > 0)) && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || (!carried && (!!fixRange?.touched_gate || (postReview && pass > 0))), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks: has('--fix-checks') ? fixChecks : undefined, postReview, chained: inLoopLink },
+    history: { priorRounds, ...(roundGrant ? { roundGrant } : {}), fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: (has('--fixed-below') || (postReview && pass > 0)) && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || (!carried && (!!fixRange?.touched_gate || (postReview && pass > 0))), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks: has('--fix-checks') ? fixChecks : undefined, postReview, chained: inLoopLink },
   });
+  if (plan.next.reason.startsWith('PR_ROUND_CAP')) plan.next.reason += `: gstack-approvals round-grant --pr ${flag('--pr') ?? '<n>'} --head ${head} --kind extra-round --reason "<why this PR needs another round>" --by <the lane or its Captain>, then rerun gstack-ship-preflight and pass the --round-grant id its PR_REVIEW_FLAGS: line prints; the grant buys one round at ${head.slice(0, 12)} and is then spent (docs/troubleshooting.md#pr_round_cap)`;
   if (carried) plan.next.reason = `the edits after the last fix-check ${fixCheckAt!.slice(0, 12)} are ${carried.paths.length ? `${carried.verdict === 'plain' ? 'plain docs' : `docs (${carried.paths.join(', ')})`}${carried.stamps.length ? ' and release stamps' : ''}` : 'release stamps'} (docsChangeSince), no gate-class edit (GST-1702): ${plan.next.reason}`;
   else if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
   const ranArg = flag('--targeted-ran');
@@ -285,7 +304,7 @@ function main(): number {
   if (platform) out.push(platform.ok ? `PLATFORM_REVIEW: ${platform.review.id} reviewer=${platform.review.reviewer} head=${platform.review.head}` : `PLATFORM_REVIEW: none (${platform.reason})`);
   if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
   if (targetedDeltaOut) out.push(`TARGETED_DELTA: range_base=${targetedDeltaOut.range_base} paths=${targetedDeltaOut.paths.join(',')} classes=${classList(targetedDeltaOut.classes)}`);
-  out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0)), `NEXT: ${plan.next.step} (${plan.next.reason})`);
+  out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0), priorRounds), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
   for (const d of plan.dispatches) {
     const key = d.name.split(' ')[0];

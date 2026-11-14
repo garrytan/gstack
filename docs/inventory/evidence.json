@@ -590,7 +590,8 @@
       "seed": "GEVA-2, 2026-11-02: ship: review panel (specialist, adversarial, targeted, outside voice, red team): untested (unfair test: none arm on the SDK stub; arms from different harnesses and gstack versions; cohort mined from gstack's own catches)",
       "aliases": [
         "ship: review panel (specialist, adversarial, targeted, outside voice, red team)"
-      ]
+      ],
+      "note": "GST-2673 adds the per-PR round count to Step 9 (docs/review-policy.md#rounds-per-pull-request); its no-loss replay, docs/evals/pr-round-count-prereg.md, runs before merge. Owner GStack Minder (GSTA-36); measure by 2026-12-08"
     },
     "ship-docs-audit": {
       "status": "untested",

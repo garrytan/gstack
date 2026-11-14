@@ -13,6 +13,7 @@
  *   gstack-approvals gate --finding <fingerprint> --gate-id <gate_id> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
  *   gstack-approvals dispositions [--branch <name>]
  *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
+ *   gstack-approvals round-grant --pr <n> --head <sha> --kind design-change|extra-round --reason <why> --by <lane or Captain> [--words <text>] [--json]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
  *   gstack-approvals path [--branch <name>]
@@ -32,6 +33,7 @@ import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, 
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
+import { REVIEW_ROUND_GRANT_SCOPE, reviewRoundGrantRow, ROUND_GRANT_KINDS, type RoundGrantKind } from '../lib/review-round-grant';
 import { GATE_DISPOSITION_SCOPE, GATE_SOURCE, gateDispositionRow, gateDispositions, gateDispositionText, ONE_LINE, recordGateDisposition, validGateId } from '../lib/gate-dispositions';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
@@ -54,6 +56,12 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           finish prints it, and the receipt, PR body and READY carry it; refused while any worktree holds an open /ship run on
           the branch; the lander accepts each one with gstack-ship-queue land|verify --accept-gate-disposition <id>
   dispositions                    the "Gate disposition: …" lines the Pre-Landing Review and the PR body carry
+  round-grant --pr <n> --head <the head that needs the round> --kind design-change|extra-round --reason <why, one line>
+          --by <the lane or its Captain> [--words <their words; default the reason>]
+          a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): design-change
+          gives this head a review round instead of the scoped re-check, extra-round one round past the cap of 2; it binds
+          that head of that PR only and is spent by the round; the lane or its Captain records it, never the owner, and
+          --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
           --reason <why, one line> --words <the owner's exact words> --by <who granted>
           the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
@@ -80,7 +88,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id', '--pr', '--kind']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -157,9 +165,22 @@ function main(argv: string[]): number {
   const json = bools.has('--json');
   const recorded = (where: StoreLocation) => `${where.file}${where.mirror ? ` mirror=${where.mirror}` : ''}`;
 
-  if (cmd === 'add' || cmd === 'import' || cmd === 'rule' || cmd === 'lane-exception' || cmd === 'gate') {
+  if (cmd === 'add' || cmd === 'import' || cmd === 'rule' || cmd === 'lane-exception' || cmd === 'gate' || cmd === 'round-grant') {
     let rows;
-    if (cmd === 'lane-exception') {
+    if (cmd === 'round-grant') {
+      const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
+      const pr = (flags['--pr'] ?? '').trim(), kind = (flags['--kind'] ?? '').trim() as RoundGrantKind, reason = (flags['--reason'] ?? '').trim(), by = (flags['--by'] ?? '').trim();
+      if (!/^[1-9]\d*$/.test(pr) || !ROUND_GRANT_KINDS.includes(kind)) return invalid(`round-grant needs --pr <the PR number> and --kind ${ROUND_GRANT_KINDS.join('|')}`);
+      if (!reason || /[\x00-\x1f\x7f]/.test(reason)) return invalid('round-grant needs --reason <why this PR needs the round, one line>');
+      const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
+      if (!flags['--head'] || head.status !== 0) return invalid('round-grant needs --head <the head that needs the round, a commit in this repository>');
+      if (!by || GSTACK_ACTOR.test(by)) return invalid('round-grant needs --by <the lane or its Captain>: gstack never grants itself a round');
+      const open = openShipRun(process.cwd());
+      if (open) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; record it from the lane after the run stops`);
+      const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim(), Number(pr), kind, reason), words: flags['--words'] ?? reason, by, date: flags['--date'] }, loc.branch);
+      if ('code' in built) return fail(cmd, built);
+      rows = [built];
+    } else if (cmd === 'lane-exception') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
       const files = [...new Set((flags['--files'] ?? '').split(',').map(f => f.trim().replace(/^(\.\/)+/, '')).filter(Boolean))].sort();
       const reason = (flags['--reason'] ?? '').trim();
@@ -205,6 +226,7 @@ function main(argv: string[]): number {
       if (RULED_NOTE_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a ruled_note scope is recorded with gstack-approvals rule' });
       if (GATE_DISPOSITION_SCOPE.test(flags['--scope'] ?? '') || (flags['--source'] ?? '').trim() === GATE_SOURCE) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a gate_disposition scope is recorded with gstack-approvals gate' });
       if (TEST_LANE_EXCEPTION_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a test_lane_exception scope is recorded with gstack-approvals lane-exception' });
+      if (REVIEW_ROUND_GRANT_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a review_round_grant scope is recorded with gstack-approvals round-grant' });
       const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: flags['--source'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];

@@ -24,7 +24,7 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
+  'review_loop_exception', 'review_round_grants', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -125,15 +125,22 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
  */
 export const RUNS_FENCE = 'gstack-receipt-runs';
 export const RECEIPT_RUNS_KEPT = 30;
-const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
-export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string };
+export const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
+/**
+ * carry_kind (GST-2673): `recheck` when the latest carry hop was a clean scoped re-check, `carry` for any other hop,
+ * `recheck-blocked` for a re-check that found a blocker (carry --recheck, nothing rebound). status: a /ship run that
+ * started and wrote no receipt yet (`started`, its counters so far) or ended on an infrastructure failure (`voided`).
+ */
+export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck' | 'recheck-blocked'; status?: 'started' | 'voided' };
 export function receiptRuns(body: string): ReceiptRun[] {
   const m = RUNS_RE.exec(receiptSource(body));
   return m ? m[1]!.split('\n').flatMap(l => { try { const o = JSON.parse(l); return o && typeof o.head === 'string' ? [o as ReceiptRun] : []; } catch { return []; } }) : [];
 }
 export function receiptRun(r: ShipReceipt): ReceiptRun {
   const { head, version, gstack_version, run, review_loop, review_loop_exception } = r;
-  return JSON.parse(JSON.stringify({ head, version, gstack_version, run, review_loop, review_loop_exception, depth: r.review_depth?.depth, carried_from: r.carry?.from }));
+  const hop = r.carry ? r.carry.reason.split(' + ').pop()! : undefined;
+  const carry_kind = hop === undefined ? undefined : hop.includes('scoped re-check by ') ? 'recheck' : 'carry';
+  return JSON.parse(JSON.stringify({ head, version, gstack_version, run, review_loop, review_loop_exception, depth: r.review_depth?.depth, carried_from: r.carry?.from, carry_kind }));
 }
 
 /** Every receipt and runs block with the blank lines after it. */
@@ -151,7 +158,7 @@ const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\
 export function placeReceipt(body: string, receipt: ShipReceipt): string {
   const ex = extractReceipt(body);
   const prior = ex.receipt;
-  const runs = receiptRuns(body);
+  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || (receipt.run !== undefined && r.run !== receipt.run));
   if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
   const kept = runs.slice(-RECEIPT_RUNS_KEPT);
   const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');
@@ -488,6 +495,7 @@ export function parseReviewLoop(value: unknown): ReviewLoopReceipt | undefined {
   if (typeof v.scope === 'string') out.scope = v.scope.slice(0, 20);
   if (n('fix_checks') !== undefined) out.fix_checks = n('fix_checks');
   if (n('rounds') !== undefined) out.rounds = n('rounds');
+  if (n('scoped')) out.scoped = n('scoped');
   if (n('est_input_tokens') !== undefined) out.est_input_tokens = n('est_input_tokens');
   if (n('unrecorded')) out.unrecorded = n('unrecorded');
   if (n('ledgers_read')) out.ledgers_read = n('ledgers_read');

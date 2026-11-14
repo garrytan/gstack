@@ -76,19 +76,19 @@ export function recheckPacket(o: { from: string; head: string; plan: Extract<Rec
     `reviewed ${o.from}${o.context ? ` (range_base ${o.rangeBase})` : ''}; current ${o.head}. Below is \`git range-diff\` of the reviewed range against the current one, then the diff of the changed product paths between the two heads${o.context ? ', then the hunks where base context moved next to the reviewed ones' : ''} (${o.plan.lines} lines).`,
     'Review only what changed between the two ranges, against the blocking floor: would fail a test, break production, or lose data or secrets.',
     `Reply NO FINDINGS, or one finding per line with path:line, Severity and Blocks. A clean reply is recorded as ${recheckRecordTemplate({ ...o, sha256: o.plan.sha256 })}.`,
-    'A blocking finding means the full /ship on the current head.\n',
+    'A blocking finding: write the same record with "verdict":"blocking" and pass it to carry --recheck, which notes it in the PR body; fix it, push, and carry again, so one reader re-checks the fix. A second blocking re-check since the PR\'s last full round routes to /ship (GST-2673).\n',
     '```diff', o.rangeDiff.trim(), '```', '', ...(o.context ? [o.context.trim(), ''] : []),
   ].join('\n');
 }
 
-export interface RecheckRecord { from: string; head: string; range_base?: string; range_diff_sha256: string; reader: string; verdict: 'clean' }
+export interface RecheckRecord { from: string; head: string; range_base?: string; range_diff_sha256: string; reader: string; verdict: 'clean' | 'blocking' }
 
 /** A clean re-check record bound to this carry's from, head and range-diff, or why it does not stand. */
-export function readRecheck(file: string, bind: { from: string; head: string; sha256: string; rangeBase?: string }): { ok: true; record: RecheckRecord } | { ok: false; message: string } {
+export function readRecheck(file: string, bind: { from: string; head: string; sha256: string; rangeBase?: string }, opts: { blocking?: boolean } = {}): { ok: true; record: RecheckRecord } | { ok: false; message: string } {
   let v: Record<string, unknown>;
   try { v = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return { ok: false, message: `${file} is not readable JSON (${(e as Error).message.split('\n')[0]})` }; }
   if (!v || typeof v !== 'object') return { ok: false, message: `${file} is not a JSON object` };
-  if (v.verdict !== 'clean') return { ok: false, message: `the re-check is ${JSON.stringify(v.verdict)}, not clean: run /ship on ${bind.head.slice(0, 12)}` };
+  if (v.verdict !== 'clean' && !(opts.blocking && v.verdict === 'blocking')) return { ok: false, message: `the re-check is ${JSON.stringify(v.verdict)}, not clean: run /ship on ${bind.head.slice(0, 12)}` };
   if (typeof v.reader !== 'string' || !v.reader.trim()) return { ok: false, message: 'the re-check names no reader' };
   for (const [k, want] of [['from', bind.from], ['head', bind.head], ['range_diff_sha256', bind.sha256], ...(bind.rangeBase ? [['range_base', bind.rangeBase] as const] : [])] as const) {
     if (v[k] !== want) return { ok: false, message: `the re-check is for ${k} ${String(v[k] ?? 'none').slice(0, 12)}, not ${want.slice(0, 12)}` };

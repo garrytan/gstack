@@ -45,7 +45,7 @@ end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - i
 
 **One program per pass.** Each review pass, Step 11 and the Step 14.5 audit is one program, and the
 parent makes no other call while it runs: (1) `gstack-review-dispatch pass`: `gstack-review-plan --base <base>`
-with the pass's flags, then its staged manifest (Step 14.5: one reader, `docs`); (2) `gstack-review-log --start
+with the pass's flags (Step 1's `PR_REVIEW_FLAGS:` included), then its staged manifest (Step 14.5: one reader, `docs`); (2) `gstack-review-log --start
 <skill>` once per row the step logs; (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
 subagent per reader on its rendered file;
 (5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`
@@ -60,7 +60,7 @@ Install check, this file.
 ## 2. Preflight, tests, evals and reads: Steps 0.9, 1, 2, 3, 4, 5, 6, 6.5, 10
 
 `gstack-ship-budget start --record <rec> --mode observe [--token-cap <n>] --reading R --credits C`, then
-`gstack-ship-preflight --base <base> --run <run dir name> --lane <label>=<test command>...`. `CARRY: carried` ends the run on its `GSTACK_RESULT:`
+`gstack-ship-preflight --base <base> --run <run dir name> (the `<SESSION_ID>` Step 9's stub and Step 19's write pass) --lane <label>=<test command>...`. `CARRY: carried` ends the run on its `GSTACK_RESULT:`
 line. `ship_lanes_from`: push early (`sections/tests.md#ci-carry`). A lane passes on `tests_ran: N` with exit 0; `0` is ZERO-RUN (failed); `unknown`
 is `count unavailable`. In-branch failures stop; after a repair rerun `--tests-only`.
 `requires-remote` needs `gstack-pregate clear` before Step 18. When prompts, templates, judges or eval
