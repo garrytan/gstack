@@ -1,0 +1,1 @@
+- Document the `.gstack/approval-classes.json` schema, `gstack-approval-classes` CLI commands, and owner approval citation format in `docs/ship-policy.md#approval-classes`.

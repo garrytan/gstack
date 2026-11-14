@@ -2948,3 +2948,59 @@ PR whose check is red or missing. A PR opened before the workflow existed has no
 run until its title or body is edited or a commit is pushed; do one of those
 before landing it. The workflow reads the PR body from the event file, not an
 environment variable, so a very long body still reaches the checker.
+
+## Approval classes
+
+`.gstack/approval-classes.json` lists change classes that need an explicit
+owner approval before `gstack-ship-receipt write` emits a ship receipt.
+`gstack-approval-classes` reads `.gstack/approval-classes.json` only from
+`origin/<base>` so a branch cannot weaken or drop its own classes.
+
+### Configuration
+
+Each entry in `classes` has a `name` (`^[a-z][a-z0-9-]{0,39}$`) and one or more
+matchers:
+
+| Key | Meaning |
+|-----|---------|
+| `name` | Short kebab-case identifier printed as `<class>@<digest12>` in scopes. |
+| `description` | Optional summary of why the class requires owner approval. |
+| `paths` | Glob patterns matched against changed file paths. |
+| `patterns` | Literal substrings matched against added lines in the diff. |
+| `allowed_paths` | Glob patterns excluded from this class's matches. |
+| `migrations` | When `true`, matches the ship policy's `migrations` files. |
+
+### Commands
+
+```bash
+gstack-approval-classes init [--force]
+gstack-approval-classes validate
+gstack-approval-classes check [--base <ref>] [--head <ref>] [--diff-base <sha>] [--json]
+```
+
+- `init` writes an example `.gstack/approval-classes.json` with `$schema` set
+  to `https://github.com/garrytan/gstack/docs/ship-policy.md#approval-classes`.
+- `validate` checks `.gstack/approval-classes.json` syntax and limits, exiting
+  `3` (`APPROVAL_CLASSES_INVALID`) on invalid fields.
+- `check` scans the diff and prints `APPROVAL_CLASS: <class> <file>:<line>` and
+  `APPROVAL_SCOPE: <class>@<digest12>` for each matched class, ending with
+  `APPROVAL_CLASSES: ok | found=<n> | none`. It exits `0` when no classes match
+  (or no config exists on base), `1` when classes match (`APPROVAL_CLASS_FOUND`),
+  and `3` when the base config is invalid or unavailable.
+
+### Citations
+
+When `gstack-approval-classes check` finds hits, `gstack-ship-receipt write`
+requires an owner citation for every matched scope (otherwise exiting with
+`APPROVAL_CITATION_MISSING`). Cite the approval in the PR body or plan using:
+
+```text
+Approved by <owner> <YYYY-MM-DD> via <plan sha|comment or review URL|ref> [for <class>@<digest12>]
+```
+
+The citation must be authored by a ship-policy maintainer and bound to the
+current `<class>@<digest12>` token (or the class name plus every affected path),
+so approvals for earlier revisions or unrelated work do not carry over.
+See [troubleshooting.md](troubleshooting.md#approval-classes-invalid) for
+error codes and remediation.
+
