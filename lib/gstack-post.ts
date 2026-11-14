@@ -282,7 +282,7 @@ export function mergeBodySections(current: string, incoming: string): { body: st
   const next = splitSections(incoming).filter(n => !(n.key.startsWith("text:") && n.text.trim() === ""));
   const lone = next.find(n => n.key === "receipt");
   const intoNotes = lone && now.some(s => s.key === NOTES_KEY) && !next.some(n => n.key === NOTES_KEY) ? extractReceipt(lone.text).receipt : undefined;
-  if (!intoNotes) return mergeSplit(now, next, incoming);
+  if (!intoNotes) return keepRuns(current, next, mergeSplit(now, next, incoming));
   const after = next[next.indexOf(lone!) + 1];
   const rest = next.filter(n => n !== lone).map(n => n !== after || !n.key.startsWith("text:") ? n : { ...n, key: "text:after-receipt", text: n.text.replace(RUNS_BLOCK_RE, "") });
   const m = mergeSplit(now, rest.filter(n => !(n.key.startsWith("text:") && n.text.trim() === "")), incoming);
@@ -290,6 +290,19 @@ export function mergeBodySections(current: string, incoming: string): { body: st
 }
 
 const RUNS_BLOCK_RE = new RegExp("^```" + RUNS_FENCE + "[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```[ \\t]*(?:\\r?\\n|$)", "m");
+
+/**
+ * A /ship body post (an Agent notes section holding a receipt) keeps the live body's run history (GST-2706): the merge
+ * replaces the notes, so the runs block placeReceipt would write on the live body (earlier runs, started stubs and the
+ * replaced receipt) goes back right after the posted receipt, and gstack-ship-receipt history still counts every run.
+ */
+function keepRuns(current: string, next: Section[], m: ReturnType<typeof mergeSplit>): ReturnType<typeof mergeSplit> {
+  const posted = next.some(n => n.key === NOTES_KEY && extractReceipt(n.text).found) ? extractReceipt(m.body).receipt : undefined;
+  const runs = posted && RUNS_BLOCK_RE.exec(placeReceipt(current, posted))?.[0];
+  const body = m.body.replace(RUNS_BLOCK_RE, "");
+  const end = runs && /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(body);
+  return end ? { ...m, body: body.slice(0, end.index + end[0].length) + "\n" + runs + body.slice(end.index + end[0].length) } : m;
+}
 
 function mergeSplit(now: Section[], next: Section[], incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {
   const ambiguous = next.filter(n => now.filter(s => s.key === n.key).length > 1).map(n => `"${n.label}"`);

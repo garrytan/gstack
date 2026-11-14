@@ -48,7 +48,7 @@ import { installedGstackVersion, isUnavailable, loadPolicyFromBase, matchesAny, 
 import { approvalForReceipt } from '../lib/approval-citations';
 import {
   CARRY_METADATA_GLOBS, CARRY_NAMED_PATHS, CARRY_TEST_GLOBS,
-  bindReceipt, carryReceipt, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceipt, planCarry, planTreeCarry,
+  bindReceipt, carryReceipt, recheckCarried, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceipt, planCarry, planTreeCarry,
   receiptIssuesFrom, receiptSummaryLine, renderCensus, renderReceiptBlock, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
@@ -139,7 +139,7 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --carry): files the earlier audit edited reset too, to their content before it, when HEAD holds what it left; a carried audit of
   another run refuses (GST-1616).
   --no-stop <json|@file> (a JSON array of {class, reason, evidence}: each routine stop the run recorded and went on past, class one of
-  scoped-fix-check, test-timeout-fix, pregate-flake-rerun, stamp-only-carry, autoplan-regate); recorded as no_stop.
+  scoped-fix-check, test-timeout-fix, pregate-flake-rerun, autoplan-regate); recorded as no_stop.
   --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises
   its depth; review_depth.declared and .detected record both lists (GST-1129). An unknown class is RECEIPT_INVALID.
   --platform-review <id> (NEXT: platform's PLATFORM_REVIEW: id): records review_depth platform with capy-ai[bot]'s review <id> at HEAD;
@@ -710,6 +710,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (receipt.base_red) return refused('QUEUE_RECEIPT_CONDITIONAL', 'the receipt is paused on a red base, so there is nothing passing to carry; /ship --resume <record> re-runs Step 5 and writes a full receipt');
   const from = receipt.head.toLowerCase();
   if (!/^[0-9a-f]{40,64}$/.test(from)) return refused('RECEIPT_CARRY_REFUSED', `the receipt's head ${receipt.head.slice(0, 12)} is not a full commit id`);
+  if (recheckCarried(receipt)) return refused('RECEIPT_CARRY_REFUSED', `the receipt reached ${from.slice(0, 12)} through a scoped re-check (carry: ${receipt.carry!.reason.slice(0, 160)}), which is advice only (GST-2673), so the product code it covered never got a full review; the receipt is unchanged: run /ship on ${head.slice(0, 12)} for the merge head's full review (docs/review-policy.md#rounds-per-pull-request)`);
   if (from === head) {
     process.stderr.write(receiptSummaryLine(receipt) + '\n');
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'current', head, carry: null }) + '\n' : `CARRY: current (the receipt already names ${head.slice(0, 12)})\n`);

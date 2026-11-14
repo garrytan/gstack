@@ -68,4 +68,9 @@ describe('no_stop receipt field (K1)', () => {
     expect(validateReceipt({ ...ok, no_stop: [{ class: 'merge-anyway', reason: 'x', evidence: 'y' }] } as any).length).toBeGreaterThan(0);
     expect(validateReceipt({ ...ok, no_stop: [{ class: 'stamp-only-carry', reason: 'x' }] } as any).length).toBeGreaterThan(0);
   });
+
+  test('stamp-only-carry is no class any more (GST-2706), so a receipt that records one is invalid and its PR runs /ship again', () => {
+    const ok = orderReceipt({ ...receipt('e'.repeat(40)), no_stop: [{ class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }] });
+    expect(validateReceipt({ ...ok, no_stop: [{ class: 'stamp-only-carry', reason: 'restamp', evidence: 'commit abc' }] } as any)).not.toEqual([]);
+  });
 });
