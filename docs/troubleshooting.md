@@ -6400,6 +6400,10 @@ what would merge. The one accepted difference is a train slot's stamp: when
 the current head is the pinned head's stamp commit (same tree modulo stamp
 files, or the pin with main merged in at slot 2 and later), the receipt
 written for the pinned head is the binding one and `verify --train` accepts it.
+It also refuses a receipt an older gstack carried through a scoped re-check
+(its `carry.reason` names `scoped re-check by`), even at its own head: the code
+that hop covered never got a full review (GST-2706,
+[rounds per pull request](review-policy.md#rounds-per-pull-request)).
 
 **Fix.** Rerun /ship on the current head so the receipt names it, then rerun
 `gstack-ship-queue ready --pr <n> --screen|--no-screen`. A lane never stamps
