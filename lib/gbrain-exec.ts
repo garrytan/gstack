@@ -256,6 +256,8 @@ export function gbrainChildCwd(cwd?: string, env: NodeJS.ProcessEnv = process.en
 }
 
 export interface SpawnGbrainOptions {
+  /** Bounded captured output; omitted preserves Node default. */
+  maxBuffer?: number;
   /** Timeout in milliseconds. Defaults to 30s. */
   timeout?: number;
   /** Working directory for the child process. */
@@ -281,6 +283,7 @@ export function spawnGbrain(args: string[], opts: SpawnGbrainOptions = {}): Spaw
   const inv = gbrainInvocation(args);
   return spawnSync(inv.cmd, inv.argv, {
     encoding: "utf-8",
+    maxBuffer: opts.maxBuffer,
     timeout: opts.timeout ?? 30_000,
     cwd: gbrainChildCwd(opts.cwd, opts.baseEnv),
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
@@ -331,6 +334,7 @@ export function execGbrainText(args: string[], opts: SpawnGbrainOptions = {}): s
   const inv = gbrainInvocation(args);
   return execFileSync(inv.cmd, inv.argv, {
     encoding: "utf-8",
+    maxBuffer: opts.maxBuffer,
     timeout: opts.timeout ?? 30_000,
     cwd: gbrainChildCwd(opts.cwd, opts.baseEnv),
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
