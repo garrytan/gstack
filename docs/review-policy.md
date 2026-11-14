@@ -967,6 +967,38 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
    line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader
    that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1.
+<a id="verdict-line"></a>
+3a. **The verdict line (GST-2495).** Every blocking reader's brief (specialists, the batched specialist, the
+   targeted reader, the Red Team, fix-check, the native adversarial voice and the outside voice; audit readers
+   are not asked) tells it to put one line in its reply:
+
+   ```
+   REVIEW_VERDICT: blocking=<n>[ at=<path>:<line>,<path>:<line>...]
+   ```
+
+   `<n>` is how many findings in the reply block (0 to 99), and `at=` may name up to `<n>` of their locations.
+   `render` records `verdict: 1` on a brief that asked for the line, and `collect` checks a reply only when its
+   rendered brief asked, so a ledger written before this change replays exactly as it did. A well-formed line never
+   collects as a finding; a line that only starts with `REVIEW_VERDICT` stays for the parser. A line inside a code fence is ignored; a line repeated byte for byte counts once, and
+   two different lines are malformed. Collect still parses every finding as described in step 3, then compares:
+
+   | Reply | What collect does |
+   |---|---|
+   | No line | Findings as parsed. `COLLECT_VERDICT: reader=<r> declared=missing parsed=<k>`. |
+   | Malformed line (bad count, bad `at=`, more locations than `<n>`, two different lines) | Findings as parsed. `declared=malformed`, with the reason in `why=`. |
+   | `blocking=<n>` equals the blocking rows parsed | Findings as parsed. `agrees=yes`. |
+   | `<n>` is more than parsed | Every parsed row stays, and collect adds CRITICAL rows (ids `<reader>#v1`, `#v2`…): one per `at=` location that no parsed blocking row names, then one more row for the declared blockers left over. The added rows count toward what blocks like any other. |
+   | `<n>` is less than parsed | Nothing is lowered automatically. Each blocking row with no list item, heading, field, lead label, JSON or file:line, and no `Blocks: yes` (a row that blocks only because a sentence uses the word CRITICAL or P0, or because the native voice's FIXABLE raises it) is marked `summary_candidate`, so lead judgment may lower it with a written reason, which `judge` records as `dismissed`. Anchored rows keep blocking. |
+
+   A valid line never lowers a row by itself. FOUN-298's native "nothing blocks … all FIXABLE" sentence with
+   `blocking=0` still collects as CRITICAL, as a summary candidate the lead lowers with a reason. An automatic relabel
+   was tried and removed (gstack#4353): beside a denial line such as "No other CRITICAL issues.", it let a real
+   unanchored FIXABLE blocker drop to FIXABLE while the count still agreed. A reader that undercounts a real blocker
+   therefore loses nothing without a written reason. `verify` re-parses each output the way its
+   render asked, prints `VERIFY_VERDICT: agree=<a> asked=<n>` and one `VERDICT <reader> AGREES|DISAGREES|MISSING|MALFORMED`
+   row per checked reply. These are informational: a disagreeing count has already added or marked its rows, so
+   they never make a ledger dirty. When collect prints `agrees=no` or `declared=malformed`, read the reply, then judge the
+   added rows and summary candidates as usual.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id

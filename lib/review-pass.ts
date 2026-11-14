@@ -253,12 +253,12 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       Object.assign(slots, { checklist, brief, classes: (r.classes ?? []).join(','), diff_base: r.diff_base ?? m.diff_base });
       targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, ...targetedRead(process.cwd(), slots.diff_base!) };
     }
-    const text = withWorkspace(renderBrief(role, slots, t), workdir, m.fetch_policy);
+    const text = withWorkspace(renderBrief(role, slots, t), workdir, m.fetch_policy, { verdict: true });
     const file = path.join(briefs, briefFile(role, r.name));
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: readerKey(role, r.name), role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: readerKey(role, r.name), role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, verdict: 1, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }
