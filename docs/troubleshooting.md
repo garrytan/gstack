@@ -354,7 +354,10 @@ reproductions; each defect as file:line, the condition under which the code
 returns the wrong answer, and the smallest fix), or on Gemini 4 Carbon with the
 brief unchanged. Capy's /ship does both by itself: the pass prints
 `RETRY: reader=outside-voice/astra-read-only ...`, then
-`RETRY: reader=outside-voice/gemini-4-carbon ...` if Astra refuses too. Other
+`RETRY: reader=outside-voice/gemini-4-carbon ...` if Astra refuses too. A
+retry whose model family is already the lane's or the native reviewer's (an
+OpenAI or Google lane, say) is skipped, because Step 11 refuses an outside
+voice of either family. Other
 hosts' outside voices (the Codex CLI, the api runner) only report this reason;
 rerun them by hand. When every attempt is refused, `RETRY: exhausted` and the
 Step 11 record's `outside_note` say the second-family read is missing: the
