@@ -435,3 +435,27 @@ describe('E2 replays (GST-1814): each phase publishes in order after its own rep
     expect(json(r.stdout)?.hookSpecificOutput).toBeUndefined();
   });
 });
+
+// 2026-11-09 (apollo PRD-022): Claude Code journaled a correct report only as a
+// paraphrase that dropped "Phase N complete". The no-op may carry the
+// declaration, quoted, and the command is journaled verbatim.
+describe('a declaring no-op counts when the report text was paraphrased away', () => {
+  const paraphrase = say("Outside review came back unavailable and the native subagent found 9 issues; I'm moving on.");
+  const declaring = (p: Phase, declared: string) =>
+    [tool(`p-${p}`, 'Bash', { command: `true autoplan-published ${p} '${declared}'` }), result(`p-${p}`, '')];
+
+  test('the matching declaration publishes the phase', () => {
+    const c = check([...LOADED, ...init(), ...enter('ceo'), paraphrase, ...declaring('ceo', 'Phase 1 complete.')]);
+    expect(c.uncounted).toEqual([]);
+  });
+
+  for (const declared of ['Phase 2 complete.', 'Phase 1 is not complete.', 'Phase 1 will be complete later.'])
+    test(`"${declared}" does not publish Phase 1`, () => {
+      const c = check([...LOADED, ...init(), ...enter('ceo'), paraphrase, ...declaring('ceo', declared)]);
+      expect(c.uncounted).toEqual([{ phase: 'ceo', why: 'no-report' }]);
+    });
+
+  test('the bare no-op after a literal report still publishes', () => {
+    expect(check([...LOADED, ...init(), ...phase('ceo')]).uncounted).toEqual([]);
+  });
+});

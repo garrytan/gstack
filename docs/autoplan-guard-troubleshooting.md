@@ -214,7 +214,10 @@ be verified, so Claude Code is not writing it to the journal in time.
 ### `publication_missing`
 No filled report for the previous phase appears after its close packet Read.
 Publish it as your own assistant text in a message whose only tool call is
-`true autoplan-published <phase>`, then enter the next phase in a later message.
+`true autoplan-published <phase> 'Phase N complete.'`, then enter the next phase in a later message.
+The quoted declaration matters: with Claude Code's thinking-display "updates" mode,
+narration before a tool call can be journaled only as a paraphrase that drops the
+"Phase N complete" line, while the command is journaled verbatim.
 
 <a id="publication-unflushed"></a>
 ### `publication_unflushed`

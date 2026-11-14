@@ -45,7 +45,9 @@ preparation does not perform them.
 6. **Publish the parent report.** After successful verification, SEND the filled
    report below now as visible parent assistant text, using actual findings and voice
    statuses, in its own message whose only tool call is the Bash no-op
-   `true autoplan-published <PHASE>` (no output). The guard counts a report only when a
+   `true autoplan-published <PHASE> 'Phase <report.number> complete.'` (no output). Keep the
+   quoted declaration: Claude Code can journal the report text only as a paraphrase that
+   drops it, and the command is journaled verbatim. The guard counts a report only when a
    later record follows it, so this message is the next operation before any next-phase tool call.
    Use the packet's `report` fields for this phase, the actual host's reviewer names,
    and N/A when either review voice is missing; confirmed counts require both voices.

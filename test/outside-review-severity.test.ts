@@ -114,3 +114,28 @@ describe('design proposals use the proposal gate', () => {
     expect(outsideVoiceCommand({ ...ctx, skillName: 'plan-ceo-review' }, { timeoutMs: 300000 })).toMatch(/ review "\$_OUTSIDE_TMP\/text"/);
   });
 });
+
+// 2026-11-09 /autoplan run (apollo PRD-022): Codex wrote every finding as
+// `### N. High — title` (heading plus number). The label start allowed one
+// prefix, so no severity was read and three completed reviews came back
+// `untagged_review`; under the review gate the same shape read as clean.
+describe('a numbered heading carries its severity word', () => {
+  for (const [heading, highest] of [
+    ['### 1. High — Make it look good silently removes editing', 'P1'],
+    ['## 2. Critical — The security model protects the session, not the document', 'P0'],
+    ['### 3. Medium — Batch import is a toast, not a workflow', 'P2'],
+    ['### 4. [P1] Tagged numbered heading', 'P1'],
+  ] as const) {
+    test(heading, () => {
+      const text = `${heading}\nBody text.\nRecommendation: fix it because the change loses data.\n\nVERDICT: FINDINGS\n`;
+      const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '' } as never);
+      expect(result.findings?.highest).toBe(highest);
+      expect(result.reason).not.toBe('untagged_review');
+    });
+  }
+  test('prose "high-level" under a numbered heading is still not a label', () => {
+    const text = `### 1. A high-level concern about naming\nBody.\nRecommendation: rename it because readers guess wrong.\n\nVERDICT: FINDINGS\n`;
+    const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '' } as never);
+    expect(result.findings?.highest ?? null).toBeNull();
+  });
+});
