@@ -88,7 +88,7 @@ function brokenSectionPointers(dest: string, runtimeRoot: string, home: string):
         } else if (tok.startsWith('$GSTACK_ROOT/')) targets = [join(runtimeRoot, tok.slice('$GSTACK_ROOT/'.length))];
         else if (tok.startsWith('~/')) targets = [join(home, tok.slice(2))];
         else if (tok.startsWith('/')) targets = [tok];
-        else if (tok.startsWith('../')) targets = [join(dir, tok)];
+        else if (tok.startsWith('../')) targets = skill.startsWith('gstack-') ? [join(dir, tok), join(dir, '..', `gstack-${tok.slice(3)}`)] : [join(dir, tok)];
         else continue;
         if (!targets.some(readable)) broken.push(`${skill}: ${tok}`);
       }
@@ -229,6 +229,15 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
     const status = runSetup(f, join(src, 'setup'), ['--status']);
     expect(status.status, status.stdout + status.stderr).toBe(1);
     expect(status.stdout).toMatch(/claude global: [^\n]*section links: [1-9]\d* of \d+ broken \(first: autoplan\/SKILL\.md names sections\/unattended\.md\)/);
+  }, 60_000);
+
+  test('--status resolves relative sibling section pointers in a --prefix Claude install (#4164)', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.dir, 'gstack'));
+    expect(runSetup(f, join(src, 'setup'), ['--host', 'claude', '--prefix']).status).toBe(0);
+    const status = runSetup(f, join(src, 'setup'), ['--status']);
+    expect(status.status, status.stdout + status.stderr).toBe(0);
+    expect(status.stdout).toMatch(/claude global: router is a real file; section links: \d+ checked, all resolve/);
   }, 60_000);
 
   test('upgrade from the previous release layout refreshes every installed host (#1925)', () => {

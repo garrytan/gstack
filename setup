@@ -140,7 +140,7 @@ _status_install_checks() {
           '$GSTACK_ROOT/'*) path="$root/${tok#\$GSTACK_ROOT/}" ;;
           '~/'*) path="$HOME/${tok#\~/}" ;;
           /*) path="$tok" ;;
-          ../*) path="$dir/$tok" ;;
+          ../*) path="$dir/$tok"; case "${dir##*/}" in gstack-*) [ -r "$path" ] || path="$dir/../gstack-${tok#../}" ;; esac ;;
           *) continue ;;
         esac
         checked=$((checked + 1))
