@@ -30,6 +30,8 @@ Use this checkout as the gstack root if it contains `BROWSER.md` and `browse/SKI
 
 ## 2. Get every decision from the user first
 
+**Windows check first:** on Windows, native cookie import is not supported for Chrome, Edge, or Brave (App-Bound Encryption; native extraction stays disabled). If the user is on Windows and wants cookies from one of those browsers, say so in one line before asking the questions below, and offer either (a) a supported source browser, or (b) headed manual sign-in with `$B handoff` followed by `$B resume` (when a display is available).
+
 Ask these together, before running any `$B` command. Never guess an answer or treat the default Comet browser as consent.
 
 1. **Source browser and profile.** `--profile` takes the profile's directory (`Default`, `Profile 2`), not its display name. A profile that cannot be read is unknown, not empty.
