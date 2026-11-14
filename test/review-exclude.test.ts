@@ -94,6 +94,36 @@ describe('what review_exclude_paths excludes and keeps', () => {
     for (const f of KEPT) expect(read.has(f)).toBe(true);
   }, 120_000);
 
+  // Value: protects=a results manifest the base policy names by file name leaves the reviewers' diff, and stops keeping the
+  //   receipts it lists, while config files under a broader pattern stay; fails_when=a pattern whose last segment is
+  //   manifest.json keeps the manifest as config, the manifest's full-path list keeps the receipts as named-by-code, or a
+  //   package.json or manifest.json matched only by data/** is excluded; why_new=a large eval results PR stopped at
+  //   REVIEW_DIFF_TOO_LARGE on a 1.42 MB manifest its base policy named; seam=bin/gstack-review-plan and git running the printed commands
+  test('a config-named data file is excluded when a pattern names its file name, and kept under a broader pattern', () => {
+    const named = 'docs/bench/run1/results-a/x/manifest.json';
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['data/**', 'docs/bench/*/results*/**/manifest.json']) } });
+    repos.push(repo);
+    commit(repo, {
+      [named]: JSON.stringify({ trials: ['data/r1.json', 'data/r2.json'] }) + '\n',
+      'data/r1.json': '{"ok": true}\n',
+      'data/r2.json': '{"ok": false}\n',
+      'data/manifest.json': '{"name": "data"}\n',
+      'data/package.json': '{"scripts": {"postinstall": "node x.js"}}\n',
+      'docs/bench/run1/package.json': '{"name": "bench"}\n',
+    });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([
+      { path: 'data/manifest.json', reason: 'config' },
+      { path: 'data/package.json', reason: 'config' },
+    ]);
+    expect(p.review_exclude).toMatchObject({ state: 'active', excluded: 3, content: { binary: 0, data: 3, docs: 0, log: 0 } });
+    const mb = mergeBase(repo);
+    const cmds = plan(repo).out.split('\n').filter(l => /^DIFF_(CMD|KEEP): /.test(l)).map(l => l.replace(/^DIFF_(CMD|KEEP): \S+ /, ''));
+    const read = new Set(cmds.flatMap(c => pathsRead(repo, c, mb)));
+    for (const f of [named, 'data/r1.json', 'data/r2.json']) expect(read.has(f)).toBe(false);
+    for (const f of ['data/manifest.json', 'data/package.json', 'docs/bench/run1/package.json']) expect(read.has(f)).toBe(true);
+  }, 120_000);
+
   // Value: protects=the Red Team, the security specialist, the adversarial pass and the outside voice read the same selection
   //   as the plan, including through the fixture-handling command; fails_when=any brief's git diff command (or the embedded
   //   outside-voice diff) shows an excluded file, or a kept file is unreachable from a brief; why_new=task 8 (the fixture
