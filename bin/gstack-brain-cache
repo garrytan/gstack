@@ -274,16 +274,17 @@ export function cmdGet(entityName: string, projectSlug: string | null): GetResul
   }
 
   // Stale or missing — try cold refresh.
-  const refreshed = refreshEntity(entityName, projectSlug);
-  if (refreshed) {
+  const refresh = refreshEntityWithStatus(entityName, projectSlug);
+  if (refresh.ok) {
     return { path: entityPath(entityName, projectSlug), state: 'cold-refreshed' };
   }
+  const failReason = refresh.reason === 'page_not_found' ? 'page not found' : 'brain unreachable';
   // Refresh failed. Use stale-but-usable if file exists.
   if (hasFile(entityName, projectSlug)) {
-    return { path: entityPath(entityName, projectSlug), state: 'stale-fallback', message: 'brain unreachable; using stale cache' };
+    return { path: entityPath(entityName, projectSlug), state: 'stale-fallback', message: `${failReason}; using stale cache` };
   }
   // No cache and no refresh = missing.
-  return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'brain unreachable; no cache available' };
+  return { path: entityPath(entityName, projectSlug), state: 'missing', message: `${failReason}; no cache available` };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -391,10 +392,24 @@ export function withRefreshLock<T>(projectSlug: string | null, fn: () => T): T |
   }
 }
 
+type FetchFailureReason = 'page_not_found' | 'unreachable';
+
+interface EntityFetchResult {
+  content: string | null;
+  reason?: FetchFailureReason;
+}
+
 /** Refreshes one entity from the brain. Returns true on success. */
 export function refreshEntity(entityName: string, projectSlug: string | null): boolean {
+  return refreshEntityWithStatus(entityName, projectSlug).ok;
+}
+
+function refreshEntityWithStatus(
+  entityName: string,
+  projectSlug: string | null,
+): { ok: boolean; reason?: FetchFailureReason } {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
-  if (!entity) return false;
+  if (!entity) return { ok: false, reason: 'unreachable' };
 
   // Mark attempt
   const meta = loadMeta(entity.scope, projectSlug);
@@ -405,16 +420,16 @@ export function refreshEntity(entityName: string, projectSlug: string | null): b
   // (recent-decisions, salience) need different queries from direct page reads.
   // For T2a we implement the direct-page path; derived digests get filled in by
   // the resolver / write-back paths in later commits.
-  const digestContent = fetchAndCompressEntity(entityName, projectSlug);
-  if (digestContent === null) {
+  const fetched = fetchAndCompressEntityWithStatus(entityName, projectSlug);
+  if (fetched.content === null) {
     saveMeta(entity.scope, projectSlug, meta);
-    return false;
+    return { ok: false, reason: fetched.reason };
   }
 
   // Enforce per-entity budget by truncating from end (oldest items live there
   // by convention in our compressor). The per-skill budget is separately
   // enforced at preflight injection time.
-  let final = digestContent;
+  let final = fetched.content;
   if (Buffer.byteLength(final, 'utf-8') > entity.budget_bytes) {
     final = truncateToBudget(final, entity.budget_bytes);
   }
@@ -425,7 +440,7 @@ export function refreshEntity(entityName: string, projectSlug: string | null): b
   meta.schema_version = GSTACK_SCHEMA_PACK_VERSION;
   meta.endpoint_hash = detectEndpointHash();
   saveMeta(entity.scope, projectSlug, meta);
-  return true;
+  return { ok: true };
 }
 
 /**
@@ -492,53 +507,137 @@ export function cmdInvalidate(entityName: string, projectSlug: string | null): v
  * For T2a we implement the entity → page-slug mapping for the simple cases.
  * Derived digests (recent-decisions, salience) get specialized paths.
  */
-function fetchAndCompressEntity(entityName: string, projectSlug: string | null): string | null {
+function fetchAndCompressEntityWithStatus(entityName: string, projectSlug: string | null): EntityFetchResult {
   switch (entityName) {
     case 'user-profile':
-      return fetchUserProfile();
+      return fetchSimplePageWithStatus(`gstack/user-profile/${userSlugForFetch()}`);
     case 'product':
-      return fetchProduct(projectSlug);
+      return projectSlug ? fetchSimplePageWithStatus(`gstack/product/${projectSlug}`) : { content: null, reason: 'unreachable' };
     case 'goals':
-      return fetchGoals(projectSlug);
+      return { content: fetchGoals(projectSlug) };
     case 'developer-persona':
-      return fetchSimplePage(`gstack/developer-persona/${projectSlug}`);
+      return fetchSimplePageWithStatus(`gstack/developer-persona/${projectSlug}`);
     case 'brand':
-      return fetchSimplePage(`gstack/brand/${projectSlug}`);
+      return fetchSimplePageWithStatus(`gstack/brand/${projectSlug}`);
     case 'competitive-intel':
-      return fetchSimplePage(`gstack/competitive-intel/${projectSlug}`);
+      return fetchSimplePageWithStatus(`gstack/competitive-intel/${projectSlug}`);
     case 'recent-decisions':
-      return fetchRecentDecisions(projectSlug);
+      return { content: fetchRecentDecisions(projectSlug) };
     case 'salience':
       // D9 salience allowlist applied in T17 commit; T2a returns raw output for now.
-      return fetchSalience(projectSlug);
+      return { content: fetchSalience(projectSlug) };
     default:
-      return null;
+      return { content: null, reason: 'unreachable' };
   }
 }
 
-/** Generic single-page fetch via `gbrain get`. Returns null on miss/unreachable. */
-function fetchSimplePage(slug: string): string | null {
-  const result = spawnGbrain(['get', slug, '--json'], { timeout: 10_000 });
-  if (result.status !== 0) return null;
-  try {
-    const page = JSON.parse(result.stdout) as { body?: string; title?: string };
-    if (!page?.body) return null;
-    return compressPage(slug, page.title || slug, page.body);
-  } catch {
-    return null;
-  }
+const GBRAIN_READ_MODES = new Set(['auto', 'full', 'none', 'outline', 'window']);
+const PAGE_NOT_FOUND_RE = /\bpage[_\s-]*not[_\s-]*found\b/i;
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-function fetchUserProfile(): string | null {
+function extractMarkdownTitle(markdown: string): string | null {
+  const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!fm) return null;
+  const titleMatch = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+  return titleMatch?.[1]?.trim() || null;
+}
+
+type ParsedPageOutcome =
+  | { status: 'ok'; content: string }
+  | { status: 'not_found' | 'unreachable' };
+
+function parseSimplePageResponse(
+  slug: string,
+  exitStatus: number | null,
+  stdout: string,
+  stderr: string,
+  hasSpawnError: boolean,
+): ParsedPageOutcome {
+  if (hasSpawnError) return { status: 'unreachable' };
+  const trimmed = stdout.trim();
+
+  // Try structured JSON first (gbrain 0.60.x `get --json`).
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const page = JSON.parse(trimmed) as Record<string, unknown>;
+      if (!page || typeof page !== 'object' || Array.isArray(page)) {
+        return {
+          status: exitStatus !== 0 && PAGE_NOT_FOUND_RE.test(stderr) ? 'not_found' : 'unreachable',
+        };
+      }
+      if (page.error !== undefined && page.error !== null && page.error !== false) {
+        const errText = typeof page.error === 'string' ? page.error : JSON.stringify(page.error);
+        return { status: PAGE_NOT_FOUND_RE.test(errText) ? 'not_found' : 'unreachable' };
+      }
+      if (exitStatus !== 0) {
+        return { status: PAGE_NOT_FOUND_RE.test(`${trimmed}\n${stderr}`) ? 'not_found' : 'unreachable' };
+      }
+
+      // gbrain 0.60.x sets `body` to the read-mode name ("auto" / "full" / ...),
+      // while actual text lives in `compiled_truth`, `content`, or `timeline`.
+      const legacyBody =
+        typeof page.body === 'string' && page.body.trim() && !GBRAIN_READ_MODES.has(page.body.trim())
+          ? page.body
+          : null;
+      const text =
+        nonEmptyString(page.compiled_truth) ??
+        nonEmptyString(page.content) ??
+        nonEmptyString(page.timeline) ??
+        legacyBody;
+      if (!text) return { status: 'not_found' };
+
+      const title = nonEmptyString(page.title)?.trim() || slug;
+      return { status: 'ok', content: compressPage(slug, title, text) };
+    } catch {
+      // Fall through to non-JSON markdown/error handling below.
+    }
+  }
+
+  if (exitStatus !== 0) {
+    return { status: PAGE_NOT_FOUND_RE.test(`${trimmed}\n${stderr}`) ? 'not_found' : 'unreachable' };
+  }
+  if (!trimmed || PAGE_NOT_FOUND_RE.test(trimmed)) {
+    return { status: 'not_found' };
+  }
+
+  // Older gbrain releases print raw markdown (frontmatter + body) even with --json.
+  const title = extractMarkdownTitle(stdout) || slug;
+  const compressed = compressPage(slug, title, stdout);
+  const bodyAfterHeader = compressed.slice(`# ${title}\nslug: ${slug}\n\n`.length).trim();
+  if (!bodyAfterHeader) return { status: 'not_found' };
+  return { status: 'ok', content: compressed };
+}
+
+/**
+ * Generic single-page fetch via `gbrain get`.
+ * Normalizes path-derived slugs to lowercase (matching gbrain's pathToSlug)
+ * with a fallback to the caller's exact case only on `not_found`.
+ */
+function fetchSimplePageWithStatus(slug: string): EntityFetchResult {
+  const lowerSlug = slug.toLowerCase();
+  const candidates = lowerSlug === slug ? [slug] : [lowerSlug, slug];
+  for (const candidate of candidates) {
+    const result = spawnGbrain(['get', candidate, '--json'], { timeout: 10_000 });
+    const parsed = parseSimplePageResponse(
+      candidate,
+      result.status,
+      result.stdout || '',
+      result.stderr || '',
+      Boolean(result.error),
+    );
+    if (parsed.status === 'ok') return { content: parsed.content };
+    if (parsed.status === 'unreachable') return { content: null, reason: 'unreachable' };
+  }
+  return { content: null, reason: 'page_not_found' };
+}
+
+function userSlugForFetch(): string {
   // The user-slug discovery is implemented in T16 (D4 A3). For T2a we accept
   // env GSTACK_USER_SLUG as override, fallback to $USER for direct calls.
-  const slug = process.env.GSTACK_USER_SLUG || process.env.USER || 'unknown';
-  return fetchSimplePage(`gstack/user-profile/${slug}`);
-}
-
-function fetchProduct(projectSlug: string | null): string | null {
-  if (!projectSlug) return null;
-  return fetchSimplePage(`gstack/product/${projectSlug}`);
+  return process.env.GSTACK_USER_SLUG || process.env.USER || 'unknown';
 }
 
 /**
@@ -554,7 +653,8 @@ function fetchGoals(projectSlug: string | null): string | null {
     '--json',
   ]);
   if (!result?.pages) return null;
-  const goals = result.pages.filter((p) => p.slug?.startsWith(`gstack/goal/${projectSlug}/`));
+  const lowerPrefix = `gstack/goal/${projectSlug.toLowerCase()}/`;
+  const goals = result.pages.filter((p) => p.slug?.toLowerCase().startsWith(lowerPrefix));
   if (goals.length === 0) {
     // Empty digest is valid (just header + 'no active goals' line)
     return `# Active goals (project: ${projectSlug})\n\n_No active goals recorded yet._\n`;
@@ -686,7 +786,7 @@ function fetchSalience(projectSlug: string | null): string | null {
  */
 function compressPage(slug: string, title: string, body: string): string {
   const trimmed = body
-    .replace(/^---[\s\S]*?---\s*\n/m, '') // strip frontmatter
+    .replace(/^---[\s\S]*?---\s*\r?\n/m, '') // strip frontmatter
     .trim();
   return `# ${title}\nslug: ${slug}\n\n${trimmed}\n`;
 }
@@ -713,7 +813,7 @@ function truncateToBudget(content: string, budgetBytes: number): string {
  * want to know what the digest WOULD look like without writing to cache.
  */
 export function cmdDigest(slug: string): string | null {
-  return fetchSimplePage(slug);
+  return fetchSimplePageWithStatus(slug).content;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -979,12 +1079,16 @@ async function main(): Promise<number> {
       case 'digest': {
         const slug = positional[0];
         if (!slug) { printUsage(); return 1; }
-        const content = cmdDigest(slug);
-        if (content === null) {
-          process.stderr.write('brain unreachable or page not found\n');
+        const fetched = fetchSimplePageWithStatus(slug);
+        if (fetched.content === null) {
+          process.stderr.write(
+            fetched.reason === 'page_not_found'
+              ? 'page not found\n'
+              : 'brain unreachable or page not found\n',
+          );
           return 2;
         }
-        process.stdout.write(content);
+        process.stdout.write(fetched.content);
         return 0;
       }
       case 'meta': {
