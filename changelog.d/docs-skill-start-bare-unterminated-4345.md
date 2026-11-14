@@ -1,0 +1,1 @@
+- Instruct agents to run `gstack-skill-start` bare from inside the target repo and report any unterminated `GSTACK_INSTRUCTION_BEGIN` block instead of treating it as empty.
