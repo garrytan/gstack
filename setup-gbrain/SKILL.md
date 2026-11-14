@@ -801,9 +801,9 @@ invocation.
   ours.
 - **STOP points are hard.** Gbrain doctor not healthy, installer PATH shadow,
   migrate timeout, smoke test failure — each is a STOP. Do not paper over.
-- **Concurrent-run lock.** At skill start, create the parent before acquiring
-  the lock atomically. Keep mkdir's error output; missing parents and filesystem
-  failures are not evidence of a competing run:
+- **Concurrent-run lock.** Create the parent, then take the lock with
+  `gstack_lock_take` (O_EXCL; mkdir's status is no lock). A missing parent
+  is not a competing run:
 
   ```bash
   GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
@@ -811,7 +811,8 @@ invocation.
     echo "ERROR: Cannot create setup-gbrain lock parent $GSTACK_STATE_ROOT." >&2
     exit 1
   fi
-  if ! mkdir "$GSTACK_STATE_ROOT"/.setup-gbrain.lock.d; then
+  . ~/.claude/skills/gstack/bin/gstack-lock.sh || exit 1
+  if ! gstack_lock_take "$GSTACK_STATE_ROOT"/.setup-gbrain.lock.d; then
     if [ -d "$GSTACK_STATE_ROOT"/.setup-gbrain.lock.d ]; then
       echo "Another /setup-gbrain instance is running. Wait for it, or remove $GSTACK_STATE_ROOT/.setup-gbrain.lock.d only if you are sure it is stale." >&2
     else
@@ -821,6 +822,6 @@ invocation.
   fi
   ```
 
-  Release the acquired lock on normal exit AND in the SIGINT trap.
+  Release it (`rm -rf`, not rmdir) on normal exit AND in the SIGINT trap.
 - **CLAUDE.md is the audit trail.** Always update it in Step 8 after a
   successful setup.

@@ -105,11 +105,14 @@ _lock_release() {
 _lock_acquire() {
   mkdir -p "$STATE_DIR/locks" 2>/dev/null || { _err "cannot create $STATE_DIR/locks (state directory not writable; nothing can be recorded there)"; return 5; }
   local tries=0 mtime now stale judged moved owner_pid
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+  . "$SCRIPT_DIR/gstack-lock.sh" 2>/dev/null || { _err "$SCRIPT_DIR/gstack-lock.sh is missing (fix: reinstall with ./setup or /gstack-upgrade)"; return 5; }
+  while ! gstack_lock_take "$LOCK_DIR" owner "$$"; do
     tries=$((tries + 1))
-    # Staleness from the directory's own mtime (set atomically by the holder's
-    # mkdir), never from a file written after it: a contender that looks in
-    # the gap between mkdir and bookkeeping must wait, not reclaim. GNU stat
+    # Staleness from the directory's own mtime (set by the holder's mkdir and
+    # owner create), never from the owner's content: a contender that looks in
+    # the gap between mkdir and the owner file must wait, not reclaim. The
+    # owner file is the lock (gstack_lock_take creates it with O_EXCL, since
+    # mkdir's exit status is not a lock on Ubuntu 26.04's uutils mkdir). GNU stat
     # first, BSD stat second, garbage -> no takeover (same idiom as
     # bin/gstack-settings-hook).
     mtime="$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "")"
@@ -143,7 +146,6 @@ _lock_acquire() {
     if [ "$tries" -ge "$LOCK_TRIES" ]; then _err "another gstack-memorable is running (lock $LOCK_DIR; stale but not reclaimable if older than ${LOCK_STALE_S}s); try again"; return 5; fi
     sleep "$LOCK_SLEEP"
   done
-  printf '%s\n' "$$" > "$LOCK_DIR/owner"
   LOCK_HELD=1
   trap _lock_release EXIT
 }

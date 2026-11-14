@@ -6,8 +6,10 @@
  * (`./evals.sh case <id>`) and a gate command (`./evals.sh gate`), all local
  * stubs that cost nothing. The rule case `queue-priorities` reads a task list
  * that storage returns in seed-dependent order and compares it to the sorted
- * expectation. Each `case` invocation claims the lowest free trial slot with
- * an atomic `mkdir` (slots reset per ship-measure round, keyed on the round
+ * expectation. Each `case` invocation claims the lowest free trial slot by
+ * creating its slot file with noclobber, which the shell opens O_EXCL (not
+ * mkdir, whose exit status lies on Ubuntu 26.04's uutils mkdir; slots reset
+ * per ship-measure round, keyed on the round
  * directory), and the slot is the seed: while src/priorities.js leaves the
  * list unsorted, slots whose number mod 10 is 2, 5 or 9 fail (3 of 10). The
  * failure prints `failure_cause` and `failure_detail` naming the line. The
@@ -84,7 +86,7 @@ case "\${1:-}" in
     case "$id" in ${SEEDED_CASE}|${STABLE_CASE}) ;; *) echo "unknown case: $id (cases: ${SEEDED_CASE}, ${STABLE_CASE})" >&2; exit 2 ;; esac
     if [ -n "\${GSTACK_SHIP_MEASURE_DIR:-}" ]; then slots="$(dirname "$GSTACK_SHIP_MEASURE_DIR")/slots"; else slots="$here/.evals/slots"; fi
     mkdir -p "$slots"
-    n=1; until mkdir "$slots/$n" 2>/dev/null; do n=$((n + 1)); done
+    n=1; until (set -o noclobber; : > "$slots/$n") 2>/dev/null; do n=$((n + 1)); done
     out=$(run "$id" "$n" 2>&1); rc=$?
     printf '%s\\n' "$out"
     echo "case id=$id slot=$n sorted=$(sorted_of "$out") result=$([ $rc = 0 ] && echo pass || echo fail) measure_dir=\${GSTACK_SHIP_MEASURE_DIR:--}" >>"$log"

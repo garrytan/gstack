@@ -9,7 +9,8 @@
 # the new revision (git show FETCH_HEAD:bin/gstack-ff-update) and run it in a
 # private temp directory, so it sources nothing. The lock and the
 # flatten-and-strip sanitizer are inlined; test/gstack-ff-update.test.ts pins
-# them to their twins in bin/gstack-session-update.
+# them to their twins in bin/gstack-session-update, and gstack_lock_take to
+# bin/gstack-lock.sh.
 #
 # Inside an install-scoped lock (<git-common-dir>/gstack-ff.lock):
 #   1. The working tree is captured as-is through a private index (tracked
@@ -115,18 +116,38 @@ LOCK_DIR="$COMMON/gstack-ff.lock"
 LOCK_TTL_MINUTES=30
 MYPID=$$
 OWN_INDEX_LOCK="" TMP="" HB_PID=""
+# Twin of bin/gstack-lock.sh (test-pinned): mkdir's exit status is not a lock
+# on Ubuntu 26.04's uutils mkdir, so the pid file is created with O_EXCL.
+gstack_lock_take() {
+  local _gl_dir="$1" _gl_file="${2:-pid}" _gl_content="${3:-$$}"
+  if [ -e "$_gl_dir" ] || [ -L "$_gl_dir" ]; then return 1; fi
+  mkdir "$_gl_dir" 2>/dev/null || :
+  if [ ! -d "$_gl_dir" ] || [ -L "$_gl_dir" ]; then
+    if [ -e "$_gl_dir" ] || [ -L "$_gl_dir" ]; then return 1; fi
+    return 2
+  fi
+  local _gl_opened
+  _gl_opened=$(set -o noclobber; { echo o; printf '%s\n' "$_gl_content" >&3; } 2>/dev/null 3> "$_gl_dir/$_gl_file") && return 0
+  if [ "$_gl_opened" = o ]; then
+    rm -f "$_gl_dir/$_gl_file"; rmdir "$_gl_dir" 2>/dev/null || :
+    return 3
+  fi
+  if [ -e "$_gl_dir/$_gl_file" ] || [ -L "$_gl_dir/$_gl_file" ] || [ ! -d "$_gl_dir" ]; then return 1; fi
+  rmdir "$_gl_dir" 2>/dev/null || :
+  return 3
+}
 lock_is_expired() {
   _hb="$LOCK_DIR/pid"
   [ -f "$_hb" ] || _hb="$LOCK_DIR"
   [ -n "$(find "$_hb" -maxdepth 0 -mmin +$LOCK_TTL_MINUTES 2>/dev/null)" ]
 }
 lock_try() {
-  mkdir "$LOCK_DIR" 2>/dev/null && return 0
+  gstack_lock_take "$LOCK_DIR" pid "$MYPID" && return 0
   _lp=$(cat "$LOCK_DIR/pid" 2>/dev/null)
   if lock_is_expired || { [ "${_lp:-0}" -gt 0 ] 2>/dev/null && ! kill -0 "$_lp" 2>/dev/null; }; then
     mv "$LOCK_DIR" "$LOCK_DIR.reap.$$" 2>/dev/null || return 1
     rm -rf "$LOCK_DIR.reap.$$" 2>/dev/null
-    mkdir "$LOCK_DIR" 2>/dev/null && return 0
+    gstack_lock_take "$LOCK_DIR" pid "$MYPID" && return 0
   fi
   return 1
 }
@@ -145,7 +166,6 @@ until lock_try; do
   [ "$_wait" -gt 0 ] || refuse 75 ff-busy "another gstack update is moving $DIR (lock $LOCK_DIR held by pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown)); nothing was changed, retry in a minute"
   sleep 1; _wait=$((_wait - 1))
 done
-echo "$MYPID" > "$LOCK_DIR/pid" 2>/dev/null
 trap cleanup_ff_update EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT

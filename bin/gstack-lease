@@ -55,6 +55,8 @@ BIN="$(cd "$(dirname "$0")" && pwd -P)"
   gstack_harness_pid() { printf '%s\n' "$1"; }
   gstack_shared_harness() { [ "$(ps -o comm= -p "$1" 2>/dev/null | head -1 | sed 's|.*/||; s/^-//')" = capy-server ]; }
 }
+# shellcheck source=bin/gstack-lock.sh
+. "$BIN/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack-lease: $BIN/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 VERB="${1:-}"; [ $# -gt 0 ] && shift
 ROOT="" PID="" EXCLUDE="" FROM="" SHARED=0 RUN=""
@@ -119,21 +121,22 @@ state() {
 # The lease directory's lock: touch's publish and prune, and reclaim's
 # reread-and-delete, run under it, so a reclaim never deletes a renewal and a
 # lease never disappears while it is live. The lock is a directory, .lock,
-# whose owner file names its holder (`<pid> <start identity>`); mkdir is
-# atomic everywhere gstack runs, Git Bash on Windows included, where ln -s to a
-# target that does not exist always fails (#3330). A taker publishes its token
-# as a claim (.lock.claim.<pid>) before its mkdir and renames the claim into
-# the lock as its owner after, so a lock without an owner is either being
+# whose owner file names its holder (`<pid> <start identity>`). It is taken
+# with gstack_lock_take (bin/gstack-lock.sh), which creates the owner file
+# with O_EXCL: mkdir's exit status is not a lock on Ubuntu 26.04's uutils
+# mkdir, and ln -s to a target that does not exist always fails on Git Bash
+# (#3330). A taker publishes its token as a claim (.lock.claim.<pid>) before
+# its mkdir and creates the owner file after, so a lock without an owner is either being
 # taken by a live claimant or orphaned by a dead one. A lock is broken only
 # when its holder is dead or its pid now belongs to another process, never by
 # age, and unlock removes only the caller's own lock. An ownerless lock is
 # broken once no claimant lives and it is at least 2 s old (and unchanged
-# while it was checked), so a taker between its mkdir and its owner rename is
+# while it was checked), so a taker between its mkdir and its owner create is
 # never taken for a crash, even when its claim landed after the claims were
 # read. A claim is honored while its claimant lives; one that records no
 # start identity (so a reused pid cannot be told apart) is abandoned after 2
 # minutes, since a live taker holds one for milliseconds. Known limit: on such
-# a host a taker stalled over 2 minutes between its mkdir and its owner rename
+# a host a taker stalled over 2 minutes between its mkdir and its owner create
 # can be broken and then publish into its successor's lock. An owner whose
 # pid is 0, zero-padded or not a number counts as a dead holder, and a lock
 # whose owner file exists but cannot be read is never treated as ownerless. A symlink .lock left by an older
@@ -148,10 +151,7 @@ LOCK="$DIR/.lock" TOKEN=""
 take() {
   if [ -e "$1" ] || [ -L "$1" ]; then return 1; fi
   { printf '%s\n' "$TOKEN" > "$1.claim.$$"; } 2>/dev/null || { rm -f "$1.claim.$$"; return 1; }
-  if mkdir "$1" 2>/dev/null; then
-    [ ! -e "$1/owner" ] && mv -f "$1.claim.$$" "$1/owner" && return 0
-    [ -e "$1/owner" ] || rm -rf "$1"
-  fi
+  if gstack_lock_take "$1" owner "$TOKEN"; then rm -f "$1.claim.$$"; return 0; fi
   rm -f "$1.claim.$$"
   return 1
 }
@@ -162,8 +162,9 @@ mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 # missing or readable and empty, has no live claimant, is at least 2 s old and kept
 # its mtime throughout. The clock is read before the first mtime, so a pause
 # only makes the lock look younger, and a lock made since (a new generation)
-# has a newer mtime. Claims are read before the owner, so a taker that renames
-# its claim in between is seen as the owner. An empty claim is a taker that
+# has a newer mtime. Claims are read before the owner, and a taker removes its
+# claim only after its owner file is written, so a taker that finishes in
+# between is seen as the owner. An empty claim is a taker that
 # has not reached its mkdir, so it never made this lock. An mtime a minute or
 # more in the future (clock skew) counts as old.
 orphaned() {

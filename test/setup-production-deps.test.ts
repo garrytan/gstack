@@ -40,11 +40,11 @@ function sliceFunction(source: string, name: string): string {
   return source.slice(start + 1, end + 3);
 }
 
-/** install_runtime_deps and the helpers it calls, sliced out of setup in definition order. */
+/** install_runtime_deps and the helpers it calls, sliced out of setup in definition order, after the lock helper setup sources. */
 function depsFunctions(setup: string): string {
   const names = ['bun_cmd', '_deps_role', '_deps_has_dev', '_deps_verified', '_deps_lock', '_deps_unlock', '_deps_recover',
     '_deps_migration_start', '_deps_migration_finish', 'install_runtime_deps'];
-  return names.map((n) => (n === '_deps_unlock' ? setup.split('\n').find((l) => l.startsWith('_deps_unlock() {'))! + '\n' : sliceFunction(setup, n))).join('\n');
+  return `. ${JSON.stringify(path.join(ROOT, 'bin', 'gstack-lock.sh'))}\n` + names.map((n) => (n === '_deps_unlock' ? setup.split('\n').find((l) => l.startsWith('_deps_unlock() {'))! + '\n' : sliceFunction(setup, n))).join('\n');
 }
 
 /** A git repository marked as a contributor's checkout (what bin/dev-setup writes). */

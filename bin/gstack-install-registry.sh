@@ -23,10 +23,12 @@
 #   render       render directory, or 'committed'
 #
 # Callers must set GSTACK_STATE_ROOT first (bin/gstack-state-root.sh). Bash 3.2
-# clean; no flock (macOS lacks it), so the lock is an atomic mkdir.
+# clean; no flock (macOS lacks it), so the lock is gstack_lock_take
+# (bin/gstack-lock.sh).
 
 # Same-path and containment checks (bin/gstack-path-spelling.sh).
 . "$(dirname "${BASH_SOURCE[0]}")/gstack-path-spelling.sh" 2>/dev/null || true
+. "$(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack: $(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 # gstack_install_move_hint SRC HOST — when HOST's runtime root ROOT is SRC (the
 # checkout) or contains it, `./setup --host HOST` would replace the checkout
@@ -53,15 +55,17 @@ gstack_install_registry_file() {
   printf '%s/installs.tsv\n' "${GSTACK_STATE_ROOT:?gstack-install-registry: GSTACK_STATE_ROOT is not set}"
 }
 
-# _gstack_registry_lock — take the registry lock (mkdir is atomic). A lock whose
-# owner pid is gone is stale and is broken. Gives up after ~10 s.
+# _gstack_registry_lock — take the registry lock (gstack_lock_take, which
+# creates the pid file with O_EXCL; mkdir's exit status is not a lock on Ubuntu
+# 26.04's uutils mkdir). A lock whose owner pid is gone is stale and is broken.
+# Gives up after ~10 s.
 _gstack_registry_lock() {
   local file lock tries owner
   file="$(gstack_install_registry_file)" || return 1
   lock="$file.lock"
   mkdir -p "$(dirname "$file")" || return 1
   tries=0
-  while ! mkdir "$lock" 2>/dev/null; do
+  while ! gstack_lock_take "$lock" pid "$$"; do
     owner="$(cat "$lock/pid" 2>/dev/null || true)"
     if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
       rm -rf "$lock"
@@ -74,7 +78,6 @@ _gstack_registry_lock() {
     fi
     sleep 0.1
   done
-  echo "$$" > "$lock/pid"
 }
 
 _gstack_registry_unlock() {

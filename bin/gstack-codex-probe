@@ -103,6 +103,7 @@ fi
 # === end gstack self-locate ===
 _GSTACK_CODEX_BIN="$_gstack_helper_dir"
 unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
+. "$_GSTACK_CODEX_BIN/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { return 2; }
 
 # --- Auth probe -------------------------------------------------------------
 
@@ -631,19 +632,16 @@ _gstack_codex_probe_cache_store() {
 
 _gstack_codex_lock_acquire() {
   # $1 lock directory, $2 seconds to wait, $3 seconds after which even a live
-  # owner is abandoned. mkdir is atomic on every platform bash runs on. A dead
-  # owner on this host is recovered at once; a missing owner file is the
+  # owner is abandoned. gstack_lock_take (bin/gstack-lock.sh) creates the owner
+  # file with O_EXCL, since mkdir's exit status is not a lock on Ubuntu 26.04's
+  # uutils mkdir. A dead owner on this host is recovered at once; a missing owner file is the
   # creation window and becomes stale after 5 seconds. 0 = held, 1 = timed
   # out, 2 = the lock or its owner record cannot be created.
   local _dir="$1" _tries=$(( ${2:-45} * 10 )) _stale="${3:-90}" _host _owner _pid _ohost _ts _now _i=0 _dead
   _host=$(uname -n 2>/dev/null || echo unknown)
   while :; do
-    if mkdir "$_dir" 2>/dev/null; then
-      printf '%s %s %s\n' "$$" "$_host" "$(date +%s 2>/dev/null || echo 0)" > "$_dir/owner" 2>/dev/null && return 0
-      rm -f "$_dir/owner" 2>/dev/null
-      rmdir "$_dir" 2>/dev/null
-      return 2
-    fi
+    gstack_lock_take "$_dir" owner "$$ $_host $(date +%s 2>/dev/null || echo 0)"
+    case $? in 0) return 0 ;; 3) return 2 ;; esac
     if [ ! -d "$_dir" ]; then
       { [ -e "$_dir" ] || [ -L "$_dir" ]; } && return 2
       { [ -d "${_dir%/*}" ] && [ -w "${_dir%/*}" ] && [ -x "${_dir%/*}" ]; } || return 2
@@ -677,15 +675,15 @@ _gstack_codex_lock_break() {
   # Breakers serialize on $1.break and remove the lock only if it still has the
   # owner they judged abandoned, so a lock re-taken meanwhile survives.
   local _dir="$1" _seen="$2" _bt _now
-  if mkdir "$_dir.break" 2>/dev/null; then
+  if gstack_lock_take "$_dir.break" pid "$$"; then
     [ "$(cat "$_dir/owner" 2>/dev/null)" = "$_seen" ] && rm -rf "$_dir" 2>/dev/null
-    rmdir "$_dir.break" 2>/dev/null
+    rm -rf "$_dir.break" 2>/dev/null
     return 0
   fi
   _now=$(date +%s 2>/dev/null || echo 0)
   _bt=$(stat -c %Y "$_dir.break" 2>/dev/null || stat -f %m "$_dir.break" 2>/dev/null || echo "$_now")
   case "$_bt" in ''|*[!0-9]*) _bt="$_now" ;; esac
-  [ $((_now - _bt)) -ge 10 ] && rmdir "$_dir.break" 2>/dev/null
+  [ $((_now - _bt)) -ge 10 ] && rm -rf "$_dir.break" 2>/dev/null
   return 0
 }
 

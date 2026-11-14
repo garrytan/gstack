@@ -47,8 +47,10 @@
 # treated as an owned legacy stray.
 #
 # Mutation safety:
-#   - every mutation runs under a mkdir lock (<settings>.lock/) with an owner
-#     token; release is ownership-checked; stale locks (>30s) are taken over
+#   - every mutation runs under a lock directory (<settings>.lock/) whose owner
+#     token file is created with O_EXCL (gstack_lock_take, bin/gstack-lock.sh;
+#     mkdir's exit status is not a lock on Ubuntu 26.04's uutils mkdir);
+#     release is ownership-checked; stale locks (>30s) are taken over
 #     via atomic rename. On lock give-up the mutation is SKIPPED with a warning
 #     (the next setup retries — the system is convergent).
 #   - parse failure fails CLOSED: a corrupt settings.json is never overwritten
@@ -353,18 +355,18 @@ _acquire_lock() {
   local stale_after_s=30   # lock older than this belongs to a crashed holder
   local poll_ms=50         # retry cadence; sleep below derives from this
   token="$$-$RANDOM$RANDOM"
+  . "$(cd "$(dirname "$0")" && pwd)/gstack-lock.sh" 2>/dev/null || { echo "gstack-settings-hook: $(dirname "$0")/gstack-lock.sh is missing -- skipping this mutation, exit 5 (fix: reinstall with ./setup)" >&2; return 1; }
   while :; do
-    if mkdir "$_LOCK_DIR" 2>/dev/null; then
-      printf '%s\n' "$token" > "$_LOCK_DIR/owner" 2>/dev/null || true
+    if gstack_lock_take "$_LOCK_DIR" owner "$token"; then
       _LOCK_TOKEN="$token"
       trap _release_lock EXIT
       trap 'exit 129' INT
       trap 'exit 143' TERM
       return 0
     fi
-    # mkdir failed but no lock dir exists: either a holder released between
-    # our mkdir and this check, or NOT contention (unwritable parent, read-only
-    # fs, missing directory). Retry mkdir once; a second failure with still no
+    # The take failed but no lock dir exists: either a holder released between
+    # our take and this check, or NOT contention (unwritable parent, read-only
+    # fs, missing directory). Retry the take once; a second failure with still no
     # lock dir is the environment, and waiting cannot help, so give up loudly
     # now instead of spinning out the full timeout.
     if [ ! -e "$_LOCK_DIR" ]; then
