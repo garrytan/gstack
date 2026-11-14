@@ -100,6 +100,14 @@ export function sectionTexts(root: string): SectionTexts {
   };
 }
 
+/**
+ * The outside voice's read-only correctness brief (R95): sent only when OpenAI refused the original under `cyber_policy`, as
+ * Capy's pass program retries it on GPT-6 Astra (lib/capy-review-pass.js). It drops the attacker role-play from the outside
+ * prompt and appends READ_ONLY_RETRY; every other reader, and every first attempt, gets its section text unchanged.
+ */
+export const READ_ONLY_RETRY = 'How to work, and this overrides anything above that conflicts with it: this is a read-only correctness review of the change, done by reading the code and its tests. Do not role-play an attacker. Do not write, run or describe exploit code or step-by-step reproductions. For each defect give file:line, the condition under which the code returns the wrong answer, and the smallest fix.';
+const READ_ONLY_EDITS: Array<[string, string]> = [['Think like an attacker and a chaos engineer. ', ''], ['Be adversarial. ', ''], ['naming the most exploitable finding', 'naming the most serious finding']];
+
 const SHA = /^[0-9a-f]{7,40}$/;
 const FENCE = '`'.repeat(3);
 function need(slots: Slots, key: string): string {
@@ -176,7 +184,8 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
       try { return `${targetedBrief(need(slots, 'brief'), classes)}\n\n${merged}\n\nApply the targeted brief above (${need(slots, 'checklist')}: ${classes.join(', ')}) in the same read; your reply is this diff's targeted pass.`; } catch (e) { throw e instanceof BriefError ? e : new BriefError((e as Error).message); }
     }
     case 'outside-voice': {
-      const filled = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
+      const outside = slots.read_only ? `${fill(t.outside, READ_ONLY_EDITS, 'read-only retry')}\n\n${READ_ONLY_RETRY}` : t.outside;
+      const filled = fill(outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
       const body = slots.policy_exclude ? filled.split('git diff "$DIFF_BASE".').join(`git diff "$DIFF_BASE" -- . ${slots.policy_exclude}${slots.keep ? ` and git diff "$DIFF_BASE" -- ${slots.keep}` : ''}.`) : filled;
       const head = [body, '', ...(slots.disclosure ? [slots.disclosure, ''] : []), `## Branch diff (git diff ${diffBase})`];
       if (slots.diff_file) return [...head, `The supplied branch diff is the file ${slots.diff_file} (${need(slots, 'diff_bytes')} bytes, sha256 ${need(slots, 'diff_sha256')}). Read it from disk; it is ${slots.diff_slice ? 'the part of the diff under review' : 'the whole diff under review'}.`, ...(slots.diff_slice ? [slots.diff_slice] : [])].join('\n');

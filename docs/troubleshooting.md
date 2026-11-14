@@ -339,6 +339,33 @@ network.
 
 **Expected result.** `OUTSIDE_STATUS: completed`.
 
+<a id="outside-review-cyber-policy"></a>
+### `... outside review unavailable: OpenAI declined the review under its cyber-security policy (cyber_policy) (...)`
+
+**Meaning.** OpenAI flagged the review brief as possible cybersecurity risk
+and refused it (Capy relays it as `OpenAI key declined the request:
+cyber_policy: ...`). It is not an auth, quota or model problem, and sending the
+same brief to another OpenAI model gets the same answer: GPT-6.1 Sol and GPT-6
+Astra both refused the same two briefs in the 2026-11-13 test.
+
+**Fix.** Rerun the review once on GPT-6 Astra with the brief reworded as a
+read-only correctness review (no attacker role-play, no exploit code or
+reproductions; each defect as file:line, the condition under which the code
+returns the wrong answer, and the smallest fix), or on Gemini 4 Carbon with the
+brief unchanged. Capy's /ship does both by itself: the pass prints
+`RETRY: reader=outside-voice/astra-read-only ...`, then
+`RETRY: reader=outside-voice/gemini-4-carbon ...` if Astra refuses too. A
+retry whose model family is already the lane's or the native reviewer's (an
+OpenAI or Google lane, say) is skipped, because Step 11 refuses an outside
+voice of either family. Other
+hosts' outside voices (the Codex CLI, the api runner) only report this reason;
+rerun them by hand. When every attempt is refused, `RETRY: exhausted` and the
+Step 11 record's `outside_note` say the second-family read is missing: the
+native review still runs and the PR body lists the gap as missing coverage,
+never as a pass.
+
+**Expected result.** `OUTSIDE_RECORD: ... "outside_status":"completed","outside_note":"second-family read by ..."`.
+
 <a id="outside-review-truncated"></a>
 ### `... outside review unavailable: the reviewer hit its output token limit and the response is cut off (...)`
 

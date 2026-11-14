@@ -20,6 +20,8 @@ export interface OutsideReviewInput {
   exit?: number;
   /** JSONL from `codex exec --json`: command events are positive execution evidence. */
   events?: string;
+  /** The host's own error for the reviewer, such as a Capy subagent's latest_error; never a prompt echo. */
+  providerError?: string;
 }
 
 export interface OutsideReviewClassification {
@@ -62,6 +64,8 @@ function codexErrorLines(stderr: string): string[] {
 }
 /** The account's usage limit: Codex's line carries the reset time, so it is relayed verbatim. Same signature as the probe. */
 export const QUOTA_FAILURE = /usage limit|insufficient_quota|exceeded your current quota|quota exceeded/i;
+/** OpenAI's cyber-security refusal (R95): Capy relays it as `OpenAI key declined the request: cyber_policy: ...`; read from error lines only. */
+export const CYBER_POLICY_REFUSAL = /\bcyber_policy\b/;
 /** A plain HTTP 429 or rate limit: transient, so a separate reason from the quota. */
 export const RATE_LIMIT_FAILURE = /rate.?limit|too many requests|(?:^|[^0-9])429(?:[^0-9]|$)/i;
 /** `codex review` transcript on stderr: a command that ran prints " succeeded in Nms:". */
@@ -90,10 +94,14 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   const stderr = input.stderr ?? '';
   const exit = input.exit ?? 0;
   const sandbox = (output: string) => output.match(SANDBOX_FAILURE)?.[0].trim().slice(0, 240);
+  const cyber = (input.providerError ?? '').split(/\r?\n/).map(line => line.trim()).find(line => CYBER_POLICY_REFUSAL.test(line));
+  if (cyber) return { state: 'unavailable', reason: 'cyber_policy_refused', detail: cyber.slice(0, 240) };
   if (exit !== 0) {
     const detail = sandbox(stderr);
     if (detail) return { state: 'unavailable', reason: 'sandbox_unavailable', detail };
     const errors = exit !== 124 ? codexErrorLines(stderr) : [];
+    const refusal = errors.find(line => CYBER_POLICY_REFUSAL.test(line));
+    if (refusal) return { state: 'unavailable', reason: 'cyber_policy_refused', detail: refusal.slice(0, 240) };
     const quota = errors.find(line => QUOTA_FAILURE.test(line));
     if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota.slice(0, 240) };
     const rateLimit = errors.find(line => RATE_LIMIT_FAILURE.test(line));
@@ -344,7 +352,7 @@ export function validateOutsideReview(text: string, gate: OutsideGate): { comple
 const VERDICT_EXIT: Record<OutsideVerdict, number> = { clean: 0, findings: 3, unverified: 4, unavailable: 1 };
 const GATES = ['review', 'structured', 'spec', 'execution', 'proposal'];
 const USAGE = `Usage: outside-review-result.ts <gate> <response-file>
-       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--label <name>] <gate> <response-file>
+       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--provider-error <file>] [--label <name>] <gate> <response-file>
 Gates: ${GATES.join('|')}. Two-argument form exits 0 completed, 1 unavailable, 2 usage.
 Verdict form prints VERDICT: clean|findings|unverified|unavailable and exits 0, 3, 4 or 1.`;
 
@@ -361,7 +369,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--verdict') verdictMode = true;
-    else if (['--stderr', '--exit', '--events', '--label'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
+    else if (['--stderr', '--exit', '--events', '--provider-error', '--label'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
     else if (arg.startsWith('--')) { console.error(USAGE); process.exit(2); }
     else positional.push(arg);
   }
@@ -380,7 +388,7 @@ if (import.meta.main) {
     process.exit(0);
   }
   const events = await readOptional(flags['--events']);
-  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events });
+  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events, providerError: await readOptional(flags['--provider-error']) });
   const label = flags['--label'] ?? 'Outside review';
   console.log(`VERDICT: ${checked.verdict}`);
   console.log(`FINDINGS: ${findingsLabel(checked)}`);

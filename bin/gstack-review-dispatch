@@ -9,7 +9,7 @@
  *   gstack-review-dispatch judge --ledger <f> --merged <file> --judged <file>        no drop, no downgrade
  *   gstack-review-dispatch verify --ledger <f> [--targeted-out <file>]               replay every hash and the judgment
  *   gstack-review-dispatch pass --base <b> --out <dir> --pass <id> [-- plan flags]  the pass's staged manifest
- *   gstack-review-dispatch show|stage|chunk|mark --manifest <f> ...                  one manifest step
+ *   gstack-review-dispatch show|stage|chunk|mark|retry --manifest <f> ...            one manifest step
  *   gstack-review-dispatch program [--ledger <f>]                                    the checked-in Capy pass program
  *   gstack-review-dispatch audit-fetch --events <jsonl> [--manifest <f> --reader <r>] what a reader fetched (GST-1322)
  *   gstack-review-dispatch sweep --manifest <f> --stage <s> --phase start|end          what a stage fetched; quarantine and rerun
@@ -24,7 +24,9 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
 import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
-import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
+import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
+import { classifyOutsideReview } from '../lib/outside-review-result';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { diffCommand, type Dispatch } from '../lib/review-depth';
 import { mayExclude, policySelection, selectFor } from '../lib/review-selection';
 import { REVIEW_PLAN_TIMEOUT_MS } from '../lib/review-collect';
@@ -102,6 +104,10 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       specialists' merged.jsonl lines byte for byte
   chunk --manifest <f> --reader <r> --index <i>
       BRIEF_CHUNK: reader=… index=i of=n sha256=…, then one JSON string line of at most 65,536 brief characters
+  retry --manifest <f> --reader <outside voice> --error-file <f>
+      the host's error for an outside voice that ended without a review, classified by lib/outside-review-result.ts: a cyber_policy
+      refusal plans R95's next attempt (GPT-6 Astra on the read-only brief, then Gemini 4 Carbon on the original) as RETRY: reader=...,
+      or RETRY: exhausted once both ran; anything else prints RETRY: none and changes nothing
   mark --manifest <f> --reader <r> --state <intent|created|queued|collected|failed> [--path <p>] [--output <f>] [--error <e>]
       an audit reader is collected with --output, whose REVIEWED_TREE line must match its render (else failed, COLLECT_WRONG_TREE)
   mark --manifest <f> --before <tokens>,<credits> [--voices]   the pass's reading at its first dispatch; --voices keeps Step 11's own
@@ -308,13 +314,13 @@ const branchDiff = (base: string, r?: Pick<PassReader, 'exclude' | 'keep' | 'exc
 };
 
 /** The ceiling over every reader about to render: the first one over or unreadable stops the step before it writes anything else. */
-function ceiling(context: string, base: string, outDir: string, readers: ReadonlyArray<Pick<PassReader, 'reader' | 'exclude' | 'keep' | 'excerpt' | 'diff_base' | 'prompt_file'> & { diff_base?: string }>, diffBase: string, known: PlanExclude | undefined): { exit: number; line: string } | null {
+function ceiling(context: string, base: string, outDir: string, readers: ReadonlyArray<Pick<PassReader, 'reader' | 'role' | 'exclude' | 'keep' | 'excerpt' | 'diff_base' | 'prompt_file'> & { diff_base?: string }>, diffBase: string, known: PlanExclude | undefined): { exit: number; line: string } | null {
   for (const r of readers) {
     if (r.prompt_file) continue;
     const at = r.diff_base ?? diffBase;
     const d = selectionOf(at, r.exclude, r.keep, r.excerpt);
     if (!d.ok) return { exit: EXIT.fail, line: unreadableLine(context, r.reader, d, at, base, outDir) };
-    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.reader !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
+    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.role !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
   }
   return null;
 }
@@ -457,6 +463,21 @@ function passStep(cmd: string): number {
     process.stdout.write([`STAGE: ${stage} rendered=${done.length}`, ...done.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
+  if (cmd === 'retry') {
+    const r = m.readers.find(x => x.reader === flag('--reader'));
+    if (r?.role !== 'outside-voice' || !flag('--error-file')) { process.stderr.write('gstack-review-dispatch retry: --manifest <f> --reader <an outside voice> --error-file <its host error>\n'); return EXIT.usage; }
+    const checked = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: readFile(flag('--error-file'), 'host error') });
+    if (checked.reason !== 'cyber_policy_refused') { process.stdout.write(`RETRY: none reader=${r.reader} (not a cyber_policy refusal; recorded as unavailable coverage as before)\n`); return EXIT.ok; }
+    let voices: { laneModel?: string | null; readers?: Record<string, { model_id?: string } | null> } = {};
+    try { voices = JSON.parse(fs.readFileSync(path.join(m.out, 'voice-models.json'), 'utf8')); } catch { voices = {}; }
+    const taken = [voices.laneModel, voices.readers?.['adversarial-native']?.model_id].filter((id): id is string => typeof id === 'string' && id.includes('/')).map(id => id.split('/')[0]!.toLowerCase());
+    const next = planCyberRetry(m, r, taken);
+    writeManifest(file, m);
+    process.stdout.write(`${gateOutcomeLine(`Outside voice ${r.reader}`, 'cyber_policy_refused', checked.detail)}\n${next
+      ? `RETRY: reader=${next.reader} model=${next.model!.model_id} brief=${next.read_only ? 'read-only' : 'original'} (R95: one attempt, never the same brief on another OpenAI model)`
+      : `RETRY: exhausted reader=${r.reader} (R95's attempts are spent: the second-family read is missing)`}\n`);
+    return EXIT.ok;
+  }
   if (cmd === 'chunk') {
     const r = m.readers.find(x => x.reader === flag('--reader'));
     if (!r?.file || !r.sha256) { process.stderr.write(`gstack-review-dispatch chunk: no rendered reader ${flag('--reader')}\n`); return EXIT.usage; }
@@ -558,7 +579,7 @@ function main(): number {
   if (cmd === 'program') return program();
   if (cmd === 'audit-fetch') return auditFetch();
   if (cmd === 'sweep') return sweep();
-  if (['show', 'stage', 'chunk', 'mark'].includes(cmd)) return passStep(cmd);
+  if (['show', 'stage', 'chunk', 'mark', 'retry'].includes(cmd)) return passStep(cmd);
   const ledger = flag('--ledger');
   if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }
   const reader = flag('--role') ? readerKey(flag('--role')!, flag('--name')) : '';
