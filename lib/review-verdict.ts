@@ -17,7 +17,7 @@ export function verdictAttempt(line: string): string | null {
   let t = line.trim().replace(/^(?:[-*>]\s+|\d+[.)]\s+|#+\s+)/, '');
   for (const w of ['**', '`']) if (t.length > 2 * w.length && t.startsWith(w) && t.endsWith(w)) t = t.slice(w.length, -w.length).trim();
   t = t.replace(/^\*\*REVIEW_VERDICT:\*\*/, 'REVIEW_VERDICT:');
-  return /^REVIEW_VERDICT\b/i.test(t) ? t : null;
+  return /^REVIEW_VERDICT\s*(?:[:=]|blocking\b)/i.test(t) ? t : null;
 }
 
 /** Each line of a reply, marked when it is a verdict attempt outside a code fence. */
@@ -44,5 +44,8 @@ export function parseVerdict(output: string): Verdict {
   return { state: 'valid', blocking, at };
 }
 
-/** The reply with every verdict attempt outside a code fence removed, so the line never joins or colours a neighbouring finding. */
-export const withoutVerdictLines = (output: string) => scan(output).filter(l => l.attempt === null).map(l => l.line).join('\n');
+/**
+ * The reply with every well-formed verdict line outside a code fence removed, so the line never joins or colours a neighbouring
+ * finding. A malformed attempt stays in the text, so a finding written on that line is still parsed and never lost.
+ */
+export const withoutVerdictLines = (output: string) => scan(output).filter(l => l.attempt === null || !GRAMMAR.test(l.attempt)).map(l => l.line).join('\n');

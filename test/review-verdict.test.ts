@@ -125,6 +125,21 @@ describe('the line never colours its neighbour', () => {
   });
 });
 
+describe('a finding line that names REVIEW_VERDICT is never stripped', () => {
+  test('prose about the token is no attempt, and a malformed attempt keeps its line for the parser', () => {
+    const finding = '1. REVIEW_VERDICT parsing in lib/a.ts:3 drops findings. CRITICAL. Blocks: yes';
+    const r = asked('specialist/testing', reply(finding, 'REVIEW_VERDICT: blocking=1 at=lib/a.ts:3'));
+    expect(r.findings.filter(f => f.label === 'CRITICAL').length).toBeGreaterThanOrEqual(1);
+    expect(r.verdict?.state).toBe('valid');
+    expect(r.verdict?.agrees).toBe(true);
+    const malformed = '- REVIEW_VERDICT: lines in lib/a.ts:3 are dropped. CRITICAL. Blocks: yes';
+    const m = asked('specialist/testing', reply(malformed));
+    expect(m.verdict?.state).toBe('malformed');
+    expect(blocking(m.findings)).toBe(blocking(parseFindings('specialist/testing', reply(malformed))));
+    expect(blocking(m.findings)).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('a ledger round trip', () => {
   const dirs: string[] = [];
   afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
