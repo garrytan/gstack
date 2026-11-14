@@ -29,7 +29,7 @@
 import { createHash } from "crypto";
 import { scan, type Finding, type RepoVisibility } from "./redact-engine";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
-import { agentNotesLines } from "./agent-notes";
+import { agentNotesLines, splitAgentNotes } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
 import { RECEIPT_FENCE, RUNS_FENCE, extractReceipt, placeReceipt, renderReceiptBlock, validateReceipt } from "./ship-receipt";
 import type { ShipReceipt } from "./headless-artifacts";
@@ -298,10 +298,13 @@ const RUNS_BLOCK_RE = new RegExp("^```" + RUNS_FENCE + "[ \\t]*\\r?\\n[\\s\\S]*?
  */
 function keepRuns(current: string, next: Section[], m: ReturnType<typeof mergeSplit>): ReturnType<typeof mergeSplit> {
   const posted = next.some(n => n.key === NOTES_KEY && extractReceipt(n.text).found) ? extractReceipt(m.body).receipt : undefined;
-  const runs = posted && RUNS_BLOCK_RE.exec(placeReceipt(current, posted))?.[0];
-  const body = m.body.replace(RUNS_BLOCK_RE, "");
-  const end = runs && /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(body);
-  return end ? { ...m, body: body.slice(0, end.index + end[0].length) + "\n" + runs + body.slice(end.index + end[0].length) } : m;
+  const notesAt = (body: string) => splitAgentNotes(body).notes === null ? 0 : splitAgentNotes(body).readable.length;
+  const placed = posted ? placeReceipt(current, posted) : "";
+  const runs = RUNS_BLOCK_RE.exec(placed.slice(notesAt(placed)))?.[0];
+  const at = notesAt(m.body);
+  const notes = m.body.slice(at).replace(RUNS_BLOCK_RE, "");
+  const end = runs && /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(notes);
+  return end ? { ...m, body: m.body.slice(0, at) + notes.slice(0, end.index + end[0].length) + "\n" + runs + notes.slice(end.index + end[0].length) } : m;
 }
 
 function mergeSplit(now: Section[], next: Section[], incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {

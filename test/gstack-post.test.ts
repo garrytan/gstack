@@ -875,6 +875,16 @@ describe("gstack-post keeps the Agent notes section last", () => {
     expect(mergeBodySections(first.body, composed("bbbb", "new")).body).toBe(first.body);
   });
 
+  // Value: protects=the kept run history lands in the Agent notes the receipt is read from, and the readable part keeps its bytes;
+  // fails_when=keepRuns searches the whole body and splices the runs block into a receipt fence the Summary quotes; why_new=keepRuns is new
+  // (GST-2706); seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a /ship body post keeps the runs block in Agent notes when the readable part quotes a receipt fence", () => {
+    const ex = "~~~\n" + RECEIPT("example").trim() + "\n~~~";
+    const first = mergeBodySections(composed("aaaa", ex), composed("bbbb", ex));
+    expect(receiptRuns(first.body).map(r => r.head)).toEqual(["aaaa"]);
+    expect(first.body.replace(RUNS_AAAA, "")).toBe(composed("bbbb", ex));
+  });
+
   // Value: protects=a partial post keeps the current notes and they stay last, above a Capy badge that ends the body; fails_when=a new section is
   // appended after the notes or the badge moves above them; why_new=the notes section is new; seam=none; no_claim=the gh round trip
   test("a partial post appends new sections above the kept notes, and a trailing Capy badge stays after them", () => {
