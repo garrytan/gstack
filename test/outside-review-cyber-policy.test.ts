@@ -56,12 +56,13 @@ describe('a cyber_policy refusal is its own outcome (R95)', () => {
     for (const [input, reason] of cases) expect(classifyOutsideReview(input).reason).toBe(reason as never);
   });
 
-  // Value: protects=a completed review that discusses cyber_policy, with or without a host error naming it after the reply, still counts as the review it is; fails_when=any mention of cyber_policy in the reply makes it a refusal;
+  // Value: protects=a completed review that discusses cyber_policy, with or without cyber_policy on stderr after a clean exit, still counts as the review it is, while the host's own error (providerError) naming cyber_policy is the refusal whatever the reply says; fails_when=any mention of cyber_policy in the reply or on stderr makes it a refusal, or a host refusal is read as a clean review;
   //   why_new=R95 negative control; seam=lib/outside-review-result.ts; no_claim=none
   test('a normal review is never a refusal', () => {
     const text = 'The new check matches cyber_policy in the error.\n' + REVIEW;
     expect(classifyOutsideReview({ text, gate: 'review', exit: 0 })).toMatchObject({ verdict: 'clean' });
     expect(classifyOutsideReview({ text, gate: 'review', exit: 0, stderr: 'cyber_policy\n' })).toMatchObject({ verdict: 'clean' });
+    expect(classifyOutsideReview({ text, gate: 'review', exit: 0, providerError: CAPY_ERROR }).reason).toBe('cyber_policy_refused');
   });
 
   // Value: protects=the CLI the Capy pass program calls reads --provider-error and prints REASON: cyber_policy_refused; fails_when=the flag is refused as usage or ignored;

@@ -160,7 +160,7 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       if (s.late && !s.summary) { s.summary = reply(s); continue; }
       if (s.status !== 'working' || o.hang?.(s.title)) continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
-      if (o.error?.(s.title)) { s.status = 'failed'; s.error = o.error(s.title); }
+      if (o.error?.(s.title)) { s.status = 'failed'; s.error = o.error(s.title); if (o.keepSummary) s.summary = reply(s); }
       else if (o.stopped?.(s.title)) { s.status = 'stopped'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.fail?.(s.title)) { s.status = 'failed'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
@@ -709,6 +709,27 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(clean.res).not.toContain('outside_note');
     expect(clean.h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
   }, 600_000);
+
+  // Value: protects=a voice that the host marks refused under cyber_policy but that still wrote a review is collected as that review, with its own outside record, and starts no retry; fails_when=the retry is planned before the program knows the voice left findings, so a redundant Astra reader runs and the collected voice's OUTSIDE_RECORD is dropped;
+  //   why_new=GSTA-537 /ship red-team finding (capy-review-pass.js refusal before collect); seam=lib/capy-review-pass.js ended outside voice; no_claim=how often a refused voice leaves a review
+  test('a cyber_policy refusal that still left a review is collected and never retried (R95)', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { error: t => (t.endsWith(' outside-voice') ? CYBER : undefined), keepSummary: true, output: t => (t.endsWith('outside-voice') ? '1. **A guard fails open** - `src/a.ts:1` accepts any input. Severity: Medium. Blocks: no.\n\nRecommendation: fix the guard because it fails open' : cleanReply(t)), epoch: Date.now() });
+    const base = { base: 'main', out, pass: 'x44p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    let res = '', all = '';
+    for (let i = 0; i < 6; i++) {
+      res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+      all += res + '\n';
+      if (!res.includes('NEXT: poll')) break;
+    }
+    expect(res).not.toContain('STOP:');
+    expect(all).not.toContain('RETRY:');
+    expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
+    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+    expect(fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8')).toContain('A guard fails open');
+  }, 300_000);
 
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
     const { dir, env } = repo();
