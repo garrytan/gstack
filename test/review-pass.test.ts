@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
+import { READ_ONLY_RETRY, promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
 import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 import { FIXTURE_MARKER } from '../lib/fixture-marker';
@@ -137,7 +137,7 @@ function repo(): { dir: string; env: NodeJS.ProcessEnv } {
   return { dir, env };
 }
 
-interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string; late?: boolean }
+interface Sub { title: string; prompt: string; status: string; polls: number; model?: unknown; summary?: string; late?: boolean; error?: string }
 /** A fake Capy host: the shell is real (the repository's bins), subagents are scripted. */
 const cleanReply = (title: string) => (title.endsWith('outside-voice') ? 'Recommendation: ship as-is because no finding survived' : 'NO FINDINGS');
 /** The REVIEWED_TREE line a reader prints from dir (its brief's checkout when it follows the workspace paragraph); '' outside a checkout. */
@@ -148,7 +148,7 @@ function treeLine(dir: string): string {
   return tree.status === 0 && top.status === 0 ? `REVIEWED_TREE: ${tree.stdout.trim()} ${top.stdout.trim()}\n` : '';
 }
 const briefDir = (prompt: string) => /Workspace: the checkout under review is (.+?)\. Your shell and file tools/.exec(prompt)?.[1] ?? '';
-function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean; hang?: (title: string) => boolean; stopped?: (title: string) => boolean; keepSummary?: boolean; epoch?: number } = {}) {
+function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string) => string; reportFrom?: (title: string) => string; fail?: (title: string) => boolean; reject?: (title: string) => boolean; createThrows?: (title: string) => 'before' | 'after' | undefined; pollsToFinish?: number; lateSummary?: boolean; hang?: (title: string) => boolean; stopped?: (title: string) => boolean; keepSummary?: boolean; epoch?: number; error?: (title: string) => string | undefined } = {}) {
   let clock = 0;
   const subs = new Map<string, Sub>();
   const creates: Sub[] = [];
@@ -160,7 +160,8 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       if (s.late && !s.summary) { s.summary = reply(s); continue; }
       if (s.status !== 'working' || o.hang?.(s.title)) continue;
       if (++s.polls < (o.pollsToFinish ?? 1)) continue;
-      if (o.stopped?.(s.title)) { s.status = 'stopped'; if (o.keepSummary) s.summary = reply(s); }
+      if (o.error?.(s.title)) { s.status = 'failed'; s.error = o.error(s.title); }
+      else if (o.stopped?.(s.title)) { s.status = 'stopped'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.fail?.(s.title)) { s.status = 'failed'; if (o.keepSummary) s.summary = reply(s); }
       else if (o.lateSummary && !s.late) { s.status = 'done'; s.late = true; }
       else { s.status = 'done'; s.summary = reply(s); }
@@ -190,7 +191,7 @@ function host(dir: string, env: NodeJS.ProcessEnv, o: { output?: (title: string)
       },
       start: async ({ indices, model }: { indices: number[]; model?: unknown }) => { starts.push(indices); for (const i of indices) { const s = subs.get(String(i))!; s.status = 'working'; if (model) s.model = model; } return { started: indices.map(index => ({ index })), rejected: [] }; },
       list: async () => { advance(); return { tasks: [...subs].map(([p, s]) => ({ path: p, title: s.title, status: s.status })), total: subs.size }; },
-      get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary }),
+      get: async ({ path: p }: { path: string }) => ({ path: p, status: subs.get(p)!.status, summary: subs.get(p)!.summary, ...(subs.get(p)!.error ? { latest_error: subs.get(p)!.error } : {}) }),
       stop: async ({ paths }: { paths: string[] }) => { stops.push(...paths); for (const p of paths) subs.get(p)!.status = 'stopped'; return { results: paths.map(p => ({ path: p, ok: true })) }; },
     },
     thread: { get: async () => ({ cost: { tokens: 1000 + clock, credits: 1 + clock / 1000 } }) },
@@ -629,6 +630,85 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(v.stdout).not.toContain('MISMATCH');
     expect(v.stdout).not.toContain('NOT_REVIEWED');
   }, 300_000);
+
+  // R95 (2026-11-13): a cyber_policy refusal of the outside voice is retried once on GPT-6 Astra with the read-only brief, then on Gemini 4 Carbon with the original brief; when every attempt fails the second-family read is missing, disclosed, and Step 11 goes on.
+  const CYBER = fs.readFileSync(path.join(ROOT, 'test/fixtures/cyber-policy/capy-latest-error.txt'), 'utf8').trim();
+  const voiceReply = (t: string) => (t.includes('outside-voice') ? 'Recommendation: ship as-is because no finding survived' : cleanReply(t));
+  async function refusedVoices(pass: string, error: (title: string) => string | undefined) {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env, { error, output: voiceReply, epoch: Date.now() });
+    const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    let res = '', all = '';
+    for (let i = 0; i < 12; i++) {
+      res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+      all += res + '\n';
+      if (!res.includes('NEXT: poll')) break;
+    }
+    const created = (suffix: string) => h.creates.find(c => c.title === 'ship ' + pass + ' ' + suffix);
+    const verify = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
+    return { res, all, h, created, verify };
+  }
+
+  // Value: protects=R95 on the real pass program: Capy's captured cyber_policy refusal of the Sol outside voice is recorded unavailable with its own reason and retried once on openai/gpt-6-astra with the read-only brief, whose review is the Step 11 outside record; fails_when=the refusal is recorded as a plain failure with no retry, the retry resends the original brief, or the original's unavailable record replaces the retry's;
+  //   why_new=R95; seam=lib/capy-review-pass.js ended outside voice; no_claim=that Astra finishes a real refused brief (one live smoke in GSTA-537)
+  test('a cyber_policy refusal is retried once on Astra with the read-only brief (R95)', async () => {
+    const { res, all, h, created, verify } = await refusedVoices('x40p1', t => (t.endsWith(' outside-voice') ? CYBER : undefined));
+    expect(res).not.toContain('STOP:');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toMatch(/COLLECT_UNAVAILABLE: reader=outside-voice .*/);
+    const astra = created('outside-voice/astra-read-only')!;
+    expect(astra.model).toEqual({ model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' });
+    expect(astra.prompt).toContain(READ_ONLY_RETRY);
+    expect(astra.prompt).not.toContain('Think like an attacker');
+    expect(created('outside-voice')!.prompt).toContain('Think like an attacker and a chaos engineer.');
+    expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
+    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6-astra","outside_status":"completed","outside_note":"second-family read by openai/gpt-6-astra on the read-only retry brief after cyber_policy refused openai/gpt-6.1-sol"');
+    expect(res).not.toContain('"outside_model":"openai/gpt-6.1-sol"');
+    expect(res).toContain('NEXT: judge the voices');
+    expect(verify).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
+    expect(verify).toMatch(/^OUTPUT outside-voice UNAVAILABLE .*reason=".*cyber_policy/m);
+    expect(verify).toMatch(/^BRIEF outside-voice\/astra-read-only MATCH/m);
+    expect(verify).not.toContain('MISMATCH');
+    expect(verify).toMatch(/^VERIFY: .* unavailable=1$/m);
+    expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(2);
+  }, 600_000);
+
+  // Value: protects=an Astra refusal of the retry falls through to google/gemini-4-carbon with the original brief byte for byte, and a refusal or failure there records the second-family read as missing (a disclosed gap, not a pass) while Step 11 goes on to the native voice; fails_when=a fourth attempt starts, Gemini gets the reworded brief, or the exhausted chain STOPs the pass;
+  //   why_new=R95; seam=lib/capy-review-pass.js retry chain; no_claim=Gemini's availability under another organization's model policy
+  test('an Astra refusal falls through to Gemini 4 Carbon with the original brief, then the second-family read is missing (R95)', async () => {
+    const { res, all, h, created, verify } = await refusedVoices('x41p1', t => (/outside-voice(\/astra-read-only|\/gemini-4-carbon)?$/.test(t) ? CYBER : undefined));
+    expect(res).not.toContain('STOP:');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toContain('RETRY: reader=outside-voice/gemini-4-carbon model=google/gemini-4-carbon brief=original');
+    expect(all).toContain('RETRY: exhausted');
+    const gemini = created('outside-voice/gemini-4-carbon')!;
+    expect(gemini.model).toEqual({ model_id: 'google/gemini-4-carbon', reasoning_mode: 'high' });
+    expect(gemini.prompt).toBe(created('outside-voice')!.prompt);
+    expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(3);
+    expect(res).toContain('"outside_model":"google/gemini-4-carbon","outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.1-sol, openai/gpt-6-astra (read-only retry brief) and google/gemini-4-carbon"');
+    expect(res).toContain('first write this voice its own adversarial-review row');
+    expect(res).toContain('NEXT: judge the voices');
+    expect(verify).not.toContain('MISMATCH');
+    expect(verify).toMatch(/^BRIEF outside-voice\/gemini-4-carbon UNAVAILABLE/m);
+    expect(verify).toMatch(/^VERIFY: .* unavailable=3$/m);
+  }, 900_000);
+
+  // Value: protects=only cyber_policy starts a retry: a failed voice whose host error is another provider failure, and a voice that reviews normally, each run exactly one outside voice; fails_when=any failure, or a success, dispatches an Astra or Gemini reader;
+  //   why_new=R95 (no new retries for anything else; negative control); seam=lib/capy-review-pass.js; no_claim=none
+  test('a non-refusal failure and a normal review never retry (R95)', async () => {
+    const failed = await refusedVoices('x42p1', t => (t.endsWith(' outside-voice') ? 'OpenAI key declined the request: invalid_api_key: Incorrect API key provided.' : undefined));
+    expect(failed.res).not.toContain('STOP:');
+    expect(failed.all).toContain('RETRY: none');
+    expect(failed.res).toContain('"outside_model":"openai/gpt-6.1-sol","outside_status":"unavailable"');
+    expect(failed.h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
+    const clean = await refusedVoices('x43p1', () => undefined);
+    expect(clean.all).not.toContain('RETRY:');
+    expect(clean.res).toContain('"outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+    expect(clean.res).not.toContain('outside_note');
+    expect(clean.h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
+  }, 600_000);
 
   test('an audit reader marked first settles before any specialist starts; its output is returned, never merged', async () => {
     const { dir, env } = repo();

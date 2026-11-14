@@ -48,6 +48,11 @@ export const GATE_OUTCOMES = {
     summary: 'the reviewer declined to review',
     fix: 're-run the review; if it declines again, review the change natively',
   },
+  cyber_policy_refused: {
+    state: 'unavailable', anchor: 'outside-review-cyber-policy',
+    summary: 'OpenAI declined the review under its cyber-security policy (cyber_policy)',
+    fix: "do not send the same brief to another OpenAI model: rerun it on GPT-6 Astra with the read-only correctness brief, or on Gemini 4 Carbon unchanged. Capy's /ship does this once by itself; when every attempt is refused, the second-family read is missing and the PR body says so (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-cyber-policy)",
+  },
   truncated: {
     state: 'unavailable', anchor: 'outside-review-truncated',
     summary: 'the reviewer hit its output token limit and the response is cut off',
