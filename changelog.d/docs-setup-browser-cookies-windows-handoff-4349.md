@@ -1,0 +1,1 @@
+- Add an upfront Windows check at the start of step 2 in `/setup-browser-cookies` noting that native import is unsupported for Chrome, Edge, and Brave, and offering a supported source browser or `$B handoff` / `$B resume`.
