@@ -16,7 +16,7 @@ import {
   geminiSwitchFix,
   imageRequest,
   isOpenAiVerificationError,
-  readImage,
+  readPngImage,
   type DesignAuth,
   type DesignRequest,
 } from "./provider";
@@ -189,7 +189,7 @@ export async function requestVariantImage(
     }
 
     try {
-      const image = readImage(provider, await response.json());
+      const image = await readPngImage(provider, await response.json());
       if (!image) return { error: "No image data in response", retryable: true };
       return { imageData: image.imageData };
     } catch (err: any) {

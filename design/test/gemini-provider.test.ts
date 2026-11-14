@@ -17,7 +17,9 @@ import path from "node:path";
 import { resolveProvider, requireProvider, saveApiKey } from "../src/auth";
 import { checkMockup } from "../src/check";
 import { DESIGN_IMAGE_MODEL_ENV, DESIGN_MODEL_ENV, GEMINI_DEFAULT_MODELS, geminiModel } from "../src/models";
-import { DesignImageError, geminiFailure, imageRequest, readImage } from "../src/provider";
+import { DesignImageError, geminiFailure, imageRequest, readImage, readPngImage } from "../src/provider";
+import { generate } from "../src/generate";
+import sharp from "sharp";
 import { generateVariant } from "../src/variants";
 import { iterate } from "../src/iterate";
 import { listReceipts } from "../../lib/egress-receipt";
@@ -210,17 +212,47 @@ describe("provider selection is one fixed order", () => {
 describe("Gemini responses", () => {
   const gemini = { provider: "gemini" as const, key: GEMINI_KEY, source: "test" };
 
-  test("a safety block, a text-only answer and a non-PNG image are non-retryable; an empty normal answer is null", () => {
+  test("a safety block, a text-only answer and an unsupported image type are non-retryable; an empty normal answer is null", () => {
     const err = (data: unknown) => { try { readImage(gemini, data); } catch (e) { return e; } return null; };
     const blocked = err({ promptFeedback: { blockReason: "SAFETY" } });
     expect(blocked).toBeInstanceOf(DesignImageError);
     expect((blocked as DesignImageError).retryable).toBe(false);
     expect((err({ candidates: [{ content: { parts: [] }, finishReason: "IMAGE_SAFETY" }] }) as Error).message).toContain("IMAGE_SAFETY");
     expect((err({ candidates: [{ content: { parts: [{ text: "I can't draw that." }] }, finishReason: "STOP" }] }) as Error).message).toContain("I can't draw that.");
-    expect((err(geminiImage(TINY_PNG, "image/jpeg")) as Error).message).toContain("image/jpeg, not a PNG");
+    const unsupported = err(geminiImage(TINY_PNG, "image/svg+xml"));
+    expect(unsupported).toBeInstanceOf(DesignImageError);
+    expect((unsupported as DesignImageError).retryable).toBe(false);
+    expect((unsupported as Error).message).toContain("unsupported image type image/svg+xml");
+    expect(readImage(gemini, geminiImage(TINY_PNG, "image/jpeg"))).toMatchObject({ imageData: TINY_PNG, mimeType: "image/jpeg" });
+    expect(readImage(gemini, geminiImage(TINY_PNG, "image/webp"))).toMatchObject({ imageData: TINY_PNG, mimeType: "image/webp" });
     expect(readImage(gemini, { candidates: [{ content: { parts: [] }, finishReason: "STOP" }] })).toBeNull();
     expect(readImage(gemini, { candidates: [{ content: { parts: [{ text: "here" }, { inline_data: { mime_type: "image/png", data: TINY_PNG } }] } }] }))
       .toMatchObject({ imageData: TINY_PNG });
+  });
+
+  test("readPngImage and generate convert Gemini JPEG and WebP responses to real PNGs (#4238)", async () => {
+    const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const sample = sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 20, g: 120, b: 220 } } });
+    const jpegBase64 = (await sample.clone().jpeg().toBuffer()).toString("base64");
+    const webpBase64 = (await sample.clone().webp().toBuffer()).toString("base64");
+
+    const fromJpeg = await readPngImage(gemini, geminiImage(jpegBase64, "image/jpeg"));
+    expect(fromJpeg).not.toBeNull();
+    const jpegOutBuf = Buffer.from(fromJpeg!.imageData, "base64");
+    expect(jpegOutBuf.subarray(0, 8).equals(pngMagic)).toBe(true);
+
+    const fromWebp = await readPngImage(gemini, geminiImage(webpBase64, "image/webp"));
+    expect(fromWebp).not.toBeNull();
+    const webpOutBuf = Buffer.from(fromWebp!.imageData, "base64");
+    expect(webpOutBuf.subarray(0, 8).equals(pngMagic)).toBe(true);
+
+    // End-to-end generate() with Gemini returning image/jpeg writes a valid PNG file.
+    Object.assign(process.env, { GEMINI_API_KEY: GEMINI_KEY });
+    stubFetch(() => json(geminiImage(jpegBase64, "image/jpeg")));
+    const outPath = path.join(dir, "gemini-jpeg-out.png");
+    const res = await generate({ brief: "minimal square", output: outPath });
+    expect(res.exitCode).toBe(0);
+    expect(fs.readFileSync(outPath).subarray(0, 8).equals(pngMagic)).toBe(true);
   });
 
   test("a rejected key says how to fix it and never echoes the key", () => {

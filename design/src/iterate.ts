@@ -12,7 +12,7 @@ import path from "path";
 import { requireProvider, type ProviderKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint } from "./models";
-import { geminiFailure, geminiSwitchFix, imageRequest, isOpenAiVerificationError, readImage, type ImageAsk } from "./provider";
+import { geminiFailure, geminiSwitchFix, imageRequest, isOpenAiVerificationError, readPngImage, type ImageAsk } from "./provider";
 import { readSession, updateSession, type DesignSession } from "./session";
 import { emitResult, exitCodeFor, newAccounting, persistImage, recordOutcome, type ExitCode } from "./persist";
 
@@ -132,7 +132,7 @@ async function callImage(
       throw new Error(`API error (${response.status}): ${error.slice(0, 300)}${modelRejectionHint(response.status, error, "image")}`);
     }
 
-    const image = readImage(provider, await response.json());
+    const image = await readPngImage(provider, await response.json());
     if (!image) {
       throw new Error(`No image data in ${label} response`);
     }
