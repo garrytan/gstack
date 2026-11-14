@@ -395,6 +395,43 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
       ["final s = r'${raw}';\n  login(password: request.password);\n", "lib/a.dart"],
     ] as const) expect({ code, kv: kv(code, file) }).toEqual({ code, kv: false });
   });
+  test("env.kv skips JS/TS template literals made of ${…} slots and benign static words (#4287)", () => {
+    const kv = (text: string, sourcePath?: string) =>
+      scan(text, { repoVisibility: "private", processEnv: {}, ...(sourcePath ? { sourcePath } : {}) }).findings.some((f) => f.id === "env.kv");
+    const v = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ";
+    const exact = "  key: `${over.day}|${over.groomerId}|over_tough|`,";
+    for (const [code, file] of [
+      [exact, "src/cache.ts"],
+      [exact, "src/Cache.tsx"],
+      [exact, "src/cache.js"],
+      [exact, "src/Cache.jsx"],
+      [exact, "src/cache.mts"],
+      ["const apiKey = `${tenant}:${user.id}:over_tough_v2`; // cache key", "src/cache.ts"],
+      ["const token = `${over.day} | ${over.groomerId} | over_tough`;", "src/cache.ts"],
+      ["const key = `${flag ? `${a}|over_tough` : 'none'}|${b}`;", "src/cache.ts"],
+      ["const key = `${over.day}|${over.groomerId}` /* `note` */;", "src/cache.ts"],
+    ] as const) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
+
+    for (const [literal, file] of [
+      [exact, ".env"],
+      [exact, "config.yaml"],
+      [exact, "README.md"],
+      [exact, undefined],
+      [`  key: \`${v}\`,`, "src/cache.ts"],
+      [`  key: \`\${over.day}|${v}\`,`, "src/cache.ts"],
+      ["  key: `${over.day}|sk-proj-AbCdEf1234567890`,", "src/cache.ts"],
+      ["  key: `${over.day}|AKIAZQ3XN7P2LM4RT8WV`,", "src/cache.ts"],
+      ["  key: `8Fk2${a}pQ9v${b}Xz4w${c}L7mN`,", "src/cache.ts"],
+      [`  key: \`\${getValue("${v}")}|over_tough\`,`, "src/cache.ts"],
+      [`  key: \`\${over.day ?? "${v}"}|over_tough\`,`, "src/cache.ts"],
+      [`  key: \`\${\`${v}\`}\`,`, "src/cache.ts"],
+      ['  key: "`${over.day}|${over.groomerId}|over_tough|`",', "src/cache.ts"],
+      [`/*\n${exact}\n*/`, "src/cache.ts"],
+      [`  key: \`\${over.day}|over_tough|\` + "${v}",`, "src/cache.ts"],
+      [`  key: \`\${over.day}|over_tough|\` + \`${v}\`,`, "src/cache.ts"],
+      [`  key: \`\${over.day}\n${v}\`,`, "src/cache.ts"],
+    ] as const) expect({ literal, file, kv: kv(literal, file) }).toEqual({ literal, file, kv: true });
+  });
   test("env.kv's source-syntax check stays linear on a match-dense file (#3630)", () => {
     for (const file of ["app.py", "src/a.ts"]) {
       const text = "def f(\n" + "    session: HttpSession,\n".repeat(12_000) + "): pass\n";

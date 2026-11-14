@@ -1041,6 +1041,19 @@ function inSpans(spans: Spans, offset: number): boolean {
   return false;
 }
 
+function spanStartsAt(spans: Spans, offset: number): boolean {
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const start = spans[mid]![0];
+    if (offset < start) hi = mid - 1;
+    else if (offset > start) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+
 function insideString(text: string, offset: number, sourcePath: string): boolean {
   if (!STRING_SPAN_SOURCE.test(sourcePath)) return false;
   return inSpans(stringSpans(text, /\.dart$/i.test(sourcePath) ? "dart" : "py"), offset);
@@ -1109,6 +1122,164 @@ function isAttributeReference(span: string, match: RegExpExecArray, sourcePath: 
   const rest = match.input.slice(end).split("\n", 1)[0];
   if (!(/\.dart$/i.test(sourcePath) ? /^[ \t]*(?:\/\/.*)?\r?$/ : /^[ \t]*(?:#.*)?\r?$/).test(rest)) return false;
   return !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * #4287: in JS/TS source, a template literal built from `${…}` expressions
+ * and short or low-entropy fixed text (`key: \`${over.day}|${over.groomerId}|over_tough|\``)
+ * constructs a composite key, not a secret. Only unquoted top-level backticks
+ * outside strings/comments qualify, with >=1 interpolation, no secret literals
+ * inside `${…}` or trailing on the line, and benign static chunks.
+ */
+const JS_TEMPLATE_SOURCE = /\.(?:[cm]?[jt]sx?)$/i;
+const TEMPLATE_KEY_PREFIX = /^(?:sk|pk|rk|gh[pousr]|xox[baprs]|glpat|AKIA|ASIA|AIza|eyJ)/i;
+const TEMPLATE_BENIGN_WORDS = /^(?:[a-z]+|v\d+)(?:[-_./](?:[a-z]+|v\d+))*$/;
+
+function isBenignTemplateExprLiteral(literal: string): boolean {
+  return literal.length < 8 || isPlaceholderSpan(literal) || shannonEntropy(literal) < 3.0;
+}
+
+function isBenignTemplateToken(tok: string): boolean {
+  if (tok.length < 8 || isPlaceholderSpan(tok) || shannonEntropy(tok) < 3.0) return true;
+  if (TEMPLATE_KEY_PREFIX.test(tok)) return false;
+  return (
+    tok.length <= 24 &&
+    TEMPLATE_BENIGN_WORDS.test(tok) &&
+    tok.split(/[-_./]/).every((seg) => seg.length < 12)
+  );
+}
+
+function areBenignTemplateChunks(chunks: string[]): boolean {
+  for (const chunk of chunks) {
+    for (const tok of chunk.split(/[\s|:;,()[\]{}]+/)) {
+      if (tok && !isBenignTemplateToken(tok)) return false;
+    }
+  }
+  const joined = chunks.join("");
+  for (const tok of joined.split(/[\s|:;,()[\]{}]+/)) {
+    if (!tok || tok.length < 12 || isPlaceholderSpan(tok) || shannonEntropy(tok) < 3.0) continue;
+    if (TEMPLATE_KEY_PREFIX.test(tok)) return false;
+    const hasMixedCaseOrDigit = (/[A-Z]/.test(tok) && /[a-z]/.test(tok)) || /\d/.test(tok);
+    if (hasMixedCaseOrDigit || tok.length >= 16) return false;
+  }
+  return true;
+}
+
+function isParsedTemplateBenign(parsed: { exprCount: number; staticChunks: string[] }): boolean {
+  return parsed.exprCount > 0
+    ? areBenignTemplateChunks(parsed.staticChunks)
+    : isBenignTemplateExprLiteral(parsed.staticChunks[0] ?? "");
+}
+
+function templateExpressionEnd(text: string, j: number, depth: number): number | null {
+  const n = text.length;
+  let open = 1;
+  while (j < n && open > 0) {
+    const d = text[j]!;
+    if (text.startsWith("//", j)) {
+      const eol = text.indexOf("\n", j);
+      j = eol < 0 ? n : eol + 1;
+      continue;
+    }
+    if (text.startsWith("/*", j)) {
+      const close = text.indexOf("*/", j + 2);
+      if (close < 0) return null;
+      j = close + 2;
+      continue;
+    }
+    if (d === '"' || d === "'") {
+      const litStart = j + 1;
+      let m = litStart;
+      while (m < n && text[m] !== d && text[m] !== "\n") m += text[m] === "\\" ? 2 : 1;
+      if (m >= n || text[m] !== d) return null;
+      if (!isBenignTemplateExprLiteral(text.slice(litStart, m))) return null;
+      j = m + 1;
+      continue;
+    }
+    if (d === "`") {
+      const nested = parseJsTemplate(text, j, depth + 1);
+      if (!nested || !isParsedTemplateBenign(nested)) return null;
+      j = nested.end;
+      continue;
+    }
+    if (d === "{") open += 1;
+    else if (d === "}") open -= 1;
+    j += 1;
+  }
+  return open === 0 ? j : null;
+}
+
+function parseJsTemplate(
+  text: string,
+  openBacktick: number,
+  depth = 0,
+): { end: number; exprCount: number; staticChunks: string[] } | null {
+  if (depth > MAX_INTERPOLATION_DEPTH || text[openBacktick] !== "`") return null;
+  const n = text.length;
+  const staticChunks: string[] = [];
+  let exprCount = 0;
+  let from = openBacktick + 1;
+  for (let j = from; j < n; ) {
+    const c = text[j]!;
+    if (c === "\\") { j += 2; continue; }
+    if (c === "`") {
+      staticChunks.push(text.slice(from, j));
+      return { end: j + 1, exprCount, staticChunks };
+    }
+    if (c === "$" && text[j + 1] === "{") {
+      staticChunks.push(text.slice(from, j));
+      exprCount += 1;
+      const exprEnd = templateExpressionEnd(text, j + 2, depth);
+      if (exprEnd === null) return null;
+      from = exprEnd;
+      j = exprEnd;
+      continue;
+    }
+    j += 1;
+  }
+  return null;
+}
+
+function tailCarriesBacktickSecret(tail: string): boolean {
+  for (let i = 0; i < tail.length; ) {
+    const c = tail[i]!;
+    if (tail.startsWith("//", i)) break;
+    if (tail.startsWith("/*", i)) {
+      const close = tail.indexOf("*/", i + 2);
+      if (close < 0) break;
+      i = close + 2;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < tail.length && tail[j] !== c) j += tail[j] === "\\" ? 2 : 1;
+      i = j + 1;
+      continue;
+    }
+    if (c === "`") {
+      const parsed = parseJsTemplate(tail, i);
+      if (!parsed || !isParsedTemplateBenign(parsed)) return true;
+      i = parsed.end;
+      continue;
+    }
+    i += 1;
+  }
+  return false;
+}
+
+function isJsTemplateLiteral(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !JS_TEMPLATE_SOURCE.test(sourcePath)) return false;
+  if (!span.startsWith("`")) return false;
+  const { start } = spanBounds(match);
+  const input = match.input ?? "";
+  const before = input[start - 1];
+  if (before === '"' || before === "'") return false;
+  if (!spanStartsAt(jsSpans(input), start)) return false;
+  const parsed = parseJsTemplate(input, start);
+  if (!parsed || parsed.exprCount === 0) return false;
+  if (!areBenignTemplateChunks(parsed.staticChunks)) return false;
+  const rest = input.slice(parsed.end).split("\n", 1)[0] ?? "";
+  return !carriesSecretLiteral(rest) && !tailCarriesBacktickSecret(rest);
 }
 
 /** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
@@ -1575,6 +1746,7 @@ export const PATTERNS: RedactPattern[] = [
     // #2899: a function call assigned to the name is code, not a value (see
     // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
     // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
+    // #4287: so is a JS/TS template literal made of ${…} slots and benign static text (isJsTemplateLiteral).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
     validate: (span, match, opts) =>
@@ -1585,6 +1757,7 @@ export const PATTERNS: RedactPattern[] = [
       !isCallExpression(span, match) &&
       !isSourceExpression(span, match, opts?.sourcePath) &&
       !isAttributeReference(span, match, opts?.sourcePath) &&
+      !isJsTemplateLiteral(span, match, opts?.sourcePath) &&
       !isSchemaFieldIdentifier(span, match) &&
       !isTestFixtureLabel(span, opts?.sourcePath) &&
       shannonEntropy(span) >= 3.0,
