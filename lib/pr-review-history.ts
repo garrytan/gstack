@@ -38,9 +38,8 @@ function entries(body: string): ReceiptRun[] {
   return [...receiptRuns(body), ...(current && typeof current.head === 'string' ? [receiptRun(current)] : [])];
 }
 
-/** `exceptHead`: leave out the entries at that head, so a round grant there counts only the rounds earlier heads spent. */
-export function prReviewHistory(body: string, o: { exceptHead?: string } = {}): PrReviewHistory {
-  const all = entries(body).filter(e => !o.exceptHead || e.head.toLowerCase() !== o.exceptHead.toLowerCase());
+export function prReviewHistory(body: string): PrReviewHistory {
+  const all = entries(body);
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {

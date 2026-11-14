@@ -87,20 +87,6 @@ describe('gstack-ship-receipt history and stub', () => {
     expect(r.run('gstack-ship-receipt', ['stub', '--body', body]).status).toBe(2);
   });
 
-  test('a grant at HEAD counts only earlier heads, so a read-only review already run there does not use it up', () => {
-    const r = repo();
-    const loop = { passes: 1, blocking_found: 0, deferred: 0, rounds: 1 };
-    const body = path.join(r.dir, 'body.md');
-    fs.writeFileSync(body, '## Summary\nprose\n\n```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, head: 'b'.repeat(40), run: 'r2', review_loop: loop }) + '\n```\n\n```gstack-receipt-runs\n' + JSON.stringify({ head: 'a'.repeat(40), run: 'r1', review_loop: loop }) + '\n```\n');
-    expect(r.run('gstack-ship-receipt', ['stub', '--body', body, '--run', 'r3', '--head', r.head, '--review-loop', JSON.stringify(loop)]).status).toBe(0);
-    expect(r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout).toMatch(/^PR_REVIEW_ROUTE: read-only /m);
-    const id = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'extra-round', '--reason', 'the read-only review found a blocker', '--by', 'captain:test']).stdout)?.[1];
-    const h = r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout;
-    expect(h).toMatch(/^PR_REVIEW_HISTORY: pr=#5 rounds=3 cap=2 full=3 /m);
-    expect(h).toContain(`PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2 --round-grant ${id}\n`);
-    expect(h).toMatch(/^PR_REVIEW_ROUTE: final \(.*round grant/m);
-  });
-
   test('an unreadable PR body prints source=unavailable and its fix', () => {
     const r = repo();
     const h = r.run('gstack-ship-receipt', ['history', '--body', path.join(r.dir, 'missing.md')]);
