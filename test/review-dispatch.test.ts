@@ -956,7 +956,7 @@ describe('the workspace paragraph (GST-482)', () => {
       const r = run(['render', '--role', role, '--out', out, ...(role === 'fix-check' ? [] : ['--diff-base', SHA]), ...args]);
       expect(r.status, role + ': ' + r.stderr).toBe(0);
       const main = renderBrief(role as Parameters<typeof renderBrief>[0], { diff_base: role === 'fix-check' ? undefined : SHA, ...slots }, t);
-      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(workspaceStep(top) + '\n\n' + main + '\n\n' + workspaceParagraph(top));
+      expect(fs.readFileSync(field(r.stdout, 'file'), 'utf8'), role).toBe(workspaceStep(top, true) + '\n\n' + main + '\n\n' + workspaceParagraph(top, undefined, true));
     }
     expect(workspaceParagraph(top)).toContain(`begin each command with \`cd '${top}' && \``);
     expect(workspaceParagraph(top)).toContain(`absolute path under ${top}`);
