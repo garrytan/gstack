@@ -51,6 +51,7 @@ repo, 10 candidates).
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 {{SLUG_SETUP}}
+BRANCH=$(~/.claude/skills/gstack/bin/gstack-slug --get BRANCH 2>/dev/null)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 REPORT="$GSTACK_STATE_ROOT"/projects/$SLUG/test-audit-$DATETIME.md
 DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
