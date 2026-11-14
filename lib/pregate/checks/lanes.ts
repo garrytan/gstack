@@ -196,6 +196,47 @@ function importsPlaywright(text: string): boolean {
   }
   return false;
 }
+/** The relative modules a file takes the value `test` from: `import { test } from './fixtures'` (aliased or not) or `export { test } from …`; a type-only import does not count. */
+function testSources(text: string): string[] {
+  const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+  const out: string[] = [];
+  for (const m of code.matchAll(/^[\t ]*(?:import|export)[\t ]*\{([^}]*)\}[\t ]*from[\t ]*['"](\.{1,2}\/[^'"]+)['"]/gm)) {
+    if (m[1]!.split(',').some(s => /^test(?:\s+as\s+[\w$]+)?$/.test(s.trim()))) out.push(m[2]!);
+  }
+  return out;
+}
+
+const MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
+/** The repo file a relative specifier names: as written, with a source extension (a `.js` specifier also as `.ts`), or its `index` module; null outside the repo or when none exists. */
+function resolveModule(repoRoot: string, from: string, spec: string): string | null {
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(from), spec));
+  if (base.startsWith('../') || base === '..') return null;
+  const stem = base.replace(/\.[cm]?jsx?$/, '');
+  const candidates = [base, ...MODULE_EXTENSIONS.map(e => stem + e), ...MODULE_EXTENSIONS.map(e => `${base}/index${e}`)];
+  return candidates.find(c => fs.statSync(path.join(repoRoot, c), { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+
+/**
+ * Whether a JS/TS test is a Playwright spec: it imports a value from `@playwright/test` itself, or it takes `test` from a local module
+ * that does, directly or through further local modules (Playwright's fixtures pattern: `export const test = base.extend(…)`). Only the
+ * modules `test` comes from are followed, so a unit test that imports some other helper built on Playwright keeps its unit runner.
+ */
+function playwrightSpec(repoRoot: string, file: string): boolean {
+  const text = readRepoFile(repoRoot, file) ?? '';
+  if (importsPlaywright(text)) return true;
+  const seen = new Set([file]);
+  const queue = testSources(text).map(spec => resolveModule(repoRoot, file, spec));
+  for (let hops = 0; queue.length && hops < 8; hops++) {
+    const mod = queue.shift();
+    if (!mod || seen.has(mod)) continue;
+    seen.add(mod);
+    const body = readRepoFile(repoRoot, mod) ?? '';
+    if (importsPlaywright(body)) return true;
+    queue.push(...testSources(body).map(spec => resolveModule(repoRoot, mod, spec)));
+  }
+  return false;
+}
+
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
 
@@ -210,19 +251,42 @@ function declaredRunnerFiles(runner: string): RegExp | null {
 }
 
 /**
- * The invocations that run `files`. A declared runner takes every file its tool runs (`declaredRunnerFiles`); the rest are `dropped`. Otherwise
+ * The invocations that run `files`. A `runners` rule takes the files its globs match first (the first matching rule wins), run from
+ * its `cwd` with paths relative to it; a matched file outside that directory is `unclaimed`. For the rest, a declared runner takes every file its tool runs (`declaredRunnerFiles`); the rest are `dropped`. Otherwise
  * Dart tests run from their own package root (a sub-package's imports resolve
  * against its own pubspec); Rust tests run per crate as `cargo test -p <name>`
  * from the crate's workspace root; JS/TS tests owned by a nested package that
  * declares vitest or jest run from that package; a JS/TS test that imports
- * `@playwright/test` runs through `playwright test` from its nearest package;
+ * `@playwright/test`, or takes `test` from a local fixtures module built on it, runs through `playwright test` from its nearest package;
  * the rest go to the detected runner from the repo root, split by language
  * when no one runner fits them all (`.mjs` + `.py` runs both), and pytest only
  * when python3 can import it. Files no runner claims (a tool missing from PATH,
  * a `.dart` file outside any package, a `.rs` file outside any crate or in a
  * crate whose name Cargo would reject, no detected runner) are `unclaimed`: the lane is `incomplete`, never a pass.
  */
+/** A rule's directory as a repo-relative prefix: `''` for the root, no `./` or trailing slash. */
+const ruleCwd = (r: { cwd?: string }) => { const d = path.posix.normalize(r.cwd ?? '.').replace(/\/+$/, ''); return d === '.' ? '' : d; };
+
 export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan {
+  const rules = ctx.config.runners ?? [];
+  if (!rules.length) return planDetected(ctx, files);
+  const claimed = rules.map(() => [] as string[]);
+  const outside: string[] = [];
+  const rest: string[] = [];
+  for (const f of files) {
+    const i = rules.findIndex(r => matchesAny(r.when, f));
+    if (i < 0) { rest.push(f); continue; }
+    const cwd = ruleCwd(rules[i]!);
+    if (cwd && !f.startsWith(`${cwd}/`)) outside.push(f);
+    else claimed[i]!.push(cwd ? f.slice(cwd.length + 1) : f);
+  }
+  const ruled = rules.flatMap((r, i) => (claimed[i]!.length ? [{ runner: r.runner, cwd: ruleCwd(r), files: claimed[i]! }] : []));
+  const plan = planDetected(ctx, rest);
+  return { ...plan, groups: [...ruled, ...plan.groups], unclaimed: [...outside, ...plan.unclaimed] };
+}
+
+/** The plan for the files no `runners` rule claims: a declared `runner`, else per-file detection (see planRuns). */
+function planDetected(ctx: PregateContext, files: readonly string[]): RunPlan {
   if (ctx.config.runner) {
     const runs = declaredRunnerFiles(ctx.config.runner);
     const taken = runs ? files.filter(f => runs.test(f)) : [...files];
@@ -256,7 +320,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
       continue;
     }
     const pkg = /\.[cm]?[jt]sx?$/.test(f) ? nearestRoot(ctx.repoRoot, f, 'package.json', seenPackage) : null;
-    if (pkg !== null && importsPlaywright(readRepoFile(ctx.repoRoot, f) ?? '')) { add(playwright, pkg, under(pkg, f)); continue; }
+    if (pkg !== null && playwrightSpec(ctx.repoRoot, f)) { add(playwright, pkg, under(pkg, f)); continue; }
     if (pkg) {
       if (!pkgRunners.has(pkg)) pkgRunners.set(pkg, packageRunner(ctx.repoRoot, pkg, ctx.env));
       const r = pkgRunners.get(pkg);

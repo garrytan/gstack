@@ -137,6 +137,28 @@ describe('gstack-checks on a fixture repo', () => {
     expect(fs.existsSync(s.mark)).toBe(false);
   }, 60_000);
 
+  // Value: protects=a `runners` rule is a command like `runner`: adding or editing one on the base needs consent again before anything
+  //   runs, and `detect` and the refusal name it; fails_when=the trust hash or the consent text ignores `runners`; why_new=`runners` is
+  //   new; seam=the rule's command writes the marker when it runs; no_claim=the trust grant log's contents
+  test('consent covers the runners rules', () => {
+    const s = setup();
+    commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    expect(s.checks(['trust']).status).toBe(0);
+    expect(run(s).status).toBe(0);
+    s.repo.git('checkout', '-q', 'main');
+    const rule = { when: ['test/*.test.js'], runner: "node -e \"require('fs').writeFileSync(process.env.SELECTION_MARK,'ran')\" -- {files}" };
+    write(s.repo.work, '.gstack/pregate.json', JSON.stringify({ ...BASE_PREGATE, runners: [rule], dependencies: { ...BASE_PREGATE.dependencies, 'scripts/**': [], 'package.json': [] } }, null, 2) + '\n');
+    s.repo.git('commit', '-q', '-am', 'runners');
+    s.repo.git('push', '-q', 'origin', 'main');
+    s.repo.git('checkout', '-q', 'feature');
+    fs.rmSync(s.mark, { force: true });
+    const refused = run(s);
+    expect(refused.status).toBe(3);
+    expect(refused.err).toContain(`runners: ${rule.runner} on test/*.test.js`);
+    expect(fs.existsSync(s.mark)).toBe(false);
+    expect(s.checks(['detect']).out).toContain(`runners: ${rule.runner} on test/*.test.js`);
+  }, 60_000);
+
   // Value: protects=a source change that breaks an untouched test is a red to fix, not a pre-existing one; an unmapped file and a
   //   zero-run selection are never green; status never reports ready from a red or stale run; fails_when=any of those reads green;
   //   why_new=the verdicts are new; seam=pregate's real selection and runner; no_claim=output wording beyond the verdict tokens

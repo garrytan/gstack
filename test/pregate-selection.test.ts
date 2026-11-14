@@ -1016,6 +1016,68 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctxFor(repo, { PATH: path.join(repo.root, 'empty-path') }), ['app/e2e/app.spec.ts'])).toEqual({ groups: [], unclaimed: ['app/e2e/app.spec.ts'], missing: ['pnpm'], noPubspec: [] });
   });
 
+  // Value: protects=a spec that takes `test` from a local fixtures module built on `@playwright/test` (Playwright's documented
+  //   `test.extend` pattern) runs through `playwright test`, never the package's vitest (which finds no test files and exits 1);
+  //   fails_when=only a direct `@playwright/test` import marks a spec again; why_new=the detection read only the spec's own imports;
+  //   seam=none; no_claim=a real Playwright run (plan only)
+  test('a spec importing test from a local fixtures module that extends @playwright/test runs through playwright test', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    write(repo.work, 'app/e2e/fixture.ts', "import { test as base, expect } from '@playwright/test';\nexport const test = base.extend<{ shell: string }>({ shell: async ({}, use) => use('x') });\nexport { expect };\n");
+    write(repo.work, 'app/e2e/smoke.spec.ts', "import { expect, test } from './fixture'\ntest('smoke', async ({ shell }) => expect(shell).toBe('x'))\n");
+    // Two hops, an alias, an index module and a `.js` specifier that names the `.ts` source.
+    write(repo.work, 'app/e2e/support/index.ts', "export { test, expect } from '../fixture.js';\n");
+    write(repo.work, 'app/e2e/deep.spec.ts', "import { test as it } from './support';\nit('deep', () => {});\n");
+    // Controls: vitest's own test.extend, a helper that uses Playwright but is not where `test` comes from, and a type-only import.
+    write(repo.work, 'app/src/vfix.ts', "import { test as base } from 'vitest';\nexport const test = base.extend({});\n");
+    write(repo.work, 'app/src/fixtured.test.ts', "import { test } from './vfix';\ntest('v', () => {});\n");
+    write(repo.work, 'app/e2e/lib/shell.ts', "import { _electron as electron } from '@playwright/test';\nexport const launch = () => electron;\n");
+    write(repo.work, 'app/e2e/lib/shell.test.ts', "import { expect, test } from 'vitest';\nimport { launch } from './shell';\ntest('l', () => expect(launch).toBeTruthy());\n");
+    write(repo.work, 'app/e2e/lib/typed.test.ts', "import { test } from 'vitest';\nimport type { test as pw } from '../fixture';\ntest('t', () => {});\n");
+    expect(planRuns(ctx, ['app/e2e/smoke.spec.ts', 'app/e2e/deep.spec.ts', 'app/src/fixtured.test.ts', 'app/e2e/lib/shell.test.ts', 'app/e2e/lib/typed.test.ts'])).toEqual({ groups: [
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/fixtured.test.ts', 'e2e/lib/shell.test.ts', 'e2e/lib/typed.test.ts'] },
+      { runner: 'pnpm exec playwright test --reporter=list {files}', cwd: 'app', files: ['e2e/smoke.spec.ts', 'e2e/deep.spec.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+  });
+
+  // Value: protects=a repo whose specs must run through its own entry point (one that builds first) can say so, and those files reach
+  //   that command from the named directory with paths relative to it, ahead of detection and of a declared `runner`; the other files keep
+  //   their plan; fails_when=`runners` is ignored, applied after detection, or given repo-relative paths; why_new=no per-path runner
+  //   existed; seam=none; no_claim=the command itself (plan only)
+  test('a runners rule sends its files to its command from its directory; the rest keep their plan', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const rules = [{ when: ['app/e2e/**/*.spec.ts'], runner: 'pnpm run e2e -- {files}', cwd: 'app' }, { when: ['tools/*.test.ts'], runner: 'node tools/run.mjs {files}' }];
+    const ctx = { ...ctxFor(repo, pmShim(repo)), config: { ...DEFAULT_CONFIG, runners: rules } } as PregateContext;
+    write(repo.work, 'app/e2e/smoke.spec.ts', "import { test } from './fixture'\ntest('smoke', () => {})\n");
+    expect(planRuns(ctx, ['app/e2e/smoke.spec.ts', 'app/src/sum.test.ts', 'tools/a.test.ts', 'app/e2e/nested/b.spec.ts'])).toEqual({ groups: [
+      { runner: 'pnpm run e2e -- {files}', cwd: 'app', files: ['e2e/smoke.spec.ts', 'e2e/nested/b.spec.ts'] },
+      { runner: 'node tools/run.mjs {files}', cwd: '', files: ['tools/a.test.ts'] },
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    // A declared runner takes what no rule claims; the rule still wins for its files.
+    const declared = { ...ctx, config: { ...ctx.config, runner: 'bun test {files}' } } as PregateContext;
+    expect(planRuns(declared, ['app/e2e/smoke.spec.ts', 'test/x.test.ts']).groups).toEqual([
+      { runner: 'pnpm run e2e -- {files}', cwd: 'app', files: ['e2e/smoke.spec.ts'] },
+      { runner: 'bun test {files}', cwd: '', files: ['test/x.test.ts'] },
+    ]);
+    // A glob reaching outside the rule's directory leaves that file unclaimed instead of handing the command a path it cannot resolve.
+    const outside = { ...ctx, config: { ...DEFAULT_CONFIG, runners: [{ when: ['**/*.spec.ts'], runner: 'pnpm run e2e -- {files}', cwd: 'app' }] } } as PregateContext;
+    expect(planRuns(outside, ['web/a.spec.ts'])).toEqual({ groups: [], unclaimed: ['web/a.spec.ts'], missing: [], noPubspec: [] });
+  });
+
+  // Value: protects=a malformed `runners` entry refuses the policy instead of running something unintended; fails_when=a rule without
+  //   {files}, without globs, with an escaping directory or an unknown key validates; why_new=new key; seam=none; no_claim=none
+  test('config: runners entries need globs, a {files} command and a contained directory', () => {
+    const codes = (c: unknown) => validateConfig(c, CHECK_IDS).map(e => `${e.code}:${e.path}`);
+    expect(codes({ runners: [{ when: ['app/e2e/*.spec.ts'], runner: 'pnpm run e2e -- {files}', cwd: 'app' }] })).toEqual([]);
+    expect(codes({ runners: {} })).toEqual(['PREGATE_CONFIG_INVALID:runners']);
+    expect(codes({ runners: [{ when: [], runner: 'x {files}' }] })).toEqual(['PREGATE_CONFIG_INVALID:runners[0].when']);
+    expect(codes({ runners: [{ when: ['a/*'], runner: 'x' }] })).toEqual(['PREGATE_CONFIG_INVALID:runners[0].runner']);
+    expect(codes({ runners: [{ when: ['a/*'], runner: 'x {files}', cwd: '../up' }] })).toEqual(['PREGATE_CONFIG_INVALID:runners[0].cwd']);
+    expect(codes({ runners: [{ when: ['../a/*'], runner: 'x {files}' }] })).toEqual(['PREGATE_CONFIG_INVALID:runners[0].when[0]']);
+    expect(codes({ runners: [{ when: ['a/*'], runner: 'x {files}', id: 'e2e' }] })).toEqual(['PREGATE_CONFIG_INVALID:runners[0].id']);
+  });
+
   // Value: protects=repos where root detection works today are unchanged: a nested package that declares no test runner stays with the
   //   root runner from the root, a root vitest stays `npx vitest run` from the root, and a declared runner takes every file;
   //   fails_when=every nested package.json splits a group or the root command changes; why_new=negative controls for the new
