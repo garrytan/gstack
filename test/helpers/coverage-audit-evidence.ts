@@ -226,8 +226,30 @@ function matchRun(run: Exclude<Piece, { kind: 'unknown' }>[], out: string, offse
  * credit. Every later run must still appear in order.
  */
 function shellReads(command: unknown, output: unknown, scope: ShellScope): Set<string> {
+  const credited = pieceReads(commandPieces(command, scope), output, false);
+  const abort = credited.size ? undefined : equalsAbort(command, scope);
+  return abort ? pieceReads(abort, output, true) : credited;
+}
+
+/**
+ * zsh expands an unquoted word that starts with = into a command path (EQUALS).
+ * A failed lookup prints `(eval):1: <name> not found` and abandons the rest of
+ * the line (census 43575953190: `cat -n src; echo ====; cat -n test; git status`
+ * printed the source, then that error). For a standalone `echo =...` after ; or
+ * &&, the expected output is the closed prefix's pieces and that one error line,
+ * ending the output; nothing after the echo ran, so it needs no grammar.
+ */
+function equalsAbort(command: unknown, scope: ShellScope): Piece[] | undefined {
+  const words = shellWords(command);
+  const at = words?.findIndex(word => word.startsWith('=')) ?? -1;
+  if (!words || at < 2 || !/^=[=A-Za-z0-9_.-]+$/.test(words[at]!) || words[at - 1] !== 'echo' ||
+      ![';', '&&'].includes(words[at - 2]!) || ![undefined, ';', '&&'].includes(words[at + 1])) return undefined;
+  const pieces = commandPieces(words.slice(0, at - 2).join(' '), scope);
+  return pieces && [...pieces, { kind: 'label', text: `(eval):1: ${words[at]!.slice(1)} not found` }];
+}
+
+function pieceReads(pieces: Piece[] | undefined, output: unknown, whole: boolean): Set<string> {
   const credited = new Set<string>();
-  const pieces = commandPieces(command, scope);
   const text = outputText(output).replace(/\r\n?/g, '\n');
   if (!pieces || text.length > 4 * 1024 * 1024) return credited;
   // Native Bash results are trimmed: leading blank lines of the first run and
@@ -291,7 +313,7 @@ function shellReads(command: unknown, output: unknown, scope: ShellScope): Set<s
     matched.credited.forEach(file => credited.add(file));
     cursor = matched.end; min = max = 0; pending = false;
   }
-  return credited;
+  return whole && (pending || !/^\n*$/.test(out.slice(cursor))) ? new Set() : credited;
 }
 
 function delivered(output: unknown, expected: string): boolean {
