@@ -33,9 +33,11 @@ API cost: $15.61.
   - One Opus red-team reply on clean c2-paginate declared 0 while its closing sentence ("I count only CRITICAL
     findings as blocking") collected as CRITICAL. This is the one contradiction, and the CAPY-1 shape: with the
     line, that row is a summary candidate the lead may lower with a reason, instead of an unexplained blocker.
-- **The native FIXABLE lowering never fired in live replies.** Today's native brief already asks for
-  `Severity` and `Blocks` on every finding, and no reply wrote the FOUN-298 sentence shape. That rule is covered
-  by the captured FOUN-298 and #3901 controls in test/review-verdict.test.ts, not by this panel.
+- **The native FIXABLE lowering never fired in live replies, and it was removed after this run.** Today's native
+  brief already asks for `Severity` and `Blocks` on every finding, and no reply wrote the FOUN-298 sentence shape.
+  /ship's review of this PR then found a reply shape where that automatic lowering loses a real blocker, so the
+  shipped code lowers nothing by itself: such rows become summary candidates the lead lowers with a written reason.
+  Because the lowering fired 0 times in 160 replies, every figure above is the same under the shipped code.
 - **No clean-diff improvement was shown.** Blocking rows per clean-branch reply: treatment 0.063, control 0.100;
   paired difference -0.037 (interval -0.111 to +0.036, 40 cells). The clean-branch blockers were almost all Sol
   judging that a `NaN` page size in c2-paginate blocks, in both arms; the line does not change a reader's judgment.

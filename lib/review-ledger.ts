@@ -328,15 +328,14 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
 export interface VerdictCheck { state: 'valid' | 'missing' | 'malformed'; parsed: number; declared?: number; agrees?: boolean; why?: string }
 export interface ReplyFinding { label: string; raw: string; summary?: true; synthetic?: true }
 const blockingRow = (f: { label: string; raw: string }) => (rank(f.label) ?? 0) >= 4 && !statesNoBlocks(f.raw);
-const WORDED = (raw: string) => BLOCKS_YES.test(raw) || [...raw.matchAll(ALL_LABELS)].some(m => rank(m[1]) === 4);
 
 /**
  * A reply's findings, and with asked (its render carried the verdict ask, GST-2495) the check of its REVIEW_VERDICT line
- * (lib/review-verdict.ts, docs/review-policy.md#verdict-line). Verdict attempts never parse as findings. A valid line lowers one
- * thing: the native voice's FIXABLE raise on a prose line with no anchor (no list item, heading, field, lead label, JSON or
- * file:line) and no CRITICAL, P0 or Blocks: yes, which keeps its own strongest label. Declared more than parsed adds CRITICAL
- * rows, one per unmatched at= location and one for the rest; declared fewer marks each unanchored row that blocks only by a
- * CRITICAL or P0 word a summary candidate, which still blocks until lead judgment lowers it with a reason.
+ * (lib/review-verdict.ts, docs/review-policy.md#verdict-line). A well-formed verdict line never parses as a finding, and a valid
+ * line lowers nothing by itself. Declared more than parsed adds CRITICAL rows, one per unmatched at= location and one for the
+ * rest; declared fewer marks each blocking row with no anchor (no list item, heading, field, lead label, JSON or file:line) and
+ * no Blocks: yes a summary candidate, whether a CRITICAL or P0 word or the native voice's FIXABLE raise made it block. It still
+ * blocks until lead judgment lowers it with a reason.
  */
 export function parseReply(reader: string, output: string, fixableRaises = true, asked = false): { findings: ReplyFinding[]; verdict?: VerdictCheck } {
   const verdict = asked ? parseVerdict(output) : undefined;
@@ -347,14 +346,11 @@ export function parseReply(reader: string, output: string, fixableRaises = true,
     const findings = rows.map(({ label, raw }) => ({ label, raw }));
     return { findings, ...(verdict ? { verdict: { state: verdict.state, parsed: findings.filter(blockingRow).length, ...(verdict.state === 'malformed' ? { why: verdict.why } : {}) } } : {}) };
   }
-  const native = reader.split('/')[0] === 'adversarial-native';
-  const own = (raw: string) => [...raw.matchAll(ALL_LABELS)].map(m => m[1]!).reduce<string | undefined>((a, b) => (a === undefined ? b : stronger(a, b)), undefined);
-  const relabelled = rows.map(f => (native && !f.anchored && rank(f.label) === 4 && !WORDED(f.raw) ? { ...f, label: own(f.raw) ?? f.label } : f));
   const n = verdict.blocking;
-  const parsed = relabelled.filter(blockingRow).length;
-  const findings: ReplyFinding[] = relabelled.map(f => ({ label: f.label, raw: f.raw, ...(n < parsed && blockingRow(f) && !f.anchored && !BLOCKS_YES.test(f.raw) ? { summary: true as const } : {}) }));
+  const parsed = rows.filter(blockingRow).length;
+  const findings: ReplyFinding[] = rows.map(f => ({ label: f.label, raw: f.raw, ...(n < parsed && blockingRow(f) && !f.anchored && !BLOCKS_YES.test(f.raw) ? { summary: true as const } : {}) }));
   if (n > parsed) {
-    const loci = new Set(relabelled.filter(blockingRow).map(f => lineLocus(f.raw)));
+    const loci = new Set(rows.filter(blockingRow).map(f => lineLocus(f.raw)));
     const unmatched = verdict.at.map(a => a.replace(/^\.\//, '')).filter(a => !loci.has(a)).slice(0, n - parsed);
     const rest = n - parsed - unmatched.length;
     const note = `REVIEW_VERDICT declared blocking=${n}, but collect parsed ${parsed} blocking finding${parsed === 1 ? '' : 's'} in this reply`;

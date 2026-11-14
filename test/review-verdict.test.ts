@@ -42,9 +42,7 @@ describe('the REVIEW_VERDICT line', () => {
 });
 
 describe('negative controls on every blocking role, both review classes', () => {
-  // The accepted contract (plan decision 4): with a valid blocking=0 line, these native probe lines stop collecting as CRITICAL,
-  // because their only blocker is the native FIXABLE raise on prose with no anchor. Every other line, role and line state keeps blocking.
-  const NATIVE_LOWERED_AT_ZERO = [0, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28];
+  // A valid line lowers nothing by itself (Captain ruling D1, 2026-11-14): no probe line, role or line state stops blocking.
   for (const role of BRIEF_ROLES) for (const raises of [true, false]) {
     test(`${role} ${raises ? 'gate' : 'relaxed'} class`, () => {
       const lowered: number[] = [];
@@ -58,19 +56,20 @@ describe('negative controls on every blocking role, both review classes', () => 
         const zero = asked(role, reply(p, 'REVIEW_VERDICT: blocking=0'), raises).findings;
         if (blocking(main) && !blocking(zero)) lowered.push(i);
       }
-      expect(lowered).toEqual(role === 'adversarial-native' ? NATIVE_LOWERED_AT_ZERO : []);
+      expect(lowered).toEqual([]);
     });
   }
 
-  test('FOUN-298: blocking=0 collects Low x4 and agrees; with no line it is still CRITICAL,Low,Low,Low', () => {
+  test('FOUN-298: blocking=0 keeps CRITICAL,Low,Low,Low and makes the summary row a candidate the lead may lower; with no line nothing is flagged', () => {
     const out = CONTROLS.outputs.foun298!;
     const at = out.replace(/^(REVIEWED_TREE: .*)$/m, '$1\nREVIEW_VERDICT: blocking=0');
     for (const raises of [true, false]) {
       const r = asked('adversarial-native', at, raises);
-      expect(r.findings.map(f => f.label)).toEqual(['Low', 'Low', 'Low', 'Low']);
-      expect(r.verdict).toEqual({ state: 'valid', parsed: 0, declared: 0, agrees: true });
+      expect(r.findings.map(f => [f.label, f.summary ?? false])).toEqual([['CRITICAL', true], ['Low', false], ['Low', false], ['Low', false]]);
+      expect(r.verdict).toEqual({ state: 'valid', parsed: 1, declared: 0, agrees: false });
+      expect(asked('adversarial-native', out, raises).findings.some(f => f.summary)).toBe(false);
       expect(asked('adversarial-native', out, raises).findings.map(f => f.label)).toEqual(['CRITICAL', 'Low', 'Low', 'Low']);
-      expect(asked('adversarial-native', at.replace('blocking=0', 'blocking=1'), raises).verdict).toMatchObject({ declared: 1, parsed: 0, agrees: false });
+      expect(asked('adversarial-native', at.replace('blocking=0', 'blocking=1'), raises).verdict).toMatchObject({ declared: 1, parsed: 1, agrees: true });
     }
   });
 
@@ -89,11 +88,24 @@ describe('negative controls on every blocking role, both review classes', () => 
     }
   });
 
-  test('positive phrasings keep their own labels under blocking=0', () => {
-    const one = (p: string) => asked('adversarial-native', reply(p, 'REVIEW_VERDICT: blocking=0')).findings.map(f => f.label);
-    expect(one('Nothing that blocks: one Medium and two Low findings, all FIXABLE.')).toEqual(['Medium']);
-    expect(one('Nothing that blocks: three High findings, all FIXABLE.')).toEqual(['High']);
-    expect(one('Nothing that blocks: two CRITICAL findings, all FIXABLE.')).toEqual(['CRITICAL']);
+  test('positive phrasings under blocking=0 still block, as summary candidates the lead may lower with a reason', () => {
+    const one = (p: string) => asked('adversarial-native', reply(p, 'REVIEW_VERDICT: blocking=0')).findings.map(f => [f.label, f.summary ?? false]);
+    expect(one('Nothing that blocks: one Medium and two Low findings, all FIXABLE.')).toEqual([['CRITICAL', true]]);
+    expect(one('Nothing that blocks: three High findings, all FIXABLE.')).toEqual([['CRITICAL', true]]);
+    expect(one('Nothing that blocks: two CRITICAL findings, all FIXABLE.')).toEqual([['CRITICAL', true]]);
+  });
+
+  test('a real unanchored FIXABLE blocker beside a denial line keeps blocking when the count agrees (Step 11 rerun at 1acb0d5)', () => {
+    const out = CONTROLS.outputs.native_relabel_loss!;
+    for (const raises of [true, false]) {
+      const r = asked('adversarial-native', out, raises);
+      expect(r.findings[0]!.label, `raises=${raises}`).toBe(raises ? 'CRITICAL' : parseFindings('adversarial-native', out, raises)[0]!.label);
+      expect(r.findings.map(f => [f.label, f.raw])).toEqual(parseFindings('adversarial-native', out, raises).map(f => [f.label, f.raw]));
+    }
+    const gate = asked('adversarial-native', out);
+    expect(blocking(gate.findings)).toBe(2);
+    expect(gate.verdict).toMatchObject({ declared: 1, parsed: 2, agrees: false });
+    expect(gate.findings.map(f => f.summary ?? false)).toEqual([true, true]);
   });
 });
 
