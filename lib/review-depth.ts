@@ -427,11 +427,19 @@ export function nextStep(h: History, depth?: Depth): NextStep {
  * R51 per pull request (GST-2673, docs/review-policy.md#rounds-per-pull-request): the rounds earlier /ship runs on this
  * PR spent count against FULL_PASS_CAP with this run's, and a recorded round grant at this head adds one. At the cap a
  * below-floor fix ships as notes and anything else stops with PR_ROUND_CAP for the lane or its Captain, never the owner.
+ * A PR already at the cap gets one read-only full review of this head: no fix round, the count does not reopen, and a
+ * blocker stops with PR_ROUND_CAP as the lane's Captain's decision.
  */
 function prCapped(h: History, n: NextStep): NextStep {
   const prior = h.priorFull ?? 0;
-  if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const cap = FULL_PASS_CAP + (h.roundGrant ? 1 : 0);
+  if (prior >= cap) {
+    if (h.last === 'none') return n.step === 'full' || n.step === 'scoped' ? { step: 'full', reason: `read-only final review (R51): this PR already had ${prior} full review rounds on earlier heads, so this head gets one full review with no fix round; a blocker goes to the lane's Captain as a decision and the count does not reopen` } : n;
+    if (n.step === 'done') return n;
+    if (!h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'done', reason: `read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round` };
+    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, a round grant, or park), not an owner ask` };
+  }
+  if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const used = prior + h.fullPasses;
   if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads, so this is its full round ${used + 1} of ${cap}${used + 1 === cap ? ', the last' : ''}` };
   if (h.last !== 'none' && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate) return { step: 'done', reason: `PR round cap ${cap} reached (${prior} on earlier heads): the below-floor fixes ship as notes in the PR body and receipt` };

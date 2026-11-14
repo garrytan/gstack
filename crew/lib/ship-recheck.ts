@@ -1,9 +1,9 @@
 /**
  * J1 (GSTA-258 plan H, relabeled J1): a scoped re-check after a refused receipt carry. When `gstack-ship-receipt carry` refuses
- * because the product patch changed since the reviewed head, and the change is bounded, one reader reads `git range-diff` of
- * the reviewed range against the current one instead of a full second /ship (gbrain-evals #246/#247: about 100k credits per
- * full rerun; #300's scoped reader: about 300). A clean verdict bound to that exact range-diff rebinds the receipt; the carry's
- * later checks still refuse a deeper review depth or a changed risk class, which need the full /ship.
+ * because the product patch changed since the reviewed head, and the change is bounded, carry writes a packet of `git
+ * range-diff` of the reviewed range against the current one, which one reader may read for advice. Since GST-2673 the read
+ * never rebinds the receipt: a packet-only reader caught 0 of 8 real faults that full rounds had caught (22 of 24 seeded ones;
+ * docs/evals/pr-round-count-prereg.md), so the head that merges gets /ship's full review.
  *
  * Qualifies: RECEIPT_CARRY_PRODUCT_CHANGED on linear history (the receipt's head is an ancestor of HEAD) against the same base.
  * Does not qualify: RECEIPT_CARRY_TREE_MISMATCH (rewritten history: the reviewed commits are gone, so there is no range to
@@ -14,11 +14,9 @@
  * their inputs repaired, not a review).
  *
  * Moved base context composes (GST-1561, founderstar#563): the context paths' scoped-review sections (lib/ship-patch.ts contextPacket)
- * join the range-diff in the one packet, the caps count both, the verdict binds both, and the record also names range_base, the
- * commit the reviewed range starts from.
+ * join the range-diff in the one packet, and the caps count both.
  */
 import { createHash } from 'node:crypto';
-import * as fs from 'node:fs';
 
 export const RECHECK_RANGE_DIFF_CAP = 400;
 /** The packet's byte cap: 400 lines of unbounded width (a minified bundle) would not bound the one reader's input. */
@@ -62,36 +60,17 @@ export function planRecheck(i: RecheckInput): RecheckPlan {
   return { ok: true, lines, sha256: sha(text) };
 }
 
-/** What range_diff_sha256 binds: the range-diff, then any moved base context's scoped-review sections. */
+/** What the RECHECK line's range_diff_sha256 names: the range-diff, then any moved base context's scoped-review sections. */
 const packetMaterial = (rangeDiff: string, context?: string) => (context ? `${rangeDiff.trim()}\n\n${context.trim()}` : rangeDiff.trim());
 
-/** The clean record a reader writes; range_base only when base context composes into the packet. */
-export const recheckRecordTemplate = (o: { from: string; head: string; sha256: string; rangeBase?: string }) =>
-  JSON.stringify({ from: o.from, head: o.head, ...(o.rangeBase ? { range_base: o.rangeBase } : {}), range_diff_sha256: o.sha256, reader: '<model>', verdict: 'clean' });
-
-/** The packet the one reader reads: what to judge, the record to write, then the range-diff verbatim and any moved base context. */
+/** The packet an advisory reader reads: what to judge, that it carries nothing, then the range-diff verbatim and any moved base context. */
 export function recheckPacket(o: { from: string; head: string; plan: Extract<RecheckPlan, { ok: true }>; rangeDiff: string; context?: string; rangeBase?: string }): string {
   return [
-    `# Scoped re-check: the product patch changed since the reviewed head\n`,
+    `# Scoped re-check (advice only): the product patch changed since the reviewed head\n`,
     `reviewed ${o.from}${o.context ? ` (range_base ${o.rangeBase})` : ''}; current ${o.head}. Below is \`git range-diff\` of the reviewed range against the current one, then the diff of the changed product paths between the two heads${o.context ? ', then the hunks where base context moved next to the reviewed ones' : ''} (${o.plan.lines} lines).`,
     'Review only what changed between the two ranges, against the blocking floor: would fail a test, break production, or lose data or secrets.',
-    `Reply NO FINDINGS, or one finding per line with path:line, Severity and Blocks. A clean reply is recorded as ${recheckRecordTemplate({ ...o, sha256: o.plan.sha256 })}.`,
-    'A blocking finding: write the same record with "verdict":"blocking" and pass it to carry --recheck, which notes it in the PR body; fix it, push, and carry again, so one reader re-checks the fix. A second blocking re-check since the PR\'s last full round routes to /ship (GST-2673).\n',
+    'Reply NO FINDINGS, or one finding per line with path:line, Severity and Blocks.',
+    'This read is advice for the lane only. It never carries the receipt: the head that merges still gets a full review from /ship (GST-2673; docs/review-policy.md#rounds-per-pull-request).\n',
     '```diff', o.rangeDiff.trim(), '```', '', ...(o.context ? [o.context.trim(), ''] : []),
   ].join('\n');
-}
-
-export interface RecheckRecord { from: string; head: string; range_base?: string; range_diff_sha256: string; reader: string; verdict: 'clean' | 'blocking' }
-
-/** A clean re-check record bound to this carry's from, head and range-diff, or why it does not stand. */
-export function readRecheck(file: string, bind: { from: string; head: string; sha256: string; rangeBase?: string }, opts: { blocking?: boolean } = {}): { ok: true; record: RecheckRecord } | { ok: false; message: string } {
-  let v: Record<string, unknown>;
-  try { v = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return { ok: false, message: `${file} is not readable JSON (${(e as Error).message.split('\n')[0]})` }; }
-  if (!v || typeof v !== 'object') return { ok: false, message: `${file} is not a JSON object` };
-  if (v.verdict !== 'clean' && !(opts.blocking && v.verdict === 'blocking')) return { ok: false, message: `the re-check is ${JSON.stringify(v.verdict)}, not clean: run /ship on ${bind.head.slice(0, 12)}` };
-  if (typeof v.reader !== 'string' || !v.reader.trim()) return { ok: false, message: 'the re-check names no reader' };
-  for (const [k, want] of [['from', bind.from], ['head', bind.head], ['range_diff_sha256', bind.sha256], ...(bind.rangeBase ? [['range_base', bind.rangeBase] as const] : [])] as const) {
-    if (v[k] !== want) return { ok: false, message: `the re-check is for ${k} ${String(v[k] ?? 'none').slice(0, 12)}, not ${want.slice(0, 12)}` };
-  }
-  return { ok: true, record: v as unknown as RecheckRecord };
 }

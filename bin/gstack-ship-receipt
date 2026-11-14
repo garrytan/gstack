@@ -53,7 +53,7 @@ import {
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
-import { planRecheck, readRecheck, recheckPacket, recheckRecordTemplate } from '../crew/lib/ship-recheck';
+import { planRecheck, recheckPacket } from '../crew/lib/ship-recheck';
 import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
@@ -62,7 +62,7 @@ import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { appliedGateDispositions, gateDispositionText } from '../lib/gate-dispositions';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
-import { driftLines, historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub } from '../lib/pr-review-history';
+import { historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub } from '../lib/pr-review-history';
 import { grantAt, readReviewRoundGrants } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
@@ -90,13 +90,14 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       RECEIPT_CARRY_TREE_MISMATCH / RECEIPT_CARRY_REFUSED leave the body unchanged (exit 3);
                                       a receipt that records a pregate needs --pregate current for HEAD (RECEIPT_CARRY_PREGATE_STALE);
                                       a product change on linear history whose range-diff is within the re-check cap prints
-                                      RECHECK: eligible … packet=<file>: one reader reads it, then --recheck <record.json> (J1);
+                                      RECHECK: advisory … packet=<file>: one reader may read it for advice; it never carries
+                                      the receipt, so the head that merges runs /ship (J1, GST-2673);
                                       needs git >= 2.39 (RECEIPT_GIT_TOO_OLD)
   history --pr <n> [--repo <r>] | --body <file> [--head <sha>]
                                       R51 per pull request (docs/review-policy.md#rounds-per-pull-request): sums the review rounds
                                       the receipt and its runs block record across every head and /ship run, and prints
                                       PR_REVIEW_HISTORY:, PR_REVIEW_FLAGS: (what Step 9 passes to every gstack-review-plan call) and
-                                      PR_REVIEW_ROUTE: first|recheck|review (why); a PR body gh cannot read prints source=unavailable
+                                      PR_REVIEW_ROUTE: first|final|read-only (why); a PR body gh cannot read prints source=unavailable
                                       with its cause and fix on stderr (exit 1), and the plan then counts as it did before
   stub --pr <n> | --body <file> --run <id> [--head <sha>] [--review-loop <json|@file>] [--void]
                                       Step 9: record this /ship run's rounds so far in the runs block before its receipt exists, so a
@@ -671,6 +672,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if ((pr === undefined) === (bodyFile === undefined)) { process.stderr.write(`gstack-ship-receipt carry: pass --pr <n> or --body <file>, not both\n${HELP}\n`); return EXIT.usage; }
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt carry: run it inside the git checkout whose head carries the receipt\n'); return EXIT.usage; }
+  if (rest.includes('--recheck')) { process.stderr.write('gstack-ship-receipt carry: --recheck is gone: a scoped re-check is advice only and never carries a receipt (GST-2673); run /ship on HEAD for the merge head\'s full review (docs/review-policy.md#rounds-per-pull-request)\n'); return EXIT.refused; }
   const head = (flag(rest, '--head') ?? git(['rev-parse', 'HEAD'], repoRoot))?.toLowerCase();
   if (!head || !/^[0-9a-f]{40,64}$/.test(head)) { process.stderr.write('gstack-ship-receipt carry: cannot resolve HEAD\n'); return EXIT.usage; }
   const refused = (code: 'QUEUE_RECEIPT_MISSING' | 'QUEUE_RECEIPT_CONDITIONAL' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_SCOPED_REVIEW' | 'RECEIPT_CARRY_TREE_MISMATCH' | 'RECEIPT_GIT_TOO_OLD' | 'RECEIPT_CARRY_PREGATE_STALE', message: string) => {
@@ -738,7 +740,6 @@ function cmdCarry(rest: string[], json: boolean): number {
   const retarget = reviewedBase !== base.replace(/^origin\//, '');
   let plan: ReturnType<typeof planCarry>;
   let scopedDryRun: string | undefined;
-  let recheck: string | undefined;
   if (!ancestor) {
     // Rewritten history: the receipt follows only onto a tree it already covers, with the product diff it recorded.
     const recorded = receipt.product_patch_id !== undefined ? (receipt.product_patch_id === 'none' ? '' : receipt.product_patch_id) : fromKnown ? productPatchAgainstBase(repoRoot, rules, baseRef, from) : { error: 'the receipt records no product patch-id and its head is not in this clone' };
@@ -866,7 +867,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     // Evidence for the record, never the decision: a slow range-diff is reported unavailable rather than waited for.
     const rangeRaw = spawnSync('git', ['range-diff', '--no-color', `${rangeBase}..${from}`, `${headBase}..${head}`], { cwd: repoRoot, encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 * 1024 });
     const rangeDiff = rangeRaw.status === 0 ? (rangeRaw.stdout.trim().split('\n').slice(0, 20).join('\n') || '(empty: identical ranges)') : `unavailable: ${(rangeRaw.stderr ?? '').trim().split('\n')[0] || (rangeRaw.signal ? `range-diff killed by ${rangeRaw.signal} after 15 s` : 'range-diff failed')}`;
-    // J1: a bounded product change since the reviewed head gets one reader on the range-diff instead of a full /ship (crew/lib/ship-recheck.ts).
+    // J1: a bounded product change since the reviewed head gets an advisory packet for one reader; it never carries (crew/lib/ship-recheck.ts, GST-2673).
     if (changedProduct.length) {
       const named = changedProduct.filter(p => !p.startsWith('(') && !p.includes(' ('));
       const inter = named.length ? spawnSync('git', ['diff', '--no-color', '--no-ext-diff', from, head, '--', ...named.map(p => `:(literal)${p}`)], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }) : null;
@@ -877,32 +878,18 @@ function cmdCarry(rest: string[], json: boolean): number {
       const context = contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : undefined;
       const bound = context ? { rangeBase, context: context.text } : {};
       const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: contextPaths.length, context, binary });
-      const record = flag(rest, '--recheck');
       if (!r.ok) process.stderr.write(`RECHECK: not eligible (${r.reason}); run /ship on ${head.slice(0, 12)}\n`);
-      else if (record) {
-        const read = readRecheck(record, { from, head, sha256: r.sha256, ...bound }, { blocking: true });
-        if (!read.ok) return refused('RECEIPT_CARRY_REFUSED', `--recheck: ${read.message}`);
-        if (read.record.verdict === 'blocking') {
-          const noted = placeRunEntry(body, { head, run: 'recheck-blocked', carry_kind: 'recheck-blocked', carried_from: from });
-          const n = prReviewHistory(noted).recheck_blocked;
-          const err = rest.includes('--dry-run') ? null : postBody(rest, pr, noted);
-          if (err) return incomplete(`${err}; the blocking re-check was not recorded`);
-          return refused('RECEIPT_CARRY_REFUSED', n >= 2
-            ? `the scoped re-check found a blocker at ${head.slice(0, 12)}, the PR's ${n}th since its last full round (recorded in the PR body): run /ship on ${head.slice(0, 12)}, whose preflight plans the PR's review round (docs/review-policy.md#rounds-per-pull-request)`
-            : `the scoped re-check found a blocker at ${head.slice(0, 12)} (recorded in the PR body): fix it, commit and push, then run carry again, so one reader re-checks the fix; a second blocking re-check since the last full round routes to /ship (docs/review-policy.md#rounds-per-pull-request)`);
-        }
-        recheck = `scoped re-check by ${read.record.reader} (range-diff ${r.lines} lines${context ? `; base context moved in ${contextPaths.join(', ')}; range_base ${rangeBase.slice(0, 12)}` : ''})`;
-      } else {
+      else {
         let where = 'not written (dry run)';
         if (!rest.includes('--dry-run')) {
           const packet = path.resolve(repoRoot, git(['rev-parse', '--git-path', `gstack/recheck-${head.slice(0, 12)}.md`], repoRoot) ?? `.git/gstack/recheck-${head.slice(0, 12)}.md`);
           try { fs.mkdirSync(path.dirname(packet), { recursive: true }); fs.writeFileSync(packet, recheckPacket({ from, head, plan: r, rangeDiff: fullRange!, ...bound })); where = packet; }
           catch (e) { where = `unwritable: ${(e as Error).message.split('\n')[0]}`; }
         }
-        process.stderr.write(`RECHECK: eligible range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader reads it, then carry --recheck <record.json> (${recheckRecordTemplate({ from, head, sha256: r.sha256, ...bound })}); a blocking finding: the same record with "verdict":"blocking", then fix, push and carry again (a second blocking re-check since the last full round means /ship on the head)\n`);
+        process.stderr.write(`RECHECK: advisory range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader may read it for advice, but it never carries the receipt (GST-2673): run /ship on ${head.slice(0, 12)} for the merge head's full review (docs/review-policy.md#rounds-per-pull-request)\n`);
       }
     }
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}), ...(recheck ? { recheck } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,
@@ -931,8 +918,6 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (review.exclude.state === 'refused') return refused('RECEIPT_CARRY_REFUSED', `${review.exclude.lines.join('; ')}; run /ship on ${head.slice(0, 12)} once the base policy reads`);
     const digest = review.exclude.state === 'active' ? review.exclude.record.digest : 'none';
     if (!carryExcludeBinds(review.exclude, receipt)) return refused('RECEIPT_CARRY_REFUSED', `review_exclude changed: recorded=${receipt.review_exclude?.digest ?? 'none'} now=${digest} source=${review.exclude.state === 'active' ? review.exclude.record.source : `${base} (no review_exclude_paths)`}; the receipt's digest is the --review-exclude argument write was given, and it names another selection than HEAD ${head.slice(0, 12)} has under the base policy and the two give the PR's files different selections (carry compares those, not the review ledger), so carry does not apply; run /ship on ${head.slice(0, 12)}`);
-    const riskOf = (d: { class: string; risk?: readonly string[] }) => `${d.class}:${[...(d.risk ?? [])].sort().join(',')}`;
-    if (recheck && riskOf(now) !== riskOf(receipt.review_depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} is risk class ${riskOf(now)}, not the reviewed ${riskOf(receipt.review_depth)}, so a scoped re-check cannot stand in for review; run /ship on ${head.slice(0, 12)}`);
     if (depthBelow(receipt.review_depth.depth, now.depth)) return refused('RECEIPT_CARRY_REFUSED', `HEAD ${head.slice(0, 12)} needs ${now.depth} review depth (${now.reasons.join(', ')}), above the receipt's ${receipt.review_depth.depth}; run /ship on ${head.slice(0, 12)}`);
     depthField = { review_depth: { ...now, depth: deeper(receipt.review_depth.depth, now.depth) }, review_exclude: receiptExclude(review.exclude) };
   }
@@ -1075,12 +1060,11 @@ function cmdHistory(rest: string[], json: boolean): number {
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   const head = (flag(rest, '--head') ?? (repoRoot ? git(['rev-parse', 'HEAD'], repoRoot) : undefined))?.toLowerCase();
   const h = prReviewHistory(read.body);
-  const drift = repoRoot && head && h.first_full ? driftLines(repoRoot, h.first_full, head) : null;
   const grant = repoRoot && head && /^\d+$/.test(pr) ? grantAt(readReviewRoundGrants(repoRoot), Number(pr), head) : undefined;
-  const route = reviewRoute(h, { drift, grant });
+  const route = reviewRoute(h, { grant: grant?.approval });
   const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}`;
-  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, drift_lines: drift, grant: grant ?? null, route }) + '\n'); return EXIT.ok; }
-  process.stdout.write(`${historyLine(pr, h, drift)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n`);
+  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, route }) + '\n'); return EXIT.ok; }
+  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n`);
   return EXIT.ok;
 }
 

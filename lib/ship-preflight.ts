@@ -96,19 +96,14 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
     r.add(`PR: #${n}`).add(line);
-    // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and whether this head
-    // takes the scoped re-check or a review round. Preflight is the only router to the re-check.
+    // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and the review this
+    // head gets: a product change runs Steps 2-16, whose plan is the merge head's full review; a re-check never carries.
     const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n], 120_000);
     const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE): /.test(l));
     histLines.forEach(l => r.add(l));
     if (hist.status !== 0 || !histLines.some(l => l.startsWith('PR_REVIEW_FLAGS: '))) r.add('PR_REVIEW_FLAGS: --prior-rounds 0').add(`PR_REVIEW_ROUTE: first (history unavailable: ${firstLine(hist.stderr) || `gstack-ship-receipt history exit ${hist.status}`}; the plan counts this run's rounds only)`);
-    const reviewRound = histLines.some(l => l.startsWith('PR_REVIEW_ROUTE: review '));
     if (line.startsWith('CARRY: would carry')) {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), commit, gstack-ship-release push --branch ${branch} --early, gstack-ci-carry wait --base ${base} (CI_CARRY: none is not a stop), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
-      return false;
-    }
-    if (line === 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)' && /^RECHECK: eligible /m.test(carry.stderr ?? '') && !reviewRound) {
-      r.next(`carry route (Step 1.4, J1): the product changed since the receipt within the scoped re-check cap: gstack-ship-receipt carry --pr ${n} --base ${base} writes the re-check packet; one reader reads it; gstack-pregate --allow-repo-commands, then carry again with --recheck <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;
     }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {

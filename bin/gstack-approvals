@@ -13,7 +13,7 @@
  *   gstack-approvals gate --finding <fingerprint> --gate-id <gate_id> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
  *   gstack-approvals dispositions [--branch <name>]
  *   gstack-approvals lane-exception --head <pushed head> --files <f1,f2> --reason <why> --words <exact words> --by <who granted> [--json]
- *   gstack-approvals round-grant --pr <n> --head <sha> --kind design-change|extra-round --reason <why> --by <lane or Captain> [--words <text>] [--json]
+ *   gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason <why> --by <lane or Captain> [--words <text>] [--json]
  *   gstack-approvals list [--json] [--branch <name>]
  *   gstack-approvals sync [--branch <name>]
  *   gstack-approvals path [--branch <name>]
@@ -56,10 +56,10 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           finish prints it, and the receipt, PR body and READY carry it; refused while any worktree holds an open /ship run on
           the branch; the lander accepts each one with gstack-ship-queue land|verify --accept-gate-disposition <id>
   dispositions                    the "Gate disposition: …" lines the Pre-Landing Review and the PR body carry
-  round-grant --pr <n> --head <the head that needs the round> --kind design-change|extra-round --reason <why, one line>
+  round-grant --pr <n> --head <the head that needs the round> --kind extra-round --reason <why, one line>
           --by <the lane or its Captain> [--words <their words; default the reason>]
-          a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): design-change
-          gives this head a review round instead of the scoped re-check, extra-round one round past the cap of 2; it binds
+          a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): extra-round is
+          one round with its fix round past the cap of 2, instead of the read-only final review; it binds
           that head of that PR only and is spent by the round; the lane or its Captain records it, never the owner, and
           --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>

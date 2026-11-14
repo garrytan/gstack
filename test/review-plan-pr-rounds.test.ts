@@ -37,21 +37,38 @@ describe('PR round cap', () => {
     expect(nextStep(h({ priorFull: 1, fullPasses: 1, last: 'full', fixedBlocking: true, lean: true }), 'standard').step).toBe('fix-check');
   });
 
-  // Value: protects=the plan's d3a case: two runs of a full pass plus a fix-check stop the next head at pr_rounds=4;
-  //   fails_when=a third /ship run gets another full round without a grant; seam=nextStep; no_claim=the CLI's pr_rounds= print (pr-round-cli)
-  test('two prior full rounds stop pass 1 with PR_ROUND_CAP', () => {
-    const n = nextStep(h({ priorRounds: 4, priorFull: FULL_PASS_CAP }));
-    expect(n.step).toBe('stop');
-    expect(n.reason).toStartWith('PR_ROUND_CAP: this PR already had 2 full review rounds');
+  // Value: protects=F1's past-cap case: a PR with two full rounds whose own code changed gets one read-only full review of
+  //   the merge head; fails_when=a third /ship run gets a fix round without a grant, or the merge head goes unreviewed;
+  //   seam=nextStep; no_claim=the CLI's pr_rounds= print (pr-round-cli)
+  test('two prior full rounds: pass 1 is one read-only full review with no fix round, in both tables', () => {
+    for (const lean of [false, true]) {
+      const n = nextStep(h({ priorRounds: 4, priorFull: FULL_PASS_CAP, lean }));
+      expect(n.step).toBe('full');
+      expect(n.reason).toStartWith('read-only final review (R51): this PR already had 2 full review rounds');
+    }
+  });
+
+  test('after the read-only review: below-floor findings ship as notes, a blocker stops for the lane\'s Captain', () => {
+    for (const lean of [false, true]) {
+      expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', lean })).step).toBe('done');
+      expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', fixedBelow: true, lean }), 'standard')).toMatchObject({ step: 'done', reason: expect.stringContaining('no fix round') });
+      for (const x of [{ blockingOpen: true }, { fixedBlocking: true }, { touchedGate: true, fixedBelow: true }]) {
+        const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', lean, ...x }), 'standard');
+        expect(stop.step).toBe('stop');
+        expect(stop.reason).toStartWith('PR_ROUND_CAP: the read-only final review');
+        expect(stop.reason).toContain("lane's Captain");
+      }
+    }
   });
 
   test('a round grant buys one more full round at its head, never two', () => {
     expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1' })).step).toBe('full');
+    expect(nextStep(h({ priorFull: 3, roundGrant: 'a-1' }))).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review') });
     expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1', fullPasses: 1, last: 'full', fixedBlocking: true }), 'standard').reason).toStartWith('PR_ROUND_CAP');
   });
 
   test('gate class still runs Step 11\'s voices before the PR cap stop', () => {
-    expect(nextStep(h({ priorFull: 2, gate: true, adversarialRan: false })).step).toBe('voices');
+    expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', blockingOpen: true, gate: true, adversarialRan: false }), 'standard').step).toBe('voices');
   });
 
   test('a blocking finding still open keeps today\'s stop', () => {

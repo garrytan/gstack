@@ -140,47 +140,54 @@ times could be reviewed ten times. The count now lives where every host can read
 it: the PR body, which already keeps each run's `review_loop` in the receipt and
 the `gstack-receipt-runs` block.
 
+The PR's last review before merge is a full review of its final head. A scoped
+re-check that reads only what changed since the last reviewed head is advice
+only: it never carries a receipt and is not one of the two rounds. In the replay
+behind this rule ([prereg](evals/pr-round-count-prereg.md)), a diff-only re-check
+caught 22 of 24 planted faults but none of 8 real faults that full rounds had
+caught on another crew's PRs.
+
 1. **Count.** `gstack-ship-receipt history --pr <n>` adds up the rounds the body
    records (full passes, scoped passes and fix-checks; a run listed twice counts
    once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
    --prior-rounds <rounds> --prior-full <full rounds>` and `PR_REVIEW_ROUTE:`.
-   `/ship` Step 1 prints all three.
-   A clean scoped re-check that carried the receipt adds no round.
+   `/ship` Step 1 prints all three. A re-check that carried a receipt before
+   this rule adds no round.
 2. **Runs that stop count too.** After each Step 9 pass, `gstack-ship-receipt
    stub --pr <n> --run <id> --review-loop <summary>` writes a `status: started`
    entry, so a run that stops before its receipt still counts. The run's receipt
    write (same `--run`) replaces its stub; `--void` marks a stub that reviewed
    nothing.
-3. **Route.** On a PR with a review round, a new head takes the scoped re-check
-   of what changed since the last reviewed head (the [carry
-   re-check](troubleshooting.md#receipt-carry-recheck)), with the other results
-   carried forward. A full round is due instead when carry can't re-check the
-   head (`RECHECK: not eligible`), when a round grant of kind
-   `design-change` names the head, when two re-checks found a blocker since the
-   last full round, or when the product diff drifted more than 400 lines
-   (`PR_DRIFT_LINES`, tests and release metadata excluded) since the first full
-   round. Preflight is the only router.
-4. **A blocking re-check.** A re-check reader that finds a blocker writes
-   `"verdict":"blocking"`; carry records it in the runs block and refuses. Fix,
-   push and carry again. The second one routes to `/ship`.
-5. **Stop rule.** `gstack-review-plan --prior-full <n>` adds the PR's earlier
+3. **Route.** A head whose own added and removed lines match the reviewed head's
+   byte for byte (a base merge, tests, release metadata) keeps its receipt through
+   carry, as before. Any other new head runs `/ship` Steps 2-16, and
+   `PR_REVIEW_ROUTE:` names the review it gets: `first` on a PR with no full
+   round, `final` after one (a fresh full review of this head, the PR's last
+   before merge), and `read-only` after two. Carry may still print `RECHECK:
+   advisory … packet=<file>`: one reader may read that packet for advice, but
+   its verdict never rebinds the receipt, and `carry --recheck` is refused
+   ([scoped re-check](troubleshooting.md#receipt-carry-recheck)).
+4. **Stop rule.** `gstack-review-plan --prior-full <n>` adds the PR's earlier
    full rounds to this run's full passes; fix-checks stay the in-run table's
-   call, and `--prior-rounds` is printed as `pr_rounds=`. At two it stops with `PR_ROUND_CAP` and prints the exact
-   `gstack-approvals round-grant` command; a below-floor fix at the cap finishes
-   with its notes listed. The stop is the lane's or Captain's call, never an
-   owner ask ([troubleshooting](troubleshooting.md#pr-round-cap)).
+   call, and `--prior-rounds` is printed as `pr_rounds=`. A full pass past two
+   stops with `PR_ROUND_CAP` and prints the exact `gstack-approvals
+   round-grant` command; a below-floor fix at the cap finishes with its notes
+   listed. The stop is the lane's or Captain's call, never an owner ask
+   ([troubleshooting](troubleshooting.md#pr-round-cap)).
+5. **Read-only final review.** A PR that already had two full rounds and whose
+   own code changed since still gets one full review of its final head. It has
+   no fix round: below-floor findings ship as notes, and a blocker (open or
+   fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
+   to decide: ship with the note, record a round grant, or park. The count does
+   not reopen.
 6. **Round grant.** `gstack-approvals round-grant --pr <n> --head <sha> --kind
-   design-change|extra-round --reason <why> --by <lane or Captain>` records one
-   grant for one head. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant
-   <id>`, which raises that run's cap by one round,
-   and the plan refuses a grant for another head or PR. gstack never grants
-   itself a round: `--by gstack` and a grant from inside an open `/ship` run are
-   refused, and `add` refuses the scope. The receipt lists grants under
-   `review_round_grants`.
-
-The 400-line drift figure is a starting value, to check against the replay in
-[docs/evals/pr-round-count-prereg.md](evals/pr-round-count-prereg.md) and 14 days
-of receipts after merge.
+   extra-round --reason <why> --by <lane or Captain>` records one grant for one
+   head: one round past the cap, with its fix round, instead of the read-only
+   review. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant <id>`, which
+   raises that run's cap by one round, and the plan refuses a grant for another
+   head or PR. gstack never grants itself a round: `--by gstack` and a grant
+   from inside an open `/ship` run are refused, and `add` refuses the scope.
+   The receipt lists grants under `review_round_grants`.
 
 <a id="transitions"></a>
 ### Transitions
@@ -259,7 +266,7 @@ stop goes to the owner as before. Every other stop still stops.
 | `scoped-fix-check` | Round 2 stops for a fix whose range since round 2's `PASS_HEAD` is docs class only, or only raises timeout values. `--range-base` must be the commit the newest review-log pass row read. One per branch: the ledger keeps every record, so a later /ship on the branch stops for the owner. | It records the standing grant in the approval record (`by: gstack no-stop default (K1)`) and prints `GRANT:`. `gstack-review-plan --grant` plans the one scoped fix-check. A blocking finding there goes to the owner. |
 | `test-timeout-fix` | Every changed line is in a test file and only raises a timeout value: the value of a timeout key (`timeout: 5_000`, `setDefaultTimeout(5_000)`, `--timeout=5000`) or bun's and jest's trailing per-test argument, only on the line that opens the test call itself (`test('…', () => {…}, 30_000);`, likewise `it(` and `describe(`). A multi-line test's closing `}, 30_000);` does not qualify and stops for the owner. A line with `expect`, `assert` or a comparison never qualifies. | The gate scan's relaxation finding takes the printed `GATE_DISPOSITION: kept` reason instead of `open`. |
 | `pregate-flake-rerun` | One rerun of a failed pregate case at the same tree (CREW rule 16). One per branch. | Green counts as flaky. Red again is a real failure. |
-| `stamp-only-carry` | A refused carry, where the receipt head merged into the base (base side on conflict) differs from HEAD only in a version stamp: `VERSION`, the `"version"` line of `package.json`, `CHANGELOG.md`, the agents digest or `changelog.d/` fragments. | Take the carry's `RECHECK:` route instead of running Steps 2–16 again. |
+| `stamp-only-carry` | A refused carry, where the receipt head merged into the base (base side on conflict) differs from HEAD only in a version stamp: `VERSION`, the `"version"` line of `package.json`, `CHANGELOG.md`, the agents digest or `changelog.d/` fragments. | Go on to Steps 2–16 without waiting for a Captain: the plan reviews HEAD in full, since a re-check no longer carries a receipt ([rounds per pull request](#rounds-per-pull-request)). |
 | `autoplan-regate` | An edit to the plan file made after the owner's answer, or after the revise that took their changes, while the reviewed plan itself is unchanged. The edit only adds lines, all inside the plan's `## ELI5` section (an added `## ELI5` heading opens one), and no added line holds a number or a word for spend, cost, budget, price, cap, credits, limit, max, arm, model, judge, verdict, threshold, bar, trial, sample, stop rule, paid or eval. A removed or reworded line, or a line added anywhere else, goes to the owner. The carry exports the reviewed plan, so the added explanation is never built. | `gstack-autoplan` carries the owner's words (`reason=no-stop autoplan-regate: …`) and writes `<run>/no-stop.json`. `gstack-no-stop import` adds it to the branch's ledger. |
 
 The ledger is one JSON array per branch under the checkout's git directory

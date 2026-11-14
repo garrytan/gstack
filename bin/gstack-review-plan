@@ -101,7 +101,8 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             --round-grant, the PR the grant must name
   --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent, fix-checks included (printed as pr_rounds=)
   --prior-full <n>          the full rounds among them: with this run's full passes they count against the cap of 2, so pass 1
-                            of a PR with 2 is NEXT: stop (PR_ROUND_CAP), which goes to the lane or its Captain, never the owner.
+                            of a PR with 2 is one read-only full review (no fix round; a blocker is NEXT: stop (PR_ROUND_CAP)
+                            for the lane's Captain to decide, never the owner).
                             Both come from the PR_REVIEW_FLAGS: line gstack-ship-preflight prints (gstack-ship-receipt history)
                             (docs/review-policy.md#rounds-per-pull-request; GST-2673)
   --round-grant <id>        a review round grant at HEAD, recorded with gstack-approvals round-grant by the lane or its Captain:

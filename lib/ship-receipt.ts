@@ -127,11 +127,11 @@ export const RUNS_FENCE = 'gstack-receipt-runs';
 export const RECEIPT_RUNS_KEPT = 30;
 export const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/;
 /**
- * carry_kind (GST-2673): `recheck` when the latest carry hop was a clean scoped re-check, `carry` for any other hop,
- * `recheck-blocked` for a re-check that found a blocker (carry --recheck, nothing rebound). status: a /ship run that
+ * carry_kind (GST-2673): `recheck` when the latest carry hop was a scoped re-check (old receipts only: a re-check no longer
+ * carries), `carry` for any other hop. status: a /ship run that
  * started and wrote no receipt yet (`started`, its counters so far) or ended on an infrastructure failure (`voided`).
  */
-export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck' | 'recheck-blocked'; status?: 'started' | 'voided' };
+export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck'; status?: 'started' | 'voided' };
 export function receiptRuns(body: string): ReceiptRun[] {
   const m = RUNS_RE.exec(receiptSource(body));
   return m ? m[1]!.split('\n').flatMap(l => { try { const o = JSON.parse(l); return o && typeof o.head === 'string' ? [o as ReceiptRun] : []; } catch { return []; } }) : [];
@@ -279,8 +279,6 @@ export interface CarryPlanInput {
   scopedReview?: string;
   /** Stamp files the branch changed as product whose only change since the reviewed head is a stamp on the branch's own rows, the base untouched, and without which the two product patches match (GST-980). */
   stampedRows?: string[];
-  /** A clean scoped re-check of the range-diff since the reviewed head (crew/lib/ship-recheck.ts, J1): the carry reason it adds. */
-  recheck?: string;
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -349,14 +347,13 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * branch's own rows in a stamp file the branch also changed as product (`stampedRows`, GST-980).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head && !input.recheck && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
+  if (input.productPatchId.from !== input.productPatchId.head && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
   const parent = input.retargetedFrom ?? input.stackParent?.slice(0, 12);
   const reasons: string[] = parent ? [`stack parent ${parent} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
-  if (input.recheck && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.recheck);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');

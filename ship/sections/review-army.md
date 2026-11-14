@@ -18,7 +18,7 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on every plan run (the PR's
-earlier rounds and a round grant: `PR_ROUND_CAP` stops for the lane, never the owner); add `--declare-risk <classes>` when the diff touches a risk
+earlier rounds and a round grant; past two the plan is one read-only full review, and `PR_ROUND_CAP` stops for the lane, never the owner); add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's

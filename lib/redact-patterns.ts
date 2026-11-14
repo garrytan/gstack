@@ -427,7 +427,7 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
  * after one of those two tokens and a space, `=` or `:`. The same digits anywhere else, or a number with a `+`,
  * spaces or dashes after the token, still report.
  */
-const REVIEW_LOOP_SHA_BEFORE = /\breview_(?:loop_(?:grant|exception)|round_grant(?:[ \t]+(?:design-change|extra-round)[ \t]+at)?)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
+const REVIEW_LOOP_SHA_BEFORE = /\breview_(?:loop_(?:grant|exception)|round_grant(?:[ \t]+extra-round[ \t]+at)?)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
 function isReviewLoopSha(span: string, match: RegExpExecArray): boolean {
   if (!/^\d+$/.test(span)) return false;
   const input = match.input ?? "";

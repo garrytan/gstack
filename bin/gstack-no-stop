@@ -29,7 +29,7 @@ const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/r
                            finding takes the printed GATE_DISPOSITION: kept reason instead of open
       pregate-flake-rerun  one rerun of a failed pregate case at the same tree (rule 16): green is flaky, red is real
       stamp-only-carry     carry refused a head whose change is a version stamp (--range-base the receipt head,
-                           --base origin/<base>): take the carry's RECHECK: route instead of Steps 2-16
+                           --base origin/<base>): go on to Steps 2-16 without waiting; the plan reviews HEAD in full
       autoplan-regate      gstack-autoplan records it; import --from <run>/no-stop.json adds it here
       Step 19's receipt write adds --no-stop @<NO_STOP_FILE> when list shows records.
       --range-base: the commit the fix or change is measured from (round 2's PASS_HEAD for scoped-fix-check, which must be

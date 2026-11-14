@@ -3,7 +3,7 @@
  * receipt-runs history the PR body already keeps (docs/review-policy.md#rounds-per-pull-request).
  */
 import { describe, expect, test } from 'bun:test';
-import { driftFromNumstat, placeRunEntry, prReviewHistory, PR_DRIFT_LINES, reviewRoute } from '../lib/pr-review-history';
+import { historyLine, placeRunEntry, prReviewHistory, reviewRoute } from '../lib/pr-review-history';
 import { orderReceipt, placeReceipt, receiptRun, receiptRuns } from '../lib/ship-receipt';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 
@@ -71,16 +71,6 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(body)).toMatchObject({ rounds: 1, stubs: 1 });
   });
 
-  test('re-check blockers count since the last full round', () => {
-    let body = placeReceipt('', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
-    body = placeRunEntry(body, { head: sha('b'), run: 'recheck-blocked', carry_kind: 'recheck-blocked', carried_from: sha('a') });
-    expect(prReviewHistory(body).recheck_blocked).toBe(1);
-    body = placeRunEntry(body, { head: sha('c'), run: 'recheck-blocked', carry_kind: 'recheck-blocked', carried_from: sha('a') });
-    expect(prReviewHistory(body).recheck_blocked).toBe(2);
-    body = placeReceipt(body, receipt(sha('d'), { passes: 1, rounds: 1 }, { run: 'r2' }));
-    expect(prReviewHistory(body)).toMatchObject({ recheck_blocked: 0, rounds: 2 });
-  });
-
   test('receiptRun records the carry kind of the latest hop only', () => {
     const r1 = receipt(sha('a'));
     expect(receiptRun(carried(r1, sha('b'), 'test-only change + scoped re-check by x (range-diff 3 lines)')).carry_kind).toBe('recheck');
@@ -89,21 +79,31 @@ describe('prReviewHistory', () => {
   });
 });
 
-describe('drift and route', () => {
-  test('drift sums the branch\'s own non-merge changes, leaving out tests and release metadata', () => {
-    const numstat = ['10\t5\tlib/a.ts', '3\t0\ttest/a.test.ts', '1\t1\tVERSION', '-\t-\tassets/logo.png', '2\t2\tbin/b'].join('\n');
-    expect(driftFromNumstat(numstat)).toBe(19);
+describe('route (F1: the merge head gets a full review; a re-check is advice only)', () => {
+  test('no prior full round: the first full round, as today', () => {
+    expect(reviewRoute({ full: 0 })).toMatchObject({ route: 'first' });
   });
 
-  test('no prior round: the first full round, as today', () => {
-    expect(reviewRoute({ rounds: 0, recheck_blocked: 0 }, { drift: null })).toMatchObject({ route: 'first' });
+  test('after one full round a new head gets a fresh full review, its last before merge, never the re-check', () => {
+    expect(reviewRoute({ full: 1 })).toMatchObject({ route: 'final', reason: expect.stringContaining('round 2 of 2') });
   });
 
-  test('after a full round a head takes the re-check unless drift, two re-check blockers or a design-change grant say review', () => {
-    const h = { rounds: 1, recheck_blocked: 0 };
-    expect(reviewRoute(h, { drift: 10 }).route).toBe('recheck');
-    expect(reviewRoute(h, { drift: PR_DRIFT_LINES + 1 })).toMatchObject({ route: 'review', reason: expect.stringContaining('drift') });
-    expect(reviewRoute({ rounds: 1, recheck_blocked: 2 }, { drift: 10 })).toMatchObject({ route: 'review', reason: expect.stringContaining('re-check') });
-    expect(reviewRoute(h, { drift: 10, grant: { kind: 'design-change', approval: 'a-1' } })).toMatchObject({ route: 'review', reason: expect.stringContaining('design-change') });
+  test('at the cap a new head gets one read-only full review; an extra-round grant buys a round with its fix round', () => {
+    expect(reviewRoute({ full: 2 })).toMatchObject({ route: 'read-only', reason: expect.stringContaining('no fix round') });
+    expect(reviewRoute({ full: 3 }).route).toBe('read-only');
+    expect(reviewRoute({ full: 2 }, { grant: 'a-1' })).toMatchObject({ route: 'final', reason: expect.stringContaining('a-1') });
+    expect(reviewRoute({ full: 3 }, { grant: 'a-1' }).route).toBe('read-only');
+  });
+
+  test('a re-check carry from an old receipt adds no full round, so it never moves the route', () => {
+    const r1 = receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' });
+    const body = placeReceipt(placeReceipt('', r1), carried(r1, sha('b'), 'scoped re-check by x (range-diff 3 lines)'));
+    expect(reviewRoute(prReviewHistory(body)).route).toBe('final');
+  });
+
+  test('the history line carries no drift or re-check-blocker fields', () => {
+    const line = historyLine('7', prReviewHistory(placeReceipt('', receipt(sha('a'), { passes: 1, rounds: 1 }))));
+    expect(line).toStartWith('PR_REVIEW_HISTORY: pr=#7 rounds=1 cap=2 full=1 ');
+    expect(line).not.toMatch(/drift|recheck_blocked/);
   });
 });
