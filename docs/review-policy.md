@@ -185,7 +185,9 @@ caught on another crew's PRs.
    head: one round past the cap, with its fix round, instead of the read-only
    review. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant <id>`, which
    raises that run's cap by one round, and the plan refuses a grant for another
-   head or PR. gstack never grants itself a round: `--by gstack` and a grant
+   head or PR. The grant counts only the rounds earlier heads spent, so a
+   read-only review that already ran at the granted head doesn't use it up, and
+   the plan keeps the grant after the fix round's commits move HEAD past it. gstack never grants itself a round: `--by gstack` and a grant
    from inside an open `/ship` run are refused, and `add` refuses the scope.
    The receipt lists grants under `review_round_grants`.
 

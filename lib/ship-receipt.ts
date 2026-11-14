@@ -158,7 +158,7 @@ const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\
 export function placeReceipt(body: string, receipt: ShipReceipt): string {
   const ex = extractReceipt(body);
   const prior = ex.receipt;
-  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || (receipt.run !== undefined && r.run !== receipt.run));
+  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || receipt.run === undefined || r.run !== receipt.run);
   if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
   const kept = runs.slice(-RECEIPT_RUNS_KEPT);
   const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');

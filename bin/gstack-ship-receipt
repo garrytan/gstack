@@ -1061,8 +1061,9 @@ function cmdHistory(rest: string[], json: boolean): number {
   const head = (flag(rest, '--head') ?? (repoRoot ? git(['rev-parse', 'HEAD'], repoRoot) : undefined))?.toLowerCase();
   const h = prReviewHistory(read.body);
   const grant = repoRoot && head && /^\d+$/.test(pr) ? grantAt(readReviewRoundGrants(repoRoot), Number(pr), head) : undefined;
-  const route = reviewRoute(h, { grant: grant?.approval });
-  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}`;
+  const counted = grant ? prReviewHistory(read.body, { exceptHead: grant.head }) : h;
+  const route = reviewRoute(counted, { grant: grant?.approval });
+  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${counted.rounds} --prior-full ${counted.full}${grant ? ` --round-grant ${grant.approval}` : ''}`;
   if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, route }) + '\n'); return EXIT.ok; }
   process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n`);
   return EXIT.ok;

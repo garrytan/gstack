@@ -190,7 +190,8 @@ function main(): number {
     const loc = locate({ cwd: root, env: process.env });
     const g = reviewRoundGrants('file' in loc ? readRecord(loc).rows : []).find(x => x.approval === roundGrant);
     const pr = flag('--pr');
-    if (!roundGrant || !g || g.head !== at || (pr !== undefined && String(g.pr) !== pr)) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant ?? ''}: no approved review_round_grant row ${roundGrant ?? ''} naming HEAD ${(at ?? 'unknown').slice(0, 12)}${pr ? ` and PR #${pr}` : ''} in this branch's approval record; record one with gstack-approvals round-grant (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
+    const atOrBefore = !!g && !!at && (g.head === at || git(['merge-base', '--is-ancestor', g.head, at]) !== null);
+    if (!roundGrant || !g || !atOrBefore || (pr !== undefined && String(g.pr) !== pr)) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant ?? ''}: no approved review_round_grant row ${roundGrant ?? ''} naming HEAD ${(at ?? 'unknown').slice(0, 12)} or a commit before it${pr ? ` and PR #${pr}` : ''} in this branch's approval record; record one with gstack-approvals round-grant (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
   }
   const collected = collectLive(root, base);
   if (collected.errors.length) {

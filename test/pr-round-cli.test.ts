@@ -43,6 +43,18 @@ describe('gstack-review-plan with the PR round count', () => {
     expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '6', '--round-grant', id!]).status).toBe(3);
     expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-full', 'x']).status).toBe(2);
   });
+
+  test('a grant still plans after the fix round commits on top of its head, and never for a head off the branch', () => {
+    const r = repo();
+    const id = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'extra-round', '--reason', 'the design changed after round 2', '--by', 'captain:test']).stdout)?.[1];
+    expect(id).toBeDefined();
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    fs.writeFileSync(path.join(r.dir, 'src', 'a.ts'), 'export const a = 2;\n'); git('commit', '-qam', 'fix');
+    const decide = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '5', '--round-grant', id!, '--pass', '2', '--last', 'full', '--fixed-below', '--range-base', r.head]);
+    expect(decide.status).toBe(0);
+    git('checkout', '-q', 'main'); git('checkout', '-qb', 'other'); fs.writeFileSync(path.join(r.dir, 'b.ts'), 'export const b = 1;\n'); git('add', '.'); git('commit', '-qm', 'other');
+    expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '5', '--round-grant', id!]).status).toBe(3);
+  });
 });
 
 describe('gstack-approvals round-grant', () => {
@@ -73,6 +85,20 @@ describe('gstack-ship-receipt history and stub', () => {
     expect(after).toMatch(/^PR_REVIEW_ROUTE: read-only \(.*no fix round/m);
     expect(fs.readFileSync(body, 'utf8').startsWith('## Summary\nprose\n')).toBe(true);
     expect(r.run('gstack-ship-receipt', ['stub', '--body', body]).status).toBe(2);
+  });
+
+  test('a grant at HEAD counts only earlier heads, so a read-only review already run there does not use it up', () => {
+    const r = repo();
+    const loop = { passes: 1, blocking_found: 0, deferred: 0, rounds: 1 };
+    const body = path.join(r.dir, 'body.md');
+    fs.writeFileSync(body, '## Summary\nprose\n\n```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, head: 'b'.repeat(40), run: 'r2', review_loop: loop }) + '\n```\n\n```gstack-receipt-runs\n' + JSON.stringify({ head: 'a'.repeat(40), run: 'r1', review_loop: loop }) + '\n```\n');
+    expect(r.run('gstack-ship-receipt', ['stub', '--body', body, '--run', 'r3', '--head', r.head, '--review-loop', JSON.stringify(loop)]).status).toBe(0);
+    expect(r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout).toMatch(/^PR_REVIEW_ROUTE: read-only /m);
+    const id = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'extra-round', '--reason', 'the read-only review found a blocker', '--by', 'captain:test']).stdout)?.[1];
+    const h = r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout;
+    expect(h).toMatch(/^PR_REVIEW_HISTORY: pr=#5 rounds=3 cap=2 full=3 /m);
+    expect(h).toContain(`PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2 --round-grant ${id}\n`);
+    expect(h).toMatch(/^PR_REVIEW_ROUTE: final \(.*round grant/m);
   });
 
   test('an unreadable PR body prints source=unavailable and its fix', () => {

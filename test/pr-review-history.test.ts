@@ -65,6 +65,13 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(body).rounds).toBe(1);
   });
 
+  test('a receipt written without a run keeps the stubs of other runs', () => {
+    let body = placeReceipt('', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    body = placeRunEntry(body, { head: sha('b'), run: 'r2', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
+    body = placeReceipt(body, receipt(sha('c'), { passes: 1, rounds: 1 }));
+    expect(prReviewHistory(body)).toMatchObject({ stubs: 1, full: 3 });
+  });
+
   test('a stub lands in a body with no receipt yet, inside the Agent notes section', () => {
     const body = placeRunEntry('## Summary\nprose\n', { head: sha('a'), run: 'r1', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
     expect(body.startsWith('## Summary\nprose\n')).toBe(true);
