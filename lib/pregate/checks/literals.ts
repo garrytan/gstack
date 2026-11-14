@@ -126,7 +126,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const dts = jsLike ? '(?:d\\.)?' : '';
   const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=[^\\w.-]|$|\\.${dts}(?:${exts})(?![\\w.-])|\\.(?!\\w))|(?<![\\w-])${escape(base)}(?![\\w-]|\\.\\w)`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
-  const nameRequired = value.length < 2;
+  const nameRequired = /^-?\d+$/.test(value) ? value.length <= 2 : value.length < 2;
   const callSite = !/^[A-Z]/.test(change.name);
   const comment = (l: string) => /^\s*(?:\/\/|#|\*|\/\*|<!--)/.test(l);
   const continues = (prev: string, cur: string) => /[([{,.=+\-*/&|?:\\]\s*$/.test(prev) || /^\s*[.)\]}?:&|+]/.test(cur);
