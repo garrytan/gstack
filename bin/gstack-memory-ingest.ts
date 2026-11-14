@@ -40,6 +40,8 @@
  * title/type/tags); gbrain's native dedup keys on session_id.
  */
 
+import { TIMELINE_READBACK_BYTES, TIMELINE_RENDERER_VERSION, timelinePageFits, validateTimelineProject } from "../lib/memory-ingest-timeline";
+
 import {
   existsSync,
   readdirSync,
@@ -112,6 +114,7 @@ import {
 type Mode = "probe" | "incremental" | "bulk" | "reconcile";
 
 interface CliArgs {
+  project?: string;
   mode: Mode;
   quiet: boolean;
   benchmark: boolean;
@@ -304,6 +307,8 @@ Options:
                        history) or new@<UTC> (sessions started after it).
                        A list naming transcript overrides it; a new@ cutoff
                        and transcript_repos still apply.
+  --project <slug>    Only this project timeline (requires --sources timeline).
+                       No shared resume or reconciliation; other projects stay untouched.
   --limit <N>          Stop after N pages written (smoke testing). With
                        --reconcile: check at most N entries this pass.
   --dry-run            With --reconcile: report what would change, change nothing.
@@ -328,6 +333,7 @@ function parseArgs(): CliArgs {
   let limit: number | null = null;
   let sources: Set<MemoryType> = new Set(ALL_TYPES);
   let sourcesExplicit = false;
+  let project: string | undefined;
   let noWrite = process.env.GSTACK_MEMORY_INGEST_NO_WRITE === "1";
   let dryRun = false;
   let requestReconcile = false;
@@ -348,6 +354,7 @@ function parseArgs(): CliArgs {
       case "--all-history": allHistory = true; break;
       case "--no-write": noWrite = true; break;
       case "--scan-secrets": scanSecrets = true; break;
+      case "--project": project = args[++i] ?? ""; break;
       case "--limit":
         limit = parseInt(args[++i] || "0", 10);
         if (!Number.isFinite(limit) || limit <= 0) {
@@ -390,7 +397,8 @@ function parseArgs(): CliArgs {
     process.exit(1);
   }
 
-  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, dryRun, requestReconcile, scanSecrets };
+  validateTimelineProject(GSTACK_HOME, project, sources, mode, requestReconcile, process.env.GSTACK_INGEST_RESUME_DIR);
+  return { project, mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, dryRun, requestReconcile, scanSecrets };
 }
 
 // ── State file ─────────────────────────────────────────────────────────────
@@ -438,9 +446,9 @@ function stagedForRemotePull(entry: StateEntry | undefined): boolean {
   return !!entry && entry.status === "staged" && entry.source_id === "remote-http" && !isRemoteHttpMcpMode();
 }
 
-function fileChangedSinceState(path: string, state: IngestState, verifyHash = false): boolean {
+function fileChangedSinceState(path: string, state: IngestState, verifyHash = false, type?: MemoryType): boolean {
   const entry = state.sessions[path];
-  if (isRetryable(entry) || stagedForRemotePull(entry)) return true;
+  if (isRetryable(entry) || stagedForRemotePull(entry) || (type === "timeline" && entry?.timeline_renderer_version !== TIMELINE_RENDERER_VERSION)) return true;
   try {
     const st = statSync(path);
     const mtimeNs = Math.floor(st.mtimeMs * 1e6);
@@ -585,7 +593,7 @@ function* walkGstackArtifacts(ctx: WalkContext): Generator<{ path: string; type:
   if (!existsSync(projectsRoot)) return;
   let slugs: string[];
   try {
-    slugs = readdirSync(projectsRoot);
+    slugs = ctx.args.project ? [ctx.args.project] : readdirSync(projectsRoot);
   } catch {
     return;
   }
@@ -964,8 +972,8 @@ function buildArtifactPage(path: string, type: MemoryType, raw?: string): PageRe
 
   // Extract repo slug from path: ~/.gstack/projects/<slug>/...
   let slug_repo = "_unattributed";
-  const m = path.match(/\/\.gstack\/projects\/([^/]+)\//);
-  if (m) slug_repo = m[1];
+  const projectPath = relative(join(GSTACK_HOME, "projects"), path).split(/[\\/]/);
+  if (projectPath.length > 1 && projectPath[0] !== ".." && projectPath[0] !== ".") slug_repo = projectPath[0];
 
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
   const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");
@@ -975,8 +983,8 @@ function buildArtifactPage(path: string, type: MemoryType, raw?: string): PageRe
 
   const tags = [type, `repo:${slug_repo}`, `date:${date}`];
 
-  // Truncate body to 200KB
-  const body = raw.slice(0, 200000);
+  // Preserve the complete timeline; native gbrain chunks it. Other artifacts keep their legacy cap.
+  const body = type === "timeline" ? raw : raw.slice(0, 200000);
 
   return {
     slug,
@@ -1430,7 +1438,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
 
     const entry = state.sessions[path];
     if (!entry || stagedForRemotePull(entry)) newCount++;
-    else if (fileChangedSinceState(path, state, args.scanSecrets)) updatedCount++;
+    else if (fileChangedSinceState(path, state, args.scanSecrets, type)) updatedCount++;
     else unchangedCount++;
   }
 
@@ -1588,7 +1596,7 @@ function preparePages(
     // Incremental skips unchanged sources; a quarantined page is retried
     // only once its source changes, in every mode.
     const known = state.sessions[path];
-    if ((args.mode === "incremental" || known?.status === "quarantined") && !fileChangedSinceState(path, state, args.scanSecrets)) {
+    if ((args.mode === "incremental" || known?.status === "quarantined") && !fileChangedSinceState(path, state, args.scanSecrets, type)) {
       skippedDedup++;
       continue;
     }
@@ -1628,6 +1636,11 @@ function preparePages(
     }
 
     const { body: renderedBody, sha: contentSha } = withContentHash(renderPageBody(page));
+    if (type === "timeline" && !timelinePageFits(renderedBody)) {
+      parseFailed++;
+      console.error(`[timeline-too-large] ${path}: complete page exceeds 24 MiB; nothing imported or stamped`);
+      continue;
+    }
 
     // Optional belt-and-suspenders: when --scan-secrets is set, gitleaks the
     // rendered page — the exact bytes writeStaged() hands to gbrain — and
@@ -2167,10 +2180,10 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
   if (prep.prepared.length === 0) {
     // Nothing to import — still touch state.last_full_walk, and re-check pages
     // an earlier run could not verify (A1: checked once a lookup works).
-    state.last_full_walk = new Date().toISOString();
+    if (!args.project) state.last_full_walk = new Date().toISOString();
     state.last_writer = "gstack-memory-ingest";
     const hasUnverified = Object.values(state.sessions).some((e) => e.status === "imported_unverified");
-    const check = hasUnverified && !remoteHttpMode && gbrainAvailable() ? verifyImported(state, new Set()) : null;
+    const check = hasUnverified && !remoteHttpMode && gbrainAvailable() ? verifyImported(state, new Set(), args.project) : null;
     return {
       ...(check ? { unverified: check.unverified, refused: check.requeued } : {}),
       written: 0,
@@ -2332,12 +2345,12 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
 
   // Landing check: confirm what this run (and earlier runs) imported is in
   // its recorded source before stamping it ingested. Bounded per run.
-  const check = verifyImported(state, run.importedThisRun);
+  const check = verifyImported(state, run.importedThisRun, args.project);
   run.written -= check.requeuedThisRun;
   run.refused += check.requeued;
   run.failed += check.requeued;
 
-  state.last_full_walk = new Date().toISOString();
+  if (!args.project) state.last_full_walk = new Date().toISOString();
   state.last_writer = "gstack-memory-ingest";
   return {
     ...base,
@@ -2689,6 +2702,7 @@ function stampEntry(run: RunContext, p: PreparedPage, next: Pick<StateEntry, "st
     ...fingerprint,
     page_slug: p.page_slug,
     ...(p.partial ? { partial: true } : {}),
+    ...(p.type === "timeline" ? { timeline_renderer_version: TIMELINE_RENDERER_VERSION } : {}),
     content_sha256: p.content_sha256,
     ...next,
   });
@@ -2942,6 +2956,7 @@ function stageForRemoteBrain(
       ...fingerprint,
       page_slug: p.page_slug,
       ...(p.partial ? { partial: true } : {}),
+    ...(p.type === "timeline" ? { timeline_renderer_version: TIMELINE_RENDERER_VERSION } : {}),
       status: "staged",
       source_id: "remote-http",
       content_sha256: p.content_sha256,
@@ -2949,7 +2964,7 @@ function stageForRemoteBrain(
     });
     written++;
   }
-  state.last_full_walk = nowIso;
+  if (!args.project) state.last_full_walk = nowIso;
   state.last_writer = "gstack-memory-ingest (remote-http mode)";
   if (!args.quiet) {
     console.error(`[memory-ingest] persisted ${written} pages to ${dir} (brain admin will index on next pull)`);
@@ -3039,15 +3054,15 @@ function verifyResumeDir(
  * is gone becomes unrecoverable. Lookup errors leave the entry unverified.
  * Returns how many entries remain unverified and how many were re-queued.
  */
-function verifyImported(state: IngestState, importedThisRun: Set<string>): { unverified: number; requeued: number; requeuedThisRun: number } {
+function verifyImported(state: IngestState, importedThisRun: Set<string>, project?: string): { unverified: number; requeued: number; requeuedThisRun: number } {
   const out = { unverified: 0, requeued: 0, requeuedThisRun: 0 };
   const nowIso = new Date().toISOString();
   const paths = Object.keys(state.sessions)
-    .filter((p) => state.sessions[p].status === "imported_unverified")
+    .filter((p) => state.sessions[p].status === "imported_unverified" && (!project || p === join(GSTACK_HOME, "projects", project, "timeline.jsonl")))
     .sort((a, b) => Number(importedThisRun.has(b)) - Number(importedThisRun.has(a)));
   if (paths.length === 0) return out;
   const lookups: LandingLookups = gbrainLookups((a) => {
-    const r = spawnGbrain(a, { timeout: 60_000 });
+    const r = spawnGbrain(a, { timeout: 60_000, ...(a[0] === "get" ? { maxBuffer: TIMELINE_READBACK_BYTES } : {}) });
     return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
   });
   const budget = { gets: DEFAULT_GET_CAP };
@@ -3206,7 +3221,7 @@ async function main(): Promise<void> {
 async function runLocked(args: CliArgs): Promise<number> {
   // Tightening a scoped consent removes unpublished staged pages outside it and
   // their fingerprints, BEFORE the state loads, so a later widening re-stages.
-  if (!args.noWrite && !args.requestReconcile && args.mode !== "reconcile") {
+  if (!args.project && !args.noWrite && !args.requestReconcile && args.mode !== "reconcile") {
     const purged = purgeStagedTranscripts(GSTACK_HOME, readIngestConsent());
     if (purged > 0) console.error(`[memory-ingest] removed ${purged} staged transcript pages outside the new scope`);
   }
@@ -3239,7 +3254,7 @@ async function runLocked(args: CliArgs): Promise<number> {
   if (!result.state_untouched) {
     // A pending reconcile (set by the upgrade migration or a schema migration)
     // gets one bounded pass per ingest run until it completes.
-    if (!result.system_error && state.reconcile?.pending && !isRemoteHttpMcpMode()) reconcilePass(args, state, false);
+    if (!args.project && !result.system_error && state.reconcile?.pending && !isRemoteHttpMcpMode()) reconcilePass(args, state, false);
     if (!save()) return 1;
   }
 
@@ -3273,7 +3288,7 @@ function reconcilePass(args: CliArgs, state: IngestState, dryRun: boolean): numb
   }
   if (!dryRun) backupStateFile(STATE_PATH, `${STATE_PATH}.pre-reconcile.bak`);
   const lookups = gbrainLookups((a) => {
-    const r = spawnGbrain(a, { timeout: 60_000 });
+    const r = spawnGbrain(a, { timeout: 60_000, ...(a[0] === "get" ? { maxBuffer: TIMELINE_READBACK_BYTES } : {}) });
     return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
   });
   const summary = reconcile(state, lookups, {
