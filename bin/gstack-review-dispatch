@@ -23,7 +23,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
-import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerifyRow } from '../lib/review-ledger';
+import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
 import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import { classifyOutsideReview } from '../lib/outside-review-result';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
@@ -167,7 +167,7 @@ function render(): number {
   const sel = base && diffBase ? standaloneSelection(readerKey(role, name), base, diffBase, readers) : { reader: readerKey(role, name), exclude: flag('--exclude'), keep: parseTail(flag('--keep')).filter(s => s !== '--'), disclosure: flag('--disclosure') };
   const policyItems = parseTail(sel.exclude).filter(s => s.startsWith(':(top,exclude,glob)'));
   if (base && diffBase) {
-    const over = ceiling('gstack-review-dispatch render', base, out, [sel], diffBase, undefined);
+    const over = ceiling('gstack-review-dispatch render', base, out, [{ ...sel, role }], diffBase, undefined);
     if (over) { process.stderr.write(over.line + '\n'); return over.exit; }
     settleExcerpt(sel, diffBase, path.resolve(out));
     if (role === 'outside-voice') diff = branchDiff(diffBase, sel);
@@ -192,14 +192,14 @@ function render(): number {
   const workdir = checkoutRoot();
   const tree = checkoutTree(workdir);
   if (!tree) throw new BriefError(`cannot read HEAD^{tree} and the toplevel of ${workdir}; a brief names the checkout its reply must prove`);
-  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir, readers);
+  const text = withWorkspace(renderBrief(role, slots, sectionTexts(ROOT)), workdir, readers, { verdict: true });
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const file = path.join(path.resolve(out), briefFile(role, name));
   fs.writeFileSync(file, text, { mode: 0o600 });
   const ledger = flag('--ledger') ?? path.join(out, 'review-ledger.jsonl');
   const sha = promptHash(text);
   const targeted = brief === undefined ? {} : { classes: parseClassList(flag('--classes')!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist), diff_base: diffBase ?? null, ...(diffBase ? targetedRead(process.cwd(), diffBase) : { patch_id: 'none', head: null }) };
-  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(sel.disclosure) ? { exclude: disclosureDigest(sel.disclosure) } : {}), readers: readers.digest });
+  appendEvent(ledger, { event: 'rendered', reader: readerKey(role, name), role, name: name ?? null, file, sha256: sha, bytes: Buffer.byteLength(text), workdir, tree, verdict: 1, ...targeted, ...(diffFile.diff_file ? { payload: { file: diffFile.diff_file, sha256: diffFile.diff_sha256 } } : {}), ...(disclosureDigest(sel.disclosure) ? { exclude: disclosureDigest(sel.disclosure) } : {}), readers: readers.digest });
   process.stdout.write(`BRIEF: reader=${readerKey(role, name)} sha256=${sha} bytes=${Buffer.byteLength(text)} file=${file}\n`);
   return EXIT.ok;
 }
@@ -293,6 +293,9 @@ function sweep(): number {
 }
 
 const quote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+/** The reader's REVIEW_VERDICT line against what collect parsed (GST-2495), with the next step when they disagree or the line is malformed. */
+const verdictLine = (reader: string, v: VerdictCheck, added: string[]) => `COLLECT_VERDICT: reader=${reader} declared=${v.declared ?? v.state} parsed=${v.parsed}${v.state === 'valid' ? ` agrees=${v.agrees ? 'yes' : 'no'}` : ''}${added.length ? ` added=${added.join(',')}` : ''}${v.why ? ` why=${JSON.stringify(v.why)}` : ''}`
+  + (v.state === 'malformed' || v.agrees === false ? ' (next: find the declared blocker via at=, promote it and fold the added row into it; lower a summary candidate with a reason; or take the review-loop exception; docs/review-policy.md#verdict-line)\n' : '\n');
 const wrongTree = (reader: string, t: TreeCheck) => `${t.moved ? 'COLLECT_TREE_MOVED' : 'COLLECT_WRONG_TREE'}: reader=${reader} reported=${JSON.stringify(t.reported)} expected=${JSON.stringify(t.expected)} (${t.moved ? 'the checkout moved after this brief was rendered' : 'the reply did not review the checkout its brief named'}; nothing merged; restore it with a fresh pass under a new --pass and --out)\n`;
 
 const PROGRAM_FILE = path.join(ROOT, 'lib', 'capy-review-pass.js');
@@ -599,10 +602,12 @@ function main(): number {
     const unavailable = flag('--unavailable');
     if (unavailable !== undefined && !mayBeUnavailable(reader)) { process.stderr.write(`gstack-review-dispatch collect: --unavailable is for the outside voice only; ${reader}'s missing coverage leaves the review incomplete, never clean\n`); return EXIT.usage; }
     if (unavailable !== undefined && !unavailable.trim()) { process.stderr.write('gstack-review-dispatch collect: --unavailable needs a reason\n'); return EXIT.usage; }
-    if (unavailable !== undefined && parseFindings(reader, output).length) { process.stderr.write(`gstack-review-dispatch collect: ${reader}'s output holds findings; collect it without --unavailable so none is lost\n`); return EXIT.usage; }
+    const asked = readLedger(ledger).filter(e => e.event === 'rendered' && e.reader === reader).at(-1)?.verdict === 1;
+    const held = () => parseReply(reader, output, true, asked).findings.length;
+    if (unavailable !== undefined && held()) { process.stderr.write(`gstack-review-dispatch collect: ${reader}'s output holds findings; collect it without --unavailable so none is lost\n`); return EXIT.usage; }
     const rendered = readLedger(ledger).filter(e => e.event === 'rendered' && e.reader === reader).at(-1);
     const tree = unavailable === undefined && rendered && 'tree' in rendered ? checkReviewedTree(output, typeof rendered.tree === 'string' ? rendered.tree : null) : undefined;
-    if (tree && !tree.ok && mayBeUnavailable(reader) && !parseFindings(reader, output).length) {
+    if (tree && !tree.ok && mayBeUnavailable(reader) && !held()) {
       const why = `reviewed another tree: reported ${tree.reported}, expected ${tree.expected}`;
       const r = collect(ledger, reader, output, merged, path.resolve(outFile!), why);
       process.stdout.write(`COLLECT_UNAVAILABLE: reader=${reader} sha256=${r.sha} reason=${JSON.stringify(why)} (missing outside coverage: unavailable, never clean)\n`);
@@ -623,6 +628,7 @@ function main(): number {
       return EXIT.fail;
     }
     process.stdout.write(`COLLECT: reader=${reader} findings=${r.lines.length} sha256=${r.sha} merged=${merged}\n`);
+    if (r.verdict) process.stdout.write(verdictLine(reader, r.verdict, r.lines.filter(l => /#(?:\d+\.)?v\d+$/.test(l.id)).map(l => l.id)));
     return EXIT.ok;
   }
   if (cmd === 'judge') {
@@ -658,6 +664,7 @@ function main(): number {
     if (sel && 'digest' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: digest=${sel.digest} (gstack-ship-receipt write --review-exclude ${sel.digest})\n`);
     if (sel && 'mixed' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: mixed digests=${sel.mixed.join(',')} (readers read different review_exclude_paths selections; rerun the review so every reader reads HEAD's)\n`);
     const clean = v.clean && !(sel && 'mixed' in sel);
+    if (v.verdicts.asked) process.stdout.write(`VERIFY_VERDICT: agree=${v.verdicts.agree} asked=${v.verdicts.asked} (informational: a disagreeing count already counts its blockers; docs/review-policy.md#verdict-line)\n`);
     process.stdout.write(`VERIFY: ${clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);
     return clean ? EXIT.ok : EXIT.fail;
   }

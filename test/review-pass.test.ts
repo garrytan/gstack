@@ -1398,7 +1398,10 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).not.toContain('STOP:');
     expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(2);
-    for (const c of h.creates) expect([c.prompt.startsWith(workspaceStep(wt) + '\n\n'), c.prompt.endsWith('\n\n' + workspaceParagraph(wt))], c.title).toEqual([true, true]);
+    for (const c of h.creates) {
+      const verdict = !c.title.includes(' audit/');
+      expect([c.prompt.startsWith(workspaceStep(wt, verdict) + '\n\n'), c.prompt.endsWith('\n\n' + workspaceParagraph(wt, undefined, verdict))], c.title).toEqual([true, true]);
+    }
     expect(bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout).not.toContain('wrong_tree');
   }, 240_000);
 

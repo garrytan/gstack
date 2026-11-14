@@ -212,9 +212,15 @@ const treeCommand = (dir: string) => `cd ${quoted(dir)} && echo "REVIEWED_TREE: 
  * follows a findings-only output format can skip a request that only closes a long brief (gpt-6.1-sol did on GST-850), and
  * "the line <command> prints" was read as the command itself, so the step comes first and names the output line.
  */
-export function workspaceStep(dir: string): string {
-  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.`;
+export function workspaceStep(dir: string, verdict = false): string {
+  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.${verdict ? ` ${VERDICT_ASK}` : ''}`;
 }
+
+/**
+ * The verdict ask every blocking reader's brief carries right after the fingerprint step (GST-2495, lib/review-verdict.ts): one
+ * machine-readable count of the reply's blocking findings, which collect checks against the findings it parses.
+ */
+export const VERDICT_ASK = 'Put `REVIEW_VERDICT: blocking=<n>` on the second line, right under it: n is how many findings in your reply block the merge by this brief\'s own rule, 0 when none; add ` at=<path>:<line>,…` for those findings that have a location. Write it once, on its own line, outside any code block; it does not replace your findings or the ending this brief asks for.';
 
 /**
  * The closing paragraphs every dispatched brief carries: the fetch rule and the readers policy (GST-1322, lib/review-fetch.ts),
@@ -222,10 +228,11 @@ export function workspaceStep(dir: string): string {
  * in a fresh shell, so the brief names the checkout under review and asks again for the fingerprint workspaceStep opens with.
  * The section's render sits between workspaceStep and these, byte for byte what renderBrief returns.
  */
-export function workspaceParagraph(dir: string, readers?: ReadersPolicy): string {
-  return `${fetchParagraph(readers)}\n\nWorkspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+export function workspaceParagraph(dir: string, readers?: ReadersPolicy, verdict = false): string {
+  return `${fetchParagraph(readers)}\n\nWorkspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.${verdict ? ' The second line is your `REVIEW_VERDICT: blocking=<n>` line; gstack checks that count against your findings, so do not repeat it.' : ''}`;
 }
-export const withWorkspace = (text: string, dir: string, readers?: ReadersPolicy) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir, readers)}`;
+/** A blocking reader's brief (one of BRIEF_ROLES) takes the verdict ask; an audit reader, which cannot block, does not. */
+export const withWorkspace = (text: string, dir: string, readers?: ReadersPolicy, opts: { verdict?: boolean } = {}) => `${workspaceStep(dir, opts.verdict)}\n\n${text}\n\n${workspaceParagraph(dir, readers, opts.verdict)}`;
 /** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
 export function checkoutRoot(): string {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });
