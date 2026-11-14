@@ -411,6 +411,24 @@ describe('gstack-retro-metrics test census beyond JS/TS', () => {
     }
   });
 
+  test('a repo with no conventionally named tests counts code files in its test dir', () => {
+    const dir = fixtureRepo('gstack-rm-godot-', {
+      'games/brick.gd': 'extends Node\n',
+      'tests/run.gd': 'extends SceneTree\n',
+      'tests/run.gd.uid': 'uid://abc\n',
+      'tests/README.md': '# how to run\n',
+    });
+    try {
+      const out = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00'], dir);
+      expect(out).toMatch(/^TEST_FILES_TOTAL: 1$/m);
+      // the .uid sidecar is engine metadata, not a changed test file or test LOC
+      expect(out).toMatch(/^TEST_FILES_CHANGED: 1$/m);
+      expect(out).toMatch(/^TEST_INSERTIONS: 1$/m);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('Swift/XCTest naming counts; generated output and prose specs do not', () => {
     const dir = fixtureRepo('gstack-rm-swift-', {
       'App/Store.swift': 'struct Store {}\n',

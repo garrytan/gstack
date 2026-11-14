@@ -195,7 +195,8 @@ git log "$REF" "$_S" ${_U:+"$_U"} --date=format-local:'%Y-%m-%d %H:%M' \
     return (p ~ /\.(md|mdx|markdown|txt|rst|adoc)$/) || (p ~ /(^|\/)(docs?|documentation)\//)
   }
   function is_test(p) {
-    if (is_prose(p)) return 0
+    # engine sidecars (Godot .uid/.import, Unity .meta) sit beside test files but are metadata
+    if (is_prose(p) || p ~ /\.(uid|import|meta)$/) return 0
     return (p ~ /(^|\/)([Tt]ests?|[Ss]pecs?|__tests__)\//) || (p ~ /(\.(test|spec)\.|_test\.|_spec\.)/) \
       || (p ~ /[A-Za-z0-9]([Tt]ests?|[Ss]pecs?)\.[A-Za-z0-9]+$/) || (p ~ /(^|\/)test_[^\/]*\.(py|rb)$/) \
       || (p ~ /(\.tftest\.hcl|\.bats)$/)
@@ -397,6 +398,17 @@ _TF_TOTAL=$(git ls-files 2>/dev/null \
   | grep -vE '(^|/)(\.build|build|dist|out|target|vendor|node_modules|DerivedData|\.next|\.nuxt|__pycache__|coverage)/' \
   | grep -cE '(\.test\.|\.spec\.|_test\.|_spec\.|[A-Za-z0-9](Tests?|Specs?)\.[A-Za-z0-9]+$|(^|/)test_[^/]*\.(py|rb)$|\.tftest\.hcl$|\.bats$)' || true)
 case "$_TF_TOTAL" in ''|*[!0-9]*) _TF_TOTAL=0 ;; esac
+# A repo whose tests follow no filename convention (e.g. a Godot tests/run.gd)
+# would read 0: fall back to code files under a test dir, minus prose and
+# engine sidecars (.uid/.import/.meta).
+if [ "$_TF_TOTAL" = 0 ]; then
+  _TF_TOTAL=$(git ls-files 2>/dev/null \
+    | grep -vE '(^|/)(\.build|build|dist|out|target|vendor|node_modules|DerivedData|\.next|\.nuxt|__pycache__|coverage)/' \
+    | grep -E '(^|/)([Tt]ests?|[Ss]pecs?|__tests__)/' \
+    | grep -vE '(^|/)(docs?|documentation)/|\.(md|mdx|markdown|txt|rst|adoc|uid|import|meta)$' \
+    | grep -c . || true)
+  case "$_TF_TOTAL" in ''|*[!0-9]*) _TF_TOTAL=0 ;; esac
+fi
 echo "TEST_FILES_TOTAL: $_TF_TOTAL"
 _REG=$(git log "$REF" "$_S" ${_U:+"$_U"} --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage" 2>/dev/null || true)
 if [ -n "$_REG" ]; then
