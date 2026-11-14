@@ -183,6 +183,14 @@ describe('a ledger round trip', () => {
     expect(b.v.verdicts).toEqual({ asked: 0, agree: 0 });
   });
 
+  test('a summary flag edited onto a real CRITICAL makes verify dirty even when the render never asked', () => {
+    const c = run(false, [reply('1. CRITICAL: token leak in auth.ts:3. Blocks: yes')]);
+    expect(c.v.clean).toBe(true);
+    expect(c.rows.map(r => [r.label, r.summary_candidate ?? false])).toEqual([['CRITICAL', false]]);
+    fs.writeFileSync(c.merged, c.rows.map(r => JSON.stringify({ ...r, summary_candidate: true })).join('\n') + '\n');
+    expect(verify(c.ledger).clean).toBe(false);
+  });
+
   test('lead judgment lowers a verdict summary candidate only with a reason', () => {
     const rows = run(true, [CONTROLS.outputs.capy1_red_team!.replace(/^(REVIEWED_TREE: .*)$/m, '$1\nREVIEW_VERDICT: blocking=0')]).rows;
     const lower = (reason?: string) => judge(rows, rows.map(m => ({ id: m.id, severity: m.summary_candidate ? 'INFORMATIONAL' : m.label, ...(reason ? { reason } : {}) })));

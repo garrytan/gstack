@@ -642,7 +642,7 @@ export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; bri
       const reply = parseReply(reader, text, o.fixable_raises !== false, asked);
       const parsed = reply.findings;
       const off = ids.filter((id, k) => { const m = lines.find(l => l.id === id); return !m || m.reader !== reader || parsed[k]?.label !== m.label || parsed[k]?.raw !== m.raw
-        || (asked && !!(parsed[k]!.summary || summaryCandidate(m.raw)) !== (m.summary_candidate === true)); });
+        || !!(parsed[k]!.summary || summaryCandidate(m.raw)) !== (m.summary_candidate === true); });
       if (reply.verdict) verdicts.push({ kind: 'VERDICT', reader: p?.label ?? reader, status: reply.verdict.state === 'valid' ? (reply.verdict.agrees ? 'AGREES' : 'DISAGREES') : reply.verdict.state.toUpperCase(),
         detail: `declared=${reply.verdict.declared ?? reply.verdict.state} parsed=${reply.verdict.parsed}${reply.verdict.why ? ` why=${JSON.stringify(reply.verdict.why)}` : ''}` });
       if (unavailableOutput(o) && parsed.length) { status = 'MISMATCH'; notes.push('unavailable_output_has_findings'); }
