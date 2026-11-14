@@ -468,7 +468,10 @@ function passStep(cmd: string): number {
     if (r?.role !== 'outside-voice' || !flag('--error-file')) { process.stderr.write('gstack-review-dispatch retry: --manifest <f> --reader <an outside voice> --error-file <its host error>\n'); return EXIT.usage; }
     const checked = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: readFile(flag('--error-file'), 'host error') });
     if (checked.reason !== 'cyber_policy_refused') { process.stdout.write(`RETRY: none reader=${r.reader} (not a cyber_policy refusal; recorded as unavailable coverage as before)\n`); return EXIT.ok; }
-    const next = planCyberRetry(m, r);
+    let voices: { laneModel?: string | null; readers?: Record<string, { model_id?: string } | null> } = {};
+    try { voices = JSON.parse(fs.readFileSync(path.join(m.out, 'voice-models.json'), 'utf8')); } catch { voices = {}; }
+    const taken = [voices.laneModel, voices.readers?.['adversarial-native']?.model_id].filter((id): id is string => typeof id === 'string' && id.includes('/')).map(id => id.split('/')[0]!.toLowerCase());
+    const next = planCyberRetry(m, r, taken);
     writeManifest(file, m);
     process.stdout.write(`${gateOutcomeLine(`Outside voice ${r.reader}`, 'cyber_policy_refused', checked.detail)}\n${next
       ? `RETRY: reader=${next.reader} model=${next.model!.model_id} brief=${next.read_only ? 'read-only' : 'original'} (R95: one attempt, never the same brief on another OpenAI model)`

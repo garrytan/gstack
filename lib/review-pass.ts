@@ -274,9 +274,13 @@ export const CYBER_RETRIES: ReadonlyArray<{ name: string; model: PassModel; read
   { name: 'gemini-4-carbon', model: { model_id: 'google/gemini-4-carbon', reasoning_mode: 'high' } },
 ];
 
-/** Plan the next R95 attempt after `refused`, which the refused reader then points at; null once the chain is spent. */
-export function planCyberRetry(m: Manifest, refused: PassReader): PassReader | null {
-  const step = CYBER_RETRIES[CYBER_RETRIES.findIndex(x => x.name === refused.name) + 1];
+/**
+ * Plan the next R95 attempt after `refused`, which the refused reader then points at; null once the chain is spent. A step whose
+ * model family is in `taken` (the lane's and the native voice's, from the pass's voice-models.json) is skipped, since Step 11 refuses
+ * an outside voice of either family; with no step left the second-family read is missing.
+ */
+export function planCyberRetry(m: Manifest, refused: PassReader, taken: ReadonlyArray<string> = []): PassReader | null {
+  const step = CYBER_RETRIES.slice(CYBER_RETRIES.findIndex(x => x.name === refused.name) + 1).find(x => !taken.includes(x.model.model_id.split('/')[0]!.toLowerCase()));
   if (!step || refused.role !== 'outside-voice') return null;
   const reader = readerKey('outside-voice', step.name);
   const existing = m.readers.find(x => x.reader === reader);

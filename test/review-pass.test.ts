@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { READ_ONLY_RETRY, promptHash, sectionTexts, withWorkspace, workspaceParagraph, workspaceStep } from '../lib/review-brief';
-import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
+import { CHUNK_CHARS, PARENT_ONLY_QA, buildManifest, chunkCount, chunkOf, markReader, planCyberRetry, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import type { Dispatch } from '../lib/review-depth';
 import { FIXTURE_MARKER } from '../lib/fixture-marker';
 
@@ -634,11 +634,11 @@ describe('Capy pass program (fake host, real bins)', () => {
   // R95 (2026-11-13): a cyber_policy refusal of the outside voice is retried once on GPT-6 Astra with the read-only brief, then on Gemini 4 Carbon with the original brief; when every attempt fails the second-family read is missing, disclosed, and Step 11 goes on.
   const CYBER = fs.readFileSync(path.join(ROOT, 'test/fixtures/cyber-policy/capy-latest-error.txt'), 'utf8').trim();
   const voiceReply = (t: string) => (t.includes('outside-voice') ? 'Recommendation: ship as-is because no finding survived' : cleanReply(t));
-  async function refusedVoices(pass: string, error: (title: string) => string | undefined) {
+  async function refusedVoices(pass: string, error: (title: string) => string | undefined, lane: Record<string, unknown> = {}) {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { error, output: voiceReply, epoch: Date.now() });
-    const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
+    const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'], ...lane };
     expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     let res = '', all = '';
     for (let i = 0; i < 12; i++) {
@@ -648,7 +648,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     }
     const created = (suffix: string) => h.creates.find(c => c.title === 'ship ' + pass + ' ' + suffix);
     const verify = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
-    return { res, all, h, created, verify };
+    return { res, all, h, created, verify, base };
   }
 
   // Value: protects=R95 on the real pass program: Capy's captured cyber_policy refusal of the Sol outside voice is recorded unavailable with its own reason and retried once on openai/gpt-6-astra with the read-only brief, whose review is the Step 11 outside record; fails_when=the refusal is recorded as a plain failure with no retry, the retry resends the original brief, or the original's unavailable record replaces the retry's;
@@ -694,6 +694,33 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(verify).toMatch(/^BRIEF outside-voice\/gemini-4-carbon UNAVAILABLE/m);
     expect(verify).toMatch(/^VERIFY: .* unavailable=3$/m);
   }, 900_000);
+
+  // Value: protects=on a Google-family lane the Gemini step is skipped (Step 11 refuses an outside voice of the lane's family), so two OpenAI refusals record the second-family read as missing and a resume finishes instead of stopping; fails_when=Gemini is planned beside a Google lane and familyStop stops every resume;
+  //   why_new=GSTA-537 /ship outside-voice finding (lib/review-pass.ts:274), fixed under the Captain's scoped fix-check grant; seam=planCyberRetry via gstack-review-dispatch retry; no_claim=which outside voice a Google lane should use
+  test('a Google-family lane skips the Gemini retry and records the second-family read missing, with no STOP on resume (R95)', async () => {
+    const lane = { laneModel: 'google/gemini-4-argon', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol', reasoning_mode: 'medium' } } };
+    const { res, all, h, created, base } = await refusedVoices('x45p1', t => (/outside-voice(\/astra-read-only)?$/.test(t) ? CYBER : undefined), lane);
+    expect(all).not.toContain('STOP:');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toContain('RETRY: exhausted reader=outside-voice/astra-read-only');
+    expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
+    expect(res).toContain('"outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.1-sol and openai/gpt-6-astra (read-only retry brief)"');
+    expect(res).toContain('NEXT: judge the voices');
+    const again = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
+    expect(again).not.toContain('STOP:');
+  }, 600_000);
+
+  // Value: protects=planCyberRetry skips only the steps whose family the lane or native voice holds: an Anthropic lane still gets Astra then Gemini, a Google lane gets Astra and then nothing; fails_when=the family check drops Gemini for every lane or keeps it beside a Google lane;
+  //   why_new=GSTA-537 scoped fix-check (control for the Google-lane case); seam=lib/review-pass.ts planCyberRetry; no_claim=none
+  test('planCyberRetry keeps Gemini for an Anthropic lane and skips it for a Google lane (R95)', () => {
+    const chain = (taken: string[]) => {
+      const m = { pass: 'u1', readers: [{ reader: 'outside-voice', role: 'outside-voice', stage: 'voices', state: 'collected' }] } as unknown as Manifest;
+      const astra = planCyberRetry(m, m.readers[0]!, taken);
+      return [astra?.reader, astra ? planCyberRetry(m, astra, taken)?.reader ?? null : null];
+    };
+    expect(chain(['anthropic'])).toEqual(['outside-voice/astra-read-only', 'outside-voice/gemini-4-carbon']);
+    expect(chain(['google'])).toEqual(['outside-voice/astra-read-only', null]);
+  });
 
   // Value: protects=only cyber_policy starts a retry: a failed voice whose host error is another provider failure, and a voice that reviews normally, each run exactly one outside voice; fails_when=any failure, or a success, dispatches an Astra or Gemini reader;
   //   why_new=R95 (no new retries for anything else; negative control); seam=lib/capy-review-pass.js; no_claim=none
