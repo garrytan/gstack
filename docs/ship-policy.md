@@ -2113,6 +2113,7 @@ receipt when the base moves:
 | a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
 | a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines identical and in the same places) | carries after one fix-check reviewer reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
 | a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
+| a test edit that removes or rewrites an assertion line (a loosened matcher, a removed `expect` or `assert`, a removed test block); a new test or assertion still carries. The check reads removed or rewritten assertion lines only: a value changed inside a multi-line matcher, an added early return, and golden or snapshot edits still carry as test-only | carries after one fix-check reviewer reads the named hunks and comes back clean (`RECEIPT_CARRY_TEST_WEAKENED`, then `carry --test-review <record.json>` with the packet's `packet_sha256`); the land list, the touchfile maps, the paid-eval policy and budget data and the ratchet allowlists are product, never a test-only change (GST-2204) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
 | a stacked PR whose parent landed (squash or merge), retargeted to the base with the base merged in, HEAD's product diff exactly the one reviewed against the parent branch | carries (reason `stack parent <branch> landed`) |
@@ -2322,8 +2323,9 @@ review loop or Step 14.5's docs audit for a carried receipt:
    `RECEIPT_CARRY_SCOPED_REVIEW`, for which `gstack-ship-preflight` prints
    `NEXT: carry route`: fix what the base merge broke, commit and push, run carry
    without `--dry-run` to write the packet, have one fix-check reviewer read it,
-   then carry with `--scoped-review <record.json>` and `--pregate`. A blocking
-   finding continues the full ship.
+   then carry with `--scoped-review <record.json>` and `--pregate`, and
+   `RECEIPT_CARRY_TEST_WEAKENED`, whose route is the same with
+   `--test-review <record.json>`. A blocking finding continues the full ship.
 2. Fix what the base merge broke (the CHANGELOG, the size caps the policy
    declares) and commit, `gstack-ship-release push --branch <branch-name> --early`,
    `gstack-ci-carry wait --base <base>` (`CI_CARRY: none` is not a stop), then

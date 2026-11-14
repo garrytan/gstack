@@ -7022,7 +7022,8 @@ receipt is not carried. The refusal names the changed product paths, or for a
 retargeted stacked PR the parent branch and the base.
 
 **Fix.** Run /ship on the new head. The receipt carries only across a
-conflict-only base merge, a test-only change, release metadata, a registered
+conflict-only base merge, a test-only change (one that removes or changes an
+assertion line first needs a clean fix-check, [`RECEIPT_CARRY_TEST_WEAKENED`](#receipt-carry-test-weakened)), release metadata, a registered
 output the pregate's regen check proved, a rebase onto a covered tree with
 the recorded product diff, a stacked PR's retarget once its parent fully
 landed on the base, a stamp on the branch's own rows in a stamp file it also
@@ -7073,6 +7074,49 @@ written (an unwritable `.git`) is a STOP or `RECEIPT_CARRY_REFUSED` naming the p
 none of carry's other checks would refuse; carry without `--dry-run` writes it.
 In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
+
+<a id="receipt-carry-test-weakened"></a>
+### `RECEIPT_CARRY_TEST_WEAKENED`
+
+**Meaning.** A test file changed since the receipt's head, and the change
+removed or rewrote an assertion line: a loosened matcher (`expect(a).toBe(1)`
+became `expect(typeof a).toBe('number')`), a removed `expect`, `assert` or
+`t.Fatal`, or a removed `test(...)`, `it(...)` or `describe(...)` line. CI at
+the new head passes either way, so the receipt does not carry as a test-only
+change until someone reads the edit (GST-2204). The refusal names each hunk as
+`path:line` (the line in HEAD) and a packet with each file's diff since the
+reviewed head and the base's own change. Added lines never count, so a new test
+or assertion still carries; an assertion line the base removed or changed itself
+is the base's and does not count either. A skipped test or a deleted test file
+raises the review depth, and that refusal (`RECEIPT_CARRY_REFUSED`, run /ship)
+comes first. A packet section over 200 lines is `RECEIPT_CARRY_PRODUCT_CHANGED`
+instead. A base removal cancels a branch removal only when both sit in the same
+test at the same place, never by matching text alone.
+
+The check reads removed or rewritten assertion lines only, so some weakenings
+still carry as a test-only change: a value changed on its own line inside a
+multi-line matcher (`toEqual({ … })`), an added early `return` or guard that
+skips an assertion, and golden or snapshot file edits.
+
+`test/land-merged-checks.txt`, the touchfile maps under `test/helpers/`, the
+paid-eval policy and budget data (`test/helpers/periodic-exclude-data.ts`,
+`test/helpers/eval-budgets.ts`) and the ratchet allowlists
+(`test/fixtures/module-size-ratchet.json`,
+`test/fixtures/skill-md-size-allowlist.json`,
+`test/state-root-ratchet.allowlist.json`) are product for a carry, so any
+change to them is `RECEIPT_CARRY_PRODUCT_CHANGED`, never this code; on a
+retargeted stacked PR each must be unchanged since the reviewed head.
+
+**Fix.** If the assertion was loosened to make a red test pass, restore it and
+fix the product code (that needs /ship). Otherwise dispatch one fix-check
+reviewer ([review-policy.md](review-policy.md)) on the packet. When it comes
+back clean, write
+`{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean","packet_sha256":"<sha>"}`
+with the `packet_sha256` the refusal prints, and rerun
+`gstack-ship-receipt carry ... --test-review <record.json>`; the carry reason
+records the reviewer and the hunks. A record for another head or packet is
+`RECEIPT_CARRY_REFUSED`. `carry --dry-run` reports this code without writing the
+packet.
 
 <a id="receipt-carry-recheck"></a>
 ### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1)

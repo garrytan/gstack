@@ -435,6 +435,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
     fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
   },
+  RECEIPT_CARRY_TEST_WEAKENED: {
+    anchor: 'receipt-carry-test-weakened',
+    summary: 'a test edit since the receipt\'s head removed or changed assertion lines (a loosened matcher, a removed expect or assert, a removed test block), which CI at the new head cannot tell from a fix, so the receipt does not carry as a test-only change (GST-2204)',
+    fix: 'dispatch one fix-check reviewer on the packet the refusal names (its hunks are path:line), write its clean verdict as { head, paths, reviewer, verdict, packet_sha256 } and rerun carry with --test-review <record.json>; a blocking finding means restore the assertion or run /ship on the new head',
+  },
   DOCS_AUDIT_BLOCKED: {
     anchor: 'docs-audit-blocked',
     summary: 'the documentation audit (/ship Step 14.5) is blocked: gstack-ship-receipt docs-caps found a declared doc cap over, or gstack-ship-receipt write was given a blocked audit with no owner exception and refused to record the ship as audited',

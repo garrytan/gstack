@@ -232,7 +232,8 @@ export function readyTailLines(r: ShipReceipt | undefined): string[] {
 /**
  * Paths whose change never invalidates a /ship verdict on its own: tests (the
  * reviewed product code is what the verdict covers; CI at the new head reruns
- * them, unreviewed) and release metadata (the version stamp, the changelog, the
+ * them, unreviewed, unless an edit removed or changed an assertion line, which
+ * needs one scoped fix-check: lib/ship-carry-tests.ts) and release metadata (the version stamp, the changelog, the
  * agents digest, and under `changelog_fragments` each `<dir>/<slug>.md` fragment). A repo
  * extends the lists through its ship policy (`stamp_files`, `stamp_paths`, `release_outputs`,
  * `changelog`, `changelog_fragments.dir`); lockfiles are
@@ -247,6 +248,16 @@ export const CARRY_TEST_CODE_GLOBS: readonly string[] = [
 ];
 export const CARRY_TEST_GLOBS: readonly string[] = ['test/**', 'tests/**', 'spec/**', '__tests__/**', 'e2e/**', 'cypress/**', '**/__tests__/**', ...CARRY_TEST_CODE_GLOBS];
 export const CARRY_METADATA_GLOBS: readonly string[] = ['VERSION', 'CHANGELOG.md', 'package.json', 'agents-digest/**'];
+/**
+ * Gate files under a test directory (GST-2204): the list land runs on a moved base, the touchfile maps that select which
+ * tests run, the paid-eval policy, quarantine and budget data, and the ratchet allowlists. Loosening one passes CI by
+ * running or enforcing less, so a change to one is product, never a test-only carry.
+ */
+export const CARRY_GATE_TEST_PATHS: readonly string[] = [
+  'test/land-merged-checks.txt', 'test/helpers/touchfiles-data.ts', 'test/helpers/touchfiles.ts', 'test/helpers/test-selection.ts', 'test/helpers/touchfile-closure.ts',
+  'test/helpers/periodic-exclude-data.ts', 'test/helpers/eval-budgets.ts',
+  'test/fixtures/module-size-ratchet.json', 'test/fixtures/skill-md-size-allowlist.json', 'test/state-root-ratchet.allowlist.json',
+];
 /** How many differing product paths a RECEIPT_CARRY_PRODUCT_CHANGED refusal names, and how far the per-path patch-id walk goes. */
 export const CARRY_NAMED_PATHS = 20;
 
@@ -274,6 +285,8 @@ export interface CarryPlanInput {
   stampedRows?: string[];
   /** A clean scoped re-check of the range-diff since the reviewed head (crew/lib/ship-recheck.ts, J1): the carry reason it adds. */
   recheck?: string;
+  /** A clean scoped fix-check of test hunks that removed or changed assertion lines since the reviewed head (lib/ship-carry-tests.ts, GST-2204): the carry reason it adds in place of "test-only change". */
+  testReview?: string;
 }
 export interface CarryRecord { from: string; reason: string; product_patch_id: string; changed_paths: string[]; merge_commits: number; range_diff: string; covers: string[]; reruns: string[]; trees?: string[]; ancestry?: 'linear' | 'rewritten' }
 export type CarryPlan = { ok: true; carry: CarryRecord } | { ok: false; code: 'RECEIPT_CARRY_PRODUCT_CHANGED' | 'RECEIPT_CARRY_REFUSED' | 'RECEIPT_CARRY_TREE_MISMATCH'; message: string };
@@ -328,6 +341,7 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
   if (extra.fragments && rel !== `${extra.fragments}/${FRAGMENT_README}` && matchesAny([`${extra.fragments}/*.md`], rel)) return 'metadata';
   if (matchesAny(extra.outputs ?? [], rel)) return 'generated';
   if (matchesAny(extra.metadata ?? [], rel)) return stamp() ? 'metadata' : 'product';
+  if (CARRY_GATE_TEST_PATHS.includes(rel)) return 'product';
   if (matchesAny(CARRY_TEST_GLOBS, rel)) return 'test';
   return 'product';
 }
@@ -342,17 +356,18 @@ export function classifyCarryPath(rel: string, extra: { metadata?: readonly stri
  * branch's own rows in a stamp file the branch also changed as product (`stampedRows`, GST-980).
  */
 export function planCarry(input: CarryPlanInput): CarryPlan {
-  if (input.productPatchId.from !== input.productPatchId.head && !input.recheck && (input.changedProduct.length || (!input.scopedReview && !input.stampedRows?.length))) {
+  if (!input.recheck && (input.changedProduct.length || (input.productPatchId.from !== input.productPatchId.head && !input.scopedReview && !input.stampedRows?.length))) {
     const named = input.changedProduct.slice(0, CARRY_NAMED_PATHS);
     return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `product diff changed between ${input.from.slice(0, 12)} and ${input.head.slice(0, 12)}: ${named.join(', ') || 'patch-id differs'}${input.changedProduct.length > named.length ? ` (+${input.changedProduct.length - named.length} more)` : ''}` };
   }
   const parent = input.retargetedFrom ?? input.stackParent?.slice(0, 12);
   const reasons: string[] = parent ? [`stack parent ${parent} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
-  if (input.recheck && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.recheck);
+  if (input.recheck && (input.productPatchId.from !== input.productPatchId.head || input.changedProduct.length)) reasons.push(input.recheck);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
-  if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
+  if (input.testReview) reasons.push(input.testReview);
+  else if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');
   if (input.changed.some(c => c.class === 'metadata')) reasons.push('release metadata');
   if (input.changed.some(c => c.class === 'generated')) reasons.push('regenerated outputs');
   if (!reasons.length) reasons.push(input.changed.length ? 'no product change' : 'no content change');
