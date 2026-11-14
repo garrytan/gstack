@@ -102,6 +102,34 @@ describe("gstack-redact oversize fails closed", () => {
     expect(code).toBe(3);
     expect(stdout).toContain("too large");
   });
+
+  test("--help documents the 16 MiB hard limit for --max-bytes", () => {
+    const { code, stdout } = run(["--help"], "");
+    expect(code).toBe(0);
+    expect(stdout).toContain("16 MiB");
+  });
+
+  test("--max-bytes over 16 MiB still scans small input (exit 0) while 16 MiB file ceiling still blocks", () => {
+    const { code } = run(["--max-bytes", "67108864"], "hello");
+    expect(code).toBe(0);
+  });
+
+  test("--from-file over 16 MiB names the 16 MiB limit and --max-bytes (exit 3)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-16m-"));
+    try {
+      const f = path.join(dir, "big.txt");
+      fs.writeFileSync(f, "");
+      fs.truncateSync(f, 16 * 1024 * 1024 + 1);
+      const proc = Bun.spawnSync(["bun", BIN, "--from-file", f], { timeout: 30_000 });
+      const stderr = proc.stderr.toString();
+      expect(proc.exitCode).toBe(3);
+      expect(stderr).toContain("16 MiB");
+      expect(stderr).toContain("--max-bytes");
+      expect(stderr).toContain("Split");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("gstack-redact argv dispatch", () => {

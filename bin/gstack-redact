@@ -21,7 +21,8 @@
  *   --repo-public-emails PATH    Newline-delimited repo-public emails to suppress
  *   --auto-redact IDS            Comma-separated finding ids to auto-redact;
  *                                prints the redacted body to stdout + diff to stderr.
- *   --max-bytes N                Override the fail-closed size cap (default 1 MiB).
+ *   --max-bytes N                Override the fail-closed size cap (default 1 MiB;
+ *                                hard ceiling 16 MiB — split larger inputs).
  *
  * Security note: this is a GUARDRAIL, not airtight enforcement. A determined
  * user can always bypass it (direct gh/git). It catches accidents.
@@ -156,7 +157,9 @@ function readInput(): string {
     const st = fs.statSync(file);
     if (st.size > MAX_STDIN_BYTES) {
       // Don't even read it — fail closed at the CLI boundary.
-      process.stderr.write(`gstack-redact: input file too large (${st.size} bytes)\n`);
+      process.stderr.write(
+        `gstack-redact: input file too large (${st.size} bytes; limit is 16 MiB and --max-bytes cannot raise it). Split the input and scan the parts.\n`,
+      );
       process.exit(3);
     }
     return fs.readFileSync(file, "utf8");
@@ -178,7 +181,9 @@ function readInput(): string {
     if (n === 0) break;
     total += n;
     if (total > MAX_STDIN_BYTES) {
-      process.stderr.write("gstack-redact: stdin too large\n");
+      process.stderr.write(
+        "gstack-redact: stdin too large (limit is 16 MiB and --max-bytes cannot raise it). Split the input and scan the parts.\n",
+      );
       process.exit(3);
     }
     chunks.push(Buffer.from(buf.subarray(0, n)));
@@ -257,7 +262,7 @@ function printUsage(code: number): never {
       "\n" +
       "Flags: --json --repo-visibility V --from-file PATH --allowlist PATH\n" +
       "       --self-email EMAIL --repo-public-emails PATH --auto-redact IDS\n" +
-      "       --max-bytes N\n" +
+      "       --max-bytes N (override 1 MiB cap; hard limit 16 MiB, split larger input)\n" +
       "\n" +
       "Exit: 0 clean · 1 usage error · 2 MEDIUM present · 3 HIGH present\n",
   );
