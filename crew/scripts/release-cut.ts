@@ -67,6 +67,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
+import { bucketClass } from '../../lib/ci-gate';
+import { headCheckRows } from '../../lib/ci-head-checks';
 
 export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
 
@@ -116,7 +118,11 @@ interface CheckRun { id?: number; name: string; status: string; conclusion: stri
 export interface TrainEvidence { bySha: Map<string, string>; byTree: Map<string, string>; release?: Map<string, string> }
 export interface GateOptions { requiredCheck?: string; backstopCheck?: string; evidence?: TrainEvidence; treeOf?: (sha: string) => string | null }
 
-/** Why a commit is not releasable, or green and through which evidence. */
+/**
+ * Why a commit is not releasable, or green and through which evidence. Red and running checks also come from CI at the commit as the
+ * merge queue reads it (lib/ci-head-checks.ts), so a failed check whose rerun attempt created no jobs, or a workflow run that failed
+ * before any job, is red here too (GST-2252).
+ */
 export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = {}): Verdict {
   const required = o.requiredCheck ?? REQUIRED_CHECK;
   const backstop = o.backstopCheck ?? BACKSTOP_CHECK;
@@ -146,10 +152,12 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
     if (named.length === 0) return { green: false, why: `no ${name} check run`, pending: false };
     return { green: false, why: `${name} concluded ${named.map(c => c.conclusion).join(',')}`, pending: false };
   }
-  const red = runs.filter(c => c.status === 'completed' && RED.has(c.conclusion ?? ''));
-  if (red.length > 0) return { green: false, why: `red check runs: ${[...new Set(red.map(c => c.name))].join(', ')}`, pending: false };
-  const running = runs.filter(c => c.status !== 'completed');
-  if (running.length > 0) return { green: false, why: `check runs still going: ${[...new Set(running.map(c => c.name))].join(', ')}`, pending: true };
+  const head = headCheckRows(gh, repo, sha);
+  if ('error' in head) return { green: false, why: 'cannot read its check runs', pending: false };
+  const red = [...runs.filter(c => c.status === 'completed' && RED.has(c.conclusion ?? '')).map(c => c.name), ...head.rows.filter(r => bucketClass(r.bucket) === 'fail').map(r => r.name)];
+  if (red.length > 0) return { green: false, why: `red check runs: ${[...new Set(red)].join(', ')}`, pending: false };
+  const running = [...runs.filter(c => c.status !== 'completed').map(c => c.name), ...head.rows.filter(r => r.bucket === 'pending').map(r => r.name)];
+  if (running.length > 0) return { green: false, why: `check runs still going: ${[...new Set(running)].join(', ')}`, pending: true };
   return { green: true, via };
 }
 

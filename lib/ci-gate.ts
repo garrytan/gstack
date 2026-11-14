@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { headCheckRows, type HeadCheckRow } from './ci-head-checks';
 import { MIN_POLL_MS, pollDelayMs, syncLimitEnv, withRateLimit } from './gh-poll';
 
 export type CiVerdict = 'PASS' | 'FAIL' | 'PENDING' | 'NO_CHECKS' | 'ERROR';
@@ -38,7 +39,11 @@ export const CI_GATE_USAGE = `gstack-ci-gate --repo OWNER/NAME --pr NUMBER --exp
 
 Decides whether a pull request's CI allows a merge of exactly SHA. Reads the
 PR head, gates on every check (required ones and all others), and re-reads the
-head afterwards; a moved head is ERROR.
+head afterwards; a moved head is ERROR. Besides gh pr checks, which lists only
+each check suite's latest attempt, it reads CI at SHA the way gstack-ship-queue
+ready does: a failed check whose rerun attempt created no jobs, and a workflow
+run that failed before creating any job ("<workflow> (run <id>, no jobs)"),
+count as failed.
 
 Output (stdout), always first:
   VERDICT <PASS|FAIL|PENDING|NO_CHECKS|ERROR> <sha>
@@ -106,7 +111,8 @@ export function parseChecks(result: GhResult): ChecksRead {
 interface Evaluation { verdict: Exclude<CiVerdict, 'ERROR'>; lines: string[] }
 type EvalOrError = Evaluation | { verdict: 'ERROR'; cause: string; stderr: string };
 
-export function evaluateChecks(required: GhResult, all: GhResult, excludes: string[]): EvalOrError {
+/** `head`: CI at the head from lib/ci-head-checks.ts, observed like the rest, so a check it reads worse than gh pr checks does gates. */
+export function evaluateChecks(required: GhResult, all: GhResult, excludes: string[], head: HeadCheckRow[] = []): EvalOrError {
   const allRead = parseChecks(all);
   if (allRead.kind === 'error') return { verdict: 'ERROR', cause: allRead.cause, stderr: allRead.stderr };
   if (allRead.kind === 'none-required') return { verdict: 'ERROR', cause: 'gh pr checks without --required reported no required checks', stderr: '' };
@@ -129,6 +135,7 @@ export function evaluateChecks(required: GhResult, all: GhResult, excludes: stri
   };
   for (const obs of allRead.kind === 'rows' ? allRead.rows : []) observe(obs);
   for (const obs of requiredRows) observe(obs);
+  for (const obs of head) observe({ ...obs, link: '' });
   if (rows.size === 0) return { verdict: 'NO_CHECKS', lines: notes.filter(n => !n.includes('no required checks')) };
 
   const excluded = new Set<string>();
@@ -180,12 +187,14 @@ function evaluateOnce(gh: GhRunner, opts: CiGateOptions): CiGateResult {
   const fields = ['--json', 'name,state,bucket,link'];
   const required = gh([...checkArgs, '--required', ...fields]);
   const all = gh([...checkArgs, ...fields]);
+  const head = headCheckRows(gh, opts.repo, opts.expectHead);
+  if ('error' in head) return fail(errorLines(head.error, ''));
   const after = readHead(gh, opts);
   if ('cause' in after) return fail(errorLines(after.cause, after.stderr));
   if (after.head !== before.head) {
     return fail([`HEAD ${after.head}`, 'CAUSE the PR head moved while checks were being read', 'FIX rerun /land-and-deploy from Step 1 for the new head']);
   }
-  const evaluation = evaluateChecks(required, all, opts.excludes);
+  const evaluation = evaluateChecks(required, all, opts.excludes, head.rows);
   if (evaluation.verdict === 'ERROR') return fail(errorLines(evaluation.cause, evaluation.stderr));
   return { verdict: evaluation.verdict, sha: opts.expectHead, lines: evaluation.lines };
 }
