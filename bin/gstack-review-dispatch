@@ -167,7 +167,7 @@ function render(): number {
   const sel = base && diffBase ? standaloneSelection(readerKey(role, name), base, diffBase, readers) : { reader: readerKey(role, name), exclude: flag('--exclude'), keep: parseTail(flag('--keep')).filter(s => s !== '--'), disclosure: flag('--disclosure') };
   const policyItems = parseTail(sel.exclude).filter(s => s.startsWith(':(top,exclude,glob)'));
   if (base && diffBase) {
-    const over = ceiling('gstack-review-dispatch render', base, out, [sel], diffBase, undefined);
+    const over = ceiling('gstack-review-dispatch render', base, out, [{ ...sel, role }], diffBase, undefined);
     if (over) { process.stderr.write(over.line + '\n'); return over.exit; }
     settleExcerpt(sel, diffBase, path.resolve(out));
     if (role === 'outside-voice') diff = branchDiff(diffBase, sel);

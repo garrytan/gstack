@@ -185,3 +185,39 @@ describe('every reader path builds its diff from the base policy\'s selection', 
     expect(sub).toBe(root);
   }, 120_000);
 });
+
+describe('the review-size ceiling on a standalone render', () => {
+  /** A plain change beside about 2.5 MB of data with no base policy, so every reader's selection is over the 2 MB ceiling. */
+  function large() {
+    const repo = makeFixtureRepo({ prefix: 'gstack-sel-big-' });
+    repos.push(repo);
+    const files: Record<string, string> = { 'lib/a.ts': 'export const a = 1;\n' };
+    for (let k = 0; k < 6; k++) files['data/t' + k + '.json'] = ('{"x": "' + 'y'.repeat(200) + '"}\n').repeat(2000);
+    commit(repo, files);
+    return { repo, mb: repo.git('merge-base', 'origin/main', 'HEAD') };
+  }
+
+  // Value: protects=the outside voice rendered on its own keeps its exemption from the 2 MB ceiling and gets a sliced diff;
+  //   fails_when=render's selection carries no role, so the ceiling's outside-voice exemption never matches and the render
+  //   stops at REVIEW_DIFF_TOO_LARGE (#4350 regression, GST-2632); why_new=GST-2632; seam=gstack-review-dispatch render on a
+  //   real repository; no_claim=the pass manifest's voices stage
+  test('the outside voice renders over the ceiling with a sliced diff', () => {
+    const { repo, mb } = large();
+    const out = path.join(repo.root, 'ov');
+    const r = render(repo, mb, out, 'outside-voice');
+    expect({ status: r.status, err: r.err }).toEqual({ status: EXIT.ok, err: '' });
+    expect(fs.statSync(path.join(out, 'outside-voice.diff')).size).toBeLessThanOrEqual(REVIEW_DIFF_MAX_BYTES);
+  }, 120_000);
+
+  // Value: protects=every other reader on the same standalone path is still refused over the ceiling; fails_when=the
+  //   outside voice's exemption widens to the reader rendered beside it; why_new=GST-2632; seam=gstack-review-dispatch render
+  //   on a real repository; no_claim=the wording of the refusal
+  test('a reader that is not the outside voice is still refused over the ceiling', () => {
+    const { repo, mb } = large();
+    const out = path.join(repo.root, 'rt');
+    const r = render(repo, mb, out, 'red-team', ['--findings-file', empty(repo), '--specialists', '1']);
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toContain('REVIEW_DIFF_TOO_LARGE');
+    expect(fs.existsSync(path.join(out, 'red-team.prompt.md'))).toBe(false);
+  }, 120_000);
+});
