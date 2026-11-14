@@ -12,8 +12,9 @@
  * Surface reality (verified against gbrain 0.42.x, not guessed):
  *  - `gbrain search "<q>"` prints TEXT lines `[score] slug -- snippet`, NOT JSON
  *    (so we parse the text surface; execGbrainJson would always null here).
- *  - The curated-memory source is the one whose local_path is the gstack brain
- *    worktree (`~/.gstack-brain-worktree`), id `default` by convention — NOT a
+ *  - The curated-memory source is the one GSTACK_BRAIN_SOURCE_ID names, when set;
+ *    otherwise the one whose local_path is the gstack brain worktree
+ *    (`~/.gstack-brain-worktree`), id `default` by convention — NOT a
  *    `gstack-brain-<user>` id. Scoping search to it keeps code/doc corpora out.
  */
 
@@ -30,9 +31,11 @@ export interface SemanticHit {
 }
 
 /**
- * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered — the
- * caller then searches unscoped (best-effort) rather than failing.
+ * Resolve the curated-memory source id. When GSTACK_BRAIN_SOURCE_ID is nonempty
+ * (the override gstack-gbrain-source-wireup and gstack-gbrain-sync honor), return
+ * it only if that source is registered, else null. When it is empty or unset,
+ * resolve the worktree-backed source. Also null when gbrain is down/unparseable;
+ * the caller then degrades to the file results and never searches unscoped.
  */
 export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
   const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: TIMEOUT_MS });
@@ -43,6 +46,8 @@ export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
   } catch {
     return null;
   }
+  const explicit = (env ?? process.env).GSTACK_BRAIN_SOURCE_ID;
+  if (explicit) return rows.some((s) => s.id === explicit) ? explicit : null;
   const atWorktree = rows.filter(
     (s) => typeof s.local_path === "string" && s.local_path.endsWith(BRAIN_WORKTREE_SUFFIX),
   );
@@ -82,9 +87,10 @@ export function semanticRecall(
   limit = 3,
 ): SemanticHit[] | null {
   if (!query.trim()) return null;
-  // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
-  // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
-  // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
+  // Require the curated-memory source. If it's absent (gbrain unavailable, the explicit
+  // id unregistered, or, with no explicit id, no worktree-backed source), degrade to
+  // null rather than searching UNSCOPED — an unscoped search pulls code/doc corpora
+  // that would be mislabeled as "related decisions" (Codex finding).
   const sourceId = resolveMemorySourceId(env);
   if (!sourceId) return null;
   const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: TIMEOUT_MS });
