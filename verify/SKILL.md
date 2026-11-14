@@ -164,8 +164,13 @@ C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" detect
 
 `detect` reads files only. It lists each check with its source, the pregate
 test selection, and `TRUST trusted|untrusted`. `CHECKS: none` means the repo declares no check,
-pregate policy or test file: there is nothing to run, so say so and stop. Never invent a
-command the repo does not declare.
+pregate policy or test file: there is nothing to run, so say so and stop. Report:
+"No checks declared; /verify ran nothing and does not vouch for this change."
+`run` exits 3 and `status` prints `NOT_READY` here, so `READY_FOR_SHIP` is never
+produced and step 3 does not apply. A check you ran yourself is not a gstack
+result; label it as yours. Offer once to declare one by adding
+`gstack:verify: <command>` to the repo's `CLAUDE.md`. Never invent a command the
+repo does not declare.
 
 When `untrusted`: in an interactive session, show the user the listed commands
 and ask before `"$C" trust`. In a session launched to run repo commands, pass
