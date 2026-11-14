@@ -253,6 +253,21 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout).toContain('NEXT: Step 4');
   });
 
+  // Value: protects=preflight prints the PR's review rounds from its body and the flags Step 9 passes to every plan (GST-2673); fails_when=a second /ship run on a PR starts its round count at zero;
+  //   why_new=R51 counted per run, so a PR pushed N times got 2N rounds; seam=gh, gstack-ship-receipt history; no_claim=carry's own refusal of --recheck (pr-round-cli, ship-recheck)
+  test('an open PR prints PR_REVIEW_HISTORY and the --prior-rounds flags from its body', () => {
+    const f = fx();
+    const run = (head: string, id: string) => ({ head, run: id, review_loop: { passes: 1, blocking_found: 0, deferred: 0, fix_checks: 1, rounds: 2 } });
+    const body = '## Summary\n\n```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, ...run('b'.repeat(40), 'r2') }) + '\n```\n\n```gstack-receipt-runs\n' + JSON.stringify(run('a'.repeat(40), 'r1')) + '\n```\n';
+    fs.writeFileSync(path.join(f.root, 'body.json'), JSON.stringify({ body }));
+    f.gh(`case "$*" in *"pr view"*) cat '${path.join(f.root, 'body.json')}';; *) echo 7;; esac`);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=4 cap=2 full=2 /);
+    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 4 --prior-full 2');
+    expect(lineOf(r.stdout, 'PR_REVIEW_ROUTE')).toMatch(/^PR_REVIEW_ROUTE: read-only \(the PR had 2 full review rounds; this head gets one read-only full review/);
+    expect(r.stdout).not.toMatch(/--recheck|drift_lines|recheck_blocked/);
+  });
+
   // Value: protects=the branch name reaches gh as one argv item, never through a shell; fails_when=a branch named with $(...) runs a command on the shipper's machine;
   //   why_new=GSTA-167 /ship review of #3633 (security, CRITICAL); seam=gh; no_claim=gh's own handling of the name
   test('a branch name with shell syntax is never executed', () => {

@@ -7075,34 +7075,52 @@ In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
 
 <a id="receipt-carry-recheck"></a>
-### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1)
+### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1, advice only)
 
 **Meaning.** The product diff changed since the receipt's head, so the receipt
-can't carry as it is. When the history is linear, the base is the one the
-receipt was reviewed against, and `git range-diff` of the reviewed range
-against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
-`crew/lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
-range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
-range-diff can clear it instead of a full second /ship. A rebased branch
+can't carry. When the history is linear, the base is the one the receipt was
+reviewed against, and `git range-diff` of the reviewed range against the
+current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
+`crew/lib/ship-recheck.ts`), carry also prints `RECHECK: advisory
+range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader may read
+that range-diff for advice, but it never carries the receipt. A rebased branch
 (`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
 `review_depth`, more than 20 changed product paths, a binary path, a moved
 base context section with over 200 of the branch's own +/- lines, an empty or unreadable range-diff and a
 packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
 When base context also moved next to reviewed hunks in other paths, their
-scoped-review sections join the same packet (GST-1561): the caps count the
-whole packet, `range_diff_sha256` binds all of it, and the RECHECK line's record
-adds `"range_base"`.
+scoped-review sections join the same packet (GST-1561), the caps count the
+whole packet, and the packet names its `range_base`.
 
-**Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
-`--dry-run` writes none). When it comes back clean, write
-`{"from":"<reviewed head>","head":"<HEAD>","range_diff_sha256":"<from the RECHECK line>","reader":"<model>","verdict":"clean"}`
-(plus `"range_base"` when the line's record names one; a record without it then
-refuses) and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
-reason records the reader and the range-diff size, and with moved context the
-context paths and `range_base`. Carry still refuses when
-HEAD needs a deeper review depth or a different risk class than the receipt
-recorded; that, or a blocking finding, means /ship on the new head. In /ship
-Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
+**Fix.** Run /ship on HEAD: its review plan gives the PR's final head a full
+review ([rounds per pull request](review-policy.md#rounds-per-pull-request)).
+The packet (`.git/gstack/recheck-<head12>.md`; `--dry-run` writes none) is
+advice for that run, never a substitute: in the replay behind this rule a
+diff-only re-check caught none of 8 real faults that full rounds had caught
+(GST-2673). `carry --recheck` is refused. In /ship Step 1,
+`gstack-ship-preflight` sends this head to Steps 2-16.
+
+<a id="pr-round-cap"></a>
+### `PR_ROUND_CAP`
+
+**Meaning.** `gstack-review-plan --prior-full <n>` found that this pull
+request already had its two full review rounds (R51), counted across every head and
+`/ship` run from the PR body's receipt history, so it planned no new round with a fix
+round. A PR at the cap whose own code changed gets one read-only full review of its
+final head; this stop then means that review found a blocker or a gate-class edit.
+`/ship` Step 1 prints the count as `PR_REVIEW_HISTORY:` and passes it on from
+`PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes
+listed instead of stopping.
+
+**Fix.** The lane's Captain decides. Ship with the open notes listed, or, when a finding above the floor is
+open in this PR's own change or the design changed, have the lane or Captain
+record one round with the command the `NEXT:` line prints,
+`gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason
+<why> --by <lane or Captain>`, then rerun `gstack-ship-preflight`: its
+`PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
+The grant names one head; a new push needs a new grant. This is not an owner
+ask, and gstack cannot grant itself one (`--by gstack` is refused)
+([review-policy.md](review-policy.md#rounds-per-pull-request)).
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

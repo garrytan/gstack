@@ -66,6 +66,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<run-id>': { grammar: NUM, what: 'GitHub Actions run id' },
   '<PID>': { grammar: NUM, what: 'process id printed by an earlier block' },
   '<RUN_ID>': { grammar: ID, what: 'run id printed by Setup' },
+  '<SESSION_ID>': { grammar: ID, what: "the /ship run id Step 1's gstack-ship-preflight --run took" },
   '<RUN_ID from Setup>': { grammar: ID, what: 'run id printed by Setup' },
   '<PHASE>': { grammar: oneOf('ceo', 'design', 'dx', 'eng'), what: 'autoplan phase' },
   '<VARIANT>': { grammar: /^[A-Z]$/, what: 'variant letter' },
