@@ -4361,8 +4361,11 @@ or re-moded, is still this error; `--explain` prints `not version-stamp-only (<r
 for it.
 A test the branch removed is usually not this error either: a deleted or
 renamed JS, TS, Python, Dart or bats test that nothing remaining imports prints
-`removed (no lane owed): <path> — <why>` instead. It runs the tests of files
-that still name it, and a deleted test runs its owning suite or says
+`removed (no lane owed): <path> — <why>` instead. Even when the removed test
+already maps to another test, pregate runs the tests of files that still name
+it. Keys under `.gstack/pregate.json`'s `dependencies` map paths rather than use
+them; test targets and other policy fields still count as references. An
+unmapped deletion also runs its owning suite or says
 `coverage removed: <file> has no remaining test`. These are still this error:
 a removed test that remaining code imports or that a file with no test still
 names, a deleted or renamed Go or Ruby test, a deleted test whose merge-base

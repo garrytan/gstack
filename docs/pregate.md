@@ -333,13 +333,17 @@ Two stages with separate clocks, both printed:
   test selects owes no lane, and prints `removed (no lane owed): <path> —
   <why>` (the `lanes` detail adds `N removed path(s)`), when it is a JS, TS,
   Python, Dart or bats test and no remaining file imports it (directly or
-  through a directory it reads; otherwise `still imported by …`). It runs
-  the tests of each remaining non-Markdown file that mentions its name
-  without the final extension anywhere (`alpha.test`, `test_alpha`:
-  a path with or without the extension, or a dotted module), such as a curation list (`files naming it run: …`), and fails closed when
-  such a file has no test (`still named by …, which no test covers`). A test
-  renamed to another test path then defers to its new name (`old name of
-  <new>`). A deleted test, or one renamed to a non-test path, also runs its
+  through a directory it reads; otherwise `still imported by …`). Whether or
+  not a removed test already maps to a test, pregate also runs the tests of
+  each remaining non-Markdown file that mentions its name without the final
+  extension anywhere (`alpha.test`, `test_alpha`: a path with or without the
+  extension, or a dotted module), such as a curation list
+  (`files naming it run: …`), and fails closed when such a file has no test
+  (`still named by …, which no test covers`). Keys under `.gstack/pregate.json`'s `dependencies`
+  map paths rather than use them; their test targets and other policy fields
+  still count as references. When no test already selects the removed path,
+  a rename to another test path defers to its new name (`old name of <new>`).
+  A deleted test, or one renamed to a non-test path, also runs its
   owning suite, the remaining tests that directly exercise the files its
   merge-base text exercised (`owning suite runs: …`; test helpers and
   fixtures are not subjects), and names each file left with no test at all
