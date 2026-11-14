@@ -388,8 +388,10 @@ export interface History {
   postReview?: boolean;
   /** In the loop, the CLI bound `granted` to the last fix-check's own stop head, its commit (--range-base): a new grant, never the previous link's. */
   chained?: boolean;
-  /** R51 rounds earlier /ship runs on this PR already spent (--prior-rounds from PR_REVIEW_HISTORY; GST-2673). */
+  /** R51 rounds earlier /ship runs on this PR already spent, fix-checks and scoped passes included (--prior-rounds; GST-2673): printed as pr_rounds=. */
   priorRounds?: number;
+  /** The full review rounds among them (--prior-full): the PR cap compares these plus this run's full passes with FULL_PASS_CAP, so a run's own fix rounds stay as the in-run table plans them. */
+  priorFull?: number;
   /** The lane's or Captain's recorded round grant at this head (--round-grant): one more round for the PR, never the owner's. */
   roundGrant?: string;
 }
@@ -427,13 +429,13 @@ export function nextStep(h: History, depth?: Depth): NextStep {
  * below-floor fix ships as notes and anything else stops with PR_ROUND_CAP for the lane or its Captain, never the owner.
  */
 function prCapped(h: History, n: NextStep): NextStep {
-  const prior = h.priorRounds ?? 0;
-  if (!prior || (n.step !== 'full' && n.step !== 'scoped' && n.step !== 'fix-check')) return n;
+  const prior = h.priorFull ?? 0;
+  if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const cap = FULL_PASS_CAP + (h.roundGrant ? 1 : 0);
-  const used = prior + h.fullPasses + (h.fixChecks ?? (h.last === 'fix-check' ? 1 : 0));
-  if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} review round${prior === 1 ? '' : 's'} on earlier heads, so this is round ${used + 1} of ${cap}` };
+  const used = prior + h.fullPasses;
+  if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads, so this is its full round ${used + 1} of ${cap}${used + 1 === cap ? ', the last' : ''}` };
   if (h.last !== 'none' && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate) return { step: 'done', reason: `PR round cap ${cap} reached (${prior} on earlier heads): the below-floor fixes ship as notes in the PR body and receipt` };
-  return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
+  return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} full review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
 }
 
 /**

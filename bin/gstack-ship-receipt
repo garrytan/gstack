@@ -1078,7 +1078,7 @@ function cmdHistory(rest: string[], json: boolean): number {
   const drift = repoRoot && head && h.first_full ? driftLines(repoRoot, h.first_full, head) : null;
   const grant = repoRoot && head && /^\d+$/.test(pr) ? grantAt(readReviewRoundGrants(repoRoot), Number(pr), head) : undefined;
   const route = reviewRoute(h, { drift, grant });
-  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds}${grant ? ` --round-grant ${grant.approval}` : ''}`;
+  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}`;
   if (json) { process.stdout.write(JSON.stringify({ pr, ...h, drift_lines: drift, grant: grant ?? null, route }) + '\n'); return EXIT.ok; }
   process.stdout.write(`${historyLine(pr, h, drift)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n`);
   return EXIT.ok;

@@ -263,7 +263,7 @@ describe('gstack-ship-preflight', () => {
     f.gh(`case "$*" in *"pr view"*) cat '${path.join(f.root, 'body.json')}';; *) echo 7;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=4 cap=2 full=2 /);
-    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 4');
+    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 4 --prior-full 2');
   });
 
   // Value: protects=the branch name reaches gh as one argv item, never through a shell; fails_when=a branch named with $(...) runs a command on the shipper's machine;

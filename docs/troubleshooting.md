@@ -7108,11 +7108,11 @@ the last full round routes to /ship ([rounds per pull
 request](review-policy.md#rounds-per-pull-request)). In /ship
 Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
 
-<a id="pr_round_cap"></a>
+<a id="pr-round-cap"></a>
 ### `PR_ROUND_CAP`
 
-**Meaning.** `gstack-review-plan --prior-rounds <n>` found that this pull
-request already had its two review rounds (R51), counted across every head and
+**Meaning.** `gstack-review-plan --prior-full <n>` found that this pull
+request already had its two full review rounds (R51), counted across every head and
 `/ship` run from the PR body's receipt history, so it planned no new round.
 `/ship` Step 1 prints the count as `PR_REVIEW_HISTORY:` and passes it on from
 `PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes

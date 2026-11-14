@@ -29,7 +29,7 @@ function repo() {
 describe('gstack-review-plan with the PR round count', () => {
   test('two prior rounds stop pass 1 with PR_ROUND_CAP and the exact grant command; a grant at HEAD plans the round', () => {
     const r = repo();
-    const stop = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--pr', '5']);
+    const stop = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '5']);
     expect(stop.status).toBe(0);
     expect(stop.stdout).toMatch(/REVIEW_PLAN: class=\S+ pass=0 pr_rounds=2 next=stop /);
     expect(stop.stdout).toContain('NEXT: stop (PR_ROUND_CAP:');
@@ -39,11 +39,11 @@ describe('gstack-review-plan with the PR round count', () => {
     expect(granted.status).toBe(0);
     const id = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(granted.stdout)?.[1];
     expect(id).toBeDefined();
-    const full = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--pr', '5', '--round-grant', id!]);
+    const full = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '5', '--round-grant', id!]);
     expect(full.stdout).toContain('next=full');
     expect(full.stdout).toContain('round 3 of 3');
-    expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--pr', '6', '--round-grant', id!]).status).toBe(3);
-    expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', 'x']).status).toBe(2);
+    expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '2', '--prior-full', '2', '--pr', '6', '--round-grant', id!]).status).toBe(3);
+    expect(r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-full', 'x']).status).toBe(2);
   });
 });
 
@@ -65,11 +65,11 @@ describe('gstack-ship-receipt history and stub', () => {
     const h = r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']);
     expect(h.status).toBe(0);
     expect(h.stdout).toMatch(/^PR_REVIEW_HISTORY: pr=#5 rounds=1 cap=2 full=1 /m);
-    expect(h.stdout).toContain('PR_REVIEW_FLAGS: --prior-rounds 1\n');
+    expect(h.stdout).toContain('PR_REVIEW_FLAGS: --prior-rounds 1 --prior-full 1\n');
     expect(h.stdout).toMatch(/^PR_REVIEW_ROUTE: (recheck|review) /m);
     const s = r.run('gstack-ship-receipt', ['stub', '--body', body, '--run', 'r2', '--review-loop', JSON.stringify({ ...loop, fix_checks: 1, rounds: 2 })]);
     expect(s.stdout).toContain('RUN_STUB: run=r2 status=started rounds=2');
-    expect(r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout).toContain('PR_REVIEW_FLAGS: --prior-rounds 3\n');
+    expect(r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout).toContain('PR_REVIEW_FLAGS: --prior-rounds 3 --prior-full 2\n');
     expect(fs.readFileSync(body, 'utf8').startsWith('## Summary\nprose\n')).toBe(true);
     expect(r.run('gstack-ship-receipt', ['stub', '--body', body]).status).toBe(2);
   });

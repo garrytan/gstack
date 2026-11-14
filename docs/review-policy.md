@@ -143,7 +143,8 @@ the `gstack-receipt-runs` block.
 1. **Count.** `gstack-ship-receipt history --pr <n>` adds up the rounds the body
    records (full passes, scoped passes and fix-checks; a run listed twice counts
    once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
-   --prior-rounds <n>` and `PR_REVIEW_ROUTE:`. `/ship` Step 1 prints all three.
+   --prior-rounds <rounds> --prior-full <full rounds>` and `PR_REVIEW_ROUTE:`.
+   `/ship` Step 1 prints all three.
    A clean scoped re-check that carried the receipt adds no round.
 2. **Runs that stop count too.** After each Step 9 pass, `gstack-ship-receipt
    stub --pr <n> --run <id> --review-loop <summary>` writes a `status: started`
@@ -153,7 +154,8 @@ the `gstack-receipt-runs` block.
 3. **Route.** On a PR with a review round, a new head takes the scoped re-check
    of what changed since the last reviewed head (the [carry
    re-check](troubleshooting.md#receipt-carry-recheck)), with the other results
-   carried forward. A review round is due instead when a round grant of kind
+   carried forward. A full round is due instead when carry can't re-check the
+   head (`RECHECK: not eligible`), when a round grant of kind
    `design-change` names the head, when two re-checks found a blocker since the
    last full round, or when the product diff drifted more than 400 lines
    (`PR_DRIFT_LINES`, tests and release metadata excluded) since the first full
@@ -161,11 +163,12 @@ the `gstack-receipt-runs` block.
 4. **A blocking re-check.** A re-check reader that finds a blocker writes
    `"verdict":"blocking"`; carry records it in the runs block and refuses. Fix,
    push and carry again. The second one routes to `/ship`.
-5. **Stop rule.** `gstack-review-plan --prior-rounds <n>` adds earlier rounds to
-   this run's. At the cap it stops with `PR_ROUND_CAP` and prints the exact
+5. **Stop rule.** `gstack-review-plan --prior-full <n>` adds the PR's earlier
+   full rounds to this run's full passes; fix-checks stay the in-run table's
+   call, and `--prior-rounds` is printed as `pr_rounds=`. At two it stops with `PR_ROUND_CAP` and prints the exact
    `gstack-approvals round-grant` command; a below-floor fix at the cap finishes
    with its notes listed. The stop is the lane's or Captain's call, never an
-   owner ask ([troubleshooting](troubleshooting.md#pr_round_cap)).
+   owner ask ([troubleshooting](troubleshooting.md#pr-round-cap)).
 6. **Round grant.** `gstack-approvals round-grant --pr <n> --head <sha> --kind
    design-change|extra-round --reason <why> --by <lane or Captain>` records one
    grant for one head. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant
