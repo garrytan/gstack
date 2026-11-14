@@ -1,0 +1,1 @@
+- `gstack-redact`: document the 16 MiB hard input ceiling in `--help` and oversize error messages.
