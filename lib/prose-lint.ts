@@ -101,7 +101,9 @@ const NUMERIC_SIDE = /^[$£€]?[+-]?\d|^v\d|^CODE$|^URL$|^(?:before|after)$/i;
 const LIST_INTRODUCER = /\b(?:examples?|following|these|this|below|measurements?|two|three|four|five|six)$/i;
 const trimSide = (s: string) => s.replace(/^[(\[`"'*_]+|[)\]`"'*_,.;:]+$/g, '');
 
-const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})/;
+// A backtick fence's info string has no backtick (CommonMark), so a line that opens with an inline code span such as
+// ````x```` is prose, not a fence. Indentation stays loose so a fence nested in a list item still masks its code.
+const FENCE_OPEN_RE = /^\s*(`{3,}(?=[^`]*$)|~{3,})/;
 const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})\s*$/;
 const pad = (m: string) => ' '.repeat(m.length);
 
