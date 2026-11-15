@@ -16,6 +16,7 @@ import {
   BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
+import type { NotesSources } from '../scripts/release-notes';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
