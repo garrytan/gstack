@@ -1,4 +1,0 @@
----
-important: regression
----
-- **`/plan-eng-review` is back as its own command (GST-2726).** Many people ran it on its own, and cutting it in GST-1698 took that away. `./setup` installs `/plan-eng-review` again on every host that had it before: Claude Code, Codex and the other external hosts, and OpenClaw's default skill list. If an earlier upgrade removed it, your next `./setup` or upgrade puts it back. The router sends "review the architecture" and "engineering review" requests to it again, and the office-hours handoff, the CEO, design and devex review chaining, `/ship`'s review dashboard and its over-200-lines hint name it again. `/autoplan` is unchanged: its eng phase still reads the same methodology, which external hosts still ship beside `gstack-autoplan/SKILL.md` as `plan-eng-review.md`, so `/autoplan` keeps working if you disable the standalone command. Its description no longer claims architecture-review requests, so those route to `/plan-eng-review`.
