@@ -2,7 +2,7 @@
 name: modernize
 preamble-tier: 2
 version: 0.1.0
-description: "Bring an aging PR onto its current base and decide: MODERNIZE, REWORK or CLOSE. (gstack)"
+description: "Bring an aging PR onto its current base and decide: MODERNIZE, REWORK or CLOSE. Use for: modernize this pr, rebase this old pr. (gstack)"
 triggers:
   - modernize this pr
   - rebase this old pr

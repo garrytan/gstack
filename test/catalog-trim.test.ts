@@ -225,6 +225,37 @@ describe('buildTrimmedDescription', () => {
     });
     expect(out).toBe('Lead with whitespace. (gstack)');
   });
+
+  // GSTA-558: a lead alone says what a skill is, not when to load it, so the Claude catalog keeps a when-to-use clause.
+  const parts = (lead: string, routingProse = '') => ({ lead, routingProse, voiceLine: null, hasGstackTag: true });
+
+  test('adds the triggers list as the when-to-use clause', () => {
+    const out = buildTrimmedDescription(parts('Pre-landing PR review.', 'Use when asked to review.'), ['review my changes', 'look over my diff']);
+    expect(out).toBe('Pre-landing PR review. Use for: review my changes, look over my diff. (gstack)');
+  });
+
+  test('keeps only the triggers that fit the clause cap', () => {
+    const out = buildTrimmedDescription(parts('Lead.'), ['first trigger here', 'second trigger here', 'third trigger here', 'fourth trigger here']);
+    expect(out).toBe('Lead. Use for: first trigger here, second trigger here. (gstack)');
+  });
+
+  test('without triggers, uses the "Use when" sentence from the routing prose', () => {
+    const out = buildTrimmedDescription(parts('Quick fix.', 'Applies a patch. Use when asked to fix it. Proactively suggest it.'));
+    expect(out).toBe('Quick fix. Use when asked to fix it. (gstack)');
+  });
+
+  test('a lead that is already the "Use when" sentence is not repeated', () => {
+    expect(buildTrimmedDescription(parts('Use when you review a diff.', 'Checks it.'))).toBe('Use when you review a diff. (gstack)');
+  });
+
+  test('without triggers or a "Use when" sentence, the lead stands alone', () => {
+    expect(buildTrimmedDescription(parts('A long lead sentence that says what the skill does.', 'More detail here.'))).toBe('A long lead sentence that says what the skill does. (gstack)');
+  });
+
+  test('a lead that fills the catalog line gets no clause', () => {
+    const lead = 'x'.repeat(200) + '.';
+    expect(buildTrimmedDescription(parts(lead), ['review my changes'])).toBe(lead + ' (gstack)');
+  });
 });
 
 describe('applyCatalogTrim', () => {
@@ -254,7 +285,10 @@ Original body content here.
     // The body gains no routing section: Claude Code reads a skill body only
     // after invocation, so routing prose there routes nothing.
     expect(content).not.toContain('## When to invoke this skill');
-    expect(content).not.toContain('Use when asked to do an example task.');
+    expect(content.slice(content.indexOf('\n---', 4))).not.toContain('Use when asked to do an example task.');
+    // The catalog line keeps the when-to-use sentence (GSTA-558) and drops the rest of the routing prose.
+    expect(content).toMatch(/^description: "?Example skill:[^\n]*\. Use when asked to do an example task\. \(gstack\)"?\n/m);
+    expect(content).not.toContain('Proactively suggest');
     // Original body still present
     expect(content).toContain('# Example body');
     expect(content).toContain('Original body content here.');

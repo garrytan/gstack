@@ -2,7 +2,7 @@
 name: plan-ceo-review
 preamble-tier: 3
 version: 1.0.0
-description: CEO/founder-mode plan review. (gstack)
+description: "CEO/founder-mode plan review. Use for: think bigger, expand scope, strategy review. (gstack)"
 allowed-tools:
   - Read
   - Grep

@@ -3,7 +3,7 @@ name: review
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Use when you review this PR's diff.
+  Use when you review a diff before it lands: local changes, a branch or a PR.
   Checks it for SQL safety, LLM trust boundaries, conditional side effects and
   bugs that pass CI and break production. Fits "look over my diff", "review my
   changes", "code review", "check my diff" or "pre-landing review".
@@ -20,11 +20,11 @@ allowed-tools:
   - AskUserQuestion
   - WebSearch
 triggers:
-  - review this pr
+  - review my changes
   - look over my diff
+  - review this pr
   - code review
   - check my diff
-  - review my changes
   - pre-landing review
 contract:
   version: 1

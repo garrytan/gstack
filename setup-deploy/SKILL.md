@@ -2,7 +2,7 @@
 name: setup-deploy
 preamble-tier: 2
 version: 1.0.0
-description: Configure deployment settings for /land-and-deploy.
+description: "Configure deployment settings for /land-and-deploy. Use for: configure deploy, setup deployment."
 triggers:
   - configure deploy
   - setup deployment

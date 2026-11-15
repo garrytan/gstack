@@ -2,7 +2,7 @@
 name: qa
 preamble-tier: 4
 version: 2.0.0
-description: Use when you test the site, API or CLI and fix bugs. (gstack)
+description: "Use when you test the site, API or CLI and fix bugs. Use for: qa test this, find bugs on site, test the site. (gstack)"
 allowed-tools:
   - Bash
   - Read

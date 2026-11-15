@@ -2,7 +2,7 @@
 name: design-motion
 preamble-tier: 2
 version: 1.0.0
-description: "Design motion: animate an approved design into a seamless MP4 and GIF loop. (gstack)"
+description: "Design motion: animate an approved design into a seamless MP4 and GIF loop. Use for: animate this design, make a showcase loop. (gstack)"
 triggers:
   - animate this design
   - make a showcase loop

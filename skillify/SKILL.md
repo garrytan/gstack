@@ -2,7 +2,7 @@
 name: skillify
 preamble-tier: 2
 version: 1.0.0
-description: Codify the most recent successful /scrape flow into a permanent browser-skill on disk. (gstack)
+description: "Codify the most recent successful /scrape flow into a permanent browser-skill on disk. Use for: skillify, codify this scrape, save this scrape. (gstack)"
 allowed-tools:
   - Bash
   - Read

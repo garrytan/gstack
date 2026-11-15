@@ -2,7 +2,7 @@
 name: write-skill
 preamble-tier: 2
 version: 0.1.0
-description: "Write a new agent skill or improve one without bloat: the edit ladder, levels, drift and size checks, full diets. (gstack)"
+description: "Write a new agent skill or improve one without bloat: the edit ladder, levels, drift and size checks, full diets. Use for: write a skill, improve this skill. (gstack)"
 triggers:
   - write a skill
   - improve this skill

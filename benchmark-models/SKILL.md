@@ -2,7 +2,7 @@
 name: benchmark-models
 preamble-tier: 1
 version: 1.0.0
-description: Cross-model benchmark for gstack skills. (gstack)
+description: "Cross-model benchmark for gstack skills. Use for: cross model benchmark, compare claude gpt gemini. (gstack)"
 triggers:
   - cross model benchmark
   - compare claude gpt gemini

@@ -2,7 +2,7 @@
 name: scrape
 preamble-tier: 1
 version: 2.0.0
-description: Pull data from a web page through the Aside browser — your real, already signed-in sessions. (gstack)
+description: "Pull data from a web page through the Aside browser — your real, already signed-in sessions. Use for: scrape this page, get data from, pull from. (gstack)"
 allowed-tools:
   - Bash
   - Read

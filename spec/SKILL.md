@@ -2,7 +2,7 @@
 name: spec
 preamble-tier: 3
 version: 0.1.0
-description: Turn vague intent into a precise, executable spec in five phases. (gstack)
+description: "Turn vague intent into a precise, executable spec in five phases. Use for: spec this out, file an issue, write up a ticket. (gstack)"
 allowed-tools:
   - Bash
   - Read

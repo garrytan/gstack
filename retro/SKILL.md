@@ -2,7 +2,7 @@
 name: retro
 preamble-tier: 2
 version: 2.0.0
-description: Weekly engineering retrospective. (gstack)
+description: "Weekly engineering retrospective. Use for: weekly retro, what did we ship. (gstack)"
 allowed-tools:
   - Bash
   - Read

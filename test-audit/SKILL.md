@@ -2,7 +2,7 @@
 name: test-audit
 preamble-tier: 2
 version: 1.0.0
-description: Find low-value or duplicate tests and the test-only code they keep alive. (gstack)
+description: "Find low-value or duplicate tests and the test-only code they keep alive. Use for: audit the test suite, find low-value tests. (gstack)"
 triggers:
   - audit the test suite
   - find low-value tests

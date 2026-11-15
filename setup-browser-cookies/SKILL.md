@@ -2,7 +2,7 @@
 name: setup-browser-cookies
 preamble-tier: 1
 version: 1.0.0
-description: Import cookies from your real Chromium browser into the headless browse session. (gstack)
+description: "Import cookies from your real Chromium browser into the headless browse session. Use for: import browser cookies, login to test site. (gstack)"
 triggers:
   - import browser cookies
   - login to test site

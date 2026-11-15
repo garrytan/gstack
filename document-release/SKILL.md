@@ -2,7 +2,7 @@
 name: document-release
 preamble-tier: 2
 version: 1.0.0
-description: Release documentation audit. (gstack)
+description: "Release documentation audit. Use for: update docs after ship, document what changed. (gstack)"
 allowed-tools:
   - Bash
   - Read
