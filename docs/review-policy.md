@@ -859,8 +859,8 @@ and a later reader agree on what was flagged:
 <a id="porting-a-contributors-work"></a>
 ## Crediting a contributor's lines
 
-Outside PRs are rewritten from main rather than ported
-([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
+Outside PRs, other than docs-only PRs for people, are rewritten from main rather than
+ported ([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
 carries a contributor's lines over unchanged, the commit that carries them credits them.
 Pass the contributor's PR commits as the range, fetched as a ref and never checked out
 (`git fetch origin +pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`;

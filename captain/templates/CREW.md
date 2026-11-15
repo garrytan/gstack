@@ -108,8 +108,9 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 17. **New files follow `REPO_CONVENTIONS`.** Home: the repository's AGENTS.md.
 
-18. **Outside PRs are bug reports.** A verdict within 7 days; a real bug is rewritten on
-    main with credit, and no contributor commit enters the tree. Home: `crew/docs/captain.md`
+18. **Outside PRs are bug reports.** A reply within 48 hours and a verdict within 7 days;
+    a real fix is rewritten on main with credit. Only a docs-only PR for people merges as
+    it is, after a text read of every link, command and install step. Home: `crew/docs/captain.md`
     (Contributions from outside the crew).
 
 19. **CHANGELOG-only conflicts** are the train's, not yours (folded into 14). Home:
