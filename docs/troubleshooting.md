@@ -4836,7 +4836,7 @@ lowered. The rule is in
 ### `EVAL_REPORT_UNPLANTED_ZERO`
 
 **Meaning.** `gstack-eval-plan results --check` found a zero (`0`, `0%`,
-`0/N`) in a column of the arm table, and the preregistration's
+`0/N`) in a column of any results table, and the preregistration's
 `## Diagnostics` declares no counter by that column's name with a planted
 case (`expected` of 1 or more). A counter that never fires also reports zero,
 so a zero from a counter nobody saw find anything proves nothing.

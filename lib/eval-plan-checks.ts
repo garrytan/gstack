@@ -106,7 +106,7 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string): Jud
     if (!line.trim()) return;
     let row: { id?: unknown; human?: unknown; judge?: unknown } | null = null;
     try { row = JSON.parse(line); } catch { row = null; }
-    if (!row || typeof row !== 'object' || row.id === undefined || row.human === undefined || row.judge === undefined) { problems.push(`line ${i + 1}: needs {"id", "human", "judge"}`); return; }
+    if (!row || typeof row !== 'object' || ![row.id, row.human, row.judge].every(v => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number' || typeof v === 'boolean')) { problems.push(`line ${i + 1}: needs {"id", "human", "judge"}, each a string, number or boolean`); return; }
     if (ids.has(String(row.id))) { problems.push(`id ${String(row.id)} is labelled twice`); return; }
     ids.add(String(row.id));
     pairs.push([String(row.human), String(row.judge)]);

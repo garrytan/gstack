@@ -281,8 +281,9 @@ leaves the run (a report, a READY block, a PR body), check it:
 - `EVAL_REPORT_NO_GSTACK_ROW` names the arm whose filled row is missing from the table
   that holds the others; add it. A preregistration with `stack: none` needs no row.
 - `EVAL_JUDGE_UNCHECKED`: a model judge's numbers count only with `--labels` passing.
-- `EVAL_REPORT_UNPLANTED_ZERO`: a zero in the arm table, in a column not named after a
-  Diagnostics counter with a planted case. Declare and run it, or drop the zero.
+- `EVAL_REPORT_UNPLANTED_ZERO`: a zero in any results table, in a column not named after
+  a Diagnostics counter with a planted case. Declare and run it, or report the zero as
+  unverified, outside the tables.
 - `EVAL_REPORT_NO_ANSWER_ONLY`: a failures column needs an `answer-only` column beside
   it (failures by the grader's own rule on the final answer); a broader count can rise
   while that one stays flat.

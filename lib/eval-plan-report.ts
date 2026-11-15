@@ -57,17 +57,20 @@ export function checkResults(preregText: string, resultsText: string, labelsText
   }
   let judge: JudgeLabelCheck | null = null;
   if (!prereg.grandfathered) {
+    for (const [section, errors] of [['Decisions', prereg.decisions.errors], ['Scoring', prereg.scoring.errors]] as const) {
+      for (const e of errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${section}: ${e}` });
+    }
     if (prereg.scoring.judge && prereg.scoring.judge.toLowerCase() !== 'none') {
       judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText);
       if (!judge) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: `the preregistration names judge ${prereg.scoring.judge}; pass --labels <hand labels.jsonl>` });
       else if (!judge.ok) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: judge.problems.join('; ') });
     }
     const planted = new Set((prereg.diagnostics?.expected ?? []).filter(e => e.count >= 1).map(e => e.name.toLowerCase()));
-    best?.header.forEach((name, col) => {
-      if (col === 0 || planted.has(name.toLowerCase()) || !best.rows.some(r => ZERO.test(r[col] ?? ''))) return;
-      issues.push({ code: 'EVAL_REPORT_UNPLANTED_ZERO', message: `column "${name}" of the arm table reports a zero, and no Diagnostics counter by that name was shown to find a planted case` });
-    });
     for (const t of tables) {
+      t.header.forEach((name, col) => {
+        if (col === 0 || planted.has(name.toLowerCase()) || !t.rows.some(r => ZERO.test(r[col] ?? ''))) return;
+        issues.push({ code: 'EVAL_REPORT_UNPLANTED_ZERO', message: `column "${name}" reports a zero, and no Diagnostics counter by that name was shown to find a planted case` });
+      });
       const failures = t.header.filter(h => /\bfail/i.test(h) && !/answer[- ]only/i.test(h));
       if (failures.length && !t.header.some(h => /answer[- ]only/i.test(h))) issues.push({ code: 'EVAL_REPORT_NO_ANSWER_ONLY', message: `column "${failures[0]}" counts failures with no answer-only column beside it in the same table` });
     }

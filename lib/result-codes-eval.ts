@@ -38,7 +38,7 @@ export const EVAL_RESULT_CODES = {
   },
   EVAL_REPORT_UNPLANTED_ZERO: {
     anchor: 'eval-report-unplanted-zero',
-    summary: 'a column of the arm table reports a zero, and the preregistration never showed the counter behind it finding a planted case',
+    summary: 'a column of a results table reports a zero, and the preregistration never showed the counter behind it finding a planted case',
     fix: 'declare the counter under ## Diagnostics with a synthetic fixture that plants at least one case (expected 1 or more), run prereg --check --allow-repo-commands, and name the column after the diagnostic',
   },
   EVAL_REPORT_NO_ANSWER_ONLY: {

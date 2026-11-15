@@ -68,7 +68,7 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
   pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
   results --check <prereg> <results.md> [--labels labels.jsonl] [--json]
                                      one table in the results file has a filled row for every Arms identity, each no-gstack arm
-                                     beside its variants; a model judge's labels pass; a zero in the arm table comes from a
+                                     beside its variants; a model judge's labels pass; a zero in any results table comes from a
                                      Diagnostics counter with a planted case; a failures column has an answer-only column beside
                                      it; reads text only (docs/TESTING_INTERNALS.md#result-checks)
   judge --check <prereg> --labels labels.jsonl [--json]

@@ -93,6 +93,13 @@ describe('judge labels', () => {
     expect(checkJudgeLabels(scoring, labels(40) + labels(1)).problems).toContain('id item-0 is labelled twice');
     expect(checkJudgeLabels({ ...scoring, labels: 60 }, labels(40)).problems).toEqual(['40 labelled outputs, needs 60']);
   });
+
+  test('a row whose id, human or judge value is null, an object or empty does not count toward the bar', () => {
+    const bad = ['{"id": "x-1", "human": null, "judge": "pass"}', '{"id": "x-2", "human": "pass", "judge": {"v": 1}}', '{"id": {}, "human": "pass", "judge": "pass"}', '{"id": "x-4", "human": "", "judge": "pass"}'];
+    const r = checkJudgeLabels(scoring, labels(39) + bad.join('\n') + '\n');
+    expect(r).toMatchObject({ ok: false, n: 39 });
+    expect(r.problems.filter(p => p.includes('each a string, number or boolean'))).toHaveLength(4);
+  });
 });
 
 describe('results --check: the result checks', () => {
@@ -112,6 +119,19 @@ describe('results --check: the result checks', () => {
     expect(checkResults(prereg({ scoring: SCORING('none'), diagnostics: diag(5) }), zero).ok).toBe(true);
     for (const cell of ['0%', '0/9', '0.0']) expect(checkResults(prereg({ scoring: SCORING('none') }), zero.replace('| 0 |', `| ${cell} |`)).ok, cell).toBe(false);
     expect(checkResults(prereg({ scoring: SCORING('none') }), zero.replace('| 0 |', '| 0/6/3 |')).ok).toBe(true);
+  });
+
+  test('a zero in any table counts, not only the table that holds the arms', () => {
+    const arms = table('| arm | skill opens |', '| claude-opus-5-5 | 4 |', '| claude-opus-5-5#plain | 2 |');
+    const other = table('| task | timeouts |', '| t1 | 0 |');
+    expect(checkResults(prereg({ scoring: SCORING('none') }), arms + '\n' + other).issues).toEqual([{ code: 'EVAL_REPORT_UNPLANTED_ZERO', message: 'column "timeouts" reports a zero, and no Diagnostics counter by that name was shown to find a planted case' }]);
+  });
+
+  test('with stack: none, Decisions and Scoring errors still refuse the results', () => {
+    const r = checkResults(prereg({ scoring: SCORING('claude-fable-5-2') }), ROWS, labels(40));
+    expect(r.ok).toBe(false);
+    expect(r.issues.filter(i => i.code === 'PREREG_INCOMPLETE').map(i => i.message)).toEqual(['## Scoring: judge claude-fable-5-2 is the same model family (anthropic) as arm claude-opus-5-5; use a judge from another family', '## Scoring: judge claude-fable-5-2 is the same model family (anthropic) as arm claude-opus-5-5#plain; use a judge from another family']);
+    expect(checkResults(prereg({ decisions: '## Decisions\n- we will learn a lot\n' }), ROWS, labels(40)).issues.map(i => i.code)).toContain('PREREG_INCOMPLETE');
   });
 
   test('a failures column needs an answer-only column in the same table', () => {
