@@ -392,17 +392,17 @@ describe('office-hours fixture completion', () => {
     expect(() => validateOfficeHoursCompletion({ ...completed(), output: noDecline })).toThrow('declined downstream launch');
   });
 
-  test('accepts every next skill the handoff menu offers and rejects the retired /plan-eng-review', () => {
-    // #4108 moved the default recommendation to /autoplan; run 42371706491 failed a
-    // correct /autoplan handoff against the old list.
+  test('accepts every next skill the handoff menu offers, and /autoplan', () => {
+    // Run 42371706491 failed a correct handoff against a stale list; the menu
+    // offers /plan-eng-review again since GST-2726, and /autoplan stays valid.
     const menu = fs.readFileSync(path.join(import.meta.dir, '..', 'office-hours', 'sections', 'design-and-handoff.md'), 'utf8');
     const offered = [...menu.matchAll(/^[A-C]\) Run (\/[\w-]+) now/gm)].map(match => match[1]);
-    expect(offered).toEqual(['/autoplan', '/plan-ceo-review', '/plan-design-review']);
-    for (const skill of offered) {
+    expect(offered).toEqual(['/plan-eng-review', '/plan-ceo-review', '/plan-design-review']);
+    for (const skill of [...offered, '/autoplan']) {
       expect(() => validateOfficeHoursCompletion({ ...completed(), output: report.replace('Next: /autoplan', `Next: ${skill}`) })).not.toThrow();
     }
-    const retired = report.replace('Next: /autoplan', 'Next: /plan-eng-review');
-    expect(() => validateOfficeHoursCompletion({ ...completed(), output: retired })).toThrow('next-skill recommendation');
+    const unknown = report.replace('Next: /autoplan', 'Next: /plan-qa-review');
+    expect(() => validateOfficeHoursCompletion({ ...completed(), output: unknown })).toThrow('next-skill recommendation');
   });
 });
 

@@ -67,14 +67,15 @@ function findInteractiveSkills(): string[] {
 /**
  * Scan a test file's contents for any of the supported real-interactive
  * coverage patterns. Either: direct canUseTool usage in runAgentSdkTest,
- * the legacy plan-mode-helpers wrapper, or the new real-PTY observation
- * helper.
+ * the legacy plan-mode-helpers wrapper, or a real-PTY helper that answers
+ * the skill's native questions (observation or counting).
  */
 function hasCanUseToolCoverage(testFile: string): boolean {
   const content = fs.readFileSync(testFile, 'utf-8');
   if (content.includes('canUseTool')) return true;
   if (content.includes('runPlanModeSkillTest')) return true;
   if (content.includes('runPlanSkillObservation')) return true;
+  if (content.includes('runPlanSkillCounting')) return true;
   return false;
 }
 

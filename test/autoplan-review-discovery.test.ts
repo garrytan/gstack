@@ -8,12 +8,12 @@ import { ALL_HOST_CONFIGS } from '../hosts';
 import { generateAutoplanReviewFile } from '../scripts/resolvers/composition';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { E2E_TOUCHFILES } from './helpers/touchfiles';
-import { RETIRED_SKILLS } from '../scripts/discover-skills';
+import { AUTOPLAN_SIBLING_METHODOLOGIES } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const REVIEWS = ['plan-ceo-review', 'plan-design-review', 'plan-devex-review', 'plan-eng-review'];
-/** External hosts: a retired review ships beside gstack-autoplan/SKILL.md as <review>.md (GST-1698). */
-const externalRef = (review: string) => RETIRED_SKILLS.includes(review) ? `${review}.md` : `../gstack-${review}/SKILL.md`;
+/** External hosts: /autoplan reads a sibling methodology beside gstack-autoplan/SKILL.md as <review>.md (GST-1698). */
+const externalRef = (review: string) => AUTOPLAN_SIBLING_METHODOLOGIES.includes(review) ? `${review}.md` : `../gstack-${review}/SKILL.md`;
 let owned: string;
 let rendered: string;
 
@@ -78,8 +78,8 @@ describe('autoplan reads installed host methodology', () => {
         // Read the path actually emitted in the entrypoint. Resolving it from
         // the installed entrypoint works for copied installs and symlinked ones.
         const refs = [...body.matchAll(/`(\.\.\/gstack-plan-[a-z-]+\/SKILL\.md)`/g)].map(match => match[1]!);
-        expect([...new Set(refs)].sort()).toEqual(REVIEWS.filter(name => !RETIRED_SKILLS.includes(name)).map(externalRef).sort());
-        for (const name of REVIEWS.filter(review => RETIRED_SKILLS.includes(review))) {
+        expect([...new Set(refs)].sort()).toEqual(REVIEWS.filter(name => !AUTOPLAN_SIBLING_METHODOLOGIES.includes(name)).map(externalRef).sort());
+        for (const name of REVIEWS.filter(review => AUTOPLAN_SIBLING_METHODOLOGIES.includes(review))) {
           expect(body).toContain(`the file \`${name}.md\` in the installed \`/autoplan\` SKILL.md directory`);
           expect(body).not.toContain(`gstack-${name}/SKILL.md`);
         }
