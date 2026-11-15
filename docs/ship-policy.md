@@ -2690,9 +2690,9 @@ body plain: they become main's history.
   exit code.
 - **Migration collisions.** Two PRs can add the same migration number and both
   pass CI, and land doesn't look at migrations. The check is
-  `gstack-pregate regate` with the policy's `migrations` key set, which
-  compares the branch's new numbers with main and every open PR
-  ([regate](pregate.md#regate)).
+  `gstack-pregate regate --against <gated head> --bundle <evidence-bundle.json> --pr <n>`
+  with the policy's `migrations` key set, which compares the branch's new
+  numbers with main and every open PR ([regate](pregate.md#regate)).
 - **`bump`.** Without `changelog_fragments`, the default `bump: ask` stops
   an unattended /ship at `BUMP_ANSWER_REQUIRED`, so a repo on the fallback
   sets `"bump": "patch"`. With fragments a PR never writes a version and
