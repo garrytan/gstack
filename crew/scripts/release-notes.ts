@@ -105,7 +105,7 @@ export function changeLine(text: string): string {
   const bold = /^\*\*(.+?)\*\*/.exec(text);
   const lead = bold && /[.!?]["')`]*$/.test(bold[1]!.trim()) ? bold[1]! : firstSentence(text);
   return lead.replace(/\*\*/g, '')
-    .replace(/\s*\((?:[A-Z][A-Z0-9]*-\d+)[^()]*\)/g, '')
+    .replace(/\s*\((?!CVE-|GHSA-)(?:[A-Z][A-Z0-9]*-\d+)[^()]*\)/g, '')
     .replace(/\b([Oo])utside voice/g, (_, o: string) => (o === 'O' ? 'S' : 's') + 'econd-model review')
     .replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
 }

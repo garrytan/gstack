@@ -363,7 +363,7 @@ export interface Plan {
   exception: Exception | null; floor: Floor; ridingAlong: number;
 }
 export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'NO_RELEASE_PR' | 'NOTES_MISSING' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
-/** `sha` names the candidate on NO_RELEASE_PR, which comes after the candidate was picked but before a plan exists. */
+/** `sha` names the candidate on NO_RELEASE_PR and NOTES_MISSING, which come after the candidate was picked but before a plan exists. */
 export type PlanResult = { ok: true; plan: Plan } | { ok: false; code: RefusalCode; message: string; skipped?: string[]; next?: string; plan?: Plan; sha?: string };
 
 export interface PlanOptions {
@@ -554,7 +554,7 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
 /**
  * The daily check (--daily, crew/scripts/release-cadence.ts): plan at the 24-hour important floor, then let
  * decideDaily pick the trigger, if any; NO_RELEASE_PR becomes a blocked decision only when a trigger
- * is due. decision is null when the plan's refusal stands on its own (a freeze, nothing green,
+ * is due, and NOTES_MISSING stops only a cut decision (no version to cut today needs no notes). decision is null when the plan's refusal stands on its own (a freeze, nothing green,
  * FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated commit); lines then say which
  * important changes are still waiting on the gate. A plan that cleared while the daily check itself
  * cannot date stable is held as FLOOR_UNKNOWN, so a null decision never reaches a cut.
@@ -568,7 +568,7 @@ export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned
   const noReleasePr = !planned.ok && planned.code === 'NO_RELEASE_PR';
   const sha = planned.ok ? planned.plan.sha
     : planned.code === 'REFUSED_FLOOR' ? planned.plan?.sha
-    : noReleasePr ? planned.sha
+    : noReleasePr || (!planned.ok && planned.code === 'NOTES_MISSING') ? planned.sha
     : planned.code === 'NOTHING_NEW' ? prev ?? undefined
     : undefined;
   const moved = prev ? stableMovedAt(git, gh, repo, prev) : null;

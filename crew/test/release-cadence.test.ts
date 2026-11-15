@@ -297,4 +297,34 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     expect(ref.status).toBe(2);
     expect(ref.stderr).toContain('--daily picks its own candidate');
   });
+
+  // Value: protects=no version to cut today needs no notes: a stamped version whose CHANGELOG lacks its entry leaves a day with no due trigger green,
+  // and only a due cut refuses NOTES_MISSING; fails_when=the daily check goes red on a quiet day because the notes were built before the decision, or a
+  // due cut publishes without notes; why_new=planDaily dropped the candidate on NOTES_MISSING, so no decision ran; seam=gh shim on PATH, real bare origin;
+  // no_claim=GitHub's API or a real gh
+  test('a version with no CHANGELOG entry stays green on a day with no due trigger and refuses NOTES_MISSING only when a cut is due', () => {
+    const r = repo(30);
+    const shim = path.join(r.root, 'shim');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN }]) + '\' ;;\n  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    const env: Record<string, string | undefined> = { ...process.env, PATH: shim + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
+    for (const k of ['GITHUB_EVENT_NAME', 'GITHUB_STEP_SUMMARY']) delete env[k];
+    const run = () => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), '--repo', 'o/r', '--daily'],
+      { cwd: r.work, encoding: 'utf8', timeout: 60_000, env });
+
+    r.commit('release 1.0.1', { VERSION: '1.0.1\n' });
+    r.refresh();
+    const quiet = run();
+    expect(quiet.status, quiet.stdout + quiet.stderr).toBe(0);
+    expect(quiet.stdout.split('\n')[0]).toStartWith('DAILY: no-op: nothing important since stable');
+    expect(quiet.stdout).not.toContain('NOTES_MISSING');
+
+    r.commit('fix the tar path (#4101)', { 'changelog.d/fix.md': '---\nimportant: security\n---\n- tar\n' });
+    r.refresh();
+    const due = run();
+    expect(due.status, due.stdout + due.stderr).toBe(1);
+    expect(due.stdout.split('\n')[0]).toStartWith('DAILY: cut (important: security in #4101');
+    expect(due.stdout).toContain('NOTES_MISSING: CHANGELOG.md at the release has no entry for v1.0.1');
+    expect(due.stdout).toContain('::error title=release-cut NOTES_MISSING::');
+  });
 });

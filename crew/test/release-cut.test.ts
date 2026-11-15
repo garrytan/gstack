@@ -16,7 +16,7 @@ import {
   BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
-import type { NotesSources } from '../scripts/release-notes';
+import { changeLine, type NotesSources } from '../scripts/release-notes';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
@@ -1261,6 +1261,14 @@ describe('release-cut: notes', () => {
     expect(notes.body).not.toContain('Already released.');
     expect(compareVersions('1.91.221.0', '1.91.99.0')).toBeGreaterThan(0);
     expect(compareVersions('1.91.9.0', '1.91.10.0')).toBeLessThan(0);
+  });
+
+  // Value: protects=a security fix's release line keeps its CVE or GHSA advisory id while internal issue codes still drop; fails_when=the issue-code
+  // stripper removes an advisory id; why_new=the stripper matched any CODE-123 in parentheses; seam=none; no_claim=GitHub's advisory formats beyond these two.
+  test('a change line keeps CVE and GHSA ids and drops internal issue codes', () => {
+    expect(changeLine('**Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).** More.')).toBe('Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).');
+    expect(changeLine('**The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).** More.')).toBe('The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).');
+    expect(changeLine('**/review now reads Rust files (GST-101).** More.')).toBe('/review now reads Rust files.');
   });
 
   // Value: protects=a cut fails loudly instead of publishing a stub; fails_when=a version with an empty entry, a span with no entry, or an
