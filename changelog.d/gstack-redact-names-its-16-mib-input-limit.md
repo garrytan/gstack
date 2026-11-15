@@ -1,0 +1,1 @@
+- `gstack-redact` now says that input over 16 MiB is always refused: `--help` and both `too large` errors name the limit, say `--max-bytes` can't raise it, and suggest splitting the input. Reported by @exGeni (#4351), first fixed by @ElNeMeR70 (#4352).
