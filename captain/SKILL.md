@@ -430,7 +430,8 @@ of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY o
 PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
 its owner, and `wave settle` closes the rest after the merge (docs/ship-policy.md#wave-prs).
 Credit every contributor (`Contributed by @handle`, `Co-authored-by`), and never merge a
-contributor's PR directly from its fork.
+contributor's PR directly from its fork unless it changes only docs people read and a text
+read checked every link, command and install step.
 
 ## Where the protocols differ, ship both
 
