@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from scripts/resolvers/preamble-hoist.ts — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-# gstack shared preamble 9f9a414e3b4b
+# gstack shared preamble e72dec3d7d16
 
 ## Plan Mode Safe Operations
 
@@ -227,8 +227,8 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 ## Ground Rules
 
-- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export`, `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `git config --list`, `ps auxww`, `ps -o args`, `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
-- Wait on CI with one blocking watch (`gh pr checks <n> --watch --interval 60`), not a sleep-and-poll loop.
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
 - Ask each question once, after checking what you can yourself; until it is answered, list it as one waiting line in later updates instead of asking again.
 - Open every file you hand over and remove placeholders first: TODO, `<fill in>`, lorem ipsum, broken links and images.
 

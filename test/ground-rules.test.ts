@@ -18,16 +18,16 @@ describe('Ground Rules preamble section', () => {
   });
 
   test('names every command that prints a whole environment, git config or process table, and the by-name alternative', () => {
-    for (const cmd of ['`env`', 'bare `printenv`', '`set` or `export`', '`export -p`/`-n`', '`declare -p`/`-x`', '`typeset -p`', '`git config --list`', '`ps auxww`', '`ps -o args`', '`docker top ... args`', '`docker inspect` Env']) {
+    for (const cmd of ['`env`', 'bare `printenv`', '`set` or `export`', '`export $(...)`', '`export -p`/`-n`', '`declare -p`/`-x`', '`typeset -p`', '`set -x`', '`git config --list`/`-l`', 'any `ps` with full args (`aux`, `-ef`, `-o args`)', '`docker top ... args`', '`docker inspect` Env']) {
       expect(block).toContain(cmd);
     }
     expect(block).toContain('`git config --get <name>`');
     expect(block).toContain('`[ -n "${NAME:-}" ] && echo set`');
   });
 
-  test('tells agents to wait on CI with one blocking watch instead of a polling loop', () => {
-    expect(block).toContain('--watch');
-    expect(block).toContain('not a sleep-and-poll loop');
+  test('tells agents to wait on CI with gstack-pr-wait, not a polling loop or the GraphQL-spending gh watcher', () => {
+    expect(block).toContain('`gstack-pr-wait <n> --until green`');
+    expect(block).toContain('never a poll loop or `gh pr checks --watch`');
   });
 
   test('asks each question once and carries it as one waiting line, and checks every handed-over file for placeholders', () => {
