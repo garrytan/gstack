@@ -144,7 +144,9 @@ function main(argv: string[]): number {
   const log = git(['log', '--format=%H%n%B%x00', `origin/${base}..HEAD`], repoRoot) ?? git(['log', '--format=%H%n%B%x00', `${base}..HEAD`], repoRoot);
   if (log === undefined) { process.stderr.write(`gstack-issue-links: cannot read commits ${base}..HEAD (fetch origin/${base} first)\n`); return EXIT.usage; }
   const mentions: IssueMention[] = [];
-  for (const entry of log.split('\0')) {
+  for (const raw of log.split('\0')) {
+    // git log ends each commit's output with a newline, so every entry after the first starts with one.
+    const entry = raw.startsWith('\n') ? raw.slice(1) : raw;
     const nl = entry.indexOf('\n');
     if (nl < 0) continue;
     mentions.push(...mentionsIn(entry.slice(nl + 1), `commit ${entry.slice(0, nl).trim().slice(0, 12)}`));
