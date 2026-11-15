@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from scripts/resolvers/preamble-hoist.ts — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-# gstack shared preamble 4e82fa4c839f
+# gstack shared preamble 54a07b724882
 
 ## Plan Mode Safe Operations
 
@@ -224,6 +224,11 @@ For high-stakes ambiguity (architecture, data model, destructive scope, missing 
 During long-running skill sessions, when you finish a phase or change direction, tell the user in a sentence or two what is done, what is next, and anything surprising.
 
 If you are looping on the same diagnostic, same file, or failed fix variants, STOP and reassess. Consider escalation or /context-save. Progress summaries must NEVER mutate git state.
+
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export`, `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `git config --list`, `ps auxww`, `ps -o args`, `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one blocking watch (`gh pr checks <n> --watch --interval 60`), not a sleep-and-poll loop.
 
 ## Completion Status Protocol
 

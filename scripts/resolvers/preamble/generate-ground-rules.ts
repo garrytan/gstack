@@ -1,0 +1,23 @@
+import type { TemplateContext } from '../types';
+
+/**
+ * Ground Rules: the few habits every skill on every host carries, at every
+ * tier. Tier 1 skills inline it; tier 2+ skills read it from the shared
+ * sections/preamble.md. Each rule is here because agents broke it in real
+ * runs, so keep each bullet to one habit and the block at or under
+ * GROUND_RULES_MAX_BYTES; test/ground-rules.test.ts pins that budget.
+ */
+export const GROUND_RULES_MAX_BYTES = 850;
+
+export const GROUND_RULES_HEADING = '## Ground Rules';
+
+export const GROUND_RULES_BULLETS = [
+  'Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export`, `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `git config --list`, `ps auxww`, `ps -o args`, `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.',
+  'Wait on CI with one blocking watch (`gh pr checks <n> --watch --interval 60`), not a sleep-and-poll loop.',
+] as const;
+
+export function generateGroundRules(_ctx?: TemplateContext): string {
+  return `${GROUND_RULES_HEADING}
+
+${GROUND_RULES_BULLETS.map(bullet => `- ${bullet}`).join('\n')}`;
+}
