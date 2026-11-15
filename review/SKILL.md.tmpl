@@ -4,9 +4,9 @@ preamble-tier: 4
 version: 1.0.0
 description: |
   Use when you review a diff before it lands: local changes, a branch or a PR.
-  Checks it for SQL safety, LLM trust boundaries, conditional side effects and
-  bugs that pass CI and break production. Fits "look over my diff", "review my
-  changes", "code review", "check my diff" or "pre-landing review".
+  Finds bugs that pass CI and break production. Fits "review this PR", "look
+  over my diff", "review my changes", "code review", "check my diff" or
+  "pre-landing review".
   Proactively suggest before a merge. (gstack)
 codex_default_prompt: "Use $gstack-review to review this diff against its base before it lands: find the bugs that pass CI and break in production, fix the clear ones, and list what remains."
 allowed-tools:
