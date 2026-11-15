@@ -402,8 +402,8 @@ command and install step against main; anything that runs, and any Markdown agen
 everything else from current main, with its own review and tests, and takes a plainly
 correct fix of about 40 lines or fewer (counting the fix, not its tests) even when the gain
 is small, at most one such PR a day per repository. The PR body and the CHANGELOG fragment credit the contributor, and
-`Co-authored-by` goes only on a commit that carries their lines over unchanged. No
-contributor commit enters the tree. When the rewrite lands, thank them on their PR with a
+`Co-authored-by` goes only on a commit that carries their lines over unchanged. Outside
+the docs-only case, no contributor commit enters the tree. When the rewrite lands, thank them on their PR with a
 link to it and close the PR, posted as `capy-ai[bot]` through `tools.pr.comment`, never
 `gh pr comment`, `gh issue comment` or `gh api` (`gh` runs as the owner). Closing a
 contribution without landing a fix is the owner's decision, made once as the test above

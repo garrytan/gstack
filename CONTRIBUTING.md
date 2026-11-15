@@ -933,7 +933,7 @@ account, and your credit is a `Co-authored-by:` trailer plus a line in the PR bo
 diff as text and never checks it out, runs it or builds it. Then one of three things
 happens.
 
-- **Docs for people only** (README, guides under `docs/`, this file) can be merged as
+- **Docs for people only** (for example the README) can be merged as
   they are, after an agent checks every link, command and install step in them against
   main.
 - **A small fix** that is plainly correct, about 40 lines or fewer not counting its
@@ -962,8 +962,8 @@ and 54 outside contributors were credited as co-authors on commits to main.
 duplicate (with a link), one specific fact we still need, not planned (and why), or
 taken.
 
-**The open-PR limit.** Most people never meet it. If 3 or more of your PRs here were
-closed without being taken in the last 30 days, fewer than 1 in 4 of your decided PRs
+**The open-PR limit.** Most people never meet it. If, in the last 30 days, 3 or more of
+your PRs here were closed without being taken and fewer than 1 in 4 of your decided PRs
 were taken, and none was taken in the last 90 days, you can have at most 3 PRs open at
 once, and extra ones are closed with a note. It never applies to anyone who had a PR
 taken (merged or rebuilt) in the last 90 days, so it lifts as soon as one of yours is
