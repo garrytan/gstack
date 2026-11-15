@@ -27,6 +27,15 @@ describe('issue intent (pure)', () => {
     expect(mentionsIn('v1.2.3 (#301) release notes').map(x => x.issue)).toEqual([301]);
   });
 
+  // Value: protects=a /ship Review-Finding trailer names a local review-ledger entry, so it adds no Refs line to the PR body; fails_when=the cross-repo
+  // rule reads a ledger id such as p1/red-team#3 as owner/repo#N and prints `Refs p1/red-team#3`; why_new=no test fed a Review-Finding trailer;
+  // seam=none; no_claim=none beyond protects
+  test('a Review-Finding trailer is not an issue reference, and the rest of the message still is', () => {
+    const m = mentionsIn('fix: pre-landing review fixes\n\nSee owner/other#9.\n\nReview-Finding: p1/red-team#3 reader=red-team\nreview-finding: p2/adversarial-native#4 reader=codex\nRefs #12\n');
+    expect(m.map(x => [x.repo ? `${x.repo}#${x.issue}` : `#${x.issue}`, x.intent])).toEqual([['owner/other#9', 'refs'], ['#12', 'refs']]);
+    expect(renderIssueLines(resolveLinks(m, [], () => true))).toEqual(['Refs #12', 'Refs owner/other#9']);
+  });
+
   // Value: protects=a parenthesised named reference "(name #N, #M)", "(name PR #N)" or "(name issue #N)" is a cross-repo reference to that name, never a
   // same-repo Refs line or a promotion candidate, while "(see #12)", "(closing #12)", "(cf. #12)", "(v1.2 #3)", "(#301)" and "Fixes #12" keep their
   // meaning; fails_when=the bare-#N rule reads the numbers as this repository's issues (Refs lines and fix-#N prompts for issues that do not exist here), or

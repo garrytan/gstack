@@ -1,0 +1,1 @@
+`gstack-issue-links` skips /ship's `Review-Finding:` trailers. Their review-ledger ids, such as `p1/red-team#3`, name local review entries, so the PR body's `## Issues` block no longer lists them as `Refs` lines for cross-repository issues. Contributed by @Davmunrey.
