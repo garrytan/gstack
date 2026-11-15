@@ -95,7 +95,6 @@ finished by the next run, by cron or by hand: `stable` itself stays a
 candidate until its release exists, and its notes compare against the release
 tag before it.
 
-<a id="the-daily-check"></a>
 ## Release notes
 
 A release's notes list every change in the CHANGELOG versions it ships. A
@@ -125,6 +124,7 @@ notes, and so do notes over 60,000 characters. An upgrade step or a summary
 sentence can be added by hand after the cut with
 `gh release edit v<X> --notes-file <file>`; that edits the release page only.
 
+<a id="the-daily-check"></a>
 ## The daily check
 
 Garry, 2026-11-06 (R74): "make sure anything important makes it to stable as

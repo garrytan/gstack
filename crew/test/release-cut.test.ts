@@ -16,7 +16,7 @@ import {
   BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
-import { changeLine, type NotesSources } from '../scripts/release-notes';
+import { changeLine, changeSources, type NotesSources } from '../scripts/release-notes';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
@@ -1283,6 +1283,27 @@ describe('release-cut: notes', () => {
     const long = releaseNotes({ ...base, version: '2.0.1000.0', entries });
     expect(long.ok).toBe(false);
     if (!long.ok) expect(long.why).toContain('over the ' + NOTES_CAP + ' cap');
+  });
+
+  // Value: protects=a release names the version it ships, never an older one's changes under its heading; fails_when=a span holding only an older
+  // entry than the release version still publishes; why_new=the span filter took any entry in (prev, version]; seam=none; no_claim=folded versions.
+  test('a release version with no entry of its own refuses even when an older version in the span has one', () => {
+    const notes = releaseNotes({ repo: 'o/r', version: '2.1.0.0', date: '2026-11-14', prevVersion: '2.0.0.0', prevTag: 'v2.0.0.0', hotfix: false, entries: changelogEntries('## [2.0.5.0] - 2026-11-12\n\n- One change.\n\n## [2.0.0.0] - 2026-11-01\n\n- Old.\n') });
+    expect(notes).toEqual({ ok: false, why: 'CHANGELOG.md at the release has no entry for v2.1.0.0, only for the older v2.0.5.0; write the entry before cutting the release' });
+  });
+
+  // Value: protects=a fragment links the PR of the commit that added it even when its own text cites another PR; fails_when=the lookup reads the
+  // commit's patch along with its subject and takes the last "(#N)" it finds; why_new=git log with --diff-merges printed the patch; seam=a real git repo.
+  test('a fragment whose body cites another PR still links the PR of the commit that added it', () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.seed, 'changelog.d'), { recursive: true });
+    fs.writeFileSync(path.join(f.seed, 'changelog.d', 'redact.md'), '- **gstack-redact now says its size limit.** It follows the limit #7 added (#7).\n');
+    git(f.seed, 'add', '-A');
+    git(f.seed, 'commit', '-q', '-m', 'Say the redact size limit (#42)');
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    f.refresh();
+    const sources = changeSources(f.git, f.shas['1.0.3']!, 'origin/main');
+    expect(sources.fragments.map(s => s.pr)).toEqual([42]);
   });
 
   // Value: protects=planRelease reads each change's PR from git and refuses a cut whose CHANGELOG lacks the version; fails_when=the fragment's

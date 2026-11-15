@@ -12,8 +12,8 @@
  * Its group comes from the heading it sits under ("### Fixed", "### Added", "### Tests" and the like, read
  * inside its fragment when it has one), else from the files its pull request touched (only tests, CI and
  * gstack's own release tooling: maintainers), else from its words (internal shipping machinery: maintainers;
- * "no longer", "again", "fix": a fix; anything else is new). A span with no version, or a version with no
- * change, refuses the notes instead of publishing a stub.
+ * "no longer", "again", "fix": a fix; anything else is new). A release whose own version has no entry, or a version
+ * with no change, refuses the notes instead of publishing a stub or an older version's entry.
  */
 import { parseFragment } from '../../lib/changelog-fragments';
 import type { Exception, Git } from './release-cut';
@@ -140,7 +140,7 @@ export function changeSources(git: Git, from: string | null, to: string): NotesS
     for (const [kind, file] of status) if ((kind === 'A' || kind === 'D') && /^changelog\.d\/[^/]+\.md$/.test(file!) && file !== 'changelog.d/README.md') fragments.add(file!);
   }
   for (const file of fragments) {
-    const added = git(['log', '-1', '--diff-merges=first-parent', '--diff-filter=A', '--format=%H%x09%s', to, '--', file]);
+    const added = git(['log', '-1', '--no-patch', '--diff-merges=first-parent', '--diff-filter=A', '--format=%H%x09%s', to, '--', file]);
     const [sha, subject = ''] = added.ok ? added.out.split('\t') : [];
     if (!sha) continue;
     const files = git(['show', '--diff-merges=first-parent', '--no-renames', '--format=', '--name-only', sha]);
@@ -175,6 +175,7 @@ export function releaseNotes(n: NotesInput): Notes {
   const span = n.entries.filter(e => compareVersions(e.version, n.version) <= 0 && (!n.prevVersion || compareVersions(e.version, n.prevVersion) > 0))
     .sort((a, b) => compareVersions(b.version, a.version));
   if (!span.length) return { ok: false, why: 'CHANGELOG.md at the release has no entry for v' + n.version + (n.prevVersion ? ' or any version since v' + n.prevVersion : '') };
+  if (compareVersions(span[0]!.version, n.version) !== 0) return { ok: false, why: 'CHANGELOG.md at the release has no entry for v' + n.version + ', only for the older v' + span[0]!.version + '; write the entry before cutting the release' };
   const sources = n.sources ?? { fragments: [], versions: {} };
   const grouped: Record<Group, string[]> = { new: [], fix: [], maintainers: [] };
   const empty: string[] = [];
