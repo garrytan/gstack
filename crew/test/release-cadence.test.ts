@@ -183,7 +183,7 @@ describe('planDaily', () => {
     expect(blocked.decision?.lines[0]).toStartWith('NO_RELEASE_PR: important change waiting, no release PR');
     expect(blocked.planned.ok).toBe(false);
 
-    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'changelog.d/fix.md': null });
+    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n', 'changelog.d/fix.md': null });
     r.refresh();
     const cut = day(25);
     expect(cut.decision).toMatchObject({ action: 'cut', trigger: 'important' });
@@ -215,7 +215,7 @@ describe('planDaily', () => {
   // seam=gh faked (only the last release view fails), git real; no_claim=which gh errors are transient
   test('a plan that clears while the daily check cannot date stable is FLOOR_UNKNOWN, never a cuttable plan with no decision', () => {
     const r = repo();
-    r.commit('release 1.0.1', { VERSION: '1.0.1\n' });
+    r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n' });
     r.refresh();
     const g = gitIn(r.work);
     const green = fakeGh();
@@ -276,7 +276,7 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     expect(plainCut.status).toBe(1);
     expect(plainCut.stdout).toContain('::error title=release-cut NO_RELEASE_PR::');
 
-    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'changelog.d/fix.md': null, 'changelog.d/docs.md': null });
+    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n', 'changelog.d/fix.md': null, 'changelog.d/docs.md': null });
     r.refresh();
     const due = run('--daily', '--dry-run');
     expect(due.status, due.stdout + due.stderr).toBe(0);
