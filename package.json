@@ -99,7 +99,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.141",
     "@types/bun": "1.4.4",
-    "prettier": "3.9.10",
+    "prettier": "3.10.1",
     "typescript": "7.0.2"
   },
   "overrides": {
