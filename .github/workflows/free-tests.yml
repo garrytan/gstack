@@ -822,7 +822,7 @@ jobs:
           org-slug: garry-tan
           token: ${{ env.TRUNK_ORG_API_TOKEN }}
           test-collection-id: 7yDVXXE3
-          cli-version: 0.16.2
+          cli-version: 0.17.0
           use-cache: 'false'
           quarantine: 'false'
           use-uncloned-repo: 'true'
