@@ -358,7 +358,7 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     const api = workflowRuns(sha, [ownWorkflow, nightly, { id: 555, path: '.github/workflows/evals.yml', jobs: [70555] }]);
     const shard = (status: string, conclusion: string | null, id = 71004) => ({ id, name: 'windows-free-shard (4)', status, conclusion }) as CheckRun;
     const aggregate = { id: 71007, name: 'windows-free-tests', status: 'completed', conclusion: 'failure' } as CheckRun;
-    const gated = { green: true, via: 'release gate run 43668645294' };
+    const gated = { green: true, via: 'release gate run 43668645294' } as const;
     for (const red of [shard('completed', 'timed_out'), shard('completed', 'cancelled'), shard('completed', 'failure')]) {
       expect(gateVerdict(ghFor([...unbacked, red, aggregate], api), 'o/r', sha, { evidence })).toEqual(gated);
     }
