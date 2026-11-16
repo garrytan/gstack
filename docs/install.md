@@ -43,7 +43,9 @@ Two more hooks are off by default and registered only when you turn them on:
 skill routing (`./setup --skill-routing`, a `UserPromptSubmit` hook that names
 the gstack skill a prompt fits) and skill contracts (`./setup --skill-contracts`,
 a `Stop` hook that blocks once when a skill ends without its required outputs);
-see [skill-routing-and-contracts.md](skill-routing-and-contracts.md).
+see [skill-routing-and-contracts.md](skill-routing-and-contracts.md). The
+opt-in skill gates (`./setup --ceo-review-gate`, `./setup --autoplan-gate`)
+register their own hooks the same way; see [skill-gates.md](skill-gates.md).
 
 Hook registration is canonical-only: every hook command points at the stable
 `~/.claude/skills/gstack` install, never the tree setup ran from, so deleting
