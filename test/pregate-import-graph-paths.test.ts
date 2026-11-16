@@ -218,4 +218,19 @@ describe('import graph: alias precedence, extends and the no-lane explanation', 
     expect(text).not.toContain("'bun:test'");
     expect(text).toContain('declare the file under dependencies in .gstack/pregate.json, or report the resolver gap');
   });
+
+  // Value: protects=NodeNext `./x.js` specifiers map to x.ts (and .mjs→.mts, .jsx→.tsx), directly and transitively; fails_when=the .js→.ts rewrite is removed; why_new=no case covered emitted-extension imports; seam=none; no_claim=bundler-specific resolution beyond the TS rewrite
+  test('a NodeNext import written with the emitted .js extension maps to its .ts source', () => {
+    const repo = fixture();
+    commit(repo, {
+      'src/leaf.ts': 'export const leaf = 1;\n',
+      'src/mid.ts': "import { leaf } from './leaf.js';\nexport const mid = leaf;\n",
+      'src/view.tsx': 'export const View = () => null;\n',
+      'src/esm.mts': 'export const esm = 1;\n',
+      'tests/fixture.ts': "export { mid } from '../src/mid.js';\n",
+      'tests/app.test.ts': "import { mid } from './fixture.js';\nimport { View } from '../src/view.jsx';\nimport { esm } from '../src/esm.mjs';\nvoid [mid, View, esm];\n",
+    });
+    const g = buildGraph(repo.work);
+    for (const f of ['tests/fixture.ts', 'src/mid.ts', 'src/leaf.ts', 'src/view.tsx', 'src/esm.mts']) expect(testsFor(g, f).tests).toEqual(['tests/app.test.ts']);
+  });
 });

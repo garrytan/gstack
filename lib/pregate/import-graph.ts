@@ -278,6 +278,9 @@ function matchAliases(aliases: readonly PathAlias[], ref: string): { chosen: str
 function resolveCandidate(files: Set<string>, dirs: Set<string>, c: string, literal: boolean): string | null {
   if (c.startsWith('../') || c === '..' || c === '.' || c === '') return null;
   for (const ext of RESOLVE_EXT) if (files.has(c + ext)) return c + ext;
+  // TypeScript's NodeNext/bundler convention: `./x.js` names `x.ts` (also .jsx→.tsx, .mjs→.mts, .cjs→.cts).
+  const ts = /\.([mc]?)js(x?)$/.exec(c);
+  if (ts) { const t = `${c.slice(0, -ts[0].length)}.${ts[1]}ts${ts[2]}`; if (files.has(t)) return t; }
   // A directory literal needs two segments (`test/fixtures/x`): a bare word is a name, not a path.
   if (dirs.has(c) && (!literal || c.includes('/'))) return `${c}/**`;
   // A bare bin name in a test (spawned through PATH or a helper's bin dir) names bin/<name>.
