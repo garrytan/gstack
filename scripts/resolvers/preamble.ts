@@ -49,6 +49,7 @@ import { generateCompletenessSection } from './preamble/generate-completeness-se
 import { generateConfusionProtocol } from './preamble/generate-confusion-protocol';
 import { generateEvidenceDirective } from './preamble/generate-evidence-directive';
 import { generateContextHealth } from './preamble/generate-context-health';
+import { generateGroundRules } from './preamble/generate-ground-rules';
 
 // Tier 3+ repo mode + search
 import { generateRepoModeSection } from './preamble/generate-repo-mode-section';
@@ -108,6 +109,7 @@ export const PREAMBLE_PIECES: readonly PreamblePiece[] = [
   { id: 'question-tuning', minTier: 2, render: generateQuestionTuning },
   { id: 'repo-mode', minTier: 3, render: () => generateRepoModeSection() },
   { id: 'search-before-building', minTier: 3, render: generateSearchBeforeBuildingSection },
+  { id: 'ground-rules', minTier: 1, render: generateGroundRules },
   { id: 'completion-status', minTier: 1, render: generateCompletionStatus },
 ];
 
