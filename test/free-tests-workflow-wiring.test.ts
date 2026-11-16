@@ -99,14 +99,14 @@ describe('free-tests workflow wiring', () => {
     }
     expect(download.uses).toMatch(/^actions\/download-artifact@[0-9a-f]{40}$/);
     expect(download.with).toEqual({ pattern: 'free-junit-*', path: '${{ runner.temp }}/free-junit' });
-    expect(upload.uses).toBe('trunk-io/analytics-uploader@a86313c7029d22e6ea2d5c346060a224d90053dc');
+    expect(upload.uses).toBe('trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f');
     expect(upload['timeout-minutes']).toBe(5);
     expect(upload.with).toEqual({
       'junit-paths': '${{ runner.temp }}/free-junit/**/*.xml',
       'org-slug': 'garry-tan',
       token: '${{ env.TRUNK_ORG_API_TOKEN }}',
       'test-collection-id': '7yDVXXE3',
-      'cli-version': '0.16.2',
+      'cli-version': '0.17.0',
       'use-cache': 'false',
       quarantine: 'false',
       'use-uncloned-repo': 'true',
