@@ -79,7 +79,7 @@ jobs:
         if: env.TRUNK_API_TOKEN != ''
         timeout-minutes: 3
         continue-on-error: true
-        uses: trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8 # v0.1.7
+        uses: trunk-io/dynamic-ci@0bad94096db2f4507215b611c7887c0f25590eb2 # v1
         env:
           TRUNK_DISABLE_TELEMETRY: 'true'
         with:
