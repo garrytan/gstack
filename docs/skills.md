@@ -966,7 +966,10 @@ You: /eval-plan how much will the retrieval eval cost before I run it?
 
 `bin/gstack-eval-plan prereg --init` writes the preregistration (question, bars,
 arms, decoys, stop rules, cap) and `--check` refuses to continue while a field is
-blank (`PREREG_INCOMPLETE`). `arms` resolves the `eval-arms` model role against
+blank (`PREREG_INCOMPLETE`), including the `## Decisions` and `## Scoring`
+sections the [result checks](TESTING_INTERNALS.md#result-checks) require.
+`judge --check <prereg> --labels <labels.jsonl>` scores a model judge against hand
+labels (`EVAL_JUDGE_UNCHECKED`). `arms` resolves the `eval-arms` model role against
 `lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`
 runs every row through the stub model for $0 and flags malformed rows
 (`EVAL_DRY_RUN_FAILED`), and refuses a plan whose every arm is Haiku or Sonnet
@@ -981,7 +984,9 @@ stays out of the projection until one of its attempts settles a real charge.
 A run stops at the first quota or rate-limit error on such an arm.
 `results --check <prereg> <results.md>` refuses a finished results file unless one
 table holds a filled row for every arm, each `<model>#no-gstack` row beside its
-variants (`EVAL_REPORT_NO_GSTACK_ROW`); no number leaves the run before it passes.
+variants (`EVAL_REPORT_NO_GSTACK_ROW`); it also checks a model judge's `--labels`,
+unplanted zeros (`EVAL_REPORT_UNPLANTED_ZERO`) and failures columns without an
+`answer-only` column (`EVAL_REPORT_NO_ANSWER_ONLY`); no number leaves the run before it passes.
 The skill's closing section lists the tier-3 items (instrument audit, steady
 state, sealed paths, off-machine persistence, memory preflight, power tables, QA
 soak) as `tier 3, after P7`; none of them run yet.
