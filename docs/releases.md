@@ -50,7 +50,10 @@ days or 200 first-parent commits. The cut's own job lands a check run on
 main's head, the very commit it may cut, so check runs from this workflow's
 own runs (its file path, `.github/workflows/weekly-release.yml`, matched
 by the job ids of those workflow runs) are set aside whether running or
-failed; every other check run counts as above. The lookup needs the
+failed. Check runs from the nightly Windows free suite
+(`.github/workflows/windows-free-tests.yml`), which
+[never blocks](support-tiers.md#windows-ci), are set aside the same way;
+every other check run counts as above. The lookup needs the
 workflow's `actions: read` permission; when it cannot read those runs, nothing
 is set aside. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate
