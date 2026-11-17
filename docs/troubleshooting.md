@@ -1882,6 +1882,36 @@ A `tracked-by-project` or `version-reverted` cause has its own section:
 listed changes, check out the default branch, move local commits to another
 branch), then re-run `bin/gstack-upgrade`. A reinstall that failed after the
 fast-forward is completed by the next run (`reinstall pending from <version>`).
+For `another gstack updater holds <state root>/.setup-lock (pid <n>)`, wait
+for that update to finish. If no gstack update is running (`kill -0 <n>`
+fails, or the pid reads `unknown` because the holder was killed before it
+wrote one), remove the lock with `rm -rf <state root>/.setup-lock` and
+re-run. See [how gstack's shell locks work](#shell-locks).
+
+<a id="shell-locks"></a>
+### Two gstack updates, setups or config writes ran at once (Ubuntu 26.04, uutils `mkdir`)
+
+**Meaning.** gstack's shell locks (the updater's `.setup-lock`, the config
+lock `.config-yaml.lock`, the install registry, the developer profile,
+settings.json, the Chromium install, the brain-sync drain, freeze and the
+lease directory) are lock directories. Older gstack held one when
+`mkdir <lock>` succeeded. Rust coreutils (uutils) 0.8.0, the `mkdir` on
+Ubuntu 26.04 and on GitHub's `ubuntu-latest` from 2026-11-09, reports success
+even when another process created the directory first, so two racing callers
+could both hold the lock: two updates moving one checkout, or two
+`gstack-config set` calls where one write dropped the other's key. GNU and
+BSD `mkdir` never did this.
+
+**Fix.** Upgrade gstack (`/gstack-upgrade`). Every lock is now taken by
+`gstack_lock_take` in `bin/gstack-lock.sh`: `mkdir` only makes the
+directory, and the holder is whoever creates its `pid` (or `owner`) file
+with the shell's noclobber redirect, which opens it `O_CREAT|O_EXCL`, so
+exactly one caller wins whatever `mkdir` reports. Waiting, stale-lock
+recovery and release are unchanged. A lock directory with no owner file
+inside, left by a process killed while taking it, still counts as held until
+the caller's own stale-lock rule clears it; when nothing is running, remove it
+with `rm -rf <lock>`. Re-set any config key you set during a concurrent write
+on 26.04 (`gstack-config get <key>` shows what stuck).
 
 <a id="upgrade-busy"></a>
 ### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)` / `gstack-upgrade: a shared harness (capy-server, pid <p>) holds a lease <n>m old; ... (UPGRADE_BUSY)`
@@ -5272,8 +5302,9 @@ directory, and this one already holds files.
 ### `OWNER_REPLY_REQUIRED`
 
 **Meaning.** An agent answered the gate (`--by agent:<id>`) without recording
-what the owner actually said, or answered a `uc` item (a user challenge or a
-round-cap approval, which only the owner settles) in its own words
+what the owner actually said, or answered a `uc` item (a user challenge, a
+reviewer's proposal, a day-one or cut question, or a round-cap approval, which
+only the owner settles) in its own words
 (`--words-by agent:<id>`). Nothing was applied.
 
 **Fix.** Pass the owner's words verbatim: `--owner-reply "<text>"`,
@@ -5387,8 +5418,10 @@ errors.
 
 **Meaning.** A public copy of an autoplan run still quotes the owner's own
 words: a gate reply the private run recorded (on a decision row, the gate or
-the journal), the words a carried gate reused, or a reason a human gave for
-deferring a phase, in prose or in one of gstack's renderings of that reason.
+the journal), the words a carried gate reused, a quote under the plan's
+`### Owner's words` heading (one a later revision removed included), or a
+reason a human gave for deferring a phase, in prose or in one of gstack's
+renderings of that reason.
 Nothing a person wrote leaves without their click. A reply of 3 or more words
 is a quote wherever it appears whole, and from 8 words any 8 consecutive words
 are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and
@@ -6452,6 +6485,10 @@ what would merge. The one accepted difference is a train slot's stamp: when
 the current head is the pinned head's stamp commit (same tree modulo stamp
 files, or the pin with main merged in at slot 2 and later), the receipt
 written for the pinned head is the binding one and `verify --train` accepts it.
+It also refuses a receipt an older gstack carried through a scoped re-check
+(its `carry.reason` names `scoped re-check by`), even at its own head: the code
+that hop covered never got a full review (GST-2706,
+[rounds per pull request](review-policy.md#rounds-per-pull-request)).
 
 **Fix.** Rerun /ship on the current head so the receipt names it, then rerun
 `gstack-ship-queue ready --pr <n> --screen|--no-screen`. A lane never stamps
@@ -7092,9 +7129,10 @@ the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 **Meaning.** Every product path the branch touches has the reviewed +/- lines
 in the same places, but the base edited context lines next to some of them, so
 the 3-line patches differ (GST-384: main reworded the line above the PR's
-hunk). A hunk whose added lines are unchanged and whose removed lines differ only
-by the base's edit of the lines the branch replaces counts too (GST-1561: the base
-took `SAVE_VERSION := 83` under the branch's `:= 84`). The merge may have spliced the two, as in a JSON entry where the branch
+hunk). A hunk whose added lines are unchanged but whose removed lines changed with
+the base (the base took `SAVE_VERSION := 83` under the branch's `:= 84`) doesn't
+count: the PR's own removed lines changed, so it's `RECEIPT_CARRY_PRODUCT_CHANGED`
+and a full review (GST-2706). The merge may have spliced the two, as in a JSON entry where the branch
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
@@ -7259,7 +7297,15 @@ not an attempt: send `gstack-docs-candidate repair-prompt <output> --audit-id <i
 to one fresh agent with no tools (never the audit child, which can still edit), save its one-line
 reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <output>`.
 The reply passes only if every value the first line gave correctly is
-unchanged, and each audit gets one repair. Otherwise run Step 14.5's one
+unchanged, and each audit gets one repair. Text after a JSON line that carries
+the audit id (`text follows the JSON result line`) gets the same free re-ask for
+the whole line, but only when every such line is free of content problems (a
+content problem counts as an attempt). A blocked status and its blockers on any
+such line must survive the reply, which may add blockers; nothing else from the
+earlier line is kept or accepted. The same holds when the last line is a JSON
+result that drops an earlier blocked status or blocker for the audit (`the last
+JSON line drops the blocked result an earlier line gave for this audit`): it is
+never accepted, and its re-ask must stay blocked. Otherwise run Step 14.5's one
 remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names
@@ -7273,7 +7319,12 @@ one stdout line per real event, prefixed `#<pr>`; progress and recoverable
 errors go to stderr. `/land-and-deploy` Step 3 runs it with `--until green`.
 Exit 0 means the `--until` condition is met or the PR merged; exit 1 and 2
 end with one of the two codes below. `green` gates on every check on the
-head, as `gstack-ci-gate` does, so the two never disagree; a check the base
+head, as `gstack-ci-gate` does, so the two never disagree. Both read every
+attempt of each check suite as `gstack-ship-queue ready` does: a failed check
+whose rerun attempt created no jobs (GitHub's default list then hides it) and a
+workflow run that failed before creating any job (`check failed: <workflow>
+(run <id>, no jobs)`) block `green`, and a rerun that passed clears its
+failure. A check the base
 branch requires (rulesets and classic branch protection) counts as pending
 until it appears. `--exclude <check,...>` leaves a named non-required check
 out of the verdict, as `gstack-ci-gate --exclude` does: it neither holds

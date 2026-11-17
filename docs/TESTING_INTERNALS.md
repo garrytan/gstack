@@ -1036,8 +1036,10 @@ namespaces Chromium's sandbox needs, and `python3-venv` is absent (required by
 the Python runner tests).
 
 VMs are named `ubirun-<owner>-<epoch>-<hex>`, plus a `-t<hours>` TTL suffix
-(below); `<owner>` is `UBI_OWNER` (the thread id on a Capy machine; lowercase
-letters and digits, at most 12), which `up`, `run` and `verify` require. Every exit
+(below); `<owner>` is `UBI_OWNER` in full (the thread id on a Capy machine; lowercase
+letters and digits, at most 31, longer is refused with `UBI_OWNER_TOO_LONG`), which `up`, `run` and `verify` require. Older runner copies cut the owner to 12
+characters, so owners sharing that prefix reaped each other's VMs (#3748); a VM named under the cut form
+counts as a longer owner's only when this machine's VM record lists it under that form. Every exit
 path destroys the client's own VM (`trap` on EXIT, INT, TERM, HUP and QUIT), and
 `down` fails loudly (`FAILED to destroy <location>/<name> (HTTP <code>)`) unless
 the VM is confirmed gone. `list --mine` shows this owner's VMs, `usage` the
@@ -1069,7 +1071,14 @@ before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
 state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). When the usage read fails (`usage` exits 1 on an
 unreadable VM list or size and skips a VM that 404s), the preflight retries
-within `UBI_QUOTA_WAIT`, then logs and leaves the decision to the API. `run`, `verify`
+within `UBI_QUOTA_WAIT`, then refuses under a `UBI_QUOTA_VCPUS` ceiling
+(`UBI_QUOTA_UNREADABLE`, nothing launched) and leaves the decision to the API under a
+cached refusal maximum, which is the API's own ceiling. The usage read and the
+booking of the new VM's vCPUs run under one lock per machine (`UBI_QUOTA_LOCK`), and a
+booking counts until its create is answered, so shards a fan-out starts together
+on one machine cannot all pass on the same reading; `room [-s SIZE]` prints how many
+VMs fit now (`UBICLOUD_ROOM: room=<n> ...`) for a fan-out to size each batch. Callers
+on different machines still race, which the project's 48 spare vCPUs absorb. `run`, `verify`
 and `ssh NAME COMMAND` stream the remote output through a watchdog: a heartbeat
 line every `UBI_HEARTBEAT` seconds (300), and a command silent for
 `UBI_IDLE_TIMEOUT` seconds (1800) or older than `UBI_RUN_TIMEOUT` (0, unlimited)

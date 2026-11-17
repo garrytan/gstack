@@ -113,7 +113,7 @@ function world(opts: { installAt?: 'A' | 'C'; stable?: boolean } = {}) {
   git(seed, 'remote', 'add', 'origin', origin);
   write(path.join(seed, 'bin', 'gstack-config'), CONFIG_STUB, 0o755);
   write(path.join(seed, 'bin', 'gstack-patch-names'), '#!/usr/bin/env bash\nexit 0\n', 0o755);
-  for (const rel of ['bin/gstack-sanitize-echo.sh', 'bin/gstack-update-channel.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh', 'bin/gstack-egress-lib.sh', 'bin/gstack-egress-receipt', 'lib/egress-receipt.ts', 'lib/state-root.ts', 'bin/gstack-lease', 'bin/gstack-harness-pid.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-upgrade']) {
+  for (const rel of ['bin/gstack-sanitize-echo.sh', 'bin/gstack-update-channel.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh', 'bin/gstack-egress-lib.sh', 'bin/gstack-egress-receipt', 'lib/egress-receipt.ts', 'lib/state-root.ts', 'bin/gstack-lease', 'bin/gstack-lock.sh', 'bin/gstack-harness-pid.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-upgrade']) {
     if (!fs.existsSync(path.join(ROOT, rel))) continue;
     fs.mkdirSync(path.dirname(path.join(seed, rel)), { recursive: true });
     fs.copyFileSync(path.join(ROOT, rel), path.join(seed, rel));
@@ -328,7 +328,7 @@ describe.skipIf(process.platform === 'win32')('gstack-update-check on the stable
     const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000, env: ENV }).trim();
     const gitLog = path.join(base, 'git.log');
     fs.writeFileSync(path.join(shim, 'git'), '#!/usr/bin/env bash\ncase "$1" in ls-remote) echo "git $*" >> "' + gitLog + '" ;; esac\nexec "' + realGit + '" "$@"\n', { mode: 0o755 });
-    for (const name of ['gstack-config', 'gstack-egress-lib.sh', 'gstack-state-root.sh', 'gstack-egress-receipt', 'gstack-update-channel.sh']) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(gstack, 'bin', name));
+    for (const name of ['gstack-config', 'gstack-lock.sh', 'gstack-egress-lib.sh', 'gstack-state-root.sh', 'gstack-egress-receipt', 'gstack-update-channel.sh']) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(gstack, 'bin', name));
     fs.writeFileSync(path.join(gstack, 'VERSION'), '1.0.0\n');
     fs.writeFileSync(path.join(gstack, '.gitignore'), 'bin/\n');
     execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000, env: ENV });

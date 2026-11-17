@@ -30,7 +30,7 @@ export type RunStatus = ResultStatus | 'awaiting_result' | 'running';
 export interface FindingRow {
   schema_version: 1; run: string; id: string; phase: string; voice: Voice; severity: Severity; title: string;
   model?: string; file?: string; line?: number; disposition?: Disposition; resolution?: string;
-  plan_items?: string[]; native_counterpart?: string | null; source?: string; changes?: 'scope' | 'cost' | 'direction';
+  plan_items?: string[]; native_counterpart?: string | null; source?: string; changes?: 'scope' | 'cost' | 'direction' | 'packaging' | 'ordering';
 }
 export interface DecisionRow {
   schema_version: 1; run: string; id: string; title: string; options: string[]; recommended: string | null;
@@ -145,7 +145,7 @@ export interface ShipReceipt {
   /** Routine stops the run recorded and went on past instead of waiting for a Captain (plan K1; GSTA-258 L5 writes them): one record per stop. */
   no_stop?: Array<{ class: NoStopClass; reason: string; evidence: string }>;
 }
-export const NO_STOP_CLASSES = ['scoped-fix-check', 'test-timeout-fix', 'pregate-flake-rerun', 'stamp-only-carry', 'autoplan-regate'] as const;
+export const NO_STOP_CLASSES = ['scoped-fix-check', 'test-timeout-fix', 'pregate-flake-rerun', 'autoplan-regate'] as const;
 export type NoStopClass = typeof NO_STOP_CLASSES[number];
 
 export const RESULT_STATUSES: readonly ResultStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'interrupted', 'refused'];

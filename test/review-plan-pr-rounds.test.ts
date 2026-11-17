@@ -61,6 +61,18 @@ describe('PR round cap', () => {
     }
   });
 
+  // Value: protects=the read-only stop offers only what the Captain can do: a grant recorded after that review can't buy a
+  //   fix round (GST-2706); fails_when=the stop lists a round grant as an option; seam=nextStep; no_claim=history's grant route
+  test('the read-only stop offers ship-with-the-note or park, and says a later round grant buys no fix round', () => {
+    for (const roundGrant of [undefined, 'a-000000000001']) {
+      const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', fixedBlocking: true, roundGrant }), 'standard');
+      expect(stop.step).toBe('stop');
+      expect(stop.reason).toContain('(ship with the note, or park;');
+      expect(stop.reason).not.toContain('a round grant, or park');
+      expect(stop.reason).toContain('does not buy a fix round');
+    }
+  });
+
   test('a round grant buys one more full round at its head, never two', () => {
     expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1' })).step).toBe('full');
     expect(nextStep(h({ priorFull: 3, roundGrant: 'a-1' }))).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review') });

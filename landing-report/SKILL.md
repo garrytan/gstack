@@ -2,7 +2,7 @@
 name: landing-report
 preamble-tier: 2
 version: 0.1.0
-description: Read-only queue dashboard for workspace-aware ship. (gstack)
+description: "Read-only queue dashboard for workspace-aware ship. Use for: landing report, version queue, ship queue. (gstack)"
 triggers:
   - landing report
   - version queue
@@ -20,7 +20,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/landing-report/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/landing-report/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

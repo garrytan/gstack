@@ -15,6 +15,7 @@ import type { GhResult } from '../lib/ci-gate';
 import { DEFAULT_ADVISORY_BOTS, DEFAULT_GATING_BOTS, DEFAULT_TIMEOUT_MINUTES, PR_WAIT_EXIT, Watcher, botLists, parsePrTarget, parsePrWaitArgs, prWaitMain, stateDir, type PrWaitEnv, type PrWaitOptions } from '../lib/pr-wait';
 import { GhError, runGh } from '../lib/pr-wait-github';
 import { RESULT_CODES } from '../lib/result-codes';
+import { PR303, PR303_RERUN_PASSED, ciRest, type CiAtCommit } from './helpers/ci-attempts-fixture';
 
 const ROOT = join(import.meta.dir, '..');
 const HEAD = 'a'.repeat(40);
@@ -63,14 +64,13 @@ function restPull(graphql: string): string {
   });
 }
 const CONCLUSION: Record<string, string> = { pass: 'success', fail: 'failure', skipping: 'skipped', cancel: 'cancelled' };
-/** `gh pr checks`-shaped rows as the REST check-runs lines `gh api --paginate --jq '.check_runs[]'` prints, one suite per row. */
-function restCheckRuns(result: GhResult): GhResult {
-  if (result.status !== 0) return result;
+/** `gh pr checks`-shaped rows as REST check runs, one suite per row. */
+function checkRunObjects(result: GhResult): Array<Record<string, unknown>> {
   const rows = JSON.parse(result.stdout || '[]') as Array<{ name: string; bucket: string; link: string; description: string }>;
-  return ok(rows.map((row, i) => JSON.stringify({
+  return rows.map((row, i) => ({
     id: i + 1, name: row.name, status: row.bucket === 'pending' ? 'in_progress' : 'completed', conclusion: row.bucket === 'pending' ? null : CONCLUSION[row.bucket] ?? row.bucket,
     completed_at: row.bucket === 'pending' ? null : '2026-11-06T00:00:00Z', details_url: row.link, output: { title: row.description }, app: { id: 15368 }, check_suite: { id: 100 + i },
-  })).join('\n'));
+  }));
 }
 
 /**
@@ -81,6 +81,8 @@ function restCheckRuns(result: GhResult): GhResult {
 interface Script {
   pr?: string | string[];
   checks?: GhResult | GhResult[];
+  /** Raw REST CI at the head (check runs with attempts, workflow runs), served instead of `checks`. */
+  rest?: CiAtCommit;
   rulesets?: GhResult;
   protection?: GhResult;
   prFiles?: GhResult;
@@ -95,6 +97,7 @@ function fakeGh(script: Script) {
   const checks = queue(script.checks);
   const calls: string[][] = [];
   let current = prJson();
+  let shown: GhResult = ok(checksJson());
   const gh = (args: string[]): GhResult => {
     calls.push(args);
     const a = args[0];
@@ -105,8 +108,10 @@ function fakeGh(script: Script) {
       current = next(prs) ?? prJson();
       return ok(restPull(current));
     }
-    if (a === 'api' && b.includes('/check-runs')) return restCheckRuns(next(checks) ?? ok(checksJson()));
-    if (a === 'api' && b.includes('/status')) return ok('');
+    if (script.rest) { const rest = ciRest(args, script.rest); if (rest) return rest; }
+    // One poll reads the paginated list once (which takes the next scripted reply), then ciAtHead's pages of that same reply.
+    if (a === 'api' && args[1] === '--paginate' && b.includes('/check-runs')) shown = next(checks) ?? ok(checksJson());
+    if (a === 'api' && /\/check-runs|\/status|\/actions\/runs/.test(b)) return shown.status === 0 ? ciRest(args, { check_runs: checkRunObjects(shown) })! : shown;
     if (a === 'api' && b.includes('/git/ref/heads/')) {
       const oid = JSON.parse(current).data.repository.pullRequest.baseRef?.target.oid;
       return oid ? ok(`${oid}\n`) : NOT_FOUND;
@@ -458,6 +463,20 @@ describe('pass-1 review fixes: gates agree, bounded waits, bot identity, local f
     expect(lines()).toEqual(['#42 check failed: quality-gate https://ci.example/quality-gate', expect.stringContaining('(PR_WAIT_BLOCKED;')]);
   });
 
+  // Value: protects=green counts a failed check whose rerun attempt created no jobs and a workflow run that failed before any job, as gstack-ship-queue
+  // ready does, while a rerun that passed stays green; fails_when=pr-wait reads only GitHub's default (latest-attempt) check-runs list and calls
+  // gstack-evals#303 green; seam=lib/ci-head-checks.ts (ciAtHead) behind fetchChecks, through the fake gh's filter=latest/all split;
+  // no_claim=GitHub's attempt grouping (the fixture is #4235's recording)
+  test('a failed check hidden behind a rerun attempt with no jobs, and a workflow run that failed with no jobs, block green (gstack-evals#303, GST-2252)', () => {
+    const red = watcher({ rest: PR303 }, 'green');
+    expect(red.poll()).toBe(PR_WAIT_EXIT.blocked);
+    expect(lines()).toEqual(['#42 check failed: checks', '#42 check failed: sealed (run 42671854799, no jobs)', expect.stringContaining('(PR_WAIT_BLOCKED;')]);
+    stdout = [];
+    const rerun = watcher({ rest: PR303_RERUN_PASSED }, 'green');
+    expect(pollUntilDone(rerun, 3)).toBe(PR_WAIT_EXIT.met);
+    expect(lines()).toEqual([expect.stringMatching(/^#42 green on aaaaaaa: 2 pass;/)]);
+  });
+
   // #3495 follow-up (ruled by GStack Minder, 2026-10-26): gstack-ci-gate --exclude has a watcher equivalent, so a non-required
   // check stuck in pending (a canary, a deploy preview) no longer holds --until green for the whole timeout.
   test('--exclude leaves a named non-required check out of the verdict: pending does not hold green, failed does not block; a required name is refused and gates', () => {
@@ -632,7 +651,8 @@ describe('pass-1 review fixes: gates agree, bounded waits, bot identity, local f
 case "$1 $2" in
   'api repos/owner/project/pulls/42') echo '${restPull(prJson({}))}' ;;
   'api graphql') echo '${prJson({})}' ;;
-  'api --paginate') echo '${restCheckRuns(ok(checksJson(['build', 'pending']))).stdout}' ;;
+  'api --paginate') echo '${checkRunObjects(ok(checksJson(['build', 'pending']))).map(r => JSON.stringify(r)).join('\n')}' ;;
+  'api repos/owner/project/commits/'*|'api repos/owner/project/actions/runs'*) echo '{"total_count":0,"check_runs":[],"statuses":[],"workflow_runs":[]}' ;;
   *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
 esac`, { mode: 0o755 });
     const stateRoot = join(dir, 'state');

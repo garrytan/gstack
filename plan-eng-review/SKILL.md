@@ -2,7 +2,7 @@
 name: plan-eng-review
 preamble-tier: 3
 version: 1.0.0
-description: Eng manager-mode plan review. (gstack)
+description: "Use when you plan a feature before building it, or review a plan: locks in architecture, data flow, diagrams, edge cases, test coverage and performance. Use for: plan a feature, review architecture, eng plan review. (gstack)"
 allowed-tools:
   - Read
   - Write
@@ -12,6 +12,7 @@ allowed-tools:
   - Bash
   - WebSearch
 triggers:
+  - plan a feature
   - review architecture
   - eng plan review
   - check the implementation plan
@@ -63,7 +64,7 @@ Keep the reviewed target fixed when selecting the report destination.
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-eng-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-eng-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (after scope gate)
 

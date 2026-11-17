@@ -277,7 +277,9 @@ no name or no readable `completed_at` counts on its own; commit-status contexts
 are counted one each. A workflow run that failed without starting any job
 counts as a failed check `<workflow> (run <id>, no jobs)` unless a later run of
 the same workflow replaced it; a run cancelled before any job is not counted.
-An unreadable list is unknown, never green.
+An unreadable list is unknown, never green. `gstack-pr-wait`, `gstack-ci-gate`
+and the release cut read CI through the same helper (`lib/ci-head-checks.ts`),
+on top of what they read before, so none of them calls such a head green.
 
 When a check counts as passing only because a newer run from another check
 suite replaced a red one (a branch-only `free-tests.yml` dispatch beside the red
@@ -1379,7 +1381,7 @@ checked-out HEAD, when the receipt records `gstack_version` without
 
 **`no_stop`.** The routine stops the run recorded and went on past, from
 `write --no-stop <json|@file>`: an array of `{ class, reason, evidence }`, with
-`class` one of the five no-stop defaults. /ship passes the branch's
+`class` one of the four no-stop defaults. /ship passes the branch's
 `gstack-no-stop` ledger here ([review-policy.md#no-stop](review-policy.md#no-stop)).
 
 **`review_loop_exception`.** The owner's acceptance of a stop after a
@@ -2279,19 +2281,16 @@ of the branch's own +/- lines, or a packet over the caps, prints `RECHECK: not e
 `RECEIPT_CARRY_PRODUCT_CHANGED`. A changed path alone, or context paths alone,
 keep the routes above, and their output is unchanged.
 
-The same scoped review also covers a hunk whose only difference from the
-reviewed one is the base's edit of the lines the branch replaces. The base took
+A hunk whose added lines are the reviewed ones but whose removed lines changed
+with the base is a changed path, not a context path (GST-2706). The base took
 `SAVE_VERSION := 83` while the branch's `:= 84` line, reviewed against `82`,
-stays byte-identical. The branch's added lines must match byte for byte, and
-the lines just outside the reviewed hunk's removed range must be lines the base
-kept, landing just outside the current hunk's range (`lib/ship-patch.ts`
-`comparePath`). The path then counts as a context path. Carry and finish put it
-in the scoped-review packet, and the reader checks that the branch's value
-still holds next to the base's. It never carries without a reader. A hunk whose
-added lines changed, that now also removes a line the base never touched, or
-whose range holds a line the base added (a base hunk at or next to the replaced
-lines that adds more lines than it removes) stays a changed path. A [mechanical retake](#mechanical-retake) does not apply
-here, since the branch retook nothing.
+stays byte-identical, so the PR now removes `83`, a line no review read. A head
+counts as the reviewed one only when the PR's own added and removed lines are
+both byte-identical ([rounds per pull request](review-policy.md#rounds-per-pull-request)),
+so carry refuses with `RECEIPT_CARRY_PRODUCT_CHANGED` and the head runs /ship,
+whose plan reviews it in full (`lib/ship-patch.ts` `comparePath`). GST-1561 had
+sent it to the one scoped reader instead. A [mechanical retake](#mechanical-retake)
+does not apply here, since the branch retook nothing.
 
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
 and `product_patch_id` (its product patch against the base), and every carry

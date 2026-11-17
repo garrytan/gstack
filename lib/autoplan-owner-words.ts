@@ -6,8 +6,10 @@
  * What counts. `ownerWords` reads the private run and collects every owner
  * reply it ever recorded: `owner_reply` on decision rows, on run.json's gate
  * and on every `answered` journal row (attempts.jsonl keeps replies a later
- * answer at the same gate replaced), the words a carried gate reused, and a
- * reason a human gave for `close --deferred <reason> --by human`. A reply that
+ * answer at the same gate replaced), the words a carried gate reused, each
+ * quote in a `### Owner's words` section of any plan text the run kept (plan-active.md, plan-source*.md,
+ * plan-at-gate.r*.md, plan-file.*.md; lib/autoplan-owner-text.ts), so a quote a revision removed stays redacted,
+ * and a reason a human gave for `close --deferred <reason> --by human`. A reply that
  * parsed as gate grammar (`owner_reply_parsed`) is the decision code and is
  * not scanned for; `reply` and the agent's own `answer_words` stay.
  *
@@ -52,7 +54,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { readDecisions, readJournal, type RunState } from './autoplan-state';
+import { parseOwnerWords } from './autoplan-owner-text';
+import { FILES, readDecisions, readJournal, type RunState } from './autoplan-state';
 
 export const OWNER_WORDS_MARK = '[owner words redacted]';
 export const MIN_TOKENS = 3;
@@ -226,7 +229,7 @@ export function redactOwnerWords(text: string, owner: OwnerWords, keep: Span[] =
   return { text: out, redacted: spans.length };
 }
 
-/** Drop the owner-word fields from a JSON value: `owner_reply`, a carry record's `words`, a human deferral's `reason`. */
+/** Drop the owner-word fields from a JSON value: `owner_reply`, a gate's `owner_words`, a carry record's `words`, a human deferral's `reason`. */
 export function dropOwnerFields(value: unknown): { value: unknown; dropped: number } {
   let dropped = 0;
   const walk = (v: unknown): unknown => {
@@ -234,6 +237,7 @@ export function dropOwnerFields(value: unknown): { value: unknown; dropped: numb
     if (!v || typeof v !== 'object') return v;
     const o: Record<string, unknown> = { ...(v as Record<string, unknown>) };
     if ('owner_reply' in o) { delete o.owner_reply; dropped++; }
+    if ('owner_words' in o && 'gate_rev' in o) { delete o.owner_words; dropped++; }
     if ('verdict' in o && typeof o.words === 'string') { delete o.words; dropped++; }
     if (o.by === 'human' && typeof o.reason === 'string' && 'cause' in o) { o.reason = OWNER_WORDS_MARK; dropped++; }
     return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, walk(x)]));
@@ -269,6 +273,9 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   const gate = state.gate as { owner_reply?: unknown; answered_at?: unknown; owner_reply_parsed?: unknown } | undefined;
   note(gate?.owner_reply, gate?.answered_at, gate?.owner_reply_parsed);
   note(state.carry?.words, undefined, false);
+  let names: string[] = [];
+  try { names = fs.readdirSync(out).filter(f => f === FILES.active || /^plan-source.*\.md$/.test(f) || /^plan-at-gate\.r\d+\.md$/.test(f) || /^plan-file\..+\.md$/.test(f)).sort(); } catch { /* no run directory */ }
+  for (const text of new Set(names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes.map(q => q.text)))) note(text, undefined, false);
 
   const deferred = new Map<string, string | undefined>();
   for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));

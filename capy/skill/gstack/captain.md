@@ -104,7 +104,8 @@ For an autoplan run, open the plan with `## ELI5` (5-10 plain sentences), then w
 gstack-owner-brief render --captain --out <run dir> --captain-name "<Captain name>"
 ```
 
-It prints a header line ("Decision needed … Reply **do it** …"), the `### ELI5` summary (on a run whose gate
+It prints a header line ("Decision needed … Reply **do it** …"), the plan's `### Day one` table, `### What it won't do yet`
+and the owner's words it follows (each when the plan has it), the `### ELI5` summary (on a run whose gate
 carries `eli5`), the four plan sections (each capped, with a pointer to the plan for the rest), and "What we need from you", one lettered
 line per choice in the ask format, closed by "do it", then a `### Cost` section (spent so far, worst case, and the estimate for
 the phases `rec` can reopen). The last line, "For the relaying agent", carries the run, `gate_rev`, `rec_hash` and the exact
@@ -149,7 +150,8 @@ Every PR you send READY on, and the READY report itself, has:
    evidence-ladder rung that fact reached.
 4. **Approvals.** `gstack-approvals render`.
 5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
-   each claim you did not check yourself and why, or `none`. You write this item; /ship does not.
+   each claim you did not check yourself and why, or `none`; `Failed or skipped:` and `Also changed:` lines too.
+   A controller asks for a missing one of the three, never refuses it. You write this item; /ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.

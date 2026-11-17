@@ -149,7 +149,6 @@ describe('contract-done-means renderer', () => {
     version: 1,
     items: [
       { id: 'debug-report', kind: 'report_labels', heading: 'DEBUG REPORT', labels: ['Symptom', 'Root cause', 'Status'] },
-      { id: 'check-after-last-edit', kind: 'check_after_last_edit' },
       { id: 'specialists-dispatched', kind: 'selected_specialists_dispatched', marker: 'Dispatching N specialists:' },
       { id: 'adversarial-pass', kind: 'agent_dispatch', match: 'chaos engineer' },
     ],
@@ -159,7 +158,6 @@ describe('contract-done-means renderer', () => {
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
     expect(out).toContain('- ' + BT + 'debug-report' + BT + ': a ' + BT + 'DEBUG REPORT' + BT + ' with Symptom, Root cause and Status filled in (' + BT + 'none: <why>' + BT + " where the skill's own stop rule leaves one empty).");
-    expect(out).toContain('- ' + BT + 'check-after-last-edit' + BT + ': a test or repro command run after your last edit.');
     expect(out).toContain('- ' + BT + 'specialists-dispatched' + BT + ': the specialist selection printed (' + BT + 'Dispatching N specialists:' + BT + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them).');
     expect(out).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "chaos engineer".');
   });
@@ -174,18 +172,19 @@ describe('contract-done-means renderer', () => {
   const one = (item: Record<string, unknown>) => ({ version: 1, items: [item] });
   const MALFORMED: Array<[string, unknown, RegExp]> = [
     ['not a mapping', 'yes', /must be a mapping/],
-    ['wrong version', { version: 2, items: [{ id: 'a', kind: 'check_after_last_edit' }] }, /version must be 1/],
+    ['wrong version', { version: 2, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /version must be 1/],
     ['no items', { version: 1, items: [] }, /items must be a non-empty list/],
-    ['unknown top-level key', { version: 1, items: [{ id: 'a', kind: 'check_after_last_edit' }], extra: 1 }, /unknown key "extra"/],
+    ['unknown top-level key', { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }], extra: 1 }, /unknown key "extra"/],
     ['unknown kind', one({ id: 'a', kind: 'vibes' }), /kind "vibes" is not one of/],
-    ['bad id', one({ id: 'Debug Report', kind: 'check_after_last_edit' }), /id must be lowercase kebab-case/],
-    ['duplicate id', { version: 1, items: [{ id: 'a', kind: 'check_after_last_edit' }, { id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /duplicate id "a"/],
+    ['removed kind', one({ id: 'a', kind: 'check_after_last_edit' }), /kind "check_after_last_edit" is not one of/],
+    ['bad id', one({ id: 'Debug Report', kind: 'agent_dispatch', match: 'x' }), /id must be lowercase kebab-case/],
+    ['duplicate id', { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'y' }, { id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /duplicate id "a"/],
     ['labels missing', one({ id: 'a', kind: 'report_labels', heading: 'R' }), /labels must be a non-empty list/],
     ['placeholder label', one({ id: 'a', kind: 'report_labels', heading: 'R', labels: ['[what the user observed]'] }), /placeholder/],
     ['heading missing', one({ id: 'a', kind: 'report_labels', labels: ['Symptom'] }), /heading must be a non-empty string/],
     ['marker missing', one({ id: 'a', kind: 'selected_specialists_dispatched' }), /marker must be a non-empty string/],
     ['match missing', one({ id: 'a', kind: 'agent_dispatch' }), /match must be a non-empty string/],
-    ['field from another kind', one({ id: 'a', kind: 'check_after_last_edit', match: 'x' }), /unknown key "match"/],
+    ['field from another kind', one({ id: 'a', kind: 'agent_dispatch', match: 'x', heading: 'R' }), /unknown key "heading"/],
   ];
   for (const [name, value, want] of MALFORMED) {
     test('a malformed block fails loudly: ' + name, () => {

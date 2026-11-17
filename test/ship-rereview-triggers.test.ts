@@ -554,6 +554,28 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     expect(big.stdout).toContain('STOP: --docs-requested docs/KEY_FILES.md');
   });
 
+  // Value: protects=an audit that names the requested doc as path:line or path:line:column (FOUN-32 via Vorflux at 2af3822f)
+  //   still backs the fix, while a different file sharing the path's prefix never does; fails_when=a correct requested fix stops
+  //   on how the audit wrote the location, or a sibling file's note waves the fix through; seam=finish --docs-requested;
+  //   no_claim=the audit child's wording
+  test.each([
+    ['path:line', 'docs/KEY_FILES.md:8: the src/b.ts entry is missing', true],
+    ['path:line:column', 'docs/KEY_FILES.md:8:12 the src/b.ts entry is missing', true],
+    ['path then "line"', 'docs/KEY_FILES.md: line 8 is missing the src/b.ts entry', true],
+    ['another file sharing the prefix', 'docs/KEY_FILES.md.tmpl:8: the src/b.ts entry is missing', false],
+  ])('--docs-requested matches the audit naming the doc as %s: %p', (_name, decision, named) => {
+    const index = Array.from({ length: 30 }, (_, i) => `- entry ${i}`).join('\n') + '\n';
+    const f = fx({ 'docs/KEY_FILES.md': index });
+    const reviewed = wtree(f);
+    const post = snapshot(f, ['docs']);
+    const result = path.join(f.root, 'a1-result.json');
+    fs.writeFileSync(result, JSON.stringify({ schema_version: 1, audit_id: 'a1', status: 'current', files_updated: [], files_reviewed: ['docs/KEY_FILES.md'], blockers: [], decisions: [decision], documentation_section: 'x' }));
+    f.write({ 'docs/KEY_FILES.md': index + '- src/b.ts: the b constant\n' }); f.commit('docs: index link');
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--docs-rechecked', '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', result]);
+    if (named) expect([r.status, lineOf(r.stdout, 'DOCS')]).toEqual([0, expect.stringContaining('requested=1')]);
+    else expect(r.stdout).toContain("STOP: --docs-requested docs/KEY_FILES.md is not named in the audit result's blockers or decisions");
+  });
+
   // Value: protects=an audit launch the child's install check refused is not counted, once per invocation; a crashed child,
   //   a completed audit and output that only quotes a refusal are counted, and a second refusal stops; fails_when=the refusal
   //   burns the only retry (gbrain #8084) or refusals relaunch forever; seam=none; no_claim=the parent's launch

@@ -6,8 +6,9 @@
  * - Router lines (lib/harness-register.ts, 160 chars): the description's own
  *   trigger sentence (its first sentence that starts "Use when", "Use to",
  *   "Use for", ...), followed by the description's first sentence when both
- *   fit. A description with no trigger sentence (the catalog-trimmed Claude
- *   render) uses the triggers list below instead.
+ *   fit. A description with no trigger sentence, or whose trigger sentence is
+ *   the catalog-trimmed Claude render's short "Use for:" clause, uses the
+ *   triggers list below instead.
  * - Hermes descriptions (scripts/gen-skill-docs.ts, hosts/hermes.ts): a lead
  *   of at most 57 chars, the part Hermes's skills index shows: "Use for: "
  *   and the skill's `triggers:` list in frontmatter order, as many whole
@@ -63,7 +64,8 @@ export function withTriggerLead(description: string, triggers: string[], max: nu
 /** A router line of at most max chars: the trigger part first, then the description's first sentence when both fit. */
 export function routerLine(description: string, triggers: string[], max = 160): string {
   const first = sentences(description)[0] ?? '';
-  const trigger = triggerSentence(description) || triggerList(triggers, max);
+  const own = triggerSentence(description);
+  const trigger = (triggers.length && own.startsWith('Use for:') ? '' : own) || triggerList(triggers, max);
   if (!trigger) return cutWords(first, max);
   const both = trigger + ' ' + first;
   return first && first !== trigger && both.length <= max ? both : cutWords(trigger, max);

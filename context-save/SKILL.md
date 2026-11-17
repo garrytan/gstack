@@ -2,7 +2,7 @@
 name: context-save
 preamble-tier: 2
 version: 1.0.0
-description: Save working context. (gstack)
+description: "Save working context. Use for: save progress, save state, save my work, context save. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -21,7 +21,7 @@ triggers:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/context-save/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/context-save/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

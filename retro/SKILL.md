@@ -2,7 +2,7 @@
 name: retro
 preamble-tier: 2
 version: 2.0.0
-description: Weekly engineering retrospective. (gstack)
+description: "Weekly engineering retrospective. Use for: weekly retro, what did we ship. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -39,7 +39,7 @@ gbrain:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/retro/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/retro/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

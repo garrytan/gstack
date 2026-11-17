@@ -872,15 +872,28 @@ describe("gstack-post keeps the Agent notes section last", () => {
   const RECEIPT = (head: string) => "```gstack-ship-receipt\n{\n  \"head\": \"" + head + "\"\n}\n```\n";
   const NOTES = (content: string) => "<!-- gstack:agent-notes -->\n<details><summary>Agent notes</summary>\n\n" + content + "\n\n</details>\n";
   const composed = (head: string, summary: string) => "Opening sentence.\n\n## Summary\n\n" + summary + "\n\n## Test plan\n\n- [x] bun test\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT(head).trim());
+  /** The run history a /ship body post keeps right after its receipt: the replaced receipt joins the runs block (GST-2706). */
+  const RUNS_AAAA = "\n```gstack-receipt-runs\n" + JSON.stringify({ head: "aaaa" }) + "\n```\n";
 
   // Value: protects=the body /ship composes since GST-1825 (opening, sections, Agent notes last) reposts byte for byte and replaces the notes as one
   // section; fails_when=the receipt inside the notes is split out as its own section, or the notes stop being last; why_new=the notes section is new;
   // seam=none (mergeBodySections); no_claim=the gh round trip
   test("a full post whose notes section is last reposts byte for byte and replaces the notes, receipt included, as one section", () => {
     const first = mergeBodySections(composed("aaaa", "old"), composed("bbbb", "new"));
-    expect(first.body).toBe(composed("bbbb", "new"));
+    expect(first.body.replace(RUNS_AAAA, "")).toBe(composed("bbbb", "new"));
+    expect(receiptRuns(first.body).map(r => r.head)).toEqual(["aaaa"]);
     expect([first.replaced, first.kept, first.added, first.dropped]).toEqual([["leading text", "Summary", "Test plan", "Agent notes"], [], [], []]);
-    expect(mergeBodySections(first.body, composed("bbbb", "new")).body).toBe(composed("bbbb", "new"));
+    expect(mergeBodySections(first.body, composed("bbbb", "new")).body).toBe(first.body);
+  });
+
+  // Value: protects=the kept run history lands in the Agent notes the receipt is read from, and the readable part keeps its bytes;
+  // fails_when=keepRuns searches the whole body and splices the runs block into a receipt fence the Summary quotes; why_new=keepRuns is new
+  // (GST-2706); seam=none (mergeBodySections); no_claim=the gh round trip
+  test("a /ship body post keeps the runs block in Agent notes when the readable part quotes a receipt fence", () => {
+    const ex = "~~~\n" + RECEIPT("example").trim() + "\n~~~";
+    const first = mergeBodySections(composed("aaaa", ex), composed("bbbb", ex));
+    expect(receiptRuns(first.body).map(r => r.head)).toEqual(["aaaa"]);
+    expect(first.body.replace(RUNS_AAAA, "")).toBe(composed("bbbb", ex));
   });
 
   // Value: protects=a partial post keeps the current notes and they stay last, above a Capy badge that ends the body; fails_when=a new section is
@@ -928,7 +941,8 @@ describe("gstack-post keeps the Agent notes section last", () => {
     const partial = mergeBodySections(legacy, "## Summary\n\nnew\n");
     expect(partial.body).toBe(RECEIPT("aaaa") + "\n## Summary\n\nnew\n\n## Approvals\n\nPlan: exempt: docs-only\n");
     const full = mergeBodySections(legacy, composed("bbbb", "new"));
-    expect(full.body).toBe("Opening sentence.\n\n## Summary\n\nnew\n\n## Approvals\n\nPlan: exempt: docs-only\n\n## Test plan\n\n- [x] bun test\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT("bbbb").trim()));
+    expect(receiptRuns(full.body).map(r => r.head)).toEqual(["aaaa"]);
+    expect(full.body.replace(RUNS_AAAA, "")).toBe("Opening sentence.\n\n## Summary\n\nnew\n\n## Approvals\n\nPlan: exempt: docs-only\n\n## Test plan\n\n- [x] bun test\n\n" + NOTES("Plan: exempt: docs-only\n\n" + RECEIPT("bbbb").trim()));
     expect(full.body.match(/```gstack-ship-receipt/g)).toHaveLength(1);
     expect(full.replaced).toEqual(["ship receipt", "Summary"]);
   });

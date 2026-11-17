@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { read, fakeVm, src, run } from './helpers/ubi-runner-fake-vm';
+import { read, fakeVm, src, run, creates } from './helpers/ubi-runner-fake-vm';
 
 describe('ubi-runner run, verify and quota against a fake API and a fake ssh', () => {
   test('verify forwards a configured pass name only when the command line grants it, and never UBICLOUD_*', () => {
@@ -140,8 +140,8 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 90_000);
 
-  // Value: protects=usage never reports a partial or empty count as the project's real usage, and the quota preflight says when it cannot read usage instead of passing silently; fails_when=a failed vm list or vm show prints a total again (the empty-project fix's `|| true` did that) or the preflight drops its log line; why_new=only successful reads were tested, and #3679 showed an unreadable usage switching the preflight off without a word; seam=none; no_claim=the real API's failure bodies
-  test('usage exits 1 without a total when the VM list or a size read fails, skips a VM destroyed since the list, and the quota preflight logs an unreadable usage and leaves the call to the API', () => {
+  // Value: protects=usage never reports a partial or empty count as the project's real usage, and an unreadable usage launches nothing under a UBI_QUOTA_VCPUS ceiling, while callers held to the API's own ceiling (a cached refusal maximum) or to none (merge checks, canaries) still create; fails_when=a failed vm list or vm show prints a total again (the empty-project fix's `|| true` did that), the preflight lets a create through when it cannot check UBI_QUOTA_VCPUS (GST-2852), or the refusal spreads to callers with no eval ceiling; why_new=the preflight failed open under UBI_QUOTA_WAIT=0 and this case pinned that; seam=none; no_claim=the real API's failure bodies
+  test('usage exits 1 without a total when the VM list or a size read fails, skips a VM destroyed since the list; an unreadable usage refuses a UBI_QUOTA_VCPUS create and leaves cached-ceiling and ceiling-free creates to the API', () => {
     const f = fakeVm({ listed: 'eu-central-h1 ubirun-peer-9999999999-cccc\n' });
     const listed = join(f.root, 'listed');
     try {
@@ -150,16 +150,31 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(noList.exitCode).toBe(1);
       expect(noList.stdout.toString()).not.toContain('total');
       expect(noList.stderr.toString()).toContain("usage: could not list the project's VMs");
-      const up = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16' });
-      expect(up.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
-      expect(f.calls()).toContain('"create"');
-      // With a wait budget, an unreadable usage is retried until the budget is spent, as a full project is.
-      const waited = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '16', UBI_QUOTA_WAIT: '2' });
+      const up = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464' });
+      expect(up.exitCode).toBe(1);
+      expect(up.stderr.toString()).toContain("create refused before any request: could not read the project's vCPU usage, so the UBI_QUOTA_VCPUS=464 ceiling can't be checked and nothing was launched (UBI_QUOTA_UNREADABLE)");
+      expect(f.calls()).not.toContain('"create"');
+      expect(existsSync(f.record)).toBe(false);
+      // With a wait budget, an unreadable usage is retried until the budget is spent, then refused the same way.
+      const waited = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464', UBI_QUOTA_WAIT: '2' });
+      expect(waited.exitCode).toBe(1);
       expect(waited.stderr.toString()).toContain("quota: could not read the project's vCPU usage; retrying, up to 2s more");
-      expect(waited.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
-      const waitedName = waited.stdout.toString().trim();
+      expect(waited.stderr.toString()).toContain('(UBI_QUOTA_UNREADABLE)');
+      expect(f.calls()).not.toContain('"create"');
+      const room = run(f, ['room'], { UBI_QUOTA_VCPUS: '464' });
+      expect(room.exitCode).toBe(1);
+      expect(room.stdout.toString()).toBe('UBICLOUD_ROOM: room=unknown size=standard-16 reason=usage-unreadable max=464\n');
+      // A cached refusal maximum is the API's own ceiling, so the API's answer decides; with no ceiling there is no preflight.
+      writeFileSync(join(f.state, 'quota-max'), '512\n');
+      const cached = run(f, ['up'], { UBI_REAP: '0' });
+      expect(cached.exitCode, cached.stderr.toString()).toBe(0);
+      expect(cached.stderr.toString()).toContain("quota preflight: could not read the project's vCPU usage; the API's own answer decides");
+      rmSync(join(f.state, 'quota-max'));
+      const free = run(f, ['up'], { UBI_REAP: '0' });
+      expect(free.exitCode, free.stderr.toString()).toBe(0);
+      expect(free.stderr.toString()).not.toContain('quota');
       rmSync(`${listed}.list-fails`);
-      for (const name of [up.stdout.toString().trim(), waitedName]) {
+      for (const name of [cached.stdout.toString().trim(), free.stdout.toString().trim()]) {
         expect(name).toMatch(/^ubirun-thrd1-\d{10}-[0-9a-f]{8}-t3$/);
         expect(run(f, ['down', name]).exitCode).toBe(0);
       }
@@ -208,6 +223,42 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(f.calls()).toContain('"create"');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   }, 90_000);
+
+  // Value: protects=two shards a fan-out starts together cannot both pass the preflight on the same usage reading and take the project past UBI_QUOTA_VCPUS; room reports the VMs that fit for a fan-out to size its batch; fails_when=the usage read and the create are no longer serialised per machine, a booking stops counting before its create is answered, or a booking outlives its create and keeps counting; why_new=HARN-1 found the check-then-create race at 448 of 464 (GST-2852) and no case ran two callers at once; seam=FAKE_CREATE_DELAY holds the fake create's answer so both callers read usage before either VM lands; no_claim=callers on different machines (the lock is per machine) and the real API's create latency
+  test('two ups started together at 448 of 464 vCPUs create one VM: the second sees the first one\'s booking and is refused; room reports what fits', async () => {
+    const listed = Array.from({ length: 28 }, (_, i) => `eu-central-h1 ubirun-peer-9999999999-${String(i).padStart(4, '0')}\n`).join('');
+    const f = fakeVm({ listed });
+    try {
+      // A booking whose process is gone, and one older than any create can take, no longer count.
+      writeFileSync(join(f.root, 'quota.lock.booked'), `ubirun-dead 16 2147483646 ${Math.floor(Date.now() / 1000)}\nubirun-old 16 ${process.pid} 1000000000\n`);
+      expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=1 size=standard-16 used=448 booked=0 max=464\n');
+      expect(readFileSync(join(f.root, 'quota.lock.booked'), 'utf8')).toBe('');
+      const extra = { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464', FAKE_CREATE_DELAY: '3' };
+      const shards = [f.spawn(['up'], extra), f.spawn(['up'], extra)];
+      const results = await Promise.all(shards.map(async (p) => ({ code: await p.exited, out: await new Response(p.stdout).text(), err: await new Response(p.stderr).text() })));
+      const made = results.filter(r => r.code === 0), refused = results.filter(r => r.code !== 0);
+      expect(made, results.map(r => r.err).join('\n---\n')).toHaveLength(1);
+      expect(refused).toHaveLength(1);
+      expect(refused[0].err).toMatch(/quota preflight refused .*: it needs 16 vCPUs and the project's VMs already use (448 of 464, with 16 more booked by creates in flight on this machine|464 of 464) \(ceiling from UBI_QUOTA_VCPUS/);
+      expect(creates(f)).toBe(1);
+      expect(readFileSync(join(f.root, 'quota.lock.booked'), 'utf8')).toBe('');
+      expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=0 size=standard-16 used=464 booked=0 max=464\n');
+      expect(run(f, ['down', made[0].out.trim()]).exitCode).toBe(0);
+      expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=1 size=standard-16 used=448 booked=0 max=464\n');
+      // A create answered 503 that the lookup then finds still drops its booking.
+      writeFileSync(join(f.root, 'listed.create-status'), '503');
+      writeFileSync(join(f.root, 'listed.create-lands'), '0');
+      const unsure = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464' });
+      expect(unsure.exitCode, unsure.stderr.toString()).toBe(0);
+      expect(unsure.stderr.toString()).toContain('answered HTTP 503; looking it up by name before deciding');
+      expect(readFileSync(join(f.root, 'quota.lock.booked'), 'utf8')).toBe('');
+      rmSync(join(f.root, 'listed.create-status')); rmSync(join(f.root, 'listed.create-lands'));
+      expect(run(f, ['down', unsure.stdout.toString().trim()]).exitCode).toBe(0);
+      const unknown = run(f, ['room']);
+      expect(unknown.exitCode).toBe(1);
+      expect(unknown.stdout.toString()).toBe('UBICLOUD_ROOM: room=unknown size=standard-16 reason=no-ceiling (set UBI_QUOTA_VCPUS)\n');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 120_000);
 
   test('reap reports a failed list and a failed destroy as failures; UBI_TTL_HOURS rejects leading zeros and more than three digits', () => {
     const f = fakeVm({ listed: 'eu-central-h1 ubirun-thrd1-1000000000-bbbb-t1\n' });

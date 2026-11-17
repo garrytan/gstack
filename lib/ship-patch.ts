@@ -9,10 +9,10 @@
  *   base merge only shifted line numbers; patch-ids ignore positions, so a block moved to an identical
  *   context elsewhere is changed);
  * - context: the +/- lines match hunk for hunk, and each hunk sits where the base's own
- *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ;
- *   or a hunk's added lines match byte for byte and its removed lines are the base's own edit of
- *   the lines the reviewed hunk replaced (founderstar#563: the base took SAVE_VERSION 83 under the
- *   branch's 84, GST-1561), which the scoped review reads too.
+ *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ.
+ *   A hunk whose added lines match but whose removed lines changed with the base (founderstar#563:
+ *   the base took SAVE_VERSION 83 under the branch's 84, GST-1561) is changed: the PR's own added
+ *   and removed lines must both be the reviewed bytes for a head to count as reviewed (GST-2673).
  *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
  *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
  * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
@@ -127,24 +127,8 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
   if (!r0?.length || !c0 || !b0 || r0.length !== c0.length) return 'changed';
   const map = mapper(b0);
-  if (!r0.every((h, i) => h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : baseEditOnly(h, c0[i]!, map, b0))) return 'changed';
-  return ids[0] === ids[1] && r0.every((h, i) => h.body === c0[i]!.body) ? 'same' : 'context';
-}
-
-/**
- * Whether a hunk whose body changed since review differs only by the base's edit of the lines it replaces: the added
- * lines are the reviewed ones byte for byte, and the lines just outside the reviewed hunk's removed range are lines the
- * base kept, landing just outside the current hunk's range, so the current removed lines are the base's version of the
- * reviewed ones. A hunk that now removes another line, or adds anything else, is not, and neither is one whose range
- * holds a line the base added before, inside or after the reviewed lines (a base hunk there that adds more lines than
- * it removes): dropping it deletes base code rather than taking the base's edit.
- */
-function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null, base: ZeroHunk[]): boolean {
-  const added = (h: ZeroHunk) => h.body.split('\n').filter((l, i, all) => l.startsWith('+') || (l.startsWith('\\') && all[i - 1]?.startsWith('+'))).join('\n');
-  const start = (h: ZeroHunk) => (h.oldCount > 0 ? h.oldStart : h.oldStart + 1);
-  const end = start(r) + r.oldCount;
-  if (base.some(b => b.newCount > b.oldCount && b.oldStart >= start(r) - 1 && b.oldStart < end)) return false;
-  return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(end) === start(c) + c.oldCount;
+  if (!r0.every((h, i) => h.body === c0[i]!.body && sameSpot(h, c0[i]!, map))) return 'changed';
+  return ids[0] === ids[1] ? 'same' : 'context';
 }
 
 /**

@@ -114,6 +114,7 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
     const [was, want] = [oneLine(r.base).slice(0, 120), branch(opts.base)];
     return { ok: false, code: 'QUEUE_RECEIPT_BASE_MISMATCH', message: `${subject} ship receipt was reviewed against ${was}, not ${want}, so it covers only the change since ${was}; land the parent (${was}) first, merge ${want} into this branch and push, then gstack-ship-receipt carry --pr ${pr ?? '<n>'} --base ${want} moves the receipt to ${want}`, line };
   }
+  if (recheckCarried(r)) return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt reached ${oneLine(r.head.slice(0, 12))} through a scoped re-check (carry: ${oneLine(r.carry!.reason).slice(0, 160)}), which is advice only, so the product code it covered never got a full review; run /ship on that head for its full review (GST-2673, docs/review-policy.md#rounds-per-pull-request)`, line };
   if (r.base_red && !opts.conditional) return { ok: false, code: 'QUEUE_RECEIPT_CONDITIONAL', message: `${subject} ship receipt is paused on a red base (${oneLine(r.base_red.cases.join(', ')).slice(0, 160)} fail at ${oneLine(r.base_red.base.slice(0, 12))}); /ship --resume rewrites it once the base passes them`, line };
   return { ok: true, receipt: r, head, line };
 }
@@ -136,6 +137,8 @@ export function receiptRuns(body: string): ReceiptRun[] {
   const m = RUNS_RE.exec(receiptSource(body));
   return m ? m[1]!.split('\n').flatMap(l => { try { const o = JSON.parse(l); return o && typeof o.head === 'string' ? [o as ReceiptRun] : []; } catch { return []; } }) : [];
 }
+/** Whether any hop of the receipt's carry was a scoped re-check: gstack before GST-2673 let one carry a receipt across a product change, so the code it covered never got a full review, and no later carry or land takes that receipt (GST-2706). */
+export const recheckCarried = (r: ShipReceipt): boolean => !!r.carry?.reason.split(' + ').some(hop => hop.includes('scoped re-check by '));
 export function receiptRun(r: ShipReceipt): ReceiptRun {
   const { head, version, gstack_version, run, review_loop, review_loop_exception } = r;
   const hop = r.carry ? r.carry.reason.split(' + ').pop()! : undefined;
