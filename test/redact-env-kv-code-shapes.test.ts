@@ -47,7 +47,7 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
       ["  key: `" + S + "`,", "src/cache.ts"],
       ["password = `" + SPACED + "${suffix}`;", "src/client.ts"],
       ["password = `${/m4Fq8Wz2Rn7Yb3Hd9Vk6Lp5C/.source}`;", "src/client.ts"],
-      ["password = `${48213957601234}`;", "src/client.ts"],
+      ["password = `${" + "4821395" + "7601234}`;", "src/client.ts"],
       ["password = `${0x9f3ac2e1b7d4}`;", "src/client.ts"],
       ['  key: `${lookup("' + S + '")}|over_tough`,', "src/cache.ts"],
       ["  key: `${over.day}|over_tough` + \"" + S + "\",", "src/cache.ts"],
