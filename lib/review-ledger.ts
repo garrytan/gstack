@@ -188,9 +188,10 @@ export interface MergedLine { id: string; reader: string; label: string; stated?
  * A native FIXABLE finding that states `Blocks: no` and one Severity field collects at that field on every class (GST-1031 ruling A);
  * one with no Blocks: no, no Severity field or only a FIXABLE field stays CRITICAL. fixableRaises false (a code or docs review with no
  * risk, error, history or floor reason, GST-987) also drops FIXABLE's raise from label headings and leads.
- * In a reply that says NO FINDINGS (GST-2122) a finding with no structure (JSON, lead label, label heading, numbered finding heading,
- * Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE) collects nothing: a file:line in its prose, or on the line
- * it runs on from, is the reader confirming code, not a finding (GST-2972). Elsewhere it collects as above. A line led by a bold, unlabelled lead ("**1. Coverage:** …") is read for a closing summary after it.
+ * In a reply that says NO FINDINGS (GST-2122) a finding with no file:line in its prose or on the line it runs on from, and no structure
+ * (JSON, lead label, label heading, numbered finding heading, Severity or Blocks: yes field, the native voice's FIXABLE or INVESTIGATE),
+ * collects nothing. One with a file:line but no structure still collects, since it may name a real blocker, but parseReply never counts
+ * it as anchored there (GST-2972: a reader confirming code names its lines). Elsewhere it collects as above. A line led by a bold, unlabelled lead ("**1. Coverage:** …") is read for a closing summary after it.
  */
 function parseLabelled(reader: string, output: string, fixableRaises: boolean): Array<{ label: string; raw: string; shaped: boolean; structured: boolean; anchored: boolean }> {
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; closed?: boolean; section?: boolean; context?: string };
@@ -334,14 +335,14 @@ const blockingRow = (f: { label: string; raw: string }) => (rank(f.label) ?? 0) 
  * (lib/review-verdict.ts, docs/review-policy.md#verdict-line). A well-formed verdict line never parses as a finding, and a valid
  * line lowers nothing by itself. Declared more than parsed adds CRITICAL rows, one per unmatched at= location and one for the
  * rest; declared fewer marks each blocking row with no anchor (no list item, heading, field, lead label or JSON; a file:line in prose
- * is not one, GST-2972: a reader confirming code names its lines) and no Blocks: yes a summary candidate, whether a CRITICAL or P0 word or the native voice's FIXABLE raise made it block. It still
+ * is not one, and in a NO FINDINGS reply a list item is not one either, GST-2972) and no Blocks: yes a summary candidate, whether a CRITICAL or P0 word or the native voice's FIXABLE raise made it block. It still
  * blocks until lead judgment lowers it with a reason.
  */
 export function parseReply(reader: string, output: string, fixableRaises = true, asked = false): { findings: ReplyFinding[]; verdict?: VerdictCheck } {
   const verdict = asked ? parseVerdict(output) : undefined;
   const text = asked ? withoutVerdictLines(output) : output;
   const clean = text.split('\n').some(l => /^NO FINDINGS\.?$/.test(l.trim()));
-  const rows = parseLabelled(reader, text, fixableRaises).filter(r => !clean || r.structured);
+  const rows = parseLabelled(reader, text, fixableRaises).filter(r => r.shaped || !clean).map(r => clean ? { ...r, anchored: r.structured } : r);
   if (verdict?.state !== 'valid') {
     const findings = rows.map(({ label, raw }) => ({ label, raw }));
     return { findings, ...(verdict ? { verdict: { state: verdict.state, parsed: findings.filter(blockingRow).length, ...(verdict.state === 'malformed' ? { why: verdict.why } : {}) } } : {}) };

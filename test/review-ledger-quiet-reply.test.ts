@@ -3,9 +3,10 @@
  * REVIEW_VERDICT said blocking=0 (p1fc at 00155f5) wrote "a High or Critical challenge" in a paragraph naming
  * autoplan-revise.ts:103, and a clean one (blocking=0 and NO FINDINGS, p3fc at b1b3c3c) had a nested bullet under a line naming
  * lib/autoplan-gate.ts:197. The file:line made each an anchored Critical that lead judgment could not lower, so each cost an owner
- * ruling. A reply that says NO FINDINGS now collects only structured finding lines. Under blocking=0 alone, Captain ruling D1
- * (2026-11-14, test/review-verdict.test.ts) holds: the line lowers nothing by itself, so the prose row still blocks, but a file:line
- * in prose no longer anchors it, so it is a summary candidate the lead may lower with a reason instead of an owner ruling.
+ * ruling. Captain ruling D1 (2026-11-14, test/review-verdict.test.ts) holds: a verdict line lowers nothing by itself, and neither
+ * does NO FINDINGS (Captain, 2026-11-17: prose that names a real blocker must not vanish). So the prose rows still collect and block,
+ * but a file:line in prose, or a list item in a NO FINDINGS reply, no longer anchors them: under a valid verdict that declares fewer
+ * blockers each is a summary candidate the lead may lower with a reason, instead of an owner ruling.
  */
 import { describe, expect, test } from 'bun:test';
 import { parseReply } from '../lib/review-ledger';
@@ -17,14 +18,14 @@ const P3FC = "REVIEWED_TREE: b1b3c3cca68f1087cbca0d4f24c94e168daeb920 /workspace
 const blocking = (r: ReturnType<typeof parseReply>) => r.findings.filter(f => /^(CRITICAL|P0|P1|HIGH)$/i.test(f.label));
 
 describe('confirmation prose in a reply that says nothing blocks (GST-2972)', () => {
-  // Value: protects=the two #4431 replies: p3fc (NO FINDINGS) collects nothing, and p1fc (blocking=0) keeps its JSON finding and turns
-  //   its prose Critical into a summary candidate the lead may lower; fails_when=p3fc mints a finding, p1fc's prose row stays an
-  //   anchored Critical (the owner-ruling stop), or the JSON line is lost; seam=parseReply as collect calls it (verdict asked);
-  //   no_claim=what the lead decides about the candidate
-  test('p3fc collects nothing; p1fc keeps its JSON finding and its prose row is a summary candidate, not an anchored Critical', () => {
+  // Value: protects=the two #4431 replies: each prose Critical is a summary candidate the lead may lower, and p1fc keeps its JSON
+  //   finding; fails_when=either prose row is an anchored Critical (the owner-ruling stop), or the JSON line is lost;
+  //   seam=parseReply as collect calls it (verdict asked); no_claim=what the lead decides about the candidate
+  test('p3fc and p1fc prose rows are summary candidates, not anchored Criticals; p1fc keeps its JSON finding', () => {
     const p3 = parseReply('fix-check', P3FC, true, true);
-    expect(p3.findings).toEqual([]);
-    expect(p3.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 0, agrees: true });
+    expect(p3.findings.map(f => [f.label, f.summary ?? false])).toEqual([['Critical', true]]);
+    expect(p3.findings[0]!.raw).toStartWith("- With an Owner's words section");
+    expect(p3.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 1, agrees: false });
     const p1 = parseReply('fix-check', P1FC, true, true);
     expect(p1.findings.map(f => [f.label, f.summary ?? false])).toEqual([['INFORMATIONAL', false], ['Critical', true]]);
     expect(p1.findings[0]!.raw).toContain('"path":"lib/autoplan-confirm.ts"');
@@ -55,5 +56,22 @@ describe('confirmation prose in a reply that says nothing blocks (GST-2972)', ()
     expect(blocking(declared).every(f => !f.summary)).toBe(true);
     const unasked = parseReply('fix-check', P1FC, true, false);
     expect(blocking(unasked).map(f => f.summary ?? false)).toEqual([false]);
+  });
+
+  // Value: protects=a NO FINDINGS reply whose prose names a real blocker still blocks (Captain, 2026-11-17; the GPT-6.1 Sol trail read
+  //   on #4449): under blocking=0 it is a summary candidate the lead must lower with a reason, and with no verdict asked it is an
+  //   ordinary CRITICAL; negative control: NO FINDINGS prose with no file:line still collects nothing (GST-2122);
+  //   fails_when=the token-leak line vanishes or the verdict agrees, or unlocated prose starts collecting; seam=parseReply
+  test('a NO FINDINGS reply whose prose names a token leak still blocks', () => {
+    const leak = 'No CRITICAL issues except the token leak in log.ts:3.';
+    const head = 'REVIEWED_TREE: ' + 'a'.repeat(40) + ' /workspace/gstack\nREVIEW_VERDICT: blocking=0\n\nNO FINDINGS\n\n';
+    const asked = parseReply('fix-check', head + leak + '\n', true, true);
+    expect(blocking(asked).map(f => [f.raw, f.summary ?? false])).toEqual([[leak, true]]);
+    expect(asked.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 1, agrees: false });
+    const unasked = parseReply('fix-check', 'NO FINDINGS\n\n' + leak + '\n', true, false);
+    expect(blocking(unasked).map(f => [f.raw, f.summary ?? false])).toEqual([[leak, false]]);
+    const unlocated = parseReply('fix-check', head + 'I read every changed file and the critical paths look right.\n', true, true);
+    expect(unlocated.findings).toEqual([]);
+    expect(unlocated.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 0, agrees: true });
   });
 });
