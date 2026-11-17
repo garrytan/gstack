@@ -2012,24 +2012,18 @@ appears only when it is part of the lesson, and datasets or tools are opened
 only with a stated reason. The rules and their honesty bars are in
 [ETHOS.md, Explain the Number](../ETHOS.md#8-explain-the-number).
 
-**Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
+**Safety-rule evals: a descriptive third arm.** The W1 safety-rule
 evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
-rule paragraph deleted), and the router failure-routing evals compare
-`GSTACK_ROUTER_ARM=current` with `before` (the base branch's router). Both
-variables also take `none` (GST-470): the same fixture, tools and user request,
-with no skill excerpt, rule text, step file or installed skill. Any other value
-throws, so a typo cannot run one arm under another's label. The `rule`,
-`removed`, `current` and `before` prompts are byte for byte what they were
-before `none` existed (`test/safety-none-arm.test.ts`,
-`test/failure-routing-arm.test.ts`). To run the three arms as a comparison, run
-the same case once per arm, each as its CI panel:
+rule paragraph deleted). The variable also takes `none` (GST-470): the same
+fixture, tools and user request, with no skill excerpt, rule text, step file or
+installed skill. Any other value throws, so a typo cannot run one arm under
+another's label. The `rule` and `removed` prompts are byte for byte what they
+were before `none` existed (`test/safety-none-arm.test.ts`). To run the three
+arms as a comparison, run the same case once per arm, each as its CI panel:
 
 ```bash
 for arm in rule removed none; do
   GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
-done
-for arm in current before none; do
-  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-verified-cause
 done
 ```
 
