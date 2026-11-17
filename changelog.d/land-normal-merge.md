@@ -1,1 +1,0 @@
-- **The ship policy guide now explains how to merge any pull request with `gstack-ship-queue land`, even in a repository with one maintainer.** It names the two policy keys land needs before it will run, lists what land already checks, gives a pinned `gh pr merge` fallback for repositories that can't use land yet, and covers four common traps. CONTRIBUTING.md links to it.

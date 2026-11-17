@@ -1,1 +1,0 @@
-- **The Captain manuals now name the `Failed or skipped:` and `Also changed:` lines that READY and lane reports carry.** A controller asks for a missing one in a follow-up and never refuses or stales a READY over it, the same as a missing `Unverified:` (GST-1455).
