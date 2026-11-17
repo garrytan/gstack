@@ -193,6 +193,23 @@ with open(path, "w") as f:
 PYEOF
 }
 
+# Status for a drain that pushed nothing. While local commits are still not on
+# origin, push_failed replaces ok and idle: writing those instead erased a
+# failed push one run later, so a push that never recovered went silent
+# (#4418). held and collision keep their code (their attention line names the
+# files to fix) and carry the unpushed count in the message.
+# $1 code, $2 message, $3 unpushed local commits.
+write_drain_status() {
+  local unpushed="$3 local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with 'git -C $GSTACK_HOME push origin HEAD')"
+  if [ "${3:-0}" -eq 0 ]; then
+    write_status "$1" "$2"
+  elif [ "$1" = held ] || [ "$1" = collision ]; then
+    write_status "$1" "$2; $unpushed"
+  else
+    write_status "push_failed" "$unpushed; this drain: $2"
+  fi
+}
+
 # Read config; return 0 if sync active, 1 otherwise.
 sync_active() {
   if [ ! -d "$GSTACK_HOME/.git" ]; then
@@ -464,8 +481,11 @@ for p in sorted(queue_paths):
     if p in skip_lines or any(m in skip_lines for m in members):
         classified["dropped"]["skipped"].append(p)
         continue
-    # Must be under GSTACK_HOME root. Reject absolute + reject ../ escape.
-    if p.startswith("/") or ".." in p.split("/"):
+    # Must be under GSTACK_HOME root and spelled the way git stages it: an
+    # absolute path, a ../ escape, or an empty or "." component (#4445:
+    # projects//timeline.jsonl from an empty slug, staged by git as
+    # projects/timeline.jsonl, made the index check refuse the whole batch).
+    if any(c in ("", ".", "..") for c in p.split("/")):
         classified["dropped"]["invalid"].append(p)
         continue
     # Must match at least one allowlist glob.
@@ -677,7 +697,8 @@ finalize_queue() {
   # Fail-open by design (a failed finalize self-corrects next run: re-stage →
   # nothing-to-commit), but say so — a silent failure here would let the
   # subsequent "ok/idle" status claim a drain that did not happen.
-  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2
+  local finalized=1
+  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || { finalized=0; echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2; }
 import json, os, sys, time
 spool_dir, snapshot_file, class_file, paths_file, drops_file = sys.argv[1:6]
 
@@ -762,6 +783,16 @@ if dropped:
         json.dump({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "dropped": classified.get("dropped", {})}, f)
 PYEOF
+  [ "$finalized" = 1 ] || return 0
+  # #4445: report malformed records once finalize has dropped them; an early
+  # exit before finalize keeps them queued and must not claim the drop.
+  local malformed
+  malformed=$(python3 -c 'import json, sys; print(len((json.load(open(sys.argv[1])).get("dropped") or {}).get("invalid") or []))' "$class_file" 2>/dev/null || echo 0)
+  case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
+  if [ "$malformed" -gt 0 ]; then
+    ST_NOTE="$ST_NOTE; dropped $malformed queued record(s) with a malformed path (absolute, or an empty, '.' or '..' component), listed in $GSTACK_HOME/.brain-sync-drops.json"
+    echo "BRAIN_SYNC: dropped $malformed queued record(s) with a malformed path; see $GSTACK_HOME/.brain-sync-drops.json" >&2
+  fi
 }
 
 # Human-readable classification counts for status messages.
@@ -1316,14 +1347,9 @@ subcmd_once() {
   # the queue is empty.) The lock-release trap installed at acquisition
   # covers this exit.
   if ! spool_has_records && [ ! -s "$QUEUE" ] && [ ! -s "$QUEUE.migrating" ]; then
-    # Stranded local commits that this run did not push keep the status at
-    # push_failed: an "idle" here used to erase the failure one boundary later,
-    # so a push that never recovered went silent.
-    if [ "$det_total" -gt 0 ]; then
-      write_status "push_failed" "$det_total local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with git -C $GSTACK_HOME push origin HEAD)"
-      exit 0
-    fi
-    if [ "$REMOVALS_PUSHED" = 1 ]; then write_status "ok" "queue empty"; else write_status "idle" "queue empty"; fi
+    local empty_code=idle
+    [ "$REMOVALS_PUSHED" = 1 ] && empty_code=ok
+    write_drain_status "$empty_code" "queue empty" "$det_total"
     exit 0
   fi
 
@@ -1362,7 +1388,7 @@ subcmd_once() {
     local summary idle_code=idle
     summary=$(queue_summary "$class_file")
     [ "$ST_CASE_HELD" -gt 0 ] && idle_code=collision
-    write_status "$idle_code" "no stageable changes${summary:+ ($summary)}"
+    write_drain_status "$idle_code" "no stageable changes${summary:+ ($summary)}" "$det_total"
     exit 0
   fi
   local n_stageable
@@ -1419,9 +1445,9 @@ subcmd_once() {
   if [ "$cached_rc" -eq 0 ]; then
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     if [ "$ok_code" != "ok" ]; then
-      write_status "$ok_code" "nothing else to sync"
+      write_drain_status "$ok_code" "nothing else to sync" "$det_total"
     else
-      write_status "idle" "queue drained but no new changes to commit"
+      write_drain_status "idle" "queue drained but no new changes to commit" "$det_total"
     fi
     exit 0
   fi
