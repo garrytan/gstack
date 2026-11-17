@@ -194,7 +194,7 @@ describe('workflow judge excerpts', () => {
     const ceo = readWorkflowExcerpt('plan-ceo-review/SKILL.md', '## Step 0: Nuclear Scope Challenge', '## Review Sections');
     const positions = ['### 0D.', '### 0E. Mode Selection', '**Mode handoff:**',
       'Follow the selected mode\'s route:', '### 0F.', '### 0G. Mode-Specific Analysis',
-      '### 0H.', '#### Spec Review Loop', '### 0I. Temporal Interrogation']
+      '### 0H.', '#### Spec Review Loop', "### 0I. First week on the owner's device"]
       .map(heading => ceo.indexOf(heading));
     expect(positions.every(index => index >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));

@@ -1,8 +1,8 @@
 <!-- AUTO-GENERATED from review-sections.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-## Review Sections (7 passes, after scope is agreed)
+## Review Sections (8 passes, after scope is agreed)
 
-**Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
+**Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-8) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
 **Context:** This section continues `plan-design-review/SKILL.md`. If its setup
 is no longer in context, Read `~/.claude/skills/gstack/plan-design-review/SKILL.md`
@@ -81,13 +81,14 @@ Evaluate every pass using the plan and referenced existing contracts. An explici
 
 **Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. Never edit first and ask afterward.
 
-A declined fix remains documented: the unresolved gap keeps the rating below 10. Carry each pass's before/after scores and remaining gaps into the Completion Summary below. Compute the overall score as specified in the Completion Summary; do not treat litmus answers or Pass 7's decision counts as numeric ratings. Pass 7 is the unscored decision register, not a seventh rating.
+A declined fix remains documented: the unresolved gap keeps the rating below 10. Carry each pass's before/after scores and remaining gaps into the Completion Summary below. Compute the overall score as specified in the Completion Summary; do not treat litmus answers, Pass 7's decision counts or Pass 8's control list as numeric ratings. Pass 7 is the unscored decision register, not a seventh rating.
 
 A faithful restatement of an existing or already approved contract, such as a wireframe of the unchanged layout, is review evidence rather than a new design choice. Record it directly; ask if producing it would introduce or change a design decision. Finish with the Required Outputs and terminal Plan File Review Report below, including any unanswered decisions.
 
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
 FIX TO 10: Add information hierarchy to the plan. Include ASCII diagram of screen/page structure and navigation flow. Apply "constraint worship" — if you can only show 3 things, which 3?
+**Route coverage:** every Day one row reaches its feature from the root screen in at most two taps, and every feature has a route from the root screen. A daily row or a feature with no route is High.
 **Persuade plan** (a landing, marketing, pricing, waitlist, campaign or comparison page; the Pass 4 classifier): the plan settles each check below, or the gap is a Pass 1 finding. Ask the user for missing proof and risk terms; never invent them.
 1. **One primary action**, named; nothing competes with it above the fold, and the closing CTA repeats it.
 2. **Named objections**: the visitor's top objections, each answered where it arises (FAQ of real questions, comparison, guarantee).
@@ -106,6 +107,7 @@ FIX TO 10: Add interaction state table to the plan:
 ```
 For each state: describe what the user SEES, not backend behavior.
 Empty states are features — specify warmth, primary action, context.
+For each root-screen section, say how often it is empty for this owner (from the Day one table's sources). A section empty on most days is High, whatever its empty state says.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 3: User Journey & Emotional Arc
@@ -265,9 +267,13 @@ If visual mockups were generated in Step 0.5, reference them as evidence when su
 Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Edit the plan with each decision as it's made.
 **STOP.** Wait for each answer before editing or advancing. Record unanswered decisions as unresolved.
 
+### Pass 8: No dead controls
+List every visible control on the plan's screens and the first build that shows it. Each one works end to end in that build, or that build hides it. The plan lists every stub (a control that shows "not set up yet" or does nothing). A visible stub in any build the owner receives is High. Pass 8 is unscored, like Pass 7.
+**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
+
 ### Post-Pass: Update Mockups (if generated)
 
-After Pass 7: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.
+After Pass 8: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.
 
 If mockups were generated in Step 0.5 and review passes changed significant design decisions (information architecture restructure, new states, layout changes), offer to regenerate (one-shot, not a loop):
 
@@ -356,7 +362,7 @@ In the plan file, write it as its own `## Design Review Completion Summary` sect
 the report: the next plan review deletes and regenerates everything under that heading.
 
 **Overall design score:** use the lowest of the six rated pass scores (1-6),
-separately before and after approved fixes. Pass 7 is unscored. Keep Step 0's
+separately before and after approved fixes. Pass 7 is unscored, and so is Pass 8. Keep Step 0's
 initial impression in its own row. An overall 8+ therefore means every rated
 pass is 8+; unresolved findings still prevent a clean review log.
 
@@ -373,6 +379,7 @@ pass is 8+; unresolved findings still prevent a clean review log.
   | Pass 5  (Design Sys) | ___/10 → ___/10 after fixes                |
   | Pass 6  (Responsive) | ___/10 → ___/10 after fixes                |
   | Pass 7  (Decisions)  | ___ resolved, ___ deferred                 |
+  | Pass 8  (Controls)   | ___ dead controls, ___ fixed or hidden     |
   +--------------------------------------------------------------------+
   | NOT in scope         | written (___ items)                         |
   | What already exists  | written                                     |

@@ -43,6 +43,10 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/
   Also consider these findings from the CEO review phase:
   <insert CEO dual voice findings summary — key concerns, disagreements>
 
+  First check every Day one row (the owner's first five actions) against the
+  screens: each reaches its feature from the root screen in at most two taps,
+  every feature has a route, a root-screen section empty on most days is High,
+  and every visible control in an owner build works end to end or is hidden.
   Does the information hierarchy serve the user or the developer? Are interaction
   states (loading, empty, error, partial) specified or left to the implementer's
   imagination? Is the responsive strategy intentional or afterthought? Are
@@ -114,7 +118,7 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
    to the outside voice; the native voice stays independent.
    Missing/disabled outside = N/A, not CONFIRMED; primary cannot replace it.
 
-3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
+3. Passes 1-8: Run each from loaded skill. Rate Passes 1-6 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
 **Close this phase:**

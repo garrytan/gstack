@@ -59,6 +59,7 @@ import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQ
 import { generateVoiceTriggerRouting } from './voice-triggers';
 import { generateTranscriptDiscovery, generateTranscriptSources } from './transcripts';
 import { generateContractDoneMeans } from './contract-done-means';
+import { generateDayOneSteps } from './day-one-steps';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   AUTOPLAN_PUBLICATION_HOOK: generateAutoplanPublicationHook,
@@ -200,4 +201,5 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   TRANSCRIPT_SOURCES: generateTranscriptSources,
   TRANSCRIPT_DISCOVERY: generateTranscriptDiscovery,
   CONTRACT_DONE_MEANS: generateContractDoneMeans,
+  DAY_ONE_STEPS: generateDayOneSteps,
 };

@@ -63,11 +63,10 @@ for (const source of sources) describe(`CEO clarity routing — ${source.label}`
     expect(mode).toContain('| SCOPE REDUCTION | 0G |');
   });
 
-  test('scope limits and mode recommendations keep their numeric thresholds and route order', () => {
-    expect(main).toMatch(/excluding unchanged reuse/i);
-    expect(main).toMatch(/neither count approves changes/i);
-    ordered(mode, ['For >15 planned changed files', 'If categories overlap or are unclear', 'Otherwise: a new product/system']);
-    expect(mode).toMatch(/>15 planned changed files, recommend SCOPE REDUCTION/);
+  test('scope limits and mode recommendations follow the Day one table and keep their route order', () => {
+    expect(main).toMatch(/the count approves no changes/i);
+    ordered(mode, ['A daily Day one row has no feature in the plan', 'Fewer parts would cover every Day one row', 'If categories overlap or are unclear', 'Otherwise: a new product/system']);
+    expect(mode).not.toMatch(/>15 planned changed files/);
   });
 
   test('coverage scoring keeps its scale and the completion fraction keeps its format', () => {
