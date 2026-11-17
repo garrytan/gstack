@@ -378,6 +378,15 @@ gstack_result_anchor() {
     APPROVAL_RECORD_UNAVAILABLE) printf '%s' 'approval-record-unavailable' ;;
     APPROVAL_RECORD_WRITE_FAILED) printf '%s' 'approval-record-write-failed' ;;
     APPROVAL_IMPORT_UNANSWERED) printf '%s' 'approval-import-unanswered' ;;
+    OWNER_ANSWERS_NO_DRIVE) printf '%s' 'owner-answers-no-drive' ;;
+    OWNER_ANSWERS_AMBIGUOUS) printf '%s' 'owner-answers-ambiguous' ;;
+    OWNER_ANSWERS_INVALID) printf '%s' 'owner-answers-invalid' ;;
+    OWNER_ANSWERS_SECRET) printf '%s' 'owner-answers-secret' ;;
+    OWNER_ANSWERS_WRITE_FAILED) printf '%s' 'owner-answers-write-failed' ;;
+    OWNER_ANSWERS_NOT_FOUND) printf '%s' 'owner-answers-not-found' ;;
+    OWNER_ANSWERS_CONFLICT) printf '%s' 'owner-answers-conflict' ;;
+    OWNER_ANSWERS_SELF_VERIFY) printf '%s' 'owner-answers-self-verify' ;;
+    OWNER_ANSWERS_NOT_TAKEABLE) printf '%s' 'owner-answers-not-takeable' ;;
     CAPTAIN_BRIEF_INCOMPLETE) printf '%s' 'captain-brief-incomplete' ;;
     PR_SHOTS_INPUT_NOT_FOUND) printf '%s' 'pr-shots-input-not-found' ;;
     PR_SHOTS_INPUT_REFUSED) printf '%s' 'pr-shots-input-refused' ;;
