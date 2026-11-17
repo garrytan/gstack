@@ -28,9 +28,9 @@ Run these from the thread that owns the build (on Capy, a Captain or the agent b
    gstack-first-use predict --run <dir> --score 6 --why "reminders work, adding plants is slow" --by openai/gpt-6.2-sol
    ```
 
-   The evidence file (PNG, JPEG, GIF, WebP, HEIC, MP4, MOV or WebM, up to 100 MB) is copied into the run and recorded with its hash and size. A fail needs `--note` saying what happened. Only the checker's family may record. Replaying an action adds a new result; the newest one counts.
+   The evidence file (PNG, JPEG, GIF, WebP, HEIC, MP4, MOV or WebM, up to 100 MB) is copied into the run and recorded with its hash and size. A fail needs `--note` saying what happened. Only the checker's family may record, and `--account` must be the play spec's owner-equivalent account exactly (the brief prints it), so a pass on a developer or admin account doesn't count. Replaying an action adds a new result; the newest one counts.
 
-4. **Check the links right before sending.** `gstack-first-use links --run <dir>` opens every link in the play spec and writes a dated receipt for each. A link passes on a 2xx or 3xx answer. A 401 or 403 passes only when the play spec marks the link `"login_gated": true`.
+4. **Check the links right before sending.** `gstack-first-use links --run <dir> --account "<the play spec's account>" --device-class ios` opens every link in the play spec and writes a dated receipt for each, bound to that audience: the owner-equivalent account and the build's device class. It refuses any other audience, and the gate counts only receipts for this one. A link passes on a 2xx or 3xx answer. A 401 or 403 passes only when the play spec marks the link `"login_gated": true`. The request itself carries no sign-in, so for a login-gated link the receipt proves the link is up and gated; the checker's played results on that account prove the sign-in works.
 
 5. **Print the message.** `gstack-first-use message --run <dir> --platform ios --commit <sha> --testflight 17` prints the "try this build" text only when every check below passes, and refuses otherwise, printing nothing on stdout. Send that text as it is. For a "v1 is ready" report, run `gstack-first-use check` with the same flags and paste its `FIRST_USE: pass …` line.
 
@@ -42,8 +42,8 @@ Run these from the thread that owns the build (on Capy, a Captain or the agent b
 
 - The build you're about to send is the one that was checked (`build_mismatch`).
 - The plan's first five day-one rows haven't changed since `start` (`source_changed`, `source_missing`). An edit elsewhere in the plan doesn't count.
-- Every frozen action's newest result, from the checker's family, is a pass, and its evidence file still matches its hash (`action_<n>_not_played`, `action_<n>_failed`, `action_<n>_evidence_stale`).
-- Every link has a live receipt from the last 15 minutes (`link_unchecked`, `link_down`, `link_stale`).
+- Every frozen action's newest result, from the checker's family on the owner-equivalent account, is a pass, and its evidence file still matches its hash (`action_<n>_not_played`, `action_<n>_failed`, `action_<n>_evidence_stale`).
+- Every link has a live receipt from the last 15 minutes, checked as the owner-equivalent account and device class (`link_unchecked`, `link_down`, `link_stale`).
 - The checker predicted a score (`no_predicted_score`).
 
 The message never shows the predicted score, so it can't anchor the owner's own.
@@ -66,7 +66,7 @@ Every ask to play or try a build carries full play instructions in the same mess
 | Part | Field | Notes |
 |---|---|---|
 | 1. The links | `links`: `[{ "label", "url", "login_gated"? }]` | http or https; each checked live within 15 minutes of sending |
-| 2. Device and setup | `device`, `setup`, `account` | the owner's device kind and account; the checker uses the same kind |
+| 2. Device and setup | `device`, `setup`, `account` | the owner's device kind and account kind; the checker plays on the same kind, and results and link receipts are bound to `account` and the build's platform |
 | 3. What it is, in a sentence | `what` | |
 | 4. How to start | `start` | |
 | 5. Controls | `controls` | |

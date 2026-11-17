@@ -32,6 +32,7 @@ let n = 0;
 const fresh = (name: string) => { const d = path.join(TMP, `${name}-${++n}`); fs.mkdirSync(d, { recursive: true }); return d; };
 const shot = (dir: string, name = 'shot.png', body = 'png bytes') => { const f = path.join(dir, name); fs.writeFileSync(f, body); return f; };
 const playWith = (port: number) => ({ ...PLAY, links: PLAY.links.map((l: { url: string }) => ({ ...l, url: l.url.replace('PORT', String(port)) })) });
+const AS = { account: PLAY.account, device_class: 'ios' as const };
 const okFetch: Fetcher = async url => ({ status: url.endsWith('/account') ? 401 : 200 });
 
 /** A run on its own plan copy and record root, with every action passed, the links checked and a prediction. */
@@ -42,7 +43,7 @@ function passedRun(o: { plan?: string } = {}) {
   const r = startRun({ root, app: 'plantpal', planPath, build: BUILD, play: playWith(1), builder: 'anthropic/claude-opus-5-5', checker: 'openai/gpt-6.2-sol', now: T0 });
   if ('error' in r) throw new Error(r.error.detail);
   for (let a = 1; a <= 5; a++) {
-    const rec = recordResult({ dir: r.dir, action: a, verdict: 'pass', evidence: shot(work, `a${a}.png`, `screen ${a}`), device: 'iPhone 17 Pro (cloud)', account: 'fresh Apple ID', by: 'openai/gpt-6.2-sol', now: T0 });
+    const rec = recordResult({ dir: r.dir, action: a, verdict: 'pass', evidence: shot(work, `a${a}.png`, `screen ${a}`), device: 'iPhone 17 Pro (cloud)', account: PLAY.account, by: 'openai/gpt-6.2-sol', now: T0 });
     if ('error' in rec) throw new Error(rec.error.detail);
   }
   const p = predict({ dir: r.dir, score: '6', why: 'the reminder works but adding plants is slow', by: 'openai/gpt-6.2-sol', now: T0 });
@@ -145,8 +146,8 @@ describe('where records live', () => {
 describe('the gate', () => {
   test('five passes, live links and a prediction clear the exact build, and the message carries every part', async () => {
     const r = passedRun();
-    expect(decide(r.dir, BUILD, T0).reasons).toEqual(['link_unchecked: http://127.0.0.1:1/testflight', 'link_unchecked: http://127.0.0.1:1/account']);
-    const links = await checkLinks(r.dir, okFetch, () => T0);
+    expect(decide(r.dir, BUILD, T0).reasons).toEqual(['link_unchecked: http://127.0.0.1:1/testflight (as a fresh Apple ID with notifications allowed on ios)', 'link_unchecked: http://127.0.0.1:1/account (as a fresh Apple ID with notifications allowed on ios)']);
+    const links = await checkLinks(r.dir, AS, okFetch, () => T0);
     expect('receipts' in links && links.receipts.map(x => x.verdict)).toEqual(['live', 'live']);
     const d = decide(r.dir, BUILD, new Date(T0.getTime() + 5 * 60_000));
     expect(d).toMatchObject({ ok: true, reasons: [], passed: 5 });
@@ -164,7 +165,7 @@ describe('the gate', () => {
 
   test('another build, a stale link, a changed day-one row and tampered evidence each refuse', async () => {
     const r = passedRun();
-    await checkLinks(r.dir, okFetch, () => T0);
+    await checkLinks(r.dir, AS, okFetch, () => T0);
     expect(decide(r.dir, { ...BUILD, testflight: '18' }, T0).reasons).toEqual(['build_mismatch: this run checked c0ffee000000, TestFlight build 17, not c0ffee000000, TestFlight build 18']);
     expect(decide(r.dir, BUILD, new Date(T0.getTime() + 16 * 60_000)).reasons).toEqual([
       'link_stale: http://127.0.0.1:1/testflight was checked at 2026-11-18T10:00:00.000Z, over 15 minutes ago',
@@ -184,29 +185,41 @@ describe('the gate', () => {
     fs.writeFileSync(planPath, ONE_PAGE);
     const r = startRun({ root, app: 'plantpal', planPath, build: BUILD, play: playWith(1), builder: 'anthropic/claude-opus-5-5', checker: 'gemini-4-carbon', now: T0 });
     if ('error' in r) throw new Error(r.error.detail);
-    const rec = (a: number, verdict: string, at: Date, note?: string) => recordResult({ dir: r.dir, action: a, verdict, evidence: shot(work, `a${a}-${verdict}.mp4`, `${a}${verdict}`), device: 'iPhone 17 Pro (cloud)', account: 'fresh Apple ID', by: 'google/gemini-4-carbon', note, now: at });
+    const rec = (a: number, verdict: string, at: Date, note?: string) => recordResult({ dir: r.dir, action: a, verdict, evidence: shot(work, `a${a}-${verdict}.mp4`, `${a}${verdict}`), device: 'iPhone 17 Pro (cloud)', account: PLAY.account, by: 'google/gemini-4-carbon', note, now: at });
     for (let a = 1; a <= 4; a++) rec(a, 'pass', T0);
     expect(rec(5, 'fail', T0)).toMatchObject({ error: { detail: 'a fail needs --note saying what happened' } });
     rec(5, 'fail', T0, 'the care card is blank');
-    await checkLinks(r.dir, async () => ({ status: 401 }), () => T0);
+    await checkLinks(r.dir, AS, async () => ({ status: 401 }), () => T0);
     expect(decide(r.dir, BUILD, T0).reasons).toEqual([
       'action_5_failed: the care card is blank', 'link_down: http://127.0.0.1:1/testflight (status 401)', 'no_predicted_score',
     ]);
     rec(5, 'pass', new Date(T0.getTime() + 60_000));
-    await checkLinks(r.dir, okFetch, () => new Date(T0.getTime() + 60_000));
+    await checkLinks(r.dir, AS, okFetch, () => new Date(T0.getTime() + 60_000));
     expect(predict({ dir: r.dir, score: '7', why: 'clean', by: 'gemini-4-carbon' })).toMatchObject({ prediction: { score: 7 } });
     expect(predict({ dir: r.dir, score: '8', why: 'again', by: 'gemini-4-carbon' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
     expect(decide(r.dir, BUILD, T0)).toMatchObject({ ok: true, passed: 5 });
   });
 
+  test('link receipts and results bind the owner-equivalent account and device class', async () => {
+    const r = passedRun();
+    expect(await checkLinks(r.dir, { account: 'any session', device_class: 'ios' }, okFetch, () => T0)).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+    expect(await checkLinks(r.dir, { account: PLAY.account, device_class: 'web' }, okFetch, () => T0)).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+    expect(fs.existsSync(path.join(r.dir, 'links'))).toBe(false);
+    const other = { schema_version: 1, kind: 'first-use-link', url: 'http://127.0.0.1:1/testflight', build_fingerprint: JSON.parse(fs.readFileSync(path.join(r.dir, 'manifest.json'), 'utf8')).build.fingerprint, audience: { account: 'a developer account', device_class: 'ios' }, checked_at: T0.toISOString(), status: 200, login_gated: false, verdict: 'live' };
+    fs.mkdirSync(path.join(r.dir, 'links'));
+    fs.writeFileSync(path.join(r.dir, 'links', 'other.json'), JSON.stringify(other));
+    expect(decide(r.dir, BUILD, T0).reasons[0]).toBe('link_unchecked: http://127.0.0.1:1/testflight (as a fresh Apple ID with notifications allowed on ios)');
+    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'dev.png'), device: 'd', account: 'a developer account', by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { detail: 'play on the owner-equivalent account and pass it exactly: --account "a fresh Apple ID with notifications allowed"' } });
+  });
+
   test('the builder cannot record a result or a prediction, and evidence must be a screenshot or video', () => {
     const r = passedRun();
-    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'self.png'), device: 'd', account: 'a', by: 'anthropic/claude-opus-5-5' })).toMatchObject({ error: { code: 'FIRST_USE_SAME_FAMILY' } });
-    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'notes.txt'), device: 'd', account: 'a', by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
-    expect(recordResult({ dir: r.dir, action: 6, verdict: 'pass', evidence: shot(r.work, 'six.png'), device: 'd', account: 'a', by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { detail: '--action must be 1 to 5' } });
+    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'self.png'), device: 'd', account: PLAY.account, by: 'anthropic/claude-opus-5-5' })).toMatchObject({ error: { code: 'FIRST_USE_SAME_FAMILY' } });
+    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'notes.txt'), device: 'd', account: PLAY.account, by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+    expect(recordResult({ dir: r.dir, action: 6, verdict: 'pass', evidence: shot(r.work, 'six.png'), device: 'd', account: PLAY.account, by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { detail: '--action must be 1 to 5' } });
     const link = path.join(r.work, 'link.png');
     fs.symlinkSync(shot(r.work, 'real.png'), link);
-    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: link, device: 'd', account: 'a', by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { detail: 'the evidence must be a regular file, not a link or directory' } });
+    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: link, device: 'd', account: PLAY.account, by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { detail: 'the evidence must be a regular file, not a link or directory' } });
   });
 
   test('the owner score and words sit beside the prediction; the manifest is written once', () => {
@@ -281,13 +294,14 @@ describe('gstack-first-use (CLI, temporary HOME and drive)', () => {
     expect(brief.stderr).toContain('DISPATCH: give this brief');
 
     for (let a = 1; a <= 5; a++) {
-      const rec = await cli('record', '--run', dir, '--action', String(a), '--verdict', 'pass', '--evidence', shot(work, `a${a}.png`, `s${a}`), '--device', 'iPhone 17 Pro (cloud)', '--account', 'fresh Apple ID', '--by', 'openai/gpt-6.2-sol');
+      const rec = await cli('record', '--run', dir, '--action', String(a), '--verdict', 'pass', '--evidence', shot(work, `a${a}.png`, `s${a}`), '--device', 'iPhone 17 Pro (cloud)', '--account', PLAY.account, '--by', 'openai/gpt-6.2-sol');
       expect(rec.code).toBe(0);
     }
     expect((await cli('predict', '--run', dir, '--score', '6', '--why', 'reminder works, adding is slow', '--by', 'openai/gpt-6.2-sol')).stdout).toContain('FIRST_USE_PREDICTED: 6');
-    const links = await cli('links', '--run', dir);
+    expect((await cli('links', '--run', dir)).code).toBe(1);
+    const links = await cli('links', '--run', dir, '--account', PLAY.account, '--device-class', 'ios');
     expect(links.code).toBe(0);
-    expect(links.stdout).toContain('LINK: live status=403');
+    expect(links.stdout).toContain('LINK: live status=403 as=ios');
 
     const check = await cli('check', '--run', dir, ...build);
     expect(check.stdout).toMatch(/^FIRST_USE: pass app=plantpal build=c0ffee000000, TestFlight build 17 actions=5\/5 links=2\/2 checker=openai\/gpt-6.2-sol predicted=6$/m);

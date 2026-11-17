@@ -46,7 +46,11 @@ export interface ActionResult {
   verdict: 'pass' | 'fail'; evidence: { file: string; sha256: string; bytes: number; kind: 'screenshot' | 'video' };
   device: string; account: string; by: { model: string; family: string }; note: string;
 }
-export interface LinkReceipt { schema_version: 1; kind: 'first-use-link'; url: string; build_fingerprint: string; checked_at: string; status: number; login_gated: boolean; verdict: 'live' | 'down'; error?: string }
+/** Who a check speaks for: the owner-equivalent account from the play spec and the build's device class. */
+export interface Audience { account: string; device_class: BuildId['platform'] }
+export const audienceOf = (m: Manifest): Audience => ({ account: m.play.account, device_class: m.build.platform });
+const sameAudience = (a: Partial<Audience> | undefined, b: Audience) => a?.account === b.account && a?.device_class === b.device_class;
+export interface LinkReceipt { schema_version: 1; kind: 'first-use-link'; url: string; build_fingerprint: string; audience: Audience; checked_at: string; status: number; login_gated: boolean; verdict: 'live' | 'down'; error?: string }
 export interface Prediction { schema_version: 1; kind: 'first-use-prediction'; score: number; why: string; by: { model: string; family: string }; at: string; build_fingerprint: string }
 export interface OwnerScore { schema_version: 1; kind: 'first-use-owner-score'; score: number; words: string; by: string; at: string; build_fingerprint: string }
 
@@ -163,7 +167,8 @@ export function recordResult(o: RecordInput): Result<{ file: string; result: Act
   const action = m.actions.find(a => a.n === o.action);
   if (!action) return fail('FIRST_USE_RECORD_INVALID', `--action must be 1 to ${m.actions.length}`);
   if (o.verdict !== 'pass' && o.verdict !== 'fail') return fail('FIRST_USE_RECORD_INVALID', '--verdict must be pass or fail');
-  if (!o.device.trim() || !o.account.trim()) return fail('FIRST_USE_RECORD_INVALID', 'name the --device and --account you played on');
+  if (!o.device.trim()) return fail('FIRST_USE_RECORD_INVALID', 'name the --device you played on');
+  if (o.account.trim() !== m.play.account) return fail('FIRST_USE_RECORD_INVALID', `play on the owner-equivalent account and pass it exactly: --account "${m.play.account}"`);
   if (o.verdict === 'fail' && !o.note?.trim()) return fail('FIRST_USE_RECORD_INVALID', 'a fail needs --note saying what happened');
   const who = checkerOf(m, o.by);
   if ('error' in who) return who;
@@ -201,11 +206,15 @@ export const liveFetcher: Fetcher = async url => {
   return { status: res.status };
 };
 
-/** Checks every play link once and writes a dated receipt per link; a login-gated link passes on 401 or 403 only when the play spec marks it. */
-export async function checkLinks(dir: string, fetcher: Fetcher = liveFetcher, now: () => Date = () => new Date()): Promise<Result<{ receipts: LinkReceipt[] }>> {
+/**
+ * Checks every play link once for the run's audience (the owner-equivalent account and device class) and writes a
+ * dated receipt per link bound to that audience; a login-gated link passes on 401 or 403 only when the play spec marks it.
+ */
+export async function checkLinks(dir: string, as: Partial<Audience>, fetcher: Fetcher = liveFetcher, now: () => Date = () => new Date()): Promise<Result<{ receipts: LinkReceipt[] }>> {
   const read = readManifest(dir);
   if ('error' in read) return read;
-  const m = read.manifest;
+  const m = read.manifest, audience = audienceOf(m);
+  if (!sameAudience(as, audience)) return fail('FIRST_USE_RECORD_INVALID', `check links as the owner-equivalent audience: --account "${audience.account}" --device-class ${audience.device_class}`);
   const receipts: LinkReceipt[] = [];
   for (const [i, link] of m.play.links.entries()) {
     let status = 0, error: string | undefined;
@@ -213,7 +222,7 @@ export async function checkLinks(dir: string, fetcher: Fetcher = liveFetcher, no
     const gated = !!link.login_gated;
     const live = (status >= 200 && status < 400) || (gated && (status === 401 || status === 403));
     const at = now();
-    const receipt: LinkReceipt = { schema_version: 1, kind: 'first-use-link', url: link.url, build_fingerprint: m.build.fingerprint, checked_at: at.toISOString(), status, login_gated: gated, verdict: live ? 'live' : 'down', ...(error ? { error } : {}) };
+    const receipt: LinkReceipt = { schema_version: 1, kind: 'first-use-link', url: link.url, build_fingerprint: m.build.fingerprint, audience, checked_at: at.toISOString(), status, login_gated: gated, verdict: live ? 'live' : 'down', ...(error ? { error } : {}) };
     writeOnce(path.join(dir, 'links', `${stamp(at)}-${i + 1}-${crypto.randomBytes(3).toString('hex')}.json`), receipt);
     receipts.push(receipt);
   }
@@ -280,7 +289,7 @@ export function decide(dir: string, build: Partial<BuildId>, now: Date = new Dat
   if (results.unreadable.length) reasons.push(`record_unreadable: results/${results.unreadable.join(', results/')}`);
   let passed = 0;
   for (const a of m.actions) {
-    const r = newest(results.rows.filter(x => x.action === a.n && x.build_fingerprint === m.build.fingerprint && x.by?.family === m.checker.family));
+    const r = newest(results.rows.filter(x => x.action === a.n && x.build_fingerprint === m.build.fingerprint && x.by?.family === m.checker.family && x.account === m.play.account));
     if (!r) { reasons.push(`action_${a.n}_not_played`); continue; }
     if (r.verdict !== 'pass') { reasons.push(`action_${a.n}_failed: ${r.note}`); continue; }
     let bytes: Buffer | undefined;
@@ -291,8 +300,8 @@ export function decide(dir: string, build: Partial<BuildId>, now: Date = new Dat
   const receipts = readDir<LinkReceipt>(path.join(dir, 'links'));
   const links: LinkReceipt[] = [];
   for (const link of m.play.links) {
-    const r = newest(receipts.rows.filter(x => x.url === link.url && x.build_fingerprint === m.build.fingerprint));
-    if (!r) { reasons.push(`link_unchecked: ${link.url}`); continue; }
+    const r = newest(receipts.rows.filter(x => x.url === link.url && x.build_fingerprint === m.build.fingerprint && sameAudience(x.audience, audienceOf(m))));
+    if (!r) { reasons.push(`link_unchecked: ${link.url} (as ${m.play.account} on ${m.build.platform})`); continue; }
     links.push(r);
     if (r.verdict !== 'live') reasons.push(`link_down: ${link.url} (status ${r.status || r.error || 'none'})`);
     else if (now.getTime() - Date.parse(r.checked_at) > LINK_FRESH_MS) reasons.push(`link_stale: ${link.url} was checked at ${r.checked_at}, over 15 minutes ago`);

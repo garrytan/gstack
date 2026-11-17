@@ -7,7 +7,7 @@
  *   gstack-first-use brief   --run <dir>
  *   gstack-first-use record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>] [--json]
  *   gstack-first-use predict --run <dir> --score <1-10> --why <text> --by <model> [--json]
- *   gstack-first-use links   --run <dir> [--json]
+ *   gstack-first-use links   --run <dir> --account <owner-equivalent account> --device-class ios|android|web [--json]
  *   gstack-first-use check   --run <dir> --platform … --commit … (--testflight … | --deploy …) [--json]
  *   gstack-first-use message --run <dir> --platform … --commit … (--testflight … | --deploy …)
  *   gstack-first-use score   --run <dir> --score <1-10> --words "<owner's exact words>" --by <who relayed them> [--json]
@@ -35,7 +35,7 @@ const HELP = `gstack-first-use — a cold first-use check on an app build before
   brief   --run <dir>                     what the checker from the other model family is given
   record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>]
   predict --run <dir> --score <1-10> --why <text> --by <model>
-  links   --run <dir>                     check every play link now and write dated receipts
+  links   --run <dir> --account <text> --device-class ios|android|web   check every play link now, as the owner-equivalent audience
   check   --run <dir> --platform … --commit … (--testflight … | --deploy …)    FIRST_USE: pass, or refused
   message --run <dir> --platform … --commit … (--testflight … | --deploy …)    the "try this build" text, only after a pass
   score   --run <dir> --score <1-10> --words "<owner's exact words>" --by <who relayed them>
@@ -130,10 +130,10 @@ async function main(argv: string[]): Promise<number> {
     return EXIT.ok;
   }
   if (cmd === 'links') {
-    const r = await checkLinks(dir);
+    const r = await checkLinks(dir, { account: flag(a, '--account'), device_class: flag(a, '--device-class') as BuildId['platform'] });
     if ('error' in r) return refuse(cmd, r.error);
     if (json) say(JSON.stringify(r.receipts));
-    else r.receipts.forEach(x => say(`LINK: ${x.verdict} status=${x.status || x.error || 'none'} ${x.url}`));
+    else r.receipts.forEach(x => say(`LINK: ${x.verdict} status=${x.status || x.error || 'none'} as=${x.audience.device_class} ${x.url}`));
     return r.receipts.every(x => x.verdict === 'live') ? EXIT.ok : EXIT.fail;
   }
   const d = decide(dir, buildArgs(a));

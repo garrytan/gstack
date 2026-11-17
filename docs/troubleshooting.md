@@ -2356,7 +2356,7 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-record-invalid"></a>
 ### `gstack-first-use: ... (FIRST_USE_RECORD_INVALID)`
 
-**Meaning.** A value or file is invalid: a bad `--commit`, `--action`, `--verdict` or score, a run directory outside the record root, evidence that is not a screenshot or short video (or is empty, a link, or over 100 MB), an unreadable manifest, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, start a new run.
+**Meaning.** A value or file is invalid: a bad `--commit`, `--action`, `--verdict` or score, an `--account` or `--device-class` that isn't the run's owner-equivalent audience, a run directory outside the record root, evidence that is not a screenshot or short video (or is empty, a link, or over 100 MB), an unreadable manifest, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, start a new run.
 
 <a id="first-use-refused"></a>
 ### `gstack-first-use check|message: ... (FIRST_USE_REFUSED)`
