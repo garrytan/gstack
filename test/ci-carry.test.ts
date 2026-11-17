@@ -79,6 +79,53 @@ describe('findCarry', () => {
   });
 });
 
+describe('GST-3019: a run at another commit whose tree git reads as HEAD\'s carries', () => {
+  const TWIN = 'c'.repeat(40);
+  const ELSE = 'e'.repeat(40);
+  const twins = (runs: ApiRun[], records: Record<number, TreeRecord>, trees: Record<string, string> = { [HEAD]: TREE, [TWIN]: TREE, [ELSE]: 'f'.repeat(40) }): RunSource => {
+    const src = source(runs, records);
+    return { ...src, deps: { ...src.deps, commitTree: sha => trees[sha] ?? null, ancestors: (sha, max) => [sha, TWIN, ELSE].slice(0, max) } };
+  };
+  const atTwin = (id: number, over: Partial<ApiRun> = {}) => run(id, { head_sha: TWIN, ...over });
+  const recTwin = (id: number, over: Partial<TreeRecord> = {}) => record(id, { sha: TWIN, ...over });
+
+  // Value: protects=a base merge that changed no file keeps the green CI run of the commit before it (gbrain #9662: 0dc0d1d had 5840295's tree 369fa767 and carried nothing);
+  //   fails_when=only runs on HEAD's own sha are listed, or the carried run's commit is not the one git read; why_new=GST-3019; seam=RunDeps.ancestors and commitTree
+  test('a green run of the same workflow at an ancestor with HEAD\'s tree carries, and the evidence names that commit', () => {
+    const v = carry(twins([atTwin(4)], { 4: recTwin(4) }), { inventory: () => ['test/a.test.ts', 'test/b.test.ts'] });
+    expect(why(v)).toBe('ok');
+    if (!v.ok) return;
+    expect(v.runs.map(e => [e.run_id, e.head_sha, e.tree])).toEqual([[4, TWIN, TREE]]);
+    expect(v.receipt).toContain(`runs=4/1 profiles=ci-reuse/free-tests heads=${TWIN.slice(0, 12)} `);
+    const both = carry(twins([atTwin(4), run(5)], { 4: recTwin(4), 5: record(5) }));
+    expect(both.ok && both.runs.map(e => [e.run_id, e.head_sha])).toEqual([[5, HEAD]]);
+  });
+
+  // Value: protects=tree identity comes from git, and every other carry rule still holds at the other commit; fails_when=a different tree, a failed or cancelled run,
+  //   another workflow, or a newer red run at HEAD carries; why_new=GST-3019 negative controls; seam=verifyRun
+  test('negative controls: another tree, a failed or cancelled run, another workflow and a newer red run at HEAD never carry', () => {
+    expect(why(carry(twins([run(4, { head_sha: ELSE })], { 4: record(4, { sha: ELSE, tree: TREE }) })))).toBe('no_run');
+    expect(why(carry(twins([atTwin(4)], { 4: recTwin(4) }, { [HEAD]: TREE, [TWIN]: 'd'.repeat(40) })))).toBe('no_run');
+    const failed = carry(twins([atTwin(4, { conclusion: 'failure' })], { 4: recTwin(4) }));
+    expect([why(failed), failed.ok ? '' : failed.detail]).toEqual(['no_verified_run', expect.stringContaining('run 4: run_not_success')]);
+    const cancelled = carry(twins([atTwin(4, { conclusion: 'cancelled' })], { 4: recTwin(4) }));
+    expect([why(cancelled), cancelled.ok ? '' : cancelled.detail]).toEqual(['no_verified_run', expect.stringContaining('run 4: run_not_success')]);
+    const other = carry(twins([atTwin(4, { path: '.github/workflows/other.yml' })], { 4: recTwin(4) }));
+    expect([why(other), other.ok ? '' : other.detail]).toEqual(['no_verified_run', expect.stringContaining('run 4: workflow_mismatch')]);
+    const vetoed = carry(twins([atTwin(4), run(6, { conclusion: 'failure' })], { 4: recTwin(4), 6: record(6) }));
+    expect([why(vetoed), vetoed.ok ? '' : vetoed.detail]).toEqual(['no_verified_run', expect.stringContaining('run 4: newer_run_vetoes')]);
+    expect(why(carry(twins([atTwin(4)], { 4: recTwin(4, { tree: 'd'.repeat(40) }) })))).toBe('no_verified_run');
+  });
+
+  // Value: protects=gstack-ci-carry wait sees the green run at the commit with HEAD's tree instead of waiting out its timeout; fails_when=wait reads HEAD's sha alone;
+  //   why_new=GST-3019; seam=waitForRun
+  test('waitForRun reads runs at the commits with HEAD\'s tree too', async () => {
+    const src = twins([atTwin(4)], { 4: recTwin(4) });
+    const w = await waitForRun(src.deps, { workflow: 'free-tests.yml', events: ['workflow_dispatch'], head: HEAD, also: [TWIN], timeoutMs: 0, intervalMs: 60_000, sleep: async () => {}, clock: () => 0 });
+    expect(w.state === 'green' && w.run.id).toBe(4);
+  });
+});
+
 describe('waitForRun', () => {
   const clockAt = () => { let t = 0; return { clock: () => t, sleep: async (ms: number) => { t += ms; } }; };
   // Value: protects=the bounded wait reports green, red with failing jobs, still running and none; fails_when=it waits forever or calls a red run green

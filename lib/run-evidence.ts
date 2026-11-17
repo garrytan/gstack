@@ -72,6 +72,8 @@ export interface RunDeps {
   /** The tree.json of the run's unexpired artifact `name`: the only one, or with one per rerun attempt of its job, the one that records run_attempt `attempt`. */
   artifact(id: number, name: string, attempt: number): TreeRecord;
   commitTree(sha: string): string | null;
+  /** `sha` and its ancestors, newest first, at most `max` (git rev-list): where a commit with `sha`'s exact tree is looked for (GST-3019). */
+  ancestors?(sha: string, max: number): string[];
 }
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
@@ -395,6 +397,10 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
       }
       const tree = (r.stdout ?? '').trim();
       return r.status === 0 && /^[0-9a-f]{40,64}$/.test(tree) ? tree : null;
+    },
+    ancestors: (sha, max) => {
+      const r = spawnSync('git', ['rev-list', `--max-count=${max}`, sha], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 });
+      return r.status === 0 ? (r.stdout ?? '').split('\n').filter(s => SHA.test(s)) : [];
     },
   };
 }

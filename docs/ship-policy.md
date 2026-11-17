@@ -1291,6 +1291,19 @@ which carry the workflow consequences the skill prose would otherwise spell out:
 | `ship: review_scope …` | Step 9.4 item 0 runs `gstack-review-scope classify` on each pass's findings; see [review_scope](#review-scope) |
 | `ship: changelog_fragments <dir>: …` | Step 12 writes no version; Step 13 writes the entry as `<dir>/<branch-slug>.md` (entry text only, `bump:` front matter only when the change warrants more than the policy bump), never an `[Unreleased]` section, linted with `gstack-prose-lint <file> --gate`; `gstack-ship-queue land` assigns the version; see [changelog fragments](#changelog-fragments) |
 
+<a id="preflight-result-codes"></a>
+`gstack-ship-preflight` stops with a named code where a quiet fallback would cost
+an hour or hide an empty diff (GST-3019):
+
+| Code | When | Next |
+|---|---|---|
+| `SHIP_LANE_NOT_CARRIED` | `--tests-only` was given a lane `ship_lanes_from` maps, and no verified CI run carries it at this tree. Nothing runs, not even the other lanes. | Push, dispatch the workflow the `NEXT:` line names, `gstack-ci-carry wait`, rerun; or rerun with `--run-uncarried-here` to run it here. A full preflight still runs a lane that does not carry. [Troubleshooting](troubleshooting.md#ship-lane-not-carried) |
+| `SHIP_BASE_UNKNOWN` | `--audit --base <base>` resolves to no commit: a sha-like value is tried as a commit first, then `origin/<base>`. | Fetch the base branch or the commit, then rerun. [Troubleshooting](troubleshooting.md#ship-base-unknown) |
+
+A lane carries from a run at an earlier commit when git reads that commit's tree as HEAD's (a base merge
+that changed no file); the LANE line names it as `from=<sha> (same tree as HEAD)`. See
+[same-tree commits](pregate.md#same-tree-commits).
+
 The ship receipt (`gstack-ship-receipt write … --body`) goes in the PR body's closing Agent notes
 section, written by the pr-body section of `/ship` after the body is composed. A body from before that
 layout keeps its receipt at the top. That receipt is still read while it opens the body, also after the

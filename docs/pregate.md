@@ -1075,6 +1075,17 @@ it accepts a run only when all of these hold:
   running run on HEAD, within `max_age_hours`, and a `tree.json` naming HEAD's
   tree. A `pull_request` run counts only when the pull request already
   contained its base.
+- <a id="same-tree-commits"></a>HEAD's runs include those of its newest
+  ancestors (up to 20 back) whose tree `git rev-parse <sha>^{tree}` reads as
+  HEAD's own, so a base merge that changed no file keeps the green run of the
+  commit before it (GST-3019). Git decides which commits those are; a run's
+  own `tree.json` never does. Every rule above still applies to that run, and
+  a newer red or running run on HEAD or on any of those commits vetoes it.
+  `gstack-ci-carry find` then prints `CI_CARRY_FROM: run <id>/<attempt> at
+  commit <sha>, not HEAD <sha>; git rev-parse reads the same tree <tree> for
+  both`, a Step 5 lane reads `LANE: <label> carried run=… from=<sha> (same
+  tree as HEAD)`, and the receipt's `heads=` names that commit.
+  `gstack-ci-carry wait` watches those commits' runs too.
 - Every run executed tests, and with an inventory command, the runs'
   `tree.json` files cover every file it prints, none of them a file whose every
   test skipped there (`skipped_files`). A lane mapped by `jobs`
@@ -1295,7 +1306,10 @@ with every character outside `A-Za-z0-9._-` turned into `_` (`pnpm lint` is
 `pnpm_lint`, `db:test` is `db_test`), and `run`, `record-ci` and `check` all
 use that one spelling, so `check --label 'pnpm lint'` finds the row; `ci_carried`
 and `CI_CARRIED:` name the stored spelling. A mapped lane that cannot
-carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here. Every
+carry prints `CI_CARRY: none label=<label> (<reason>)` and runs here, except
+under `gstack-ship-preflight --tests-only`, which stops before any lane runs
+with [`SHIP_LANE_NOT_CARRIED`](troubleshooting.md#ship-lane-not-carried) unless
+it is given `--run-uncarried-here`. Every
 other lane runs through `gstack-evidence run --reuse`: the newest row for its
 label, command and working tree is reused when it passed with a counted run
 under the same runtime (bun and node versions, OS, architecture, runner image)

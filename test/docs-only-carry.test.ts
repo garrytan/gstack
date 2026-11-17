@@ -55,3 +55,17 @@ test('a run whose gate job failed never counts its skipped suites', () => {
   const v = verifyRun(failed, { repo: REPO, runRef: '7', profileName: 'ci-reuse/free-tests', profile: PROFILE, now: NOW, unchanged: () => null, docsOnly: () => true });
   expect(v.ok ? 'ok' : v.reason).toBe('job_skipped');
 });
+
+// Value: protects=a docs-only skipped run at a commit with HEAD's tree (GST-3019) carries as not owed only when HEAD itself is docs-only;
+//   fails_when=the ancestor's classification exempts a HEAD whose base merge changed runtime code against the new base; why_new=GST-3019 review; seam=RunDeps.ancestors
+test('a docs-only run at a same-tree ancestor carries only when HEAD is docs-only too', () => {
+  const TWIN = 'c'.repeat(40);
+  const atTwin: ApiRun = { ...RUN, head_sha: TWIN };
+  const twinDeps: RunDeps = { ...deps, run: () => atTwin, runsForHead: (_wf, sha) => (sha === TWIN ? [atTwin] : []), commitTree: sha => (sha === HEAD || sha === TWIN ? TREE : null), ancestors: sha => [sha, TWIN] };
+  const at = (docsOnly: (h: string) => boolean) => carry({ ...source(docsOnly), deps: twinDeps });
+  const ancestorOnly = at(h => h === TWIN);
+  expect(ancestorOnly.ok).toBe(false);
+  if (!ancestorOnly.ok) expect(ancestorOnly.detail).toContain('artifact_missing');
+  const both = at(() => true);
+  expect(both.ok && both.notOwed).toContain('docs-only change');
+});

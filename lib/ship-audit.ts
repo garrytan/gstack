@@ -63,13 +63,24 @@ function planCandidates(cwd: string, fork: string, branch: string): string[] {
   return found;
 }
 
+/**
+ * The commit --base names: a commit sha this checkout holds, tried first, else origin/<base>; null when neither resolves
+ * (GST-3019: --base <sha> was read as origin/<sha>, which diffed as files=0).
+ */
+export function resolveAuditBase(cwd: string, base: string): string | null {
+  const commit = (rev: string) => git(cwd, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]).stdout.trim() || null;
+  return (/^[0-9a-f]{7,64}$/i.test(base) ? commit(base) : null) ?? commit(`refs/remotes/origin/${base}`);
+}
+
 export function audit(cwd: string, base: string, out: string): Report {
   const r = new Report();
-  const fork = git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim() || `origin/${base}`;
+  const resolved = resolveAuditBase(cwd, base);
+  if (!resolved) return r.stop(`SHIP_BASE_UNKNOWN: --base ${base} names no commit here (not a commit this checkout holds, and no origin/${base}); pass the base branch fetched into origin/<name>, or a commit sha after git fetch origin <sha>, then rerun (docs/troubleshooting.md#ship-base-unknown)`);
+  const fork = git(cwd, ['merge-base', resolved, 'HEAD']).stdout.trim() || resolved;
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const diff = git(cwd, ['diff', fork]).stdout;
   const files = git(cwd, ['diff', '--name-only', fork]).stdout.split('\n').filter(Boolean);
-  const commits = git(cwd, ['log', '--oneline', `origin/${base}..HEAD`]).stdout;
+  const commits = git(cwd, ['log', '--oneline', `${resolved}..HEAD`]).stdout;
   fs.writeFileSync(path.join(out, 'diff.patch'), diff, { mode: 0o600 });
   fs.writeFileSync(path.join(out, 'commits.txt'), commits, { mode: 0o600 });
   r.add(`CONTEXT: diff=${path.join(out, 'diff.patch')} bytes=${Buffer.byteLength(diff)} files=${files.length} commits=${commits.split('\n').filter(Boolean).length} log=${path.join(out, 'commits.txt')}`);

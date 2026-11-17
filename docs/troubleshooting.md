@@ -725,6 +725,50 @@ before the fetch instead of going on unprotected.
 **Fix.** Do what the parenthesized `gstack-lease` line names (wait for the
 process holding `<git dir>/gstack-leases/.lock`), then rerun.
 
+<a id="ship-lane-not-carried"></a>
+### `STOP: SHIP_LANE_NOT_CARRIED: lane <label> did not carry from a verified CI run at this tree, and --tests-only never starts a lane on its own ...`
+
+**Meaning.** `gstack-ship-preflight --tests-only` was given a lane whose exact
+command `origin/<base>`'s `.gstack/pregate.json` maps in `ship_lanes_from`,
+and no verified CI run carries it at this tree: the `CI_CARRY: none
+label=<label> (<reason>)` line above the STOP says why (`no_run`: CI has not
+run this tree yet; `dirty_tree`: uncommitted work). A mapped lane is the full
+suite, which can take most of an hour on a small machine (gbrain #9662: a
+50-minute unit lane on 4 CPUs), so `--tests-only` no longer starts it on its
+own (GST-3019).
+
+**What is kept.** Nothing ran: no lane, mapped or not, started. The pregate
+line above it is the pregate's own verdict.
+
+**Fix.** Follow the `NEXT:` lines. Commit and push the tree, dispatch the
+workflow they name (`gh workflow run <workflow> --ref <branch>`), wait with
+`gstack-ci-carry wait --base <base>`, and once it prints `CI_WAIT: green`
+rerun the same `--tests-only` command, which then carries the lane. To run the
+lane on this machine instead, rerun with `--run-uncarried-here`.
+
+**Expected result.** `LANE: <label> carried run=<id>/<attempt> …`, or with
+`--run-uncarried-here`, `LANE: <label> pass …` from the run here.
+
+<a id="ship-base-unknown"></a>
+### `STOP: SHIP_BASE_UNKNOWN: --base <base> names no commit here ...`
+
+**Meaning.** `gstack-ship-preflight --audit --base <base>` could not resolve
+the base to a commit. A value that looks like a commit sha (7 to 64 hex
+characters) is tried as a commit this checkout holds first, then
+`origin/<base>`. Before GST-3019 a sha was read as `origin/<sha>`, which
+resolved to nothing and printed `CONTEXT: … files=0`, an empty diff that
+looked like a branch with no changes.
+
+**What is kept.** Nothing ran: no diff, commit list, coverage map or plan
+lookup was written.
+
+**Fix.** Pass the base branch name after `git fetch origin
++refs/heads/<name>:refs/remotes/origin/<name>`, or a commit sha this checkout
+holds (`git fetch origin <sha>` first when it does not), then rerun.
+
+**Expected result.** `CONTEXT: diff=… files=<n> commits=<n>` for the diff
+against that base.
+
 <a id="review-fingerprint-tmpdir"></a>
 ### `gstack-wtree: cannot create a temp index under <dir>; set TMPDIR to a writable directory` / `gstack-review-log: cannot create a private object directory under <dir>; no working-tree fingerprint. Set TMPDIR to a writable directory.`
 

@@ -100,7 +100,7 @@ import { resultLine } from "../lib/result-codes";
 import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/ship-policy";
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
-import { findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/ci-carry";
+import { carriedFromLine, findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/ci-carry";
 import { DEFAULT_MAX_AGE_HOURS, runChanged } from "../lib/run-evidence";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
@@ -806,6 +806,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   if (prior) {
     console.error(recordedCiLine(prior));
     if (prior.not_owed) console.error(`gstack-evidence: not owed: ${prior.not_owed}`);
+    const priorFrom = carriedFromLine(v.runs, head);
+    if (priorFrom) console.error(priorFrom);
     console.error(`CI_RECORD_REUSED: label=${label} runs=${runs.join(",")} tree=${tree.slice(0, 12)} policy=${loaded.label} (the ledger's CI row for this exact tree, run and selection; nothing ran here)`);
     return 0;
   }
@@ -870,6 +872,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   appendJsonl(paths.file, rec, { mode: 0o600 });
   console.error(recordedCiLine(rec));
   if (v.notOwed) console.error(`gstack-evidence: not owed: ${v.notOwed}`);
+  const from = carriedFromLine(v.runs, head);
+  if (from) console.error(from);
   if (exception) console.error(`TEST_LANE_EXCEPTION: ${testLaneExceptionText(exception)}`);
   return 0;
 }
