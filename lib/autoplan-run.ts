@@ -30,7 +30,7 @@ import { FILES, RunError, journal, now, pendingAmendments, readDecisions, readJo
 import { checkPlanReality, checkRealityRows, PLAN_REALITY_CHECKER } from './plan-reality';
 import type { RunStatus } from './headless-artifacts';
 import { sha256File } from './headless-artifacts';
-import { outsideConsent } from './outside-consent';
+import { outsideConsent, readStoredCodexReviews } from './outside-consent';
 import { familyConflict, modelFamily } from './outside-voice-runner';
 import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
@@ -116,7 +116,7 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
   const sessionKind = o.sessionKind ?? process.env.GSTACK_SESSION_KIND ?? 'unattended';
   const lean = leanMode({ kind: o.kind, full: o.full, ceoOnly: o.ceoOnly, base: o.base, sessionKind, env: process.env });
   const order: Phase[] = o.ceoOnly ? ['ceo'] : lean ? ['eng'] : phaseOrder(scope);
-  const run = o.runId ?? `${path.basename(out)}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
+  const run = o.runId ?? `${path.basename(out)}-${Array.from(crypto.randomBytes(6), b => String.fromCharCode(97 + b % 26)).join('')}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
   // codex_reviews gates the outside voice here, before any dispatch: a refusal is a terminal not_run outcome per phase.
   const consent = (o.outsideEnabled ?? true) && !lean ? outsideConsent({ userInvoked: false }) : undefined;
   const consentMissing = consent && !consent.allowed ? consent.lines[0] : undefined;
@@ -283,6 +283,7 @@ export function nextStep(o: NextOptions): NextResult {
   state.status = 'awaiting_result';
   writeState(state);
   for (const a of result.attempts) lines.push(`ATTEMPT: ${a.attempt} phase=${phase} voice=${a.voice} prompt=${a.prompt} result=${a.result} model_family=${a.model_family}${a.new ? '' : ' (open)'}`);
+  if (result.attempts.some(a => a.voice === 'outside') && readStoredCodexReviews().value === 'enabled') lines.push("OUTSIDE_CONSENT: given by codex_reviews=enabled (the owner's standing consent to send this review input to the outside model: run the outside attempt in the foreground, ask nothing, and never close it --unavailable over consent)");
   lines.push(renderSpend(summarize(readLedger(path.join(state.out, FILES.spend)))), roundsLine(state));
   return result;
 }

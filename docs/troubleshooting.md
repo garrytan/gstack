@@ -2118,7 +2118,8 @@ Nothing was written, locally or to the Drive mirror. `import --autoplan` skips a
 `pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id's
 14-digit stamp, or the thread-code digits right before it, where import places
 the id (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`), when
-the id has the minted shape `<name>-<14 digits>` (GST-2047); a phone number in
+the id has the minted shape `<name>-<14 digits>` (GST-2047; since GST-3015 the
+name ends in six random letters); a phone number in
 the rest of the directory name, the same id anywhere else, and every other
 finding in the row still refuse.
 
