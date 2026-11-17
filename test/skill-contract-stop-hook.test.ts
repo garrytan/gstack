@@ -11,10 +11,11 @@ import { bunIsolationArgs } from '../lib/bun-isolation';
 import { AGENT_STALL_MS, STATE_ERROR_DOC, stateErrorLine } from '../lib/skill-contract';
 import { SWITCH_DEFAULT } from '../lib/skill-route';
 import {
-  CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
+  CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, SKILLS, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
 } from './helpers/skill-contract-fixture';
 
 const BIN = path.join(ROOT, 'bin', 'gstack-skill-contract');
+const SKILLS_LEGACY = SKILLS.verify.replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n');
 const PINNED = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd().replace('{bin}', BIN);
 const STATE_ERROR = /^gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR .+: .+; stop allowed, miss not recorded \(see docs\/skill-routing-and-contracts\.md#state-error\)\n$/;
 
@@ -147,6 +148,16 @@ describe('block once, with the pinned text', () => {
     fs.appendFileSync(file, [user('fix the typo in README'), tool('e7', 'Edit', { file_path: 'README.md', old_string: 'teh', new_string: 'the' }), result('e7', 'updated'), say('Fixed the typo.')].join('\n') + '\n');
     expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
+  });
+
+  test('a custom skill whose contract still lists the removed check_after_last_edit kind: warned once, the rest still blocks', () => {
+    const legacy = SKILLS_LEGACY.replace('name: verify', 'name: legacy');
+    skills = skillsDir([], { legacy });
+    const r = stop(transcript(J1_TRANSCRIPT.map(l => l.replace('"skill":"verify"', '"skill":"legacy"'))));
+    expect(JSON.parse(r.stdout).decision).toBe('block');
+    expect(r.stderr).toBe(`gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${path.join(skills, 'legacy', 'SKILL.md')}: repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract
+`);
+    expect(Object.values(record().runs)[0]).toMatchObject({ skill: 'legacy', outcome: 'blocked', missing: ['debug-report'] });
   });
 
   test('a waiver read from the transcript satisfies the block but counts against follow', () => {

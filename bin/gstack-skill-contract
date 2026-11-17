@@ -19,7 +19,7 @@
  */
 import {
   EXIT, StateError, UnknownShape, blockMessage, checkContract, isMiss, lookupContract, parseTranscript, readAllRecords,
-  readTranscriptFile, reportRows, type CheckResult,
+  readTranscriptFile, reportRows, skippedLine, type CheckResult,
 } from '../lib/skill-contract';
 import { fileURLToPath } from 'node:url';
 import { installedSkillsDir } from '../lib/skill-route';
@@ -69,6 +69,8 @@ function check(args: string[]): never {
   if (!transcriptPath || !skill) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: check needs --transcript and --skill\n${USAGE}`);
   const found = lookupContract(skill, installedSkillsDir(), flag(args, '--skill-file'));
   if (!('contract' in found)) die(EXIT.NO_CONTRACT, `SKILL_CONTRACT_NO_CONTRACT ${skill}: ${found.error}`);
+  for (const why of found.contract.skipped ?? []) process.stderr.write(`${skippedLine(found.file, why)}
+`);
   let result: CheckResult;
   try {
     result = checkContract(parseTranscript(readTranscriptFile(transcriptPath)), skill, found.contract);
