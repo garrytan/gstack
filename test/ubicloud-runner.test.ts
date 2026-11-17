@@ -249,14 +249,33 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  test('list --mine shows this owner’s VMs only; owner tags are lowercase letters and digits, 12 max, starting with a letter', () => {
+  test('list --mine shows this owner’s VMs only; owner tags are lowercase letters and digits, kept in full up to 31, starting with a letter', () => {
     const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-north-h1 ubirun-other-1000000000-bbbb\neu-central-h1 ubirun-1000000000-cccc\n' });
     try {
       const mine = f.run('list', '--mine');
       expect(mine.exitCode).toBe(0);
       expect(mine.stdout.toString()).toBe('eu-central-h1  ubirun-thrd1-1000000000-aaaa\n');
       const owner = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'owner'], { env: { ...process.env, UBI_OWNER: '12-Capy_Thread-ABCDEFGH', UBI_RUNNER_STATE: f.root }, timeout: 10_000 });
-      expect(owner.stdout.toString().trim()).toBe('u12capythrea');
+      expect(owner.stdout.toString().trim()).toBe('u12capythreadabcdefgh');
+      const long = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'owner'], { env: { ...process.env, UBI_OWNER: 'a'.repeat(32), UBI_RUNNER_STATE: f.root }, timeout: 10_000 });
+      expect(long.exitCode).toBe(1);
+      expect(long.stderr.toString()).toContain('UBI_OWNER is 32 characters once lowercased to letters and digits');
+      expect(long.stderr.toString()).toContain('(UBI_OWNER_TOO_LONG)');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  // Value: protects=owners that share their first 12 characters never reap each other's VMs, and a longer owner's VMs from runner copies that cut the owner to 12 still get reaped by the machine that recorded them; fails_when=owner_id cuts the owner again (#3748), the name parser stops at 12 characters, or the cut form is read as this owner without this machine's record; why_new=the old owner case pinned the cut itself and no case had two owners sharing a prefix; seam=none; no_claim=VMs a machine created under the cut form and whose record it lost (they stay to their owner's TTL, counted as another owner's)
+  test('owners sharing a 12-character prefix reap only their own expired VMs; a VM named under the old cut form is reaped only when this machine recorded it (#3748)', () => {
+    const listed = ['ubirun-gstackminder1-1000000000-aaaa-t1', 'ubirun-gstackminder2-1000000000-bbbb-t1', 'ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder-1000000000-dddd-t1'].map(n => `eu-central-h1 ${n}\n`).join('');
+    const f = fakeApi({ destroy: 200, listed, owner: 'gstackminder1' });
+    try {
+      writeFileSync(f.record, 'ubirun-gstackminder-1000000000-cccc-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t1\n');
+      expect(f.run('list', '--mine').stdout.toString()).toBe('eu-central-h1  ubirun-gstackminder1-1000000000-aaaa-t1\neu-central-h1  ubirun-gstackminder-1000000000-cccc-t1\n');
+      const reap = f.run('reap');
+      expect(reap.exitCode).toBe(0);
+      const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+/)?.[0]).sort();
+      expect(destroyed).toEqual(['ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder1-1000000000-aaaa-t1']);
+      expect(reap.stderr.toString()).toContain('reap: left 2 expired VMs of other owners; only their owners reap them');
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
