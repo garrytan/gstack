@@ -28,6 +28,10 @@ export interface CanonicalFinding {
   user_challenge?: boolean; urgent?: boolean; suggested_owner?: string; plan_items?: string[]; dimension?: string;
   /** What a user challenge changes: scope, cost or direction (plan B2a), or packaging/ordering (settled without a plan edit). */
   changes?: Changes;
+  /** A challenge to the owner's own words: the 1-based bullet of the plan's `### Owner's words` it would change. */
+  owner_quote?: number;
+  /** A confirm round's row naming the earlier challenge id the revised plan now fixes. */
+  resolves?: string;
 }
 export const CHANGES = ['scope', 'cost', 'direction', 'packaging', 'ordering'] as const;
 /** Accepted changes of these kinds need no Implementation-plan edit: `revise --settle` records them. */
@@ -90,6 +94,8 @@ function parseFences(text: string, errors: string[]): { findings: CanonicalFindi
       if (typeof row.suggested_owner === 'string') finding.suggested_owner = row.suggested_owner;
       if (Array.isArray(row.plan_items)) finding.plan_items = row.plan_items.filter((p: unknown): p is string => typeof p === 'string');
       if (typeof row.dimension === 'string') finding.dimension = row.dimension;
+      if (Number.isInteger(row.owner_quote) && row.owner_quote > 0) finding.owner_quote = row.owner_quote;
+      if (typeof row.resolves === 'string' && row.resolves.trim()) finding.resolves = row.resolves.trim();
       if (row.changes !== undefined) {
         if (!(CHANGES as readonly unknown[]).includes(row.changes)) { errors.push(`findings row ${i + 1}: changes ${JSON.stringify(row.changes)} is not one of ${CHANGES.join('|')}`); return; }
         finding.changes = row.changes;
@@ -186,7 +192,7 @@ export function canonicalRows(findings: CanonicalFinding[], ctx: { run: string; 
     ...(f.local_id ? { source: f.local_id } : {}),
     ...(f.user_challenge ? { user_challenge: true } : {}), ...(f.urgent ? { urgent: true } : {}),
     ...(f.suggested_owner ? { suggested_owner: f.suggested_owner } : {}), ...(f.dimension ? { dimension: f.dimension } : {}),
-    ...(f.changes ? { changes: f.changes } : {}),
+    ...(f.changes ? { changes: f.changes } : {}), ...(f.owner_quote ? { owner_quote: f.owner_quote } : {}), ...(f.resolves ? { resolves: f.resolves } : {}),
   } as FindingRow));
 }
 
