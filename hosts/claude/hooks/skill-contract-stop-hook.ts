@@ -33,7 +33,7 @@
 import { binPath, sessionKind } from './spawn-bin';
 import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome,
+  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome, skippedLine,
   readRecord, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, writeRecord,
   type Contract, type Transcript,
 } from '../../../lib/skill-contract';
@@ -67,7 +67,11 @@ function target(t: Transcript): { skill: string; contract: Contract } | null {
     if (tried.some(s => sameSkill(s, load.skill))) continue;
     tried.push(load.skill);
     const found = lookupContract(load.skill, dir);
-    if ('contract' in found) return { skill: load.skill, contract: found.contract };
+    if ('contract' in found) {
+      for (const why of found.contract.skipped ?? []) process.stderr.write(`${skippedLine(found.file, why)}
+`);
+      return { skill: load.skill, contract: found.contract };
+    }
     if (found.reason === 'invalid' && found.file) throw new StateError(found.file, found.error);
   }
   return null;
