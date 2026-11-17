@@ -2134,6 +2134,69 @@ per-thread approval record), `gstack-owner-brief render --captain` (the plan ask
 the before/after shape) and `gstack-pr-shots` (before/after images for a PR body).
 The guide is `capy/skill/gstack/captain.md`.
 
+<a id="owner-answers-no-drive"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_NO_DRIVE)`
+
+**Meaning.** On Capy the owner record lives only in the owner's own Drive folder
+(`~/.capy/drive/user-<owner>/owner-answers/`), and none is mounted, or `--owner` names
+one that is not. Exit 3. The tool never falls back to the machine's thrown-away state
+root, so nothing can be taken and every ask goes to the owner. See
+[owner-answers.md](owner-answers.md).
+
+<a id="owner-answers-ambiguous"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_AMBIGUOUS)`
+
+**Meaning.** Two or more `user-*` Drive folders are mounted, so the tool cannot tell
+whose record to use. Exit 3. Pass `--owner <name>`.
+
+<a id="owner-answers-invalid"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_INVALID)`
+
+**Meaning.** A required flag is missing, a value is outside its format (an action or
+target that is not one lower-case token, a scope other than `all`,
+`repo:<owner>/<name>` or `captain:<name>`, a rule id not like `R6`), a field is
+longer than its cap, or the ask file is not the JSON or plain-text form
+[owner-answers.md](owner-answers.md) describes. Exit 2. Nothing was written.
+
+<a id="owner-answers-secret"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_SECRET)`
+
+**Meaning.** A field matched the secret scanner. Exit 3. Nothing was written; the
+error names the field and the rule, never the text.
+
+<a id="owner-answers-write-failed"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_WRITE_FAILED)`
+
+**Meaning.** The record directory could not be written. Exit 1. Rows are created
+whole with O_EXCL, so a failed write leaves no partial row.
+
+<a id="owner-answers-not-found"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_NOT_FOUND)`
+
+**Meaning.** `supersede`, `revoke`, `verify` or `log --decision taken` named a row id
+that is not in the record. Exit 3.
+
+<a id="owner-answers-conflict"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_CONFLICT)`
+
+**Meaning.** One source, action, target and scope make one row id, and that row
+already holds different words, a different author or different limits. Exit 3.
+Nothing was written. Check what the owner said at that source, then record the
+correction with `supersede <row id>`.
+
+<a id="owner-answers-self-verify"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_SELF_VERIFY)`
+
+**Meaning.** The actor that recorded the row tried to verify it. Exit 3. A second
+actor reads the cited thread event and verifies under its own name.
+
+<a id="owner-answers-not-takeable"></a>
+### `gstack-owner-answers: ... (OWNER_ANSWERS_NOT_TAKEABLE)`
+
+**Meaning.** `log --decision taken` named a row that cannot be taken (not a
+verified, current, unlimited standing yes in the owner's own words, or the record is
+uncertain). Exit 3. Send the ask to the owner and log it as `asked`.
+
 <a id="approval-record-invalid"></a>
 ### `gstack-approvals: ... (APPROVAL_RECORD_INVALID)`
 

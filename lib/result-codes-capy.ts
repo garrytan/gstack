@@ -40,6 +40,51 @@ export const CAPY_RESULT_CODES = {
     summary: 'the autoplan run has no answered gate to import',
     fix: 'answer the gate first (gstack-autoplan answer ... --by human|agent:<id>), then rerun the import; it is idempotent, so a retry imports nothing twice',
   },
+  OWNER_ANSWERS_NO_DRIVE: {
+    anchor: 'owner-answers-no-drive',
+    summary: 'no owner Drive folder (user-<owner>) is mounted on this Capy machine, so there is no record to read or write',
+    fix: 'run from a thread the owner owns, or pass --owner <name> for a mounted user-<name> folder; until then every ask goes to the owner',
+  },
+  OWNER_ANSWERS_AMBIGUOUS: {
+    anchor: 'owner-answers-ambiguous',
+    summary: 'more than one user-* Drive folder is mounted, so the owner is not known',
+    fix: 'pass --owner <name> naming the owner whose record this is; nothing was read or written',
+  },
+  OWNER_ANSWERS_INVALID: {
+    anchor: 'owner-answers-invalid',
+    summary: 'a row, an ask file or a flag is missing a required value, holds a value outside its format, or exceeds a length cap',
+    fix: 'rerun with the flags the help names (an action and target are one lower-case token each; scope is all, repo:<owner>/<name> or captain:<name>); nothing was written',
+  },
+  OWNER_ANSWERS_SECRET: {
+    anchor: 'owner-answers-secret',
+    summary: 'a field matched the secret scanner, so the row was not written',
+    fix: 'remove the key, token or personal data from that field (the error names the field and rule, never the text) and rerun',
+  },
+  OWNER_ANSWERS_WRITE_FAILED: {
+    anchor: 'owner-answers-write-failed',
+    summary: 'the record directory could not be written',
+    fix: 'check the path gstack-owner-answers status prints and its permissions, then rerun; a failed write left no partial row',
+  },
+  OWNER_ANSWERS_NOT_FOUND: {
+    anchor: 'owner-answers-not-found',
+    summary: 'no row with that id is in the owner record',
+    fix: 'gstack-owner-answers list --all shows every row id; rerun with one of them',
+  },
+  OWNER_ANSWERS_CONFLICT: {
+    anchor: 'owner-answers-conflict',
+    summary: 'a row for the same source, action, target and scope already records different words, author or limits',
+    fix: 'check which words the owner actually said at that source; record a correction with supersede <row id>, never a second add',
+  },
+  OWNER_ANSWERS_SELF_VERIFY: {
+    anchor: 'owner-answers-self-verify',
+    summary: 'the actor that recorded a row tried to verify it',
+    fix: 'a second actor reads the cited thread event and runs verify --by <its own name>; a row its recorder verified is never takeable',
+  },
+  OWNER_ANSWERS_NOT_TAKEABLE: {
+    anchor: 'owner-answers-not-takeable',
+    summary: 'a taken decision was logged against a row that cannot be taken',
+    fix: 'send the ask to the owner instead (log it as asked); screen only proposes rows it can take, and the detail says why this one cannot',
+  },
   CAPTAIN_BRIEF_INCOMPLETE: {
     anchor: 'captain-brief-incomplete',
     summary: 'the plan lacks one or more of the sections the Captain brief needs (ELI5 on a run whose gate carries it, Before → after, Why it matters, What caused this work, Big decisions), so the brief is not ready for approval',
