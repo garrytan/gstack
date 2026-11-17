@@ -514,6 +514,16 @@ describe("gstack-post pr-body merges the PR body by section", () => {
     expect(sent(fenced).input).toBe(foldSections("## Notes\n\n```md\n## not a heading\n```\n\n## Why\n\nnew\n"));
   });
 
+  // Value: protects=re-posting an already-folded body (the live body, or gstack-post fold output) replaces each section once instead of keeping the
+  // old sections beside it; fails_when=the incoming folds are read as leading text and every section ends up twice; why_new=GST-2737 review (granted fix-check)
+  test("a folded incoming body replaces the folded sections it names; nothing is duplicated", () => {
+    const current = foldSections("Opening.\n\n## Tests\n\nOld\n\n## Why\n\nBecause.\n");
+    const f = withBody(current, { "/b": foldSections("Opening.\n\n## Tests\n\nNew\n") });
+    expect(run(["pr-body", "5", "--body-file", "/b"], f)).toBe(EXIT.posted);
+    expect(sent(f).input).toBe(foldSections("Opening.\n\n## Tests\n\nNew\n\n## Why\n\nBecause.\n"));
+    expect(f.stderr()).toContain("replaced leading text, Tests; kept Why");
+  });
+
   // Value: protects=a fence closes only on a run of its own character at least as long as the opener with nothing after it, so a ``` line inside a
   // ```` block, a ```js line and a ~~~ line close nothing and the headings inside stay kept bytes, and a receipt fence that never closes is an unclosed
   // fence rather than a receipt that swallows the sections after it; fails_when=a longer or info-string fence closes early and a heading inside the

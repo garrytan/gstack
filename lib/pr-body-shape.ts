@@ -125,7 +125,7 @@ export function checkBodyShape(body: string, terms: readonly string[] = []): Bod
   }
   if (terms.length) {
     const readable = lines.slice(0, notesAt < 0 ? undefined : notesAt).map(l => l.fenced ? '' : l.text).join('\n');
-    const masked = maskProse(readable.replace(/<summary>([^<]*)<\/summary>/gi, ' $1 ')).masked.replace(/<[^>]+>/g, ' ');
+    const masked = maskProse(readable.replace(/<summary>([^<]*)<\/summary>/gi, ' $1 ')).masked.replace(/<[^>]+>/g, ' ').replace(/[^\s()[\]<>"'`]*\/[^\s()[\]<>"'`]*|[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,5}\b/g, m => ' '.repeat(m.length));
     const seen = new Set<string>();
     for (const term of terms) for (const m of masked.matchAll(wordRe(term))) {
       if (seen.has(m[0].toLowerCase())) continue;

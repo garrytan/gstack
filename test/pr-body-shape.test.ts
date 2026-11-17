@@ -45,6 +45,15 @@ describe('listed words', () => {
     expect(kinds(foldSections(body), ['outside voice', 'pregate', 'lane'])).toEqual(['term:outside voice', 'term:pregate']);
     expect(kinds(foldSections(body))).toEqual([]);
   });
+
+  // Value: protects=a listed word inside a file path or file name is not prose, so a Tests line naming test/ship-receipt-depth.test.ts passes while the
+  // same word in a sentence is still refused; fails_when=bare paths in the Tests section refuse routine /ship bodies; why_new=GST-2737 review (granted fix-check)
+  test('a listed word inside a file path or file name is skipped; the same word in a sentence is still found', () => {
+    const tests = withAgentNotes(OPENING + '\n## Tests\n\n- [x] bun test test/ship-receipt-depth.test.ts: 12 pass\n- [x] bun test release-stamp.test.ts docs/lane.md: pass\n', RECEIPT);
+    expect(kinds(foldSections(tests), ['receipt', 'stamp', 'lane'])).toEqual([]);
+    const prose = withAgentNotes(OPENING + '\n## Tests\n\n- the receipt was written after test/ship-receipt-depth.test.ts passed\n', RECEIPT);
+    expect(kinds(foldSections(prose), ['receipt'])).toEqual(['term:receipt']);
+  });
 });
 
 describe('the Agent notes section ends the body', () => {

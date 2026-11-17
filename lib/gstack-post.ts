@@ -721,7 +721,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
         env.err(`gstack-post: cannot read PR ${n}'s current body to merge into (${current.error}); nothing was posted. Rerun with --replace to overwrite the whole body.\n`);
         return EXIT.cliFailed;
       }
-      const m = mergeBodySections(unfoldSections(current.body), body!);
+      const m = mergeBodySections(unfoldSections(current.body), unfoldSections(body!));
       body = m.body;
       const list = (names: string[]) => (names.length ? names.join(", ") : "none");
       env.err(`gstack-post: pr-body merged by section: replaced ${list(m.replaced)}; kept ${list(m.kept)}; added ${list(m.added)}${m.dropped.length ? `; dropped ${m.dropped.join(", ")}` : ""}\n`);
