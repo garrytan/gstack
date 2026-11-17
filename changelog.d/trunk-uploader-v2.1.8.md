@@ -1,0 +1,1 @@
+- CI now uploads free-suite test results to Trunk with analytics-uploader v2.1.8 and analytics-cli 0.17.0, up from v2.1.6 and 0.16.2.
