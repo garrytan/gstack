@@ -157,7 +157,7 @@ export const CAPY_RESULT_CODES = {
   },
   FIRST_USE_PLAN_UNREADY: {
     anchor: 'first-use-plan-unready',
-    summary: 'the plan has no usable ### Day one table to freeze (missing, malformed, empty, or a row still marked assumed)',
+    summary: 'the plan has no usable ### Day one table to freeze (missing, malformed, fewer than five complete rows, or a row still marked assumed)',
     fix: 'add or fix the ### Day one table (action, frequency, source, feature, route, first build, check) and confirm every assumed row with the owner, then run start again',
   },
   FIRST_USE_PLAY_SPEC_INCOMPLETE: {

@@ -81,13 +81,16 @@ export function renderPlayMessage(d: Decision, now: Date = new Date()): string {
   ].join('\n');
 }
 
+/** One POSIX shell word: single quotes, with each embedded single quote closed, escaped and reopened. */
+export const shellQuote = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+
 /** What the cold checker is given: the build, the device and account, the play message parts and the frozen actions, with the commands that record each. */
 export function renderBrief(m: Manifest, dir: string): string {
   const p = m.play, b = m.build;
   const install = b.platform === 'web'
     ? 'open the first link in a browser on that device'
     : `attach a ${platformName[b.platform]} phone (\`tools.capy.phone\` with action "attach", platform "${b.platform}" and the model closest to the device above), install this exact build on it (action "install"; ${b.testflight ? `TestFlight build ${b.testflight}` : `version ${b.deploy}`}), and drive its screen with \`tools.capy.computer.on({ machine_id })\``;
-  const by = `--by ${m.checker.model}`;
+  const by = `--by ${shellQuote(m.checker.model)}`, run = `--run ${shellQuote(dir)}`;
   return [
     `# Cold first-use check: ${m.app}, ${buildLabel(b)}`, '',
     `You are playing this build for the first time, as its owner will. You run on ${m.checker.model}; the team that built it runs on ${m.builder.family} models, and you have not seen its plan, code, notes or messages. Do not read them: you get only what the owner gets, below.`, '',
@@ -101,8 +104,10 @@ export function renderBrief(m: Manifest, dir: string): string {
     '## What to do', '',
     '1. Do each action as the owner would, from a cold start, with no help beyond the text above.',
     '2. Capture a screenshot or a short video that shows the result, then record it. A pass means the owner would see it work on the first try; anything else is a fail, and the note says what happened:',
-    `   \`gstack-first-use record --run "${dir}" --action <n> --verdict pass|fail --evidence <file> --device "<device you used>" --account "${p.account}" ${by} [--note "<what happened>"]\``,
-    `3. Predict the owner's score from 1 to 10 for this build, with one line on why: \`gstack-first-use predict --run "${dir}" --score <n> --why "<one line>" ${by}\``,
+    '', '```bash', `gstack-first-use record ${run} --action N --verdict pass --evidence FILE --device 'DEVICE YOU USED' --account ${shellQuote(p.account)} ${by}`,
+    `gstack-first-use record ${run} --action N --verdict fail --evidence FILE --device 'DEVICE YOU USED' --account ${shellQuote(p.account)} ${by} --note 'WHAT HAPPENED'`, '```', '',
+    '3. Predict the owner\'s score from 1 to 10 for this build, with one line on why:', '',
+    '```bash', `gstack-first-use predict ${run} --score N --why 'ONE LINE' ${by}`, '```', '',
     '4. Report back: one line per action (pass or fail and why), your predicted score, and the one thing most likely to disappoint the owner.',
     '',
   ].join('\n');

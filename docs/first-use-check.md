@@ -16,9 +16,9 @@ Run these from the thread that owns the build (on Capy, a Captain or the agent b
      --builder anthropic/claude-opus-5-5 --checker openai/gpt-6.2-sol
    ```
 
-   It reads the first five rows of the plan's day-one table, records their hash, the play spec and the build fingerprint (the commit plus the TestFlight build number, or `--deploy <version>` for a web or Android build) in a write-once `manifest.json`, and prints `FIRST_USE_RUN: <dir>`. It refuses when the table is missing, malformed or still has a row marked `assumed`, when the play spec misses a part, or when the checker's model family is the builder's.
+   It reads the first five rows of the plan's day-one table, records their hash, the play spec and the build fingerprint (the commit plus the TestFlight build number, or `--deploy <version>` for a web or Android build) in a write-once `manifest.json`, and prints `FIRST_USE_RUN: <dir>`. It refuses when the table is missing or malformed, has fewer than five rows, has an empty cell in its first five rows or still has a row marked `assumed` among them, when the play spec misses a part, or when the checker's model family is the builder's.
 
-2. **Hand the checker its brief.** `gstack-first-use brief --run <dir>` prints everything the checker gets: the device and account, the play text, and the five frozen actions with the commands to record each. Give it to one fresh agent on the `--checker` model and nothing else about the build: no plan, no code, no notes. On Capy, start a subagent with that model on `machine: "fresh"`; it attaches a cloud phone with `tools.capy.phone` (`attach`, then `install` with the build from `tools.mobile.build`) and drives the screen with `tools.capy.computer`, or opens a web build in the browser. It runs its own gstack install check first.
+2. **Hand the checker its brief.** `gstack-first-use brief --run <dir>` prints everything the checker gets: the device and account, the play text, and the five frozen actions with the commands to record each. Give it to one fresh agent on the `--checker` model and nothing else about the build: no plan, no code, no notes. Every value the brief puts into a command is shell-quoted, so the checker can paste the lines as they are. On Capy, start a subagent with that model on `machine: "fresh"`; it attaches a cloud phone with `tools.capy.phone` (`attach`, then `install` with the build from `tools.mobile.build`) and drives the screen with `tools.capy.computer`, or opens a web build in the browser. It runs its own gstack install check first.
 
 3. **The checker records each action and predicts the score.**
 
@@ -56,7 +56,7 @@ Both kinds of plan feed the check in one format: the day-one table that `/autopl
 |---|---|---|---|---|---|---|
 | sees which plant needs water today | daily | owner words 1 | Today list | root screen | build 1 | the plant due today is at the top, marked due |
 
-The check freezes the first five rows in table order. A row whose source starts with `assumed` must be confirmed with the owner before `start` will freeze it. `test/first-use.test.ts` pins this format with one fixture of each kind, so a change to the table parser fails that test instead of quietly changing what gets checked.
+The table needs at least five rows, and every cell of the first five needs a value; the check freezes those five in table order. A row whose source starts with `assumed` must be confirmed with the owner before `start` will freeze it. `test/first-use.test.ts` pins this format with one fixture of each kind, so a change to the table parser fails that test instead of quietly changing what gets checked.
 
 <a id="play-spec"></a>
 ## Play-message requirements

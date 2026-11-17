@@ -7,6 +7,7 @@
  * record root, serves its links from a local server, and proves the real drive is untouched.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -71,6 +72,13 @@ describe('the day-one table format (pinned)', () => {
     const assumed = AUTOPLAN.replace('| gets a reminder at 8am | daily | calendar habit |', '| gets a reminder at 8am | daily | assumed |');
     const r = freezeActions(assumed);
     expect('error' in r && r.error).toEqual({ code: 'FIRST_USE_PLAN_UNREADY', detail: 'day-one row 4 is still marked assumed' });
+  });
+
+  test('fewer than five rows, or an empty cell in the first five, refuses', () => {
+    const four = ONE_PAGE.replace(/^\| opens a plant's care card .*\n/m, '');
+    expect(freezeActions(four)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'the day-one table has 4 rows; the check needs 5' } });
+    const blank = ONE_PAGE.replace('| Morning reminder | notification |', '| Morning reminder |  |');
+    expect(freezeActions(blank)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'day-one row 4 has an empty cell; every column of the first 5 rows needs a value' } });
   });
 
   test('no table, a missing column or an empty table refuses', () => {
@@ -249,6 +257,23 @@ describe('the gate', () => {
     expect(ownerScore({ dir: r.dir, score: '4', words: '4, fine', by: 'GStack Minder' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
   });
 
+  test('the brief shell-quotes every value it puts into the record and predict lines', () => {
+    const work = fresh('quote'), planPath = path.join(work, 'plan.md'), marker = path.join(work, 'ran');
+    fs.writeFileSync(planPath, AUTOPLAN);
+    const account = `Ada's "test" $HOME \`touch ${marker}\` $(touch ${marker}) account`;
+    const r = startRun({ root: path.join(fresh('root'), 'it\'s "$x"'), app: 'plantpal', planPath, build: BUILD, play: { ...PLAY, account }, builder: 'anthropic/claude-opus-5-5', checker: 'openai/gpt-6.2-sol', now: T0 });
+    if ('error' in r) throw new Error(r.error.detail);
+    const lines = renderBrief(r.manifest, r.dir).split('\n').filter(l => l.startsWith('gstack-first-use '));
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      const argv = spawnSync('bash', ['-c', line.replace(/^gstack-first-use /, "printf '%s\\n' ")], { encoding: 'utf8', timeout: 10_000 }).stdout.split('\n');
+      expect(argv[argv.indexOf('--run') + 1]).toBe(r.dir);
+      expect(argv[argv.indexOf('--by') + 1]).toBe('openai/gpt-6.2-sol');
+      if (line.includes(' record ')) expect(argv[argv.indexOf('--account') + 1]).toBe(account);
+    }
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
   test('the brief gives the checker only the play text and the frozen actions', () => {
     const r = passedRun();
     const read = readManifest(r.dir);
@@ -258,7 +283,7 @@ describe('the gate', () => {
     expect(brief).toContain('tools.capy.phone');
     expect(brief).toContain('TestFlight build 17');
     for (const a of ACTIONS) expect(brief).toContain(a);
-    expect(brief).toContain(`gstack-first-use record --run "${r.dir}" --action <n>`);
+    expect(brief).toContain(`gstack-first-use record --run '${r.dir}' --action N --verdict pass --evidence FILE --device 'DEVICE YOU USED' --account 'a fresh Apple ID with notifications allowed' --by 'openai/gpt-6.2-sol'`);
     expect(brief).not.toContain('Ada Example');
     expect(brief).not.toContain(r.planPath);
   });

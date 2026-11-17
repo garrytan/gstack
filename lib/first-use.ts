@@ -83,7 +83,10 @@ export function freezeActions(planText: string): Result<{ actions: FrozenAction[
   const day = parseDayOne(planText);
   if (day.status === 'none') return fail('FIRST_USE_PLAN_UNREADY', 'the plan has no ### Day one table');
   if (day.status === 'malformed') return fail('FIRST_USE_PLAN_UNREADY', day.reason ?? 'the day-one table is malformed');
+  if (day.rows.length < FIRST_USE_ACTIONS) return fail('FIRST_USE_PLAN_UNREADY', `the day-one table has ${day.rows.length} row${day.rows.length === 1 ? '' : 's'}; the check needs ${FIRST_USE_ACTIONS}`);
   const rows = day.rows.slice(0, FIRST_USE_ACTIONS);
+  const blank = rows.map((r, i) => [r.frequency, r.source, r.feature, r.route, r.first_build, r.check].some(c => !c.trim()) ? i + 1 : 0).filter(Boolean);
+  if (blank.length) return fail('FIRST_USE_PLAN_UNREADY', `day-one row ${blank.join(', ')} has an empty cell; every column of the first ${FIRST_USE_ACTIONS} rows needs a value`);
   const assumed = rows.map((r, i) => r.assumed ? i + 1 : 0).filter(Boolean);
   if (assumed.length) return fail('FIRST_USE_PLAN_UNREADY', `day-one row ${assumed.join(', ')} is still marked assumed`);
   const actions = rows.map((r, i) => ({ n: i + 1, action: r.action, frequency: r.frequency, feature: r.feature, route: r.route, first_build: r.first_build, check: r.check, source: r.source }));
