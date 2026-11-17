@@ -30,7 +30,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { baseInputs, sha256 } from '../context';
+import { baseInputs, defaultScratchRoot, sha256 } from '../context';
 import { PREGATE_CONFIG_PATH } from '../config';
 import { classifyCommandEnvironment, classifyEnvironment, environmentLine, environmentResult, launchCause } from '../environment';
 import { checkScratch } from '../run-scratch';
@@ -498,10 +498,34 @@ const GSTACK_ROOT = path.resolve(import.meta.dir, '..', '..', '..');
  */
 function remoteObligation(ctx: PregateContext, sel: Selection): RemoteObligation {
   const declared = ctx.config.remote_gate;
-  const runner = detectRunner(ctx, sel.gateTests);
-  const command = declared ?? `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)} -- ${quote(runner ? runner.replace('{files}', testFileArgs(runner, sel.gateTests).map(quote).join(' ')) : '<test runner> <selected files>')}`;
+  const command = declared ?? backendCommand(ctx, sel.gateTests);
   const [workflow, job] = declared ? REMOTE_GATE_LANE.split('/') as [string, string] : ['test_backend', ctx.testBackend];
   return { lane: `${workflow}/${job}`, platform: 'remote', workflow, job, tests: sel.gateTests, receipt: null, command };
+}
+
+/**
+ * The test backend's command: gstack's Ubicloud runner, with the selected files in a setup script that writes them one per line
+ * on the VM. The command reaches the VM as one argument and Linux caps one argument at 128 KiB (#4424), so the list never goes in
+ * it. The script lives under the state root, named by its content, so the same selection prints the same command every run and a
+ * same-tree clear still matches it; an unwritable state root keeps it in this run's scratch.
+ */
+function backendCommand(ctx: PregateContext, files: readonly string[]): string {
+  const ubi = `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)}`;
+  const runner = detectRunner(ctx, files);
+  if (!runner) return `${ubi} -- ${quote('<test runner> <selected files>')}`;
+  const setup = `cat > ~/.pregate-files.txt <<'PREGATE_FILES'\n${testFileArgs(runner, files).map(f => `${f}\n`).join('')}PREGATE_FILES\n`;
+  const name = `${sha256(setup).slice(0, 16)}.sh`;
+  let file: string;
+  try {
+    const dir = path.join(path.dirname(defaultScratchRoot(ctx.repoRoot, ctx.env)), 'remote-files');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    file = path.join(dir, name);
+    fs.writeFileSync(file, setup);
+  } catch {
+    file = path.join(checkScratch(ctx.scratch, 'remote'), name);
+    fs.writeFileSync(file, setup);
+  }
+  return `${ubi} --setup ${quote(file)} -- ${quote(`mapfile -t PREGATE_FILES < ~/.pregate-files.txt && ${runner.replace('{files}', () => '"${PREGATE_FILES[@]}"')}`)}`;
 }
 
 export const REMOTE_GATE_LANE = 'pregate.json/remote_gate';

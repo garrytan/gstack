@@ -4330,6 +4330,25 @@ or on the comment line directly above it. The marker waives only that line, and
 the check lists it as `waived:`. Don't use `warn: ["literals"]` for this, since
 that turns the check off for every constant.
 
+<a id="arg-limit"></a>
+### `PREGATE_ENVIRONMENT` with `environment: arg-limit — E2BIG` (or `Argument list too long`)
+
+**Meaning.** A command gstack started had a command line or environment over
+the system's limit, so it never ran and no test was counted. Linux caps one
+argument at 128 KiB and a whole command line plus environment at about 2 MiB,
+macOS caps the total at 1 MiB, and Windows caps a command line at 32,767
+characters. The usual trigger is a long file list: thousands of selected test
+files put into one argument.
+
+**Fix.** gstack keeps file lists out of single arguments: a local lane splits
+its files into runner processes of about 96 KB each (24 KB on Windows), and
+the `test_backend` command for the remote gate passes them in a setup script
+(docs/pregate.md#remote-gate). So this cause is a gstack bug: report it with
+the `environment:` line and the lane or command it names. Until it is fixed,
+run the lane remotely (push and let CI's full run carry it, or
+`gstack-pregate --remote`), or select fewer files. When the environment, not
+the file list, is what's large, unset the big variables before the run.
+
 <a id="pregate-no-lane"></a>
 ### `PREGATE_NO_LANE`
 

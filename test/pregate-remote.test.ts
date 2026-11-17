@@ -68,7 +68,8 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     expect(viaBackend.lanes.status).toBe('requires-remote');
     const obligation = viaBackend.file.requires_remote![0]!;
     expect(obligation.lane).toBe('test_backend/ubicloud');
-    expect(obligation.command).toMatch(/scripts\/ubicloud\/ubi-runner\.sh run --src '.*\/work' -- 'node --test '\\''test\/util\.test\.js'\\'''$/);
+    expect(obligation.command).toMatch(/scripts\/ubicloud\/ubi-runner\.sh run --src '.*\/work' --setup '(.*\/remote-files\/[0-9a-f]{16}\.sh)' -- 'mapfile -t PREGATE_FILES < ~\/\.pregate-files\.txt && node --test "\$\{PREGATE_FILES\[@\]\}"'$/);
+    expect(fs.readFileSync(/--setup '([^']+)'/.exec(obligation.command!)![1]!, 'utf8')).toBe("cat > ~/.pregate-files.txt <<'PREGATE_FILES'\ntest/util.test.js\nPREGATE_FILES\n");
     expect((await lanesOn(backend, { cores: 4, testBackend: 'local' })).lanes.status).toBe('pass');
     expect((await lanesOn(gated(), { cores: 16, testBackend: 'local' })).lanes.status).toBe('pass');
   });

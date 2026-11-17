@@ -6,6 +6,9 @@
  * one test per file argument, so the lane's count proves every file reached a runner.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { argBudget, argChunks } from '../lib/pregate/checks/lanes';
 import { buildContext } from '../lib/pregate/context';
 import { classifyEnvironment } from '../lib/pregate/environment';
@@ -24,18 +27,18 @@ const RUNNER = [
   'process.exit(failed ? 1 : 0);',
 ].join('\n');
 
-async function lanesOver(tests: string[]) {
+async function pregateOver(tests: string[], machine: { cores: number; testBackend: string }) {
   const repo = makeFixtureRepo({
     pregate: { ...BASE_PREGATE, runner: 'node scripts/count.js {files}', dependencies: { ...BASE_PREGATE.dependencies, 'src/big/**': tests } },
     baseFiles: Object.fromEntries([...tests.map(t => [t, "require('node:test');\n"]), ['src/big/.keep', ''], ['scripts/count.js', `${RUNNER}\n`]]),
   });
   repos.push(repo);
   commit(repo, { 'src/big/f.js': 'exports.n = 1;\n' }, 'touch the big tree');
-  const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 64, testBackend: 'local' });
+  const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, ...machine });
   if (!('ctx' in loaded)) throw new Error('fixture context refused');
-  const file = await runPregate(loaded.ctx, { stage: 'tests', only: ['lanes'] });
-  return file.checks.find(c => c.id === 'lanes')!;
+  return runPregate(loaded.ctx, { stage: 'tests', only: ['lanes'] });
 }
+const lanesOver = async (tests: string[]) => (await pregateOver(tests, { cores: 64, testBackend: 'local' })).checks.find(c => c.id === 'lanes')!;
 
 describe.skipIf(process.platform === 'win32')('a local lane whose file list is over the per-argument limit', () => {
   // Value: protects=a unit group whose quoted file list is over Linux's 128 KiB per-argument cap still launches and every file
@@ -51,6 +54,35 @@ describe.skipIf(process.platform === 'win32')('a local lane whose file list is o
 
     const red = await lanesOver([...tests.slice(0, -1), name(FILES - 1, 'zfail')]);
     expect(red).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED', detail: `local lane exited 1 (1 failed of ${FILES} ran; ${FILES} files; pipefail)` });
+  }, 120_000);
+});
+
+describe.skipIf(process.platform === 'win32')('the test backend command for a file list over the per-argument limit', () => {
+  // Value: protects=on a small machine with a remote test_backend, the printed command passes the selected files in a setup
+  //   script, so it stays short and, run the way ubi-runner runs it on the VM (setup, then bash -c <command>), every file reaches
+  //   the runner; fails_when=the files go back into the command, which reaches the VM as one argument (E2BIG on Linux);
+  //   why_new=the remote-gate half of #4424; seam=runPregate --only lanes, the setup file, bash; no_claim=ubi-runner's transport
+  test('the files travel in the setup script, the command stays short, and running both reaches every file', async () => {
+    const tests = Array.from({ length: FILES }, (_, i) => name(i));
+    const quoted = tests.map(t => `'${t}'`).join(' ');
+    expect(quoted.length).toBeGreaterThan(128 * 1024);
+    if (process.platform === 'linux') expect((spawnSync('bash', ['-c', `true ${quoted}`], { timeout: 30_000 }).error as NodeJS.ErrnoException | undefined)?.code).toBe('E2BIG');
+    const file = await pregateOver(tests, { cores: 4, testBackend: 'ubicloud' });
+    expect(file.checks.find(c => c.id === 'lanes')!.status).toBe('requires-remote');
+    const command = file.requires_remote!.find(o => o.lane === 'test_backend/ubicloud')!.command!;
+    expect(command.length).toBeLessThan(2048);
+    const argv = spawnSync('bash', ['-c', 'eval "set -- $1"; printf "%s\\0" "$@"', '_', command], { encoding: 'utf8', timeout: 30_000 }).stdout.split('\0').slice(0, -1);
+    expect(argv.slice(1, 3)).toEqual(['run', '--src']);
+    expect(argv[4]).toBe('--setup');
+    expect(argv[6]).toBe('--');
+    const setup = fs.readFileSync(argv[5]!, 'utf8');
+    expect(setup.split('\n').filter(l => l.startsWith('test/big/'))).toEqual(tests);
+    const vm = repos.at(-1)!;
+    const env = { ...process.env, HOME: fs.mkdtempSync(path.join(vm.root, 'vm-home-')) };
+    expect(spawnSync('bash', [argv[5]!], { cwd: vm.work, env, timeout: 30_000 }).status).toBe(0);
+    const ran = spawnSync('bash', ['-c', argv[7]!], { cwd: vm.work, env, encoding: 'utf8', timeout: 60_000 });
+    expect(ran.stdout).toContain(`ℹ tests ${FILES}\n`);
+    expect(ran.status).toBe(0);
   }, 120_000);
 });
 
