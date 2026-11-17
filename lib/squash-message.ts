@@ -10,7 +10,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import type { ShipPolicy } from './ship-policy';
-import { visibleOpening, VISIBLE_CHARS, VISIBLE_LINES } from './pr-body-shape';
+import { AGENT_NOTES_MARKER } from './agent-notes';
+import { foldSections, unfoldSections, visibleOpening, VISIBLE_CHARS, VISIBLE_LINES } from './pr-body-shape';
 import { scan, type RepoVisibility } from './redact-engine';
 import { landedStackParent } from './ship-receipt';
 
@@ -24,7 +25,7 @@ const wrap = (text: string) => text.split(' ').reduce<string[]>((lines, w) => { 
 /** The body's visible opening, at most VISIBLE_LINES lines and VISIBLE_CHARS characters, cut between lines (a first line that alone is too long is cut short), links reduced to their text and each line wrapped at 72. */
 export function openingLines(body: string): string {
   const out: string[] = [];
-  for (const line of visibleOpening(body).slice(0, VISIBLE_LINES).map(l => l.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean)) {
+  for (const line of visibleOpening(foldSections(body), true).slice(0, VISIBLE_LINES).map(l => l.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean)) {
     if ([...[...out, line].join('\n\n')].length <= VISIBLE_CHARS) { out.push(line); continue; }
     if (!out.length) out.push([...line].slice(0, VISIBLE_CHARS - 1).join('') + '…');
     break;
@@ -71,6 +72,15 @@ export function landMessage(root: string, o: { pr: string; title: string; prBody
   if (high.length) return { error: `the merge commit message holds ${high.map(f => f.id).join(', ')}; nothing merged` };
   const kept = opening && findings(opening).some(f => f.severity === 'MEDIUM') ? '' : opening;
   return { subject, body: [kept, trailers.join('\n')].filter(Boolean).join('\n\n'), ...landMethod(root, o.policy, o.mergeBase, o.pin), skippedParent: parent };
+}
+
+/** The text of a body's `## <title>` section, or of its fold with that summary; '' when it has none. A release PR's squash body is its Release notes section. */
+export function sectionText(body: string, title: string): string {
+  const lines = unfoldSections(body).split('\n');
+  const start = lines.findIndex(l => l.trim() === `## ${title}`);
+  if (start < 0) return '';
+  const end = lines.findIndex((l, i) => i > start && (/^## /.test(l) || l.trim() === AGENT_NOTES_MARKER));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
 }
 
 /** What land prints before it merges: the method (and why), the subject, each body line, and a skipped stacked parent. */

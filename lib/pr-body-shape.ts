@@ -84,11 +84,11 @@ export function unfoldSections(body: string): string {
   return out.join('\n');
 }
 
-/** The visible opening: the lines above the first fold and the Agent notes marker, HTML comments removed, blank lines dropped. */
-export function visibleOpening(body: string): string[] {
+/** The visible opening: the lines above the first fold and the Agent notes marker, HTML comments removed, blank lines dropped; `prose` also drops code blocks, which a commit message never carries. */
+export function visibleOpening(body: string, prose = false): string[] {
   const lines = classify(stripComments(body));
   const first = lines.findIndex(l => l.notes || (!l.fenced && l.depth === 0 && /^<details\b/i.test(l.text.trim())));
-  return lines.slice(0, first < 0 ? undefined : first).map(l => l.text).filter(t => t.trim());
+  return lines.slice(0, first < 0 ? undefined : first).filter(l => !(prose && l.fenced)).map(l => l.text).filter(t => t.trim());
 }
 
 /** A whole-word, case-insensitive matcher for a listed word; a space in it matches any run of spaces. */

@@ -30,7 +30,7 @@ import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from '../crew/lib/ship-queue-train-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { gateAcceptance } from './gate-dispositions';
-import { landMessage, mergeArgs, messageLines } from './squash-message';
+import { landMessage, mergeArgs, messageLines, sectionText } from './squash-message';
 
 interface DirectPr { state: string; baseRefName?: string; headRefName: string; headRefOid: string; isCrossRepository: boolean; body: string; title?: string; mergeable?: string; mergeStateStatus?: string; mergeCommit?: { oid: string } | null }
 export interface DirectOptions { pr: string; pin: string; body?: string; dryRun?: boolean; allowRepoCommands?: boolean; breakLock?: boolean; repair?: boolean; now?: () => Date; acceptGateDispositions?: readonly string[] }
@@ -262,7 +262,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
         lines.push(`MERGED_CHECKS: pass tree=${mc.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
       }
     }
-    const msg = landMessage(root, { pr: o.pr, title: info.title ?? '', prBody: info.body ?? '', mergeBase, pin: o.pin, tip, policy, override: o.body });
+    const msg = landMessage(root, { pr: o.pr, title: info.title ?? '', prBody: info.body ?? '', mergeBase, pin: o.pin, tip, policy, override: o.body ?? (release ? sectionText(info.body ?? '', 'Release notes') || undefined : undefined) });
     if ('error' in msg) return fail(lines, { code: 'QUEUE_NOT_READY', message: msg.error, fix: 'rewrite the PR title or the opening lines of its body, or pass land --body-file <file> with the plain lines to use; then rerun land' });
     lines.push(...messageLines(msg));
     if (o.dryRun) return { ok: true, run, lines: [...lines, `DRY-RUN: nothing merged (would run gh pr merge ${o.pr} --${msg.method} --match-head-commit ${o.pin} with the SUBJECT and BODY above)`] };

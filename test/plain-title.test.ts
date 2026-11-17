@@ -26,7 +26,7 @@ const MAIN_SUBJECTS: Array<[string, string[]]> = [
   ['fix(ship): record-ci reuses its own CI row at the same tree, run and selection (GST-1795)', ['scope-prefix:fix(ship):']],
   ['v1.98.0.0 release: fold the changelog fragments', []],
   ['ship tooling: post-review voices dispatch, same-tree pregate clears, fix-check p<N> ledgers (GST-1775)', ['term:voices', 'term:pregate', 'term:fix-check', 'term:ledgers']],
-  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", ['term:carry']],
+  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", ['term:crew', 'term:carry']],
   ['Require the daemon secret and loopback Host/Origin on the design and iOS QA daemons', []],
   ["browse: keep tunnel-paired agents on web URLs and away from the daemon's disk", []],
   ['feat(diff-scope): template UI in .ts/.js counts as frontend; receipt records the static design pass (GST-1718)', ['scope-prefix:feat(diff-scope):', 'term:receipt']],
@@ -255,6 +255,21 @@ describe('bin/gstack-plain-title', () => {
     expect(commits.stdout).toContain('(warning only)');
     const both = run(dirs.policy, ['check', '--title', 'pregate', '--commits-file', file('c2.txt', 'GST-1 done\n')]);
     expect([both.status, both.last]).toEqual([1, 'PLAIN_TITLE: refused=1 warned=1']);
+  });
+
+  // Value: protects=--body-file checks the folded shape (three visible lines, no listed word above Agent notes) and refuses
+  // only for a PR created on or after body_since on a branch the policy does not exempt; fails_when=an unfolded /ship draft
+  // is refused for its ## sections, or older and generated PRs start failing CI; why_new=R76 as amended 2026-11-15 (GST-2737)
+  test('a body file is checked once folded; an older PR or an exempt branch only warns', () => {
+    const draft = file('draft.md', 'What changed.\n\nWhy it helps.\n\nNothing to do.\n\n## What changed\n\n- one\n\n## Tests\n\n- two\n');
+    expect(run(dirs.policy, ['check', '--body-file', draft])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: ok' });
+    const long = file('long.md', 'One.\n\nTwo.\n\nThree.\n\nFour.\n\n## Tests\n\n- the pregate passed\n');
+    const r = run(dirs.policy, ['check', '--body-file', long, '--created-at', '2026-11-20T00:00:00Z']);
+    expect([r.status, r.last]).toEqual([1, 'PLAIN_TITLE: refused=2']);
+    expect(r.stdout).toContain('PLAIN_BODY: PLAIN_BODY_REFUSED visible-lines "4 lines');
+    expect(r.stdout).toContain('PLAIN_BODY: PLAIN_BODY_REFUSED term "pregate"');
+    expect(run(dirs.policy, ['check', '--body-file', long, '--created-at', '2026-11-10T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', long, '--head-branch', 'release/1.2.3.0'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
   });
 
   test('a changelog entry is checked', () => {

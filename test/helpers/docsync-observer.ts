@@ -179,7 +179,7 @@ export function docsPreambleCommands(fixture: ReturnType<typeof fixtureDocs>): s
 
 export function docsShipPhase(skeleton: string, prBody: string, scenario: DocsScenario, storePointer: string): string {
   if (scenario === 'store') return storePointer;
-  return `${sliceBetween(skeleton, '## Step 14.5: Documentation audit (every ship)', '## Step 15: Commit')}\n\n${sliceBetween(prBody, '## Documentation', '## Test plan')}`;
+  return `${sliceBetween(skeleton, '## Step 14.5: Documentation audit (every ship)', '## Step 15: Commit')}\n\n${sliceBetween(prBody, '## Documentation', '## Tests')}`;
 }
 
 type DocsSessionOptionsInput = {

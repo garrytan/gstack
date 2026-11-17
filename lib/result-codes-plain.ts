@@ -20,8 +20,13 @@ export const PLAIN_RESULT_CODES = {
   },
   PLAIN_OPENING_REFUSED: {
     anchor: 'plain-opening-refused',
-    summary: 'the PR body does not open with one or two plain sentences',
-    fix: 'start the body with one or two sentences saying what changed and which goal of the project it serves; move codes and records to the Agent notes section at the end',
+    summary: 'the PR body does not open with a plain paragraph of at most three lines',
+    fix: 'start the body with up to three plain lines: what changed for a user, why, and anything the reader has to do; move codes and records to the Agent notes section at the end',
+  },
+  PLAIN_BODY_REFUSED: {
+    anchor: 'plain-body-refused',
+    summary: 'the PR body, once folded, shows more than three lines or 600 characters before its first fold, leaves text outside a fold, uses a listed word above the Agent notes section, or does not end with that section',
+    fix: 'keep the opening to three plain lines, put everything else under ## headings (gstack-post folds them), say listed words in everyday words, and let gstack place the receipt in the Agent notes section at the end',
   },
   PLAIN_CHANGELOG_REFUSED: {
     anchor: 'plain-changelog-refused',

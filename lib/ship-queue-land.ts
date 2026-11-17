@@ -24,6 +24,7 @@ import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './
 import { QUEUE_DIR_REL, git, writeJsonAtomic, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { landPlan } from './plan-record';
 import { landMessage, mergeArgs, messageLines } from './squash-message';
+import { withAgentNotes } from './agent-notes';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { TERMINAL_STATES, freezeLockCleared, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from '../crew/lib/ship-queue-train-record';
 
@@ -305,7 +306,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
       pushed = remote[0]!;
       lines.push(`branch: ${branch} already on origin at ${pushed.slice(0, 12)} (an earlier --repair pushed it); opening or finding its PR`);
     }
-    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Add a changelog entry for changes merged by hand next to #${j.pr}`, '--body', `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`]);
+    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Add a changelog entry for changes merged by hand next to #${j.pr}`, '--body', withAgentNotes(`Adds a CHANGELOG entry for ${outside.length || 'the'} change${outside.length === 1 ? '' : 's'} merged into ${ctx.base} by hand next to #${j.pr}, so the next release lists ${outside.length === 1 ? 'it' : 'them'}.\n\nMerge it like any other pull request; nothing else to do.\n`, `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`)]);
     const n = /\/pull\/(\d+)/.exec(`${pr.out}\n${pr.err ?? ''}`)?.[1];
     if (!n) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr create failed: ${(pr.err ?? pr.out).trim().slice(0, 160)}` }, run);
     j.repair_pr = n; writeJsonAtomic(file, j);

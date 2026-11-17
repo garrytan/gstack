@@ -94,7 +94,7 @@ test('/ship Step 16 stage 5 reports each gate finding with disposition, reason a
 
 test('/ship PR body carries the Gate edits line and per-lane counts, and an open finding keeps a new PR a draft', () => {
   const body = read('ship/sections/pr-body.md.tmpl');
-  const skeleton = between(body, '## Summary', '#### Compose the body');
+  const skeleton = between(body, '## What changed', '#### Compose the body');
   const coverage = between(skeleton, '## Test Coverage', '## Pre-Landing Review');
   expectTokens(coverage, ['Tests ran: <lane> N', 'Tests ran: <lane> count unavailable', '`tests_ran`'], 'PR body Test Coverage');
   const review = between(skeleton, '## Pre-Landing Review', '## Exploratory QA');
