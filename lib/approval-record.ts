@@ -20,8 +20,10 @@
  * (`~/.capy/drive/captain-<name>/approvals/<slug>/<branch key>.jsonl`, which every
  * crew thread can read), else to the private project-user Drive folder
  * (`<drive>/approvals/<slug>/<branch key>.jsonl`). GSTACK_APPROVALS_MIRROR=0
- * turns the mirror off. Reads take the union of both. Every field passes the
- * secret scanner before anything is written.
+ * turns the mirror off. Reads take the union of both. A fixture (bun test, or a
+ * state root or repository in the temp directory) only mirrors inside the temp
+ * directory, links resolved. Every field passes the secret scanner before
+ * anything is written.
  */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -50,7 +52,8 @@ export interface ApprovalRow {
 }
 export type MirrorSource = 'GSTACK_APPROVALS_DIR' | 'captain drive' | 'project-user drive';
 /** `mirror` is written and read; `read_also` are the other mirror roots' copies, read so a row mirrored under an earlier rule stays visible. */
-export interface StoreLocation { file: string; mirror?: string; mirror_source?: MirrorSource; read_also?: string[]; branch: string; slug: string; ephemeral: boolean }
+/** `mirror_refused` names a mirror a fixture would have written outside its temp root; the write then fails and nothing reaches that Drive. */
+export interface StoreLocation { file: string; mirror?: string; mirror_source?: MirrorSource; read_also?: string[]; mirror_refused?: string; branch: string; slug: string; ephemeral: boolean }
 export interface RecordError { code: ResultCodeName; message: string }
 export type Env = NodeJS.ProcessEnv;
 
@@ -72,6 +75,26 @@ function contained(root: string, file: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+/** Where a path really lands: the nearest existing ancestor with its links resolved, plus the rest of the path. */
+function resolvedTarget(p: string): string {
+  const rest: string[] = [];
+  for (let cur = path.resolve(p); ; cur = path.dirname(cur)) {
+    try { return path.join(fs.realpathSync(cur), ...rest.reverse()); } catch { if (path.dirname(cur) === cur) return path.resolve(p); rest.push(path.basename(cur)); }
+  }
+}
+
+/**
+ * Why this run is a fixture, or undefined: under bun test, or with its state root or repository in the temp directory.
+ * A fixture's mirror must resolve inside that temp root, so a test or a probe in a scratch repository never writes
+ * the owner's real Drive (GST-3027: a review probe wrote approvals/fx/qa-fixture-*.jsonl into a project-user Drive).
+ */
+function fixtureReason(env: Env, stateRoot: string, toplevel: string | undefined, tmpRoot: string): string | undefined {
+  if (env.NODE_ENV === 'test') return 'running under bun test';
+  if (contained(tmpRoot, resolvedTarget(stateRoot))) return `the state root ${stateRoot} is a temporary fixture`;
+  if (toplevel && contained(tmpRoot, resolvedTarget(toplevel))) return `the repository ${toplevel} is a temporary fixture`;
+  return undefined;
+}
+
 /** Where this branch's record lives, and its mirror. */
 export function locate(o: { cwd: string; env: Env; branch?: string }): StoreLocation | RecordError {
   let branch = o.branch?.trim();
@@ -87,21 +110,30 @@ export function locate(o: { cwd: string; env: Env; branch?: string }): StoreLoca
   if (!contained(stateRoot, file)) return { code: 'APPROVAL_RECORD_INVALID', message: `record path escapes the state root: ${file}` };
   // Every mirror root this machine can see, best first; the first is written, the rest are read so a
   // row mirrored before the Captain created approvals/ (or under an explicit directory) stays visible.
-  const roots: Array<[MirrorSource, string]> = [];
+  let toplevel: string | undefined | null = null;
+  const repoTop = () => { if (toplevel === null) { const top = git(o.cwd, ['rev-parse', '--show-toplevel']); toplevel = top.status === 0 ? top.stdout.trim() : undefined; } return toplevel; };
+  let roots: Array<[MirrorSource, string]> = [];
   if (o.env.GSTACK_APPROVALS_DIR) roots.push(['GSTACK_APPROVALS_DIR', o.env.GSTACK_APPROVALS_DIR]);
   if (o.env.GSTACK_CAPY === '1' && o.env.GSTACK_APPROVALS_MIRROR !== '0') {
     const captain = captainApprovalsDir(o.env);
     if (captain) roots.push(['captain drive', captain]);
-    const top = git(o.cwd, ['rev-parse', '--show-toplevel']);
-    const folder = capyDriveFolder(o.env, top.status === 0 ? path.basename(top.stdout.trim()) : undefined);
+    const folder = capyDriveFolder(o.env, repoTop() ? path.basename(repoTop()!) : undefined);
     if (folder) roots.push(['project-user drive', path.join(path.dirname(folder), 'approvals')]);
   }
   const rel = path.join(slug, `${branchKey(branch)}.jsonl`);
   for (const [, root] of roots) if (!contained(root, path.join(root, rel))) return { code: 'APPROVAL_RECORD_INVALID', message: `mirror path escapes ${root}` };
-  const [chosen, ...rest] = roots;
+  let mirror_refused: string | undefined;
+  if (roots.length) {
+    const tmpRoot = resolvedTarget(os.tmpdir());
+    const fixture = fixtureReason(o.env, stateRoot, repoTop(), tmpRoot);
+    const escapes = ([, root]: [MirrorSource, string]) => !contained(tmpRoot, resolvedTarget(path.join(root, rel)));
+    if (fixture && escapes(roots[0]!)) mirror_refused = `mirror ${path.join(roots[0]![1], rel)} (${roots[0]![0]}) resolves to ${resolvedTarget(path.join(roots[0]![1], rel))}, outside the temp root ${tmpRoot}, and ${fixture}; a fixture never writes a real Drive, so point HOME or GSTACK_APPROVALS_DIR inside the fixture or set GSTACK_APPROVALS_MIRROR=0 (the local row is kept)`;
+    if (fixture) roots = roots.filter(r => !escapes(r));
+  }
+  const [chosen, ...rest] = mirror_refused ? [undefined, ...roots] : roots;
   return {
-    file, mirror: chosen ? path.join(chosen[1], rel) : undefined, mirror_source: chosen?.[0], read_also: rest.map(([, root]) => path.join(root, rel)),
-    branch, slug, ephemeral: o.env.GSTACK_EPHEMERAL === '1',
+    file, mirror: chosen ? path.join(chosen[1], rel) : undefined, mirror_source: chosen?.[0], read_also: rest.map(r => path.join(r![1], rel)),
+    ...(mirror_refused ? { mirror_refused } : {}), branch, slug, ephemeral: o.env.GSTACK_EPHEMERAL === '1',
   };
 }
 
@@ -189,6 +221,7 @@ export function buildRow(input: NewRow, branch: string, now = new Date(), runId?
 }
 
 function writeMirror(loc: StoreLocation, rows: ApprovalRow[]): RecordError | undefined {
+  if (loc.mirror_refused) return { code: 'APPROVAL_RECORD_WRITE_FAILED', message: loc.mirror_refused };
   if (!loc.mirror) return undefined;
   try {
     fs.mkdirSync(path.dirname(loc.mirror), { recursive: true, mode: 0o700 });
