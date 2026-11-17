@@ -10,7 +10,7 @@ import { checkBodyShape, foldSections, unfoldSections, visibleOpening, VISIBLE_C
 import { renderReceiptBlock } from '../lib/ship-receipt';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 
-const RECEIPT = renderReceiptBlock({ schema_version: 1, pr: '4353', head: '0d6e4079e3aa' } as ShipReceipt);
+const RECEIPT = renderReceiptBlock({ schema_version: 1, pr: 4353, head: '0d6e4079e3aa', base: 'main' } satisfies ShipReceipt);
 const kinds = (body: string, terms: string[] = []) => checkBodyShape(body, terms).map(f => `${f.kind}:${f.match}`);
 const OPENING = "/ship's reviewers end their reply with one count line, and gstack checks it against the findings it read.\n\nWhy: a blocker a reviewer reports must never vanish.\n\nNothing to do: replies without the line read as before.\n";
 

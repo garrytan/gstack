@@ -687,7 +687,7 @@ function plainBody(env: PostEnv, body: string, policy: PlainTitlePolicy | null |
   const findings = comment ? (policy ? checkBodyShape(`<details>\n\n${body}\n\n</details>`, policy.terms).filter(f => f.kind === "term") : []) : checkBodyShape(body, policy?.terms ?? []);
   if (!findings.length) return true;
   const when = comment || !policy ? undefined : createdAt();
-  const refuse = !!policy && !comment && (when === undefined || Date.parse(when) >= Date.parse(policy.body_since));
+  const refuse = !!policy && !comment && (when === undefined || Date.parse(when) >= Date.parse(policy.body_since ?? policy.since));
   for (const f of findings) env.out(bodyFindingLine(f, !refuse) + "\n");
   env.out(`PLAIN_BODY: ${refuse ? "refused" : "warned"}=${findings.length}\n`);
   if (refuse) env.err("gstack-post: the body does not have the plain shape; nothing was posted. Rewrite the body file the way each PLAIN_BODY: line says (docs/writing-prs.md), then rerun.\n");

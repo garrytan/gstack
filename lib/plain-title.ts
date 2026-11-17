@@ -19,7 +19,7 @@ import { splitAgentNotes } from './agent-notes';
 import { maskProse } from './prose-lint';
 import { redactFindingSpans } from './redact-engine';
 
-export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[]; body_since: string }
+export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[]; body_since?: string }
 export interface PlainFinding { code: 'PLAIN_TITLE_REFUSED' | 'PLAIN_BRANCH_REFUSED' | 'PLAIN_OPENING_REFUSED' | 'PLAIN_CHANGELOG_REFUSED' | 'PLAIN_COMMIT_REFUSED'; kind: 'code' | 'term' | 'scope-prefix' | 'opening-shape'; match: string; hint: string }
 export const PLAIN_TITLE_POLICY_PATH = '.gstack/plain-titles.json';
 
