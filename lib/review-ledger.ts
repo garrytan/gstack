@@ -488,7 +488,19 @@ const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { ret
  * included) so the summary can find its row.
  * A ledger, merged file or judged set it cannot read, or a judged set changed since judge, throws: the count is never a guess.
  */
-export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string }
+export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string;
+  /** The gate a gate finding names (a JSON line's `gate`, else an RH tag its text or judged reason names) and its JSON `gate_id`: no ruling closes it (GST-2273). */
+  gate?: string; gate_id?: string }
+function lineGate(texts: readonly string[]): { gate?: string; gate_id?: string } {
+  for (const raw of texts) {
+    try {
+      const o = JSON.parse(raw);
+      if (o && typeof o.gate === 'string' && o.gate) return { gate: o.gate, ...(typeof o.gate_id === 'string' && o.gate_id ? { gate_id: o.gate_id } : {}) };
+    } catch { /* a prose finding */ }
+  }
+  const tag = texts.map(t => /\bRH-\d+\b/.exec(t)?.[0]).find(Boolean);
+  return tag ? { gate: tag } : {};
+}
 function lineLocus(raw: string): string | null {
   try {
     const o = JSON.parse(raw);
@@ -507,6 +519,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
   const ranks = new Map<string, number>();
   const unblocking = new Map<string, number>();
   const raws = new Map<string, string>();
+  const reasons = new Map<string, string>();
   const readers = new Map<string, string>();
   const loci = new Map<string, string | null>();
   const candidates = new Set<string>();
@@ -532,9 +545,10 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
       const dismissed = !!j.reason?.trim() && (candidates.has(j.id) || summaryCandidate(raws.get(j.id) ?? '') || statedLowering(readers.get(j.id) ?? '', raws.get(j.id) ?? '', rank(j.severity) ?? 0));
       ranks.set(j.id, dismissed ? rank(j.severity) ?? 0 : Math.max(ranks.get(j.id) ?? 0, rank(j.severity) ?? 0));
       if (!loci.has(j.id)) loci.set(j.id, lineLocus(j.reason ?? ''));
+      if (j.reason) reasons.set(j.id, j.reason);
     }
   }
-  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null }));
+  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null, ...lineGate([raws.get(id) ?? '', reasons.get(id) ?? '']) }));
 }
 
 /**

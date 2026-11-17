@@ -8,7 +8,7 @@
  *   gstack-approvals import --autoplan <run dir> [--by <whose words>] [--branch <name> | --stack <b1,b2,...>] [--json]
  *   gstack-approvals render [--no-heading] [--full | --redacted] [--branch <name>] [--plan <the brief's Plan line>]
  *   gstack-approvals plan-check --plan <the brief's Plan line>
- *   gstack-approvals rule --finding <fingerprint> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
+ *   gstack-approvals rule --finding <fingerprint> | --id <ledger id> --head <stop head> --reason <why> --words <exact words> --by <who ruled> [--json]
  *   gstack-approvals rulings [--branch <name>]
  *   gstack-approvals gate --finding <fingerprint> --gate-id <gate_id> --head <stop head> --reason <the gate change> --words <exact words> --by <who recorded> [--json]
  *   gstack-approvals dispositions [--branch <name>]
@@ -29,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
-import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { GSTACK_ACTOR, openShipRun, RULABLE_ID, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
@@ -47,6 +47,9 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           the owner's ruling that a review finding ships as a disclosed note (docs/ship-policy.md#ruled-notes); finish
           counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
           list it; refused inside this checkout's open /ship run
+  rule    --id <the finding's ledger id, <pass dir>/<id>> --head <the stop head> --reason … --words … --by …
+          the same ruling for one finding on a /ship full pass or Step 11 row: it closes only the finding with that
+          ledger id, on the row that read that head, recorded after the read ended (docs/ship-policy.md#ruled-notes-by-id)
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
   gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>
           --reason <the gate change, one line> --words <the owner's exact words, one line> --by <who recorded them>
@@ -88,7 +91,7 @@ Example:
 
 ${exitTableHelp()}`;
 
-const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id', '--pr', '--kind']);
+const VALUE_FLAGS = new Set(['--ask', '--words', '--by', '--scope', '--pending', '--outcome', '--date', '--source', '--branch', '--autoplan', '--stack', '--finding', '--reason', '--head', '--files', '--plan', '--gate-id', '--pr', '--kind', '--id']);
 
 function parse(args: string[]): { flags: Record<string, string>; bools: Set<string>; error?: string } {
   const flags: Record<string, string> = {};
@@ -195,8 +198,12 @@ function main(argv: string[]): number {
       rows = [built];
     } else if (cmd === 'rule') {
       const invalid = (message: string) => fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message });
-      const finding = (flags['--finding'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim();
-      if (!finding || /\s/.test(finding) || !reason) return invalid('rule needs --finding <the finding\'s fingerprint, no spaces> and --reason <why it ships as a note>');
+      const fingerprint = (flags['--finding'] ?? '').trim(), id = (flags['--id'] ?? '').trim(), reason = (flags['--reason'] ?? '').trim();
+      if (fingerprint && id) return invalid('rule takes --finding <fingerprint> or --id <ledger id>, not both');
+      if (id && !RULABLE_ID.test(id)) return invalid(`--id ${id} is not a ledger id: name the finding as <pass dir>/<id> (for example p2/outside-voice#1), which no other pass reuses`);
+      if (fingerprint.startsWith('id=')) return invalid('a fingerprint never starts with id=: rule a finding by its ledger id with --id');
+      const finding = id ? `id=${id}` : fingerprint;
+      if (!finding || /\s/.test(finding) || !reason) return invalid('rule needs --finding <the finding\'s fingerprint, no spaces> or --id <its ledger id>, and --reason <why it ships as a note>');
       if (/[\x00-\x1f\x7f]/.test(reason)) return invalid('--reason is one line: no newline or control character');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('rule needs --head <the stop head the owner ruled at, a commit in this repository>');

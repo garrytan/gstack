@@ -1720,6 +1720,33 @@ Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
 
+<a id="ruled-notes-by-id"></a>
+**Rulings on a full pass or a Step 11 voice (GST-2273).** On a round-2 full pass, or
+for a Step 11 voice finding no row records, the owner rules one finding by its
+ledger id instead of its fingerprint:
+
+```bash
+gstack-approvals rule --id '<pass dir>/<id>' --head <stop head> \
+  --reason '<why it ships as a note, one line>' --words '<the owner's exact words>' --by '<who ruled>'
+```
+
+The row's scope is `ruled_note id=<ledger id> <head>`, and it closes exactly one
+finding: the one with that ledger id, read at that head. `gstack-review-read` closes
+it on a /ship `review` or `adversarial-review` row whose read started and ended at
+that commit (`review_binding.start_commit` equals `commit_full`) when the ruling was
+recorded after the read ended (`review_binding.ended_at`); a row whose only blockers
+are ruled then reads `CURRENT` and Step 11.5 binds it, as
+[review-policy.md](review-policy.md#how-ship-converges-review_scope-frozen-the-default)
+promises. `gstack-review-scope summary` counts that finding `noted` instead of
+`unrecorded`. A finding only a dispatch ledger holds counts only when the run's newest
+/ship review, fix-check or Step 11 row read the ruled head and its whole pass ran
+inside that row's read. Nothing else closes: a fingerprint ruling, a bare id, a
+ledger id two findings share, a ruling at another head or from before the read
+ended, a row logged before reads captured their start commit, and a gate finding,
+including a row finding whose paired ledger line names a gate (`gate`, or an RH
+tag). A fingerprint ruling keeps its fix-check meaning above, and fix-checks ignore
+`--id` rulings. An edit after the bound head still needs review.
+
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened
 gate the review logged with a `gate` tag and the hunk identity `gate_id`). In an

@@ -209,6 +209,7 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
   writeFileSync(join(dir, `${token}.json`), JSON.stringify({
     skill, repo: env.GSTACK_REVIEW_REPO, branch: env.GSTACK_REVIEW_BRANCH,
     wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(),
+    ...(env.GSTACK_STAMP_COMMIT_FULL ? { commit: env.GSTACK_STAMP_COMMIT_FULL } : {}),
     ...(fixBase ? { scope: 'fix-range', fix_base: fixBase } : {}),
   }), { mode: 0o600, flag: 'wx' });
   return fixBase ? `${token}\nFIX_BASE=${fixBase}` : token;
@@ -316,7 +317,7 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   // so Step 11.5 cannot bind it and it never becomes CURRENT; only a later full pass can.
   rec.review_binding = narrowed && (state === 'incomplete' || state === 'verified')
     ? { state: 'fix-range', fix_base: rec.fix_base, range_start_wtree: start.wtree, range_end_wtree: end, started_at: start.started_at, ...branchId }
-    : { state, start_wtree: start?.wtree, end_wtree: end, started_at: start?.started_at, ...branchId };
+    : { state, start_wtree: start?.wtree, end_wtree: end, started_at: start?.started_at, ...(typeof start?.commit === 'string' ? { start_commit: start.commit } : {}), ...(start ? { ended_at: new Date().toISOString() } : {}), ...branchId };
   const verified = rec.review_binding.state === 'verified';
   if (verified) rec.wtree = end;
   if (rec.skill === 'review' && Array.isArray(rec.findings)) {
@@ -343,8 +344,9 @@ export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);
 export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f.blocking === true;
 
 /**
- * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
- * `gstack-approvals rule` rows, lib/ruled-notes.ts, never from the row itself) taken out, and recorded clean when the
+ * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints, or `id=<ledger id>` for
+ * the one finding on this row with that ledger_id (GST-2273), from approved `gstack-approvals rule` rows, lib/ruled-notes.ts,
+ * never from the row itself) taken out, and recorded clean when the
  * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged. An open
  * finding is rulable too: a fix-check that finds a CRITICAL stops for the owner (review-army decision 3.5 sends it to decision 2)
  * with the finding open and the row converged:false, bound `incomplete` on unchanged content, and the ruling is the owner's
@@ -353,7 +355,9 @@ export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f
  * head lies in this row's range, lib/gate-dispositions.ts, GST-2491); a ruling never closes a gate finding.
  */
 function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): Record<string, any> {
-  const isRuled = (f: unknown) => record(f) && typeof f.fingerprint === 'string' && (f.gate ? (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`) : RULABLE.has(f.action) && ruled.has(f.fingerprint));
+  const once = (id: unknown) => typeof id === 'string' && rec.findings.filter((g: unknown) => record(g) && g.ledger_id === id).length === 1;
+  const isRuled = (f: unknown) => record(f) && (f.gate ? typeof f.fingerprint === 'string' && (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`)
+    : RULABLE.has(f.action) && ((typeof f.fingerprint === 'string' && ruled.has(f.fingerprint)) || (once(f.ledger_id) && ruled.has(`id=${f.ledger_id}`))));
   if ((!ruled.size && !gated.size) || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||

@@ -17,6 +17,7 @@
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
 import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
+import { ruledIds, type RuledNote } from './ruled-notes';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -362,6 +363,7 @@ function rowLocus(f: Record<string, any>): string | null {
  */
 export interface LedgerPass {
   started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string;
+  /** When its last reader output was collected: a ruling closes a finding only the ledger holds when the run's stop row read the whole pass (GST-2273). */ collected?: number;
   /** Whether judge ran on it at all (a rejected judgment counts): a pN pass never judged that no row names, replaced by a later judged or named pass, was abandoned (voided) and counts nothing (GBEV-3); a fix-check ledger and the last pass are never voided. */ judged?: boolean;
 }
 export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass {
@@ -370,7 +372,8 @@ export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass
   const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
   const gone = quarantinedIds(events);
   const ids = events.flatMap(e => (e.event === 'output' && Array.isArray(e.ids) ? (e.ids as string[]).filter(id => !gone.has(id)) : e.event === 'judgment' && e.kind === 'added' && typeof e.id === 'string' ? [e.id] : [])).map(key);
-  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge') };
+  const collected = Date.parse(String(events.filter(e => e.event === 'output').at(-1)?.at ?? ''));
+  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge'), collected: Number.isFinite(collected) ? collected : NaN };
 }
 
 /** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
@@ -397,8 +400,13 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * ledgers than rows), a blocker no row disposes counts as fixed if a fix-check ledger started after the last ledger that raised it:
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
+ * Owner rulings (`notes`, GST-2273): an `id=<ledger id>` ruling makes one undisposed blocker a noted disclosure. A row finding
+ * closes when the row that logged it read the ruled head (lib/ruled-notes.ts ruledIds) and no other finding on that row has its
+ * ledger_id; a finding only a ledger holds closes when the run's stop row (its newest /ship review, fix-check or Step 11 row) read
+ * the ruled head and its whole pass ran inside that row's read. A gate finding never closes this way, including a row finding
+ * whose paired ledger line names a gate.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = [], notes: readonly RuledNote[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
@@ -415,7 +423,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
   const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
   const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
-  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string; fingerprint?: string };
+  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; gate: boolean; ruled: boolean; ledgerId?: string; fingerprint?: string };
   const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
@@ -423,7 +431,9 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   let scope: ReviewLoopSummary['scope'] = 'unknown';
   for (const row of loopRows) {
     if (REVIEW_SCOPE_POLICIES.includes(row.review_scope)) scope = row.review_scope;
-    for (const f of Array.isArray(row.findings) ? row.findings : []) {
+    const ruledHere = ruledIds(row, notes);
+    const findings: unknown[] = Array.isArray(row.findings) ? row.findings : [];
+    for (const f of findings as any[]) {
       if (!f || typeof f !== 'object') continue;
       const ledgerId = typeof f.ledger_id === 'string' && f.ledger_id ? f.ledger_id : undefined;
       // A late defer re-logs a finding an earlier row holds; without a ledger_id it is that finding when the locus and reviewer agree (GBEV-3).
@@ -438,6 +448,8 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
         blocks: classified ? f.blocking : prior?.classified ? prior.blocks : !!prior?.blocks || rowBlocks(f),
         candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
         disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
+        gate: !!prior?.gate || !!f.gate,
+        ruled: !!prior?.ruled || (!!ledgerId && ruledHere.has(`id=${ledgerId}`) && findings.filter((g: any) => g?.ledger_id === ledgerId).length === 1),
         ...(ledgerId ?? prior?.ledgerId ? { ledgerId: ledgerId ?? prior?.ledgerId } : {}),
         ...(prior?.fingerprint ?? findingIdentity(f) ? { fingerprint: prior?.fingerprint ?? findingIdentity(f) } : {}),
       });
@@ -453,7 +465,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
   if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);
   const paired = new Set<string>();
-  const ledgerOnlyKeys: Array<{ key: string; id: string; fixed: boolean }> = [];
+  const ledgerOnlyKeys: Array<{ key: string; id: string; fixed: boolean; gate: boolean; n: number }> = [];
   const pairedIds = new Set<string>();
   const followedIds = new Set<string>();
   const lastPaired = new Map<string, number>();
@@ -467,7 +479,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
       const open = ([k]: [string, Seen]) => !paired.has(`${n}\0${k}`);
       const id = [...seen].find(e => open(e) && (e[1].ledgerId === key || e[1].ledgerId === b.id))?.[0]
         ?? (b.locus ? [...seen].find(e => open(e) && !e[1].ledgerId && e[1].candidate && e[1].locus === b.locus && (!e[1].raiser || !by || e[1].raiser === by))?.[0] : undefined);
-      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else ledgerOnlyKeys.push({ key, id: b.id, fixed: followed(n) });
+      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (b.gate) seen.get(id)!.gate = true; if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else ledgerOnlyKeys.push({ key, id: b.id, fixed: followed(n), gate: !!b.gate, n });
     }
   }
   for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
@@ -480,9 +492,17 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
   for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
+  for (const [k, s] of blockers) if (!s.disposed && s.ruled && !s.gate) { s.disposed = true; noted.add(k); }
+  const stop = rows.filter(r => inRun(r) && ['review', FIX_CHECK_SKILL, 'adversarial-review'].includes(r.skill)).sort((a, b) => rowTime(a) - rowTime(b)).at(-1);
+  const stopIds = ruledIds(stop, notes);
+  const [readFrom, readTo] = [Date.parse(String(stop?.review_binding?.started_at)), Date.parse(String(stop?.review_binding?.ended_at))];
+  const keyUses = new Map<string, number>();
+  for (const b of ledgers.flat()) keyUses.set(b.key ?? b.id, (keyUses.get(b.key ?? b.id) ?? 0) + 1);
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
-  const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
-  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };
+  const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && !l.gate && stopIds.has(`id=${l.key}`) && keyUses.get(l.key) === 1 &&
+    (ledgerPasses[l.n]?.started ?? NaN) >= readFrom && (ledgerPasses[l.n]?.collected ?? NaN) <= readTo).length;
+  const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed - ledgerOnlyRuled + blockers.filter(([, s]) => !s.disposed).length;
+  const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size + ledgerOnlyRuled, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;
   if (ledgers.length) out.ledgers_read = ledgers.length;
   if (unbound.length) out.unbound = unbound;

@@ -456,6 +456,14 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     expect(r.stdout.split('\n').filter(l => l.startsWith('RULED_NOTE: ')).every(l => l.endsWith(" (outside this fix-check's range; not applied)"))).toBe(true);
   });
 
+  test('a ruling by ledger id (gstack-approvals rule --id, GST-2273) closes nothing on a fix-check', () => {
+    const ids = { ...HE361, findings: HE361.findings.map((x, i) => ({ ...x, ledger_id: `fc/fix-check#${i + 1}` })) };
+    const { f, fixHead, reviewed, post } = grantedFixCheck(ids);
+    for (const id of ['fc/fix-check#1', 'fc/fix-check#2']) expect(run(f, 'gstack-approvals', ['rule', '--id', id, '--head', fixHead, '--reason', 'ships as a disclosed note', '--words', 'both are notes', '--by', 'qm minder (CAPY-1)']).status).toBe(0);
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK'), lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([NEW_A, NEW_B], fixHead)]);
+  });
+
   test('an open INFORMATIONAL beside the two ruled CRITICALs keeps the fix-check uncounted and is named, then binds once ruled', () => {
     const NEW_C = 'src/x.ts:1:retry-log';
     const row = { ...HE361, issues_found: 3, critical: 2, informational: 1, findings: [...HE361.findings, { fingerprint: NEW_C, severity: 'INFORMATIONAL', action: 'open', locus: 'diff', blocking: false, raised_by: 'fix-check' }] };

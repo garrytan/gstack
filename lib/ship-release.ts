@@ -326,7 +326,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
     if (g) used.add(g.id);
     granted[k] = g;
   }
-  const ruledOn = (l: FixLink) => new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding));
+  const ruledOn = (l: FixLink) => new Set(rulings.filter(n => !n.id && n.links.includes(l)).map(n => n.finding));
   const why = (l: FixLink) => {
     const read = l.row.wtree ?? l.row.review_binding?.end_wtree;
     const fresh = reviewFreshness(l.row, read, ruledOn(l), gatedOn(l));
