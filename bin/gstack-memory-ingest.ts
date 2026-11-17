@@ -3236,6 +3236,12 @@ async function runLocked(args: CliArgs): Promise<number> {
 
   const t0 = Date.now();
   const result = await ingestPass(args, state);
+  // /sync-gbrain reads the counts here: per-page failures exit 0 (#4417).
+  if (process.env.GSTACK_INGEST_RESULT_FILE) {
+    try {
+      writeFileSync(process.env.GSTACK_INGEST_RESULT_FILE, JSON.stringify({ written: result.written, failed: result.failed }));
+    } catch {}
+  }
   if (!result.state_untouched) {
     // A pending reconcile (set by the upgrade migration or a schema migration)
     // gets one bounded pass per ingest run until it completes.

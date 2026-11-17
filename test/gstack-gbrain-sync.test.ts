@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { spawnSync } from "child_process";
 
 import {
@@ -544,10 +544,11 @@ esac
     rmSync(home, { recursive: true, force: true });
   });
 
-  // A5 (#2670): a successful git push is not gbrain indexing.
+  // A5 (#2670): a successful git push is not gbrain indexing. Artifacts sync is
+  // off here, so the row says nothing was pushed (#4418) and still checks gbrain.
   for (const [pageCount, ok, expected] of [
     [0, false, "gbrain source fixture-artifacts has 0 indexed pages. Fix: gbrain sync --source fixture-artifacts"],
-    [7, true, "curated artifacts pushed; gbrain source fixture-artifacts has 7 pages"],
+    [7, true, "nothing was pushed; gbrain source fixture-artifacts has 7 pages"],
   ] as const) {
     it(`brain-sync stage reports the artifacts source's ${pageCount} indexed pages (ok=${ok})`, () => {
       const home = makeTestHome();
@@ -573,6 +574,68 @@ esac
       rmSync(home, { recursive: true, force: true });
     });
   }
+
+  // #4418: gstack-brain-sync --once exits 0 when its push fails, so the row
+  // must come from the drain's status, and a failed push stays failed on the
+  // runs after it until a push succeeds.
+  it.skipIf(process.platform === "win32")("brain-sync stage says pushed only when the push went through (#4418)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const fakeBin = join(home, "fake-bin");
+    const remote = join(home, "remote.git");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(join(fakeBin, "gbrain"), `#!/bin/sh
+case "$*" in
+  "sources list --json") printf '%s\\n' '{"sources":[{"id":"fixture-artifacts","local_path":"${gstackHome}","page_count":7}]}' ;;
+  *) exit 1 ;;
+esac
+`);
+    chmodSync(join(fakeBin, "gbrain"), 0o755);
+    const env = {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
+      PATH: `${fakeBin}:${process.env.PATH || ""}`,
+    };
+    const bin = (name: string, ...args: string[]) =>
+      spawnSync(join(import.meta.dir, "..", "bin", name), args, { encoding: "utf-8", timeout: 60000, env: { ...process.env, ...env } });
+    const plan = join(gstackHome, "projects", "p", "ceo-plans", "plan.md");
+    const brainSyncRow = () => {
+      const r = runScript(["--incremental", "--no-code", "--no-memory", "--quiet"], env);
+      const state = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+      return { exitCode: r.exitCode, stage: state.last_stages.find((entry: { name: string }) => entry.name === "brain-sync") };
+    };
+    try {
+      spawnSync("git", ["init", "--bare", "-q", "-b", "main", remote], { timeout: 30000 });
+      expect(bin("gstack-artifacts-init", "--remote", remote).status).toBe(0);
+      expect(bin("gstack-config", "set", "artifacts_sync_mode", "full").status).toBe(0);
+      mkdirSync(dirname(plan), { recursive: true });
+      writeFileSync(plan, "# a plan\n");
+      bin("gstack-brain-enqueue", "projects/p/ceo-plans/plan.md");
+      let row = brainSyncRow();
+      expect(row.stage.summary).toMatch(/^curated artifacts pushed.*gbrain source fixture-artifacts has 7 pages/);
+      expect(row.stage.ok).toBe(true);
+
+      writeFileSync(join(remote, "hooks", "pre-receive"), '#!/bin/sh\necho "403 forbidden" >&2\nexit 1\n', { mode: 0o755 });
+      writeFileSync(plan, "# a plan, revised\n");
+      bin("gstack-brain-enqueue", "projects/p/ceo-plans/plan.md");
+      row = brainSyncRow();
+      expect(row.stage.ok).toBe(false);
+      expect(row.stage.summary).toContain("artifacts not pushed (push_failed: push failed");
+      expect(row.stage.summary).not.toContain("pushed to git");
+      expect(row.exitCode).toBe(1);
+
+      // The next run still reports the failure, not "pushed".
+      bin("gstack-brain-enqueue", "projects/p/ceo-plans/plan.md");
+      row = brainSyncRow();
+      expect(row.stage.ok).toBe(false);
+      expect(row.stage.summary).toContain("artifacts not pushed (push_failed: ");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("brain-sync stage resolves the sibling binary, not a HOME-rooted path", () => {
     // Regression for Codex M9: pre-fix the orchestrator looked up

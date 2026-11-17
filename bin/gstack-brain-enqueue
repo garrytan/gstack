@@ -15,6 +15,9 @@
 #   - ~/.gstack/.git doesn't exist (feature not initialized)
 #   - <file-path> matches a line in ~/.gstack/.brain-skip.txt
 #
+# Refuses (exit 1, nothing queued) a <file-path> with an empty, "." or ".."
+# component, such as projects//timeline.jsonl from an empty project slug.
+#
 # Env:
 #   GSTACK_HOME — override ~/.gstack state directory (aligns with writers).
 #                 Tests use GSTACK_HOME=/tmp/test-$$ for isolation.
@@ -31,6 +34,16 @@ set -uo pipefail
 
 FILE="${1:-}"
 [ -z "$FILE" ] && exit 0
+
+# A path with an empty, "." or ".." component (projects//timeline.jsonl from an
+# empty project slug, #4445) names a file git stages under another spelling,
+# and the drain refuses that batch. Refuse it here instead of spooling it.
+case "/$FILE/" in
+  *//*|*/./*|*/../*)
+    echo "gstack-brain-enqueue: refusing malformed path '$FILE' (empty, '.' or '..' component; an empty project slug?); nothing queued" >&2
+    exit 1
+    ;;
+esac
 
 # Plan B1: an unattended session never spools for cross-machine sync, whatever
 # the inherited mode; every writer (timeline, decision, learnings, review log)

@@ -1568,6 +1568,72 @@ describe('gstack-brain-sync per-file hold', () => {
     expect(statusJson().message).toContain('not pushed yet');
   });
 
+  // #4418: a drain whose queue held records but committed nothing used to
+  // write idle over a push_failed whose commits were still unpushed.
+  for (const [name, requeue] of [
+    ['a queued file with no new changes', (CLEAN_PATH: string) => run(['gstack-brain-enqueue', CLEAN_PATH])],
+    ['a queued file that is gone from disk', () => run(['gstack-brain-enqueue', 'projects/p/ceo-plans/gone.md'])],
+  ] as const) {
+    test(`a push that keeps failing stays push_failed after a drain of ${name} (#4418)`, () => {
+      init();
+      write(CLEAN, '# a plan\n');
+      drain();
+      const hook = path.join(bareRemote, 'hooks', 'pre-receive');
+      fs.writeFileSync(hook, '#!/bin/sh\necho "403 forbidden" >&2\nexit 1\n', { mode: 0o755 });
+      write(CLEAN, '# a plan, revised\n');
+      drain();
+      expect(statusJson().status).toBe('push_failed');
+      requeue(CLEAN);
+      expect(spoolFiles()).toHaveLength(1);
+      drain();
+      expect(spoolFiles()).toEqual([]);
+      const s = statusJson();
+      expect(s.status).toBe('push_failed');
+      expect(s.message).toContain('1 local commit(s) are not pushed yet');
+      expect(run(['gstack-brain-sync', '--attention']).stdout).toContain('status=push_failed');
+      fs.rmSync(hook);
+      fs.writeFileSync(path.join(tmpHome, '.brain-last-push-attempt'), '0');
+      drain();
+      expect(statusJson().status).not.toBe('push_failed');
+      expect(remoteShow(CLEAN).stdout).toContain('revised');
+    });
+  }
+
+  // #4445: a skill started where the project slug is empty spooled
+  // projects//timeline.jsonl; git staged it as projects/timeline.jsonl, the
+  // index check refused the batch, and every later record waited behind it.
+  test('enqueue refuses a path with an empty, "." or ".." component (#4445)', () => {
+    init();
+    for (const bad of ['projects//timeline.jsonl', '/projects/p/timeline.jsonl', 'projects/p/', 'projects/./p/timeline.jsonl', 'projects/../timeline.jsonl']) {
+      const r = run(['gstack-brain-enqueue', bad]);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('malformed path');
+    }
+    expect(spoolFiles()).toEqual([]);
+    expect(run(['gstack-brain-enqueue', CLEAN]).status).toBe(0);
+    expect(spoolFiles()).toHaveLength(1);
+  });
+
+  test('a malformed queued path is dropped and reported; the rest of the queue syncs (#4445)', () => {
+    init();
+    fs.writeFileSync(path.join(tmpHome, 'projects/timeline.jsonl'), '{"skill":"codex","event":"started"}\n');
+    seedSpool('{"file":"projects//timeline.jsonl","ts":"2026-11-17T13:06:00Z"}');
+    write(CLEAN, '# a plan\n');
+    const r = drain();
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('1 queued record(s) with a malformed path');
+    const s = statusJson();
+    expect(s.status).toBe('ok');
+    expect(s.message).toContain('pushed 1 file(s)');
+    expect(s.message).toContain('dropped 1 queued record(s) with a malformed path');
+    expect(remoteFiles()).toContain(CLEAN);
+    expect(remoteFiles()).not.toContain('projects/timeline.jsonl');
+    expect(staged()).toBe('');
+    expect(spoolFiles()).toEqual([]);
+    const drops = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-drops.json'), 'utf-8'));
+    expect(drops.dropped.invalid).toEqual(['projects//timeline.jsonl']);
+  });
+
   describe('coupled groups (decision log and its active snapshot)', () => {
     test('a clean update publishes the group in one commit', () => {
       init();
