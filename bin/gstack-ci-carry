@@ -9,13 +9,15 @@
  * find: the newest verified run of each profile (default: every profile the base branch's
  * ship_lanes_from names) at HEAD's clean tree. With --command, the base branch's mapping for that exact lane
  * command supplies the profiles and the inventory the runs must cover (a pin-file command, so it needs
- * --allow-repo-commands). Prints CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1).
+ * --allow-repo-commands). Prints CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1). A run at
+ * one of HEAD's ancestors whose tree git reads as HEAD's (a base merge that changed no file) carries too, and CI_CARRY_FROM
+ * names that run and commit (GST-3019).
  * wait: polls the newest run of the profile's workflow at HEAD (REST, at least 60 s apart) until it completes (default timeout 1800 s),
  * prints CI_WAIT: green|red|running|none, and on green runs find. Exit 0 green and carried, 1 red or not
  * carried, 3 still running or no run. Logic: lib/ci-carry.ts; the run checks are lib/run-evidence.ts.
  */
 import { spawnSync } from 'node:child_process';
-import { findCarry, laneMapping, mappingCoverage, waitForRun } from '../lib/ci-carry';
+import { carriedFromLine, findCarry, laneMapping, mappingCoverage, treeTwins, waitForRun } from '../lib/ci-carry';
 import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from '../lib/pregate/config';
 import { buildRunCheck } from '../lib/pregate/run-check';
 import { wtreeFingerprint } from '../lib/script-invocation';
@@ -24,11 +26,12 @@ import { resolveBaseBranch } from '../lib/ship-policy';
 const HELP = `gstack-ci-carry — use a verified CI run at HEAD's exact tree instead of running the suite again (docs/pregate.md#ci-carry)
 
   find [--base <branch>] [--profile <name>]... [--command <exact lane command> --allow-repo-commands] [--json]
-      CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1)
+      CI_CARRY: accepted <receipt> (exit 0) or CI_CARRY: none (<reason>) (exit 1); a run at an earlier commit with
+      HEAD's exact tree (git rev-parse <sha>^{tree}) carries too, and CI_CARRY_FROM: names that run and commit
       --policy-from head --simulate: the same check under the branch's own map and profiles, every line starting
       SIMULATION:; a dry run that proves a new mapping before it lands (find never writes evidence; nothing clears)
   wait [--base <branch>] [--profile <name>] [--timeout <s>] [--interval <s>]
-      poll the newest run at HEAD (default 1800 s, every 60 s at least, plus jitter): CI_WAIT: green|red|running|none, then find on green;
+      poll the newest run at HEAD or an earlier commit with its tree (default 1800 s, every 60 s at least, plus jitter): CI_WAIT: green|red|running|none, then find on green;
       exit 0 carried, 1 red or not carried, 3 still running or no run
 
 Profiles and ship_lanes_from come from origin/<base>'s .gstack/pregate.json only (a simulation reads the branch's). Only a clean, committed tree
@@ -70,6 +73,8 @@ function find(): number {
   const v = findCarry(check as Exclude<typeof check, { error: string }>, { profiles, head, tree, wtree, ...(mapping ? mappingCoverage(mapping, root) : {}) });
   if (argv.includes('--json')) out(JSON.stringify(v));
   else out(v.ok ? `CI_CARRY: accepted ${v.receipt}` : `CI_CARRY: none (${v.reason}: ${v.detail})`);
+  const from = v.ok && !argv.includes('--json') ? carriedFromLine(v.runs, head) : undefined;
+  if (from) out(from);
   return v.ok ? 0 : 1;
 }
 
@@ -79,6 +84,6 @@ const interval = Number(flag('--interval') ?? '60');
 if (!(timeout >= 0 && timeout <= 21_600) || !(interval >= 1 && interval <= 600)) usage('--timeout is 0-21600 seconds and --interval 1-600');
 const profile = check.profiles[profiles[0]!];
 if (!profile) usage(`${profiles[0]} is not a run_profiles name on origin/${base}`);
-const w = await waitForRun(check.deps, { workflow: profile!.workflow, events: profile!.events, head, timeoutMs: timeout * 1000, intervalMs: interval * 1000, sleep: ms => Bun.sleep(ms), clock: Date.now });
+const w = await waitForRun(check.deps, { workflow: profile!.workflow, events: profile!.events, head, also: treeTwins(check.deps, head, tree), timeoutMs: timeout * 1000, intervalMs: interval * 1000, sleep: ms => Bun.sleep(ms), clock: Date.now });
 out(`CI_WAIT: ${w.state} ${profiles[0]} ${'run' in w ? `run=${w.run.id}/${w.run.run_attempt}${w.state === 'red' ? ` failing=${w.failing.join(',') || '-'}` : ''}` : w.reason}`);
 process.exit(w.state === 'green' ? find() : w.state === 'red' ? 1 : 3);

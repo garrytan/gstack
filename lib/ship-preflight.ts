@@ -10,13 +10,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { findCarry, laneMapping, mappingCoverage } from './ci-carry';
 import { defaultBaseBranch } from './default-base';
-import { isConfigUnavailable, loadConfigFromHead } from './pregate/config';
+import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from './pregate/config';
 import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
 import { withGateLock } from './gate-dispositions';
-import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -25,6 +25,8 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
                            this checkout's git dir and opened on its lease, and a later full preflight stops until finish
                            clears it or 120 minutes pass, because its merge would move the tree the run's readers diff (GST-1204)
   gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...   Step 5 only (after a repair)
+      --run-uncarried-here   run a lane origin/<base> maps in ship_lanes_from here when its CI carry refuses; without it a refused
+                           carry stops with SHIP_LANE_NOT_CARRIED before any lane runs, naming the CI dispatch (GST-3019)
       --lanes serial|parallel   how Step 5 runs its lanes; unset, one at a time on 4 or fewer cores, all at once above
       --policy-from head   Step 5's pregate reads the branch's .gstack/pregate.json, which may only add test lanes
                            (a branch that adds the lane for a file it touches); anything else is PREGATE_HEAD_POLICY_LOOSENS
@@ -37,13 +39,15 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       CI run at this tree. Every line starts SIMULATION:; no lane runs, no evidence or ledger row is written and no
       obligation clears (a real carry reads origin/<base>'s map only). An inventory-mapped lane runs the branch's
       inventory command, so it needs --allow-repo-commands. Exit 0 when every mapped lane would carry, else 1
-  gstack-ship-preflight --audit --base <base> --out <dir>   the single reads and Steps 7-8's deterministic audits
+  gstack-ship-preflight --audit --base <base|commit sha> --out <dir>   the single reads and Steps 7-8's deterministic audits;
+      a base that names no commit stops with SHIP_BASE_UNKNOWN instead of an empty diff
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
 RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane
 (a lane the base maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact clean tree:
-LANE: <label> carried run=<id>/<attempt> tests_ran=<n>, else CI_CARRY: none (<reason>) and it runs; any other lane that
+LANE: <label> carried run=<id>/<attempt> tests_ran=<n>, else CI_CARRY: none (<reason>) and it runs, under --tests-only only with
+--run-uncarried-here; any other lane that
 passed at this tree, command and runtime is reused: reused=<original time>), then NEXT: lines. STOP: names what the agent must
 decide or repair; nothing after it ran. Exit codes: 0 ok · 2 usage · 3 STOP`;
 
@@ -197,7 +201,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string }, r: Report): Promise<void> {
+async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string; hold: boolean }, r: Report): Promise<void> {
   const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], step.seconds * 1000);
   if (pg.timedOut) {
     r.add(`PREGATE: time limit hit (Step 5's whole pregate ran past its ${step.seconds} s budget, ${step.source}, and was stopped with exit ${pg.status ?? 'none'}; no verdict)`);
@@ -214,9 +218,22 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
   }
   if (/uncleared/.test(verdict)) r.next('pregate requires-remote: gstack-pregate clear, or --remote --spend-cap <usd> under a user cap, before Step 18');
   r.add(run.line);
-  const ran = await runLanes(cwd, list, run.concurrency, { base });
+  const ran = await runLanes(cwd, list, run.concurrency, { base, hold: run.hold });
   const results = ran.map(laneLine);
   for (const [i, l] of results.entries()) { for (const none of carryNoneLines(ran[i]!)) r.add(none); r.add(l.line); }
+  const refused = ran.filter(l => l.held && l.carryNone);
+  if (refused.length) {
+    const names = refused.map(l => l.label).join(', ');
+    const lane = `lane${refused.length > 1 ? 's' : ''} ${names}`;
+    const loaded = loadConfigFromBase(cwd, base);
+    const mapped = mappedLanes(cwd, base, list);
+    const workflows = isConfigUnavailable(loaded) ? [] : [...new Set(refused.flatMap(l => mapped.get(l.label)?.profiles ?? []).map(p => loaded.config.run_profiles?.[p]?.workflow).filter((w): w is string => !!w))];
+    const branch = git(cwd, ['branch', '--show-current']).stdout.trim() || '<branch>';
+    r.stop(`SHIP_LANE_NOT_CARRIED: ${lane} did not carry from a verified CI run at this tree, and --tests-only never starts a lane on its own: nothing ran here (docs/troubleshooting.md#ship-lane-not-carried)`);
+    r.next(`commit and push this tree, then ${workflows.length ? workflows.map(w => `gh workflow run ${w} --ref ${branch}`).join(' and ') : 'run its CI workflow on the branch'} and gstack-ci-carry wait --base ${base}; once it prints CI_WAIT: green, rerun this command`);
+    r.next(`or rerun this command with --run-uncarried-here to run ${lane} on this machine`);
+    return;
+  }
   const bad = results.filter(l => !l.ok);
   if (bad.length) { r.stop(`${bad.length} lane(s) failed or ran zero tests: Step 5 triage (read each log; a free-suite shard failure reruns its file list per measure.md); in-branch failures stop the ship`); return; }
   r.next('Step 6: select eval suites for prompt-related changes with the project\'s selector, then Step 7');
@@ -264,7 +281,8 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (has('--audit')) {
     const out = flag('--out');
     if (!base || !out) return { text: 'gstack-ship-preflight: --audit needs --base <base> --out <dir>\n', exit: 2 };
-    return { text: audit(cwd, base, out).render(), exit: 0 };
+    const r = audit(cwd, base, out);
+    return { text: r.render(), exit: r.exit };
   }
   const policyFrom = flag('--policy-from') ?? 'base';
   if (!['base', 'head'].includes(policyFrom)) return { text: 'gstack-ship-preflight: --policy-from needs base|head\n', exit: 2 };
@@ -277,13 +295,14 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   const run = flag('--run');
   if (has('--run') && !(run && RUN_ID.test(run))) return { text: 'gstack-ship-preflight: --run needs a run id: letters, digits, dot, underscore or dash, at most 128\n', exit: 2 };
   if (has('--tests-only') && !list.length) return { text: 'gstack-ship-preflight: --tests-only needs at least one --lane <label>=<command>\n', exit: 2 };
+  if (has('--run-uncarried-here') && !has('--tests-only')) return { text: 'gstack-ship-preflight: --run-uncarried-here goes with --tests-only (a full preflight runs a lane that does not carry here)\n', exit: 2 };
   if (has('--simulate')) return has('--tests-only') && policyFrom === 'head' && list.length ? simulate(cwd, base, list, has('--allow-repo-commands')) : { text: 'gstack-ship-preflight: --simulate needs --tests-only --policy-from head and at least one --lane <label>=<command>\n', exit: 2 };
   const mode = flag('--lanes');
   const concurrency = has('--lanes') && mode === undefined ? '--lanes needs serial or parallel' : laneConcurrency(mode);
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, run, r)) {
-    if (list.length) await tests(cwd, base, list, policyFrom, timeout, step, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
+    if (list.length) await tests(cwd, base, list, policyFrom, timeout, step, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})`, hold: has('--tests-only') && !has('--run-uncarried-here') }, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
   return { text: r.render(), exit: r.exit };

@@ -339,6 +339,23 @@ describe('gstack-ship-preflight --audit (GSTA-167 variant G)', () => {
     expect(lineOf(r.stdout, 'READER')).toBe('READER: coverage=none plan=needed');
     expect(f.run(PREFLIGHT, ['--audit', '--base', 'main']).status).toBe(2);
   });
+
+  // Value: protects=--audit --base <sha> diffs against that commit, and a base that resolves to nothing stops with SHIP_BASE_UNKNOWN instead of an empty diff (gbrain #9662);
+  //   fails_when=a commit sha is read as origin/<sha>, or an unknown base prints CONTEXT files=0; why_new=GST-3019; seam=git
+  test('a commit sha is a base; a base that resolves to nothing stops with SHIP_BASE_UNKNOWN, never files=0', () => {
+    const f = fx({}, { 'src/budget.ts': 'export const budget = 1;\n', 'src/other.ts': 'export const o = 1;\n' });
+    const base = f.git('rev-parse', 'origin/main').stdout.trim();
+    for (const sha of [base, base.slice(0, 12)]) {
+      const r = f.run(PREFLIGHT, ['--audit', '--base', sha, '--out', path.join(f.root, `a-${sha.length}`)], { HOME: f.root });
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(lineOf(r.stdout, 'CONTEXT')).toMatch(/ files=2 commits=1 /);
+    }
+    for (const bad of ['0'.repeat(40), 'no-such-branch']) {
+      const u = f.run(PREFLIGHT, ['--audit', '--base', bad, '--out', path.join(f.root, 'bad')], { HOME: f.root });
+      expect([u.status, lineOf(u.stdout, 'STOP')]).toEqual([3, `STOP: SHIP_BASE_UNKNOWN: --base ${bad} names no commit here (not a commit this checkout holds, and no origin/${bad}); pass the base branch fetched into origin/<name>, or a commit sha after git fetch origin <sha>, then rerun (docs/troubleshooting.md#ship-base-unknown)`]);
+      expect(u.stdout).not.toContain('CONTEXT');
+    }
+  });
 });
 
 describe('GSTA-167 part 4a: RUNTIME_LINES and REVIEW_DEPTH share one owner', () => {
