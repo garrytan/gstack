@@ -26,7 +26,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `e69b43d39692` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/captain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d56c99c92144` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/captain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -430,7 +430,8 @@ of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY o
 PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
 its owner, and `wave settle` closes the rest after the merge (docs/ship-policy.md#wave-prs).
 Credit every contributor (`Contributed by @handle`, `Co-authored-by`), and never merge a
-contributor's PR directly from its fork.
+contributor's PR directly from its fork unless it changes only docs people read and a text
+read checked every link, command and install step.
 
 ## Where the protocols differ, ship both
 

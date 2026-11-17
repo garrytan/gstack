@@ -91,8 +91,8 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 
 | Key | Meaning |
 |---|---|
-| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); set, the local lane gives it only the selected files its tool runs, judged by extension (JS/TS files for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava or playwright; `.py` files for pytest; each matched as a whole word, so `npx vitest run` counts and `tests/node/run.sh` does not; every file for any other command, such as a `node scripts/run-tests.js` dispatcher, or one naming both), and the lanes detail names each file it cannot run as not run and not counted as covered, so a `*_test.py` never reaches a local `bun test` (no Python lane runs beside a declared runner; the remote gate and `test_backend` commands still receive the whole selection); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, a type-only import (`import type …`, or one whose every specifier is `type X`) does not count, file arguments are passed as escaped regexes anchored to the path (Playwright reads them as regexes), and a run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` (a partial install, where some tests pass, stays the diff's failure); every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
-| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
+| `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); set, the local lane gives it only the selected files its tool runs, judged by extension (JS/TS files for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava or playwright; `.py` files for pytest; each matched as a whole word, so `npx vitest run` counts and `tests/node/run.sh` does not; every file for any other command, such as a `node scripts/run-tests.js` dispatcher, or one naming both), and the lanes detail names each file it cannot run as not run and not counted as covered, so a `*_test.py` never reaches a local `bun test` (no Python lane runs beside a declared runner; the remote gate and `test_backend` commands still receive the whole selection, a declared test tree's tests included, since that exclusion is local-only); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, a type-only import (`import type …`, or one whose every specifier is `type X`) does not count, file arguments are passed as escaped regexes anchored to the path (Playwright reads them as regexes), and a run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` (a partial install, where some tests pass, stays the diff's failure); every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
+| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` on a folder inside a test directory (`test/`, `tests/`, `spec/` or `__tests__/`, as in `"tests/live/**": []`; never the whole directory, so `"test/**": []` changes nothing) is the repo's statement that the tests under it run in their own tier, not in /ship's local lane: pregate keeps every selected test under that glob out of the local lane, whether touched or picked through an import (a test `.gstack/always-run.json` names still runs; the remote side is unchanged: the remote gate, `test_backend` and any remote platform lane that selects the test still owe it; and only a base-branch or user-owned policy's `[]` counts, never a bootstrap head file read under `--policy-from` head when neither exists), and prints `declared test tree <glob>: N test file(s) not run in the local lane` in the `lanes` lines it records; tests outside the glob still run, and a `[]` on any other glob never skips a test. A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
 | `warn` | check ids downgraded to warn; `secrets` and required lanes never. `"lanes"` downgrades only a touched file with no lane: the selected tests still run, a red lane stays `fail` (`PREGATE_LANE_FAILED`) and an unfinished one `incomplete`; a green run is `warn` `PREGATE_NO_LANE` naming the unmapped files |
@@ -220,13 +220,19 @@ Two stages with separate clocks, both printed:
   file is read whole from disk. A file over the size limit, or whose full diff
   does not parse, is scanned on its added lines alone, without that context.
   A file git calls binary (a NUL byte, UTF-16 text, or a `-diff` attribute)
-  is still scanned: the diff runs with `--text`, and each added line is read
+  is still scanned: the diff runs with `--text`, and its added lines are read
   three ways, as bytes with control runs turned into spaces and as little- and
-  big-endian UTF-16. Only credential findings count in such a file, so image
-  bytes that look like a phone number are not reported. A file whose scanned
-  text is over the scanner's 16 MiB limit fails the check, and the pre-push
-  hook blocks a push whose diff is over 64 MiB; keep large binaries in Git LFS,
-  whose small pointer files scan as text. A merge-base diff git does not finish
+  big-endian UTF-16. The three readings are scanned side by side on each line,
+  so a keyword in one reading still meets its value in another, and each
+  reading is also scanned as its own text with the file's line numbers, so a keyword and its value on the next line (an AWS secret key
+  under its YAML key) are caught in UTF-16 text as in plain text. Only
+  credential findings count in such a file, so image bytes that look like a
+  phone number are not reported. A file whose scanned text is over the
+  scanner's 16 MiB limit fails the check, and the pre-push hook blocks a push
+  whose diff is over 64 MiB. The hook leaves deleted files out of that diff,
+  so removing a large binary does not count toward the limit, but a replaced
+  binary's old bytes still do. Keep large binaries in Git LFS, whose small
+  pointer files scan as text. A merge-base diff git does not finish
   (an error, a kill or a full buffer) is `PREGATE_ENVIRONMENT`, never a pass.
   The pass line names the files read: `12 added lines clean in 3 files (1 binary)`.
 - `strays`: a new file at the repository root, a new top-level directory, or a
@@ -422,7 +428,11 @@ Two stages with separate clocks, both printed:
   `workflow.yml/job`, unless `local` names that lane. `--explain` prints each test's provenance and every
   uncertain mapping (a planner-computed matrix without a `selection` manifest
   selects conservatively). Test files matching `serial_patterns` (default
-  `**/*.serial.test.*`) run one process per file after the unit files. The
+  `**/*.serial.test.*`) run one process per file after the unit files. A unit
+  group whose quoted file list would pass the system's argument limits (Linux
+  caps one argument at 128 KiB) runs as several runner processes in sequence,
+  each under about 96 KB of file arguments (24 KB on Windows), read back as one run: counts add up,
+  any failing chunk fails the lane, and they share the group's one `--timeout`. The
   runner and every guard run with the verified launch Bun first on PATH: the
   first of `$BUN_INSTALL/bin` and `~/.bun/bin` whose Bun satisfies gstack's and
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
@@ -827,6 +837,12 @@ once:
   record (a reuse is never evidence). Its tree equals the tree git computes for
   the run's head commit. `files` is a list of paths and `tests` a
   non-negative integer when present; without `tests` the file count stands in.
+  The attempt it names is the newest one that ran a profile job itself
+  (GST-2284). A job-level rerun relists every job it did not rerun under the
+  new attempt with that job's old start and finish times, so a run where only
+  an unrelated job was rerun verifies against the attempt whose job uploaded
+  `tree.json`. A rerun of the uploading job leaves one artifact per attempt;
+  the one that names the job's newest attempt is read, and no other.
   <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
   the runner (a Docker image, a drive path or an installed gstack it lacks;
   GST-1190). A carry treats them as uncovered: the pregate tests stage runs
@@ -863,11 +879,10 @@ once:
   failed, was cancelled or is still running (`run_started_at`, so a red re-run
   of an older run counts, a run started in the same second counts, and
   re-running this run does not hide a failure in between).
-- The run finished within `max_age_hours` (its jobs' latest `completed_at`,
-  else the run's `updated_at`), and on the profile's OS when it names one.
-  Re-running only the failed jobs refuses (`artifact_mismatch`) unless the job
-  that uploads `tree.json` re-runs too, because that file must name the
-  newest attempt. The 8 MiB cap is read from the artifact's zipped size before
+- The run finished within `max_age_hours` (its profile jobs' latest
+  `completed_at`, else the run's `updated_at`), and on the profile's OS when it
+  names one. A job outside the profile never dates the run, so rerunning one
+  does not refresh old test results. The 8 MiB cap is read from the artifact's zipped size before
   download, so a workflow on the branch itself can still unpack a larger file
   into the temporary directory.
 
@@ -896,7 +911,8 @@ Then, for the lane:
   (gstack's gate leaves paid test files to the paid PR gate). Those files need
   no run, and the receipt counts them as `skipped=<n>`. A file the inventory
   prints stays required even when `skipped` names it, and a failing `skipped`
-  command refuses (`skipped_failed`). When `skipped` names every selected file,
+  command refuses (`skipped_failed`); when it failed because the checkout has
+  no installed dependencies, the refusal says so. When `skipped` names every selected file,
   no selected test ran, so the clear refuses (`paid_only`), just as the gate's
   own `tests=0` report never clears. Without `skipped`, every selected file
   must appear in a run's `files`.
@@ -1846,6 +1862,7 @@ failure the branch caused carries `cause: "diff"` (`PREGATE_LANE_FAILED`,
 | Kind | Evidence |
 |---|---|
 | `missing-binary` | exit 127, `command not found`, a spawn `ENOENT`, a runner tool `not on PATH` (dart, flutter, cargo, a package manager, `python3`, or `pytest` when python3 cannot import it), Playwright's browsers not installed |
+| `arg-limit` | `E2BIG`, `Argument list too long`: a command line or environment over the system's limit. gstack splits a lane's file list to stay under it, so this is a gstack bug to report |
 | `network` | `ENOTFOUND`, `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, `Could not resolve host`, `fetch failed`, a TLS handshake or certificate failure |
 | `quota` | `quota`, `429 Too Many Requests`, `rate limit`, `insufficient_quota` (a vCPU quota on the remote backend) |
 | `disk` | `ENOSPC`, `No space left on device`, `EDQUOT` |

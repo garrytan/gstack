@@ -4,7 +4,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createSnapshot, prepareMethodology } from '../bin/gstack-autoplan-snapshot';
-import { RETIRED_SKILLS } from '../scripts/discover-skills';
+import { AUTOPLAN_SIBLING_METHODOLOGIES } from '../scripts/discover-skills';
 
 const ROOT = resolve(import.meta.dir, '..');
 const owned: string[] = [];
@@ -23,16 +23,16 @@ function fixture(phase: string, layout: string) {
     });
     expect(generated.status, generated.stderr).toBe(0);
   }
-  // A retired skill's external render is a methodology file beside /autoplan.
-  const retiredInline = layout === 'inlineCodex' && RETIRED_SKILLS.includes(skill);
-  const source = layout === 'inlineCodex' ? join(dir, '.agents/skills', retiredInline ? 'gstack-autoplan' : `gstack-${skill}`) : join(ROOT, skill);
-  const fileName = retiredInline ? `${skill}.md` : 'SKILL.md';
-  const target = join(dir, retiredInline ? 'gstack-autoplan' : skill);
+  // /autoplan reads a sibling methodology file beside its own SKILL.md on external hosts.
+  const siblingInline = layout === 'inlineCodex' && AUTOPLAN_SIBLING_METHODOLOGIES.includes(skill);
+  const source = layout === 'inlineCodex' ? join(dir, '.agents/skills', siblingInline ? 'gstack-autoplan' : `gstack-${skill}`) : join(ROOT, skill);
+  const fileName = siblingInline ? `${skill}.md` : 'SKILL.md';
+  const target = join(dir, siblingInline ? 'gstack-autoplan' : skill);
   mkdirSync(target);
   cpSync(join(source, fileName), join(target, fileName));
   // C4: Codex carves plan-ceo-review too, so an install that has sections/ copies it.
   // Every tier 2+ skill ships sections/preamble.md; carving is the review section.
-  const carved = !retiredInline && existsSync(join(source, 'sections', 'review-sections.md'));
+  const carved = !siblingInline && existsSync(join(source, 'sections', 'review-sections.md'));
   if (existsSync(join(source, 'sections'))) cpSync(join(source, 'sections'), join(target, 'sections'), { recursive: true });
   if (layout === 'patchedClaude') {
     const result = spawnSync('bash', [join(ROOT, 'bin/gstack-patch-names'), dir, 'true'], { encoding: 'utf8', timeout: 10_000 });

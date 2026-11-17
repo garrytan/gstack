@@ -29,7 +29,7 @@ import { recordVerdict, screenVerdict, verdictLines, type ScreenOutcome } from '
 import { execFor, prInfo, repoSlug } from './ship-queue-train-github';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { extractReceipt } from '../../lib/ship-receipt';
-import { loadReady, nowIso, persist, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
+import { loadReady, nowIso, persist, readyNoteUnpushed, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
 import { baseOverlap, fetchBase, mergeCommit, outOk, outPending, outRefused, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { checkWavePin } from './ship-queue-wave';
 import { readyPlan } from '../../lib/plan-record';
@@ -183,8 +183,7 @@ function recordReceipt(env: TrainEnv, receipt: ReadyReceipt, lines: string[], ag
   const p = persist(env.ctx.repoRoot, [receipt], { remote: env.remote });
   lines.push(`READY_RECEIPT: ${file} (${p.detail})`);
   if (p.pushed) return null;
-  return outRefused({ code: 'QUEUE_READY_NOTE_UNPUSHED', message: `the READY receipt for #${receipt.pr} at ${receipt.head.slice(0, 12)} is written locally, but ${env.remote} does not hold its note on refs/notes/gstack-trains (${p.detail}); land reads that note, so this head is not READY` },
-    lines, `fix the notes push to ${env.remote}, then ${again}`, file);
+  return outRefused(readyNoteUnpushed(receipt.pr, receipt.head, env.remote, p.detail), lines, `fix the notes push to ${env.remote}, then ${again}`, file);
 }
 
 const screenLine = (c: ScreenChoice) => `screen: ${c.choice}${c.policy ? ` policy=${c.policy} nonce=${c.nonce} run=${c.run ?? '-'}${c.verdict ? ` verdict=${c.verdict.outcome}` : ''}` : ''}`;

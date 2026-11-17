@@ -8,15 +8,17 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { CHECK_IDS } from '../lib/pregate/index';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { ghQueueShim } from './helpers/ship-queue-fixture';
-import { shippedBody } from './helpers/ship-queue-train-fixture';
+import { openPr, queue as trainQueue, shippedBody, trainFixture } from './helpers/ship-queue-train-fixture';
 
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
 const green = { check_runs: [{ status: 'completed', conclusion: 'success' }] };
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 const queue = (repo: FixtureRepo, args: string[], env: Record<string, string>) => runBin(repo, 'gstack-ship-queue', [...args, '--base', 'main'], env);
 
 function write(repo: FixtureRepo, files: Record<string, string>, message: string): string {
@@ -55,7 +57,7 @@ function stackedAfterParentLanded() {
   const landed = land(repo, 'parent');
   const tree = runBin(repo, 'gstack-wtree', []).out.trim();
   const pregate = path.join(repo.root, 'pregate.json');
-  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
   const ready = (digest: string) => queue(repo, ['ready', '--pr', '2', '--pregate', pregate], ghQueueShim(repo, { prs: { '2': { headRefOid: head, url: 'https://github.com/o/r/pull/2', body: shippedBody('2', head, { review_exclude: { source: 'origin/main', patterns: ['fixtures/goldens/**'], applied: ['fixtures/goldens/**'], excluded: 1, excluded_bytes: 0, kept: 0, gate_tagged: [], patterns_sha256: 'b'.repeat(64), list_sha256: 'c'.repeat(64), digest } }) } }, checks: { [head]: green } }));
   const probe = ready('a'.repeat(64));
   expect(probe.status, probe.out + probe.err).toBe(EXIT.refused);
@@ -100,5 +102,24 @@ describe('ready refreshes origin/<base> before comparing receipt fields (GST-223
     const after = ready(digest);
     expect([after.status, after.err]).toEqual([EXIT.ok, '']);
     expect(after.out).toContain(`base: origin/main@${moved}`);
+  }, 180_000);
+
+  // Value: protects=ready chooses the train or plain path from the policy on a freshly fetched base, so a clone with no origin/main
+  //   ref never runs plain ready under a train policy (which skips the screen, conflict and READY-receipt steps);
+  //   fails_when=the bin reads the base policy before ready fetches it, finds none, prints that the policy declares no train block
+  //   and exits 0 with no READY_RECEIPT; why_new=#4256's fetch sits inside ready(), after the routing; seam=bin/gstack-ship-queue's
+  //   ready routing; no_claim=a base whose fetch fails (the case above refuses it)
+  test('a clone with no origin/main ref routes ready by the fetched base policy: the train path, never plain ready', () => {
+    const fx = trainFixture();
+    repos.push(fx.repo);
+    const head = openPr(fx, '1');
+    fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    fx.repo.git('update-ref', '-d', 'refs/remotes/origin/main');
+    const r = trainQueue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
+    expect(r.err).not.toContain('declares no train block');
+    expect([r.status, r.err]).toEqual([EXIT.ok, '']);
+    expect(r.out).toMatch(/^READY_RECEIPT: .* \(notes pushed to origin refs\/notes\/gstack-trains\)$/m);
   }, 180_000);
 });

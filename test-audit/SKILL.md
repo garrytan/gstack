@@ -21,7 +21,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `e69b43d39692` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/test-audit/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d56c99c92144` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/test-audit/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -102,7 +102,7 @@ telemetry — it never blocks the workflow.
 Find existing tests that cost more than they protect, prove it with evidence, and
 retire them only in approved batches. Optimize for confidence, not deletion count;
 a few well-evidenced candidates beat a large speculative list, and none is a valid
-result. `/review`, `/ship`, `/qa` and `/autoplan` apply the same bar to new
+result. `/review`, `/ship`, `/qa` and `/plan-eng-review` apply the same bar to new
 tests in a diff; this skill is the whole-repo sweep for tests that already exist.
 
 Usage: `/test-audit [path ...] [--since <ref>] [--max-candidates N]` (default: whole

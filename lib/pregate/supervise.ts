@@ -23,9 +23,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { bashCommandInvocation } from '../script-invocation';
+import { BUN_TEST } from '../test-paths';
 
 export type ProgressAdapter = 'bun';
-export const PROGRESS_ADAPTERS: Record<ProgressAdapter, RegExp> = { bun: /(?:^|[\s;&|(])bun\s+test\b/ };
+export const PROGRESS_ADAPTERS: Record<ProgressAdapter, RegExp> = { bun: BUN_TEST };
 
 export interface Counter { done: number; total: number }
 

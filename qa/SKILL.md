@@ -22,7 +22,7 @@ triggers:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `e69b43d39692` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/qa/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d56c99c92144` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/qa/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -307,7 +307,7 @@ Prefer the richer of recent project test plans and plans in conversation over gi
    SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
    ls -t "$GSTACK_STATE_ROOT"/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
-2. **Conversation context:** Prior `/autoplan` or `/plan-ceo-review` test plans.
+2. **Conversation context:** Prior `/plan-eng-review` or `/plan-ceo-review` test plans.
 3. Fall back to git diff only if neither exists.
 
 ---

@@ -689,6 +689,35 @@ describe('ready reads all of CI at the head (review #3235 P1-5)', () => {
     expect(plain.r.status).toBe(EXIT.ok);
   }, 240_000);
 
+  // Value: protects=ready names each red run that a newer run from another check suite replaced (a branch-only dispatch beside the red pull_request
+  // run) and keeps the verdict; fails_when=free-tests red in suite 1 and green in suite 3 prints green with no CI_SUPERSEDED line, or a rerun in the
+  // same suite, a pass replacing a pass, or a red newest run prints one; why_new=reports/GSTA-461.md item 7; seam=ciAtHead's latestRunPerName through
+  // the gh shim; no_claim=which suite tested the merge with main
+  test('a red run that a newer run from another check suite replaced prints CI_SUPERSEDED and changes no verdict (GSTA-461 item 7)', () => {
+    const app = { id: 15368 };
+    const run = (id: number, name: string, conclusion: string, completed_at: string, suite: number, earlier = false) => ({ id, name, status: 'completed', conclusion, completed_at, app, check_suite: { id: suite }, ...(earlier ? { earlier_attempt: true } : {}) });
+    const title = run(50, 'Plain title', 'success', '2026-11-09T10:05:00Z', 2);
+    const superseded = (out: string) => out.split('\n').filter(l => l.startsWith('CI_SUPERSEDED:'));
+    const replaced = readyWith({ check_runs: [run(10, 'free-tests', 'failure', '2026-11-09T10:00:00Z', 1), run(30, 'free-tests', 'success', '2026-11-09T10:20:00Z', 3), title] });
+    expect(replaced.r.status).toBe(EXIT.ok);
+    const lines = replaced.r.out.split('\n');
+    const ci = lines.indexOf(`ci: green at ${replaced.at} (passed=2 failed=0 pending=0 skipped=0)`);
+    expect(ci).toBeGreaterThan(0);
+    expect(lines[ci + 1]).toBe('CI_SUPERSEDED: free-tests red run 10 replaced by 30 (suite 1 → 3)');
+    expect(superseded(replaced.r.out)).toHaveLength(1);
+    const two = readyWith({ check_runs: [run(30, 'free-tests', 'success', '2026-11-09T10:20:00Z', 3), run(10, 'free-tests', 'failure', '2026-11-09T10:00:00Z', 1), run(11, 'Plain title', 'timed_out', '2026-11-09T10:01:00Z', 1), run(51, 'Plain title', 'success', '2026-11-09T10:30:00Z', 4)] });
+    expect(two.r.status).toBe(EXIT.ok);
+    expect(superseded(two.r.out)).toEqual(['CI_SUPERSEDED: free-tests red run 10 replaced by 30 (suite 1 → 3)', 'CI_SUPERSEDED: Plain title red run 11 replaced by 51 (suite 1 → 4)']);
+    const sameSuite = readyWith({ check_runs: [run(10, 'free-tests', 'failure', '2026-11-09T10:00:00Z', 1, true), run(30, 'free-tests', 'success', '2026-11-09T10:20:00Z', 1), title] });
+    expect(sameSuite.r.status).toBe(EXIT.ok);
+    expect(superseded(sameSuite.r.out)).toEqual([]);
+    const passOverPass = readyWith({ check_runs: [run(10, 'free-tests', 'success', '2026-11-09T10:00:00Z', 1), run(30, 'free-tests', 'success', '2026-11-09T10:20:00Z', 3), title] });
+    expect(superseded(passOverPass.r.out)).toEqual([]);
+    const redNewest = readyWith({ check_runs: [run(10, 'free-tests', 'success', '2026-11-09T10:00:00Z', 1), run(30, 'free-tests', 'failure', '2026-11-09T10:20:00Z', 3), title] });
+    expect(redNewest.r.status).toBe(EXIT.refused);
+    expect(superseded(redNewest.r.out)).toEqual([]);
+  }, 240_000);
+
   // Value: protects=the workflow-runs read fails closed like the check-runs read; fails_when=ready treats an unreadable or short actions/runs list
   // as zero jobless runs and calls the head green; seam=ciAtHead's readAllPages over actions/runs?head_sha; no_claim=GitHub's own pagination
   test('an unreadable or short workflow-runs list is unknown, never green', () => {
