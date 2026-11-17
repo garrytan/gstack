@@ -1,0 +1,28 @@
+Search **generalized category terms** only, never the user's product name, proprietary concept or stealth idea ("task management app landscape", not "SuperTodo AI-powered task killer").
+
+If the Aside check did not print `READY`, run the same searches with the WebSearch tool when the host provides it; with neither, skip this phase and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
+Research through the skeleton's "Web research runs in Aside" block, one read-only request per mode:
+
+**Startup mode:** search for:
+- "[problem space] startup approach {current year}"
+- "[problem space] common mistakes"
+- "why [incumbent solution] fails" OR "why [incumbent solution] works"
+
+**Builder mode:** search for:
+- "[thing being built] existing solutions"
+- "[thing being built] open source alternatives"
+- "best [thing category] {current year}"
+
+Prompt file text (create, write and send it with the skeleton's "Web research runs in Aside" blocks): `[problem space] startup approach {current year}, [problem space] common mistakes, and why [incumbent solution] works or fails. Reply with up to 8 bullets, each with its source URL.`
+
+Read the top 2-3 sources it cites. Run the three-layer synthesis:
+- **[Layer 1]** What does everyone already know about this space?
+- **[Layer 2]** What are the search results and current discourse saying?
+- **[Layer 3]** Given what WE learned in Phase 2A/2B — is there a reason the conventional approach is wrong?
+
+**Eureka check:** If Layer 3 reasoning reveals a genuine insight, name it: "EUREKA: Everyone does X because they assume [assumption]. But [evidence from our conversation] suggests that's wrong here. This means [implication]." Log the eureka moment (see preamble).
+
+If no eureka moment exists, say: "The conventional wisdom seems sound here. Let's build on it." Proceed to Phase 3.
+
+Findings feed Phase 3: reasons the conventional approach fails become premises to challenge; solid conventional wisdom raises the bar for any premise that contradicts it.
