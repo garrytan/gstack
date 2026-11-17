@@ -9,6 +9,19 @@ A Captain screens each ask against that record before sending it.
 gstack ships the command and this file format. It never ships anyone's answers: the
 record lives outside every repository, and the tests use made-up owners.
 
+## How much it helps (measured before launch)
+
+The first measurement was a sample of four days of one owner's Captain threads: 444
+asks reached the owner.
+
+- 6 were already covered by an earlier answer.
+- 14 were covered but had to go to the owner anyway (spend, access, publishing and the like).
+- The rest were new questions.
+
+Only about 3 of the 6 were standing yeses this tool could ever take, so about 1% of
+asks were repeats it could skip. That is small. The pilot below measures it again
+after launch, and the pilot's result decides whether the tool is kept or cut.
+
 ## Where the record lives
 
 | Host | Record |
