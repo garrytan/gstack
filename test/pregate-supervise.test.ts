@@ -42,6 +42,19 @@ function run(dir: string, command: string, o: Partial<SuperviseOptions> = {}) {
     .then(r => ({ ...r, lines, wall: Date.now() - started, log: fs.readFileSync(log, 'utf8') }));
 }
 
+/** A runner that starts one worker in a new session (a detached spawn, as `pnpm exec` starts Vitest), prints nothing while it runs and exits with it; `<mode>.pids` holds the worker's pid, its group and the runner's group. */
+function sessionRunner(dir: string, mode: 'busy' | 'forever' | 'idle'): string {
+  const work = { busy: 'const end = Date.now() + 3500; while (Date.now() < end) {}', forever: 'for (;;) {}', idle: 'setTimeout(() => {}, 1e9)' }[mode];
+  const script = path.join(dir, `${mode}-runner.js`);
+  fs.writeFileSync(script, `const { spawn, execFileSync } = require('node:child_process');
+const group = pid => execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+const w = spawn(process.execPath, ['-e', ${JSON.stringify(work)}], { detached: true, stdio: 'ignore' });
+require('node:fs').writeFileSync(${JSON.stringify(`${dir}/${mode}.pids`)}, [w.pid, group(w.pid), group(process.pid)].join(' '));
+w.on('exit', code => { console.log('worker done'); process.exit(code ?? 1); });
+`);
+  return `${process.execPath} ${script}`;
+}
+
 describe('supervise: process group, log file, stall and deadline', () => {
   test('a backgrounded child holding stdout does not keep the run waiting, and is killed with the group after the exit', async () => {
     const dir = scratch();
@@ -79,6 +92,32 @@ describe('supervise: process group, log file, stall and deadline', () => {
     const forever = await run(dir, `${process.execPath} -e 'for (;;) {}'`, { stallMs: 1500, deadline: Date.now() + 4000 });
     expect(forever.outcome).toBe('timeout');
     expect(forever.exit).toBeNull();
+  }, 20_000);
+
+  // Value: protects=a quiet suite whose runner starts its worker in a new session (pnpm exec running Vitest) is measured as busy, and a
+  //   stall or timeout kill reaches that worker; fails_when=the stall check reads CPU of the runner's process group alone and kills the busy
+  //   lane, or the kill signals only that group and orphans the worker; why_new=a pnpm 11 monorepo's script suite ended PREGATE_STALLED three times at one
+  //   tree under pnpm 11 while green outside pregate; seam=none; no_claim=a worker reparented away from the tree (double fork) is not measured
+  test('a worker the runner starts in its own session counts toward CPU: busy and silent runs to the end, never-ending is killed with the runner at the deadline', async () => {
+    const dir = scratch();
+    const busy = await run(dir, sessionRunner(dir, 'busy'), { stallMs: 1500 });
+    const [worker, workerGroup, runnerGroup] = fs.readFileSync(`${dir}/busy.pids`, 'utf8').trim().split(' ').map(Number);
+    expect(workerGroup).not.toBe(runnerGroup);
+    expect(workerGroup).toBe(worker);
+    expect(busy.outcome).toBe('exited');
+    expect(busy.exit).toBe(0);
+    expect(busy.log).toContain('worker done');
+    const forever = await run(dir, sessionRunner(dir, 'forever'), { stallMs: 1500, deadline: Date.now() + 3000 });
+    expect(forever.outcome).toBe('timeout');
+    expect(await goneSoon(Number(fs.readFileSync(`${dir}/forever.pids`, 'utf8').split(' ')[0]))).toBe(true);
+  }, 20_000);
+
+  test('a tree whose runner and own-session worker both sit idle is killed as stalled, worker included', async () => {
+    const dir = scratch();
+    const idle = await run(dir, sessionRunner(dir, 'idle'), { stallMs: 700 });
+    expect(idle.outcome).toBe('stalled');
+    expect(idle.wall).toBeLessThan(5000);
+    expect(await goneSoon(Number(fs.readFileSync(`${dir}/idle.pids`, 'utf8').split(' ')[0]))).toBe(true);
   }, 20_000);
 
   test('a group that ignores SIGTERM is SIGKILLed after the grace period', async () => {
@@ -259,7 +298,7 @@ describe('gstack-pregate: the test stage never hangs silently', () => {
     expect(fs.readFileSync(path.join(after.work, 'README.md'), 'utf8')).toBe('# fixture\n');
   }, 90_000);
 
-  test('SIGTERM to pregate kills the running test process group, exits 143 and writes no pregate.json', async () => {
+  test('SIGTERM to pregate kills the running test process tree, exits 143 and writes no pregate.json', async () => {
     const repo = makeFixtureRepo(); repos.push(repo);
     commit(repo, { 'test/hang.test.js': NODE_HANG });
     const child = spawn(BIN('gstack-pregate'), ['--base', 'main', '--allow-repo-commands', '--stage', 'tests', '--stall-timeout', '0'], { cwd: repo.work, env: { ...process.env, ...repo.env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -269,7 +308,7 @@ describe('gstack-pregate: the test stage never hangs silently', () => {
     const testPid = await pidFrom(path.join(repo.root, 'hang.pid'), 30_000);
     child.kill('SIGTERM');
     expect(await exited).toBe(143);
-    expect(err).toContain('gstack-pregate: cancelled by SIGTERM; killed 1 test process group(s); no pregate.json written');
+    expect(err).toContain('gstack-pregate: cancelled by SIGTERM; killed 1 test process tree(s); no pregate.json written');
     expect(await goneSoon(testPid)).toBe(true);
     expect(fs.existsSync(path.join(repo.work, '.gstack/tmp/pregate.json'))).toBe(false);
   }, 60_000);

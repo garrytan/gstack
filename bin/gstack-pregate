@@ -90,7 +90,7 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
   --timeout <s>                 timeout for each runner process (default timeout_s from the base .gstack/pregate.json, else 600):
                                 the unit-file group, each serial file, each guard without timeout_s, the remote gate; the stall
                                 timeout catches a silent one sooner
-  --stall-timeout <s>           kill a test command's process group after this long with no output and record the check
+  --stall-timeout <s>           kill a test command's process tree after this long with no output and record the check
                                 incomplete (PREGATE_STALLED); default stall_timeout_s from the base .gstack/pregate.json,
                                 else ${DEFAULT_STALL_TIMEOUT_S}; 0 disables; the --remote gate is exempt (only --timeout bounds it)
   --remote                      run the base branch's remote_gate now instead of local tests (needs --allow-repo-commands;
@@ -202,7 +202,7 @@ async function cmdRun(root: string, rest: string[], json: boolean): Promise<numb
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       const killed = cancelActive();
-      process.stderr.write(`gstack-pregate: cancelled by ${signal}; killed ${killed} test process group(s); no pregate.json written\n`);
+      process.stderr.write(`gstack-pregate: cancelled by ${signal}; killed ${killed} test process tree(s); no pregate.json written\n`);
       process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   }
