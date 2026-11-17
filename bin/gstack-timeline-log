@@ -12,6 +12,11 @@
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Windows git-bash (#1950): Bun cannot import a POSIX /c/... path; cygpath -m
+# gives C:/... for the redact-engine import below.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 . "$(dirname "$0")/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $(dirname "$0")/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select
@@ -20,15 +25,25 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate: input must be parseable JSON with required fields. The validator
-# prints its verdict; a non-zero exit means Bun itself failed (#3415). An exit
-# code cannot carry the verdict: a Bun crash on Windows exits 3.
+# Validate: input must be parseable JSON with required fields and no
+# redact-engine HIGH secret in any key or string value (the gate
+# gstack-decision-log applies). The validator prints its verdict; a non-zero
+# exit means Bun itself failed (#3415). An exit code cannot carry the verdict:
+# a Bun crash on Windows exits 3.
 VALIDATE_RC=0
-VALIDATE_OUT=$(printf '%s' "$INPUT" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+VALIDATE_OUT=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
   const text = await Bun.stdin.text();
   let j;
   try { j = JSON.parse(text); } catch {}
-  console.log(j && j.skill && j.event ? 'valid' : 'invalid');
+  if (!(j && j.skill && j.event)) { console.log('invalid'); process.exit(0); }
+  const { scan } = await import(process.env.GSTACK_LIB_DIR + '/redact-engine.ts');
+  const stored = [];
+  (function collect(v) {
+    if (typeof v === 'string') stored.push(v);
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { stored.push(k); collect(x); }
+  })(j);
+  const ids = [...new Set(scan(stored.join('\\n')).findings.filter((f) => f.tier === 'HIGH').map((f) => f.id))];
+  console.log(ids.length ? 'secret ' + ids.join(', ') : 'valid');
 ") || VALIDATE_RC=$?
 if [ "$VALIDATE_RC" -ne 0 ]; then
   echo "gstack-timeline-log: bun exited $VALIDATE_RC before the event was validated; nothing was logged" >&2
@@ -37,6 +52,7 @@ fi
 case "$VALIDATE_OUT" in
   valid) ;;
   invalid) exit 0 ;;  # skip silently, non-blocking
+  secret\ *) echo "gstack-timeline-log: event contains a HIGH-tier secret (${VALIDATE_OUT#secret }); nothing was logged. Remove the value and log the event again; do not log secrets" >&2; exit 1 ;;
   *) echo "gstack-timeline-log: bun printed no verdict while validating the event; nothing was logged" >&2; exit 1 ;;
 esac
 

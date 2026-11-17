@@ -163,7 +163,7 @@ export function renderTable(file: PregateFile, opts: { lines?: boolean } = { lin
   return [
     `stage      check     status            time  detail`,
     ...rows, ...body, ...clocks, ...remote,
-    `PREGATE: ${file.verdict} tree=${file.tree.slice(0, 12)} head=${(file.head ?? '').slice(0, 12)} checks=${file.checks.length}`,
+    `PREGATE: ${file.verdict} tree=${file.tree.slice(0, 12)} head=${(file.head ?? '').slice(0, 12)} checks=${file.checks.length} of ${CHECK_IDS.length}`,
   ].join('\n') + '\n';
 }
 
@@ -213,7 +213,9 @@ export interface Verification { ok: boolean; code?: 'PREGATE_STALE' | 'PREGATE_R
 /**
  * Publication check: the recorded tree must equal the tree now (results
  * current after final generation and stamping), no check may be fail or
- * incomplete, and every requires-remote obligation needs its receipt. The
+ * incomplete, every requires-remote obligation needs its receipt, and the
+ * record must hold every registered check (a `--only` or `--stage` run is
+ * not a full pass). The
  * user-owned policy behind the run (or its absence, under the defaults) must
  * still hold, since it lives outside the tree.
  */
@@ -245,6 +247,8 @@ export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: Wtre
   // A flaky exception was granted for one head, tree, run attempt and case list; recorded for another, or edited, it clears nothing.
   const exception = exceptionProblem(file);
   if (exception) return { ok: false, code: 'PREGATE_REMOTE_UNCLEARED', message: exception, current, uncleared: [] };
+  const missing = CHECK_IDS.filter(id => !file.checks.some(c => c.id === id));
+  if (missing.length) return { ok: false, code: 'PREGATE_INCOMPLETE', message: `pregate.json holds checks=${CHECK_IDS.length - missing.length} of ${CHECK_IDS.length} (missing: ${missing.join(', ')}); a --only or --stage run is not a full pass: run gstack-pregate --allow-repo-commands with neither at tree ${file.tree.slice(0, 12)}`, current, uncleared };
   const substituted = (file.requires_remote ?? []).filter(r => r.substitution).map(r => `${r.lane}: ${describeSubstitution(r.substitution!)}`);
   const excepted = exceptionSummary(file);
   return { ok: true, message: `pregate ${file.verdict} is current for tree ${file.tree.slice(0, 12)}${substituted.length ? `; ${substituted.join('; ')}` : ''}${excepted ? `; ${excepted}` : ''}`, current, uncleared };
@@ -451,7 +455,8 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
     const skipCommand = check.gateRuns!.skipped;
     if (skipCommand && required.size) {
       const skipped = check.inventory(skipCommand, file.tree, [...required]);
-      if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed: ${skipped.error}; ${lane} stays uncleared` };
+      const noDeps = 'error' in skipped && /Cannot find (?:package|module) '/.test(skipped.error);
+      if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed${noDeps ? ' because this checkout has no installed dependencies (install them, for example with bun install, then clear again)' : ''}: ${skipped.error}; ${lane} stays uncleared` };
       const inventory = new Set(listed);
       for (const f of skipped) if (!inventory.has(f) && required.delete(f)) skippedCount++;
       if (!required.size) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=paid_only — the remote gate skips every selected test file (${skippedCount}), so no selected test ran; like the gate's own tests=0 report, that never clears; ${lane} stays uncleared` };
@@ -486,6 +491,29 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
   if (exceptions.length) file.exceptions = exceptions; else delete file.exceptions;
   file.verdict = verdictOf(file);
   return file;
+}
+
+/**
+ * A `--only` or `--stage preflight|tests` run keeps the checks it did not run from the record it replaces when that
+ * record has the same head, tree, base commit, policy and registry (GST-2194), so a staged rerun neither drops an earlier
+ * failure nor loses an earlier pass. Only `lanes` records requires-remote obligations, so the earlier obligations and
+ * exceptions come along exactly when its `lanes` result does. Any other record keeps nothing, and verify then refuses
+ * the partial record PREGATE_INCOMPLETE. Returns the PREGATE_MERGED line, or null when nothing was kept.
+ */
+export function mergeSameTreeChecks(prev: PregateFile | null, file: PregateFile): string | null {
+  if (!prev || prev.head !== file.head || prev.tree !== file.tree || prev.base !== file.base || prev.policy !== file.policy || prev.policy_digest !== file.policy_digest || prev.policy_user_path !== file.policy_user_path || prev.registry !== file.registry) return null;
+  const ran = new Set(file.checks.map(c => c.id));
+  const kept = prev.checks.filter(c => !ran.has(c.id) && CHECK_IDS.includes(c.id));
+  if (!kept.length) return null;
+  file.checks = [...file.checks, ...structuredClone(kept)].sort((a, b) => CHECK_IDS.indexOf(a.id) - CHECK_IDS.indexOf(b.id));
+  if (kept.some(c => c.id === 'lanes')) {
+    file.requires_remote = structuredClone(prev.requires_remote ?? []);
+    if (prev.exceptions?.length) file.exceptions = structuredClone(prev.exceptions); else delete file.exceptions;
+  }
+  if (kept.some(c => c.stage === 'preflight')) file.stage1_ms ??= prev.stage1_ms;
+  if (kept.some(c => c.stage === 'tests')) file.stage2_ms ??= prev.stage2_ms;
+  file.verdict = verdictOf(file);
+  return `PREGATE_MERGED: kept ${kept.map(c => `${c.id}=${c.status}`).join(',')} from the record at this tree ${file.tree.slice(0, 12)} and head ${(file.head ?? '').slice(0, 12)} (recorded ${prev.generated_at ?? 'earlier'}; docs/pregate.md#same-tree-checks)`;
 }
 
 /**

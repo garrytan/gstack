@@ -23,6 +23,9 @@ import type { Lane } from './workflows';
 /** Whole-tree tests every selection that runs a test must include (GST-98). Kept out of pregate.json so older readers, which reject unknown keys, keep working. */
 export const ALWAYS_RUN_PATH = '.gstack/always-run.json';
 
+/** A glob naming a folder inside a test directory (`tests/live/**`, never `test/**` or a single file): its `[]` declaration keeps the tests under it out of the local lane. */
+const TEST_SUBTREE = /(?:^|\/)(?:test|tests|spec|__tests__)\/[^*?[{/]+\//;
+
 /** The `tests` globs of one `.gstack/always-run.json` text; `label` names the copy in errors. */
 export function parseAlwaysRun(text: string, label: string = ALWAYS_RUN_PATH): string[] {
   let parsed: unknown;
@@ -68,10 +71,14 @@ export interface Selection {
   inert: string[];
   /** Release manifests whose diff against the merge base changes only version values (lib/pregate/stamp-only.ts): waived, no lane needed. */
   stampOnly: string[];
+  /** Local-lane tests a `[]` declaration on a folder inside a test directory (TEST_SUBTREE) kept out, per glob: the repo runs them in their own tier. Never an always-run test; they stay in `tests`, `gateTests` and any remote obligation. */
+  declaredTier: Array<{ glob: string; tests: string[] }>;
   /** Every test the touched files select, sorted. */
   tests: string[];
   /** Tests that run on this machine. */
   localTests: string[];
+  /** The local selection before declared test trees were left out: what the remote gate and `test_backend` owe, since that exclusion is local-only. */
+  gateTests: string[];
   /** Platform lanes this machine cannot run that select part of the set. */
   remote: RemoteObligation[];
   /** Tiers of the local lanes the selection touches. */
@@ -283,8 +290,10 @@ export function selectLanes(ctx: PregateContext): Selection {
     }
     noLane.push(file);
   }
+  const alwaysRun = new Set<string>();
   if (tests.size || noLane.length || seeds.has(ALWAYS_RUN_PATH)) {
     const always = alwaysRunTests(ctx.repoRoot, [...graph.tests].filter(t => !goneSet.has(t)), readAtMergeBase(ctx, ALWAYS_RUN_PATH, ['100644', '100755']));
+    for (const t of always.tests) alwaysRun.add(t);
     for (const t of always.tests) if (!tests.has(t)) { tests.add(t); provenance.push(`${t} (always_run, ${always.baseOnly.includes(t) ? 'merge base ' : ''}${ALWAYS_RUN_PATH})`); }
     for (const glob of always.unmatched) provenance.push(`${ALWAYS_RUN_PATH}: ${glob} matches no test file`);
   }
@@ -293,6 +302,8 @@ export function selectLanes(ctx: PregateContext): Selection {
   const remote: RemoteObligation[] = [];
   const tiers = new Set<string>();
   const selected = [...tests].sort();
+  const declaredTier = ctx.headBootstrap ? [] : Object.entries(ctx.config.dependencies ?? {}).filter(([glob, list]) => list.length === 0 && TEST_SUBTREE.test(glob) && /\/\*\*?$/.test(glob)).map(([glob]) => ({ glob, tests: [] as string[] }));
+  const tierOf = (t: string) => alwaysRun.has(t) ? undefined : declaredTier.find(d => matchesAny([d.glob], t));
   let anyLocalAll = false;
   for (const lane of ctx.lanes.filter(l => l.runsTests && !l.manual)) {
     const set = laneFileSet(ctx, lane);
@@ -304,12 +315,21 @@ export function selectLanes(ctx: PregateContext): Selection {
       continue;
     }
     if (set === 'all') anyLocalAll = true;
-    if (inLane.length) { tiers.add(lane.tier === 'platform' ? 'unit' : lane.tier); for (const t of inLane) local.add(t); }
+    if (inLane.some(t => !tierOf(t))) tiers.add(lane.tier === 'platform' ? 'unit' : lane.tier);
+    for (const t of inLane) local.add(t);
   }
   if (anyLocalAll || ctx.lanes.filter(l => l.runsTests && !l.manual && l.tier !== 'platform').length === 0) for (const t of selected) local.add(t);
   for (const t of selected) if (!local.has(t) && !remote.some(r => r.tests.includes(t))) local.add(t);
+  const gateTests = [...local].sort();
+  for (const t of gateTests) {
+    const tier = tierOf(t);
+    if (!tier) continue;
+    tier.tests.push(t);
+    local.delete(t);
+    provenance.push(`${t}: not run in the local lane; ${tier.glob} is declared [] in ${PREGATE_CONFIG_PATH} (its own tier)`);
+  }
   if (local.size && tiers.size === 0) tiers.add('unit');
-  return { noLane: noLane.sort(), removed: removed.sort((a, b) => a.file.localeCompare(b.file)), emptyLane: emptyLane.sort(), inert: inert.sort(), stampOnly: stampOnly.sort(), tests: selected, localTests: [...local].sort(), remote, tiersRan: [...tiers].sort(), laneSets, provenance };
+  return { noLane: noLane.sort(), removed: removed.sort((a, b) => a.file.localeCompare(b.file)), emptyLane: emptyLane.sort(), inert: inert.sort(), stampOnly: stampOnly.sort(), declaredTier: declaredTier.filter(d => d.tests.length), tests: selected, localTests: [...local].sort(), gateTests, remote, tiersRan: [...tiers].sort(), laneSets, provenance };
 }
 
 export function isTest(file: string): boolean { return isTestFile(file); }

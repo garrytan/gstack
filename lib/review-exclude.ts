@@ -257,9 +257,12 @@ function attributeBinaryLines(i: ExcludeInput, paths: readonly string[], unread:
 
 /** The kind of content a path holds when the policy may exclude it, or null for code (tests included). */
 export type ContentKind = 'binary' | 'data' | 'docs' | 'log';
-function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): ContentKind | null {
+/** One range's input with the matched files a pattern names by their file name (its last segment, with no glob character): a config name there is data. */
+type Scope = ExcludeInput & { named?: ReadonlySet<string> };
+const config = (i: Scope, p: string) => isDataConfig(p) && !i.named?.has(p);
+function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentKind | null {
   if (binary.has(p)) return 'binary';
-  if (DATA_PATH.test(p) && !isDataConfig(p)) return 'data';
+  if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
   return classifyPath(p, i.classRoot) === 'docs' ? 'docs' : null;
 }
@@ -272,7 +275,7 @@ function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): C
 const BINARY_CONTENT_EXT = /\.(?:png|jpe?g|gif|webp|bmp|ico|avif|tiff?|heic|heif|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|oga|ogv|webm|mov|avi|mkv|flac|aac|opus|pdf|docx|xlsx|pptx|odt|ods|odp|gz|tgz|zip|tar|bz2|xz|zst|7z|bin|dat|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|sqlite3?|db|safetensors)$/i;
 
 /** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode, gate tags, extension or magic keep it. */
-function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
+function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
   if (isGatePath(p) || secretPath(p, i.added[p] ?? [])) return 'gate-path';
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
@@ -280,14 +283,14 @@ function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<
   if (i.gateTagged?.has(p)) return 'gate-tagged';
   if (binary.has(p)) return BINARY_CONTENT_EXT.test(p) && !native.has(p) ? null : 'code';
   if (isAgentProse(p)) return 'agent-prose';
-  if (isDataConfig(p)) return 'config';
+  if (config(i, p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
   if ((i.added[p] ?? []).some(l => secretValueLine(p, l))) return 'secret-line';
   return null;
 }
 
 /** A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the would-be-excluded set. */
-const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =>
+const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>) =>
   !candidates.has(f) && !f.startsWith('.gstack/tmp/') && contentKind(i, f, new Set()) === null;
 
 /**
@@ -299,7 +302,7 @@ const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =
  * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
-function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
+function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
   if (!strings.length) return found;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-exclude-'));
@@ -365,14 +368,16 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const native = new Set<string>();
   const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
   const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
-  const text = { ...i, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
+  const fileName = (s: string) => s.slice(s.lastIndexOf('/') + 1);
+  const x: Scope = { ...i, named: new Set(patterns.flatMap(q => /[*?[\\]/.test(fileName(q)) ? [] : (sel.byPattern.get(q) ?? []).filter(f => fileName(f) === fileName(q)))) };
+  const text = { ...x, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
   const collected = new Map(i.perPath.map(e => [e.path, e]));
   const unseen = (p: string) => { const e = collected.get(p); return !e || (!e.binary && e.lines > 0 && !(p in text.added)); };
   const reasons = new Map<string, KeptReason | null>();
   for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native) ?? (unseen(p) ? 'consumer-scan-unavailable' : null));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
-  const named = grepFixed(i, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const named = grepFixed(x, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
@@ -396,9 +401,9 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const keptList = [...reasons].filter(([, r]) => r !== null).map(([p, r]) => ({ path: p, reason: r! })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const sortedExcluded = [...excluded].sort();
   const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0 };
-  for (const p of sortedExcluded) content[contentKind(i, p, binary)!]++;
+  for (const p of sortedExcluded) content[contentKind(x, p, binary)!]++;
   const prefixes = [...new Set(applied.map(literalPrefix).filter(Boolean))];
-  const refs = grepFixed(i, prefixes, excluded, []) ?? new Map<string, Set<string>>();
+  const refs = grepFixed(x, prefixes, excluded, []) ?? new Map<string, Set<string>>();
   const patterns_sha256 = sha256(JSON.stringify(patterns));
   const list_sha256 = sha256(JSON.stringify({ applied, excluded: sortedExcluded, kept: keptList.map(k => [k.path, k.reason]) }));
   const record: ExcludeRecord = {

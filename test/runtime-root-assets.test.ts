@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { HOST_CONFIG_MAP } from '../hosts';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -43,7 +44,9 @@ const ROOT_BUILDERS: Record<string, string> = {
 // Deferred, with the reason recorded in TODOS.md: /ship's measure loop runs
 // scripts/ship-measure.ts, which imports gstack's test helpers and eval
 // harness; a runtime root would need the whole development tree.
-const DEFERRED = new Set(['scripts/ship-measure.ts']);
+// gstack-model-benchmark (/benchmark-models) and the merge queue's
+// gstack-ship-queue are deferred the same way: both import that tree.
+const DEFERRED = new Set(['scripts/ship-measure.ts', 'bin/gstack-model-benchmark', 'bin/gstack-ship-queue']);
 
 // Compiled outputs: the stub source carries placeholder binaries, so a fresh
 // checkout without a build still exercises the links to them.
@@ -97,15 +100,50 @@ function makeSource(): void {
   }
 }
 
-function buildRoot(host: string): { root: string; stderr: string; status: number | null } {
-  const root = path.join(tmp, 'home', host, 'skills', 'gstack');
+// windows: setup's IS_WINDOWS=1 arm, where bin/, lib/ and the runtime dists
+// are real copies instead of links, so a module they import resolves only if
+// setup copied it beside them. It copies from the checkout itself, because
+// cp -R copies the stub source's top-level links as links.
+function buildRoot(host: string, windows = false): { root: string; stderr: string; status: number | null } {
+  const root = path.join(tmp, windows ? 'home-windows' : 'home', host, 'skills', 'gstack');
   fs.mkdirSync(path.dirname(root), { recursive: true });
   const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_copy_skill_md',
     '_sidecar_root_user_owned', '_gstack_generated_header', ROOT_BUILDERS[host]!]
     .filter(name => SETUP_SRC.includes(`\n${name}() {`)).map(extractFunction).join('\n');
-  const r = spawnSync('bash', ['-c', `set -e\nIS_WINDOWS=0\n${functions}\n${ROOT_BUILDERS[host]} "${src}" "${root}"`],
+  const r = spawnSync('bash', ['-c', `set -e\nIS_WINDOWS=${windows ? 1 : 0}\n${functions}\n${ROOT_BUILDERS[host]} "${windows ? ROOT : src}" "${root}"`],
     { encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: path.join(tmp, 'home') } });
   return { root, stderr: r.stderr, status: r.status };
+}
+
+const transpiler = new Bun.Transpiler({ loader: 'ts' });
+function isBunSource(file: string): boolean {
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  return /\.(ts|js|mjs)$/.test(file) || (!path.extname(file) && /^#!.*\bbun\b/.test(fs.readFileSync(file, 'utf8')));
+}
+
+/**
+ * Static imports reachable from the code a host's skills run that do not
+ * resolve inside its runtime root. Paths resolve from where the root holds
+ * each file, never through its links, which is how a copied root loads them.
+ */
+function importsOutsideRoot(host: string, root: string): string[] {
+  const queue = [...referencedPaths(host)].filter(rel => !DEFERRED.has(rel)).map(rel => path.join(root, rel)).filter(isBunSource);
+  const seen = new Set<string>();
+  const outside = new Set<string>();
+  while (queue.length) {
+    const file = queue.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const { path: spec, kind } of transpiler.scanImports(fs.readFileSync(file, 'utf8').replace(/^#!.*/, ''))) {
+      if (kind !== 'import-statement' || !spec.startsWith('.')) continue;
+      const target = path.resolve(path.dirname(file), spec);
+      const found = [target, target.replace(/\.js$/, '.ts'), `${target}.ts`, `${target}.js`, path.join(target, 'index.ts')]
+        .find(c => c.startsWith(root + path.sep) && fs.existsSync(c) && fs.statSync(c).isFile());
+      if (!found) outside.add(`${path.relative(root, file)} -> ${path.relative(root, target)}`);
+      else if (isBunSource(found)) queue.push(found);
+    }
+  }
+  return [...outside].sort();
 }
 
 beforeAll(async () => {
@@ -136,6 +174,49 @@ describe.skipIf(process.platform === 'win32')('runtime roots carry every $GSTACK
         && fs.statSync(path.join(root, rel)).isFile() !== fs.statSync(path.join(ROOT, rel)).isFile());
       expect(wrongKind).toEqual([]);
       expect(fs.realpathSync(path.join(root, 'bin'))).toBe(fs.realpathSync(path.join(ROOT, 'bin')));
+    });
+  }
+
+  for (const host of Object.keys(ROOT_BUILDERS)) {
+    test(`${host}: every module the skills' commands import is inside the runtime root`, () => {
+      const { root, status } = buildRoot(host);
+      expect(status).toBe(0);
+      expect(importsOutsideRoot(host, root)).toEqual([]);
+    });
+  }
+
+  test('the review planner starts from a copied (Windows) runtime root', () => {
+    const { root, stderr, status } = buildRoot('codex', true);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    expect(fs.lstatSync(path.join(root, 'bin')).isSymbolicLink()).toBe(false);
+    const r = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(root, 'bin', 'gstack-review-plan'), '--help'],
+      { cwd: tmp, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: path.join(tmp, 'home-windows') } });
+    expect(r.stderr).not.toContain('Cannot find module');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('--fix-check-prompt');
+  });
+
+  // Value: protects=the question helper's --check and --signal-keys start from a
+  //   runtime root, linked or copied; fails_when=setup's asset list drops
+  //   scripts/one-way-doors.ts or scripts/psychographic-signals.ts;
+  //   why_new=the helper imports them inside a bash-quoted bun -e, which the
+  //   static import walk above cannot see; seam=none; no_claim=native Windows.
+  for (const windows of [false, true]) {
+    test(`the question helper's checks start from a ${windows ? 'copied (Windows)' : 'linked'} runtime root`, () => {
+      const { root, stderr, status } = buildRoot('codex', windows);
+      expect(stderr).toBe('');
+      expect(status).toBe(0);
+      const home = path.join(tmp, windows ? 'home-windows' : 'home');
+      for (const [args, expected] of [[['--check', 'land-and-deploy-merge'], 'ASK_NORMALLY'], [['--signal-keys'], 'scope-appetite']] as const) {
+        const r = spawnSync('bash', [path.join(root, 'bin', 'gstack-question-preference'), ...args], {
+          cwd: tmp, encoding: 'utf8', timeout: 30_000,
+          env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, GSTACK_STATE_ROOT: path.join(home, 'question-state') },
+        });
+        expect(r.stderr).not.toContain('Cannot find module');
+        expect(r.status, r.stdout + r.stderr).toBe(0);
+        expect(r.stdout).toContain(expected);
+      }
     });
   }
 

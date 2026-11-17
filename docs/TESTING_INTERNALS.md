@@ -2059,6 +2059,37 @@ it as the diagnostic. Candidate folders and git identity name a project, never
 the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
 `<model>#no-gstack` arm beside each model (GST-468, GST-469).
 
+## Result checks
+
+`/eval-plan` runs four checks so that a number which cannot change a decision, or
+which comes from an unchecked instrument, never leaves the run. Each one is a
+refusal from `bin/gstack-eval-plan` (logic in `lib/eval-plan-checks.ts` and
+`lib/eval-plan-report.ts`), not advice:
+
+| Check | When it runs | Refusal |
+|---|---|---|
+| `## Decisions`: one `if <result>: <what we do>` line per possible result, at least two, with different actions | `prereg --check`, before anything is spent | `PREREG_INCOMPLETE` |
+| `## Scoring`: `judge: none`, or a judge model from another family than every arm with `labels:` (40 or more) and `agreement:` (kappa 0.6 or more); with two or more arms, `paired: yes`, `interval: 95%` and `mdd:` stated before the run | `prereg --check` | `PREREG_INCOMPLETE` |
+| The judge's Cohen's kappa against `{"id", "human", "judge"}` hand labels, at the preregistered count and bar | `judge --check` before the approval ask; `results --check --labels` before any number goes out | `EVAL_JUDGE_UNCHECKED` |
+| A zero in any results table comes from a column named after a `## Diagnostics` counter whose synthetic fixture plants at least one case (expected 1 or more) | `results --check` | `EVAL_REPORT_UNPLANTED_ZERO` |
+| A results table with a failures column also has an `answer-only` column: failures by the grader's own rule on the final answer | `results --check` | `EVAL_REPORT_NO_ANSWER_ONLY` |
+
+Why: in our own agent teams, a counter that never fired reported zero for one
+model while an outside check with planted cases found every one, and a reported
+rise in failures vanished once failures were counted by the grader's own rule.
+A judge from the same family as the arm it grades, or one never compared with
+people, gives numbers nobody can weigh. An eval whose every result leads to the
+same action spends money to change nothing.
+
+Model families come from the model id (`claude` is Anthropic, `gpt` and `o`
+models OpenAI, `gemini` Google, `grok` xAI), else its first word. A judge
+whose labels are all one class has undefined agreement and is refused.
+
+A preregistration with a `frozen: YYYY-MM-DD` line before 2026-11-15 keeps the
+rules it was frozen under: the PREREG line shows `result_checks=exempt` and
+none of the four checks apply. Text frozen before a priced call is not edited
+to meet a newer rule.
+
 ## Frontier models under test
 
 Garry, 2026-11-01 (R54): "I think you are spending too much time with Haiku and

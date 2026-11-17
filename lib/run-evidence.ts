@@ -54,7 +54,7 @@ export interface ApiRun {
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
-export interface ApiJob { name: string; conclusion: string | null; completed_at?: string | null }
+export interface ApiJob { name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null }
 export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
 
 /** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
@@ -69,7 +69,8 @@ export interface RunDeps {
   run(id: number): ApiRun;
   runsForHead(workflow: string, sha: string): ApiRun[];
   jobs(id: number, attempt: number): ApiJob[];
-  artifact(id: number, name: string): TreeRecord;
+  /** The tree.json of the run's unexpired artifact `name`: the only one, or with one per rerun attempt of its job, the one that records run_attempt `attempt`. */
+  artifact(id: number, name: string, attempt: number): TreeRecord;
   commitTree(sha: string): string | null;
 }
 
@@ -89,6 +90,8 @@ const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+/** Same-named artifacts one run may hold, one per attempt of the job that uploads it. */
+const MAX_ARTIFACT_ATTEMPTS = 10;
 /** Shard logs are the whole test stream, so a red run's reader allows more than a tree.json. */
 const MAX_LOG_ARTIFACT_BYTES = 64 * 1024 * 1024;
 
@@ -172,7 +175,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (run.conclusion !== 'success') return fail('run_not_success', `${at} concluded ${run.conclusion}`);
     if (!SHA.test(run.head_sha)) return fail('api_error', `${at} has no head commit`);
     const jobs = deps.jobs(id, run.run_attempt);
-    const completed = jobs.map(j => j.completed_at).filter((t): t is string => !!t).sort().pop();
+    const completed = jobs.filter(j => p.jobs.includes(j.name)).map(j => j.completed_at).filter((t): t is string => !!t).sort().pop();
     const finishedAt = completed ?? run.updated_at;
     const finished = Date.parse(finishedAt ?? '');
     const maxAge = p.max_age_hours ?? DEFAULT_MAX_AGE_HOURS;
@@ -208,15 +211,16 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
       if (changed) return fail('run_changed', changed);
       return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files: [], tests: null, skipped_jobs: skippedJobs, docs_only: true } };
     }
+    const ranIn = ownAttempt(deps, id, run.run_attempt, jobs, p.jobs.filter(n => !skippedJobs.includes(n)));
     let rec: TreeRecord;
-    try { rec = deps.artifact(id, p.artifact); }
+    try { rec = deps.artifact(id, p.artifact, ranIn); }
     catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
     if (rec.sizing_experiment !== undefined) return fail('sizing_experiment', `${at} was a runner-sizing experiment (a dispatch that overrode the runner, shards or sub-shards); it is never a Free Tests result`);
     const pr = run.event === 'pull_request';
     const recHeads = pr ? [['head_sha', rec.head_sha, run.head_sha] as const] : rec.head_sha === undefined && rec.sha === undefined ? [['head', undefined, run.head_sha] as const] : ([['sha', rec.sha, run.head_sha], ['head_sha', rec.head_sha, run.head_sha]] as const).filter(([, got]) => got !== undefined);
-    const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, run.run_attempt], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);
+    const wrong = ([['run_id', rec.run_id, id], ['run_attempt', rec.run_attempt, ranIn], ['event', rec.event, run.event], ...recHeads] as const).filter(([, got, want]) => got !== want);
     if (wrong.length) return fail('artifact_mismatch', `${at}'s ${p.artifact} records ${wrong.map(([k, got, want]) => `${k} ${String(got)} (expected ${want})`).join(', ')}`);
     const headTree = deps.commitTree(run.head_sha);
     if (!headTree) return fail('api_error', `git cannot read the tree of ${run.head_sha}`);
@@ -246,6 +250,24 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
+}
+
+/**
+ * The newest attempt that ran any of `names` itself (GST-2284). A job-level rerun relists every job it did not rerun under the
+ * new attempt with its old start and finish times, so a job listed with the same times and conclusion one attempt earlier
+ * was carried from there, and so is the artifact it uploaded. A job without both times counts as run in `attempt`.
+ */
+function ownAttempt(deps: RunDeps, id: number, attempt: number, jobs: ApiJob[], names: string[]): number {
+  const carried = (a: ApiJob, b: ApiJob) => a.started_at === b.started_at && a.completed_at === b.completed_at && a.conclusion === b.conclusion;
+  let pending = names.map(n => jobs.find(j => j.name === n)!);
+  if (!pending.length || pending.some(j => !j.started_at || !j.completed_at)) return attempt;
+  for (let k = attempt - 1; k >= 1; k--) {
+    const earlier = deps.jobs(id, k);
+    const still = pending.filter(j => { const hits = earlier.filter(e => e.name === j.name); return hits.length === 1 && carried(hits[0]!, j); });
+    if (still.length < pending.length) return k + 1;
+    pending = still;
+  }
+  return 1;
 }
 
 /** Why run `id` no longer stands as attempt `attempt`, a success; null while it does. Read again after the evidence, and for every run once a whole clear is assembled. */
@@ -314,9 +336,9 @@ export function parseRunReceipt(receipt: string): { runs: string[]; profiles: st
 const receiptFor = (host: string, payloadClass: string, request: string) => ({ sink: 'run-evidence', host, payloadClass, bytes: 0, sha256: sha256Hex(request), consent: 'a run verification the user or the repository\'s own workflow started (gstack-pregate clear --run or --from-run, the main-push reuse job); reads its own repository\'s Actions runs and fetches a run head by sha' });
 const receiptFailed = (err: unknown) => process.stderr.write(`[run-evidence] egress receipt could not be written (${(err as Error).message}); proceeding (fail-open)\n`);
 
-function gh(args: string[], timeoutMs = 60_000): string {
+function gh(args: string[], timeoutMs = 60_000, encoding: 'utf8' | 'latin1' = 'utf8'): string {
   try { writeReceipt(receiptFor('api.github.com', 'actions-run-read', args.join(' '))); } catch (err) { receiptFailed(err); }
-  const r = ghSpawnSync(args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+  const r = ghSpawnSync(args, { encoding, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0 || r.error) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr || String(r.error ?? '')).trim().slice(0, 300)}`);
   return r.stdout;
 }
@@ -337,16 +359,30 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
       const read = (n: number) => all<ApiJob>(`repos/${repo}/actions/runs/${id}/attempts/${attempt}/jobs?per_page=${n}`, 'jobs');
       try { return read(50); } catch (e) { if (!/\bHTTP 5\d\d\b/.test((e as Error).message)) throw e; return read(25); }
     },
-    artifact: (id, name) => {
-      const listed = all<{ name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
-      if (listed.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
-      if (!(listed[0]!.size_in_bytes <= MAX_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${listed[0]!.size_in_bytes} bytes, over ${MAX_ARTIFACT_BYTES}`);
+    // A rerun of the uploading job leaves one artifact per attempt (GST-2284): read each by id and keep the one from `attempt`.
+    artifact: (id, name, attempt) => {
+      const listed = all<{ id: number; name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
+      if (listed.length === 0 || listed.length > MAX_ARTIFACT_ATTEMPTS) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
+      for (const a of listed) if (!(a.size_in_bytes <= MAX_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${a.size_in_bytes} bytes, over ${MAX_ARTIFACT_BYTES}`);
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-run-evidence-'));
       try {
-        gh(['run', 'download', String(id), '--repo', repo, '--name', name, '--dir', dir], 120_000);
-        const file = path.join(dir, 'tree.json');
-        if (fs.statSync(file).size > MAX_ARTIFACT_BYTES) throw new Error(`tree.json is over ${MAX_ARTIFACT_BYTES} bytes`);
-        return JSON.parse(fs.readFileSync(file, 'utf8')) as TreeRecord;
+        if (listed.length === 1) {
+          gh(['run', 'download', String(id), '--repo', repo, '--name', name, '--dir', dir], 120_000);
+          const file = path.join(dir, 'tree.json');
+          if (fs.statSync(file).size > MAX_ARTIFACT_BYTES) throw new Error(`tree.json is over ${MAX_ARTIFACT_BYTES} bytes`);
+          return JSON.parse(fs.readFileSync(file, 'utf8')) as TreeRecord;
+        }
+        const records = listed.map(a => {
+          if (!Number.isSafeInteger(a.id)) throw new Error(`run ${id}'s artifact ${name} has no numeric id`);
+          const zip = path.join(dir, `${a.id}.zip`);
+          fs.writeFileSync(zip, Buffer.from(gh(['api', `repos/${repo}/actions/artifacts/${a.id}/zip`], 120_000, 'latin1'), 'latin1'));
+          const r = spawnSync('unzip', ['-p', zip, 'tree.json'], { encoding: 'utf8', timeout: 60_000, maxBuffer: MAX_ARTIFACT_BYTES });
+          if (r.status !== 0 || r.error) throw new Error(`artifact ${a.id} has no readable tree.json: ${(r.stderr || String(r.error ?? '')).trim().slice(0, 200)}`);
+          return JSON.parse(r.stdout) as TreeRecord;
+        });
+        const hits = records.filter(r => r && r.run_attempt === attempt);
+        if (hits.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name} and ${hits.length} of them record run_attempt ${attempt}`);
+        return hits[0]!;
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     },
     commitTree: sha => {

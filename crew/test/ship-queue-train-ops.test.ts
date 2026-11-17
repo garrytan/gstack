@@ -14,6 +14,9 @@ import { cleanup, runBin } from '../../test/helpers/restamp-fixture';
 import {
   GREEN_GATE, TRAIN_POLICY, dispatches, line, nonceOf, openPr, queue, readyReceipt, repoKey, trainJson, trainFixture, type Rule, type TrainFixture,
 } from '../../test/helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../../lib/pregate/index';
+
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 
 const fixtures: TrainFixture[] = [];
 const make = (policy: Record<string, unknown> = TRAIN_POLICY) => { const f = trainFixture(policy); fixtures.push(f); return f; };
@@ -28,7 +31,7 @@ function readyFixture() {
   fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
   const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
   const pregate = path.join(fx.repo.root, 'pregate.json');
-  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
   return { fx, head, pregate };
 }
 const receiptOf = (fx: TrainFixture, pr: string, head: string) => JSON.parse(fs.readFileSync(path.join(fx.state, 'ship-queue', 'ready', repoKey(fx), `${pr}-${head}.json`), 'utf8'));
@@ -277,11 +280,11 @@ describe('train prune --stale and train watch', () => {
     const h3 = openPr(fx, '3');
     fx.write(d => { d.ci[h3] = [{ status: 'completed', conclusion: 'success' }]; });
     const pregate = path.join(fx.repo.root, 'pregate3.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head: h3, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head: h3, verdict: 'pass', checks: FULL_CHECKS }));
     expect(queue(fx, ['ready', '--pr', '3', '--pregate', pregate, '--no-screen']).status).toBe(EXIT.ok);
     const h4 = openPr(fx, '4');
     fx.write(d => { d.ci[h4] = [{ status: 'completed', conclusion: 'success' }]; });
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head: h4, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head: h4, verdict: 'pass', checks: FULL_CHECKS }));
     expect(queue(fx, ['ready', '--pr', '4', '--pregate', pregate, '--no-screen']).status).toBe(EXIT.ok);
     const receipt = queue(fx, ['train', 'forget', '--receipt', `3@${h3}`]);
     expect([receipt.status, line(receipt.out, 'FORGET:')]).toEqual([EXIT.ok, `FORGET: READY receipt #3 at ${h3.slice(0, 12)} (screen no-screen)`]);
@@ -409,7 +412,7 @@ describe('ready --dispatch-ci', () => {
       d.rules['windows-free-tests.yml'] = { ci: 'windows-free-tests', headSha: head };
     });
     const tree = JSON.parse(fs.readFileSync(pregate, 'utf8')).tree;
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'requires-remote', checks: [{ id: 'unit', status: 'pass' }], requires_remote: [
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'requires-remote', checks: FULL_CHECKS, requires_remote: [
       { lane: 'free-tests.yml/free-tests', platform: 'linux', workflow: 'free-tests.yml', job: 'free-tests', tests: ['test/a.test.ts'], receipt: null },
       { lane: 'windows-free-tests.yml/windows-free-tests', platform: 'windows', workflow: 'windows-free-tests.yml', job: 'windows-free-tests', tests: ['test/a.test.ts'], receipt: null },
       { lane: 'macos-free-tests.yml/macos', platform: 'macos', workflow: 'macos-free-tests.yml', job: 'macos', tests: ['test/b.test.ts'], receipt: null }] }));

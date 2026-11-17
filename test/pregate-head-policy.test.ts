@@ -98,6 +98,7 @@ describe('gstack-pregate --policy-from head: additive only (GST-419)', () => {
     expect(dropped.status).toBe(EXIT.refused);
     expect(dropped.err).toContain('guards');
     commit(repo, { '.gstack/pregate.json': JSON.stringify({ ...user, dependencies: NEW_LANE }) });
+    expect(runBin(repo, 'gstack-pregate', ['--base', 'main', '--allow-repo-commands', '--stage', 'preflight', '--policy-from', 'head'], { GSTACK_PROJECT_SLUG: SLUG }).status).toBe(EXIT.ok);
     expect(pregate(repo, ['--policy-from', 'head']).status).toBe(EXIT.ok);
     const verify = () => runBin(repo, 'gstack-pregate', ['verify'], { GSTACK_PROJECT_SLUG: SLUG });
     expect(verify().status).toBe(EXIT.ok);

@@ -55,13 +55,17 @@ from it.
 **Held files.** When the secret scan flags a file, only that file is held
 back (with any file coupled to it, such as a decision log and its active
 snapshot); everything else syncs. The held file stays queued and is
-re-scanned on every sync, so editing it clears the hold automatically.
+re-scanned on every sync, so removing a secret that was never synced clears
+the hold automatically. A secret already committed in `~/.gstack` stays on a
+removed line of the next diff, so that file stays held until you skip it.
 `--status` lists each held file under `held`, with the scanner rule that
 matched (never the matched text), the files held with it (`dependents`) and
 both fixes:
 
-1. **If it's a real secret**: edit the file to remove it. The next skill run
-   re-scans and syncs it.
+1. **If it's a real secret**: edit the file to remove it. If that line was
+   never synced, the next skill run re-scans and syncs it. If it is already
+   committed in `~/.gstack`, skip the file (fix 2) and, if it was pushed,
+   treat the secret as exposed.
 2. **If the match is a false positive** you never want synced:
    ```bash
    ~/.claude/skills/gstack/bin/gstack-brain-sync --skip-file <path>

@@ -917,13 +917,13 @@ describe('REVIEW_DASHBOARD resolver', () => {
     });
   }
 
-  test('plan-ceo-review chaining mentions eng (via /autoplan) and design reviews', () => {
+  test('plan-ceo-review chaining mentions eng and design reviews', () => {
     // Carved skill: the chaining prose lives in sections/*.md. (It used to
     // pass against the skeleton only because the preamble's routing-injection
     // rules incidentally named these skills — that prose moved into
     // bin/gstack-skill-start in token-reduction Phase 2.)
     const content = readSkillUnion('plan-ceo-review');
-    expect(content).toContain('Run /autoplan next (eng review)');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
   });
 
@@ -933,9 +933,9 @@ describe('REVIEW_DASHBOARD resolver', () => {
     expect(content).toContain('/plan-ceo-review');
   });
 
-  test('plan-design-review chaining mentions eng (via /autoplan), ceo, and design skills', () => {
+  test('plan-design-review chaining mentions eng, ceo, and design skills', () => {
     const content = readSkillUnion('plan-design-review');
-    expect(content).toContain('Run /autoplan next (eng review)');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-ceo-review');
     expect(content).toContain('/design-shotgun');
     expect(content).toContain('/design-html');
@@ -1303,7 +1303,7 @@ describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
     expect(content).toContain('Findings');
     expect(content).toContain('VERDICT');
     expect(content).toContain('/plan-ceo-review');
-    expect(content).toContain('| Eng Review | `/autoplan` |');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
     expect(content).toContain('/codex review');
   });

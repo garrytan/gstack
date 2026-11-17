@@ -4,7 +4,22 @@
 # Usage:
 #   gstack-uninstall              — interactive uninstall (prompts before removing)
 #   gstack-uninstall --force      — remove everything without prompting
-#   gstack-uninstall --keep-state — remove skills but keep all gstack state
+#   gstack-uninstall --keep-state — remove skills but keep all gstack state,
+#                                   including the repo's .gstack/ and .gstack-worktrees/
+#   gstack-uninstall --force-worktrees — also delete .gstack-worktrees/ checkouts
+#                                   that have uncommitted changes (never a
+#                                   locked worktree)
+#
+# Per-project state: git-tracked files under .gstack/ (ship policy and the
+# like) are never deleted; only the files git ignores go, and a .gstack/ that
+# holds its own git repository is kept. A checkout under .gstack-worktrees/
+# (nested ones included) with uncommitted changes, commits no branch or tag
+# holds, a status git cannot read, or no registration as this repository's
+# worktree stops the uninstall (exit 2, before anything is removed) unless
+# --force-worktrees is given; a locked worktree, or a worktree list git cannot
+# read, stops it either way. The check runs again after the prompt, still before
+# anything is removed. Run from inside the install being removed, a .gstack/
+# holding its own git repository also stops it.
 #
 # State: only the default root ~/.gstack/ is ever deleted. A state root
 # selected elsewhere (GSTACK_HOME, GSTACK_STATE_ROOT, GSTACK_STATE_DIR or
@@ -33,8 +48,10 @@
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
-#   .gstack/                      — per-project browse state (in current git repo)
-#   .gstack-worktrees/            — per-project test worktrees (in current git repo)
+#   .gstack/                      — per-project browse state (in current git repo;
+#                                   git-tracked files are kept)
+#   .gstack-worktrees/            — per-project test worktrees (in current git repo;
+#                                   dirty ones need --force-worktrees)
 #   .agents/skills/gstack*        — Codex/Gemini sidecar (in current git repo)
 #   .cursor/skills/gstack*        — project-local Cursor skills (in current git repo)
 #   Running browse daemons        — stopped via SIGTERM before cleanup
@@ -71,17 +88,19 @@ _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 # ─── Parse flags ─────────────────────────────────────────────
 FORCE=0
 KEEP_STATE=0
+FORCE_WORKTREES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     --keep-state) KEEP_STATE=1; shift ;;
+    --force-worktrees) FORCE_WORKTREES=1; shift ;;
     -h|--help)
       sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
       exit 0
       ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: gstack-uninstall [--force] [--keep-state]" >&2
+      echo "Usage: gstack-uninstall [--force] [--keep-state] [--force-worktrees]" >&2
       exit 1
       ;;
   esac
@@ -126,6 +145,341 @@ if [ "$KEEP_STATE" -eq 0 ] && [ -e "$RESOLVED_ROOT" ]; then
     _LEAVE_ROOT="$RESOLVED_ROOT"
   fi
 fi
+# ─── Per-project worktree safety ─────────────────────────────
+# Every checkout on disk under .gstack-worktrees/ (a folder holding a .git),
+# registered or not, including checkouts nested inside another one,
+# NUL-separated so no name can split into a relative path. Symlinks are never
+# followed; a symlinked .gstack-worktrees is only unlinked.
+_project_worktrees() {
+  [ -d "$_GIT_ROOT/.gstack-worktrees" ] || return 0
+  find "$_GIT_ROOT/.gstack-worktrees" -name .git -prune -print0 2>/dev/null | while IFS= read -r -d '' _dotgit; do
+    printf '%s\0' "${_dotgit%/.git}"
+  done
+}
+# Fills _REGISTERED_WORKTREES with the real paths of the worktrees this
+# repository registered and _LOCKED_WORKTREES with the locked ones. The list is
+# read NUL-separated, so a path holding a newline stays one unquoted path.
+_read_registered_worktrees() {
+  local _field _path="" _locked=0
+  _REGISTERED_WORKTREES=()
+  _LOCKED_WORKTREES=()
+  while IFS= read -r -d '' _field; do
+    case "$_field" in
+      "worktree "*) _path="$(_real "${_field#worktree }")"; _locked=0 ;;
+      locked|"locked "*) _locked=1 ;;
+      "")
+        [ -n "$_path" ] || continue
+        _REGISTERED_WORKTREES+=("$_path")
+        [ "$_locked" -eq 0 ] || _LOCKED_WORKTREES+=("$_path")
+        _path=""
+        ;;
+    esac
+  done < <(_worktree_list git -C "$_GIT_ROOT")
+}
+# "$@" worktree list --porcelain, NUL-separated. git before 2.36 has no -z and
+# fails here, so the uninstall refuses instead of reading a list it cannot split.
+_worktree_list() {
+  "$@" worktree list --porcelain -z 2>/dev/null
+}
+# _in_list VALUE ITEM... — VALUE equals one of the ITEMs.
+_in_list() {
+  local _want="$1" _item
+  shift
+  for _item in "$@"; do [ "$_item" = "$_want" ] && return 0; done
+  return 1
+}
+# git inside a checkout, with its hooks and fsmonitor turned off.
+_wt_git() {
+  local _dir="$1"
+  shift
+  git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-optional-locks -C "$_dir" "$@"
+}
+# Prints why deleting checkout $1 would lose work; prints nothing when it is safe.
+# A checkout this repository did not register is never opened with git, so its
+# own config cannot run anything; a submodule of a registered lane is the one
+# exception, read with rev-list under _wt_git.
+_worktree_risk() {
+  local _dir _status _head _local
+  _dir="$(_real "$1")"
+  case "$_dir" in
+    ""|*"
+"*) echo "it is not a registered worktree of this repository"; return 0 ;;
+  esac
+  if ! _in_list "$_dir" ${_REGISTERED_WORKTREES[@]+"${_REGISTERED_WORKTREES[@]}"}; then
+    _is_registered_submodule "$_dir" || { echo "it is not a registered worktree of this repository"; return 0; }
+    _local="$(_wt_git "$_dir" rev-list -n 1 --all --not --remotes 2>/dev/null)" || { echo "git cannot read its history"; return 0; }
+    [ -z "$_local" ] || echo "it is a submodule with commits no remote-tracking branch contains"
+    return 0
+  fi
+  [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$_dir" ] || { echo "git cannot read it as a checkout"; return 0; }
+  _status="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "git cannot read its status"; return 0; }
+  [ -z "$_status" ] || { echo "it has uncommitted changes"; return 0; }
+  _head="$(_wt_git "$1" rev-parse -q --verify HEAD 2>/dev/null)" || return 0
+  [ -n "$(git -C "$_GIT_ROOT" for-each-ref --contains "$_head" --count=1 --format=x 2>/dev/null)" ] || echo "it has commits no branch or tag contains"
+}
+# Succeeds when checkout $1 is a submodule of the closest checkout under
+# .gstack-worktrees that holds it, and that checkout is a registered worktree or
+# (for a nested submodule) itself such a submodule: its index records exactly
+# this path as a gitlink, so its status reports the submodule's changes. Commits
+# only the submodule's own refs hold are checked by the caller.
+_is_registered_submodule() {
+  local _wt _parent="" _rel _entry
+  for _wt in ${_CHECKOUTS_ON_DISK[@]+"${_CHECKOUTS_ON_DISK[@]}"}; do
+    case "$1" in "$_wt"/*) [ ${#_wt} -gt ${#_parent} ] && _parent="$_wt" ;; esac
+  done
+  [ -n "$_parent" ] || return 1
+  _in_list "$_parent" ${_REGISTERED_WORKTREES[@]+"${_REGISTERED_WORKTREES[@]}"} || _is_registered_submodule "$_parent" || return 1
+  _rel="${1#"$_parent"/}"
+  _entry="$(_wt_git "$_parent" ls-files --stage -z -- ":(literal)$_rel" 2>/dev/null | tr '\0' '\n')"
+  case "$_entry" in 160000\ *) ;; *) return 1 ;; esac
+  [ "${_entry#*	}" = "$_rel" ]
+}
+# Prints one "refusing to delete" line per checkout under .gstack-worktrees/
+# that must be kept; prints nothing when every one can go. A locked worktree
+# is kept even with --force-worktrees.
+_worktree_refusals() {
+  local _wt _risk
+  if ! _worktree_list git -C "$_GIT_ROOT" >/dev/null; then
+    echo "gstack-uninstall: refusing to delete $_GIT_ROOT/.gstack-worktrees/: git cannot list this repository's worktrees"
+    return 0
+  fi
+  _read_registered_worktrees
+  _CHECKOUTS_ON_DISK=()
+  while IFS= read -r -d '' _wt; do
+    _CHECKOUTS_ON_DISK+=("$(_real "$_wt")")
+  done < <(_project_worktrees)
+  while IFS= read -r -d '' _wt; do
+    [ -n "$_wt" ] || continue
+    if _in_list "$(_real "$_wt")" ${_LOCKED_WORKTREES[@]+"${_LOCKED_WORKTREES[@]}"}; then
+      _risk="it is locked (git worktree lock)"
+    elif [ "$FORCE_WORKTREES" -eq 1 ]; then
+      continue
+    else
+      _risk="$(_worktree_risk "$_wt")"
+    fi
+    [ -z "$_risk" ] || echo "gstack-uninstall: refusing to delete $_wt: $_risk"
+  done < <(_project_worktrees)
+}
+_WORKTREES_FIX="fix: commit the work to a branch or stash it, unlock a locked worktree with git worktree unlock <path>, re-run with --keep-state to keep every worktree, or re-run with --force-worktrees to delete the unlocked ones anyway"
+# Succeeds when the current repository sits inside a gstack install this
+# uninstall deletes, so nothing in it can be kept by keeping one folder.
+_git_root_in_install() {
+  local _install _root
+  _root="$(_real "$_GIT_ROOT")"
+  for _install in "$HOME/.claude/skills/gstack" "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack* \
+    "$HOME"/.cursor/skills/gstack* "$HOME"/.config/opencode/skills/gstack* "$HOME"/.copilot/skills/gstack* \
+    "$HOME"/.gemini/antigravity-cli/skills/gstack* "$HOME"/.gemini/skills/gstack*; do
+    [ -d "$_install" ] || continue
+    _is_at_or_above "$(_real "$_install")" "$_root" && return 0
+  done
+  return 1
+}
+# Every keep decision for per-project state, made before anything is removed:
+# exits 2 when a checkout must be kept, or when the repository's .gstack/ holds
+# its own git repository inside the install being deleted. $1, when set, is
+# printed before the fix line.
+_check_project_keep() {
+  [ -n "$_GIT_ROOT" ] || return 0
+  if [ "$KEEP_STATE" -eq 0 ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _REFUSALS="$(_worktree_refusals)"
+    if [ -n "$_REFUSALS" ]; then
+      printf '%s\n' "$_REFUSALS" >&2
+      [ -z "${1:-}" ] || echo "$1" >&2
+      echo "$_WORKTREES_FIX" >&2
+      exit 2
+    fi
+  fi
+  if [ -d "$_GIT_ROOT/.gstack" ] && [ ! -L "$_GIT_ROOT/.gstack" ] && [ -n "$(find "$_GIT_ROOT/.gstack" -name .git -print -quit 2>/dev/null)" ] && _git_root_in_install; then
+    echo "gstack-uninstall: refusing to uninstall: $_GIT_ROOT/.gstack/ holds its own git repository, and it sits inside the gstack install being removed" >&2
+    echo "fix: move $_GIT_ROOT/.gstack/ out of the install (or push its commits), then re-run gstack-uninstall" >&2
+    exit 2
+  fi
+}
+# ─── Deletion inventory ──────────────────────────────────────
+CLAUDE_SKILLS="$HOME/.claude/skills"
+
+# Skill-name inventory (#2563 gate a): every name setup could have installed —
+# each source skill's directory name, its frontmatter name, their gstack-
+# prefixed variants, and the alias dirs. Built BEFORE the install root is
+# removed. A real directory in ~/.claude/skills is only deletable when its
+# name is in this inventory AND its SKILL.md carries the generated banner.
+# The seed names below are the alias dirs setup's _install_alias_skill_md
+# creates (setup: link_claude_root_skill_alias + the connect-chrome call
+# sites) — keep in sync with setup if an alias is added or renamed there.
+_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
+if [ -d "$GSTACK_DIR" ]; then
+  for _SRC in "$GSTACK_DIR"/*/; do
+    [ -f "$_SRC/SKILL.md" ] || continue
+    _SRC_NAME=${_SRC%/}; _SRC_NAME=${_SRC_NAME##*/}
+    gstack_skill_md_name "$_SRC/SKILL.md"; _FM_NAME=$GSTACK_SKILL_NAME
+    for _N in "$_SRC_NAME" "$_FM_NAME"; do
+      [ -n "$_N" ] || continue
+      case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N " ;; esac
+    done
+  done
+fi
+_in_skill_inventory() { case "$_INVENTORY" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# Prints what the removal step does with ~/.claude/skills entry $1: unlink,
+# delete, keep (listed, not provably gstack-managed), or nothing. Per-skill
+# entries created by setup come in three shapes:
+#   1. symlink entry                      (oldest installs)
+#   2. real dir + SYMLINKED SKILL.md      (standard Unix install)
+#   3. real dir + REAL-FILE SKILL.md      (Windows copy install, #2563)
+# Shape 3 was skipped entirely — gstack-uninstall exited 0 and reported
+# success while leaving ~52 gstack-* directories behind on Windows.
+_claude_entry_action() {
+  local _name="${1##*/}" _target
+  [ "$_name" = "gstack" ] && return 0
+  if [ -L "$1" ]; then
+    _target="$(readlink "$1" 2>/dev/null || true)"
+    case "$_target" in gstack/*|*/gstack/*) echo unlink ;; esac
+  elif [ -d "$1" ] && { [ -f "$1/SKILL.md" ] || [ -L "$1/SKILL.md" ]; }; then
+    if [ -L "$1/SKILL.md" ]; then
+      # Shape 2: provenance readable from the symlink target itself.
+      # Gate 1: the name must be in gstack's skill inventory (parity with
+      # shape 3). Gate 2: the target must contain "gstack" as an ANCHORED
+      # path segment (gstack/*|*/gstack/*, same pattern as shape 1) — a
+      # bare *gstack* substring match would wipe a user's own skill whose
+      # SKILL.md merely lives under e.g. ~/tools/gstack-fork/.
+      _target="$(readlink "$1/SKILL.md" 2>/dev/null || true)"
+      if _in_skill_inventory "$_name"; then
+        case "$_target" in gstack/*|*/gstack/*) echo delete ;; *) echo keep ;; esac
+      else
+        echo keep
+      fi
+    elif _in_skill_inventory "$_name" && grep -q '<!-- AUTO-GENERATED from' "$1/SKILL.md" 2>/dev/null; then
+      # Shape 3: delete ONLY when BOTH gates pass (F8) — the name is in
+      # gstack's skill inventory AND the SKILL.md carries the existing
+      # generated banner. ENG-OV10: the banner IS the provenance marker —
+      # every pre-v1.67 copy already carries it; inventing a new marker
+      # would refuse to delete legitimate old installs, recreating #2563.
+      echo delete
+    else
+      # A real dir we cannot prove is gstack-managed (name collision with a
+      # user's own skill, or a hand-written SKILL.md): NEVER delete — list.
+      echo keep
+    fi
+  fi
+}
+
+# Cursor installs are rendered REAL directories, so a bare gstack* glob could
+# sweep a user's own dir that merely starts with "gstack" (e.g.
+# ~/.cursor/skills/gstack-fork-notes). Provenance gate: a real dir is only
+# deleted when its SKILL.md carries the generated banner; anything else is
+# listed, never deleted. Symlinks stay ungated — removing a link never
+# destroys user content. OpenCode, Copilot, Antigravity and Gemini share it.
+_cursor_item_is_gstack_managed() {
+  # Symlinks and plain files are safe to remove; real dirs need the banner.
+  if [ -L "$1" ] || [ ! -d "$1" ]; then return 0; fi
+  grep -q '<!-- AUTO-GENERATED from' "$1/SKILL.md" 2>/dev/null
+}
+
+# Every real directory the removal steps below delete recursively,
+# NUL-separated. A symlink is only unlinked, so it is not listed.
+_deletion_targets() {
+  local _item
+  if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
+    printf '%s\0' "$CLAUDE_SKILLS/gstack"
+    for _item in "$CLAUDE_SKILLS"/*; do
+      [ "$(_claude_entry_action "$_item")" = delete ] && printf '%s\0' "$_item"
+    done
+  fi
+  for _item in "$HOME"/.codex/skills/gstack* "$HOME"/.factory/skills/gstack* "$HOME"/.kiro/skills/gstack*; do
+    printf '%s\0' "$_item"
+  done
+  for _item in "$HOME"/.config/opencode/skills/gstack* "$HOME"/.cursor/skills/gstack* "$HOME"/.copilot/skills/gstack* \
+    "$HOME"/.gemini/antigravity-cli/skills/gstack* "$HOME"/.gemini/skills/gstack*; do
+    _cursor_item_is_gstack_managed "$_item" && printf '%s\0' "$_item"
+  done
+  if [ -n "$_GIT_ROOT" ]; then
+    printf '%s\0' "$_GIT_ROOT/.claude/skills/gstack"
+    for _item in "$_GIT_ROOT"/.agents/skills/gstack* "$_GIT_ROOT"/.factory/skills/gstack*; do
+      printf '%s\0' "$_item"
+    done
+    for _item in "$_GIT_ROOT"/.cursor/skills/gstack*; do
+      _cursor_item_is_gstack_managed "$_item" && printf '%s\0' "$_item"
+    done
+  fi
+  [ "$KEEP_STATE" -eq 1 ] || printf '%s\0' "$STATE_DIR"
+}
+# Prints the FETCH_HEAD commits of checkout $1 that a fetch from one of its
+# remotes wrote. Remote URLs come from git remote get-url (url.insteadOf
+# applied) and are normalized the way git writes FETCH_HEAD (credentials
+# dropped, trailing "/" and one ".git" stripped); a fetch from "."
+# or any other source counts for nothing.
+_remote_fetch_heads() (
+  cd "$1" || exit 0
+  _wt_git . remote 2>/dev/null | while IFS= read -r _name; do _wt_git . remote get-url --all "$_name" 2>/dev/null; done |
+    sed -E 's#^([a-z+]+://)?[^@/]+@#\1#; s#/+$##; s#\.git$##' |
+    awk 'NR == FNR { u[$0]; next } { n = split($0, a, " of "); if (n > 1 && (a[n] in u)) print $1 }' - "$(_wt_git . rev-parse --git-path FETCH_HEAD 2>/dev/null)" 2>/dev/null
+)
+# Prints why deleting git checkout $1, found inside deletion target $2, would
+# lose work: uncommitted changes, commits neither a remote-tracking branch nor a
+# fetch from one of its remotes holds (a stable-channel upgrade fetches into
+# FETCH_HEAD only), or a
+# locked worktree inside $2 or registered in the repository $1's own .git holds.
+_repo_risk() {
+  local _out _field _wt _target_real
+  [ "$(_real "$(_wt_git "$1" rev-parse --show-toplevel 2>/dev/null)")" = "$(_real "$1")" ] || { echo "is a git checkout git cannot read"; return 0; }
+  _out="$(_wt_git "$1" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" || { echo "has a status git cannot read"; return 0; }
+  [ -z "$_out" ] || { echo "has uncommitted changes"; return 0; }
+  _out="$(_wt_git "$1" rev-list -n 1 --all --not --remotes $(_remote_fetch_heads "$1") 2>/dev/null)" || { echo "has a history git cannot read"; return 0; }
+  [ -z "$_out" ] || { echo "has commits no remote-tracking branch contains"; return 0; }
+  _worktree_list _wt_git "$1" >/dev/null || { echo "has worktrees git cannot list (gstack-uninstall needs git 2.36 or later)"; return 0; }
+  _target_real="$(_real "$2")"
+  while IFS= read -r -d '' _field; do
+    case "$_field" in
+      "worktree "*) _wt="${_field#worktree }" ;;
+      locked|"locked "*)
+        if [ -d "$1/.git" ] || _is_at_or_above "$_target_real" "$(_real "$_wt")"; then
+          echo "registers the locked worktree $_wt"
+          return 0
+        fi
+        ;;
+    esac
+  done < <(_worktree_list _wt_git "$1")
+}
+# Exits 2, before anything is removed, when a deletion target holds state this
+# run keeps (--keep-state, or a state root left in place) or a git checkout
+# whose work would be lost. Checkouts under this repository's .gstack-worktrees/
+# are left to _check_project_keep, which honors --force-worktrees. $1, when
+# set, is printed before the fix line.
+_check_deletion_targets() {
+  local _target _treal _kept _dotgit _repo _lanes="" _risk _refusals=""
+  local -a _keeps=()
+  [ -z "$_LEAVE_ROOT" ] || _keeps+=("$_LEAVE_ROOT")
+  if [ "$KEEP_STATE" -eq 1 ]; then
+    _keeps+=("$STATE_DIR")
+    [ -z "$RESOLVED_ROOT" ] || _keeps+=("$RESOLVED_ROOT")
+    [ -z "$_GIT_ROOT" ] || _keeps+=("$_GIT_ROOT/.gstack" "$_GIT_ROOT/.gstack-worktrees")
+  fi
+  if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ] && [ ! -L "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _lanes="$(_real "$_GIT_ROOT/.gstack-worktrees")"
+  fi
+  while IFS= read -r -d '' _target; do
+    [ -d "$_target" ] && [ ! -L "$_target" ] || continue
+    _treal="$(_real "$_target")"
+    for _kept in ${_keeps[@]+"${_keeps[@]}"}; do
+      [ -e "$_kept" ] && _is_at_or_above "$_treal" "$(_real "$_kept")" || continue
+      _refusals="$_refusals""gstack-uninstall: refusing to delete $_target: it holds $_kept, which this uninstall keeps"$'\n'
+    done
+    while IFS= read -r -d '' _dotgit; do
+      _repo="${_dotgit%/.git}"
+      [ -n "$_lanes" ] && _is_at_or_above "$_lanes" "$(_real "$_repo")" && continue
+      _risk="$(_repo_risk "$_repo" "$_target")"
+      [ -z "$_risk" ] || _refusals="$_refusals""gstack-uninstall: refusing to delete $_target: $_repo $_risk"$'\n'
+    done < <(find "$_target" -name .git -prune -print0 2>/dev/null)
+  done < <(_deletion_targets)
+  [ -n "$_refusals" ] || return 0
+  printf '%s' "$_refusals" >&2
+  [ -z "${1:-}" ] || echo "$1" >&2
+  echo "fix: commit and push that work or move it out of the folder being deleted, unlock a locked worktree with git worktree unlock <path>, or run gstack-uninstall from outside an install it deletes; then re-run gstack-uninstall" >&2
+  exit 2
+}
+_check_project_keep
+_check_deletion_targets
+
 _report_left_root() {
   [ -n "$_LEAVE_ROOT" ] || return 0
   local _val
@@ -151,8 +505,10 @@ if [ "$FORCE" -eq 0 ]; then
 
   if [ -n "$_GIT_ROOT" ]; then
     [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
-    [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
-    [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
+    if [ "$KEEP_STATE" -eq 0 ]; then
+      [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports; git-tracked files are kept)"
+      [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
+    fi
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
     [ -d "$_GIT_ROOT/.cursor/skills" ] && echo "  $_GIT_ROOT/.cursor/skills/gstack*"
   fi
@@ -169,6 +525,8 @@ if [ "$FORCE" -eq 0 ]; then
     y|Y|yes|YES) ;;
     *) echo "Aborted."; exit 0 ;;
   esac
+  _check_project_keep "nothing was removed: a checkout changed while the prompt waited"
+  _check_deletion_targets "nothing was removed: a checkout changed while the prompt waited"
 fi
 
 REMOVED=()
@@ -279,77 +637,15 @@ EOF
 fi
 
 # ─── Remove global Claude skills ────────────────────────────
-CLAUDE_SKILLS="$HOME/.claude/skills"
-
-# Skill-name inventory (#2563 gate a): every name setup could have installed —
-# each source skill's directory name, its frontmatter name, their gstack-
-# prefixed variants, and the alias dirs. Built BEFORE the install root is
-# removed. A real directory in ~/.claude/skills is only deletable when its
-# name is in this inventory AND its SKILL.md carries the generated banner.
-# The seed names below are the alias dirs setup's _install_alias_skill_md
-# creates (setup: link_claude_root_skill_alias + the connect-chrome call
-# sites) — keep in sync with setup if an alias is added or renamed there.
-_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
-if [ -d "$GSTACK_DIR" ]; then
-  for _SRC in "$GSTACK_DIR"/*/; do
-    [ -f "$_SRC/SKILL.md" ] || continue
-    _SRC_NAME=${_SRC%/}; _SRC_NAME=${_SRC_NAME##*/}
-    gstack_skill_md_name "$_SRC/SKILL.md"; _FM_NAME=$GSTACK_SKILL_NAME
-    for _N in "$_SRC_NAME" "$_FM_NAME"; do
-      [ -n "$_N" ] || continue
-      case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N " ;; esac
-    done
-  done
-fi
-_in_skill_inventory() { case "$_INVENTORY" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
-
 _SKIPPED_DIRS=()
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
-  # Remove per-skill entries created by setup. Three install shapes exist:
-  #   1. symlink entry                      (oldest installs)
-  #   2. real dir + SYMLINKED SKILL.md      (standard Unix install)
-  #   3. real dir + REAL-FILE SKILL.md      (Windows copy install, #2563)
-  # Shape 3 was skipped entirely — gstack-uninstall exited 0 and reported
-  # success while leaving ~52 gstack-* directories behind on Windows.
   for _ENTRY in "$CLAUDE_SKILLS"/*; do
     _NAME="$(basename "$_ENTRY")"
-    [ "$_NAME" = "gstack" ] && continue
-    if [ -L "$_ENTRY" ]; then
-      _TARGET="$(readlink "$_ENTRY" 2>/dev/null || true)"
-      case "$_TARGET" in
-        gstack/*|*/gstack/*) rm -f "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
-      esac
-    elif [ -d "$_ENTRY" ] && { [ -f "$_ENTRY/SKILL.md" ] || [ -L "$_ENTRY/SKILL.md" ]; }; then
-      if [ -L "$_ENTRY/SKILL.md" ]; then
-        # Shape 2: provenance readable from the symlink target itself.
-        # Gate 1: the name must be in gstack's skill inventory (parity with
-        # shape 3). Gate 2: the target must contain "gstack" as an ANCHORED
-        # path segment (gstack/*|*/gstack/*, same pattern as shape 1) — a
-        # bare *gstack* substring match would wipe a user's own skill whose
-        # SKILL.md merely lives under e.g. ~/tools/gstack-fork/.
-        _TARGET="$(readlink "$_ENTRY/SKILL.md" 2>/dev/null || true)"
-        if _in_skill_inventory "$_NAME"; then
-          case "$_TARGET" in
-            gstack/*|*/gstack/*) rm -rf "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
-            *) _SKIPPED_DIRS+=("$_ENTRY") ;;
-          esac
-        else
-          _SKIPPED_DIRS+=("$_ENTRY")
-        fi
-      elif _in_skill_inventory "$_NAME" && grep -q '<!-- AUTO-GENERATED from' "$_ENTRY/SKILL.md" 2>/dev/null; then
-        # Shape 3: delete ONLY when BOTH gates pass (F8) — the name is in
-        # gstack's skill inventory AND the SKILL.md carries the existing
-        # generated banner. ENG-OV10: the banner IS the provenance marker —
-        # every pre-v1.67 copy already carries it; inventing a new marker
-        # would refuse to delete legitimate old installs, recreating #2563.
-        rm -rf "$_ENTRY"
-        REMOVED+=("claude/$_NAME")
-      else
-        # A real dir we cannot prove is gstack-managed (name collision with a
-        # user's own skill, or a hand-written SKILL.md): NEVER delete — list.
-        _SKIPPED_DIRS+=("$_ENTRY")
-      fi
-    fi
+    case "$(_claude_entry_action "$_ENTRY")" in
+      unlink) rm -f "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
+      delete) rm -rf "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
+      keep) _SKIPPED_DIRS+=("$_ENTRY") ;;
+    esac
   done
 
   rm -rf "$CLAUDE_SKILLS/gstack"
@@ -402,17 +698,7 @@ if [ -d "$KIRO_SKILLS" ]; then
 fi
 
 # ─── Remove Cursor skills ───────────────────────────────────
-# Cursor installs are rendered REAL directories, so a bare gstack* glob could
-# sweep a user's own dir that merely starts with "gstack" (e.g.
-# ~/.cursor/skills/gstack-fork-notes). Provenance gate: a real dir is only
-# deleted when its SKILL.md carries the generated banner; anything else is
-# listed, never deleted. Symlinks stay ungated — removing a link never
-# destroys user content.
-_cursor_item_is_gstack_managed() {
-  # Symlinks and plain files are safe to remove; real dirs need the banner.
-  if [ -L "$1" ] || [ ! -d "$1" ]; then return 0; fi
-  grep -q '<!-- AUTO-GENERATED from' "$1/SKILL.md" 2>/dev/null
-}
+# Provenance gate: _cursor_item_is_gstack_managed, with the deletion inventory.
 
 # ─── Remove OpenCode skills (same provenance gate as Cursor) ────────────────
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
@@ -483,14 +769,49 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.cursor/skills" ]; then
 fi
 
 # ─── Remove per-project state ───────────────────────────────
-if [ -n "$_GIT_ROOT" ]; then
-  if [ -d "$_GIT_ROOT/.gstack" ]; then
-    rm -rf "$_GIT_ROOT/.gstack"
-    REMOVED+=("$_GIT_ROOT/.gstack/")
+# --keep-state keeps both folders. Otherwise a folder holding git-tracked files
+# loses only what git ignores; dirty worktrees were refused above unless
+# --force-worktrees was given.
+_remove_project_dir() {
+  local _dir="$_GIT_ROOT/$1" _tracked
+  [ -d "$_dir" ] || return 0
+  if ! _tracked="$(git -C "$_GIT_ROOT" ls-files -- "$1" 2>/dev/null)"; then
+    echo "kept $_dir/: git could not list its tracked files" >&2
+    return 0
   fi
-  if [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
-    rm -rf "$_GIT_ROOT/.gstack-worktrees"
-    REMOVED+=("$_GIT_ROOT/.gstack-worktrees/")
+  if [ -z "$_tracked" ]; then
+    if [ -n "$(find "$_dir" -name .git -print -quit 2>/dev/null)" ]; then
+      echo "kept $_dir/: it holds its own git repository, whose commits may exist nowhere else; check it, then remove it by hand" >&2
+      return 0
+    fi
+    rm -rf "$_dir"
+    REMOVED+=("$_dir/")
+    return 0
+  fi
+  git -C "$_GIT_ROOT" clean -fdXq -- "$1" >/dev/null 2>&1 || true
+  REMOVED+=("$_dir/ (git-ignored files)")
+  echo "kept git-tracked files in $_dir/ (and any untracked file git does not ignore)" >&2
+}
+if [ -n "$_GIT_ROOT" ] && [ "$KEEP_STATE" -eq 0 ]; then
+  _remove_project_dir .gstack
+  if [ -L "$_GIT_ROOT/.gstack-worktrees" ] && [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+    rm -f -- "$_GIT_ROOT/.gstack-worktrees"
+    REMOVED+=("$_GIT_ROOT/.gstack-worktrees (link only)")
+  elif [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+    _WTS=()
+    _WT_REALS=()
+    while IFS= read -r -d '' _WT; do
+      [ -n "$_WT" ] || continue
+      _WTS+=("$_WT")
+      _WT_REALS+=("$(_real "$_WT")")
+    done < <(_project_worktrees)
+    for _WT in ${_WTS[@]+"${_WTS[@]}"}; do
+      rm -rf "$_WT"
+    done
+    for _WT_REAL in ${_WT_REALS[@]+"${_WT_REALS[@]}"}; do
+      [ -n "$_WT_REAL" ] && [ ! -e "$_WT_REAL" ] && git -C "$_GIT_ROOT" worktree remove --force "$_WT_REAL" >/dev/null 2>&1 || true
+    done
+    _remove_project_dir .gstack-worktrees
   fi
 fi
 

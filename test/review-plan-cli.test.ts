@@ -52,6 +52,14 @@ describe('gstack-review-plan', () => {
     expect(plan.status).toBe(0);
     expect(plan.stdout).toContain('REVIEW_PLAN: class=docs pass=1 next=full dispatches=0 numbers=no');
   });
+  // Value: protects=R51's one reviewer on a tests-only diff at the CLI /ship runs; fails_when=it prints dispatches=0 or any reader but the batched Testing one;
+  //   why_new=HARN-1 (harness-evals#425, GST-2547): a test getting a scripted clock planned zero readers; seam=gstack-review-plan on a real repo; no_claim=what the reader finds
+  test('a tests-only diff plans one batched Testing reader (R51)', () => {
+    const r = run(repo({ 'test/clock.test.ts': "import { test, expect, setSystemTime } from 'bun:test';\ntest('clock', () => { setSystemTime(new Date(0)); expect(Date.now()).toBe(0); setSystemTime(); });\n" }), []);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('REVIEW_PLAN: class=tests pass=1 next=full dispatches=1 numbers=no');
+    expect(r.stdout.split('\n').filter(l => l.startsWith('DISPATCH: '))).toEqual(['DISPATCH: specialist batched effort=medium checklists=testing']);
+  });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');

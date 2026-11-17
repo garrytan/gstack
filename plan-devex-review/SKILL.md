@@ -21,7 +21,7 @@ triggers:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-devex-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-devex-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -383,7 +383,7 @@ Before proceeding, read the plan and infer the developer product type from conte
 If NONE of the above: the plan has no developer-facing surface. Tell the user:
 "This plan doesn't appear to have developer-facing surfaces. /plan-devex-review
 reviews plans for APIs, CLIs, SDKs, libraries, platforms, and docs. Consider
-/autoplan or /plan-design-review instead." Exit gracefully.
+/plan-eng-review or /plan-design-review instead." Exit gracefully.
 
 If detected: State your classification and ask for confirmation. Do not ask from
 scratch. "I'm reading this as a CLI Tool plan. Correct?"

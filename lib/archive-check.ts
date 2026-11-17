@@ -18,7 +18,7 @@
 import { splitTitle, type PlainTitlePolicy } from './plain-title';
 import { ciAtHead, type Gh } from './ship-queue';
 
-export type ArchiveCode = 'ARCHIVE_READS_STALE' | 'ARCHIVE_READS_UNPARSED' | 'ARCHIVE_THREAD_MISMATCH' | 'ARCHIVE_PR_NOT_MERGED' | 'ARCHIVE_GH_READ_FAILED';
+export type ArchiveCode = 'ARCHIVE_READS_STALE' | 'ARCHIVE_READS_UNPARSED' | 'ARCHIVE_THREAD_MISMATCH' | 'ARCHIVE_PR_NOT_MERGED' | 'ARCHIVE_GH_READ_FAILED' | 'ARCHIVE_PR_STATE_UNKNOWN' | 'ARCHIVE_POLICY_UNREADABLE';
 export interface ArchiveFailure { code: ArchiveCode; message: string }
 export interface IssueRow { code: string; state: string; title: string }
 export interface IssueList { open: string[]; closed: string[]; issues: IssueRow[] }
@@ -31,6 +31,10 @@ const MAX_CLOCK_SKEW_MS = 2 * 60_000;
 const NOT_WORK = new Set(['Backlog', 'Needs you']);
 const ISSUE_CODE = /^[A-Z][A-Z0-9]{1,9}-\d+$/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;
+const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
+const AGE = /^\d+[mhd]$/;
+const SUB_ISSUES = /^\d+\/\d+ sub-issues closed$/;
+const stateUnknown = (ref: string, state: unknown): ArchiveFailure => ({ code: 'ARCHIVE_PR_STATE_UNKNOWN', message: ref + ': gh pr view returned state ' + JSON.stringify(state) + ', not OPEN, CLOSED or MERGED' });
 
 export interface CheckOptions {
   thread: string;
@@ -49,7 +53,7 @@ export interface CheckResult {
 const unparsed = (part: string, why: string): ArchiveFailure => ({ code: 'ARCHIVE_READS_UNPARSED', message: part + ': ' + why });
 const isFailure = (v: unknown): v is ArchiveFailure => typeof v === 'object' && v !== null && 'code' in v && 'message' in v && !('issues' in v);
 
-/** tools.issue.read list text: the States header is required; items are read by code and state only. */
+/** tools.issue.read list text: the States header is required; each row is "- CODE · state · [markers ·] @assignee|unassigned · title · [n/m sub-issues closed ·] age". */
 export function parseIssueList(text: unknown): IssueList | ArchiveFailure {
   if (typeof text !== 'string' || !text.trim()) return unparsed('issues', 'empty or not the text of tools.issue.read');
   const lines = text.split('\n');
@@ -69,8 +73,10 @@ export function parseIssueList(text: unknown): IssueList | ArchiveFailure {
     const [code, state] = parts;
     if (!code || !ISSUE_CODE.test(code) || !state) return unparsed('issues', 'unrecognized line ' + JSON.stringify(line.slice(0, 80)));
     if (!open.includes(state) && !closed.includes(state)) return unparsed('issues', code + ' has state ' + JSON.stringify(state) + ', which the States header does not name');
-    const at = parts.map(p => p.startsWith('@')).lastIndexOf(true);
-    issues.push({ code, state, title: at >= 0 && at + 1 < parts.length - 1 ? parts[at + 1]! : '' });
+    const at = parts.findIndex((p, i) => i >= 2 && (p.startsWith('@') || p === 'unassigned'));
+    const end = parts.length - 1 - (SUB_ISSUES.test(parts.at(-2) ?? '') ? 1 : 0);
+    if (at < 0 || !AGE.test(parts.at(-1)!) || end <= at + 1) return unparsed('issues', code + ' row is cut short (no assignee, title or age): ' + JSON.stringify(line.slice(0, 80)));
+    issues.push({ code, state, title: parts.slice(at + 1, end).join(' · ') });
   }
   if (!issues.length && !none) return unparsed('issues', 'no issue rows and no "No issues match." line, so the list may be cut off');
   return { open, closed, issues };
@@ -97,7 +103,7 @@ function readPr(gh: Gh, repo: string, n: number): Omit<LivePr, 'ci'> | ArchiveFa
   try { j = JSON.parse(r.out); } catch { return ghFail('gh pr view printed no JSON'); }
   const url = typeof j.url === 'string' ? j.url.toLowerCase() : '';
   if (j.number !== n || !url.endsWith(('github.com/' + repo + '/pull/' + n).toLowerCase())) return ghFail('gh answered for ' + (url || 'another PR') + ', not this PR');
-  if (typeof j.state !== 'string') return ghFail('gh pr view returned no state');
+  if (typeof j.state !== 'string' || !PR_STATES.has(j.state)) return stateUnknown(repo + '#' + n, j.state);
   return { repo, number: n, state: j.state, head: typeof j.headRefOid === 'string' ? j.headRefOid : '', branch: typeof j.headRefName === 'string' ? j.headRefName : '', title: typeof j.title === 'string' ? j.title : '' };
 }
 
@@ -135,8 +141,15 @@ export function checkThread(raw: unknown, o: CheckOptions): CheckResult {
     const pr = readPr(o.ghFor(p.repo), p.repo, p.number);
     if (isFailure(pr)) return fail(pr);
     if (pr.state !== 'OPEN') continue;
-    let ci = 'unknown';
-    try { ci = (o.ci ?? ((repo, sha) => ciAtHead({ repoRoot: process.cwd(), base: 'main', gh: o.ghFor(repo) }, sha).line))(p.repo, pr.head); } catch {}
+    let ci: string;
+    try {
+      ci = (o.ci ?? ((repo, sha) => {
+        const line = ciAtHead({ repoRoot: process.cwd(), base: 'main', gh: o.ghFor(repo) }, sha).line;
+        const failed = /^unknown at \S+ \((.*)\)$/.exec(line);
+        if (failed) throw new Error(failed[1]);
+        return line;
+      }))(p.repo, pr.head);
+    } catch (e: any) { ci = 'unknown (CI read failed: ' + String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 160) + ')'; }
     live.push({ ...pr, ci });
   }
   const openIssues = list.issues.filter(i => list.open.includes(i.state));
@@ -158,20 +171,22 @@ export function checkThread(raw: unknown, o: CheckOptions): CheckResult {
 export interface LandedResult { exit: 0 | 1 | 3; lines: string[]; codes: string[]; failure?: ArchiveFailure; json: Record<string, unknown> }
 
 /** The tracker codes a merged PR names in its title's trailing group: what the land step closes. */
-export function landedIssues(o: { pr: number; repo?: string; gh: Gh; policy: PlainTitlePolicy | null }): LandedResult {
+export function landedIssues(o: { pr: number; repo?: string; gh: Gh; policy: PlainTitlePolicy | null; policyError?: string }): LandedResult {
   const ref = (o.repo ?? '') + '#' + o.pr;
   const fail = (exit: 1 | 3, failure: ArchiveFailure): LandedResult => ({ exit, lines: ['ISSUE_CLOSE: refused pr=' + ref + ' (' + failure.code + ')'], codes: [], failure, json: { pr: o.pr, repo: o.repo ?? null, codes: [], failure } });
+  if (!o.policy?.codes.length) return fail(3, { code: 'ARCHIVE_POLICY_UNREADABLE', message: o.policyError ?? (o.policy ? '.gstack/plain-titles.json lists no tracker codes' : '.gstack/plain-titles.json is missing') + ', so no ref can be proven a tracker code' });
   const r = o.gh(['pr', 'view', String(o.pr), ...(o.repo ? ['--repo', o.repo] : []), '--json', 'number,url,state,title,mergeCommit']);
   if (!r.ok) return fail(3, { code: 'ARCHIVE_GH_READ_FAILED', message: ref + ': ' + ((r.err ?? r.out).trim().slice(0, 160) || 'gh pr view failed') });
   let j: Record<string, unknown>;
   try { j = JSON.parse(r.out); } catch { return fail(3, { code: 'ARCHIVE_GH_READ_FAILED', message: ref + ': gh pr view printed no JSON' }); }
   const repo = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\//.exec(typeof j.url === 'string' ? j.url : '')?.[1] ?? o.repo ?? '';
   if (j.number !== o.pr || (o.repo && repo.toLowerCase() !== o.repo.toLowerCase())) return fail(3, { code: 'ARCHIVE_GH_READ_FAILED', message: ref + ': gh answered for another PR' });
+  if (typeof j.state !== 'string' || !PR_STATES.has(j.state)) return fail(3, stateUnknown(repo + '#' + o.pr, j.state));
   if (j.state !== 'MERGED') return fail(1, { code: 'ARCHIVE_PR_NOT_MERGED', message: repo + '#' + o.pr + ' is ' + String(j.state) });
   const merge = String((j.mergeCommit as { oid?: unknown } | null)?.oid ?? '').slice(0, 12);
   const refs = splitTitle(typeof j.title === 'string' ? j.title : '').refs?.split(/[\s,]+/) ?? [];
-  const patterns = (o.policy?.codes ?? []).map(c => new RegExp(c, 'i'));
-  const codes = [...new Set(refs.map(x => x.toUpperCase()).filter(x => ISSUE_CODE.test(x) && (!patterns.length || patterns.some(p => p.test(x)))))];
+  const patterns = o.policy.codes.map(c => new RegExp(c, 'i'));
+  const codes = [...new Set(refs.map(x => x.toUpperCase()).filter(x => ISSUE_CODE.test(x) && patterns.some(p => p.test(x))))];
   const lines = codes.length ? codes.map(c => 'ISSUE_CLOSE: ' + c + ' pr=' + repo + '#' + o.pr + ' merge=' + merge) : ['ISSUE_CLOSE: none (the title names no tracker code)'];
   return { exit: 0, lines, codes, json: { pr: o.pr, repo, merge, codes } };
 }

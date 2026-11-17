@@ -27,6 +27,23 @@ set -u
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)" || { echo "gstack-browser-ensure: cannot resolve the install root" >&2; exit 1; }
+# A host runtime root (~/.codex/skills/gstack, ...) has no package.json or
+# node_modules; setup records the gstack checkout it came from in .source-path.
+# Use that checkout's dependencies only when the pointer is a regular file
+# holding an absolute path whose real directory has gstack's own package.json
+# and this helper, neither a link. Anything else keeps the root, as before.
+if [ ! -e "$ROOT/package.json" ] && [ -f "$ROOT/.source-path" ] && [ ! -L "$ROOT/.source-path" ]; then
+  _src=$(head -1 "$ROOT/.source-path" | tr -d '\r')
+  case "$_src" in
+    /*|[A-Za-z]:/*) _src=$(cd "$_src" 2>/dev/null && pwd -P) || _src="" ;;
+    *) _src="" ;;
+  esac
+  if [ -n "$_src" ] && [ -f "$_src/package.json" ] && [ ! -L "$_src/package.json" ] \
+    && [ -f "$_src/bin/gstack-browser-ensure" ] && [ ! -L "$_src/bin/gstack-browser-ensure" ] \
+    && grep -Eq '^[[:space:]]*"name":[[:space:]]*"gstack",?[[:space:]]*$' "$_src/package.json"; then
+    ROOT="$_src"
+  fi
+fi
 DOCS="https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browser-ensure-failed"
 CHECK=0 QUIET=0 WITH_DEPS=""
 for _arg in "$@"; do

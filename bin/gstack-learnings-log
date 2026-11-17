@@ -56,6 +56,7 @@ trap 'rm -f "$TMPERR"' EXIT
 set +e
 VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
 const { hasInjection } = await import(process.env.GSTACK_LIB_DIR + '/jsonl-store.ts');
+const { scan } = await import(process.env.GSTACK_LIB_DIR + '/redact-engine.ts');
 const raw = await Bun.stdin.text();
 let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
@@ -92,6 +93,19 @@ if (j.source && !ALLOWED_SOURCES.includes(j.source)) {
 // one audited list across learnings + decisions, no drift.
 if (j.insight && hasInjection(j.insight)) {
   process.stderr.write('gstack-learnings-log: insight contains suspicious instruction-like content, rejected\n');
+  process.exit(1);
+}
+
+// Secrets: the same redact-engine HIGH gate gstack-decision-log applies, over
+// every key and string value this row stores (learnings sync across machines).
+const stored = [];
+(function collect(v) {
+  if (typeof v === 'string') stored.push(v);
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { stored.push(k); collect(x); }
+})(j);
+const high = scan(stored.join('\n')).findings.filter((f) => f.tier === 'HIGH');
+if (high.length > 0) {
+  process.stderr.write('gstack-learnings-log: learning contains a HIGH-tier secret (' + [...new Set(high.map((f) => f.id))].join(', ') + '), rejected; remove the value and log the learning again, do not log secrets\n');
   process.exit(1);
 }
 

@@ -172,7 +172,10 @@ A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
 `REVIEW_DEPTH`, and an absent flag counts as full. The fix range
 `RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
 as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
-`FIX_RANGE:`). It dispatches one fix-check on the range, the Red Team on the
+`FIX_RANGE:`). The range holds only the PR's own change since `RANGE_BASE`: when
+a base merge lands inside it, what the base brought (a file only main changed,
+or main's lines in a file both changed) is not counted, and neither is its gate
+class (GST-2229, harness-evals #354). It dispatches one fix-check on the range, the Red Team on the
 range, the native adversarial pass when the range changes runtime lines, every
 force-included specialist and the outside voice when published numbers changed.
 Step 11's voices that have not run yet stay listed, as on a full pass 2. It
@@ -236,7 +239,8 @@ Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 |---|---|---|
 | Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
 | Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
-| Docs and tests | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Docs | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
 | Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
 
 `review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
@@ -312,7 +316,7 @@ in a data file still schedules the outside voice.
 
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | one reader: the core checklist; the outside voice instead reads a diff that publishes numbers |
+| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | docs: the core checklist only (R81). Tests: one **batched** reader on the Testing checklist, which leaves docs and registered outputs out of its diff (R51: tests get one reviewer). Only registered outputs: one batched reader on the code checklists over the whole diff. The outside voice also reads a diff that publishes numbers |
 | **light**, runtime above 0 | code with no risk class, at any size (R51: size never raises the depth) | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
 | **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
 | **full** | gate class, a [risk class](#risk-classes), or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
@@ -443,8 +447,10 @@ the specialists, audits and watchers at the host default too
   most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
   Team on the range, plus the native adversarial pass (on the range once Step 11 has
   run, otherwise on the whole branch), instead of the specialist army.
-- A tests-only diff (runtime 0) no longer dispatches the Testing specialist: the
-  core checklist and the gate scan review it.
+- A tests-only diff (runtime 0) dispatches one batched reader on the Testing
+  checklist, beside the core checklist and the gate scan (GST-2547). Before, it
+  dispatched nothing, so the only review was the author's own core read; R51 gives
+  tests one reviewer. Only a docs diff plans no reader on pass 1.
 - Every depth dispatches one batched specialist instead of one reader per
   checklist; Maintainability, Performance and Simplification run only when forced.
 - Light no longer runs a separate Red Team: the batched specialist carries its
@@ -533,6 +539,7 @@ Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 which hit 43 of 100; those paths already get full depth, so the gate class was
 narrowed to the gate scan's tagged hunks.
 
+<a id="targeted-only-read-after-the-loop"></a>
 ### Targeted-only read after the loop (GST-1598)
 
 A docs claim added after the review loop finished, such as a changelog
@@ -727,8 +734,10 @@ reads the newest `review-fix-check` row from `gstack-review-read`, chained back
 through earlier rows whose commit is the next row's `range_base`
 ([chained fix-checks](ship-policy.md#fix-check-chain), GST-1627). When every link
 is a completed clean read on committed content (freshness `CURRENT` against its own
-tree) whose commit is on the branch, the oldest link's `range_base` is a branch commit
-holding the reviewed tree, and for each link an approved `review_loop_grant` in
+tree; a fix-check that stopped on findings the owner has since ruled notes reads
+clean, [ruled notes](ship-policy.md#ruled-notes)) whose commit is on the branch, the oldest link's `range_base` is a branch commit
+holding the reviewed tree (or following its commit by docs and release metadata
+only, [docs bridge](ship-policy.md#fix-check-docs-bridge)), and for each link an approved `review_loop_grant` in
 `gstack-approvals` names a stop head inside its `range_base..commit`, each code or test path inside a link's `range_base..commit`
 that is unchanged since, or whose change against the base is still the one the
 fix-check read after a base merge also edited it (GST-1195), routes as
@@ -851,8 +860,8 @@ and a later reader agree on what was flagged:
 <a id="porting-a-contributors-work"></a>
 ## Crediting a contributor's lines
 
-Outside PRs are rewritten from main rather than ported
-([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
+Outside PRs, other than docs-only PRs for people, are rewritten from main rather than
+ported ([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
 carries a contributor's lines over unchanged, the commit that carries them credits them.
 Pass the contributor's PR commits as the range, fetched as a ref and never checked out
 (`git fetch origin +pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`;
@@ -959,6 +968,38 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
    line for the outside voice, either for the native adversarial voice. Without one (a refusal, an empty reply, a reader
    that never saw the diff) collect records `review: false`, prints `COLLECT_NOT_REVIEWED` and exits 1.
+<a id="verdict-line"></a>
+3a. **The verdict line (GST-2495).** Every blocking reader's brief (specialists, the batched specialist, the
+   targeted reader, the Red Team, fix-check, the native adversarial voice and the outside voice; audit readers
+   are not asked) tells it to put one line in its reply:
+
+   ```
+   REVIEW_VERDICT: blocking=<n>[ at=<path>:<line>,<path>:<line>...]
+   ```
+
+   `<n>` is how many findings in the reply block (0 to 99), and `at=` may name up to `<n>` of their locations.
+   `render` records `verdict: 1` on a brief that asked for the line, and `collect` checks a reply only when its
+   rendered brief asked, so a ledger written before this change replays exactly as it did. A well-formed line never
+   collects as a finding; a line that only starts with `REVIEW_VERDICT` stays for the parser. A line inside a code fence is ignored; a line repeated byte for byte counts once, and
+   two different lines are malformed. Collect still parses every finding as described in step 3, then compares:
+
+   | Reply | What collect does |
+   |---|---|
+   | No line | Findings as parsed. `COLLECT_VERDICT: reader=<r> declared=missing parsed=<k>`. |
+   | Malformed line (bad count, bad `at=`, more locations than `<n>`, two different lines) | Findings as parsed. `declared=malformed`, with the reason in `why=`. |
+   | `blocking=<n>` equals the blocking rows parsed | Findings as parsed. `agrees=yes`. |
+   | `<n>` is more than parsed | Every parsed row stays, and collect adds CRITICAL rows (ids `<reader>#v1`, `#v2`…): one per `at=` location that no parsed blocking row names, then one more row for the declared blockers left over. The added rows count toward what blocks like any other. |
+   | `<n>` is less than parsed | Nothing is lowered automatically. Each blocking row with no list item, heading, field, lead label, JSON or file:line, and no `Blocks: yes` (a row that blocks only because a sentence uses the word CRITICAL or P0, or because the native voice's FIXABLE raises it) is marked `summary_candidate`, so lead judgment may lower it with a written reason, which `judge` records as `dismissed`. Anchored rows keep blocking. |
+
+   A valid line never lowers a row by itself. FOUN-298's native "nothing blocks … all FIXABLE" sentence with
+   `blocking=0` still collects as CRITICAL, as a summary candidate the lead lowers with a reason. An automatic relabel
+   was tried and removed (gstack#4353): beside a denial line such as "No other CRITICAL issues.", it let a real
+   unanchored FIXABLE blocker drop to FIXABLE while the count still agreed. A reader that undercounts a real blocker
+   therefore loses nothing without a written reason. `verify` re-parses each output the way its
+   render asked, prints `VERIFY_VERDICT: agree=<a> asked=<n>` and one `VERDICT <reader> AGREES|DISAGREES|MISSING|MALFORMED`
+   row per checked reply. These are informational: a disagreeing count has already added or marked its rows, so
+   they never make a ledger dirty. When collect prints `agrees=no` or `declared=malformed`, read the reply, then judge the
+   added rows and summary candidates as usual.
 4. Lead judgment writes `judged.jsonl`; `judge` refuses a set that drops a merged
    finding, lowers its severity, folds it into a less severe duplicate, or adds or
    promotes one without a reason (`JUDGMENT_REJECTED`). A merged file missing any id
