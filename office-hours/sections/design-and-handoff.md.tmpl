@@ -391,18 +391,19 @@ VERIFY the write (`gstack-config get founder_resources` must read back
 this session only. On success confirm in one line with the re-enable command
 and continue the handoff.
 
-**Dedup check:** List the resources this user hasn't been shown yet (it reads
-`RESOURCES_SHOWN` from the builder profile itself):
+**Resource pool and dedup check:** Print the resources this user hasn't been shown yet (it
+reads `RESOURCES_SHOWN` from the builder profile itself), grouped by category, each as
+`N. "Title" (length) — blurb. URL`:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-founder-resources index
+~/.claude/skills/gstack/bin/gstack-founder-resources
 ```
 
 If it prints `RESOURCES: exhausted`, skip this section entirely (all resources shown).
 
 **Selection rules:**
 - Pick 2-3 resources. Mix categories — never 3 of the same type.
-- Pick only from the index above; it already leaves out everything shown before.
+- Pick only from the list above; it already leaves out everything shown before.
 - Match to session context (what came up matters more than random variety):
   - Hesitant about leaving their job → "My $200M Startup Mistake" or "Should You Quit Your Job At A Unicorn?"
   - Building an AI product → "The New Way To Build A Startup" or "Vertical AI Agents Could Be 10X Bigger Than SaaS"
@@ -414,12 +415,6 @@ If it prints `RESOURCES: exhausted`, skip this section entirely (all resources s
   - Looking for a co-founder → "How To Find A Co-Founder"
   - First-time founder, needs full picture → "Unconventional Advice for Founders" (the magnum opus)
 - If all resources in a matching context have been shown before, pick from a different category the user hasn't seen yet.
-
-Print the chosen entries in full (title, length, blurb, URL) by their index ids:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-founder-resources show ID1 ID2 ID3
-```
 
 **Format each resource as:**
 

@@ -1,13 +1,11 @@
 /**
  * The office-hours founder-resource pool (Phase 6 "Founder Resources").
  *
- * The 34 entries used to sit inline in office-hours/sections/design-and-handoff.md,
- * so every session that reached the closing read all of them. They live here
- * now and bin/gstack-founder-resources serves them: `index` lists the entries
- * a user has not been shown yet, `show <id>...` prints the chosen ones in the
- * exact form the prompt carried. test/founder-resources-bin.test.ts checks the
- * pool against test/fixtures/founder-resources-pool.txt, the prompt's last
- * inline copy.
+ * The 34 entries used to sit inline in office-hours/sections/design-and-handoff.md.
+ * They live here now and bin/gstack-founder-resources prints the ones a user
+ * has not been shown yet, in the exact form the prompt carried.
+ * test/founder-resources-bin.test.ts checks the pool against
+ * test/fixtures/founder-resources-pool.txt, the prompt's last inline copy.
  */
 export interface FounderResource { id: number; category: string; text: string }
 
@@ -69,12 +67,5 @@ export function renderIndex(shownUrls: readonly string[]): string {
   const left = FOUNDER_RESOURCES.filter(r => !shown.has(resourceUrl(r)));
   const head = [`RESOURCES_TOTAL: ${FOUNDER_RESOURCES.length}`, `RESOURCES_SHOWN_COUNT: ${FOUNDER_RESOURCES.length - left.length}`];
   if (!left.length) return [...head, 'RESOURCES: exhausted'].join('\n') + '\n';
-  const lines = left.map(r => `${r.id}. [${r.category}] ${r.text.slice(0, r.text.indexOf(' — '))}`);
-  return [...head, `RESOURCES: ${left.length} not yet shown`, ...lines].join('\n') + '\n';
-}
-
-export function renderChosen(ids: readonly number[]): { text: string; unknown: number[] } {
-  const unknown = ids.filter(id => !FOUNDER_RESOURCES.some(r => r.id === id));
-  const chosen = FOUNDER_RESOURCES.filter(r => ids.includes(r.id));
-  return { text: chosen.length ? renderPool(chosen) : '', unknown };
+  return [...head, `RESOURCES: ${left.length} not yet shown`, '', renderPool(left)].join('\n');
 }
