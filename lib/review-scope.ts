@@ -17,7 +17,7 @@
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
 import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
-import { ruledIds, type RuledNote } from './ruled-notes';
+import type { RuledNote } from './ruled-notes';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -376,6 +376,20 @@ export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass
   return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge'), collected: Number.isFinite(collected) ? collected : NaN };
 }
 
+/**
+ * The `id=<ledger id>` rulings that close findings on one /ship full pass or Step 11 row (GST-2273): each names one finding by
+ * its ledger id, at the head the row read. The row must have started and ended at that commit (`review_binding.start_commit`
+ * equals `commit_full`) and the ruling must be recorded after the read ended, so it answers this read and no earlier or later
+ * one at the same head. Fingerprint rulings close nothing here; they keep their fix-check meaning (lib/ship-release.ts). It lives here, not in
+ * lib/ruled-notes.ts, so the summary does not load the approval record's imports.
+ */
+export function ruledIds(row: Record<string, any> | undefined, notes: readonly RuledNote[]): Set<string> {
+  const b = row?.review_binding, ended = Date.parse(String(b?.ended_at));
+  if (!row || row.via !== 'ship' || (row.skill !== 'review' && row.skill !== 'adversarial-review') || typeof row.commit_full !== 'string' ||
+      b?.start_commit !== row.commit_full || !Number.isFinite(ended)) return new Set();
+  return new Set(notes.filter(n => n.id && n.head === row.commit_full && Date.parse(n.at) > ended).map(n => n.finding));
+}
+
 /** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
 export interface FixTrailer { finding: string; reader: string; commit: string }
 export function parseFixTrailers(commit: string, values: readonly string[]): FixTrailer[] {
@@ -401,7 +415,7 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
  * Owner rulings (`notes`, GST-2273): an `id=<ledger id>` ruling makes one undisposed blocker a noted disclosure. A row finding
- * closes when the row that logged it read the ruled head (lib/ruled-notes.ts ruledIds) and no other finding on that row has its
+ * closes when the row that logged it read the ruled head (ruledIds below) and no other finding on that row has its
  * ledger_id; a finding only a ledger holds closes when the run's stop row (its newest /ship review, fix-check or Step 11 row) read
  * the ruled head and its whole pass ran inside that row's read. A gate finding never closes this way, including a row finding
  * whose paired ledger line names a gate.

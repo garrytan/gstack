@@ -11,7 +11,7 @@
 # gate row closes reads `kept` with its `disposition`, and the row's `gate_dispositions` lists
 # those approval ids (lib/gate-dispositions.ts); values the row itself carried are discarded. An owner's
 # `gstack-approvals rule --id` ruling closes the one finding it names on the /ship full pass or Step 11 row
-# that read its head (lib/ruled-notes.ts ruledIds, GST-2273).
+# that read its head (lib/review-scope.ts ruledIds, GST-2273).
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,10 +25,11 @@ gstack_state_root_select
 GSTACK_HOME="$_gstack_sr_root"
 WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
-  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_GATE_LIB="$SCRIPT_DIR/../lib/gate-dispositions.ts" GSTACK_RULED_LIB="$SCRIPT_DIR/../lib/ruled-notes.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_GATE_LIB="$SCRIPT_DIR/../lib/gate-dispositions.ts" GSTACK_RULED_LIB="$SCRIPT_DIR/../lib/ruled-notes.ts" GSTACK_SCOPE_LIB="$SCRIPT_DIR/../lib/review-scope.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
     const { dispositionedOn, gateKey, readGateDispositions, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
-    const { readRuledNotes, ruledIds } = await import(process.env.GSTACK_RULED_LIB);
+    const { readRuledNotes } = await import(process.env.GSTACK_RULED_LIB);
+    const { ruledIds } = await import(process.env.GSTACK_SCOPE_LIB);
     let notes = [];
     try { notes = readRuledNotes(process.cwd()); }
     catch (e) { console.error("gstack-review-read: rulings unreadable, none applied: " + e.message); }

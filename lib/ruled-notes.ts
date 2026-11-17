@@ -42,19 +42,6 @@ export function readRuledNotes(cwd: string, env: Env = process.env): RuledNote[]
 
 /** A finding id a ruling can name: a run-unique `<pass dir>/<id>`, never a bare id that restarts in every pass. */
 export const RULABLE_ID = /^[A-Za-z0-9._-]+\/\S+$/;
-/**
- * The `id=<ledger id>` rulings that close findings on one /ship full pass or Step 11 row (GST-2273): each names one finding by
- * its ledger id, at the head the row read. The row must have started and ended at that commit (`review_binding.start_commit`
- * equals `commit_full`) and the ruling must be recorded after the read ended, so it answers this read and no earlier or later
- * one at the same head. Fingerprint rulings close nothing here; they keep their fix-check meaning (lib/ship-release.ts).
- */
-export function ruledIds(row: Record<string, any> | undefined, notes: readonly RuledNote[]): Set<string> {
-  const b = row?.review_binding, ended = Date.parse(String(b?.ended_at));
-  if (!row || row.via !== 'ship' || (row.skill !== 'review' && row.skill !== 'adversarial-review') || typeof row.commit_full !== 'string' ||
-      b?.start_commit !== row.commit_full || !Number.isFinite(ended)) return new Set();
-  return new Set(notes.filter(n => n.id && n.head === row.commit_full && Date.parse(n.at) > ended).map(n => n.finding));
-}
-
 /** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `. */
 export const ruledNoteText = (n: RuledNote) => `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by} at ${n.at}: ${n.reason} (approval ${n.approval})`;
 
