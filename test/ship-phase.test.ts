@@ -159,6 +159,20 @@ describe('the Capy phase program', () => {
     expect(again).toContain('RAN: 2/2 exit=0 (done earlier)');
   });
 
+  // Value: protects=a host whose thread.get reports cost.dollars and no cost.credits still gives the budget a credits reading (1,000 credits a dollar); fails_when=the program passes --credits undefined and the start or closing note refuses it;
+  //   why_new=Capy's thread.get returned only cost.dollars on 2026-11-17, so every phase note failed parseCredits; seam=tools.thread.get stub; no_claim=Capy's own pricing
+  test('a host that reports only cost.dollars still gets a credits reading', async () => {
+    const b = box();
+    const h = host(b);
+    let tokens = 1000;
+    h.tools.thread.get = async () => { tokens += 1000; return { cost: { tokens, dollars: `$${(tokens / 1000).toFixed(2)}` } } as never; };
+    const run = path.join(b.root, 'run');
+    const out = await h.run({ dir: run, phase: 2, record: b.record, jam: 'jam_test', step: '6', cwd: b.repo, commands: [
+      `gstack-ship-budget start --record ${b.record} --mode observe --reading "$GSTACK_SHIP_READING" --credits "$GSTACK_SHIP_CREDITS"`] });
+    expect(out).not.toContain('STOP:');
+    expect(out.split('\n').find(l => l.startsWith('NOTE: 6 '))).toMatch(/^NOTE: 6 used=1000 credits=1000 calls=\d+$/);
+  });
+
   // Value: protects=a review phase is the same one call: after its commands, the program hands the review pass program its pass input with the launch, checkout, record and jam, and returns that program's lines; a phase whose commands stop never dispatches; fails_when=the phase program dispatches after a failed command, or drops the record or jam the pass notes with;
   //   why_new=G2 (dispatches inside the phase call); seam=gstack-review-dispatch program, replaced by a stub that echoes its input; no_claim=the pass program's own behavior (test/review-pass.test.ts)
   test('with input.pass it runs the review pass program on that input, and never after a failed command', async () => {
