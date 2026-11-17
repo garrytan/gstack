@@ -30,6 +30,18 @@ describe('Ground Rules preamble section', () => {
     expect(block).toContain('never a poll loop or `gh pr checks --watch`');
   });
 
+  test('asks each question once and carries it as one waiting line, and checks every handed-over file for placeholders', () => {
+    expect(block).toContain('Ask each question once');
+    expect(block).toContain('one waiting line');
+    expect(block).toContain('Open every file you hand over and remove placeholders first');
+  });
+
+  test('the Capy factory page points at the shared ask-once rule instead of restating it', () => {
+    const item11 = read('capy/skill/gstack/factory.md').split('\n').find(l => l.startsWith('11. '))!;
+    expect(item11).toContain("(every skill's Ground Rules)");
+    expect(item11).not.toContain('check what you can yourself');
+  });
+
   test('renders inline in a tier 1 skill and in the shared preamble tier 2+ skills read', () => {
     expect(read('browse/SKILL.md')).toContain(block);
     expect(read('review/sections/preamble.md')).toContain(block);
