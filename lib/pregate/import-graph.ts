@@ -177,10 +177,10 @@ function normalize(p: string): string { return path.posix.normalize(p.replace(/\
 
 /** One tsconfig/jsconfig `compilerOptions.paths` entry: `@/*` → [`./*`], already joined to its base. */
 export interface PathAlias { prefix: string; suffix: string; wildcard: boolean; targets: string[] }
-/** The effective `paths` of the root config, its `baseUrl` (repo-relative, or null) and what could not be read. */
+/** The effective `paths` of one config, its `baseUrl` (repo-relative, or null) and what could not be read. */
 export interface PathAliases { aliases: PathAlias[]; baseUrl: string | null; notes: string[] }
 
-/** How many relative `extends` hops are followed from the root tsconfig/jsconfig. */
+/** How many relative `extends` hops are followed from a tsconfig/jsconfig. */
 export const MAX_TSCONFIG_EXTENDS = 4;
 
 /** JSONC → JSON: drop comments, and a comma whose next token closes an object or array, outside strings. */
@@ -234,16 +234,18 @@ function effectiveOptions(repoRoot: string, rel: string, depth: number, seen: Se
 }
 
 /**
- * The root tsconfig.json (else jsconfig.json) `paths`, relative to the repo,
- * following relative `extends` up to MAX_TSCONFIG_EXTENDS hops. Targets join
- * `baseUrl` when one is set, else the directory of the config declaring
- * `paths`. What is not followed is recorded in `notes` for the no-lane
- * explanation; a missing alias leaves no edge (so `no lane`), never a wrong one.
+ * The tsconfig.json (else jsconfig.json) `paths` of directory `dir` (`''`, the
+ * default, is the repository root), relative to the repo, following relative
+ * `extends` up to MAX_TSCONFIG_EXTENDS hops. Targets join `baseUrl` when one
+ * is set, else the directory of the config declaring `paths`. What is not
+ * followed is recorded in `notes` for the no-lane explanation; a missing alias
+ * leaves no edge (so `no lane`), never a wrong one.
  */
-export function readPathAliases(repoRoot: string): PathAliases {
+export function readPathAliases(repoRoot: string, dir = ''): PathAliases {
   for (const name of ['tsconfig.json', 'jsconfig.json']) {
     const notes: string[] = [];
-    const options = effectiveOptions(repoRoot, name, 0, new Set([name]), notes);
+    const rel = dir ? `${dir}/${name}` : name;
+    const options = effectiveOptions(repoRoot, rel, 0, new Set([rel]), notes);
     if (!options) continue;
     const baseUrl = options.baseUrl ? normalize(path.posix.join(options.baseUrl.dir, options.baseUrl.value)) : null;
     const base = baseUrl ?? options.paths?.dir ?? '.';
@@ -260,6 +262,35 @@ export function readPathAliases(repoRoot: string): PathAliases {
 }
 
 const NO_ALIASES: PathAliases = { aliases: [], baseUrl: null, notes: [] };
+
+/**
+ * The aliases that govern each importing file: those of the nearest
+ * tsconfig.json/jsconfig.json above it (its own directory first) that declares
+ * `paths` or `baseUrl`, itself or through `extends`, else the root config's. A
+ * nested config that declares neither (one that only sets `strict`, or extends a
+ * package) defers to the next config up, so a file never loses an alias the root
+ * would give it. `notes` gathers every config's unfollowed `extends`.
+ */
+export function pathAliasResolver(repoRoot: string, files: Iterable<string>): { aliasesFor: (rel: string) => PathAliases; notes: string[] } {
+  const root = readPathAliases(repoRoot);
+  const notes = [...root.notes];
+  const configDirs = new Set<string>();
+  for (const f of files) if (/(?:^|\/)[tj]sconfig\.json$/.test(f) && f.includes('/')) configDirs.add(path.posix.dirname(f));
+  const own = new Map<string, PathAliases | null>();
+  for (const dir of configDirs) {
+    const config = readPathAliases(repoRoot, dir);
+    for (const n of config.notes) if (!notes.includes(n)) notes.push(n);
+    own.set(dir, config.aliases.length || config.baseUrl !== null ? config : null);
+  }
+  const byDir = new Map<string, PathAliases>();
+  const governing = (dir: string): PathAliases => {
+    if (dir === '.' || dir === '') return root;
+    let hit = byDir.get(dir);
+    if (!hit) { hit = own.get(dir) ?? governing(path.posix.dirname(dir)); byDir.set(dir, hit); }
+    return hit;
+  };
+  return { aliasesFor: rel => governing(path.posix.dirname(rel)), notes };
+}
 
 /**
  * TypeScript's pattern choice: an exact pattern, else the matching wildcard
@@ -483,8 +514,8 @@ export function buildGraph(repoRoot: string, opts: BuildOptions = {}): Graph {
   const files = new Set([...all, ...gone]);
   const dirs = new Set<string>();
   for (const f of files) { let d = path.posix.dirname(f); while (d && d !== '.') { dirs.add(d); d = path.posix.dirname(d); } }
-  const config = readPathAliases(repoRoot);
-  const graph: Graph = { files, tests: new Set(all.filter(isTestFile)), reverse: new Map(), unresolved: new Map(), aliasNotes: config.notes };
+  const aliases = pathAliasResolver(repoRoot, all);
+  const graph: Graph = { files, tests: new Set(all.filter(isTestFile)), reverse: new Map(), unresolved: new Map(), aliasNotes: aliases.notes };
   const maxBytes = opts.maxBytes ?? 2 * 1024 * 1024;
   const packages = dartPackages(repoRoot, all);
   const pySources = new Map<string, string>();
@@ -494,7 +525,7 @@ export function buildGraph(repoRoot: string, opts: BuildOptions = {}): Graph {
     try { const st = fs.statSync(path.join(repoRoot, rel)); if (!st.isFile() || st.size > maxBytes) continue; source = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (rel.endsWith('.py')) pySources.set(rel, source);
     const unresolved: string[] = [];
-    for (const { target, via } of referencesIn(files, dirs, rel, source, config, graph.tests.has(rel) ? unresolved : undefined, packages)) addEdge(graph, target, rel, via);
+    for (const { target, via } of referencesIn(files, dirs, rel, source, aliases.aliasesFor(rel), graph.tests.has(rel) ? unresolved : undefined, packages)) addEdge(graph, target, rel, via);
     if (unresolved.length) graph.unresolved!.set(rel, unresolved);
   }
   const rust = rustEdges(all, rel => readRepoFile(repoRoot, rel, maxBytes));
@@ -507,7 +538,7 @@ export function buildGraph(repoRoot: string, opts: BuildOptions = {}): Graph {
     const present = new Set(all);
     graph.goneSubjects = new Map();
     for (const [rel, source] of opts.goneSources) {
-      const targets = [...referencesIn(files, dirs, rel, source, config, undefined, packages).map(r => r.target), ...conventionBins(rel, files)];
+      const targets = [...referencesIn(files, dirs, rel, source, aliases.aliasesFor(rel), undefined, packages).map(r => r.target), ...conventionBins(rel, files)];
       graph.goneSubjects.set(rel, [...new Set(targets)].filter(t => present.has(t) && !isTestFile(t) && !TEST_TREE.test(t)).sort());
     }
   }

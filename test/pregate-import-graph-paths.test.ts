@@ -122,6 +122,53 @@ describe('import graph: route-group / dynamic-segment paths and tsconfig path al
   });
 });
 
+describe('import graph: nested tsconfig paths govern the files under them', () => {
+  // Value: protects=an `@/` import inside a workspace app resolves through that app's own tsconfig `paths` (joined relative to it),
+  //   so the app's source maps to its tests; fails_when=only the repo-root config is read again (a monorepo `apps/mobile`: 14 touched
+  //   files PREGATE_NO_LANE, every `@/…` import invisible); why_new=only root configs were tested; seam=none; no_claim=TS project references
+  test('an alias in a nested tsconfig maps a source file under it to the test that imports it', () => {
+    const repo = fixture();
+    commit(repo, {
+      'apps/mobile/tsconfig.json': '{ "extends": "expo/tsconfig.base", "compilerOptions": { "strict": true, "paths": { "@/*": ["./src/*"] } } }\n',
+      'apps/mobile/src/media/close-bar.tsx': 'export const CloseBar = () => null;\n',
+      'apps/mobile/src/media/close-bar.test.tsx': "import { CloseBar } from '@/media/close-bar';\nCloseBar;\n",
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'apps/mobile/src/media/close-bar.tsx').tests).toEqual(['apps/mobile/src/media/close-bar.test.tsx']);
+    // The package `extends` that was not followed is still named for the no-lane explanation.
+    expect(g.aliasNotes).toContain('apps/mobile/tsconfig.json extends expo/tsconfig.base: not a relative path, not followed');
+  });
+
+  test('each app resolves the same alias through its own config; the root config still governs files outside them', () => {
+    const repo = fixture();
+    commit(repo, {
+      'tsconfig.json': '{ "compilerOptions": { "paths": { "@/*": ["src/*"] } } }\n',
+      'src/x.ts': 'export const x = "root";\n',
+      'test/x.test.ts': "import { x } from '@/x';\nx;\n",
+      'apps/web/tsconfig.json': '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["lib/*"] } } }\n',
+      'apps/web/lib/x.ts': 'export const x = "web";\n',
+      'apps/web/test/x.test.ts': "import { x } from '@/x';\nx;\n",
+      // A nested config that declares no paths defers to the root's.
+      'packages/core/tsconfig.json': '{ "compilerOptions": { "strict": true } }\n',
+      'packages/core/test/x.test.ts': "import { x } from '@/x';\nx;\n",
+    });
+    const g = buildGraph(repo.work);
+    expect(testsFor(g, 'src/x.ts').tests).toEqual(['packages/core/test/x.test.ts', 'test/x.test.ts']);
+    expect(testsFor(g, 'apps/web/lib/x.ts').tests).toEqual(['apps/web/test/x.test.ts']);
+  });
+
+  test('a nested config takes paths through a relative extends, joined relative to the config that declares them', () => {
+    const repo = fixture();
+    commit(repo, {
+      'tsconfig.base.json': '{ "compilerOptions": { "paths": { "#core/*": ["packages/core/src/*"] } } }\n',
+      'apps/api/tsconfig.json': '{ "extends": "../../tsconfig.base.json" }\n',
+      'packages/core/src/plan.ts': 'export const plan = 1;\n',
+      'apps/api/test/plan.test.ts': "import { plan } from '#core/plan';\nplan;\n",
+    });
+    expect(testsFor(buildGraph(repo.work), 'packages/core/src/plan.ts').tests).toEqual(['apps/api/test/plan.test.ts']);
+  });
+});
+
 describe('import graph: alias precedence, extends and the no-lane explanation', () => {
   const twoAliases = (specificFirst: boolean) => {
     const specific = '"@/lib/*": ["src/lib/*"]';
