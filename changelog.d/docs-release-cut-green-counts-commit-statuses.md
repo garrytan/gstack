@@ -1,1 +1,0 @@
-- **docs/releases.md now says the stable release cut treats a failed commit status as red and a pending one as still going, as it has since #4257.** The docs' definition of a green commit only mentioned check runs.
