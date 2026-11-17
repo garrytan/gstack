@@ -151,6 +151,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/exercised-map-replay.json': ['scripts/exercised-map.ts'],
   'test/fixtures/exit-propagation/**': ['test/exit-propagation.test.ts'],
   'test/fixtures/factory-scorecard/**': ['test/factory-scorecard.test.ts'],
+  'test/fixtures/founder-resources-pool.txt': ['test/founder-resources-bin.test.ts'],
   'test/fixtures/free-shard-capture.ts': ['test/test-free-shards-capture.test.ts'],
   'test/fixtures/gh-poll/**': ['test/gh-poll.test.ts'],
   'test/fixtures/golden/**': ['test/host-config.test.ts', 'test/ship-review-loop.test.ts'],
