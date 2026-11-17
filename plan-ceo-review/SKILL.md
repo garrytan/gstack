@@ -49,6 +49,19 @@ gbrain:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+## Day one first (before any other step)
+
+Prove the plan is useful to its owner on the first day. Finish these steps before the review's own first step (CEO Step 0, design Pass 1, autoplan Phase 1), reuse the table when the plan already has one, and keep it current as the review changes the plan.
+
+1. Write a `### Day one` table in the plan with these columns: action | frequency | source | feature | route | first build | check. One row for each of the owner's first five actions, on day one and every day after.
+2. `source` is the owner's own words or the owner's evidence (a calendar, past use). With neither, write `assumed`.
+3. `route` is the taps from the first screen to the feature. `first build` is the first PR whose build has it. `check` is how we know it works on the owner's device.
+4. Flag as High any daily row with no feature, no route from the first screen, or a first build later than a less frequent row's.
+5. Schedule a build on the owner's own device right after the first PR. Say what it does and what it won't do yet.
+6. No dead controls: every control in any build the owner receives works end to end or is hidden.
+7. Interactive run: before filling rows from guesses, ask the owner about real past days, one question at a time ("What did you do with your calendar yesterday?"). Unattended run: leave unsourced rows `assumed`; they go to the approval gate as owner questions.
+8. A plan nobody uses directly (a library, a backend job) writes one line naming who relies on it first and how, instead of the table.
+
 ## Shared preamble (load first)
 
 This skill follows gstack shared preamble `d56c99c92144` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-ceo-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
@@ -213,7 +226,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 # Mega Plan Review Mode
 
 ## Philosophy
-Make this plan extraordinary. Match posture:
+Make this plan useful, valuable and important to its owner from day one, then extraordinary. Match posture:
 * SCOPE EXPANSION: Build the platonic ideal, 10x better for 2x effort. Recommend expansions enthusiastically.
 * SELECTIVE EXPANSION: Harden current scope; neutrally offer each expansion's opportunity, effort and risk. Accepted items govern later sections; rejected ones go to "NOT in scope."
 * HOLD SCOPE: Preserve scope; trace failures, edge cases, error paths, tests and observability.
@@ -563,9 +576,8 @@ Implementation-ready names interfaces, codepaths, rescue behavior and tests.
 For one narrow decision, apply every section to that choice and its dependencies.
 
 **Keep the stated limits.** Record each measure, value, unit and prerequisite.
-Count all deliverables, including reused code, against scope limits. Separately,
-0E counts changed files, excluding unchanged reuse, to recommend a mode.
-Neither count approves changes. Changing a limit needs evidence and user approval.
+Count all deliverables, including reused code, against scope limits.
+The count approves no changes. Changing a limit needs evidence and user approval.
 
 **Storage policy: choose before writing.** Honor user/host write and cleanup limits.
 Use one working plan: requested output, else reviewed plan, else host active plan.
@@ -748,9 +760,9 @@ Record findings even after resolution; say "No issues, moving on." only with non
 Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport only.
 
 1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION.
-2. Recommend without selecting. Count distinct planned file additions, edits and
-   deletions; mark estimated counts as estimates. Apply the first matching rule:
-   - For >15 planned changed files, recommend SCOPE REDUCTION.
+2. Recommend without selecting. Read the Day one table and apply the first matching rule:
+   - A daily Day one row has no feature in the plan: recommend SCOPE EXPANSION.
+   - Fewer parts would cover every Day one row: recommend SCOPE REDUCTION.
    - If categories overlap or are unclear, explain why and recommend HOLD SCOPE.
    - Otherwise: a new product/system (greenfield) → SCOPE EXPANSION;
      added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE.
@@ -782,7 +794,7 @@ applicable Step 0 work in route order, reusing completed work and scope answers.
 Then resume the paused step. If unchanged, resume directly.
 
 Selecting a mode does not approve changes. Preserve 0D approvals and ask about
-each proposed addition or cut, including those prompted by file-count thresholds.
+each proposed addition or cut, including those prompted by the Day one table.
 
 Follow the selected mode's route:
 
@@ -966,15 +978,14 @@ amendments and implementation remain unapproved. For B, resolve the requested
 changes through 0D, update both inputs and repeat document approval. C stops.
 After A, run 0I before Review Sections.
 
-### 0I. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
+### 0I. First week on the owner's device (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
 Resolve scope and feasibility blockers through 0D now. Keep other design choices
 pending unless the user requested implementation planning.
-```
-  HOUR 1 (foundations):     What does the implementer need to know?
-  HOUR 2-3 (core logic):   What ambiguities will they hit?
-  HOUR 4-5 (integration):  What will surprise them?
-  HOUR 6+ (polish/tests):  What will they wish they'd planned for?
-```
+Name the first build that reaches the owner's own device (right after the first PR),
+which Day one rows it does, what it won't do yet, and its try-it instructions:
+device and setup, how to start, what to tap, how long, what we want to learn and
+how to report back. Then list the rest of week one build by build, most frequent
+Day one row first.
 Save the sequence, feasibility blockers and pending choices in the plan, with human-team and CC + gstack effort.
 
 Carry the ledger and each answer's exact scope into the review sections.

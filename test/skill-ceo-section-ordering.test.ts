@@ -440,7 +440,8 @@ test('CEO mode recommendation explains a plan-specific consequence without chang
     const mode = between(source, '### 0E. Mode Selection', '### 0F.');
     const recommendation = compactProse(between(mode, '2. Recommend without selecting.', '3. Resolve that recommendation.'));
     expect(recommendation).toMatch(/not just its count\/category/i);
-    expectMentions(recommendation, [['>15', 'scope reduction']], 'recommendation');
+    expectMentions(recommendation, [['daily day one row', 'no feature', 'scope expansion'], ['fewer parts', 'every day one row', 'scope reduction']], 'recommendation');
+    expect(recommendation).not.toContain('>15');
     expect(recommendation).toContain('(greenfield) → SCOPE EXPANSION');
     expect(recommendation).toContain('added capability → SELECTIVE EXPANSION');
     expect(recommendation).toContain('fix/refactor → HOLD SCOPE');
@@ -707,7 +708,7 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeGreaterThan(skeleton.indexOf('### 0I.'));
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeLessThan(skeleton.indexOf('> **STOP.**'));
     expect(compactProse(skeleton)).toContain('ask separately per item');
-    expectMentions(skeleton, [['>15', 'scope reduction']], 'skeleton');
+    expectMentions(skeleton, [['fewer parts', 'every day one row', 'scope reduction']], 'skeleton');
     expect(skeleton).toContain('a new product/system (greenfield) → SCOPE EXPANSION');
     const persist = skeleton.split('### 0H. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)')[1]?.split('### 0I.')[0] ?? '';
     expect(persist).toMatch(/^#### Spec Review Loop$/m);

@@ -29,6 +29,8 @@ allowed-tools:
 {{AUTOPLAN_PUBLICATION_HOOK}}
 ---
 
+{{DAY_ONE_STEPS}}
+
 {{PREAMBLE}}
 
 {{BASE_BRANCH_DETECT}}
@@ -66,8 +68,12 @@ The 6 principles answer intermediate questions; taste goes to one final gate.
 5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction; pick what a new contributor reads at a glance.
 6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns, don't block.
 
+**In the CEO phase, P1 and P2 read:** P1 **Most-used first**: the owner's most frequent
+Day one row is in the first build. P2 **Scope follows the owner's journey, not files**:
+approve what a Day one row needs; defer what no row needs.
+
 **Conflict resolution (context-dependent tiebreakers):**
-- **CEO phase:** P1 (completeness) + P2 (boil lakes) dominate.
+- **CEO phase:** P1 (most-used first) + P2 (owner's journey) dominate.
 - **Eng phase:** P5 (explicit) + P3 (pragmatic) dominate.
 - **Design phase:** P5 (explicit) + P1 (completeness) dominate.
 
@@ -336,8 +342,8 @@ Check the plan and conversation for each applicable deliverable:
 
 | Phase | Required outputs |
 |---|---|
-| CEO | Named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
-| Design, if UI | Scores for all 7 dimensions; identified and decided issues; litmus scorecard. |
+| CEO | Day one table (every daily row with a feature, a route and a first build, or a High finding); named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
+| Design, if UI | Scores for all 7 dimensions; route coverage of the Day one table; dead-control list (Pass 8); identified and decided issues; litmus scorecard. |
 | DX, if developer-facing | Scores for all 8 dimensions; developer journey map; empathy narrative; TTHW assessment and target; DX Implementation Checklist; consensus table. |
 | Eng, always last | Scope challenge grounded in code with its `REALITY:` lines; architecture ASCII diagram; codepath-to-test diagram; test plan on disk at ~/.gstack/projects/$SLUG/; NOT in scope; What already exists; failure modes registry with critical gaps; Completion Summary; consensus table. |
 
@@ -345,6 +351,9 @@ Per phase, verify native and outside voice results or explicit unavailable/skipp
 status, cross-phase themes and one Decision Audit Trail row per auto-decision.
 Produce missing outputs before the gate; after at most 2 repair attempts, warn
 there with each incomplete item.
+
+**Feature added after a round cap:** before the gate, one reviewer reruns the
+day-one steps on the Day one table only; its findings join the gate.
 
 {{PLAN_REALITY_ROWS:pregate}}
 

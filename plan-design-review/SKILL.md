@@ -49,6 +49,19 @@ C) A specific page, file, or path.
 
 Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, work Step 0, and generate Step 0.5 mockups against that target.
 
+## Day one first (before any other step)
+
+Prove the plan is useful to its owner on the first day. Finish these steps before the review's own first step (CEO Step 0, design Pass 1, autoplan Phase 1), reuse the table when the plan already has one, and keep it current as the review changes the plan.
+
+1. Write a `### Day one` table in the plan with these columns: action | frequency | source | feature | route | first build | check. One row for each of the owner's first five actions, on day one and every day after.
+2. `source` is the owner's own words or the owner's evidence (a calendar, past use). With neither, write `assumed`.
+3. `route` is the taps from the first screen to the feature. `first build` is the first PR whose build has it. `check` is how we know it works on the owner's device.
+4. Flag as High any daily row with no feature, no route from the first screen, or a first build later than a less frequent row's.
+5. Schedule a build on the owner's own device right after the first PR. Say what it does and what it won't do yet.
+6. No dead controls: every control in any build the owner receives works end to end or is hidden.
+7. Interactive run: before filling rows from guesses, ask the owner about real past days, one question at a time ("What did you do with your calendar yesterday?"). Unattended run: leave unsourced rows `assumed`; they go to the approval gate as owner questions.
+8. A plan nobody uses directly (a library, a backend job) writes one line naming who relies on it first and how, instead of the table.
+
 ## Shared preamble (load first)
 
 This skill follows gstack shared preamble `d56c99c92144` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
@@ -262,7 +275,7 @@ Trace every judgment to a broken principle; never "this feels off" without one. 
 
 Complete every required stage, decision gate and output. Shorten only optional
 commentary, never Step 0, Step 0.5 mockups (when the designer is available and
-the user hasn't opted out), Passes 1–7 or required decision/report content.
+the user hasn't opted out), Passes 1–8 or required decision/report content.
 The system handles context limits; do not preemptively warn.
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
@@ -384,7 +397,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 | When | Read this section |
 |------|-------------------|
-| running the 7 design passes, required outputs, and review report (only after Step 0 scope is agreed) | `sections/review-sections.md` |
+| running the 8 design passes, required outputs, and review report (only after Step 0 scope is agreed) | `sections/review-sections.md` |
 ---
 
 
@@ -827,12 +840,12 @@ printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
 
 Exit 0: show the image at the printed `outputPath` via the Read tool. Exit 2 or 3: report `failures` and continue text-only. Without the designer, describe the 10/10 in text.
 
-> **STOP.** Before running the 7 design passes, required outputs, and review report (only after Step 0 scope is agreed), Read `~/.claude/skills/gstack/plan-design-review/sections/review-sections.md` and execute it
+> **STOP.** Before running the 8 design passes, required outputs, and review report (only after Step 0 scope is agreed), Read `~/.claude/skills/gstack/plan-design-review/sections/review-sections.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Section self-check (before you finish)
 
-Confirm you Read the review section the Section index named, and executed all 7 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
+Confirm you Read the review section the Section index named, and executed all 8 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
 Before summaries, review logs or next-step menus, run approval check 0 below.
 

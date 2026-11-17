@@ -120,11 +120,12 @@ test('only an explicit user selection or enabled successful mode check bypasses 
   expect(s.replace(/\s+/g,' ')).toContain('Preserve 0D approvals and ask about each proposed addition or cut');
   expect(s).toContain('offer all four modes in one AskUserQuestion');
   expect(s).toContain("using step 2's recommendation");
-  expect(s).toContain('For >15 planned changed files, recommend SCOPE REDUCTION');
+  expect(s).toContain('A daily Day one row has no feature in the plan: recommend SCOPE EXPANSION');
+  expect(s).toContain('Fewer parts would cover every Day one row: recommend SCOPE REDUCTION');
+  expect(s).not.toContain('>15 planned changed files');
   expect(document).toContain('more than 8 files or more than 2 new classes/services');
-  expect(s.replace(/\s+/g,' ')).toContain('ask about each proposed addition or cut, including those prompted by file-count thresholds');
-  expect(s.replace(/\s+/g,' ')).toContain('Count distinct planned file additions, edits and deletions');
-  expect(s.replace(/\s+/g,' ')).toContain('mark estimated counts as estimates');
+  expect(s.replace(/\s+/g,' ')).toContain('ask about each proposed addition or cut, including those prompted by the Day one table');
+  expect(s.replace(/\s+/g,' ')).toContain('Recommend without selecting. Read the Day one table and apply the first matching rule');
   expect(s).toContain('These modes differ in kind, not coverage; do NOT score completeness');
   expect(document).toContain('Note: options differ in kind, not coverage — no completeness score.');
  }

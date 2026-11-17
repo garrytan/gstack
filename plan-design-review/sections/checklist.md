@@ -7,10 +7,14 @@ Design phase steps and required outputs for `bin/gstack-autoplan` (unattended or
 
 ### Steps
 1. Scope is agreed and DESIGN.md (when present) is read; carry prior decisions.
-2. Run Passes 1–7 in order, never condensed: information architecture,
-   interaction states, journey and emotional arc, AI slop risk, design system
-   alignment, responsive and accessibility, unresolved design decisions. A
-   Persuade plan also gets Pass 1's five conversion checks.
+2. Run Passes 1–8 in order, never condensed: information architecture (with
+   route coverage: every Day one row and every feature reachable from the root
+   screen, a daily row in at most two taps), interaction states (how often each
+   root-screen section is empty for this owner; empty on most days is High),
+   journey and emotional arc, AI slop risk, design system alignment, responsive
+   and accessibility, unresolved design decisions, no dead controls (every
+   visible control in an owner build works end to end or is hidden; list every
+   stub). A Persuade plan also gets Pass 1's five conversion checks.
 3. Post-pass: update generated mockups when any exist.
 4. One decision cycle per unresolved finding; then the required outputs below.
 
