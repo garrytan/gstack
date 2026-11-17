@@ -14,6 +14,10 @@
  *     reference, filler or version word (`closing`, `cf.`, `e.g.`, `v1.2`
  *     name nothing), is a cross-repo reference to `name`: rendered as
  *     `Refs name#N`, never a same-repo Refs line or a promotion candidate.
+ *     Several in one parenthesis, `(founderstar #837, harness-evals #393)`,
+ *     are each their own name's reference.
+ *   - `owner/repo#N` naming this repository (ownRepoMentions) is this
+ *     repository's own issue, so `Fixes garrytan/gstack#N` closes it.
  *   - A closure issue that cannot be read through gstack-issue-guard is
  *     downgraded to `Refs #N` with ISSUE_UNREADABLE (never Fixes).
  *   - Same-repo references are promotion candidates: the owner's `fix #N`
@@ -41,12 +45,14 @@ export interface IssueRow { number: number; title?: string; body?: string; autho
 /** One `closedByPullRequestsReferences` node of an issue this PR fixes. */
 export interface ClosingPr { number: number; state?: string; headRefName?: string; author?: { login?: string } | null; repository?: { nameWithOwner?: string } }
 
-const CLOSURE = /^\s*(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s*:?\s+(?:#|GH-)(\d+)\s*$/i;
+const CLOSURE = /^\s*(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s*:?\s+(?:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#|#|GH-)(\d+)\s*$/i;
 const PARTIAL = /\b(?:partial(?:ly)?|part of|defer(?:red)?|follow-?up|related|refs?|see|context)\b/i;
 const CROSS = /\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)\b/g;
 const BARE = /(?<![A-Za-z0-9_./-])#(\d+)\b/g;
-/** `(name #N[, #M]…)`, `(name PR #N)`, `(name issue #N)`: the name, then every number. */
-const NAMED = /\(([A-Za-z][\w.-]*(?:\/[\w.-]+)?)\s+(?:(?:PR|issue)\s+)?(#\d+(?:,\s*#\d+)*)\)/gi;
+/** One `name #N[, #M]…`, `name PR #N` or `name issue #N`: the name, then every number. */
+const NAMED_PART = /([A-Za-z][\w.-]*(?:\/[\w.-]+)?)\s+(?:(?:PR|issue)\s+)?(#\d+(?:,\s*#\d+)*)/gi;
+/** A parenthesis holding one or more NAMED_PARTs separated by commas or semicolons. */
+const NAMED = new RegExp(`\\((?:${NAMED_PART.source})(?:[,;]\\s*(?:${NAMED_PART.source}))*\\)`, 'gi');
 /** Words that open a reference in parentheses without naming a repository. */
 const NOT_A_NAME = /^(?:fix(?:es|ed|ing)?|clos(?:e[sd]?|ing)|resolv(?:e[sd]?|ing)|address(?:es|ed|ing)?|implement(?:s|ed|ing)?|supersed(?:es|ed|ing)|replac(?:es|ed|ing)|track(?:s|ed|ing)?|block(?:s|ed|ing)?|dup|duplicates?|bugs?|upstream|refs?|see|related|partial(?:ly)?|part|context|follow-?up|defer(?:red)?|prs?|issues?|gh|via|from|after|since|with|in|by|for|also|cf\.?|e\.?g\.?|i\.?e\.?|and|or|per|of|to|on|at|as|is|was|the|an?|this|that|not|no|vs\.?|like|v\d[\w.-]*)$/i;
 
@@ -58,15 +64,27 @@ export function mentionsIn(message: string, source = 'commit'): IssueMention[] {
   for (const raw of message.split('\n')) {
     const line = raw.replace(/\s+$/, '');
     const trailer = CLOSURE.exec(line);
-    if (trailer && !PARTIAL.test(line)) { add({ issue: Number(trailer[1]), intent: 'fixes', source: `${source}: ${line.trim()}` }); continue; }
-    const rest = line.replace(NAMED, (whole, name: string, numbers: string) => {
-      if (NOT_A_NAME.test(name)) return whole;
+    if (trailer && !PARTIAL.test(line)) { add({ issue: Number(trailer[2]), intent: 'fixes', ...(trailer[1] ? { repo: trailer[1] } : {}), source: `${source}: ${line.trim()}` }); continue; }
+    const rest = line.replace(NAMED, whole => whole.replace(NAMED_PART, (part, name: string, numbers: string) => {
+      if (NOT_A_NAME.test(name)) return part;
       for (const n of numbers.matchAll(/#(\d+)/g)) add({ issue: Number(n[1]), intent: 'refs', repo: name, source: `${source}: ${line.trim()}` });
       return ' ';
-    });
+    }));
     for (const c of rest.matchAll(CROSS)) add({ issue: Number(c[2]), intent: 'refs', repo: c[1], source: `${source}: ${line.trim()}` });
     const stripped = rest.replace(CROSS, '');
     for (const b of stripped.matchAll(BARE)) add({ issue: Number(b[1]), intent: 'refs', source: `${source}: ${line.trim()}` });
+  }
+  return out;
+}
+
+/** Mentions whose `owner/repo` is `repo` (case-insensitive) become this repository's own; the rest are unchanged. */
+export function ownRepoMentions(mentions: IssueMention[], repo: string | undefined): IssueMention[] {
+  if (!repo) return mentions;
+  const out: IssueMention[] = [];
+  for (const m of mentions) {
+    const { repo: named, ...own } = m;
+    const next: IssueMention = named?.toLowerCase() === repo.toLowerCase() ? own : m;
+    if (!out.some(o => o.repo === next.repo && o.issue === next.issue && o.intent === next.intent)) out.push(next);
   }
   return out;
 }

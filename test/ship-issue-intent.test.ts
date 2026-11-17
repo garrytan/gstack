@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { splitAgentNotes } from '../lib/agent-notes';
 import { EXIT } from '../lib/headless-artifacts';
-import { lineSources, mentionsIn, promotionCandidates, relatedPrs, renderIssueLines, resolveLinks, selectFlakes, type ClosingPr, type IssueRow } from '../lib/issue-links';
+import { lineSources, mentionsIn, ownRepoMentions, promotionCandidates, relatedPrs, renderIssueLines, resolveLinks, selectFlakes, type ClosingPr, type IssueRow } from '../lib/issue-links';
 import { cleanup, commit, ghShim, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -47,6 +47,27 @@ describe('issue intent (pure)', () => {
     expect(mentionsIn('same line (gbrain #7625) and #13 here').map(x => [x.repo ?? '', x.issue])).toEqual([['gbrain', 7625], ['', 13]]);
   });
 
+  // Value: protects=several named references in one parenthesis, "(founderstar #837, harness-evals #393)", are each a cross-repo reference to their own
+  // name, never this repository's #837 and #393, while "(see #12, #13)", "mentions #12" and "Fixes #14" keep their meaning; owner/repo#N naming this
+  // repository is its own issue (a Fixes trailer closes it) and another repository's never closes here; fails_when=a list of named references falls
+  // through to the bare-#N rule (GST-2967: wrong Refs lines and fix-#N offers for issues the commit never meant), or this repository's full form stays a
+  // cross-repo Refs line; why_new=the named-reference test covers one name per parenthesis only; seam=none; no_claim=prose outside parentheses
+  test('a list of named references is cross-repo; this repository\'s owner/repo#N is its own issue (GST-2967)', () => {
+    const listed = mentionsIn('docs audit: stop halting on prose (founderstar #837, harness-evals #393)\n\nSee #12 (gbrain #7625; acme/tools issue #4).\n');
+    expect(listed.map(x => [x.repo ?? '', x.issue, x.intent])).toEqual([['founderstar', 837, 'refs'], ['harness-evals', 393, 'refs'], ['gbrain', 7625, 'refs'], ['acme/tools', 4, 'refs'], ['', 12, 'refs']]);
+    const links = resolveLinks(listed, [], () => true);
+    expect(links).toEqual({ fixes: [], refs: [12], flakes: [], cross: ['acme/tools#4', 'founderstar#837', 'gbrain#7625', 'harness-evals#393'], unreadable: [] });
+    expect(promotionCandidates(listed, links).map(c => c.issue)).toEqual([12]);
+    expect(mentionsIn('retry (see #12, #13) and (closing #14; #15)').map(x => [x.repo ?? '', x.issue])).toEqual([['', 12], ['', 13], ['', 14], ['', 15]]);
+    expect(mentionsIn('mentions #12 only').map(x => [x.repo ?? '', x.issue])).toEqual([['', 12]]);
+    const own = ownRepoMentions(mentionsIn('Refs garrytan/gstack#40, same as #40, and owner/other#9\n\nFixes garrytan/gstack#41\nFixes owner/other#42\n'), 'garrytan/GStack');
+    expect(own.map(x => [x.repo ?? '', x.issue, x.intent])).toEqual([['', 40, 'refs'], ['owner/other', 9, 'refs'], ['', 41, 'fixes'], ['owner/other', 42, 'fixes']]);
+    const ownLinks = resolveLinks(own, [], () => true);
+    expect(ownLinks).toEqual({ fixes: [41], refs: [40], flakes: [], cross: ['owner/other#42', 'owner/other#9'], unreadable: [] });
+    expect(renderIssueLines(ownLinks)).toEqual(['Fixes #41', 'Refs #40', 'Refs owner/other#42', 'Refs owner/other#9']);
+    expect(ownRepoMentions(mentionsIn('Fixes garrytan/gstack#41'), undefined).map(x => [x.repo ?? '', x.issue])).toEqual([['garrytan/gstack', 41]]);
+  });
+
   test('resolution: explicit --issue is closure, unreadable closure becomes Refs, a flake issue is never a plain Ref', () => {
     const links = resolveLinks(mentionsIn('Fixes #14\nFixes #15\nsee #40 and #16'), [16], n => n !== 15, [{ issue: 40, run: '7' }]);
     expect(links).toEqual({ fixes: [14, 16], refs: [15], flakes: [{ issue: 40, run: '7' }], cross: [], unreadable: [15] });
@@ -77,6 +98,15 @@ describe('gstack-issue-links (bin)', () => {
     expect(JSON.parse(receipt.out).issues).toEqual({ fixes: [14, 16], refs: [12, 13, 15], flakes: [{ issue: 40, run: '123456' }] });
   });
 
+
+  test('a named-reference list in a commit is cross-repo, and Fixes owner/repo#N for this repository closes it (GST-2967)', () => {
+    const repo = fixture();
+    commit(repo, { 'lib/util.js': "exports.add = (a, b) => a + b + 0;\n" }, 'docs audit: stop halting on prose (founderstar #837, harness-evals #393)\n\nFixes owner/repo#14\n');
+    const env = ghShim(repo, { issues: { '14': { title: 't', body: 'b', comments: [] } } });
+    const r = runBin(repo, 'gstack-issue-links', ['--base', 'main', '--no-auto-links'], env);
+    expect(r).toMatchObject({ status: EXIT.ok, out: 'Fixes #14\nRefs founderstar#837\nRefs harness-evals#393\n' });
+    expect(r.err).toContain('closure #14 ← commit ');
+  });
   test('no mentions prints ISSUE_LINKS: none with exit 0; a bare mention never closes; bad flags are usage', () => {
     const repo = fixture();
     commit(repo, { 'lib/util.js': "exports.add = (a, b) => a + b + 0;\n" }, 'tidy\n\nmentions #12 only\n');

@@ -2278,6 +2278,9 @@ cross-repo `owner/repo#N` are `Refs`. A parenthesised named reference,
 token that is not a closure, reference, filler or version word, is a
 cross-repo `Refs name#N`, never a same-repo Refs line or a promotion
 candidate; `(see #12)`, `(closing #12)` and `(#301)` stay bare refs.
+Several in one parenthesis, `(founderstar #837, harness-evals #393)`, are each
+their own name's reference. `owner/repo#N` naming this repository is its own
+issue, so a `Fixes garrytan/gstack#N` trailer closes it.
 Same-repo references are printed as
 promotion candidates (`reference #N ← <commit line> (promote: fix #N)` on
 stderr, `candidates` in `--json`): the owner's `fix #N` reply reruns with

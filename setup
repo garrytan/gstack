@@ -4548,6 +4548,9 @@ if [ -x "$DETECT_BIN" ]; then
           # main gen:skill-docs site had). Capture, show the tail, propagate.
           _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)
           _GEN_USER_RC=$?
+          # The generator writes unprefixed name: fields; apply skill_prefix
+          # before the swap, as _render_install does (#4413).
+          [ "$_GEN_USER_RC" -ne 0 ] || "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$_GSTACK_RENDER_TMP" "$SKILL_PREFIX" >/dev/null || _GEN_USER_RC=$?
           printf '%s\n' "$_GEN_USER_OUT" | tail -3
           exit "$_GEN_USER_RC"
         ); then
