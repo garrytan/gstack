@@ -129,4 +129,11 @@ describe('rendered Design Doc Check block', () => {
     const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-design-v2-design-20261101-100000.md'), 1000);
     expect(f.find()).toBe(doc);
   });
+  test('names containing "memo" still find real design docs (GST-3024)', () => {
+    const f = fixture();
+    const local = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-memo-design-20261101-100000.md'), 1000);
+    expect(f.find({}, ['proj', 'feat-memo'])).toBe(local);
+    const repo = f.write(path.join(f.repo, 'docs/designs/add-memo-export.md'), 5);
+    expect(f.find({}, ['proj', 'feat-memo'])).toBe(repo);
+  });
 });
