@@ -353,6 +353,15 @@ Two stages with separate clocks, both printed:
   modified file whose only test the branch deleted still has no lane, and a
   remaining test that reads a deleted file or directory is selected. /review
   lists a deleted test as a gate edit (RH-1) either way.
+  A JS/TS file's `paths` aliases and `baseUrl` come from the nearest
+  tsconfig.json (else jsconfig.json) above it that declares `paths` or
+  `baseUrl`, itself or through a relative `extends` chain inside the
+  repository (up to four hops), joined relative to the config that declares
+  them. A nested config that declares neither defers to the next one up, and
+  the repository root's config governs the rest, so `@/x` in
+  `apps/mobile/src/a.test.ts` resolves through `apps/mobile/tsconfig.json`.
+  A package-name `extends` or one that leaves the repository is not followed
+  and is named in the no-lane explanation.
   An extensionless JS/TS import (relative, a tsconfig/jsconfig `paths` alias or
   `baseUrl`) tries the exact path, then `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`,
   `.cjs`, `.mts`, `.cts`, then `index.ts`, `index.tsx`, `index.js`, `index.jsx`

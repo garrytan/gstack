@@ -2201,9 +2201,13 @@ and, as `READ_ALSO:`, the other roots it still reads (a row mirrored before the 
 
 **Meaning.** The local record or its Drive mirror could not be written; the line names
 the path and the error. A failed local append wrote nothing. A failed mirror write
-leaves the local row in place. Exit 1.
+leaves the local row in place. Exit 1. A fixture (a run under `bun test`, or a state root or
+repository in the temp directory) also gets this when its mirror resolves outside the temp
+directory: the line says `outside the temp root`, and nothing reaches that Drive.
 
 **Fix.** Make the named directory writable, then rerun `gstack-approvals sync` to mirror again.
+For a fixture, point `HOME` or `GSTACK_APPROVALS_DIR` inside its temp directory, or set
+`GSTACK_APPROVALS_MIRROR=0`.
 
 <a id="approval-import-unanswered"></a>
 ### `gstack-approvals import: ... (APPROVAL_IMPORT_UNANSWERED)`

@@ -2,6 +2,10 @@
 
 ## NEXT PRIORITY
 
+### P1: /office-hours parity pin after the resource move (filed 2026-11-17, GST-3024)
+
+- **Set the office-hours parity ratio in `test/helpers/carve-guards.ts` to the measured value.** The resource move (#4463) freed about 8.6 KB but left the pin at 1.1993. The content change that follows it sets the measured ratio with its reason; if that change slips, lower the pin on its own (a pin may go down freely). Deferred from plan: handoffs/office-hours-2026-11-17/plan.md (GStack Minder drive). **Effort:** S. **Priority:** P1.
+
 ### P3: `/plan-eng-review` return follow-up (filed 2026-11-15, GST-2726)
 
 - **Decide whether `plan-eng-multi-finding-batching` rejoins the weekly lane.** The cut of the standalone skill (GST-1698) took it out through `PERIODIC_CI_EXCLUDE`, because /autoplan Phase 3 auto-decides findings. The standalone `/plan-eng-review` is back (GST-2726) and asks one question per eng finding again, so the case reaches a shipped entry. Running it weekly is paid spend, so the call belongs to the measurement plan in GST-1966. The standalone paid cases deleted with the cut (`plan-eng-plan-mode`, `plan-eng-finding-floor`, `plan-eng-review-artifact-full`) are not restored either. **Effort:** S. **Priority:** P3.
