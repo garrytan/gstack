@@ -10,7 +10,7 @@
  *  1. The skeleton points at the section with a STOP-Read directive, and that
  *     directive sits AFTER Step 0 (scope + mode) — so the conversational Step 0
  *     stays in the always-loaded skeleton, never stranded in the on-demand file.
- *  2. The heavy review body (Sections 1-11) is NOT in the skeleton — it moved to
+ *  2. The review body (Sections 1-3) is NOT in the skeleton — it moved to
  *     the section. A regression that inlines it back would re-bloat the skeleton.
  *  3. The review report writer ("GSTACK REVIEW REPORT") lives in the section, and
  *     the blocking EXIT PLAN MODE GATE that verifies it lives in the skeleton
@@ -440,7 +440,8 @@ test('CEO mode recommendation explains a plan-specific consequence without chang
     const mode = between(source, '### 0E. Mode Selection', '### 0F.');
     const recommendation = compactProse(between(mode, '2. Recommend without selecting.', '3. Resolve that recommendation.'));
     expect(recommendation).toMatch(/not just its count\/category/i);
-    expectMentions(recommendation, [['>15', 'scope reduction']], 'recommendation');
+    expectMentions(recommendation, [['daily day one row', 'no feature', 'scope expansion'], ['fewer parts', 'every day one row', 'scope reduction']], 'recommendation');
+    expect(recommendation).not.toContain('>15');
     expect(recommendation).toContain('(greenfield) → SCOPE EXPANSION');
     expect(recommendation).toContain('added capability → SELECTIVE EXPANSION');
     expect(recommendation).toContain('fix/refactor → HOLD SCOPE');
@@ -469,7 +470,8 @@ describe('CEO review decision boundaries contract', () => {
     expectMentions(depth, [['only','capability','permits']], 'depth');
     expectMentions(compactProse(section), [['before','depth-expansion','designing']], 'compactProse(section)');
     const outputs = compactProse(section.split('## Required Outputs')[1]!);
-    expectMentions(outputs, [['only','strategy-only','capability']], 'outputs');
+    expectMentions(compactProse(section), [['only','strategy-only','capability']], 'compactProse(section)');
+    expect(outputs).not.toContain('Error & Rescue Registry');
     expect(outputs).not.toContain('___ methods');
     expect(alternatives).toContain('| Code change and required regressions | Keep together; carry both forward once approved. |');
     expect(alternatives).toContain('| Approved change with open test method/coverage | Decide once;');
@@ -550,7 +552,8 @@ describe('CEO review decision continuity contract', () => {
     expect(continuity).toMatch(/at each section's \*\*Decision gate\*\*, follow Analyze → Resolve → Apply/i);
     expectMentions(continuity, [['do not','review','change']], 'continuity');
     expectMentions(compactProse(template), [['"no issues found"', 'only', 'zero']], 'template');
-    expect(template).toMatch(/evaluate Sections 1–10 in full/i);
+    expect(template).toMatch(/evaluate Sections 1–2 in full/i);
+    expect(declared).toBe(3);
     expect(template).toContain('`SKIPPED (no UI scope)`');
     ordered(template, ['### Completion Summary', '{{PLAN_FILE_REVIEW_REPORT}}']);
   });
@@ -572,10 +575,6 @@ describe('CEO review decision continuity contract', () => {
 
   test('ownership never defers a critical risk or merges distinct choices by topic', () => {
     expect(continuity).toMatch(/resolve critical risks now/i);
-    const testReview = compactProse(between(template, '### Section 6: Test Review', '### Section 7:'));
-    expectMentions(testReview, [['without','requested','re-asking']], 'testReview');
-    expectMentions(testReview, [['before','prescribing','resolve']], 'testReview');
-    expectMentions(testReview, [['does not','verification','approved']], 'testReview');
     const outside = compactProse(between(template, '### Outside Voice Integration Rule', '{{CODEX_PLAN_REVIEW}}'));
     expectMentions(outside, [['not','agreement','reviewer']], 'outside');
   });
@@ -707,7 +706,7 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeGreaterThan(skeleton.indexOf('### 0I.'));
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeLessThan(skeleton.indexOf('> **STOP.**'));
     expect(compactProse(skeleton)).toContain('ask separately per item');
-    expectMentions(skeleton, [['>15', 'scope reduction']], 'skeleton');
+    expectMentions(skeleton, [['fewer parts', 'every day one row', 'scope reduction']], 'skeleton');
     expect(skeleton).toContain('a new product/system (greenfield) → SCOPE EXPANSION');
     const persist = skeleton.split('### 0H. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)')[1]?.split('### 0I.')[0] ?? '';
     expect(persist).toMatch(/^#### Spec Review Loop$/m);
@@ -723,12 +722,12 @@ describe('plan-ceo-review carve — static ordering', () => {
     expectMentions(handoff, [['only','implementation','unresolved']], 'handoff');
   });
 
-  test('the heavy review body (Sections 1-11) is NOT in the skeleton', () => {
+  test('the review body (Sections 1-3) is NOT in the skeleton', () => {
     expect(skeleton).not.toContain('### Section 1: Architecture Review');
-    expect(skeleton).not.toContain('### Section 11:');
+    expect(skeleton).not.toContain('### Section 3:');
     // ...it lives in the section instead.
     expect(section).toContain('### Section 1: Architecture Review');
-    expect(section).toContain('### Section 11:');
+    expect(section).toContain('### Section 3:');
   });
 
   test('Autoplan CEO uses the loaded Step 0 route before its dual voices and review sections', () => {
@@ -746,7 +745,7 @@ describe('plan-ceo-review carve — static ordering', () => {
         'Send its `nativeDispatchPrompt` verbatim as the Agent prompt', 'Native completion barrier:',
         'Outside prompt: inline the full contents of <CEO_INPUT>',
         suffix === '.md.tmpl' ? '{{OUTSIDE_INVOCATION:autoplan}}' : '_OUTSIDE_EXIT=0',
-        'CEO DUAL VOICES — CONSENSUS TABLE:', 'Sections 1-11 —', '**Mandatory outputs from Phase 1:**', '**Close this phase:**',
+        'CEO DUAL VOICES — CONSENSUS TABLE:', 'Sections 1-3 —', '**Mandatory outputs from Phase 1:**', '**Close this phase:**',
         suffix === '.md.tmpl' ? '{{SECTION:phase-close}}' : 'Read `~/.claude/skills/gstack/autoplan/sections/phase-close.md` and execute it']
         .map(stage => prose.indexOf(stage));
       expect(positions.every(position => position >= 0)).toBe(true);
@@ -771,45 +770,17 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(gate).toBeGreaterThan(stop);
   });
 
-  test('the loaded test-review section preserves mandatory behaviors and individual assertion decisions', () => {
+  // GST-2947 commit B: the CEO review's copies of the engineering sections (errors, security, data flow,
+  // quality, tests, performance, observability, deployment) moved to /plan-eng-review, which runs last.
+  test('the loaded review hands engineering depth to /plan-eng-review and keeps three sections', () => {
     const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
     for (const document of [template, section]) {
-      const testReview = document.split('### Section 6: Test Review')[1]?.split('### Section 7:')[0];
-      expect(testReview).toBeDefined();
-      const instructions = testReview!.replace(/\s+/g, ' ');
-      expectMentions(instructions, [['without','determine','assertion']], 'instructions');
-      expectMentions(instructions, [['never','weaken','exact']], 'instructions');
-      expectMentions(instructions, [['without','requirements','asking']], 'instructions');
-      expectMentions(instructions, [['only','individually','independent']], 'instructions');
-      expectMentions(instructions, [['do not','success','labels']], 'instructions');
-      expectMentions(instructions, [['does not','scope/approach','individual']], 'instructions');
-      expectMentions(instructions, [['does not','coverage','verify']], 'instructions');
-      expectMentions(instructions, [['before','requirement','existing']], 'instructions');
-      expectMentions(instructions, [['never','behavioral','assertion']], 'instructions');
-      expectMentions(instructions, [['unless','explicitly','behaviors']], 'instructions');
-      const phases = ['**Map the requirement.**', '**Reuse settled proof.**', '**Resolve actual gaps.**'].map(phase => instructions.indexOf(phase));
-      expect(phases.every(position => position >= 0)).toBe(true);
-      expect(phases).toEqual([...phases].sort((a, b) => a - b));
-      expect(instructions).toContain('**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.');
-      const procedure = document.split('### Working review decisions')[1]!.split('### Section 1:')[0]!.replace(/\s+/g, ' ');
-      expect(document.indexOf('### Working review decisions')).toBeLessThan(document.indexOf('### Section 6: Test Review'));
-      expect(procedure).toContain("At each section's **Decision gate**, follow Analyze → Resolve → Apply below");
+      expect([...document.matchAll(/^### Section (\d+):/gm)].map(m => Number(m[1]))).toEqual([1, 2, 3]);
+      const architecture = compactProse(between(document, '### Section 1: Architecture Review', '### Section 2:'));
+      expect(architecture).toContain('belong to /plan-eng-review, which runs last on every plan');
+      for (const removed of ['Error & Rescue', 'Security & Threat Model', 'Data Flow & Interaction Edge Cases', 'Test Review', 'Failure Modes Registry']) expect(document).not.toContain(removed);
+      expect(document.indexOf('### Working review decisions')).toBeLessThan(document.indexOf('### Section 1:'));
       expectMentions(compactProse(document), [['"no issues found"', 'only', 'zero']], 'document');
-    }
-  });
-
-  test('the loaded data-flow review requires evidence across interacting operations', () => {
-    const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
-    for (const document of [template, section]) {
-      const dataFlow = document.split('### Section 4: Data Flow & Interaction Edge Cases')[1]?.split('### Section 5:')[0];
-      expect(dataFlow).toBeDefined();
-      const instructions = dataFlow!.replace(/\s+/g, ' ');
-      expectMentions(instructions, [['do not','single-thread','favorable']], 'instructions');
-      expectMentions(instructions, [['only','mechanism','prevents']], 'instructions');
-      expectMentions(instructions, [['not','implementation','requirement']], 'instructions');
-      const phases = ['**Define the boundary.**', '**Exercise both orders.**', '**Compare the result.**', '**Specify regression proof.**'].map(phase => instructions.indexOf(phase));
-      expect(phases.every(position => position >= 0)).toBe(true);
-      expect(phases).toEqual([...phases].sort((a, b) => a - b));
     }
   });
 
@@ -909,17 +880,9 @@ describe('CEO review completion evidence', () => {
     '### Completion Summary',
     '| Review area | Outcome |',
     '| --- | --- |',
-    '| Section 1 (Arch) | 1 issue: centralize the invalidation boundary |',
-    '| Section 2 (Errors) | 3 error paths mapped, 1 fallback gap |',
-    '| Section 3 (Security) | 1 issue: include tenant identity in keys |',
-    '| Section 4 (Data/UX) | 2 edge cases mapped, 0 unhandled |',
-    '| Section 5 (Quality) | No issues found |',
-    '| Section 6 (Tests) | Diagram produced, 2 test gaps |',
-    '| Section 7 (Perf) | 1 issue: cap cached value size |',
-    '| Section 8 (Observ) | 1 gap: missing hit-rate metric |',
-    '| Section 9 (Deploy) | 1 risk: warm-up load |',
-    '| Section 10 (Future) | Reversibility: 5/5, 0 debt items |',
-    '| Section 11 (Design) | SKIPPED (no UI scope) |',
+    '| Section 1 (Arch) | 1 gap: missing hit-rate metric |',
+    '| Section 2 (Future) | No issues found |',
+    '| Section 3 (Design) | SKIPPED (no UI scope) |',
     '## GSTACK REVIEW REPORT',
     '| Review | Runs | Status | Findings |',
     '| CEO | 1 | CLEAR | Cache boundaries reviewed |',
@@ -981,7 +944,7 @@ describe('CEO review completion evidence', () => {
     })).toThrow('missing its Completion Summary');
   });
 
-  test.each(Array.from({ length: 11 }, (_, index) => index + 1))('requires the Section %i outcome', section => {
+  test.each(Array.from({ length: 3 }, (_, index) => index + 1))('requires the Section %i outcome', section => {
     const output = completeReport.split('\n')
       .filter(line => !line.startsWith(`| Section ${section} (`)).join('\n');
     expect(() => validateCeoReviewCompletion({ ...completed, output }))
@@ -991,13 +954,13 @@ describe('CEO review completion evidence', () => {
   test.each(['___ issues found', 'TBD', 'reviewed', 'SKIPPED'])('rejects unfinished or skipped non-UI outcomes: %s', outcome => {
     const output = completeReport.replace('No issues found', outcome);
     expect(() => validateCeoReviewCompletion({ ...completed, output }))
-      .toThrow('Section 5 outcome');
+      .toThrow('Section 2 outcome');
   });
 
   test('rejects the original template placeholders as completed outcomes', () => {
     const output = completeReport.replace('SKIPPED (no UI scope)', '___ issues / SKIPPED (no UI scope)');
     expect(() => validateCeoReviewCompletion({ ...completed, output }))
-      .toThrow('Section 11 outcome');
+      .toThrow('Section 3 outcome');
   });
 });
 

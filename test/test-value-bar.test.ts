@@ -234,7 +234,7 @@ describe('template contracts', () => {
     expect(read('test-audit/SKILL.md')).toContain(bar('audit'));
     const templates = spawnSync('git', ['ls-files', '*.tmpl'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.split('\n').filter(Boolean);
     expect(templates.filter(file => read(file).includes('prefer too many to too few'))).toEqual([]);
-    expect(read('plan-ceo-review/SKILL.md.tmpl')).toContain('* Tests are required: every behavior tested; no test without a regression it would catch.');
+    expect(read('plan-ceo-review/SKILL.md.tmpl')).not.toContain('* Tests are required:');
     expect(read('plan-eng-review/SKILL.md.tmpl')).toContain('* **Tests:** every behavior tested; no test without a regression it would catch.');
   });
 

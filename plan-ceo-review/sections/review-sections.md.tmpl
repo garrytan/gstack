@@ -1,7 +1,7 @@
-## Review Sections (11 sections, after scope and mode are agreed)
+## Review Sections (3 sections, after scope and mode are agreed)
 
-**Anti-skip rule:** Evaluate Sections 1–10 in full for every plan, including strategy,
-spec, code and infra. Run Section 11 if accepted work adds or changes UI screens,
+**Anti-skip rule:** Evaluate Sections 1–2 in full for every plan, including strategy,
+spec, code and infra. Run Section 3 if accepted work adds or changes UI screens,
 components, user interactions, frontend frameworks, user-visible states,
 mobile/responsive behavior or the design system. Otherwise record `SKIPPED (no UI scope)`. In evaluated sections,
 say "No issues found" only when there are zero findings.
@@ -37,7 +37,7 @@ Use 0D's decision procedure and the preamble's AskUserQuestion format:
 * The recommended option's description must offer a complete remedy for this
   issue: rescue behavior, verification and failure visibility. Exclude unrelated
   work; ask about independent findings and new TODOs separately.
-* Connect the recommendation to one engineering preference in a sentence.
+* Connect the recommendation to the Day one table or one Philosophy line in a sentence.
 * Use `D<N>` and A/B/C labels. Cite the stable ledger ID separately to retain
   reopened decision history.
 * An "obvious fix" still needs approval when it is not covered by an exact accepted choice.
@@ -58,10 +58,10 @@ outputs for accepted work in every mode.
 | Platonic ideal | Required | Skip | Skip | Skip |
 | Delight opportunities | At least 5, each opt-in | At least 5, each opt-in | Skip | Skip |
 | Complexity | Review accepted ambition | Review baseline and accepted additions | Simplest correct accepted scope | Minimum valuable scope |
-| Temporal interrogation (0I) | Run | Run | Run | Skip |
+| First week on the owner's device (0I) | Run | Run | Run | Skip |
 | Separate CEO archive (0H) | Write | Write | Skip | Skip |
-| Future direction (Section 10) | Review accepted trajectory | Review accepted cherry-picks | Maintainability; no expansions | Maintainability of remaining scope |
-| Design (Section 11) | Review if UI scope | Review if UI scope | Review if UI scope | Review if UI scope |
+| Future direction (Section 2) | Review accepted trajectory | Review accepted cherry-picks | Maintainability; no expansions | Maintainability of remaining scope |
+| Design (Section 3) | Review if UI scope | Review if UI scope | Review if UI scope | Review if UI scope |
 
 Save to the permitted working plan; with no permitted plan/report write, present
 it in chat as not persisted and end with completion blocked. The CEO archive is
@@ -100,7 +100,7 @@ not save again. Correct discrepancies under the storage policy; if a correction
 needs approval, resolve it through 0D before repeating this check.
 
 Record findings and dispositions, then review the next section. Do not write its
-conclusions or tasks before reviewing it. After Sections 1–10 and Section 11's
+conclusions or tasks before reviewing it. After Sections 1–2 and Section 3's
 review or no-UI skip, follow Closing sequence. Keep unresolved choices in the
 ledger and report; an approval is not proof of implementation or verification.
 
@@ -114,21 +114,13 @@ Publish **Current scope** in chat before the architecture analysis:
 This is a scope update, not another mode handoff; do not ask or log the mode again.
 Then say `Section 1: Architecture Review`.
 
-Evaluate and diagram:
-* System design and component boundaries. Draw the dependency graph.
-* Data flow — all four paths. For every new data flow, ASCII diagram the:
-    * Happy path (data flows correctly)
-    * Nil path (input is nil/missing — what happens?)
-    * Empty path (input is present but empty/zero-length — what happens?)
-    * Error path (upstream call fails — what happens?)
-* State machines. ASCII diagram for every new stateful object. Include impossible/invalid transitions and what prevents them.
-* Coupling concerns. What new coupling exists, and is it justified? Draw before/after dependencies.
-* Scaling characteristics. What breaks first under 10x and 100x load?
-* Single points of failure. Map them.
-* Security architecture. Auth boundaries, data access patterns, API surfaces. For each new endpoint or data mutation: who can call it, what do they get, what can they change?
-* Production failure scenarios. For each integration point, describe one realistic failure and whether the plan handles it.
-* Rollback posture. If this ships broken, name the rollback path and time.
-* Value test for artifacts about the work. When the plan adds a status report, audit matrix, certificate, meta-report or conformance check that nothing consumes, ask: who uses it, what decision or delivered behavior changes because it exists, why this is the smallest useful version, and when it retires. An explicit user request answers the first two and is recorded as provenance; the last two are still answered. A credible, explicitly identified preventive risk is a valid answer; prior occurrence is not required. Manufacturing a code consumer to pass the question is the pathology, not an answer. Carve-out: product observability (dashboards, alerts, runbooks for the shipped system) is launch scope under Prime Directive 5 and never a process artifact; user-facing docs and agent-consumed instructions are product. The question applies to artifacts about the work, not about the system.
+Sketch the architecture in one paragraph and one ASCII diagram: the new components,
+what they connect to, which Day one rows each serves, and the one choice that would
+be hardest to undo. Error paths, security, data flow, tests, performance,
+observability and deployment belong to /plan-eng-review, which runs last on every
+plan; name anything it must look at hardest and move on.
+
+* Value test for artifacts about the work. When the plan adds a status report, audit matrix, certificate, meta-report or conformance check that nothing consumes, ask: who uses it, what decision or delivered behavior changes because it exists, why this is the smallest useful version, and when it retires. An explicit user request answers the first two and is recorded as provenance; the last two are still answered. A credible, explicitly identified preventive risk is a valid answer; prior occurrence is not required. Manufacturing a code consumer to pass the question is the pathology, not an answer. Carve-out: product observability (dashboards, alerts, runbooks for the shipped system) is launch scope and never a process artifact; user-facing docs and agent-consumed instructions are product. The question applies to artifacts about the work, not about the system.
 
 **EXPANSION and SELECTIVE EXPANSION additions:**
 * What would make this architecture elegant and obvious to a new engineer?
@@ -136,157 +128,10 @@ Evaluate and diagram:
 
 **SELECTIVE EXPANSION:** If any accepted cherry-picks from Step 0G affect the architecture, evaluate their architectural fit here. Flag any that create coupling concerns or don't integrate cleanly — this is a chance to revisit the decision with new information.
 
-Required ASCII diagram: full system architecture showing new components and their relationships to existing ones.
+Required ASCII diagram: the architecture sketch, new components beside the existing ones they touch.
 **Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
 
-### Section 2: Error & Rescue Map
-This is the section that catches silent failures.
-For strategy-only depth, map each retained capability, integration or data
-boundary that can fail. For implementation-ready depth, map every new method,
-service or codepath that can fail. Use the same table shape for both:
-```
-  METHOD/CODEPATH          | WHAT CAN GO WRONG           | EXCEPTION CLASS
-  -------------------------|-----------------------------|-----------------
-  ExampleService#call      | API timeout                 | TimeoutError
-                           | API returns 429             | RateLimitError
-                           | malformed JSON             | JSONParseError
-  -------------------------|-----------------------------|-----------------
-
-  EXCEPTION CLASS              | RESCUED?  | RESCUE ACTION          | USER SEES
-  -----------------------------|-----------|------------------------|------------------
-  TimeoutError                 | Y         | Retry 2x, then raise   | Temporary outage
-  RateLimitError               | Y         | Backoff + retry         | Transparent
-  JSONParseError               | N ← GAP   | —                      | 500 error ← BAD
-```
-Rules for this section:
-* Catch-all error handling (`rescue StandardError`, `catch (Exception e)`, `except Exception`) is a smell. Name the specific exceptions.
-* Generic-only logging is insufficient. Log what was attempted, with what args and for what user/request.
-* Every rescued error must retry with backoff, degrade gracefully with a user-visible message, or re-raise with added context. "Swallow and continue" is almost never acceptable.
-* For each GAP (unrescued error that should be rescued): specify the rescue action and what the user should see.
-* For LLM/AI calls: handle malformed, empty, hallucinated-invalid JSON and refusals as distinct failure modes.
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 3: Security & Threat Model
-Security is not a sub-bullet of architecture. It gets its own section.
-Evaluate:
-* Attack surface expansion. What new attack vectors does this plan introduce? New endpoints, new params, new file paths, new background jobs?
-* Input validation. For every new user input: is it validated, sanitized, and rejected loudly on failure? What happens with: nil, empty string, string when integer expected, string exceeding max length, unicode edge cases, HTML/script injection attempts?
-* Authorization. For every new data access: is it scoped to the right user/role? Is there a direct object reference vulnerability? Can user A access user B's data by manipulating IDs?
-* Secrets and credentials. New secrets? In env vars, not hardcoded? Rotatable?
-* Dependency risk. New gems/npm packages? Security track record?
-* Data classification. PII, payment data, credentials? Handling consistent with existing patterns?
-* Injection vectors. SQL, command, template, LLM prompt injection — check all.
-* Audit logging. For sensitive operations: is there an audit trail?
-
-For each finding: threat, likelihood (High/Med/Low), impact (High/Med/Low), and whether the plan mitigates it.
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 4: Data Flow & Interaction Edge Cases
-Trace data and user interactions adversarially.
-
-**Data Flow Tracing:** For every new data flow, produce an ASCII diagram showing:
-`INPUT -> VALIDATION -> TRANSFORM -> PERSIST -> OUTPUT`, with shadow paths for
-nil/empty/wrong type, invalid/too long, exception/timeout/OOM, conflict/dup/lock,
-stale/partial/encoding.
-For each node: what happens on each shadow path? Is it tested?
-
-**Async ordering:** For flows sharing mutable state:
-1. **Define the boundary.** State the invariant and its exact caller/time boundary. Draw a combined ASCII schedule with one column per operation and one for shared state.
-2. **Exercise both orders.** For each pair of overlapping awaits that can affect that invariant, show both completion orders. At each relevant `await`, callback or job handoff: pause, let a competing operation complete, resume, then start a fresh consumer. Exclude an order only by naming the mechanism that prevents it.
-3. **Compare the result.** Show the observed result against the invariant. The invariant is a requirement, not proof that the implementation meets it. If safe, name the mechanism that prevents the violating schedule. Separate diagrams, one favorable schedule, single-thread execution and atomic calls do not prove ordering across awaits. An accepted exception needs its exact contract clause; bounded damage is insufficient.
-4. **Specify regression proof.** Test the relevant completion orders with controlled pause/release points. Compare relevant pairs; exhaustive permutations are unnecessary.
-
-**Interaction Edge Cases:** For every new user-visible interaction, evaluate:
-`INTERACTION | EDGE CASE | HANDLED? | HOW?`. Include Double-click/stale submit,
-navigate away/timeout/retry, zero/large/changing list, and failed/duplicate/backlogged jobs.
-Flag any unhandled edge case as a gap. For each gap, specify the fix.
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 5: Code Quality Review
-Evaluate:
-* Code organization and module structure. Does new code fit existing patterns?
-* Duplicated behavior. If the same logic exists elsewhere, flag it with the file and line; similar-looking code alone is not a reason to extract.
-* Naming quality. Are new classes, methods, and variables named for what they do, not how they do it?
-* Error handling patterns. (Cross-reference with Section 2 — this section reviews the patterns; Section 2 maps the specifics.)
-* Missing edge cases: nil, empty, 429/timeouts and boundary values.
-* Over-engineering: abstractions for problems that do not exist yet.
-* Under-engineering: happy-path fragility or missing defensive checks.
-* Cyclomatic complexity. Flag any new method that branches more than 5 times. Propose a refactor.
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 6: Test Review
-Carry requested or approved coverage forward, including directly determined tests, without re-asking. For an unresolved test-method choice or additional verification scope/depth, name the distinct regression existing tests miss and resolve that choice through 0D before prescribing it. An approved runtime contract alone does not choose extra verification scope.
-
-Make a complete diagram of every new thing this plan introduces:
-new UX flows, data flows, codepaths, background jobs/async work,
-integrations/external calls, and error/rescue paths (cross-reference Section 2).
-For each item in the diagram:
-* What type of test covers it? (Unit / Integration / System / E2E)
-* Does a test for it exist in the plan? If not, draft its header within requested or approved coverage; keep new verification proposals pending until their decision.
-* What is the happy path test?
-* What is the failure path test? (Be specific — which failure?)
-* What is the edge case test? (nil, empty, boundary values, concurrent access)
-
-For each behavior, complete this assertion check:
-1. **Map the requirement.** Name its observable assertion, a wrong result it rejects, and its `no_claim`: one sentence on what a green result does not prove and which fixtures or mocks stand in for what (`no_claim=provider acceptance (mocked provider; unit only)`, or `no_claim=none beyond protects` when nothing is left unproven; never reflexive filler). Author it yourself; never ask the user for it, and never let it waive a required live check or an unresolved test-method decision. Map the requirement to the user's exact requirement or individually approved remedy. A stated outcome plus its retained caller contract can determine the assertion, even without assertion syntax. Translate semantic counts, conditions and quantifiers exactly; never weaken an exact count to a lower bound.
-2. **Reuse settled proof.** Selecting an existing probe or spelling out a determined check is implementation work, not another approval. Reuse these requirements without asking again. Verify the caller's path; helper coverage alone does not prove it. Honor previously accepted risks and equivalent caller coverage.
-3. **Resolve actual gaps.** Explain what the existing requirement or approved remedy fails to cover before calling a check missing. Ask individually only for an unresolved behavioral choice, new outcome, or independent uncovered failure mode. Vague success labels do not settle values; scope/approach approval does not resolve an individual assertion gap. Never silently add, defer or waive a missing behavioral assertion. Keep required behaviors mandatory unless the user explicitly approves changing them.
-
-Test ambition check (all modes): For each new feature, answer:
-* What's the test that would make you confident shipping at 2am on a Friday?
-* What's the test a hostile QA engineer would write to break this?
-* What's the chaos test?
-
-Test pyramid check: Many unit, fewer integration, few E2E? Or inverted?
-Flakiness risk: Flag any test depending on time, randomness, external services, or ordering.
-Load/stress test requirements: For any new codepath called frequently or processing significant data.
-
-For LLM/prompt changes: Check CLAUDE.md for the "Prompt/LLM changes" file patterns. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against.
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 7: Performance Review
-Evaluate:
-* N+1 queries. For ORM-backed data access, especially association traversal: does the plan preload/batch instead of querying in a loop?
-* Memory usage. For every new data structure: what's the maximum size in production?
-* Database indexes. For every new query: is there an index?
-* Caching opportunities. For every expensive computation or external call: should it be cached?
-* Background job sizing. For every new job: worst-case payload, runtime, retry behavior?
-* Slow paths. Top 3 slowest new codepaths and estimated p99 latency.
-* Connection pool pressure. New DB connections, Redis connections, HTTP connections?
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 8: Observability & Debuggability Review
-New systems break. This section ensures you can see why.
-Evaluate:
-* Logging. For every new codepath: structured log lines at entry, exit, and each significant branch?
-* Metrics. For every new feature: what metric tells you it's working? What tells you it's broken?
-* Tracing. For new cross-service or cross-job flows: trace IDs propagated?
-* Alerting. What new alerts should exist?
-* Dashboards. What new dashboard panels do you want on day 1?
-* Debuggability. If a bug is reported 3 weeks post-ship, can you reconstruct what happened from logs alone?
-* Admin tooling. New operational tasks that need admin UI or rake tasks?
-* Runbooks. For each new failure mode: what's the operational response?
-
-**EXPANSION and SELECTIVE EXPANSION addition:**
-* What observability would make this feature a joy to operate? (For SELECTIVE EXPANSION, include observability for any accepted cherry-picks.)
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 9: Deployment & Rollout Review
-Evaluate:
-* Migration safety. For every new DB migration: backward-compatible? Zero-downtime? Table locks?
-* Feature flags. Should any part be behind a feature flag?
-* Rollout order. Correct sequence: migrate first, deploy second?
-* Rollback plan. Explicit step-by-step.
-* Deploy-time risk window. Old code and new code running simultaneously — what breaks?
-* Environment parity. Tested in staging?
-* Post-deploy verification checklist. First 5 minutes? First hour?
-* Smoke tests. What automated checks should run immediately post-deploy?
-
-**EXPANSION and SELECTIVE EXPANSION addition:**
-* What deploy infrastructure would make shipping this feature routine? (For SELECTIVE EXPANSION, assess whether accepted cherry-picks change the deployment risk profile.)
-**Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
-
-### Section 10: Long-Term Trajectory Review
+### Section 2: Long-Term Trajectory Review
 Evaluate:
 * Technical debt introduced. Code debt, operational debt, testing debt, documentation debt.
 * Path dependency. Does this make future changes harder?
@@ -301,7 +146,7 @@ Evaluate:
 * (SELECTIVE EXPANSION only) Retrospective: Were the right cherry-picks accepted? Did any rejected expansions turn out to be load-bearing for the accepted ones?
 **Decision gate.** Complete Analyze → Resolve → Apply above for this section before continuing.
 
-### Section 11: Design & UX Review (skip if no UI scope detected)
+### Section 3: Design & UX Review (skip if no UI scope detected)
 The CEO calling in the designer. Not a pixel-level audit — that's /plan-design-review and /design-review. This is ensuring the plan has design intentionality.
 
 Evaluate:
@@ -389,11 +234,16 @@ announcing saved completion; no stage depends on a completion log written later.
 
 ### Stage 1 — Prepare the plan body and summary
 
-Write the following sections, registries, diagrams, Markdown tasks and Completion
+Write the following sections, diagrams, Markdown tasks and Completion
 Summary in the working plan from approved changes. Keep them before the terminal
 report. Task JSONL and approved TODOs use their specified paths, separate from the
 0H CEO archive. The prepared summary supplies the report's current facts; it is
 not yet a chat announcement of saved completion.
+
+### Day one table
+The `### Day one` table from the day-one steps at the top of `SKILL.md`, updated
+for every accepted change, with each High finding it raised and each `assumed`
+row listed as an owner question.
 
 ### Review facts
 
@@ -421,23 +271,6 @@ List existing code/flows that partially solve sub-problems and whether the plan 
 ### "Dream state delta" section
 Where this plan leaves us relative to the 12-month ideal.
 
-### Error & Rescue Registry (from Section 2)
-Match the approved review depth. For implementation-ready work, list every method
-that can fail, its exception classes, rescue status/action and user impact.
-For strategy-only work, use capability rows with failure mechanisms, user impact,
-known safeguards, and an owner who must verify each unknown before implementation.
-Do not invent method contracts. For one narrow decision, include only its dependencies.
-
-### Failure Modes Registry
-```
-  CODEPATH | FAILURE MODE   | RESCUED? | TEST? | USER SEES?     | LOGGED?
-  ---------|----------------|----------|-------|----------------|--------
-```
-Any row with RESCUED=N, TEST=N, USER SEES=Silent → **CRITICAL GAP**.
-For strategy-only rows, CODEPATH names the capability; mark unknown rescue/test
-coverage as unknown and name the verification owner. Count capability rows in the
-Completion Summary; implementation-ready reviews count method/codepath rows.
-
 ### Scope Expansion Decisions (EXPANSION and SELECTIVE EXPANSION only)
 For EXPANSION and SELECTIVE EXPANSION, reference the CEO plan's full 0G scope record
 under the storage policy. List its dispositions without asking again:
@@ -446,12 +279,8 @@ under the storage policy. List its dispositions without asking again:
 * Skipped: {list items rejected}
 
 ### Diagrams (mandatory, produce all that apply)
-1. System architecture
-2. Data flow (including shadow paths)
-3. State machine
-4. Error flow
-5. Deployment sequence
-6. Rollback flowchart
+1. Architecture sketch (Section 1)
+2. User flow (Section 3, UI scope only)
 
 ### Stale Diagram Audit
 List every ASCII diagram in files this plan touches. Still accurate?
@@ -477,25 +306,17 @@ Step 0 and the review sections. Compute "Lake Score" (complete options selected)
   |            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
   +====================================================================+
   | Mode selected        | [full mode name from Step 0E]               |
+  | Day one table        | ___ rows, ___ assumed, ___ High             |
   | System Audit         | [key findings]                              |
   | Step 0               | [mode + key decisions]                      |
   | Section 1  (Arch)    | ___ issues found                            |
-  | Section 2  (Errors)  | ___ error paths mapped, ___ GAPS            |
-  | Section 3  (Security)| ___ issues found, ___ High severity         |
-  | Section 4  (Data/UX) | ___ edge cases mapped, ___ unhandled        |
-  | Section 5  (Quality) | ___ issues found                            |
-  | Section 6  (Tests)   | Diagram produced, ___ gaps                  |
-  | Section 7  (Perf)    | ___ issues found                            |
-  | Section 8  (Observ)  | ___ gaps found                              |
-  | Section 9  (Deploy)  | ___ risks flagged                           |
-  | Section 10 (Future)  | Reversibility: _/5, debt items: ___         |
-  | Section 11 (Design)  | ___ issues / SKIPPED (no UI scope)          |
+  | Section 2  (Future)  | Reversibility: _/5, debt items: ___         |
+  | Section 3  (Design)  | ___ issues / SKIPPED (no UI scope)          |
   +--------------------------------------------------------------------+
   | NOT in scope         | written (___ items)                          |
   | What already exists  | written                                     |
   | Dream state delta    | written                                     |
-  | Error/rescue registry| ___ rows, ___ CRITICAL GAPS                 |
-  | Failure modes        | ___ total, ___ CRITICAL GAPS                |
+  | Critical gaps        | ___ CRITICAL GAPS                           |
   | TODOS.md updates     | ___ items proposed                          |
   | Scope proposals      | ___ proposed, ___ accepted (EXP + SEL)      |
   | CEO plan             | written / not persisted / skipped by mode  |
@@ -546,7 +367,7 @@ Substitute these values from the Completion Summary before running the commands:
 - **TIMESTAMP**: current UTC ISO 8601 datetime (e.g., 2026-03-16T14:30:00Z)
 - **STATUS**: "clean" if 0 unresolved decisions AND 0 critical gaps; otherwise "issues_open"
 - **unresolved**: number from "Unresolved decisions" in the summary
-- **critical_gaps**: number from "Failure modes: ___ CRITICAL GAPS" in the summary
+- **critical_gaps**: number from "Critical gaps: ___ CRITICAL GAPS" in the summary
 - **MODE**: the mode the user selected (SCOPE_EXPANSION / SELECTIVE_EXPANSION / HOLD_SCOPE / SCOPE_REDUCTION)
 - **scope_proposed**: number from "Scope proposals: ___ proposed" in the summary (0 for HOLD/REDUCTION)
 - **scope_accepted**: number from "Scope proposals: ___ accepted" in the summary (0 for HOLD/REDUCTION)
@@ -570,7 +391,7 @@ After displaying the Review Readiness Dashboard, recommend the next review(s) ba
 
 **Recommend /plan-eng-review if eng review is not skipped globally** — check the dashboard output for `skip_eng_review`. If it is `true`, eng review is opted out — do not recommend it. Otherwise, eng review is the required shipping gate. If this CEO review expanded scope, changed architectural direction, or accepted scope expansions, emphasize that a fresh eng review is needed. If an eng review already exists in the dashboard but the commit hash shows it predates this CEO review, note that it may be stale and should be re-run.
 
-**Recommend /plan-design-review if UI scope was detected** — specifically if Section 11 (Design & UX Review) was NOT skipped, or if accepted scope expansions included UI-facing features. If an existing design review is stale (commit hash drift), note that. In SCOPE REDUCTION mode, skip this recommendation — design review is unlikely relevant for scope cuts.
+**Recommend /plan-design-review if UI scope was detected** — specifically if Section 3 (Design & UX Review) was NOT skipped, or if accepted scope expansions included UI-facing features. If an existing design review is stale (commit hash drift), note that. In SCOPE REDUCTION mode, skip this recommendation — design review is unlikely relevant for scope cuts.
 
 **If both are needed, recommend eng review first** (required gate), then design review.
 

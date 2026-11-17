@@ -414,12 +414,12 @@ export function validateCeoReviewCompletion(capture: {
     const row = line.replace(/\*\*/g, '').match(/^\s*\|\s*Section\s+(\d{1,2})\b[^|]*\|\s*(.*?)\s*\|\s*$/i);
     if (row) outcomes.set(Number(row[1]), row[2].replace(/\*\*/g, '').trim());
   }
-  for (let section = 1; section <= 11; section++) {
+  for (let section = 1; section <= 3; section++) {
     const outcome = outcomes.get(section) ?? '';
     const placeholder = !outcome || /___/.test(outcome)
       || /^(?:TBD|TODO|pending|not reviewed|done|complete(?:d)?|reviewed|[-—]+)[.!]?$/i.test(outcome);
     const skipped = /^(?:skip(?:ped)?|N\/A|not applicable)\b/i.test(outcome);
-    const noUi = section === 11 && /\bno UI\b/i.test(outcome);
+    const noUi = section === 3 && /\bno UI\b/i.test(outcome);
     if (placeholder || (skipped && !noUi)) {
       throw new Error(`CEO Completion Summary is missing a completed Section ${section} outcome`);
     }

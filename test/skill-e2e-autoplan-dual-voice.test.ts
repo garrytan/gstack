@@ -177,7 +177,7 @@ registration and generation conventions. Its only behavior is to print "hello".
     };
     const principles = excerpt(core, '## The 6 Decision Principles', '## Sequential Execution');
     const preflight = excerpt(core, '## Phase 0.5: Outside reviewer preflight', '## Phase 1: CEO Review');
-    const dual = excerpt(phase, 'Step 0.5 (Dual Voices):', 'Sections 1-11 —');
+    const dual = excerpt(phase, 'Step 0.5 (Dual Voices):', 'Sections 1-3 —');
     entryPath = path.join(stateDir, 'ceo-dual-entry.md');
     fs.writeFileSync(entryPath, `# Standalone CEO dual-voice review
 

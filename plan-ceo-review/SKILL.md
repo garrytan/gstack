@@ -49,6 +49,19 @@ gbrain:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+## Day one first (before any other step)
+
+Prove the plan is useful to its owner on the first day. Finish these steps before the review's own first step (CEO Step 0, design Pass 1, autoplan Phase 1), reuse the table when the plan already has one, and keep it current as the review changes the plan.
+
+1. Write a `### Day one` table in the plan with these columns: action | frequency | source | feature | route | first build | check. One row for each of the owner's first five actions, on day one and every day after.
+2. `source` is the owner's own words or the owner's evidence (a calendar, past use). With neither, write `assumed`.
+3. `route` is the taps from the first screen to the feature. `first build` is the first PR whose build has it. `check` is how we know it works on the owner's device.
+4. Flag as High any daily row with no feature, no route from the first screen, or a first build later than a less frequent row's.
+5. Schedule a build on the owner's own device right after the first PR. Say what it does and what it won't do yet.
+6. No dead controls: every control in any build the owner receives works end to end or is hidden.
+7. Interactive run: before filling rows from guesses, ask the owner about real past days, one question at a time ("What did you do with your calendar yesterday?"). Unattended run: leave unsourced rows `assumed`; they go to the approval gate as owner questions.
+8. A plan nobody uses directly (a library, a backend job) writes one line naming who relies on it first and how, instead of the table.
+
 ## Shared preamble (load first)
 
 This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-ceo-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
@@ -213,7 +226,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 # Mega Plan Review Mode
 
 ## Philosophy
-Make this plan extraordinary. Match posture:
+Make this plan useful, valuable and important to its owner from day one, then extraordinary. Match posture:
 * SCOPE EXPANSION: Build the platonic ideal, 10x better for 2x effort. Recommend expansions enthusiastically.
 * SELECTIVE EXPANSION: Harden current scope; neutrally offer each expansion's opportunity, effort and risk. Accepted items govern later sections; rejected ones go to "NOT in scope."
 * HOLD SCOPE: Preserve scope; trace failures, edge cases, error paths, tests and observability.
@@ -223,31 +236,17 @@ Approval is required for each scope change. Raise concerns in Step 0, then commi
 Review only. Do not change code or implement.
 
 ## Prime Directives
-1. Zero silent failures: surface every failure to system, team and user.
-2. Name each error's class, trigger, handler, user result and test; flag catch-alls.
-3. Trace happy, nil, empty/zero and upstream-error paths.
-4. Map double-clicks, navigation, slow links, stale state and back button.
-5. Dashboards, alerts and runbooks are launch scope.
-6. Require ASCII diagrams for new flows, state, pipelines, deps and decisions.
-7. Record every deferral in TODOS.md or chat per storage policy.
-8. Optimize for the 6-month future; flag future harm.
-9. Propose better approaches now, including "scrap it and do this instead."
+1. Record every deferral in TODOS.md or chat per storage policy.
+2. Optimize for the 6-month future; flag future harm.
+3. Propose better approaches now, including "scrap it and do this instead."
 
-## Engineering Preferences (use these to guide every recommendation)
-* Shared code: flag duplicated behavior when extracting it improves reliability or saves net code; similar-looking code alone is insufficient.
-* Tests are required: every behavior tested; no test without a regression it would catch.
-* Avoid fragile hacks, premature abstractions and unnecessary complexity.
-* Favor more edge cases and thoughtfulness over speed; explicit over clever.
-* Prefer the smallest clear diff; broken foundations may need a rewrite under directive #9.
-* Data models follow their queries, integrity rules and update boundaries, not file count: fields queried, constrained or updated on their own get explicit columns or tables; JSON suits a document read and written whole.
-* New codepaths need logs, metrics or traces and threat modeling.
-* Plan partial deploys, rollbacks and feature flags.
-* Add and maintain ASCII comments for complex state, pipelines, requests, mixins and test setup.
+Engineering checks (error paths, security, data flow, tests, performance,
+observability, deployment) belong to /plan-eng-review, which always runs last.
 
 ## Priority hierarchy
 Complete every required stage, decision gate and output. Shorten only optional
-commentary, never Step 0, the system audit, Review Sections 1–10, the error/rescue
-map, the test diagram, failure modes or required decision/report content. The
+commentary, never the Day one table, Step 0, the system audit, Review Sections 1–3
+or required decision/report content. The
 system handles context limits; do not preemptively warn.
 
 ## Web research runs in Aside
@@ -421,7 +420,7 @@ work this plan touches, blocks, unlocks or depends on.
 Record earlier review refactors/reverts and overlap with this plan. Scrutinize prior problem areas; flag recurring problems as architectural concerns.
 
 ### Frontend/UI Scope Detection
-Note DESIGN_SCOPE for Section 11 if the plan changes UI screens/components, user interactions, frontend frameworks, user-visible states, mobile/responsive behavior or design systems.
+Note DESIGN_SCOPE for Section 3 if the plan changes UI screens/components, user interactions, frontend frameworks, user-visible states, mobile/responsive behavior or design systems.
 
 ### Taste Calibration (EXPANSION and SELECTIVE EXPANSION modes)
 Choose 2-3 good files/patterns as references and 1-2 poor ones to avoid. Report before Step 0.
@@ -528,7 +527,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 | When | Read this section |
 |------|-------------------|
-| running the 11-section deep review, required outputs, and review report (only after Step 0 scope and mode are agreed) | `sections/review-sections.md` |
+| running the 3-section review, required outputs, and review report (only after Step 0 scope and mode are agreed) | `sections/review-sections.md` |
 
 ## Step 0: Nuclear Scope Challenge + Mode Selection
 
@@ -556,16 +555,15 @@ Plain terms:
 - **Settled:** an answer, direct instruction or authorized auto-decision resolves
   this exact choice and scope; a recommendation does not.
 
-Review depth controls the detail within each section. Review Sections 1–10 in every depth;
-run Section 11 only for UI. Strategy-only uses capability-level rows and
-"implementation owner must prove ___" notes, including the Error & Rescue map.
-Implementation-ready names interfaces, codepaths, rescue behavior and tests.
+Review depth controls the detail within each section. Review Sections 1–2 in every depth;
+run Section 3 only for UI. Strategy-only uses capability-level rows and
+"implementation owner must prove ___" notes.
+Implementation-ready names interfaces and codepaths.
 For one narrow decision, apply every section to that choice and its dependencies.
 
 **Keep the stated limits.** Record each measure, value, unit and prerequisite.
-Count all deliverables, including reused code, against scope limits. Separately,
-0E counts changed files, excluding unchanged reuse, to recommend a mode.
-Neither count approves changes. Changing a limit needs evidence and user approval.
+Count all deliverables, including reused code, against scope limits.
+The count approves no changes. Changing a limit needs evidence and user approval.
 
 **Storage policy: choose before writing.** Honor user/host write and cleanup limits.
 Use one working plan: requested output, else reviewed plan, else host active plan.
@@ -748,9 +746,9 @@ Record findings even after resolution; say "No issues, moving on." only with non
 Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport only.
 
 1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION.
-2. Recommend without selecting. Count distinct planned file additions, edits and
-   deletions; mark estimated counts as estimates. Apply the first matching rule:
-   - For >15 planned changed files, recommend SCOPE REDUCTION.
+2. Recommend without selecting. Read the Day one table and apply the first matching rule:
+   - A daily Day one row has no feature in the plan: recommend SCOPE EXPANSION.
+   - Fewer parts would cover every Day one row: recommend SCOPE REDUCTION.
    - If categories overlap or are unclear, explain why and recommend HOLD SCOPE.
    - Otherwise: a new product/system (greenfield) → SCOPE EXPANSION;
      added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE.
@@ -782,7 +780,7 @@ applicable Step 0 work in route order, reusing completed work and scope answers.
 Then resume the paused step. If unchanged, resume directly.
 
 Selecting a mode does not approve changes. Preserve 0D approvals and ask about
-each proposed addition or cut, including those prompted by file-count thresholds.
+each proposed addition or cut, including those prompted by the Day one table.
 
 Follow the selected mode's route:
 
@@ -966,28 +964,27 @@ amendments and implementation remain unapproved. For B, resolve the requested
 changes through 0D, update both inputs and repeat document approval. C stops.
 After A, run 0I before Review Sections.
 
-### 0I. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
+### 0I. First week on the owner's device (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
 Resolve scope and feasibility blockers through 0D now. Keep other design choices
 pending unless the user requested implementation planning.
-```
-  HOUR 1 (foundations):     What does the implementer need to know?
-  HOUR 2-3 (core logic):   What ambiguities will they hit?
-  HOUR 4-5 (integration):  What will surprise them?
-  HOUR 6+ (polish/tests):  What will they wish they'd planned for?
-```
+Name the first build that reaches the owner's own device (right after the first PR),
+which Day one rows it does, what it won't do yet, and its try-it instructions:
+device and setup, how to start, what to tap, how long, what we want to learn and
+how to report back. Then list the rest of week one build by build, most frequent
+Day one row first.
 Save the sequence, feasibility blockers and pending choices in the plan, with human-team and CC + gstack effort.
 
 Carry the ledger and each answer's exact scope into the review sections.
 
 ## Continue after Step 0 (all modes)
 
-> **STOP.** Before running the 11-section deep review, required outputs, and review report (only after Step 0 scope and mode are agreed), Read `~/.claude/skills/gstack/plan-ceo-review/sections/review-sections.md` and execute it
+> **STOP.** Before running the 3-section review, required outputs, and review report (only after Step 0 scope and mode are agreed), Read `~/.claude/skills/gstack/plan-ceo-review/sections/review-sections.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Section self-check (before you finish)
 
-Confirm you Read `sections/review-sections.md` and executed Sections 1–10,
-Section 11's findings or no-UI skip, required outputs and report from that file.
+Confirm you Read `sections/review-sections.md` and executed Sections 1–2,
+Section 3's findings or no-UI skip, required outputs and report from that file.
 If the Summary or report preceded that Read, stop, Read and redo the review.
 
 ## EXIT PLAN MODE GATE (BLOCKING)

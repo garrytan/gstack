@@ -34,7 +34,11 @@ describe('F2: the office-hours sketch reaches /plan-design-review', () => {
 });
 
 describe('G3: the data-model exception to the smallest diff', () => {
-  test.each(['plan-eng-review/SKILL.md', 'plan-ceo-review/SKILL.md'])('%s keeps storage tied to queries, not file count', file => {
+  // GST-2947 commit B: the CEO review's copy of the Engineering Preferences moved to /plan-eng-review alone.
+  test('plan-ceo-review/SKILL.md leaves the engineering preferences to /plan-eng-review', () => {
+    expect(read('plan-ceo-review/SKILL.md')).not.toContain('queries, integrity rules and update boundaries, not file count');
+  });
+  test.each(['plan-eng-review/SKILL.md'])('%s keeps storage tied to queries, not file count', file => {
     const text = read(file);
     expect(text).toContain('queries, integrity rules and update boundaries, not file count');
     expect(text).toContain('fields queried, constrained or updated on their own get explicit columns or tables; JSON suits a document read and written whole.');

@@ -541,7 +541,7 @@ Report every finding, its disposition, required verification and remaining disag
 **Cross-model tension:**
 
 After integrating findings, compare reviews only if an external reviewer
-completed. The native review is this skill's already completed Sections 1-10/11,
+completed. The native review is this skill's already completed Sections 1-2/3,
 findings and decision ledger; the final report is written later in Required
 Outputs. Describe agreement and disagreement with recorded provider and known
 model identities; unknown model identity stays unknown.
