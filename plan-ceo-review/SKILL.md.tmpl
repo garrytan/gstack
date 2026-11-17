@@ -69,31 +69,17 @@ Approval is required for each scope change. Raise concerns in Step 0, then commi
 Review only. Do not change code or implement.
 
 ## Prime Directives
-1. Zero silent failures: surface every failure to system, team and user.
-2. Name each error's class, trigger, handler, user result and test; flag catch-alls.
-3. Trace happy, nil, empty/zero and upstream-error paths.
-4. Map double-clicks, navigation, slow links, stale state and back button.
-5. Dashboards, alerts and runbooks are launch scope.
-6. Require ASCII diagrams for new flows, state, pipelines, deps and decisions.
-7. Record every deferral in TODOS.md or chat per storage policy.
-8. Optimize for the 6-month future; flag future harm.
-9. Propose better approaches now, including "scrap it and do this instead."
+1. Record every deferral in TODOS.md or chat per storage policy.
+2. Optimize for the 6-month future; flag future harm.
+3. Propose better approaches now, including "scrap it and do this instead."
 
-## Engineering Preferences (use these to guide every recommendation)
-* Shared code: flag duplicated behavior when extracting it improves reliability or saves net code; similar-looking code alone is insufficient.
-* Tests are required: every behavior tested; no test without a regression it would catch.
-* Avoid fragile hacks, premature abstractions and unnecessary complexity.
-* Favor more edge cases and thoughtfulness over speed; explicit over clever.
-* Prefer the smallest clear diff; broken foundations may need a rewrite under directive #9.
-* Data models follow their queries, integrity rules and update boundaries, not file count: fields queried, constrained or updated on their own get explicit columns or tables; JSON suits a document read and written whole.
-* New codepaths need logs, metrics or traces and threat modeling.
-* Plan partial deploys, rollbacks and feature flags.
-* Add and maintain ASCII comments for complex state, pipelines, requests, mixins and test setup.
+Engineering checks (error paths, security, data flow, tests, performance,
+observability, deployment) belong to /plan-eng-review, which always runs last.
 
 ## Priority hierarchy
 Complete every required stage, decision gate and output. Shorten only optional
-commentary, never Step 0, the system audit, Review Sections 1–10, the error/rescue
-map, the test diagram, failure modes or required decision/report content. The
+commentary, never the Day one table, Step 0, the system audit, Review Sections 1–3
+or required decision/report content. The
 system handles context limits; do not preemptively warn.
 
 {{ASIDE_RESEARCH}}
@@ -149,7 +135,7 @@ work this plan touches, blocks, unlocks or depends on.
 Record earlier review refactors/reverts and overlap with this plan. Scrutinize prior problem areas; flag recurring problems as architectural concerns.
 
 ### Frontend/UI Scope Detection
-Note DESIGN_SCOPE for Section 11 if the plan changes UI screens/components, user interactions, frontend frameworks, user-visible states, mobile/responsive behavior or design systems.
+Note DESIGN_SCOPE for Section 3 if the plan changes UI screens/components, user interactions, frontend frameworks, user-visible states, mobile/responsive behavior or design systems.
 
 ### Taste Calibration (EXPANSION and SELECTIVE EXPANSION modes)
 Choose 2-3 good files/patterns as references and 1-2 poor ones to avoid. Report before Step 0.
@@ -206,10 +192,10 @@ Plain terms:
 - **Settled:** an answer, direct instruction or authorized auto-decision resolves
   this exact choice and scope; a recommendation does not.
 
-Review depth controls the detail within each section. Review Sections 1–10 in every depth;
-run Section 11 only for UI. Strategy-only uses capability-level rows and
-"implementation owner must prove ___" notes, including the Error & Rescue map.
-Implementation-ready names interfaces, codepaths, rescue behavior and tests.
+Review depth controls the detail within each section. Review Sections 1–2 in every depth;
+run Section 3 only for UI. Strategy-only uses capability-level rows and
+"implementation owner must prove ___" notes.
+Implementation-ready names interfaces and codepaths.
 For one narrow decision, apply every section to that choice and its dependencies.
 
 **Keep the stated limits.** Record each measure, value, unit and prerequisite.
@@ -573,8 +559,8 @@ Carry the ledger and each answer's exact scope into the review sections.
 
 ## Section self-check (before you finish)
 
-Confirm you Read `sections/review-sections.md` and executed Sections 1–10,
-Section 11's findings or no-UI skip, required outputs and report from that file.
+Confirm you Read `sections/review-sections.md` and executed Sections 1–2,
+Section 3's findings or no-UI skip, required outputs and report from that file.
 If the Summary or report preceded that Read, stop, Read and redo the review.
 
 {{EXIT_PLAN_MODE_GATE}}

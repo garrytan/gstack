@@ -510,12 +510,12 @@ test('section detection credits complete byte-range prints and still refuses a g
   const chunk = (command: string, from: number, length?: number) => ({ tool: 'Bash', input: { command },
     output: bytes.subarray(from, length === undefined ? undefined : from + length).toString('utf8') });
   const calls = [
-    chunk('wc -c plan-ceo-review/sections/review-sections.md && head -c 16000 plan-ceo-review/sections/review-sections.md', 0, 16000),
-    ...[16000, 33000, 50000].map(start => chunk(`tail -c +${start} plan-ceo-review/sections/review-sections.md | head -c 17000`, start - 1, 17000)),
-    chunk('tail -c +67000 plan-ceo-review/sections/review-sections.md', 66999),
+    chunk('wc -c plan-ceo-review/sections/review-sections.md && head -c 13000 plan-ceo-review/sections/review-sections.md', 0, 13000),
+    ...[13000, 26000, 39000].map(start => chunk(`tail -c +${start} plan-ceo-review/sections/review-sections.md | head -c 13000`, start - 1, 13000)),
+    chunk('tail -c +52000 plan-ceo-review/sections/review-sections.md', 51999),
   ];
   const read = (list: typeof calls) => [...detectSectionReads(list, sections)];
-  expect(bytes.length).toBeGreaterThan(67000);
+  expect(bytes.length).toBeGreaterThan(52000);
   expect(read(calls)).toEqual(['review-sections.md']);
   expect(read(calls.filter((_, i) => i !== 2))).toEqual([]);
   expect(read(calls.slice(0, -1))).toEqual([]);

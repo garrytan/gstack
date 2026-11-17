@@ -616,7 +616,7 @@ Check the plan and conversation for each applicable deliverable:
 
 | Phase | Required outputs |
 |---|---|
-| CEO | Day one table (every daily row with a feature, a route and a first build, or a High finding); named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
+| CEO | Day one table (every daily row with a feature, a route and a first build, or a High finding); named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
 | Design, if UI | Scores for all 7 dimensions; route coverage of the Day one table; dead-control list (Pass 8); identified and decided issues; litmus scorecard. |
 | DX, if developer-facing | Scores for all 8 dimensions; developer journey map; empathy narrative; TTHW assessment and target; DX Implementation Checklist; consensus table. |
 | Eng, always last | Scope challenge grounded in code with its `REALITY:` lines; architecture ASCII diagram; codepath-to-test diagram; test plan on disk at ~/.gstack/projects/$SLUG/; NOT in scope; What already exists; failure modes registry with critical gaps; Completion Summary; consensus table. |

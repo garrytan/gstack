@@ -55,7 +55,7 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/session-runner.ts'))}
     const entry = entryPath ? fs.readFileSync(entryPath, 'utf8') : '';
     const actualCore = fs.readFileSync(path.join(${JSON.stringify(ROOT)}, 'autoplan/SKILL.md'), 'utf8');
     const actualPhase = fs.readFileSync(path.join(${JSON.stringify(ROOT)}, 'autoplan/sections/ceo-phase.md'), 'utf8');
-    const exactDual = actualPhase.slice(actualPhase.indexOf('Step 0.5 (Dual Voices):'), actualPhase.indexOf('Sections 1-11 —'));
+    const exactDual = actualPhase.slice(actualPhase.indexOf('Step 0.5 (Dual Voices):'), actualPhase.indexOf('Sections 1-3 —'));
     const exactPreflight = actualCore.slice(actualCore.indexOf('## Phase 0.5: Outside reviewer preflight'), actualCore.indexOf('## Phase 1: CEO Review'));
     const actualPlan = fs.readFileSync(path.join(opts.env.HOME, 'active-plan.md'), 'utf8');
     const fact = {cwd, initial: fs.readFileSync(plan, 'utf8'), env: opts.env,
