@@ -105,6 +105,31 @@ describe('rows', () => {
     expect(fs.existsSync(s.dir)).toBe(false);
   });
 
+  test.skipIf(process.platform === 'win32')('a record directory linked out of the owner\'s folder is neither written nor read', () => {
+    const s = store();
+    const outside = tmp('oa-outside-');
+    fs.mkdirSync(s.dir, { recursive: true });
+    fs.symlinkSync(outside, path.join(s.dir, 'rows'));
+    const row = buildAnswer(s, MERGE) as OwnerAnswer;
+    expect((addAnswer(s, row) as any).code).toBe('OWNER_ANSWERS_INVALID');
+    expect(fs.readdirSync(outside)).toEqual([]);
+    fs.writeFileSync(path.join(outside, `${row.id}.json`), JSON.stringify(row));
+    const read = readStore(s);
+    expect(read.state).toBe('unavailable');
+    expect(read.rows).toEqual([]);
+    expect(screenAsks([ASK], read)[0]!.verdict).toBe('KEEP');
+  });
+
+  test('a write that fails after the file is created leaves no row, and the same add then succeeds', () => {
+    const s = store();
+    const row = buildAnswer(s, MERGE) as OwnerAnswer;
+    const res = addAnswer(s, { ...row, limits: 1n as unknown as string });
+    expect((res as any).code).toBe('OWNER_ANSWERS_WRITE_FAILED');
+    expect(fs.readdirSync(path.join(s.dir, 'rows'))).toEqual([]);
+    expect(addAnswer(s, row)).toBe('written');
+    expect(readStore(s).state).toBe('present');
+  });
+
   test('two processes adding at once: one row written, one told it is present, no torn file', async () => {
     const h = home('alice');
     const args = ['add', '--action', 'merge-when-green', '--target', 'pull-request', '--words', 'yes merge when green', '--words-by', 'owner', '--thread', 'CAPT-1', '--event', 'evt_1', '--by', 'Example Captain'];

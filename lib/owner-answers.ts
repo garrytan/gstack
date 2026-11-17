@@ -168,10 +168,31 @@ function readJsonDir(dir: string): Array<{ name: string; value?: unknown; error?
   });
 }
 
+/**
+ * The record and each of its existing directories must resolve inside the owner's folder on Capy (inside the record
+ * itself elsewhere): a link out of it is refused, so a planted link can neither receive rows nor feed them back.
+ */
+export function storeEscape(store: Store): AnswerError | undefined {
+  const root = store.on_capy ? path.dirname(store.dir) : store.dir;
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); } catch { return undefined; }
+  for (const d of [store.dir, ...['rows', 'verifications', 'log'].map(s => path.join(store.dir, s))]) {
+    let real: string;
+    try { real = fs.realpathSync(d); } catch {
+      try { fs.lstatSync(d); } catch { continue; }
+      return { code: 'OWNER_ANSWERS_INVALID', message: `${path.relative(root, d) || '.'} is a link that cannot be resolved` };
+    }
+    if (real !== realRoot && !contained(realRoot, real)) return { code: 'OWNER_ANSWERS_INVALID', message: `${path.relative(root, d) || '.'} resolves outside the record's folder` };
+  }
+  return undefined;
+}
+
 /** Every row and verification; any doubt about the whole record makes it `uncertain`, which keeps every ask. */
 export function readStore(store: Store): StoreRead {
   const problems: string[] = [];
   if (!fs.existsSync(store.dir)) return { state: 'empty', rows: [], verifications: [], problems };
+  const escape = storeEscape(store);
+  if (escape) return { state: 'unavailable', rows: [], verifications: [], problems: [escape.message] };
   const rowFiles = readJsonDir(path.join(store.dir, 'rows'));
   if (rowFiles === 'unavailable') return { state: 'unavailable', rows: [], verifications: [], problems: ['rows/ cannot be read'] };
   const rows: OwnerAnswer[] = [];
@@ -216,15 +237,34 @@ export function notTakeable(row: OwnerAnswer, read: StoreRead): string | undefin
   return ok ? undefined : 'no second actor has verified its words at the source';
 }
 
-export function writeExclusive(file: string, value: unknown): 'written' | 'present' | AnswerError {
+/** Create the directory for a record file, checking the record's directories before and after. */
+function prepareDir(store: Store, file: string): AnswerError | undefined {
+  const before = storeEscape(store);
+  if (before) return before;
+  try { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); } catch (e: any) {
+    return { code: 'OWNER_ANSWERS_WRITE_FAILED', message: `${path.basename(path.dirname(file))}: ${e?.code ?? e?.message}` };
+  }
+  return storeEscape(store);
+}
+
+/** One file, created with O_EXCL; a write that fails after the create removes the file, so a retry starts clean. */
+export function writeExclusive(store: Store, file: string, value: unknown): 'written' | 'present' | AnswerError {
+  const failed = (e: any): AnswerError => ({ code: 'OWNER_ANSWERS_WRITE_FAILED', message: `${path.basename(file)}: ${e?.code ?? e?.message}` });
+  const dir = prepareDir(store, file);
+  if (dir) return dir;
+  let fd: number;
+  try { fd = fs.openSync(file, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600); } catch (e: any) {
+    return e?.code === 'EEXIST' ? 'present' : failed(e);
+  }
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    const fd = fs.openSync(file, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
-    try { fs.writeSync(fd, JSON.stringify(value, null, 1) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.writeSync(fd, JSON.stringify(value, null, 1) + '\n');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
     return 'written';
   } catch (e: any) {
-    if (e?.code === 'EEXIST') return 'present';
-    return { code: 'OWNER_ANSWERS_WRITE_FAILED', message: `${path.basename(file)}: ${e?.code ?? e?.message}` };
+    try { fs.closeSync(fd); } catch { /* already closed */ }
+    try { fs.unlinkSync(file); } catch { /* left for readStore to report */ }
+    return failed(e);
   }
 }
 
@@ -236,7 +276,7 @@ export function addAnswer(store: Store, row: OwnerAnswer): 'written' | 'present'
     if (other) return { code: 'OWNER_ANSWERS_CONFLICT', message: `${row.supersedes} is already superseded by ${other.id}; supersede or revoke the current row instead` };
   }
   const file = path.join(store.dir, 'rows', `${row.id}.json`);
-  const res = writeExclusive(file, row);
+  const res = writeExclusive(store, file, row);
   if (res !== 'present') return res;
   let have: Partial<OwnerAnswer> = {};
   try { have = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* an unreadable twin is a conflict too */ }
@@ -257,7 +297,7 @@ export function verifyAnswer(store: Store, id: string, by: string, event: string
   if (row.recorded_by === verifier) return { code: 'OWNER_ANSWERS_SELF_VERIFY', message: `${id} was recorded by ${verifier}` };
   if (event.trim() !== row.source.event) return { code: 'OWNER_ANSWERS_INVALID', message: `--event must name the source event the verifier read (${id} cites ${row.source.thread})` };
   const v: Verification = { schema_version: 1, row: id, verified_by: verifier, verified_at: now.toISOString(), words_sha256: sha(row.words) };
-  return writeExclusive(path.join(store.dir, 'verifications', `${id}--${sha(verifier).slice(0, 12)}.json`), v);
+  return writeExclusive(store, path.join(store.dir, 'verifications', `${id}--${sha(verifier).slice(0, 12)}.json`), v);
 }
 
 /** origin is "captain" for a standalone Captain ask; anything else (an autoplan gate item, an unknown draft) is never screened out. */
@@ -344,8 +384,9 @@ export function logDecision(store: Store, o: { thread: string; line: string; dec
     if (why) return { code: 'OWNER_ANSWERS_NOT_TAKEABLE', message: `${row.id}: ${why}` };
   }
   const file = path.join(store.dir, 'log', `${o.thread}.jsonl`);
+  const dir = prepareDir(store, file);
+  if (dir) return dir;
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.appendFileSync(file, JSON.stringify({ at: now.toISOString(), thread: o.thread, line: o.line.slice(0, 20), decision: o.decision, row: o.row ?? '', by: o.by.slice(0, CAPS.by) }) + '\n', { mode: 0o600 });
   } catch (e: any) { return { code: 'OWNER_ANSWERS_WRITE_FAILED', message: `log: ${e?.code ?? e?.message}` }; }
   return file;

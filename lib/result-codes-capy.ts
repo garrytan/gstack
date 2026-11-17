@@ -63,7 +63,7 @@ export const CAPY_RESULT_CODES = {
   OWNER_ANSWERS_WRITE_FAILED: {
     anchor: 'owner-answers-write-failed',
     summary: 'the record directory could not be written',
-    fix: 'check the path gstack-owner-answers status prints and its permissions, then rerun; a failed write left no partial row',
+    fix: 'check the path gstack-owner-answers status prints and its permissions, then rerun; a failed write removed its file, and an empty file left by a crash is named by status and must be removed',
   },
   OWNER_ANSWERS_NOT_FOUND: {
     anchor: 'owner-answers-not-found',

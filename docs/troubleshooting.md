@@ -2167,8 +2167,11 @@ error names the field and the rule, never the text.
 <a id="owner-answers-write-failed"></a>
 ### `gstack-owner-answers: ... (OWNER_ANSWERS_WRITE_FAILED)`
 
-**Meaning.** The record directory could not be written. Exit 1. Rows are created
-whole with O_EXCL, so a failed write leaves no partial row.
+**Meaning.** The record directory could not be written. Exit 1. A write that fails
+after its file is created removes that file, so it leaves no row: fix the path or
+permissions `gstack-owner-answers status` prints, then rerun the same command. A crash
+in the middle of a write can still leave an empty file; the record then reads
+`uncertain` and keeps every ask until that file (named by `status`) is removed.
 
 <a id="owner-answers-not-found"></a>
 ### `gstack-owner-answers: ... (OWNER_ANSWERS_NOT_FOUND)`

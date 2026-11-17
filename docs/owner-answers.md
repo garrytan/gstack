@@ -33,6 +33,9 @@ On Capy the record is bound to the one mounted `user-*` folder, or to the one
 `--owner <name>` names. No folder (`OWNER_ANSWERS_NO_DRIVE`) or several
 (`OWNER_ANSWERS_AMBIGUOUS`) stops the command. It never falls back to the machine's
 thrown-away state root, and `GSTACK_OWNER_ANSWERS_DIR` is ignored there.
+The record's own folders (`owner-answers/`, `rows/`, `verifications/`, `log/`) must
+resolve inside that folder (elsewhere, inside the record): a link that leads out of it
+is refused (`OWNER_ANSWERS_INVALID`), and the record is not read through it.
 `gstack-owner-answers status` prints the path. It is the only command that does, so
 ordinary output never names the owner's folder.
 
@@ -97,6 +100,11 @@ author or limits is refused (`OWNER_ANSWERS_CONFLICT`). It is never silently kep
 So is a `supersede` or `revoke` of a row that another row already replaces: supersede
 the current row instead. Two such rows can still appear when two machines write at once
 before their Drives sync, and then the record reads `uncertain` until one row file is removed.
+
+A write that fails after its file is created removes the file
+(`OWNER_ANSWERS_WRITE_FAILED`), so it leaves no row and the same command can be rerun.
+A crash in the middle of a write can still leave an empty file; the record then reads
+`uncertain` and keeps every ask until that file is removed.
 
 `status` lists each problem.
 
