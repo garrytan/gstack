@@ -2,7 +2,7 @@
 name: plan-eng-review
 preamble-tier: 3
 version: 1.0.0
-description: Eng manager-mode plan review. (gstack)
+description: "Use when you plan a feature before building it, or review a plan: locks in architecture, data flow, diagrams, edge cases, test coverage and performance. Use for: plan a feature, review architecture, eng plan review. (gstack)"
 allowed-tools:
   - Read
   - Write
@@ -12,6 +12,7 @@ allowed-tools:
   - Bash
   - WebSearch
 triggers:
+  - plan a feature
   - review architecture
   - eng plan review
   - check the implementation plan

@@ -2,7 +2,7 @@
 name: ubicloud
 preamble-tier: 2
 version: 1.0.0
-description: "Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs, a reaper, quota preflight and a hang watchdog. (gstack)"
+description: "Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs, a reaper, quota preflight and a hang watchdog. Use for: run on ubicloud, ubicloud vm, remote test run. (gstack)"
 triggers:
   - run on ubicloud
   - ubicloud vm

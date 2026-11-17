@@ -2,7 +2,7 @@
 name: pair-agent
 preamble-tier: 2
 version: 0.1.0
-description: Pair a remote AI agent with your browser. (gstack)
+description: "Pair a remote AI agent with your browser. Use for: pair with agent, connect remote agent. (gstack)"
 triggers:
   - pair with agent
   - connect remote agent

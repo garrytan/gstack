@@ -2,7 +2,7 @@
 name: ship
 preamble-tier: 4
 version: 1.0.0
-description: "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR. (gstack)"
+description: "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR. Use for: ship it, create a pr, push to main. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -17,7 +17,6 @@ triggers:
   - ship it
   - create a pr
   - push to main
-  - deploy this
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

@@ -2,7 +2,7 @@
 name: review
 preamble-tier: 4
 version: 1.0.0
-description: Use when you review this PR's diff. (gstack)
+description: "Use when you review a diff before it lands: local changes, a branch or a PR. Use for: review my changes, look over my diff, review this pr. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -14,11 +14,11 @@ allowed-tools:
   - AskUserQuestion
   - WebSearch
 triggers:
-  - review this pr
+  - review my changes
   - look over my diff
+  - review this pr
   - code review
   - check my diff
-  - review my changes
   - pre-landing review
 contract:
   version: 1

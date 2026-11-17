@@ -2,7 +2,7 @@
 name: runaway-stopper
 preamble-tier: 1
 version: 0.1.0
-description: Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats. (gstack)
+description: "Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats. Use for: find runaway threads, stop runaway jobs. (gstack)"
 triggers:
   - find runaway threads
   - stop runaway jobs

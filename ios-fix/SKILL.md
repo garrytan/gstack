@@ -2,7 +2,7 @@
 name: ios-fix
 preamble-tier: 2
 version: 1.0.0
-description: Autonomous iOS bug fixer. (gstack)
+description: "Autonomous iOS bug fixer. Use for: fix this ios bug, patch the iphone app. (gstack)"
 allowed-tools:
   - Bash
   - Read

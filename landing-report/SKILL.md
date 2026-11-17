@@ -2,7 +2,7 @@
 name: landing-report
 preamble-tier: 2
 version: 0.1.0
-description: Read-only queue dashboard for workspace-aware ship. (gstack)
+description: "Read-only queue dashboard for workspace-aware ship. Use for: landing report, version queue, ship queue. (gstack)"
 triggers:
   - landing report
   - version queue

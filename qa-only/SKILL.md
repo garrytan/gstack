@@ -2,7 +2,7 @@
 name: qa-only
 preamble-tier: 4
 version: 1.0.0
-description: Report browser/API/CLI/job/worker/webhook bugs. (gstack)
+description: "Report browser/API/CLI/job/worker/webhook bugs. Use for: qa report only, just report bugs, test but dont fix. (gstack)"
 allowed-tools:
   - Bash
   - Read

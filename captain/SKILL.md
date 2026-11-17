@@ -2,7 +2,7 @@
 name: captain
 preamble-tier: 2
 version: 1.0.0
-description: "Run a crew of coding agents from one controller (also /crew): lanes send READY blocks and never merge; the controller merges through trains, keeps the digest, relays approvals, fixes flakes daily. (gstack)"
+description: "Run a crew of coding agents from one controller (also /crew): lanes send READY blocks and never merge; the controller merges through trains, keeps the digest, relays approvals, fixes flakes daily. Use for: captain, crew. (gstack)"
 triggers:
   - captain
   - crew

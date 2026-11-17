@@ -2,7 +2,7 @@
 name: benchmark
 preamble-tier: 1
 version: 1.0.0
-description: Web performance regression detection. (gstack)
+description: "Web performance regression detection. Use for: web performance benchmark, check page speed. (gstack)"
 triggers:
   - web performance benchmark
   - check page speed

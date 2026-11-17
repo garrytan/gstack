@@ -2,7 +2,7 @@
 name: learn
 preamble-tier: 2
 version: 1.1.0
-description: Manage project learnings.
+description: "Manage project learnings. Use for: show learnings, what have we learned."
 triggers:
   - show learnings
   - what have we learned
