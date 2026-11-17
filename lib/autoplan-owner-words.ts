@@ -7,7 +7,8 @@
  * reply it ever recorded: `owner_reply` on decision rows, on run.json's gate
  * and on every `answered` journal row (attempts.jsonl keeps replies a later
  * answer at the same gate replaced), the words a carried gate reused, each
- * quote in the plan's `### Owner's words` section (lib/autoplan-owner-text.ts),
+ * quote in a `### Owner's words` section of any plan text the run kept (plan-active.md, plan-source*.md,
+ * plan-at-gate.r*.md, plan-file.*.md; lib/autoplan-owner-text.ts), so a quote a revision removed stays redacted,
  * and a reason a human gave for `close --deferred <reason> --by human`. A reply that
  * parsed as gate grammar (`owner_reply_parsed`) is the decision code and is
  * not scanned for; `reply` and the agent's own `answer_words` stay.
@@ -272,7 +273,9 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   const gate = state.gate as { owner_reply?: unknown; answered_at?: unknown; owner_reply_parsed?: unknown } | undefined;
   note(gate?.owner_reply, gate?.answered_at, gate?.owner_reply_parsed);
   note(state.carry?.words, undefined, false);
-  for (const q of parseOwnerWords(read(FILES.active) ?? '').quotes) note(q.text, undefined, false);
+  let names: string[] = [];
+  try { names = fs.readdirSync(out).filter(f => f === FILES.active || /^plan-source.*\.md$/.test(f) || /^plan-at-gate\.r\d+\.md$/.test(f) || /^plan-file\..+\.md$/.test(f)).sort(); } catch { /* no run directory */ }
+  for (const text of new Set(names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes.map(q => q.text)))) note(text, undefined, false);
 
   const deferred = new Map<string, string | undefined>();
   for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));

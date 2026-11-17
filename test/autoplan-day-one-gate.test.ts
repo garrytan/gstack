@@ -20,8 +20,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { applyGuidance, buildGate } from '../lib/autoplan-gate';
 import { branchKey } from '../lib/approval-record';
-import { proposalCost, ownerContext, recordedOwnerWords } from '../lib/autoplan-gate-items';
-import { confirmBlock, openEarlier } from '../lib/autoplan-confirm';
+import { proposalCost, proposalItem, ownerContext, recordedOwnerWords } from '../lib/autoplan-gate-items';
+import { confirmBlock, openEarlier, settledIds } from '../lib/autoplan-confirm';
+import { buildTasks } from '../lib/autoplan-export';
+import { exportPublic } from '../lib/autoplan-public';
+import * as crypto from 'node:crypto';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, ownerWordsLine } from '../lib/autoplan-owner-text';
 import { ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
 import { consensusRecord, parseReviewResult, reconcile } from '../lib/autoplan-reconcile';
@@ -218,6 +221,47 @@ describe('owner_quote downgrade, the day-one page requirement and the cost line'
     expect(openEarlier(state, 'ceo', [naming]).map(r => r.id)).toContain(`${RUN}-ceo-native-4`);
     const repeat = row('ceo', 'native', { id: `${RUN}-ceo-r2-native-7`, severity: 'High', title: 'Build order again', changes: 'ordering', correlates: [`${RUN}-ceo-native-4`] } as Row);
     expect(openEarlier(state, 'ceo', [repeat]).map(r => r.id)).not.toContain(`${RUN}-ceo-native-4`);
+  });
+
+  test('a paired ordering and scope proposal takes scope: its cost line reopens and applyGuidance does not settle it', () => {
+    const state = makeRun('pair', { plan: planText(), round2: round2(), round1: false });
+    const pair = [row('ceo', 'native', { id: 'n1', severity: 'Medium', title: 'Build the card first', changes: 'ordering' }), row('ceo', 'outside', { id: 'o1', severity: 'Medium', title: 'Build the card first', changes: 'scope' })] as any;
+    const item = proposalItem(ownerContext(state, []), 'ceo', pair);
+    expect(item.changes).toBe('scope');
+    expect(item.cost).toBe('a reopens ceo and eng once the plan is revised');
+    expect(applyGuidance({ changes: item.changes as any, item: 'uc1' })).toBe('edit the plan, then revise');
+  });
+
+  test('a High proposal answered b keeps its finding open as a blocking task; below High keeps the plain draft option', () => {
+    const state = makeRun('high-b', { plan: planText(), round2: round2(), round1: false });
+    const list = buildGate(state, 1);
+    const high = covering(list, `${RUN}-ceo-r2-native-1`)!;
+    expect(high.item_class).toBe('proposal');
+    expect(high.recommended).toBe('a');
+    expect(high.options.find(o => o.key === 'b')!.text).toBe("keep the plan's draft; carry it into the build as a blocking task (no plan change)");
+    expect(high.origin).toEndWith('|finding');
+    writeDecisions(state.out, [{ schema_version: 1, run: RUN, id: `${RUN}-g1-${high.id}`, gate_rev: 1, label: high.id.toUpperCase(), title: high.title, status: 'overridden', chosen: 'b', origin: high.origin } as any]);
+    expect(settledIds(state).has(`${RUN}-ceo-r2-native-1`)).toBe(false);
+    expect(buildTasks(state, round2().native).some(t => t.findings.includes(`${RUN}-ceo-r2-native-1`))).toBe(true);
+    const medium = buildGate(makeRun('medium-b', { plan: planText(), round2: round2() }), 1);
+    const scope = covering(medium, `${RUN}-ceo-native-18`)!;
+    expect(scope.options.find(o => o.key === 'b')!.text).toBe("keep the plan's draft");
+    expect(scope.origin).not.toEndWith('|finding');
+  });
+
+  test('a quote a revision removed stays redacted in the public export of an earlier reviewer result', () => {
+    const quote = 'I want to remember what I promised people after every meeting';
+    const state = makeRun('revised-quote', { plan: planText({ owner: null }), round2: round2(), round1: false });
+    fs.writeFileSync(path.join(state.out, 'plan-source.md'), planText());
+    fs.writeFileSync(path.join(state.out, 'ceo-native.a1.bound.md'), `The owner said "${quote}", so keep the promise review.\n`);
+    const sha = (f: string) => crypto.createHash('sha256').update(fs.readFileSync(path.join(state.out, f))).digest('hex');
+    const run = { ...state, artifacts: { 'ceo-native.a1.bound.md': { path: 'ceo-native.a1.bound.md', sha256: sha('ceo-native.a1.bound.md') } } } as RunState;
+    fs.writeFileSync(path.join(state.out, 'run.json'), JSON.stringify(run, null, 2));
+    const pub = path.join(TMP, 'revised-quote-public');
+    exportPublic(run, pub);
+    const text = fs.readFileSync(path.join(pub, 'ceo-native.a1.bound.md'), 'utf8');
+    expect(text).not.toContain(quote);
+    expect(text).toContain('[owner words redacted]');
   });
 
   test('a changed cut list or challenge list gets a new origin, so an earlier answer is asked again instead of carried', () => {

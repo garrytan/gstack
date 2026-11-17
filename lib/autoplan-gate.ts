@@ -27,7 +27,7 @@ import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf 
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
-import { confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
+import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -222,7 +222,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     for (const f of carried) byId.set(f.id, f);
     const propose = (rows: ChallengeRow[], fromEarlier = false) => {
       rows.forEach(r => challenged.add(r.id));
-      add(proposalItem(owner, phase, rows, { carried: fromEarlier }), options => origin(rows.map(r => r.id).join('+'), options));
+      add(proposalItem(owner, phase, rows, { carried: fromEarlier }), options => [origin(rows.map(r => r.id).join('+'), options), ...(blockingProposal(rows) ? [FINDING_ORIGIN] : [])].join('|'));
     };
     for (const row of consensus.rows) {
       const o = byId.get(row.outside_id)! as FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string };

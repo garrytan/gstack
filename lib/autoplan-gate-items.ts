@@ -89,9 +89,17 @@ export function proposalCost(ctx: OwnerContext, phase: string, changes: string):
   return `a reopens ${phase}${phase === 'eng' ? '' : ' and eng'} once the plan is revised`;
 }
 
-/** One proposal from one or both voices (a paired twin) against agent-written plan text: a takes the change, b keeps the draft. */
+/** A proposal behind a Critical or High row keeps the finding path's b: the draft stands and the finding becomes a blocking build task. */
+export const blockingProposal = (rows: ChallengeRow[]): boolean => rows.some(r => r.severity === 'Critical' || r.severity === 'High');
+
+/**
+ * One proposal from one or both voices (a paired twin) against agent-written plan text: a takes the change, b keeps the draft.
+ * Its `changes` is the heaviest any row names (scope, cost, direction, then packaging or ordering), so a pair never settles a scope change.
+ */
 export function proposalItem(ctx: OwnerContext, phase: string, rows: ChallengeRow[], o: { carried?: boolean } = {}): NewItem {
-  const changes = rows.find(r => r.changes)?.changes ?? 'direction';
+  const named: string[] = rows.flatMap(r => (r.changes ? [r.changes] : []));
+  const changes = ['scope', 'cost', 'direction'].find(c => named.includes(c)) ?? named[0] ?? 'direction';
+  const keep = blockingProposal(rows) ? "keep the plan's draft; carry it into the build as a blocking task (no plan change)" : "keep the plan's draft";
   const fixes = [...new Set(rows.map(r => r.resolution).filter((r): r is string => !!r))];
   const voices = rows.map(r => r.voice).join(' + ');
   const ids = rows.map(r => r.id).join(' + ');
@@ -99,7 +107,7 @@ export function proposalItem(ctx: OwnerContext, phase: string, rows: ChallengeRo
     recommended_basis: "the reviewer's change: only the owner's words are direction, and this changes text the planning agent wrote",
     why: `${voices} recommend${rows.length > 1 ? '' : 's'} changing the plan's ${changes} (${rows[0]!.severity}); no quoted owner line says otherwise${o.carried ? '; raised in an earlier round and still open' : ''}`,
     cost: proposalCost(ctx, phase, changes),
-    options: [{ key: 'a', text: `take the change: ${fixes.length ? fixes.join('; ') : rows[0]!.title}`, changes_plan: true }, { key: 'b', text: "keep the plan's draft", changes_plan: false }] };
+    options: [{ key: 'a', text: `take the change: ${fixes.length ? fixes.join('; ') : rows[0]!.title}`, changes_plan: true }, { key: 'b', text: keep, changes_plan: false }] };
 }
 
 /**
