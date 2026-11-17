@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
 import { gitFixtureTemplate, rebindGitDir } from '../../test/helpers/git-fixture-template';
 import {
-  BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
+  BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NEVER_GATING_WORKFLOWS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
 
@@ -344,6 +344,38 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
       .toEqual({ green: false, why: 'no ' + BACKSTOP_CHECK + ' check run', pending: false });
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')], {}), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
+  });
+
+  // Value: protects=check runs from the never-gating Windows nightly (timed out, cancelled, failed or still running) never keep a gated commit out of the
+  // cut, while a red required check, a red or running check run from any other workflow, a same-named job outside the nightly and a missing gate still
+  // refuse; fails_when=the nightly's shard 4 timeout holds stable (0326b144 behind a GREEN release gate, 6 nights), or the exclusion is keyed on the check
+  // name and swallows another workflow's red run; why_new=only the cut's own workflow was set aside; seam=gh is faked with the check-runs, actions/runs
+  // and jobs payload shapes; no_claim=a live workflow run
+  test('gateVerdict: the never-gating Windows nightly\'s red or running check runs are set aside; every other not-green signal still refuses (GST-2815)', () => {
+    const evidence = gatedBy(sha, '43668645294');
+    const nightly = { id: 9100, path: '.github/workflows/windows-free-tests.yml', jobs: [71004, 71007] };
+    expect(NEVER_GATING_WORKFLOWS).toContain(nightly.path);
+    const api = workflowRuns(sha, [ownWorkflow, nightly, { id: 555, path: '.github/workflows/evals.yml', jobs: [70555] }]);
+    const shard = (status: string, conclusion: string | null, id = 71004) => ({ id, name: 'windows-free-shard (4)', status, conclusion }) as CheckRun;
+    const aggregate = { id: 71007, name: 'windows-free-tests', status: 'completed', conclusion: 'failure' } as CheckRun;
+    const gated = { green: true, via: 'release gate run 43668645294' } as const;
+    for (const red of [shard('completed', 'timed_out'), shard('completed', 'cancelled'), shard('completed', 'failure')]) {
+      expect(gateVerdict(ghFor([...unbacked, red, aggregate], api), 'o/r', sha, { evidence })).toEqual(gated);
+    }
+    expect(gateVerdict(ghFor([...unbacked, shard('in_progress', null), { ...aggregate, status: 'queued', conclusion: null }], api), 'o/r', sha, { evidence })).toEqual(gated);
+    expect(gateVerdict(ghFor([...GREEN, shard('completed', 'timed_out')], api), 'o/r', sha)).toEqual({ green: true, via: BACKSTOP_CHECK });
+    expect(gateVerdict(ghFor([{ name: REQUIRED_CHECK, status: 'completed', conclusion: 'failure' }, shard('completed', 'timed_out')], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: REQUIRED_CHECK + ' concluded failure', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, shard('completed', 'timed_out'), { id: 70555, name: 'quality', status: 'completed', conclusion: 'failure' } as CheckRun], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: quality', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, shard('completed', 'timed_out', 80004)], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: windows-free-shard (4)', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, shard('in_progress', null), { name: 'slices-report', status: 'queued', conclusion: null }], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'check runs still going: slices-report', pending: true });
+    expect(gateVerdict(ghFor([...unbacked, shard('completed', 'timed_out')], api), 'o/r', sha))
+      .toEqual({ green: false, why: 'no ' + BACKSTOP_CHECK + ' check run', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, shard('completed', 'timed_out')], {}), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: windows-free-shard (4)', pending: false });
   });
 
   const note = (f: ReturnType<typeof fixture>, record: unknown, on: string) => {

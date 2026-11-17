@@ -26,7 +26,7 @@ Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
 ## Hooks that `./setup` registers
 
-`./setup` registers up to three hook families in `~/.claude/settings.json`, every one pointing at the canonical install. In team mode it registers the `SessionStart` auto-update hook (`gstack-session-update`; `./setup --no-team` skips it). It asks before registering the AskUserQuestion `PreToolUse` (preference enforcement) and `PostToolUse` (deterministic answer capture) hooks that `/plan-tune` uses at runtime; `./setup` never writes them silently. `docs/uninstall.md` lists the same families when telling you what to remove by hand.
+`./setup` registers the hooks below in `~/.claude/settings.json`, every one pointing at the canonical install. In team mode it registers the `SessionStart` auto-update hook (`gstack-session-update`; `./setup --no-team` skips it). It asks before registering the AskUserQuestion `PreToolUse` (preference enforcement) and `PostToolUse` (deterministic answer capture) hooks that `/plan-tune` uses at runtime; `./setup` never writes them silently. `docs/uninstall.md` lists the same families when telling you what to remove by hand.
 
 `./setup` also registers one default-on Stop hook:
 `gstack-timeline-stop` (closes dangling session-timeline entries when a session
@@ -38,6 +38,14 @@ explicit "no" removes a live registration. `GSTACK_TIMELINE_STOP_HOOK=no` and
 `./setup --no-team` skips it for that run, `gstack-settings-hook remove-source
 --source gstack-timeline-stop` removes it by hand, and `gstack-uninstall`
 removes it too.
+
+Two more hooks are off by default and registered only when you turn them on:
+skill routing (`./setup --skill-routing`, a `UserPromptSubmit` hook that names
+the gstack skill a prompt fits) and skill contracts (`./setup --skill-contracts`,
+a `Stop` hook that blocks once when a skill ends without its required outputs);
+see [skill-routing-and-contracts.md](skill-routing-and-contracts.md). The
+opt-in skill gates (`./setup --ceo-review-gate`, `./setup --autoplan-gate`)
+register their own hooks the same way; see [skill-gates.md](skill-gates.md).
 
 Hook registration is canonical-only: every hook command points at the stable
 `~/.claude/skills/gstack` install, never the tree setup ran from, so deleting

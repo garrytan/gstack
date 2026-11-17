@@ -539,6 +539,7 @@ Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 which hit 43 of 100; those paths already get full depth, so the gate class was
 narrowed to the gate scan's tagged hunks.
 
+<a id="targeted-only-read-after-the-loop"></a>
 ### Targeted-only read after the loop (GST-1598)
 
 A docs claim added after the review loop finished, such as a changelog

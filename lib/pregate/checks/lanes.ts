@@ -365,18 +365,56 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Bytes of quoted file arguments one runner process may take. supervise passes the whole command as one `bash -c`
+ * argument: Linux caps a single execve argument at 128 KiB (MAX_ARG_STRLEN), every POSIX system caps argv plus the
+ * environment (ARG_MAX: 1 MiB on macOS, 2 MiB by default on Linux), and Windows caps a whole command line at 32,767
+ * characters. The runner text itself and a margin come off the top.
+ */
+export function argBudget(runner: string, env: NodeJS.ProcessEnv, platform = process.platform): number {
+  const envBytes = Object.entries(env).reduce((n, [k, v]) => n + Buffer.byteLength(`${k}=${v ?? ''}`) + 9, 0);
+  const cap = platform === 'win32' ? 24 * 1024 : Math.min(96 * 1024, 1024 * 1024 - 64 * 1024 - envBytes);
+  return cap - Buffer.byteLength(runner) - 512;
+}
+
+/** `args` split in order into chunks whose quoted, space-joined text fits `budget` bytes; an argument over it runs alone. */
+export function argChunks(args: readonly string[], budget: number): string[][] {
+  const chunks: string[][] = [];
+  let size = 0;
+  for (const a of args) {
+    const n = Buffer.byteLength(quote(a)) + 1;
+    if (!chunks.length || size + n > budget) { chunks.push([]); size = 0; }
+    chunks.at(-1)!.push(a);
+    size += n;
+  }
+  return chunks;
+}
+
 async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup, files: string[], log: string, counter: Counter): Promise<LocalRun> {
   // playwright test reads each file argument as a case-insensitive regex: escape it and anchor it to a path segment, so `a[1].spec.ts` runs that file, not `a1.spec.ts`.
   const args = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? files.map(f => `(?:^|/)${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : testFileArgs(g.runner, files);
-  const joined = args.map(quote).join(' ');
-  const run = g.runner.replace('{files}', () => joined);
-  const command = g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run;
-  const shown = g.cwd ? files.map(f => `${g.cwd}/${f}`) : files;
-  const r = await supervise({ command: run, cwd: path.join(ctx.repoRoot, g.cwd), env: { ...env, CI: env.CI ?? '1' }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `lanes (${shown.length === 1 ? shown[0] : `${shown.length} files`})`, files, adapter: adapterFor(g.runner), counter, progress: ctx.progress });
-  const output = readRange(log, r.start, r.end);
-  const summary = parseSummary(output, g.runner);
-  const noBrowsers = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? PLAYWRIGHT_NO_BROWSERS.exec(output)?.[0].trim().slice(0, 200) : undefined;
-  return { ...(noBrowsers ? { noBrowsers } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) };
+  const runEnv = { ...env, CI: env.CI ?? '1' };
+  // A file list over the argument limits (#4424: E2BIG on Linux) runs as chunks in sequence under the group's one deadline, read back as one run:
+  // the first unfinished, else the first non-zero chunk decides; counts add up; a chunk that did not finish ends the group, as a killed runner would.
+  const deadline = Date.now() + ctx.timeoutMs;
+  const parts: LocalRun[] = [];
+  let at = 0;
+  for (const chunk of argChunks(args, argBudget(g.runner, runEnv))) {
+    const part = files.slice(at, at += chunk.length);
+    const joined = chunk.map(quote).join(' ');
+    const run = g.runner.replace('{files}', () => joined);
+    const shown = g.cwd ? part.map(f => `${g.cwd}/${f}`) : part;
+    const r = await supervise({ command: run, cwd: path.join(ctx.repoRoot, g.cwd), env: runEnv, log, deadline, stallMs: ctx.stallTimeoutMs, label: `lanes (${shown.length === 1 ? shown[0] : `${shown.length} files`})`, files: part, adapter: adapterFor(g.runner), counter, progress: ctx.progress });
+    const output = readRange(log, r.start, r.end);
+    const summary = parseSummary(output, g.runner);
+    const noBrowsers = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? PLAYWRIGHT_NO_BROWSERS.exec(output)?.[0].trim().slice(0, 200) : undefined;
+    parts.push({ ...(noBrowsers ? { noBrowsers } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command: g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) });
+    if (r.exit === null) break;
+  }
+  if (parts.length === 1) return parts[0]!;
+  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.at(-1)!;
+  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
+  return { ...(parts.every(p => p.noBrowsers) ? { noBrowsers: parts[0]!.noBrowsers } : {}), exit: bad.exit, outcome: bad.outcome, signal: bad.signal, observedStart: parts.some(p => p.observedStart), ran: sum('ran'), failed: sum('failed'), tail: bad.tail, runner: g.runner, command: parts.map(p => p.command).join(' && '), files: parts.flatMap(p => p.files), lastFile: bad.lastFile, ms: parts.reduce((n, p) => n + p.ms, 0), ...(bad.error ? { error: bad.error } : {}) };
 }
 
 /**

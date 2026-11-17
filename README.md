@@ -270,6 +270,8 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [Diagrams & Document Formats](docs/howto-diagrams-and-formats.md) | Mermaid/excalidraw fences in PDFs, image sizing and safety defaults, `--to html\|docx`, `/diagram` triplets |
 | [Preview a frontend](docs/howto-preview-a-frontend.md) | The loopback preview with canned API answers that `/design-review --build` checks, its fixtures, the state inventory, and the `gstack-design-build` receipt |
 | [First Production Deploy](docs/howto-bring-up-a-first-deploy.md) | What to do when `/setup-deploy` says nothing is deployed yet: hosting, env and secrets, DNS, checking it works, then back to `/setup-deploy` |
+| [Land a fix in someone else's repo](docs/howto-land-a-fix-in-someone-elses-repo.md) | Read their rules, search for the same fix, run every guard their CI runs before opening, keep it small, answer each review point in a new commit |
+| [Run a human playtest](docs/howto-run-human-playtests.md) | Ask about moments and where people would stop, and why a back-to-back pick between two builds measures the order, not the build |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
 | [GBrain quick tour](docs/gbrain-quick-tour.md) | The four setup paths, MCP registration, the per-repo trust policy, memory sync, Conductor env vars |
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |
