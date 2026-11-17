@@ -122,4 +122,11 @@ describe('rendered Design Doc Check block', () => {
     expect(f.find()).toBe(doc);
     expect(f.find({}, ['proj', 'other'])).toBe(doc);
   });
+  test('a memo on a design-named branch is not a design doc (GST-3024)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-design-v2-memo-20261117-100000.md'), 10);
+    expect(f.find()).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-design-v2-design-20261101-100000.md'), 1000);
+    expect(f.find()).toBe(doc);
+  });
 });

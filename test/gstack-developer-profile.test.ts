@@ -1345,6 +1345,12 @@ describe('gstack-developer-profile --kill-check', () => {
     expect(key(runDev('--kill-check', 'gamma').stdout, 'KILL_DATE')).toBe('');
   });
 
+  test('an empty slug is a usage error, never "nothing due"', () => {
+    const r = runDev('--kill-check', '');
+    expect(r.status).toBe(2);
+    expect(r.stdout).not.toContain('KILL_DUE');
+  });
+
   test('commitment rows never count as sessions or move LAST_*', () => {
     logStartup('alpha');
     logCommitment('beta', '2099-01-01', 'beta test', '2026-11-02T10:00:00Z');

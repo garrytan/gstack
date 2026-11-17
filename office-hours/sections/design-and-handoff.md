@@ -353,7 +353,7 @@ Present the reviewed design doc to the user via AskUserQuestion:
 - C) Start over — return to Phase 2
 
 **After APPROVED, with a KILL/CONTINUE or SUCCESS line:** record the approved line, never a draft:
-`~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"TIMESTAMP","mode":"commitment","project_slug":"SLUG","kill_date":"YYYY-MM-DD","kill_test":"THE_TEST"}' 2>/dev/null || true`
+`~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"TIMESTAMP","mode":"commitment","project_slug":"SLUG","kill_date":"YYYY-MM-DD","kill_test":"THE_TEST"}' 2>/dev/null || true` (JSON-escape THE_TEST; `'` → `'\''`)
 
 
 

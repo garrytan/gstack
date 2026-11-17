@@ -33,7 +33,9 @@ BRANCH=$2
 eval "$("$(dirname "$0")/gstack-paths")"; : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 
 newest() {
-  ls -t "$@" 2>/dev/null | head -1
+  ls -t "$@" 2>/dev/null | while IFS= read -r f; do
+    case "${f##*-memo-}" in "$f"|*-design-*) printf '%s\n' "$f"; break ;; esac
+  done
 }
 
 PROJECT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG"

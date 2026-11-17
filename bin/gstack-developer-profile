@@ -494,13 +494,15 @@ do_read() {
 # Kill check: the newest approved commitment for one project.
 # -----------------------------------------------------------------------
 do_kill_check() {
+  [ -n "${1:-}" ] || { echo "gstack-developer-profile: --kill-check needs a project slug (usage: --kill-check <slug>)" >&2; exit 2; }
   ensure_profile
   KILL_SLUG="${1:-}" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
     const p = JSON.parse(await Bun.stdin.text());
     const rows = (p.sessions || []).filter(e => e && e.mode === 'commitment'
       && e.project_slug === process.env.KILL_SLUG && e.kill_date && e.kill_test);
     const last = rows[rows.length - 1];
-    const today = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     console.log('KILL_DATE: ' + (last ? last.kill_date : ''));
     console.log('KILL_TEST: ' + (last ? last.kill_test : ''));
     console.log('KILL_DUE: ' + (last && String(last.kill_date).slice(0, 10) <= today ? 'yes' : 'no'));

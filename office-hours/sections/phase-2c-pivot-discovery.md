@@ -10,7 +10,7 @@ Ask these ONE AT A TIME, open-ended (`Q<N>` form without AskUserQuestion):
    - **Too small:** do the ceiling check together: reachable buyers × a defensible annual price, compared with the founder's goal (and the leading incumbent's revenue if they know it). If either input is a guess, verifying the least credible one is the assignment. "300 buyers × $3K a year is a $900K ceiling" ends the debate faster than any opinion.
    - **No love:** it's a fit problem; run the discovery flow below on the new direction.
 2. **Sunk cost out.** "If I took the current business away right now, what would you build Monday?" Prior work is an idea source, not a loss.
-3. **Commitment test.** "Could you fire your best current customer to go all-in?" Hesitation means it isn't decided yet; say so out loud.
+3. **Commitment test.** "Could you fire your best current customer to go all-in?" Hesitation means it isn't decided; say so.
 4. **Churn as validation.** If the new direction is right, old customers *should* churn. Protect relationships; protecting pre-PMF revenue is optional.
 5. **Kill criterion before acting.** "What result, by what date, would tell you this is wrong?" It goes into the memo.
 6. **Landing signal.** "You'll know it's landed when you stop talking about the other ideas."

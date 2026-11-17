@@ -2,15 +2,15 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ### Reality Check (ask first, at every stage)
 
-**Open commitment:** run `~/.claude/skills/gstack/bin/gstack-developer-profile --kill-check "$SLUG"`. On `KILL_DUE: yes`, open with the founder's own test ("Dec 1 passed: did anyone pay?") and apply their rule first.
+**Open commitment:** run `~/.claude/skills/gstack/bin/gstack-developer-profile --kill-check "$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG)"`. On `KILL_DUE: yes`, open with the founder's own test ("Dec 1 passed: did anyone pay?") and apply their rule first.
 
-Before any other question, and before the fully-formed-plan shortcut, establish ground truth with ONE question:
+Ask this ONE question first, even before the fully-formed-plan shortcut:
 
 "Has it produced one real outcome yet: one paying user, or one person who used it this week without being asked? Name them."
 
 - **Skip it** when the opening already names a person and what they did or paid. "We have users" alone doesn't count.
 - **Weak answer:** ask once more, "How many target customers have you talked to in the last two weeks? Exact number." Then say plainly what you see; for a pre-launch strategy, pricing or fundraising question: "Honestly, that's not your problem yet. The only real problem is getting one real person to use this."
-- **No real outcome** → this is a memo session: run Q2 and Q3, then the memo route after this section. **A real outcome** always outranks the conversation count: never send a founder with a named payer or user to the memo route because they've talked to few people.
+- **No real outcome** → this is a memo session: run Q2 and Q3, then the memo route after this section. **A real outcome** outranks the conversation count: a founder with a named payer or user never takes the memo route.
 - **Intrapreneurs:** one internal user this week, or the sponsor's committed yes; a budget commitment stands in for payment.
 - Named customers and prices stay in the private `~/.gstack` copy only; repo copies and second-opinion summaries use roles or initials.
 
