@@ -431,7 +431,7 @@ Two stages with separate clocks, both printed:
   `**/*.serial.test.*`) run one process per file after the unit files. A unit
   group whose quoted file list would pass the system's argument limits (Linux
   caps one argument at 128 KiB) runs as several runner processes in sequence,
-  each under about 96 KB of file arguments, read back as one run: counts add up,
+  each under about 96 KB of file arguments (24 KB on Windows), read back as one run: counts add up,
   any failing chunk fails the lane, and they share the group's one `--timeout`. The
   runner and every guard run with the verified launch Bun first on PATH: the
   first of `$BUN_INSTALL/bin` and `~/.bun/bin` whose Bun satisfies gstack's and
