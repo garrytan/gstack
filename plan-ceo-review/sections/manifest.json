@@ -7,8 +7,8 @@
     {
       "id": "review-sections",
       "file": "review-sections.md",
-      "title": "11-section deep review, required outputs + review report",
-      "trigger": "running the 11-section deep review, required outputs, and review report (only after Step 0 scope and mode are agreed)",
+      "title": "3-section review, required outputs + review report",
+      "trigger": "running the 3-section review, required outputs, and review report (only after Step 0 scope and mode are agreed)",
       "scope": "always"
     },
     {

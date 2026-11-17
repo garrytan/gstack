@@ -75,7 +75,7 @@ describeE2E('/plan-ceo-review section-loading E2E (periodic, SDK capture)', () =
         testName: 'plan-ceo-section-loading',
         runId,
         // This external carve missed the generic loader's v1.71 budget fix:
-        // a full 11-section review needs its long work budget, not the helper's
+        // a full CEO review needs its long work budget, not the helper's
         // ordinary 300s default. The outer CAPTURE_LONG_MS remains unchanged.
         timeout: LONG_SECTION_CAPTURE_MS,
         // This case measures native section loading and report completion;
