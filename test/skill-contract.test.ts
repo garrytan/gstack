@@ -251,6 +251,16 @@ describe('gstack-skill-contract CLI', () => {
     expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'verify', missing: ['debug-report'], follow: false });
   });
 
+  test('check: a contract that still lists the removed kind warns once on stderr and checks the rest', () => {
+    const file = path.join(work, 'SKILL.md');
+    fs.writeFileSync(file, SKILLS.verify.replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n'));
+    const r = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--skill-file', file, '--json');
+    expect(r.code).toBe(EXIT.UNMET);
+    expect(JSON.parse(r.stdout)).toMatchObject({ missing: ['debug-report'] });
+    expect(r.stderr).toBe(`gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${file}: repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract
+`);
+  });
+
   test('check: stable error exits 2, 3, 4, 5, 6', () => {
     expect(cli('check', '--skill', 'verify').code).toBe(EXIT.USAGE);
     expect(cli('check', '--transcript', path.join(work, 'none.jsonl'), '--skill', 'verify')).toMatchObject({ code: EXIT.STATE_ERROR });
