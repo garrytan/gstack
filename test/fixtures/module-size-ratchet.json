@@ -148,6 +148,8 @@
     { "file": "lib/autoplan-export.ts", "movedFrom": "(new: the unattended export file set, B2/B12)" },
     { "file": "lib/spec-review-cap.ts", "movedFrom": "(new: the spec-review loop at the cap: numbered gaps and deterministic fix verification, B8)" },
     { "file": "bin/gstack-autoplan", "movedFrom": "(new: thin entrypoint over lib/autoplan-run.ts, B2)" },
+    { "file": "lib/autoplan-gate-items.ts", "movedFrom": "(new: the gate items that keep reviewer product challenges on the owner's page, GST-2947)" },
+    { "file": "lib/autoplan-owner-text.ts", "movedFrom": "(new: the plan's Owner's words, Day one and cuts sections, GST-2947)" },
     { "file": "lib/autoplan-plan-text.ts", "movedFrom": "(new: plan wrap, Implementation-plan review hash, scaffold and drift lines, field wave B1c)" },
     { "file": "lib/autoplan-admission.ts", "movedFrom": "(new: install verdict and Bun minimum admission for mutating autoplan verbs, field wave B-core)" },
     { "file": "lib/autoplan-migrate.ts", "movedFrom": "(new: gstack_version stamp and legacy decision-id migration at load, field wave B1a)" },

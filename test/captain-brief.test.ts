@@ -178,7 +178,7 @@ describe('carried decisions at a cap gate (#3546)', () => {
     const challenge = (title: string) => ({ severity: 'Medium', title, fix: `change: ${title}`, user_challenge: true, changes: 'scope' });
     phaseVia(r, out, 'ceo', { native: [challenge('Use a queue table'), challenge('Add metrics')], outside: [challenge('Drop jitter')] });
     phaseVia(r, out, 'eng', { native: [], outside: [] });
-    const ds = JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).items.filter((i: any) => i.id.startsWith('d'));
+    const ds = JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).items.filter((i: any) => i.item_class === 'challenge1');
     expect(ds.map((i: any) => i.recommended)).toEqual(['a', 'a', 'a']);
     expect(r.ap(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', `${ds.map((i: any) => `${i.id}b`).join(' ')} p1b`]).status).toBe(0);
     const v2 = path.join(dir, 'plan-v2.md');
@@ -203,7 +203,7 @@ describe('carried decisions at a cap gate (#3546)', () => {
     const { gate, gateText, briefText, gateRec, briefRec } = renders(out);
     expect(gate.gate_rev).toBe(2);
     expect(gate.items.some(i => i.cap?.kind === 'delta')).toBe(true);
-    const carried = gate.items.filter(i => i.carried);
+    const carried = gate.items.filter(i => i.carried && i.item_class === 'challenge1');
     expect(carried.map(i => [i.recommended, i.carried!.chosen])).toEqual([['a', 'b'], ['a', 'b'], ['a', 'b']]);
     expect(briefRec).toEqual(gateRec);
     expect(Object.fromEntries(carried.map(i => [i.id, gateRec[i.id]]))).toEqual({ d1: 'b', d2: 'b', d3: 'b' });
@@ -213,7 +213,7 @@ describe('carried decisions at a cap gate (#3546)', () => {
       expect(briefText).toContain(`- ${String.fromCharCode(65 + n)}: ${item.title.replace(/\s*\[[^\]]*\]\s*$/, '')}. We could: 1) ${WORDS[text] ?? text};`);
     });
     expect(briefText).toContain("- A: Use a queue table. We could: 1) make the reviewer's change; 2) keep the plan as written (a reviewer suggested changing it). Recommendation: make the reviewer's change (your answer at gate_rev 1, carried forward). A1 to take recommendation.");
-    expect(briefText).toContain('do it keeps the 3 you already answered and takes the recommendation for the rest.');
+    expect(briefText).toContain('do it keeps the 4 you already answered and takes the recommendation for the rest.');
     expect(briefText).toContain('Reply **do it** to keep the answers you already gave and take every other recommendation (recommended)');
   });
 
