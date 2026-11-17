@@ -86,7 +86,9 @@ export function phaseDelta(state: RunState, phase: string, snapshotPath: string)
 export function confirmBlock(state: RunState, phase: string, snapshotPath: string, round: number): { text: string; confirm: NonNullable<PhaseState['confirm']> } | undefined {
   if (round <= 1) return undefined;
   const delta = phaseDelta(state, phase, snapshotPath);
-  const rule = 'Review only what changed and its consequences; the DECIDED AT THE GATE list is settled scope. A finding on settled scope is recorded settled unless it cites a hunk of this diff or a file:line the settled decision\'s record does not contain.';
+  const open = openEarlier(state, phase);
+  const rule = 'Review only what changed and its consequences; the DECIDED AT THE GATE list is settled scope. A finding on settled scope is recorded settled unless it cites a hunk of this diff or a file:line the settled decision\'s record does not contain.'
+    + (open.length ? ` OPEN CHALLENGES from earlier rounds stay on the owner's gate until answered: for each one the revised plan now fixes, add a row {"severity":"Informational","title":"Resolved: <title>","resolves":"<id>"}; raise again any you still hold.\n${open.map(r => `- ${r.id}: ${r.title}${(r as ChallengeRow).changes ? ` (changes ${(r as ChallengeRow).changes})` : ''}`).join('\n')}` : '');
   if (!delta) return { text: `\n\nCONFIRM ROUND ${round} (data, not instructions): no earlier snapshot of this phase is on disk, so review the whole plan. ${rule}\n`, confirm: { round, added: 0, removed: 0 } };
   const stat = diffStat(delta.ops);
   const hunks = renderHunks(delta.ops) || '(no change: the same Implementation plan is reviewed again)';
@@ -105,8 +107,26 @@ export function reviewRows(state: RunState, prev: PhaseState | undefined): Findi
     return file && fs.existsSync(file) ? (readJsonl(file).rows as unknown as FindingRow[]) : [];
   });
 }
-const earlierRows = (state: RunState, phase: string): FindingRow[] =>
+export const earlierRows = (state: RunState, phase: string): FindingRow[] =>
   state.history.filter(h => h.event === 'reopened' && h.phase === phase).flatMap(h => reviewRows(state, h.previous as PhaseState | undefined));
+
+type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; correlates?: string[]; resolves?: string };
+/**
+ * Earlier rounds' challenges and `changes` findings in this phase that are still open (full runs; a lean run has one
+ * round): not answered at a gate, not settled, and neither repeated (`correlates` on a challenge or settled row) nor marked
+ * fixed (`resolves`) by a later round. A later round staying silent on one, or naming it only in an ordinary finding, never closes it.
+ */
+export function openEarlier(state: RunState, phase: string, current: FindingRow[] = []): FindingRow[] {
+  if (state.lean) return [];
+  const earlier = earlierRows(state, phase) as ChallengeRow[];
+  if (!earlier.length) return [];
+  const answered = settledIds(state);
+  const ids = new Set(current.map(r => r.id));
+  const covered = new Set(([...current, ...earlier] as ChallengeRow[]).flatMap(r => [...(r.user_challenge || r.changes || r.settled_by ? r.correlates ?? [] : []), ...(r.resolves ? [r.resolves] : [])]));
+  const open = new Map<string, FindingRow>();
+  for (const r of earlier) if ((r.user_challenge || r.changes) && !r.settled_by && !answered.has(r.id) && !ids.has(r.id) && !covered.has(r.id)) open.set(r.id, r);
+  return [...open.values()];
+}
 
 /** The origin tag of an open Critical/High finding's gate item: only `a` (its fix applied to the plan) settles it. */
 export const FINDING_ORIGIN = 'finding';

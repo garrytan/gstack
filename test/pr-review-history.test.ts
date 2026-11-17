@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { historyLine, placeRunEntry, prReviewHistory, reviewRoute } from '../lib/pr-review-history';
+import { mergeBodySections } from '../lib/gstack-post';
 import { orderReceipt, placeReceipt, receiptRun, receiptRuns } from '../lib/ship-receipt';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 
@@ -70,6 +71,18 @@ describe('prReviewHistory', () => {
     body = placeRunEntry(body, { head: sha('b'), run: 'r2', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
     body = placeReceipt(body, receipt(sha('c'), { passes: 1, rounds: 1 }));
     expect(prReviewHistory(body)).toMatchObject({ stubs: 1, full: 3 });
+  });
+
+  test('a /ship body post keeps the live runs block, so history still counts every run (GST-2706)', () => {
+    let live = placeReceipt('## Summary\nprose\n', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    live = placeRunEntry(live, { head: sha('b'), run: 'r2', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
+    live = placeRunEntry(live, { head: sha('b'), run: 'r3', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
+    const composed = placeReceipt('## Summary\nnew prose\n', receipt(sha('c'), { passes: 1, rounds: 1 }, { run: 'r2' }));
+    const posted = mergeBodySections(live, composed).body;
+    expect(posted).toContain('new prose');
+    expect(prReviewHistory(posted)).toMatchObject({ full: 3, runs: 2, stubs: 1, last_full: sha('c') });
+    expect(receiptRuns(posted).map(r => r.run)).toEqual(['r3', 'r1']);
+    expect(prReviewHistory(mergeBodySections(posted, composed).body)).toEqual(prReviewHistory(posted));
   });
 
   test('a stub lands in a body with no receipt yet, inside the Agent notes section', () => {

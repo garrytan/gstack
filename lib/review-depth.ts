@@ -437,7 +437,7 @@ function prCapped(h: History, n: NextStep): NextStep {
     if (h.last === 'none') return n.step === 'full' || n.step === 'scoped' ? { step: 'full', reason: `read-only final review (R51): this PR already had ${prior} full review rounds on earlier heads, so this head gets one full review with no fix round; a blocker goes to the lane's Captain as a decision and the count does not reopen` } : n;
     if (n.step === 'done') return n;
     if (!h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'done', reason: `read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round` };
-    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, a round grant, or park), not an owner ask` };
+    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, or park; a round grant recorded after this read-only review does not buy a fix round), not an owner ask` };
   }
   if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const used = prior + h.fullPasses;

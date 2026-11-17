@@ -306,8 +306,10 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
 - **Whose words.** Every owner reply the private run ever recorded: on
   decision rows, on `run.json`'s gate, and in the journal (`attempts.jsonl`
   keeps a reply that a later answer at the same gate replaced), the words a
-  carried gate reused, and the reason a human gave for `close --deferred --by
-  human`. A reply that parsed as gate grammar is the decision code, not owner
+  carried gate reused, each quote under a `### Owner's words` heading in any
+  plan text the run kept (the active plan, its source copies and each gate's
+  copy, so a quote a later revision removed stays redacted), and the reason a
+  human gave for `close --deferred --by human`. A reply that parsed as gate grammar is the decision code, not owner
   prose. An agent's own words (`answer_words`) and an agent's deferral reason
   stay.
 - **Dropped fields.** `owner_reply` anywhere, a carry record's `words`, and a
@@ -524,6 +526,17 @@ The example above is the full run. The first `next` also takes `--kind`:
    `p1b` (approve with the recommended changes) or an explicit `<id>a` applies
    a fix; a finding carried with `b` stays
    open, so a rerun that raises it again asks again.
+   With an `### Owner's words` section in the plan, only a challenge naming
+   one of its bullets (`owner_quote`) is a user challenge; a reviewer's
+   `changes` to anything else, at any severity and from one voice, is a
+   `proposal` approval item recommending the change, whose `b` keeps the draft
+   (behind a Critical or High finding, as a blocking build task). Without that
+   section the default stays, plus one `confirm_direction` auto item when a
+   one-voice challenge keeps it. An earlier round's open challenge stays until
+   answered or marked fixed (`resolves`). `### Day one` and `### What it won't
+   do yet` add `day_one` and `cut` approval items (a missing day-one page on a
+   UI plan, each `assumed` row, each cut that drops a day-one row or quoted
+   owner line) and one `cuts` auto item for the rest.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)
@@ -540,7 +553,8 @@ The example above is the full run. The first `next` also takes `--kind`:
    are then recorded as `answer_words` with `words_by`, never as
    `owner_reply`; a later gate never carries them (`CARRY: no`), and
    `gstack-approvals import` lists that row under the agent, not the owner.
-   They never settle a `uc` item (a user challenge or a round-cap approval):
+   They never settle a `uc` item (a user challenge, a reviewer's proposal, a
+   day-one or cut question, or a round-cap approval):
    a reply in an agent's own words that would choose one, by `rec`, `as-is`
    or a token, is refused (`OWNER_REPLY_REQUIRED`) and nothing is applied;
    such a reply may still answer the `d` items and leave the `uc` items to
@@ -625,9 +639,13 @@ Each prompt file ends with this contract; `submit` enforces it.
 2. The review is prose, then one fenced block of canonical findings, one JSON
    object per line: `{"id":"F1","severity":"High","title":"...","file":"...","line":12,"fix":"..."}`
    inside a ```` ```gstack-findings ```` fence. `severity` is Critical | High |
-   Medium | Low | Informational; `"user_challenge": true` marks a recommended
-   change to the plan's stated direction and needs `"changes": "scope" |
-   "cost" | "direction"` (what accepting it changes); `"urgent": true` with
+   Medium | Low | Informational; a finding that recommends changing the
+   plan's scope, cost or direction adds `"changes": "scope" | "cost" |
+   "direction"` (or `"packaging" | "ordering"` when only delivery packaging or
+   build order changes), at any severity; `"user_challenge": true` with
+   `"owner_quote": <n>` marks a change against bullet n of the plan's
+   `### Owner's words` (on a plan without that section, `"user_challenge":
+   true` alone marks a change to its stated direction); `"urgent": true` with
    `"suggested_owner"` marks a security or data-loss finding the plan does not
    own. An empty fence means no findings; a missing fence is refused.
 3. The whole result is written to the printed `result=` path.
@@ -861,7 +879,8 @@ predictions with his answers.
   prospective evidence.
 - **The record.** `shadow/ceo-only.r<rev>.jsonl`, one row per gate item: the
   frozen item, `item_class` (`challenge2`, `challenge1`, `disagree`, `agent`,
-  `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `p1`), `ceo_eligible`
+  `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `proposal`,
+  `confirm_direction`, `day_one`, `cut`, `cuts`, `p1`), `ceo_eligible`
   (false for a `finding` item, which a CEO-only run leaves to the owner), the
   prediction, `rule_pick` (the driver's keep-direction pick, the free
   baseline), `rec_hash`, the plan and prompt hashes, the model, the gstack
@@ -891,7 +910,9 @@ predictions with his answers.
 `gstack-owner-brief render --out <dir>` is what the owner sees at the final
 gate, interactive or unattended: one page built from `gate.json`,
 `decisions.jsonl` and `findings.jsonl` (`BRIEF_INPUT_MISSING` when one is
-absent). It opens with the `URGENT, outside this plan` block, then a
+absent). It opens with the `URGENT, outside this plan` block, then the
+plan's `### Day one` table, its `### What it won't do yet` cuts and the
+owner's words it follows (each only when the plan has it), then a
 plain-language summary (phases closed, findings accepted, how many decisions
 take their default, the cycle time; `--summary <file>` or `<dir>/summary.md`
 replaces the generated sentence with the run's own), then the numbered
