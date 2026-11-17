@@ -74,6 +74,15 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     expect((await lanesOn(gated(), { cores: 16, testBackend: 'local' })).lanes.status).toBe('pass');
   });
 
+  test.skipIf(process.platform === 'win32')('a selected test path the file list cannot hold (a newline) keeps the quoted inline command, so it cannot end the list and run as shell', async () => {
+    const backend = gated(BASE_PREGATE);
+    const odd = 'test/odd\nPREGATE_FILES\nname.test.js';
+    commit(backend, { [odd]: "require('node:test')('ok', () => {});\n" });
+    const command = (await lanesOn(backend, { cores: 4, testBackend: 'ubicloud' })).file.requires_remote![0]!.command!;
+    expect(command).not.toContain('--setup');
+    expect(command).toContain(odd);
+  });
+
   test('`clear` on the remote_gate obligation needs the gate\'s PREGATE_REMOTE receipt for the tested tree; a run URL or a bad receipt leaves it uncleared', async () => {
     const repo = gated();
     const fileAt = path.join(repo.work, '.gstack/tmp/pregate.json');

@@ -507,13 +507,16 @@ function remoteObligation(ctx: PregateContext, sel: Selection): RemoteObligation
  * The test backend's command: gstack's Ubicloud runner, with the selected files in a setup script that writes them one per line
  * on the VM. The command reaches the VM as one argument and Linux caps one argument at 128 KiB (#4424), so the list never goes in
  * it. The script lives under the state root, named by its content, so the same selection prints the same command every run and a
- * same-tree clear still matches it; an unwritable state root keeps it in this run's scratch.
+ * same-tree clear still matches it; an unwritable state root keeps it in this run's scratch. A path the one-per-line list can't
+ * hold (a newline, or the list's end marker) keeps the quoted inline form, so no path can end the list early and run as shell.
  */
 function backendCommand(ctx: PregateContext, files: readonly string[]): string {
   const ubi = `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)}`;
   const runner = detectRunner(ctx, files);
   if (!runner) return `${ubi} -- ${quote('<test runner> <selected files>')}`;
-  const setup = `cat > ~/.pregate-files.txt <<'PREGATE_FILES'\n${testFileArgs(runner, files).map(f => `${f}\n`).join('')}PREGATE_FILES\n`;
+  const args = testFileArgs(runner, files);
+  if (args.some(f => f.includes('\n') || f === 'PREGATE_FILES')) return `${ubi} -- ${quote(runner.replace('{files}', () => args.map(quote).join(' ')))}`;
+  const setup = `cat > ~/.pregate-files.txt <<'PREGATE_FILES'\n${args.map(f => `${f}\n`).join('')}PREGATE_FILES\n`;
   const name = `${sha256(setup).slice(0, 16)}.sh`;
   let file: string;
   try {
