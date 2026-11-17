@@ -319,12 +319,13 @@ export function brainSyncStageVerdict(
  * The memory row (#4417). gstack-memory-ingest exits 0 when single pages fail
  * (they are retried next run), so the exit code alone printed OK with every
  * page refused. The counts decide: a failed page makes the row WARN, and a run
- * that imported nothing while pages failed is ERR.
+ * that imported nothing while pages failed is ERR. A source file that could not
+ * be parsed is never retried as an import, so it is a note, not a failure.
  */
 export function memoryStageVerdict(
   status: number | null,
   stderr: string,
-  counts: { written?: unknown; failed?: unknown } | null,
+  counts: { written?: unknown; failed?: unknown; parse_failed?: unknown } | null,
 ): { ok: boolean; warn?: boolean; summary: string } {
   const memLines = stderr.split("\n").filter((l) => l.includes("[memory-ingest]"));
   const errLine = memLines.find((l) => l.includes("[memory-ingest] ERR"));
@@ -334,12 +335,14 @@ export function memoryStageVerdict(
   if (status !== 0) {
     return { ok: false, summary: `${summary}${status === null ? " (killed by signal / timeout)" : ` (exit ${status})`}` };
   }
-  const failed = typeof counts?.failed === "number" ? counts.failed : 0;
-  if (failed === 0) return { ok: true, summary };
+  const parseFailed = typeof counts?.parse_failed === "number" ? counts.parse_failed : 0;
+  const failed = Math.max(0, (typeof counts?.failed === "number" ? counts.failed : 0) - parseFailed);
+  const unparsed = parseFailed > 0 ? `; ${parseFailed} source file(s) could not be parsed and were skipped` : "";
+  if (failed === 0) return { ok: true, summary: summary + unparsed };
   const written = typeof counts?.written === "number" ? counts.written : 0;
   const first = memLines.find((l) => l.includes("[memory-ingest] FAILED "));
   const cause = first ? `; first: ${first.replace(/^.*\[memory-ingest\] FAILED\s*/, "").slice(0, 240)}` : "";
-  const line = `${written} imported, ${failed} failed (retried next run; each failure: gstack-memory-ingest --incremental)${cause}`;
+  const line = `${written} imported, ${failed} failed (retried next run; each failure: gstack-memory-ingest --incremental)${cause}${unparsed}`;
   return written === 0 ? { ok: false, summary: line } : { ok: true, warn: true, summary: line };
 }
 
@@ -1753,15 +1756,15 @@ function runBrainSyncPush(args: CliArgs): StageResult {
 
   spawnSync(discover.cmd, discover.argv, { stdio, timeout: 60 * 1000, shell: discover.shell });
   const statusPath = join(GSTACK_HOME, ".brain-sync-status.json");
-  const statusMtime = () => (existsSync(statusPath) ? statSync(statusPath).mtimeMs : null);
-  const before = statusMtime();
+  const statusStamp = () => (existsSync(statusPath) ? `${statSync(statusPath).mtimeMs}:${readFileSync(statusPath, "utf-8")}` : null);
+  const before = statusStamp();
   const result = spawnSync(once.cmd, once.argv, { stdio, timeout: 60 * 1000, shell: once.shell });
 
   if (result.status !== 0) {
     return { name: "brain-sync", ran: true, ok: false, duration_ms: Date.now() - t0, summary: `gstack-brain-sync exited ${result.status}` };
   }
   let drain: { status?: unknown; message?: unknown } | null = null;
-  const after = statusMtime();
+  const after = statusStamp();
   if (after !== null && after !== before) {
     try {
       drain = JSON.parse(readFileSync(statusPath, "utf-8"));

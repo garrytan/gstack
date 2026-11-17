@@ -493,4 +493,23 @@ describe.skipIf(process.platform === "win32")("memory stage failure counts (#441
       sb.cleanup();
     }
   });
+
+  // A transcript that cannot be parsed is never stamped, so it is counted on
+  // every run; it must not turn the row ERR for good.
+  test("an unparseable transcript is a note on an OK row, every run", () => {
+    const sb = sandbox({ mode: "all" });
+    try {
+      writeFileSync(join(sb.home, ".claude", "projects", "work-acme", "empty0001.jsonl"), "");
+      for (let run = 0; run < 2; run++) {
+        const r = runSync(sb, ["--incremental"]);
+        const stage = memoryStage(sb) as { ok: boolean; warn?: boolean; summary: string };
+        expect(stage.ok).toBe(true);
+        expect(stage.warn).toBeUndefined();
+        expect(stage.summary).toContain("1 source file(s) could not be parsed and were skipped");
+        expect(r.status).toBe(0);
+      }
+    } finally {
+      sb.cleanup();
+    }
+  });
 });

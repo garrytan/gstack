@@ -14,7 +14,9 @@ import { dirname, join } from "path";
 import { spawnSync } from "child_process";
 
 import {
+  brainSyncStageVerdict,
   derivePathOnlyHashLegacyId,
+  memoryStageVerdict,
   planHostnameFoldMigration,
   sourceLocalPath,
   _resetGbrainSupportsRenameCache,
@@ -1251,4 +1253,44 @@ esac
     expect(commands).not.toMatch(/^sources (add|rename|remove) /m);
     expect(commands).not.toMatch(/^sync /m);
   });
+});
+
+describe("stage verdicts (#4417, #4418)", () => {
+  const noGbrain = { PATH: "/nonexistent" };
+
+  it("memory: failed pages beside imported ones are WARN with the count and first cause", () => {
+    const v = memoryStageVerdict(0, "[memory-ingest] FAILED a.md: refused\n[memory-ingest] done\n", { written: 3, failed: 2 });
+    expect(v).toMatchObject({ ok: true, warn: true });
+    expect(v.summary).toMatch(/^3 imported, 2 failed [(]retried next run/);
+    expect(v.summary).toContain("first: a.md: refused");
+  });
+
+  it("memory: parse failures are a note, not an import failure", () => {
+    const v = memoryStageVerdict(0, "[memory-ingest] done\n", { written: 0, failed: 2, parse_failed: 2 });
+    expect(v).toEqual({ ok: true, summary: "done; 2 source file(s) could not be parsed and were skipped" });
+    const mixed = memoryStageVerdict(0, "", { written: 0, failed: 3, parse_failed: 1 });
+    expect(mixed.ok).toBe(false);
+    expect(mixed.summary).toMatch(/^0 imported, 2 failed .*; 1 source file[(]s[)] could not be parsed/);
+  });
+
+  it("memory: a non-zero exit or a signal is ERR whatever the counts", () => {
+    expect(memoryStageVerdict(2, "[memory-ingest] ERR: gbrain missing\n", { written: 0, failed: 0 })).toEqual({ ok: false, summary: "gbrain missing (exit 2)" });
+    expect(memoryStageVerdict(null, "", null)).toEqual({ ok: false, summary: "ingest pass complete (killed by signal / timeout)" });
+  });
+
+  for (const [status, ok, warn, lead] of [
+    ["idle", true, undefined, "nothing new to push (queue empty)"],
+    ["held", true, true, "artifacts not all pushed (held: queue empty;"],
+    ["collision", true, true, "artifacts not all pushed (collision: queue empty;"],
+    ["error", false, undefined, "artifacts not pushed (error: queue empty;"],
+    ["blocked", false, undefined, "artifacts not pushed (blocked: queue empty;"],
+    [42, false, undefined, "artifacts not pushed (unknown: queue empty;"],
+  ] as const) {
+    it(`brain-sync: drain status ${status} reads ok=${ok} warn=${warn}`, () => {
+      const v = brainSyncStageVerdict({ status, message: "queue empty" }, noGbrain);
+      expect(v.ok).toBe(ok);
+      expect(v.warn).toBe(warn);
+      expect(v.summary.startsWith(lead)).toBe(true);
+    });
+  }
 });

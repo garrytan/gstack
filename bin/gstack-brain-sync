@@ -697,7 +697,8 @@ finalize_queue() {
   # Fail-open by design (a failed finalize self-corrects next run: re-stage →
   # nothing-to-commit), but say so — a silent failure here would let the
   # subsequent "ok/idle" status claim a drain that did not happen.
-  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2
+  local finalized=1
+  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || { finalized=0; echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2; }
 import json, os, sys, time
 spool_dir, snapshot_file, class_file, paths_file, drops_file = sys.argv[1:6]
 
@@ -782,6 +783,16 @@ if dropped:
         json.dump({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "dropped": classified.get("dropped", {})}, f)
 PYEOF
+  [ "$finalized" = 1 ] || return 0
+  # #4445: report malformed records once finalize has dropped them; an early
+  # exit before finalize keeps them queued and must not claim the drop.
+  local malformed
+  malformed=$(python3 -c 'import json, sys; print(len((json.load(open(sys.argv[1])).get("dropped") or {}).get("invalid") or []))' "$class_file" 2>/dev/null || echo 0)
+  case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
+  if [ "$malformed" -gt 0 ]; then
+    ST_NOTE="$ST_NOTE; dropped $malformed queued record(s) with a malformed path (absolute, or an empty, '.' or '..' component), listed in $GSTACK_HOME/.brain-sync-drops.json"
+    echo "BRAIN_SYNC: dropped $malformed queued record(s) with a malformed path; see $GSTACK_HOME/.brain-sync-drops.json" >&2
+  fi
 }
 
 # Human-readable classification counts for status messages.
@@ -1365,13 +1376,6 @@ subcmd_once() {
     echo "BRAIN_SYNC: warning: queue classification failed — no records consumed; next run re-drains" >&2
     write_status "error" "classification failed; queue preserved (next run retries)"
     exit 0
-  fi
-  local malformed
-  malformed=$(python3 -c 'import json, sys; print(len((json.load(open(sys.argv[1])).get("dropped") or {}).get("invalid") or []))' "$class_file" 2>/dev/null || echo 0)
-  case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
-  if [ "$malformed" -gt 0 ]; then
-    ST_NOTE="$ST_NOTE; dropped $malformed queued record(s) with a malformed path (absolute, or an empty, '.' or '..' component), listed in $GSTACK_HOME/.brain-sync-drops.json"
-    echo "BRAIN_SYNC: dropped $malformed queued record(s) with a malformed path; see $GSTACK_HOME/.brain-sync-drops.json" >&2
   fi
   if [ -s "$paths_file" ] && ! hold_case_collisions "$paths_file"; then
     write_status "error" "could not check queued paths for letter-case collisions; queue preserved (next run retries)"
