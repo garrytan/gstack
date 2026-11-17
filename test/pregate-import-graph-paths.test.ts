@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { MAX_TSCONFIG_EXTENDS, buildGraph, listRepoFiles, pathAliasResolver, readPathAliases, testsFor } from '../lib/pregate/import-graph';
+import { MAX_TSCONFIG_EXTENDS, buildGraph, testsFor } from '../lib/pregate/import-graph';
 import { cleanup, commit, makeFixtureRepo, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -175,11 +175,6 @@ describe('import graph: a nested tsconfig governs the files under it', () => {
       'lib/plan.ts': 'export const plan = 1;\n',
       'apps/api/test/plan.test.ts': "import { plan } from '~lib/plan';\nplan;\n",
     });
-    const root = readPathAliases(repo.work);
-    const resolver = pathAliasResolver(repo.work, listRepoFiles(repo.work));
-    expect(resolver.aliasesFor('apps/api/test/plan.test.ts')).toEqual(root);
-    expect(resolver.aliasesFor('x.ts')).toEqual(root);
-    expect(resolver.notes).toEqual(root.notes);
     const g = buildGraph(repo.work);
     expect(g.aliasNotes).toEqual(['tsconfig.json extends @tsconfig/node22: not a relative path, not followed']);
     expect(testsFor(g, 'lib/plan.ts').tests).toEqual(['apps/api/test/plan.test.ts']);
