@@ -1703,7 +1703,11 @@ cmd_pack() {
     trap "rm -rf $(printf %q "$tmp")" EXIT
     # No template hooks from a global init.templateDir, and no auto-gc under the tar.
     git -c gc.auto=0 init -q --bare --template= "$tmp/.git"
-    git -C "$tmp/.git" -c gc.auto=0 fetch -q --no-tags --update-shallow "$src" '+refs/*:refs/*' \
+    # Fetch the object ids one for-each-ref read, not upload-pack's own ref list: a ref that git running beside pack is
+    # deleting is advertised with a null id that no fetch can want, while for-each-ref skips it as broken.
+    git -C "$src" for-each-ref --format='+%(objectname):%(refname)' refs/ \
+      | git -C "$tmp/.git" -c gc.auto=0 fetch -q --no-tags --update-shallow --stdin \
+          --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' "$src" \
       || die "pack: could not snapshot the refs of $src"
     if [ -z "$branch" ]; then
       branch="detached-${head:0:12}"

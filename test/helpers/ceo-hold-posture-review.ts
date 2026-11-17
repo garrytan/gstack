@@ -68,8 +68,9 @@ export function buildCeoHoldPostureReview(input: CeoHoldPostureReviewInput): Pla
     if (plans.length > 1 || (plans.length === 1 && plans[0] !== name && plans[0] !== source.path)) fail('native source context differs from original plan');
   }
   const decisionContext = /Project\/branch\/task:([^\n]*)/i.exec(decision.questions[0]!.question)?.[1] ?? '';
-  if (!/\bHOLD SCOPE\b/.test(decisionContext) ||
-      /\b(?:SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION|historical|previous|example|hypothetical|withdrawn)\b/i.test(decisionContext))
+  // The decision is bound to the HOLD answer by session and chronology above; the skill never asks its grounding
+  // line to restate the mode, so only a context naming another mode or past or hypothetical work disqualifies it.
+  if (/\b(?:SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION|historical|previous|example|hypothetical|withdrawn)\b/i.test(decisionContext))
     fail('decision is not current HOLD work');
   const sourceLines = source.content.split('\n').length;
   const loaded = events.some(request => {
