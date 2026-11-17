@@ -7004,7 +7004,8 @@ through land. See [gate dispositions](ship-policy.md#gate-dispositions).
 
 **Meaning.** `gstack-ship-release finish` did not count a granted fix-check
 because it still has findings no owner has ruled on that still hold it open. The line lists
-their fingerprints and the fix-check's commit. A fix-check that found a new
+each one's fingerprint (or its ledger id, when two findings share a
+fingerprint) and the fix-check's commit. A fix-check that found a new
 CRITICAL logs it `open` with `converged:false`, so `FIX_CHECK: not counted`
 reads `missing start capture or incomplete/nonconverged pass` until the
 rulings exist. A `--review-loop-exception` does not help here: it accepts
