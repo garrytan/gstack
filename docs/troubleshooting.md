@@ -7243,8 +7243,10 @@ reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <outpu
 The reply passes only if every value the first line gave correctly is
 unchanged, and each audit gets one repair. Text after a JSON line that carries
 the audit id (`text follows the JSON result line`) gets the same free re-ask for
-the whole line: the reply is judged on its own, and nothing from the earlier
-line is kept or accepted. Otherwise run Step 14.5's one
+the whole line, but only when every such line is free of content problems (a
+content problem counts as an attempt). A blocked status and its blockers on any
+such line must survive the reply, which may add blockers; nothing else from the
+earlier line is kept or accepted. Otherwise run Step 14.5's one
 remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names

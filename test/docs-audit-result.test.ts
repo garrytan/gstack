@@ -382,8 +382,8 @@ describe('captured "current, no edits" results with format slips', () => {
   test.each([
     ['claims an edit and leaves the section out', line({ ...reviewed, status: 'updated', files_updated: ['README.md'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
     ['is blocked and leaves the section out', line({ ...reviewed, status: 'blocked', blockers: ['README install steps are wrong'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
-    ['says current but lists an edit', line({ ...reviewed, files_updated: ['README.md'] }), 'text follows the JSON result line', 'FORMAT_REPAIR'],
-    ['has no status', JSON.stringify((({ status: _s, ...o }) => o)(JSON.parse(missingSection))), 'text follows the JSON result line', 'FORMAT_REPAIR'],
+    ['says current but lists an edit', line({ ...reviewed, files_updated: ['README.md'] }), 'status current cannot list files_updated', 'RETRY_NOTE'],
+    ['has no status', JSON.stringify((({ status: _s, ...o }) => o)(JSON.parse(missingSection))), '"status" is missing', 'RETRY_NOTE'],
     ['has no audit id', JSON.stringify((({ audit_id: _a, ...o }) => o)(JSON.parse(missingSection))), 'the last nonempty line is not one JSON object', 'RETRY_NOTE'],
     ['has another audit id', line({ ...reviewed, audit_id: 'ship837-docs-a1' }), 'the last nonempty line is not one JSON object', 'RETRY_NOTE'],
   ])('a result that %s, with prose after it, is never accepted and names the field', (_name, last, problem, next) => {
@@ -447,5 +447,55 @@ describe('text after the result line: one free re-ask for the whole line, judged
     expect(answer.stdout).toMatch(/^RETRY_NOTE: /m);
     expect(answer.stdout).not.toMatch(/^FORMAT_REPAIR: /m);
     expect(answer.written).not.toContain(`${ID}-result.json`);
+  });
+});
+
+// Value: protects=a free re-ask after trailing text can never make a blocked audit pass (round-2 red-team on #4285 at fe4ec24: a
+//   blocked result line, then a fenced "current" example, then a re-ask reply of current with no blockers was accepted as current);
+//   fails_when=a re-ask drops a blocked status or a blocker from any audit-id line, or a content failure followed by text gets a free
+//   re-ask; seam=gstack-docs-candidate result --repair-of; no_claim=a blocker written only in prose (the re-ask answerer reads it)
+describe('the whole-line re-ask is one-way: a blocked verdict carries over', () => {
+  const ID = 'sol-docs-2';
+  const C = { schema_version: 1, audit_id: ID, status: 'current', files_updated: [], files_reviewed: ['README.md'], blockers: [], decisions: [],
+    documentation_section: '**Status:** current. No edits needed.\n\nScope: README.md; no coverage debt or diagram drift.' };
+  const blocker = 'README.md has stale security instructions and needs owner approval.';
+  const blocked = { ...C, status: 'blocked', blockers: [blocker], documentation_section: '**Status:** blocked. README.md security instructions need an owner decision.\n\nScope: README.md.' };
+  const output = [JSON.stringify(blocked), 'A clean result looks like this:', '```json', JSON.stringify(C), '```'].join('\n') + '\n';
+
+  test.each([
+    ['current with no blockers', C, 'the format repair changed "status"'],
+    ['blocked without the original blocker', { ...blocked, blockers: ['Some other problem with the README.'] }, 'the format repair dropped the blocker'],
+  ])('a blocked line followed by a current example: a re-ask reply that is %s is refused and counts', (_name, reply, problem) => {
+    const first = result(output, ID);
+    expect(first.stdout).toMatch(/^FORMAT_REPAIR: format-only; not an attempt/m);
+    const answer = result(JSON.stringify(reply) + '\n', ID, { file: first.file, out: first.out });
+    expect(answer.status).toBe(1);
+    expect(answer.stdout).toContain(problem);
+    expect(answer.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(answer.stdout).not.toContain('DOCS_RESULT: ok');
+    expect(answer.written).not.toContain(`${ID}-result.json`);
+  });
+
+  test('the re-ask prompt names the blocked status and blockers it must keep', () => {
+    const first = result(output, ID);
+    const prompt = repairPrompt(first.file, ID);
+    expect([prompt.status, prompt.stderr]).toEqual([0, '']);
+    expect(prompt.stdout).toContain('must keep "status": "blocked" and every blocker');
+    expect(prompt.stdout).toContain(JSON.stringify(blocker));
+  });
+
+  test('a reply that keeps the blocker and adds another is accepted as blocked', () => {
+    const first = result(output, ID);
+    const answer = result(JSON.stringify({ ...blocked, blockers: [blocker, 'docs/setup.md repeats the stale steps.'] }) + '\n', ID, { file: first.file, out: first.out });
+    expect([answer.status, answer.stderr]).toEqual([0, '']);
+    expect(answer.stdout).toContain('DOCS_RESULT: ok status=blocked');
+  });
+
+  test('a content failure on any audit-id line, followed by text, counts instead of getting a re-ask', () => {
+    const r = result([JSON.stringify({ ...C, files_updated: ['README.md'] }), 'Done.'].join('\n') + '\n', ID);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('status current cannot list files_updated');
+    expect(r.stdout).toMatch(/^RETRY_NOTE: /m);
+    expect(repairPrompt(r.file, ID).status).not.toBe(0);
   });
 });
