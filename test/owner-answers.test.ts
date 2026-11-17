@@ -43,7 +43,7 @@ function put(s: Store, input: NewAnswer = MERGE): OwnerAnswer {
 }
 function takeable(s: Store, input: NewAnswer = MERGE): OwnerAnswer {
   const row = put(s, input);
-  expect(verifyAnswer(s, row.id, 'second reader')).toBe('written');
+  expect(verifyAnswer(s, row.id, 'second reader', row.source.event)).toBe('written');
   return row;
 }
 const ASK: AskLine = { line: 'A', origin: 'captain', text: 'Merge #12 now that it is green?', action: 'merge-when-green', target: 'pull-request', scope: 'repo:example/widgets' };
@@ -143,7 +143,9 @@ describe('what can be taken', () => {
   test('the recorder cannot verify its own row, and a verification of other words does not count', () => {
     const s = store();
     const row = put(s);
-    expect((verifyAnswer(s, row.id, 'Example Captain') as any).code).toBe('OWNER_ANSWERS_SELF_VERIFY');
+    expect((verifyAnswer(s, row.id, 'Example Captain', row.source.event) as any).code).toBe('OWNER_ANSWERS_SELF_VERIFY');
+    expect((verifyAnswer(s, row.id, 'second reader', 'evt_other') as any).code).toBe('OWNER_ANSWERS_INVALID');
+    expect(notTakeable(row, readStore(s))).toContain('verified');
     fs.mkdirSync(path.join(s.dir, 'verifications'), { recursive: true });
     fs.writeFileSync(path.join(s.dir, 'verifications', `${row.id}--forged.json`), JSON.stringify({ schema_version: 1, row: row.id, verified_by: 'x', verified_at: 'now', words_sha256: '0'.repeat(64) }));
     expect(notTakeable(row, readStore(s))).toContain('verified');
@@ -223,6 +225,7 @@ describe('screen', () => {
       { ...ASK, origin: undefined, scope: 'captain:alpha' },
       { line: 'C', origin: 'captain', text: 'Merge #12?' },
       { ...ASK, compound: true, scope: 'captain:alpha' },
+      { ...ASK, limits: 'only PRs under 50 lines', scope: 'captain:alpha' },
       { ...ASK, classes: ['destructive'], scope: 'captain:alpha' },
       { ...ASK, classes: ['made-up'], scope: 'captain:alpha' },
       { ...ASK, text: 'Merge #12 and spend $400 on a rerun?', scope: 'captain:alpha' },
@@ -233,7 +236,8 @@ describe('screen', () => {
     expect(out.every(v => v.startsWith('KEEP'))).toBe(true);
     expect(out[0]).toContain('gate item');
     expect(out[2]).toContain('no typed action');
-    expect(out[6]).toContain('spend-over-cap');
+    expect(out[4]).toContain('limits');
+    expect(out[7]).toContain('spend-over-cap');
     expect(screenAsks([{ ...ASK, scope: 'captain:alpha' }], readStore(s))[0]!.verdict).toBe('PROPOSE_TAKE');
   });
 
@@ -257,8 +261,8 @@ describe('gstack-owner-answers', () => {
     expect(add.status).toBe(0);
     const id = /OWNER_ANSWER_RECORDED: (oa-[0-9a-f]{16})/.exec(add.out)![1]!;
     expect(cli(['log', '--thread', 'CAPT-1', '--line', 'A', '--decision', 'taken', '--row', id, '--by', 'Example Captain'], env).err).toContain('(OWNER_ANSWERS_NOT_TAKEABLE)');
-    expect(cli(['verify', id, '--by', 'Example Captain'], env).err).toContain('(OWNER_ANSWERS_SELF_VERIFY)');
-    expect(cli(['verify', id, '--by', 'second reader'], env).status).toBe(0);
+    expect(cli(['verify', id, '--event', 'evt_1', '--by', 'Example Captain'], env).err).toContain('(OWNER_ANSWERS_SELF_VERIFY)');
+    expect(cli(['verify', id, '--event', 'evt_1', '--by', 'second reader'], env).status).toBe(0);
     const askFile = path.join(tmp('oa-ask-'), 'ask.json');
     fs.writeFileSync(askFile, JSON.stringify({ asks: [ASK, { line: 'B', origin: 'captain', text: 'Close their PR?', classes: ['close-contribution'] }] }));
     const screen = cli(['screen', '--ask-file', askFile], env);

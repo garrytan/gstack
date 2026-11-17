@@ -64,6 +64,9 @@ A row:
 | `recorded_by`, `recorded_at` | Who wrote the row, and when |
 
 A verification is `{ schema_version, row, verified_by, verified_at, words_sha256 }`.
+The verifier reads the cited source event itself, and names it with `--event`, which
+must equal the row's source event. It then confirms that the owner wrote those words
+there, granting that action, target and scope.
 The recorder can't verify its own row (`OWNER_ANSWERS_SELF_VERIFY`). A
 verification only counts while the row's words still hash to `words_sha256`.
 
@@ -99,7 +102,7 @@ author or limits is refused (`OWNER_ANSWERS_CONFLICT`). It is never silently kep
 ```bash
 gstack-owner-answers add --action merge-when-green --target pull-request --scope all \
   --words "yes merge when green" --words-by owner --thread CAPT-1 --event evt_123 --by "Example Captain"
-gstack-owner-answers verify oa-0123456789abcdef --by "second reader"
+gstack-owner-answers verify oa-0123456789abcdef --event evt_123 --by "second reader"
 gstack-owner-answers screen --ask-file ask.json
 gstack-owner-answers log --thread CAPT-1 --line A --decision taken --row oa-0123456789abcdef --by "Example Captain"
 gstack-owner-answers revoke oa-0123456789abcdef --words "ask me again about merges" --words-by owner --thread CAPT-1 --event evt_456 --by "Example Captain"
@@ -126,7 +129,7 @@ A plain-text file with one ask per line also works. Its lines are untyped, so
 `screen` keeps a line (`KEEP <reason>`) when any of these holds:
 
 - `origin` isn't `captain`. An autoplan gate item is answered at its gate and is never screened out, because dropping it would change what "do it" approves.
-- `compound` is true.
+- `compound` is true, or the ask carries `limits` (an amount, a count, a deadline).
 - It carries a fresh-ask class, or its words trip the fresh-ask keyword net.
 - Its action, target or scope is missing.
 - No takeable row matches it exactly.
@@ -168,6 +171,10 @@ The pilot's numbers are counted against a baseline taken before launch:
 - wrong takes, from an audit of taken rows.
 
 Only after a keep decision does gstack's shared factory guidance tell every Captain to screen.
+
+**Known limit.** A Drive that hasn't finished syncing a newer supersede or revoke
+looks exactly like a record without one. The tool can't detect that lag, which is
+one reason the pilot Captain reads every proposal before leaving an ask out.
 
 ## Export to a knowledge base (format only)
 

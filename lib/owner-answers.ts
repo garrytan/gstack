@@ -237,19 +237,23 @@ export function addAnswer(store: Store, row: OwnerAnswer): 'written' | 'present'
     : { code: 'OWNER_ANSWERS_CONFLICT', message: `${row.id} already records different words, author or limits for this source and action; supersede it instead` };
 }
 
-/** A second actor confirms the cited source holds the row's words; the adder can never verify its own row. */
-export function verifyAnswer(store: Store, id: string, by: string, now = new Date()): 'written' | 'present' | AnswerError {
+/**
+ * A second actor confirms the cited source holds the row's words: it reads the source event itself and names it
+ * (--event must equal the row's source event). The adder can never verify its own row.
+ */
+export function verifyAnswer(store: Store, id: string, by: string, event: string, now = new Date()): 'written' | 'present' | AnswerError {
   const verifier = field('by', by, true);
   if (isErr(verifier)) return verifier;
   const row = readStore(store).rows.find(r => r.id === id);
   if (!row) return { code: 'OWNER_ANSWERS_NOT_FOUND', message: `no row ${id}` };
   if (row.recorded_by === verifier) return { code: 'OWNER_ANSWERS_SELF_VERIFY', message: `${id} was recorded by ${verifier}` };
+  if (event.trim() !== row.source.event) return { code: 'OWNER_ANSWERS_INVALID', message: `--event must name the source event the verifier read (${id} cites ${row.source.thread})` };
   const v: Verification = { schema_version: 1, row: id, verified_by: verifier, verified_at: now.toISOString(), words_sha256: sha(row.words) };
   return writeExclusive(path.join(store.dir, 'verifications', `${id}--${sha(verifier).slice(0, 12)}.json`), v);
 }
 
 /** origin is "captain" for a standalone Captain ask; anything else (an autoplan gate item, an unknown draft) is never screened out. */
-export interface AskLine { line: string; text: string; origin?: string; action?: string; target?: string; scope?: string; classes?: string[]; compound?: boolean }
+export interface AskLine { line: string; text: string; origin?: string; action?: string; target?: string; scope?: string; limits?: string; classes?: string[]; compound?: boolean }
 
 /** An ask file: JSON `{ "asks": [AskLine, ...] }`, or plain text with one ask per non-blank line (all untyped). */
 export function parseAskFile(text: string): AskLine[] | AnswerError {
@@ -261,7 +265,7 @@ export function parseAskFile(text: string): AskLine[] | AnswerError {
     return j.asks.map((a: any, i: number) => ({
       line: typeof a?.line === 'string' && a.line ? a.line : String(i + 1), text: typeof a?.text === 'string' ? a.text : '', origin: typeof a?.origin === 'string' ? a.origin : undefined,
       action: typeof a?.action === 'string' ? a.action : undefined, target: typeof a?.target === 'string' ? a.target : undefined,
-      scope: typeof a?.scope === 'string' ? a.scope : undefined, classes: Array.isArray(a?.classes) ? a.classes.map(String) : [], compound: a?.compound === true,
+      scope: typeof a?.scope === 'string' ? a.scope : undefined, limits: typeof a?.limits === 'string' ? a.limits : undefined, classes: Array.isArray(a?.classes) ? a.classes.map(String) : [], compound: a?.compound === true,
     }));
   }
   return t.split('\n').map(l => l.trim()).filter(Boolean).map((l, i) => {
@@ -295,6 +299,7 @@ export function screenAsks(asks: AskLine[], read: StoreRead): Screened[] {
     if (read.state !== 'present') return keep(`the record is ${read.state}`);
     if (ask.origin !== 'captain') return keep(ask.origin === 'gate' ? 'a gate item is answered at its gate, never screened out' : 'the ask does not say it is a standalone Captain ask (origin: captain)');
     if (ask.compound) return keep('the line holds more than one decision');
+    if (ask.limits?.trim()) return keep('the ask carries limits (an amount, a count, a deadline) the record cannot check');
     const tagged = (ask.classes ?? []).filter(c => (FRESH_ASK_CLASSES as readonly string[]).includes(c));
     const unknownTag = (ask.classes ?? []).find(c => !(FRESH_ASK_CLASSES as readonly string[]).includes(c));
     if (unknownTag) return keep(`unknown class ${unknownTag}`);

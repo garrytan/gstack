@@ -7,7 +7,7 @@
  *                            --by <who records it> [--kind standing-yes|decision|preference|ruling-ref] [--scope all|repo:<o/n>|captain:<name>]
  *                            [--limits <text>] [--words-by owner|agent:<id>] [--rule R<n>] [--asked <the ask it answered>] [--json]
  *   gstack-owner-answers supersede <row id> (the add flags) | revoke <row id> --words <…> --thread <code> --event <id> --by <who>
- *   gstack-owner-answers verify <row id> --by <a second actor who read the cited source>
+ *   gstack-owner-answers verify <row id> --event <the source event it read> --by <a second actor>
  *   gstack-owner-answers check --ask-file <file> [--all] [--json]      related answers per ask line (advisory)
  *   gstack-owner-answers screen --ask-file <file> [--json]             KEEP or PROPOSE_TAKE per line; never edits the ask
  *   gstack-owner-answers log --thread <code> --line <letter> --decision taken|asked [--row <id>] --by <who>
@@ -30,7 +30,8 @@ const HELP = `gstack-owner-answers — the owner's answers and standing yeses, c
             one row, written once; --words-by defaults to agent:<by>, and only owner rows can ever be taken
   supersede <row id> (add's flags)   a new row that replaces <row id>
   revoke    <row id> --words <the owner's words> --thread <code> --event <id> --by <who>   the row stops counting
-  verify    <row id> --by <who>      a second actor confirms the cited source holds the row's words; the recorder cannot
+  verify    <row id> --event <id> --by <who>   a second actor reads the cited source event, names it, and confirms it
+            holds the row's words; the recorder cannot
   check     --ask-file <file> [--all] related answers per ask line, ranked by shared words (advisory; never a take)
   screen    --ask-file <file>        per line: KEEP <reason> or PROPOSE_TAKE <row id>, with the line the Captain adds when it
             confirms the take; the ask file is never edited. A take needs origin "captain", a typed action, target and scope,
@@ -103,8 +104,8 @@ function main(argv: string[]): number {
     case 'supersede': return pos[0] ? write(cmd, store, newAnswer(flags, { supersedes: pos[0] }), json) : fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'supersede <row id>' });
     case 'revoke': return pos[0] ? write(cmd, store, newAnswer(flags, { kind: 'revoke', supersedes: pos[0] }), json) : fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'revoke <row id>' });
     case 'verify': {
-      if (!pos[0]) return fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'verify <row id> --by <who>' });
-      const res = verifyAnswer(store, pos[0], flags['--by'] ?? '');
+      if (!pos[0]) return fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'verify <row id> --event <id> --by <who>' });
+      const res = verifyAnswer(store, pos[0], flags['--by'] ?? '', flags['--event'] ?? '');
       if (isAnswerError(res)) return fail(cmd, res);
       process.stdout.write(`OWNER_ANSWER_VERIFIED: ${pos[0]}${res === 'present' ? ' (already present)' : ''}\n`);
       return EXIT.ok;
