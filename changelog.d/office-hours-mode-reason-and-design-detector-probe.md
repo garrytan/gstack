@@ -1,0 +1,2 @@
+- **/office-hours explains why it recommends a mode.** The first question (what's your goal?) now recommends a mode by quoting your own words and saying what another mode would skip, instead of restating the mode's name.
+- **/review always runs the design detector probe on frontend diffs.** The design checklist no longer reads as "only if you installed a detector", so the review stops claiming a detector is missing without checking, and it writes the probe's first line as `Design detector: <first line>`.
