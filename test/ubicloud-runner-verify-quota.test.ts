@@ -229,7 +229,10 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
     const listed = Array.from({ length: 28 }, (_, i) => `eu-central-h1 ubirun-peer-9999999999-${String(i).padStart(4, '0')}\n`).join('');
     const f = fakeVm({ listed });
     try {
+      // A booking whose process is gone, and one older than any create can take, no longer count.
+      writeFileSync(join(f.root, 'quota.lock.booked'), `ubirun-dead 16 2147483646 ${Math.floor(Date.now() / 1000)}\nubirun-old 16 ${process.pid} 1000000000\n`);
       expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=1 size=standard-16 used=448 booked=0 max=464\n');
+      expect(readFileSync(join(f.root, 'quota.lock.booked'), 'utf8')).toBe('');
       const extra = { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464', FAKE_CREATE_DELAY: '3' };
       const shards = [f.spawn(['up'], extra), f.spawn(['up'], extra)];
       const results = await Promise.all(shards.map(async (p) => ({ code: await p.exited, out: await new Response(p.stdout).text(), err: await new Response(p.stderr).text() })));
@@ -242,6 +245,15 @@ describe('ubi-runner run, verify and quota against a fake API and a fake ssh', (
       expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=0 size=standard-16 used=464 booked=0 max=464\n');
       expect(run(f, ['down', made[0].out.trim()]).exitCode).toBe(0);
       expect(run(f, ['room'], { UBI_QUOTA_VCPUS: '464' }).stdout.toString()).toBe('UBICLOUD_ROOM: room=1 size=standard-16 used=448 booked=0 max=464\n');
+      // A create answered 503 that the lookup then finds still drops its booking.
+      writeFileSync(join(f.root, 'listed.create-status'), '503');
+      writeFileSync(join(f.root, 'listed.create-lands'), '0');
+      const unsure = run(f, ['up'], { UBI_REAP: '0', UBI_QUOTA_VCPUS: '464' });
+      expect(unsure.exitCode, unsure.stderr.toString()).toBe(0);
+      expect(unsure.stderr.toString()).toContain('answered HTTP 503; looking it up by name before deciding');
+      expect(readFileSync(join(f.root, 'quota.lock.booked'), 'utf8')).toBe('');
+      rmSync(join(f.root, 'listed.create-status')); rmSync(join(f.root, 'listed.create-lands'));
+      expect(run(f, ['down', unsure.stdout.toString().trim()]).exitCode).toBe(0);
       const unknown = run(f, ['room']);
       expect(unknown.exitCode).toBe(1);
       expect(unknown.stdout.toString()).toBe('UBICLOUD_ROOM: room=unknown size=standard-16 reason=no-ceiling (set UBI_QUOTA_VCPUS)\n');

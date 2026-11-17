@@ -32,7 +32,8 @@
 # $STATE_ROOT/owner-id. Runner copies before GST-2852 cut the owner to its first
 # 12 characters, so two owners sharing that prefix reaped each other's VMs
 # (#3748). A VM named under that cut form of a longer owner still counts as this
-# owner's only when this machine's VM record lists it under the cut form.
+# owner's only when this machine's VM record lists it under the cut form in a
+# row an older copy wrote (five columns; this copy adds a sixth, full).
 #
 # Teardown: `up` records each VM's state (location, create status) before it
 # sends the create request, and `down` destroys and polls until the VM is
@@ -233,7 +234,7 @@ owner_id() {
 }
 OWNER=$(owner_id)
 # Runner copies before GST-2852 cut the owner to 12 characters; vm_rows reads
-# that cut form as this owner only for VMs this machine's record lists under it.
+# that cut form as this owner only for VMs an older copy recorded under it here.
 LEGACY_OWNER=""
 [ ${#OWNER} -le 12 ] || LEGACY_OWNER=${OWNER:0:12}
 
@@ -824,7 +825,7 @@ vm_rows() {
     if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,30})-([0-9]{10})- ]]; then
       owner=${BASH_REMATCH[1]} created=${BASH_REMATCH[2]}
       if [ -n "$LEGACY_OWNER" ] && [ "$owner" = "$LEGACY_OWNER" ] && [ -f "$VM_RECORD" ] \
-        && awk -F'\t' -v n="$name" -v o="$LEGACY_OWNER" '$1 == n && $3 == o { f = 1 } END { exit !f }' "$VM_RECORD"; then
+        && awk -F'\t' -v n="$name" -v o="$LEGACY_OWNER" '$1 == n && $3 == o && NF == 5 { f = 1 } END { exit !f }' "$VM_RECORD"; then
         owner=$OWNER
       fi
     elif [[ "$name" =~ ^${PREFIX}-([0-9]{10})- ]]; then
@@ -939,9 +940,11 @@ write_state() {
 }
 
 # record_vm NAME LOCATION [OWNER]: append to the scratch VM-id file (record-before-create).
+# The sixth column, full, marks a row whose owner was never cut to 12 characters,
+# so vm_rows never reads it as a longer owner's cut form; older copies write five.
 record_vm() {
   mkdir -p "$(dirname "$VM_RECORD")" 2>/dev/null || return 0
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-$OWNER}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\tfull\n' "$1" "$2" "${3:-$OWNER}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
 }
 
 # forget_vm NAME: drop the VM from the scratch file once it is confirmed gone.
@@ -1070,7 +1073,7 @@ cmd_recover() {
       *) die "recover: unknown option $1" ;;
     esac
   done
-  [[ "$from" =~ ^[a-z][a-z0-9]{0,11}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
+  [[ "$from" =~ ^[a-z][a-z0-9]{0,30}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
   [ -n "$dir" ] || die "UBI_RECOVERY_REQUIRED: recover reads bundles from UBI_RECOVERY_DIR (or --dir DIR), and neither is set"
   command -v openssl >/dev/null || die "UBI_RECOVERY_UNAVAILABLE: openssl is required to open recovery bundles"
   mkdir -p "$STATE_ROOT"

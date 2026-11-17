@@ -269,13 +269,18 @@ esac
     const listed = ['ubirun-gstackminder1-1000000000-aaaa-t1', 'ubirun-gstackminder2-1000000000-bbbb-t1', 'ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder-1000000000-dddd-t1'].map(n => `eu-central-h1 ${n}\n`).join('');
     const f = fakeApi({ destroy: 200, listed, owner: 'gstackminder1' });
     try {
-      writeFileSync(f.record, 'ubirun-gstackminder-1000000000-cccc-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t1\n');
+      // cccc: an older copy (five columns) recorded it under the cut owner; dddd: this copy recorded it for the 12-character owner gstackminder (sixth column full).
+      writeFileSync(f.record, 'ubirun-gstackminder-1000000000-cccc-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t1\nubirun-gstackminder-1000000000-dddd-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t2\tfull\n');
       expect(f.run('list', '--mine').stdout.toString()).toBe('eu-central-h1  ubirun-gstackminder1-1000000000-aaaa-t1\neu-central-h1  ubirun-gstackminder-1000000000-cccc-t1\n');
       const reap = f.run('reap');
       expect(reap.exitCode).toBe(0);
       const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+/)?.[0]).sort();
       expect(destroyed).toEqual(['ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder1-1000000000-aaaa-t1']);
       expect(reap.stderr.toString()).toContain('reap: left 2 expired VMs of other owners; only their owners reap them');
+      const recover = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'recover', '--dir', join(f.root, 'bundles')], { env: { ...process.env, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_OWNER: 'gstackminder1' }, timeout: 10_000 });
+      expect(recover.stderr.toString()).not.toContain('--owner must be an owner tag');
+      expect(recover.stderr.toString()).toContain('recover: no bundles under');
+      expect(recover.exitCode).toBe(0);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
