@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { branchKey, captainApprovalsDir } from './approval-record';
-import { readVersionedSlugCache } from './bin-context';
+import { readVersionedSlugCache, sanitizeSlug } from './bin-context';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
@@ -31,7 +31,8 @@ export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>;
 /**
  * The owner's words in this repository's approvals record for the branch checked out at `cwd` (lib/approval-record.ts
  * layout: <state root>/projects/<slug>/approvals/<branch key>.jsonl and <mirror>/<slug>/<branch key>.jsonl). Read-only:
- * the slug comes from GSTACK_PROJECT_SLUG or the slug cache gstack-slug already wrote, never a fresh resolution (that
+ * the slug comes from GSTACK_PROJECT_SLUG or the repository's slug cache entry gstack-slug already wrote (repository
+ * scope, which ignores project markers, as the writer resolves it), never a fresh resolution (that
  * writes the cache, and building a gate must not write outside the run). No known slug reads no record, so a quote stays
  * unverified rather than matching another repository's branch of the same name.
  */
@@ -40,8 +41,8 @@ export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): 
   const branch = head.status === 0 ? head.stdout.trim() : '';
   if (!branch) return [];
   const stateRoot = resolveStateRoot(env);
-  const pinned = path.basename((env.GSTACK_PROJECT_SLUG ?? '').trim());
-  const slug = pinned && pinned !== '.' && pinned !== '..' ? pinned : readVersionedSlugCache(stateRoot, cwd);
+  const pinned = sanitizeSlug((env.GSTACK_PROJECT_SLUG ?? '').trim());
+  const slug = pinned && pinned !== '.' && pinned !== '..' ? pinned : readVersionedSlugCache(stateRoot, cwd, { scope: 'repository' });
   if (!slug) return [];
   const name = `${branchKey(branch)}.jsonl`;
   const files = [path.join(stateRoot, 'projects', slug, 'approvals', name),

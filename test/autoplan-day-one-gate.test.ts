@@ -20,6 +20,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { applyGuidance, buildGate } from '../lib/autoplan-gate';
 import { branchKey } from '../lib/approval-record';
+import { slugCacheReadOrder } from '../lib/bin-context';
 import { proposalCost, proposalItem, ownerContext, recordedOwnerWords } from '../lib/autoplan-gate-items';
 import { confirmBlock, openEarlier, settledIds } from '../lib/autoplan-confirm';
 import { buildTasks } from '../lib/autoplan-export';
@@ -391,6 +392,35 @@ describe('parsers, render and redaction', () => {
     fs.mkdirSync(path.join(root, 'other-repo'), { recursive: true });
     fs.writeFileSync(path.join(root, 'other-repo', `${branchKey('main')}.jsonl`), JSON.stringify({ schema_version: 1, id: 'y', words: 'I want to remember what I promised people after every meeting' }) + '\n');
     const env = { HOME: path.join(TMP, 'ledger-other-home'), GSTACK_APPROVALS_DIR: root, GSTACK_PROJECT_SLUG: 'this-repo' };
+    expect(ownerContext(state, recordedOwnerWords(state, env)).verified).toEqual(new Set());
+    expect(ownerContext(state, recordedOwnerWords(state, { ...env, GSTACK_PROJECT_SLUG: 'other-repo' })).verified).toEqual(new Set([1]));
+  });
+
+  test('without GSTACK_PROJECT_SLUG the repository slug cache entry finds the record, even under a project marker', () => {
+    const state = makeRun(path.join('ledger-marker', 'run'), { plan: planText(), round2: round2(), round1: false });
+    const repo = path.dirname(state.plan_source);
+    expect(spawnSync('git', ['init', '-q', '-b', 'main', repo], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const stateRoot = path.join(TMP, 'ledger-marker-state');
+    const cache = slugCacheReadOrder(stateRoot, repo)[0];
+    fs.mkdirSync(path.dirname(cache), { recursive: true });
+    fs.writeFileSync(cache, 'v2:this-repo');
+    const record = path.join(stateRoot, 'projects', 'this-repo', 'approvals', `${branchKey('main')}.jsonl`);
+    fs.mkdirSync(path.dirname(record), { recursive: true });
+    fs.writeFileSync(record, JSON.stringify({ schema_version: 1, id: 'z', words: 'I want to remember what I promised people after every meeting' }) + '\n');
+    const env = { HOME: path.join(TMP, 'ledger-marker-home'), GSTACK_STATE_ROOT: stateRoot };
+    expect(ownerContext(state, recordedOwnerWords(state, env)).verified).toEqual(new Set([1]));
+    fs.writeFileSync(path.join(TMP, 'ledger-marker', '.gstack-project'), '');
+    expect(ownerContext(state, recordedOwnerWords(state, env)).verified).toEqual(new Set([1]));
+  });
+
+  test('with no GSTACK_PROJECT_SLUG and no slug cache entry, no record verifies a quote', () => {
+    const state = makeRun('ledger-no-slug', { plan: planText(), round2: round2(), round1: false });
+    expect(spawnSync('git', ['init', '-q', '-b', 'main', path.dirname(state.plan_source)], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const stateRoot = path.join(TMP, 'ledger-no-slug-state');
+    const record = path.join(stateRoot, 'projects', 'other-repo', 'approvals', `${branchKey('main')}.jsonl`);
+    fs.mkdirSync(path.dirname(record), { recursive: true });
+    fs.writeFileSync(record, JSON.stringify({ schema_version: 1, id: 'w', words: 'I want to remember what I promised people after every meeting' }) + '\n');
+    const env = { HOME: path.join(TMP, 'ledger-no-slug-home'), GSTACK_STATE_ROOT: stateRoot };
     expect(ownerContext(state, recordedOwnerWords(state, env)).verified).toEqual(new Set());
     expect(ownerContext(state, recordedOwnerWords(state, { ...env, GSTACK_PROJECT_SLUG: 'other-repo' })).verified).toEqual(new Set([1]));
   });
