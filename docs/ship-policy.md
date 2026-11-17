@@ -2292,6 +2292,16 @@ whose plan reviews it in full (`lib/ship-patch.ts` `comparePath`). GST-1561 had
 sent it to the one scoped reader instead. A [mechanical retake](#mechanical-retake)
 does not apply here, since the branch retook nothing.
 
+Two base-side differences are not the branch's own change (GST-2975).
+`comparePath` reads every side with the shared-preamble hash id masked, so a
+generated skill file whose only branch-side difference after a base merge is
+that id compares as unchanged. A reviewed line that the base also replaced,
+where the current line is the base's new line plus exactly the tokens the
+branch added to the reviewed line (both sides appended an entry to one
+expected-value list), is base context: it goes to the one scoped reader, never
+through silently. A resolution that drops, invents or rewrites anything on the
+branch's own lines stays a changed path.
+
 **Rewritten history.** `write` records `head_tree` (the reviewed head's tree)
 and `product_patch_id` (its product patch against the base), and every carry
 rebinds both to the new head and keeps the earlier trees in `carry.trees`.
