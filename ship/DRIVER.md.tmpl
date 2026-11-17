@@ -43,7 +43,7 @@ end with `gstack-ship-parts next --run <run dir> --phase <n+1> --room <32000 - i
 
 **One program per pass.** Each review pass, Step 11 and the Step 14.5 audit is one program, and the
 parent makes no other call while it runs: (1) `gstack-review-dispatch pass`: `gstack-review-plan --base <base>`
-with the pass's flags, then its staged manifest (Step 14.5: one reader, `docs`); (2) `gstack-review-log --start
+with Step 9's plan flags, then its staged manifest (Step 14.5: one reader, `docs`); (2) `gstack-review-log --start
 <skill>` once per row the step logs; (3) `BEFORE`; (4) `sent` (`BRIEF_MISMATCH` voids it), then one
 subagent per reader on its rendered file;
 (5) a poll until every reader settles (status `done` or `failed`, or a final summary; a fresh `idle`

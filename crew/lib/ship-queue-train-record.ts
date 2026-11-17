@@ -324,6 +324,14 @@ export function persist(repoRoot: string, records: AnyRecord[], opts: { push?: b
   return { pushed: false, detail: `git push ${NOTES_REF} failed after 3 tries: ${last}` };
 }
 
+/**
+ * QUEUE_READY_NOTE_UNPUSHED: `land --pin` reads the READY note on the remote, so a READY receipt written only here is
+ * not READY (reports/GSTA-461.md item 19). The train and plain ready paths both refuse with it.
+ */
+export function readyNoteUnpushed(pr: string, head: string, remote: string, detail: string): { code: 'QUEUE_READY_NOTE_UNPUSHED'; message: string } {
+  return { code: 'QUEUE_READY_NOTE_UNPUSHED', message: `the READY receipt for #${pr} at ${head.slice(0, 12)} is written locally, but ${remote} does not hold its note on ${NOTES_REF} (${detail}); land reads that note, so this head is not READY` };
+}
+
 function newerOrMissing(r: AnyRecord): boolean {
   try {
     const cur = JSON.parse(fs.readFileSync(recordPath(r), 'utf8'));

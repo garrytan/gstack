@@ -217,7 +217,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const notes = readRuledNotes(process.cwd());
   const sinceMs = Date.parse(since);
   const startOf = (r: Record<string, unknown>) => Date.parse(String((r.review_binding as any)?.started_at ?? r.timestamp));
-  const stop = rows.filter(r => ['review', 'review-fix-check', 'adversarial-review'].includes(String(r.skill)) && startOf(r) >= sinceMs).sort((a, b) => startOf(a) - startOf(b)).at(-1);
+  const stop = rows.filter(r => r.via === 'ship' && ['review', 'review-fix-check', 'adversarial-review'].includes(String(r.skill)) && startOf(r) >= sinceMs).sort((a, b) => startOf(a) - startOf(b)).at(-1);
   const ruled = stop ? rulingsFor(process.cwd(), stop as Record<string, any>, notes) : new Set<string>();
   const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers, ruled);
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);

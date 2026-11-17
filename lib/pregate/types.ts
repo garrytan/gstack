@@ -36,6 +36,8 @@ export interface PregateContext {
   configLabel: string;
   /** Where the policy came from: the base branch, the unreviewed head, the user-owned file, or nowhere (defaults). */
   configKind: 'base' | 'head' | 'user' | 'none';
+  /** A `--policy-from head` run with no base or user policy: the head file is a bootstrap, so its `[]` declarations on test folders drop nothing. */
+  headBootstrap?: boolean;
   /** The active policy has a `dependencies`, `empty_lanes`, `selection` or `local` key (config LANE_KEYS); false keeps the no-policy lane verdicts. Absent counts as declared. */
   policyDeclaresLanes?: boolean;
   /** This run's scratch directory under the state root (lib/pregate/run-scratch.ts): logs and scan files, never os.tmpdir(). */
@@ -103,7 +105,7 @@ export interface CheckResult extends PregateCheck {
   environment?: EnvironmentCause;
 }
 
-export type EnvironmentKind = 'missing-binary' | 'network' | 'quota' | 'disk' | 'runtime' | 'tool';
+export type EnvironmentKind = 'missing-binary' | 'arg-limit' | 'network' | 'quota' | 'disk' | 'runtime' | 'tool';
 /** How the cause was established: `launch` (the command could not start, its binary is off PATH, the runtime or a gstack tool refused), or `output` (a rule matched the command's text before any test was counted, which the diff's own output could have written). */
 export type EnvironmentProof = 'launch' | 'output';
 export interface EnvironmentCause { kind: EnvironmentKind; evidence: string; proof: EnvironmentProof }

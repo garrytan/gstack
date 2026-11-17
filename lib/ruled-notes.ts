@@ -41,7 +41,6 @@ export function readRuledNotes(cwd: string, env: Env = process.env): RuledNote[]
 
 const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
 const commitOf = (cwd: string, c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
-const ancestor = (cwd: string, a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
 
 /**
  * Whether a row's `incomplete` binding (a read that stopped for the owner, GST-2251) read one committed tree, so a ruling may
@@ -61,15 +60,14 @@ export function readOneTree(cwd: string, row: Record<string, any>): boolean {
 
 /**
  * The findings (fingerprints or ledger ids) the owner's rulings close on one review row of any kind, a full pass, a Step 11
- * voice or a fix-check (GST-2273): a ruling applies when its head lies inside the range the row reviewed, `range_base..commit`
- * when the row names a range_base, else the row's own commit, and the read bound one tree (readOneTree). An earlier /ship's head
- * therefore closes nothing on a later row. Gate findings and the lane's own fields are never rulings (lib/review-evidence.ts).
+ * voice or a fix-check (GST-2273): a ruling applies when its head is the commit the row read, the stop head the owner ruled at,
+ * and the read bound one tree (readOneTree). A ruling at an earlier head, even one inside the row's range_base..commit, closes
+ * nothing on a later row: the owner ruled the finding as an earlier read saw it, not a blocker first logged after it. Gate findings and the lane's own fields are never rulings (lib/review-evidence.ts).
  */
 export function rulingsFor(cwd: string, row: Record<string, any>, notes: readonly RuledNote[]): Set<string> {
   const commit = commitOf(cwd, row.commit_full), from = commitOf(cwd, row.range_base);
   if (!notes.length || !commit || (row.range_base && !from) || !readOneTree(cwd, row)) return new Set();
-  const inside = (head: string) => from ? ancestor(cwd, from, head) && ancestor(cwd, head, commit) : head === commit;
-  return new Set(notes.filter(n => inside(n.head)).map(n => n.finding));
+  return new Set(notes.filter(n => n.head === commit).map(n => n.finding));
 }
 
 /** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `. */

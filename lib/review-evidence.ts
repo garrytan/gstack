@@ -349,6 +349,16 @@ export const holdsOpen = (f: unknown, fixCheck = false) => !record(f) || unresol
   (f.blocking === true && !(fixCheck && !f.gate && (f.action === 'fixed' || f.action === 'auto-fixed')));
 /** The ids a ruling can name for a finding: its fingerprint and its dispatch-ledger id (GST-2273). */
 export const findingKeys = (f: unknown): string[] => record(f) ? [f.fingerprint, f.ledger_id].filter((k): k is string => typeof k === 'string' && k.length > 0) : [];
+/**
+ * Which of a row's findings the owner's rulings close: a non-gate rulable finding one of whose keys a ruling names, when that key
+ * names no other finding on the row. Two findings at one line by one reviewer share a fingerprint, so a ruling by that fingerprint
+ * closes neither; the owner rules each by its ledger id (GST-2273).
+ */
+export function ruledFinding(findings: readonly unknown[], ruled: ReadonlySet<string>): (f: unknown) => boolean {
+  const uses = new Map<string, number>();
+  for (const f of findings) for (const k of new Set(findingKeys(f))) uses.set(k, (uses.get(k) ?? 0) + 1);
+  return f => record(f) && !f.gate && RULABLE.has(f.action) && findingKeys(f).some(k => ruled.has(k) && uses.get(k) === 1);
+}
 
 /**
  * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints or ledger ids from approved
@@ -356,18 +366,21 @@ export const findingKeys = (f: unknown): string[] => record(f) ? [f.fingerprint,
  * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged. An open
  * finding is rulable too: a fix-check that finds a CRITICAL stops for the owner (review-army decision 3.5 sends it to decision 2)
  * with the finding open and the row converged:false, bound `incomplete` on unchanged content, and the ruling is the owner's
- * answer to that stop, so a row the rulings clear binds at the tree it read (GST-2251, harness-evals#361).
+ * answer to that stop, so a row the rulings clear binds at the tree it read (GST-2251, harness-evals#361). A gate finding is
+ * taken out the same way only when `gated` holds its `<fingerprint> <gate_id>` key (the owner's gate_disposition rows whose
+ * head lies in this row's range, lib/gate-dispositions.ts, GST-2491); a ruling never closes a gate finding.
  */
-function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>): Record<string, any> {
-  const isRuled = (f: unknown) => record(f) && !f.gate && RULABLE.has(f.action) && findingKeys(f).some(k => ruled.has(k));
-  if (!ruled.size || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
+function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): Record<string, any> {
+  const byRuling = ruledFinding(Array.isArray(rec.findings) ? rec.findings : [], ruled);
+  const isRuled = (f: unknown) => record(f) && (f.gate ? typeof f.fingerprint === 'string' && (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`) : byRuling(f));
+  if ((!ruled.size && !gated.size) || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
       rec.findings.some(f => !isRuled(f) && holdsOpen(f, rec.skill === 'review-fix-check'))) return rec;
   return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
 }
 
-export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set()): { status: string; reason: string } | undefined {
+export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set(), gated: ReadonlySet<string> = new Set()): { status: string; reason: string } | undefined {
   if (!DIFF_REVIEWS.has(rec.skill)) return;
   if (rec.skill === 'ship') return { status: 'UNVERIFIED', reason: 'ship telemetry is not a review pass' };
   const binding = rec.review_binding;
@@ -376,7 +389,7 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string, 
     return { status: 'STALE', reason: `content changed during review: the tree moved from ${short(binding.start_wtree)} to ${short(binding.end_wtree)} while ${rec.skill} ran (an edit, commit or merge landed before its row was logged), so the record cannot bind. Repair: freeze the checkout until every reviewer returns, then rerun the steps 11.5 names on the frozen tree; when the edit was your own fix, log it as a fix so gstack-review-plan picks the repeat depth (docs/troubleshooting.md#review-content-changed)` };
   }
   if (rec.scope === 'fix-range') return { status: 'UNVERIFIED', reason: 'fix-range pass; only a later full pass can clear review' };
-  const cleared = withoutRuledNotes(rec, ruled);
+  const cleared = withoutRuledNotes(rec, ruled, gated);
   const ruledStop = cleared !== rec && binding?.state === 'incomplete' && rec.converged === false;
   const wtree = ruledStop ? binding.end_wtree : rec.wtree;
   if ((binding?.state !== 'verified' && !ruledStop) || rec.completed !== true || (rec.converged !== true && !ruledStop) ||

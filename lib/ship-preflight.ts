@@ -15,6 +15,7 @@ import { buildRunCheck } from './pregate/run-check';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
+import { withGateLock } from './gate-dispositions';
 import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
@@ -85,7 +86,7 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   const stat = git(cwd, ['diff', forkPoint(cwd, base), '--shortstat']).stdout.trim();
   const lines = [...stat.matchAll(/(\d+) (insertion|deletion)/g)].reduce((n, m) => n + Number(m[1]), 0);
   const commits = git(cwd, ['rev-list', '--count', `origin/${base}..HEAD`]).stdout.trim();
-  r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /autoplan' : ''}`);
+  r.add(`DIFF: ${stat || 'no changes'}; commits=${commits || 0}${lines > 200 ? '; over 200 lines: recommend /plan-eng-review or /autoplan' : ''}`);
   const pr = hostedOrigin(cwd) ? gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty']) : null;
   const n = pr?.stdout.trim() ?? '';
   if (!pr) r.add('PR: not checked (origin is a local path, not a hosted remote gh can map; Step 0 uses git-native commands)');
@@ -95,12 +96,14 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
     r.add(`PR: #${n}`).add(line);
+    // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and the review this
+    // head gets: a product change runs Steps 2-16, whose plan is the merge head's full review; a re-check never carries.
+    const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n], 120_000);
+    const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE): /.test(l));
+    histLines.forEach(l => r.add(l));
+    if (hist.status !== 0 || !histLines.some(l => l.startsWith('PR_REVIEW_FLAGS: '))) r.add('PR_REVIEW_FLAGS: --prior-rounds 0').add(`PR_REVIEW_ROUTE: first (history unavailable: ${firstLine(hist.stderr) || `gstack-ship-receipt history exit ${hist.status}`}; the plan counts this run's rounds only)`);
     if (line.startsWith('CARRY: would carry')) {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), commit, gstack-ship-release push --branch ${branch} --early, gstack-ci-carry wait --base ${base} (CI_CARRY: none is not a stop), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
-      return false;
-    }
-    if (line === 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)' && /^RECHECK: eligible /m.test(carry.stderr ?? '')) {
-      r.next(`carry route (Step 1.4, J1): the product changed since the receipt within the scoped re-check cap: gstack-ship-receipt carry --pr ${n} --base ${base} writes the re-check packet; one reader reads it; gstack-pregate --allow-repo-commands, then carry again with --recheck <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;
     }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
@@ -116,7 +119,10 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the static design lite check only, no preview declared; mention /design-review when no design review exists)' : ''}`);
   if (!merge(cwd, base, r)) return false;
   const marker = run && shipRunMarker(cwd);
-  try { if (marker) fs.writeFileSync(marker, `${run}\n`); } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }
+  try {
+    const locked = marker ? withGateLock(cwd, () => fs.writeFileSync(marker, `${run}\n`)) : undefined;
+    if (locked && 'code' in locked) throw new Error(locked.message);
+  } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }
   return true;
 }
 

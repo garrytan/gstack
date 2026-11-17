@@ -214,3 +214,70 @@ describe('rulings read the same with or without GSTACK_CAPY=1 (#4266, GST-2273)'
     expect(fs.readdirSync(drive, { recursive: true }).length).toBe(before);
   });
 });
+
+// Value: protects=a ruling closes exactly the finding the owner ruled, at the head the owner ruled it, and only a /ship row's
+//   rulings reach the summary (the cross-family audit of #4272 at 36ce6ad: a fingerprint ruling fanned out to every finding at one
+//   line, a ruling at range_base closed a blocker first logged after it, and a manual row's rulings reached the ship summary);
+//   fails_when=one ruling closes two findings, an earlier-head ruling closes a later row's blocker, or a non-ship row picks the
+//   summary's rulings; seam=lib/review-evidence.ts ruledFinding, lib/ruled-notes.ts rulingsFor, bin/gstack-review-scope's stop row
+describe('a ruling closes only the finding and head the owner named (GST-2273 audit)', () => {
+  const TWIN = [{ fingerprint: CARRY, ledger_id: 'p2/outside-voice#1', severity: 'CRITICAL', action: 'skipped', raised_by: 'outside-voice', blocking: true },
+    { fingerprint: CARRY, ledger_id: 'p2/outside-voice#2', severity: 'CRITICAL', action: 'skipped', raised_by: 'outside-voice', blocking: true }];
+  function twinPass() {
+    const repo = branch();
+    const p1 = commit(repo, 'lib/carry.ts', 'export const carry = 1;\n', 'carry the test check');
+    const head = commit(repo, 'lib/carry.ts', 'export const carry = 2;\n', 'fix the round-1 findings');
+    logRow(repo, { skill: 'review', status: 'issues_found', issues_found: 2, critical: 2, informational: 0, findings: TWIN, completed: true, converged: false, pass: 2, range_base: p1 });
+    return { repo, head };
+  }
+
+  test('a fingerprint two findings share closes neither; ruling each by its ledger id closes both', () => {
+    const { repo, head } = twinPass();
+    expect(rule(repo, CARRY, head).status).toBe(0);
+    expect(freshness(repo, 2)).toBe('UNVERIFIED');
+    expect(rule(repo, 'p2/outside-voice#1', head).status).toBe(0);
+    expect(freshness(repo, 2)).toBe('UNVERIFIED');
+    expect(rule(repo, 'p2/outside-voice#2', head).status).toBe(0);
+    expect(freshness(repo, 2)).toBe('CURRENT');
+  });
+
+  test('a ruling at the pass\'s range_base, or between it and the pass\'s commit, closes nothing the pass logged', () => {
+    const repo = branch();
+    const p1 = commit(repo, 'lib/carry.ts', 'export const carry = 1;\n', 'carry the test check');
+    const mid = commit(repo, 'lib/carry.ts', 'export const carry = 2;\n', 'a first fix');
+    const head = commit(repo, 'lib/carry.ts', 'export const carry = 3;\n', 'a second fix');
+    logRow(repo, { skill: 'review', status: 'issues_found', issues_found: 1, critical: 1, informational: 0, findings: [TWIN[0]], completed: true, converged: false, pass: 2, range_base: p1 });
+    expect(rule(repo, CARRY, p1).status).toBe(0);
+    expect(rule(repo, CARRY, mid).status).toBe(0);
+    expect(freshness(repo, 2)).toBe('UNVERIFIED');
+    expect(rule(repo, CARRY, head).status).toBe(0);
+    expect(freshness(repo, 2)).toBe('CURRENT');
+  });
+
+  test('a later review row not run by /ship does not choose the rulings the summary applies', () => {
+    const { repo, head, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }, { skill: 'adversarial-review', status: 'issues_found', completed: true, converged: true }]);
+    const base = repo.git('merge-base', 'main', 'HEAD');
+    const slug = runBin(repo, 'gstack-slug', ['--get', 'SLUG']).out.trim();
+    fs.appendFileSync(path.join(repo.home, 'projects', slug, 'feat-reviews.jsonl'), JSON.stringify({ skill: 'adversarial-review', timestamp: at(30), commit_full: base, status: 'clean', completed: true, converged: true, review_binding: { state: 'verified', started_at: at(30) } }) + '\n');
+    ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
+    ledger(path.join(out, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', VOICE]]);
+    expect(rule(repo, 'lib/review-grant.ts:49:outside-voice', base).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 0, unrecorded: 2 });
+    expect(rule(repo, 'lib/review-grant.ts:49:outside-voice', head).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 1, unrecorded: 1 });
+  });
+
+  test('a Step 11 voice finding at a line another voice finding shares closes only by its ledger id', () => {
+    const { repo, head, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }, { skill: 'adversarial-review', status: 'issues_found', completed: true, converged: true }]);
+    ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
+    ledger(path.join(out, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', ['1. lib/review-grant.ts:49 A date-only timestamp sorts before the grant. Severity: Critical Blocks: yes',
+      '2. lib/review-grant.ts:49 The grant id is never checked against the head. Severity: Critical Blocks: yes', 'Recommendation: fix both because each lets a grant bind where it should not'].join('\n')]]);
+    expect(summary(repo, out)).toMatchObject({ blocking_found: 2, noted: 0, unrecorded: 2 });
+    expect(rule(repo, 'lib/review-grant.ts:49:outside-voice', head).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 0, unrecorded: 2 });
+    for (const id of ['p1-voices/outside-voice#1', 'p1-voices/outside-voice#2']) expect(rule(repo, id, head).status).toBe(0);
+    const s = summary(repo, out);
+    expect(s).toMatchObject({ noted: 2 });
+    expect(s.unrecorded).toBeUndefined();
+  });
+});

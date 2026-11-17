@@ -218,7 +218,8 @@ The skill re-collects a PAT (one-time, discarded after), lists every project in 
 | `gstack-gbrain-supabase-verify` | Structural URL check. Rejects direct-connection URLs (`db.*.supabase.co:5432`) with exit 3 |
 | `gstack-gbrain-supabase-provision` | Management API wrapper. Subcommands: `list-orgs`, `create`, `wait`, `pooler-url`, `list-orphans`, `delete-project`. All require `SUPABASE_ACCESS_TOKEN` in env. `create` and `pooler-url` also require `DB_PASS`. `--json` mode available on every subcommand. |
 | `gstack-gbrain-repo-policy` | Per-remote trust triad. Subcommands: `get`, `set`, `list`, `normalize` |
-| `gstack-gbrain-source-wireup` | Registers your `~/.gstack/` brain repo with gbrain as a federated source via `gbrain sources add` + `git worktree`, then runs an initial `gbrain sync`. Idempotent. Replaces the dead `consumers.json + /ingest-repo` HTTP wireup from v1.12.x. Flags: `--strict`, `--source-id <id>`, `--no-pull`, `--uninstall`, `--probe`. |
+| `gstack-gbrain-source-wireup` | Registers your `~/.gstack/` brain repo with gbrain as a federated source via `gbrain sources add` + `git worktree`, then runs an initial `gbrain sync`. Idempotent. Replaces the dead `consumers.json + /ingest-repo` HTTP wireup from v1.12.x. Flags: `--strict`, `--source-id <id>`, `--no-pull`, `--uninstall`, `--probe`, `--advance-only`, and `--check-target` (read-only: reports `TARGET: MATCH` or `TARGET: MISMATCH` for whether an earlier run with `GBRAIN_HOME` set could have used the wrong brain; never prints a database URL). |
+| `gstack-gbrain-home.sh` | Sourced, not executed. Provides `gstack_gbrain_config_path`, which prints the config.json gbrain itself reads (`$GBRAIN_HOME/.gbrain/config.json`, else `~/.gbrain/config.json`) and prints nothing for a `GBRAIN_HOME` gbrain refuses (relative, or with a `..` segment). Used by the source wireup and skill start. |
 
 ### gbrain CLI (upstream tool)
 
@@ -240,7 +241,7 @@ Gbrain itself ships with these that gstack wraps:
 
 | Path | What lives there |
 |---|---|
-| `~/.gbrain/config.json` | Engine (pglite/postgres), database URL or path, API keys. Mode 0600. Written by `gbrain init`. |
+| `~/.gbrain/config.json` | Engine (pglite/postgres), database URL or path, API keys. Mode 0600. Written by `gbrain init`. When `GBRAIN_HOME` is set, gbrain and gstack's helpers read `$GBRAIN_HOME/.gbrain/config.json` instead. |
 | `~/.gstack/gbrain-repo-policy.json` | Per-remote trust triad. Schema v2. Mode 0600. |
 | `~/.gstack/.setup-gbrain.lock.d` | Concurrent-run lock (atomic mkdir). Released on normal exit + SIGINT. |
 | `~/.gstack/.brain-queue.d/` | Pending sync records for gstack memory sync — maildir-style spool, one file per record. A legacy `.brain-queue.jsonl` from older releases migrates automatically on the next drain. |

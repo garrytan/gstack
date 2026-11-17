@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { QM_EDITION, type QmSkill } from '../hosts/qm';
 import { commandWords, qmCommandViolations, renderQmEdition, renderSkill, staleQmFiles } from '../scripts/gen-qm-edition';
@@ -15,8 +13,6 @@ describe('QM edition (hosts/qm.ts)', () => {
   test('committed qm/ matches the generator (run: bun run scripts/gen-qm-edition.ts)', () => {
     expect(staleQmFiles()).toEqual([]);
     expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'qm/edition.json'), 'utf-8')).edition).toBe('gstack-qm');
-    expect(fs.readFileSync(path.join(ROOT, 'qm/sandbox/skills/gstack-review/scripts/diff-base.sh'), 'utf-8'))
-      .toBe(fs.readFileSync(path.join(ROOT, 'hosts/qm/scripts/diff-base.sh'), 'utf-8'));
   });
 
   test('every shipped file fits QM\'s inline read cap, and descriptions fit its skills index', () => {
@@ -56,21 +52,21 @@ describe('QM edition (hosts/qm.ts)', () => {
   });
 
   test('the command check refuses what QM\'s sandbox lacks (negative controls)', () => {
-    const id = 'gstack-review';
+    const id = 'gstack-plan';
     const md = (body: string) => new Map([['SKILL.md', body], ['scripts/diff-base.sh', '#!/bin/sh\necho ok\n']]);
     const cases: Array<[string, RegExp]> = [
       ['```bash\ngstack-skill-start --skill review\n```\n', /gstack-skill-start/],
       ['Run `bun run test` first.\n', /"bun"/],
       ['```sh\ngit diff | jq .\n```\n', /"jq"/],
-      ['```sh\nsh skills/gstack-review/scripts/missing.sh\n```\n', /not a script shipped/],
-      ['```sh\nsh skills/gstack-plan/scripts/diff-base.sh\n```\n', /not a script shipped/],
+      ['```sh\nsh skills/gstack-plan/scripts/missing.sh\n```\n', /not a script shipped/],
+      ['```sh\nsh skills/gstack-other/scripts/diff-base.sh\n```\n', /not a script shipped/],
       ['Read ~/.claude/skills/gstack/review/checklist.md\n', /~\/\.claude/],
       ['{{PREAMBLE}}\n', /\{\{/],
     ];
     for (const [body, want] of cases) expect(qmCommandViolations(id, md(body)).join('\n')).toMatch(want);
     const script = new Map([['SKILL.md', 'x\n'], ['scripts/a.sh', '#!/bin/sh\nnode -e 1\n']]);
     expect(qmCommandViolations(id, script).join('\n')).toMatch(/"node"/);
-    expect(qmCommandViolations(id, md('```sh\nsh skills/gstack-review/scripts/diff-base.sh main\n```\n'))).toEqual([]);
+    expect(qmCommandViolations(id, md('```sh\nsh skills/gstack-plan/scripts/diff-base.sh main\n```\n'))).toEqual([]);
   });
 
   test('commandWords reads pipelines, substitutions, functions and redirections', () => {
@@ -89,81 +85,5 @@ describe('QM edition (hosts/qm.ts)', () => {
     expect(() => renderSkill(variant({ file: 'review/SKILL.md.tmpl', heading: 'Pre-Landing PR Review', level: 1, skipHeadings: [], dropBlocks: [], replaceText: [] }))).toThrow(/unmapped placeholder/);
     // A "# ..." comment inside a code fence is never a heading.
     expect(() => renderSkill(variant({ heading: '$HOME-anchored like the careful/freeze frontmatter hooks: early skill bash runs' }))).toThrow(/found 0 times/);
-  });
-});
-
-describe('diff-base.sh (gstack-review first step)', () => {
-  const script = path.join(ROOT, QM_EDITION.scriptSourceDir, 'diff-base.sh');
-  const shell = fs.existsSync('/bin/dash') ? '/bin/dash' : 'sh';
-  const git = (cwd: string, ...args: string[]) => {
-    const r = spawnSync('git', ['-c', 'user.name=qm-test', '-c', 'user.email=qm-test@example.com', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf-8', timeout: 30_000 });
-    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
-    return r.stdout.trim();
-  };
-  const run = (cwd: string, ...args: string[]) => {
-    const r = spawnSync(shell, [script, ...args], { cwd, encoding: 'utf-8', timeout: 30_000 });
-    expect(r.status).toBe(0);
-    return r.stdout;
-  };
-  const repo = (branch = 'main') => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qm-diff-base-'));
-    git(dir, 'init', '-q', '-b', branch);
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
-    git(dir, 'add', '.');
-    git(dir, 'commit', '-qm', 'init');
-    return dir;
-  };
-
-  test('parses under sh -n', () => {
-    expect(spawnSync(shell, ['-n', script], { timeout: 30_000 }).status).toBe(0);
-  });
-
-  test('a feature branch: base, merge base, diff stat and the next command', () => {
-    const dir = repo();
-    const mb = git(dir, 'rev-parse', 'HEAD');
-    git(dir, 'checkout', '-qb', 'feature');
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'two\n');
-    git(dir, 'commit', '-qam', 'change');
-    fs.writeFileSync(path.join(dir, 'new.txt'), 'new\n');
-    const out = run(dir);
-    expect(out).toContain('BASE: main\n');
-    expect(out).toContain(`MERGE_BASE: ${mb}\n`);
-    expect(out).toContain('a.txt');
-    expect(out).toContain('new.txt');
-    expect(out).toContain(`NEXT: git diff ${mb}\n`);
-    expect(run(dir, 'main')).toContain('BASE: main\n');
-    fs.rmSync(path.join(dir, 'new.txt'));
-    expect(run(dir, 'feature')).toContain('NOTHING_TO_REVIEW');
-  });
-
-  test('more than 30 untracked files: the first 30 are listed and the rest are named, never dropped silently', () => {
-    const dir = repo();
-    git(dir, 'checkout', '-qb', 'feature');
-    for (let i = 0; i < 31; i++) fs.writeFileSync(path.join(dir, `u${String(i).padStart(2, '0')}.txt`), 'u\n');
-    const out = run(dir);
-    expect(out).toContain('u29.txt');
-    expect(out).not.toContain('u30.txt');
-    expect(out).toContain('UNTRACKED_MORE: 1 more untracked files; list them all with git ls-files --others --exclude-standard\n');
-    expect(run(repo())).not.toContain('UNTRACKED_MORE');
-  });
-
-  test('origin/HEAD wins when the repository is a clone', () => {
-    const upstream = repo();
-    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'qm-diff-base-clone-'));
-    git(clone, 'clone', '-q', upstream, '.');
-    expect(run(clone)).toContain('BASE: origin/main\n');
-  });
-
-  test('clean base branch, no main or master, unrelated history, empty repo and no repo all exit 0 with guidance', () => {
-    expect(run(repo())).toContain('NOTHING_TO_REVIEW');
-    expect(run(repo('trunk'))).toContain('BASE: none (no origin/HEAD, main or master)');
-    const orphan = repo();
-    git(orphan, 'checkout', '-q', '--orphan', 'other');
-    git(orphan, 'commit', '-qm', 'unrelated');
-    expect(run(orphan)).toContain('BASE: none (main has no merge base with HEAD)');
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'qm-diff-base-empty-'));
-    git(empty, 'init', '-q');
-    expect(run(empty)).toContain('BASE: none');
-    expect(run(fs.mkdtempSync(path.join(os.tmpdir(), 'qm-diff-base-none-')))).toContain('NOT_A_GIT_REPO');
   });
 });

@@ -280,7 +280,7 @@ This run is non-interactive; AskUserQuestion is unavailable.`,
     logCost('scrape-prototype-path', result);
 
     const cmds = bashCommands(result);
-    const wentToFixture = browseNavigatedTo(result.toolCalls, fileUrl);
+    const wentToFixture = browseNavigatedTo(result.toolCalls, fileUrl, workDir);
     const fetchedHtml = cmds.some(c => /\bgoto\b|\bhtml\b|\btext\b/.test(c));
     const surface = fullSurface(result);
     const mentionsSkillify = /skillify/i.test(surface);

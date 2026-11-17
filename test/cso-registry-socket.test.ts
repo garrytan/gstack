@@ -80,7 +80,9 @@ posixDescribe('short supervised CSO registry sockets', () => {
   }, 15_000);
 
   test('deadline cleanup removes the whole per-call socket root without a global temp sweep', async () => {
-    const doomed = await superviseRegistrySocket({ watchdogPath, ownerPid: process.pid, deadline: Date.now() + 150 });
+    // The watchdog takes whole seconds and cleans as soon as the deadline passes, so a deadline inside the ~1 s startup
+    // handshake fails it on a slow start (Free Tests 42772387147): expire it after the handshake instead.
+    const doomed = await superviseRegistrySocket({ watchdogPath, ownerPid: process.pid, deadline: Date.now() + 2_000 });
     const survivor = await superviseRegistrySocket({ watchdogPath, ownerPid: process.pid, deadline: Date.now() + 10_000 });
     const broker = new RegistryEgressBroker(doomed.socketPath, ['registry.npmjs.org'], Date.now() + 10_000, 1024 * 1024);
     try {

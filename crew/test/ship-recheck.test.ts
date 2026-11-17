@@ -1,9 +1,9 @@
 /**
- * J1 (GSTA-258 L4): a scoped re-check after a refused receipt carry. Each refusal reason that does or does not qualify,
- * the record binding, and the carry end to end: a bounded product change prints RECHECK: eligible and writes the packet,
- * a clean record bound to that packet carries the receipt with the reader named, and a changed risk class, a legacy
- * receipt and more paths than the walk names never take the re-check (the /ship p1 red-team and security findings).
- * Moved base context joins the packet instead (GST-1561; test/ship-receipt-carry-mixed.test.ts).
+ * J1 (GSTA-258 L4), advice only since GST-2673: a scoped re-check packet after a refused receipt carry. Each refusal
+ * reason that does or does not qualify, and the carry end to end: a bounded product change prints RECHECK: advisory and
+ * writes the packet, and no re-check record carries the receipt, because a diff-only re-check caught 0 of 8 real faults
+ * full rounds had caught; a legacy receipt and more paths than the walk names get no packet. Moved base context joins
+ * the packet (GST-1561; test/ship-receipt-carry-mixed.test.ts).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../../lib/headless-artifacts';
 import { extractReceipt, placeReceipt } from '../../lib/ship-receipt';
-import { planRecheck, readRecheck, RECHECK_PACKET_BYTES, RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
+import { planRecheck, RECHECK_PACKET_BYTES, RECHECK_RANGE_DIFF_CAP } from '../lib/ship-recheck';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from '../../test/helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -46,20 +46,6 @@ describe('planRecheck: which refusals qualify', () => {
   });
 });
 
-describe('readRecheck binds to from, head and the range-diff', () => {
-  test('only a clean record for this exact range-diff stands', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recheck-'));
-    const bind = { from: 'a'.repeat(40), head: 'b'.repeat(40), sha256: 'c'.repeat(64) };
-    const write = (o: object) => { const f = path.join(dir, `${Math.random()}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f; };
-    const good = { from: bind.from, head: bind.head, range_diff_sha256: bind.sha256, reader: 'anthropic/claude-opus-5-5', verdict: 'clean' };
-    expect(readRecheck(write(good), bind).ok).toBe(true);
-    expect(readRecheck(write({ ...good, verdict: 'blocking' }), bind)).toMatchObject({ ok: false, message: expect.stringContaining('not clean') });
-    expect(readRecheck(write({ ...good, range_diff_sha256: 'd'.repeat(64) }), bind)).toMatchObject({ ok: false, message: expect.stringContaining('range_diff_sha256') });
-    expect(readRecheck(write({ ...good, reader: '' }), bind)).toMatchObject({ ok: false, message: 'the re-check names no reader' });
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-});
-
 /** A branch reviewed at one commit, with a receipt written by gstack-ship-receipt write (so it records review_depth). */
 function reviewed(files: Record<string, string> = { 'src/app.ts': 'export const a = 2;\n' }) {
   const repo = makeFixtureRepo({ prefix: 'ship-recheck-' }); repos.push(repo);
@@ -83,10 +69,10 @@ function reviewed(files: Record<string, string> = { 'src/app.ts': 'export const 
   };
   return { repo, from, body, env, commit };
 }
-const eligible = (err: string) => /^RECHECK: eligible range_diff_lines=(\d+) range_diff_sha256=([0-9a-f]{64}) packet=(\S+);/m.exec(err);
+const eligible = (err: string) => /^RECHECK: advisory range_diff_lines=(\d+) range_diff_sha256=([0-9a-f]{64}) packet=(\S+);/m.exec(err);
 
 describe('carry with a scoped re-check (CLI)', () => {
-  test('a bounded product change prints RECHECK: eligible, keeps the refusal, and a clean record carries with the reader named', () => {
+  test('a bounded product change prints RECHECK: advisory and keeps the refusal; a clean record bound to the packet carries nothing', () => {
     const { repo, from, body, env, commit } = reviewed();
     const head = commit({ 'src/app.ts': 'export const a = 3;\n' }, 'fix: a=3');
     const refused = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], env);
@@ -94,33 +80,16 @@ describe('carry with a scoped re-check (CLI)', () => {
     expect(refused.out.trim().split('\n')[0]).toBe('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
     const m = eligible(refused.err);
     expect(m).not.toBeNull();
+    expect(refused.err).toContain('it never carries the receipt (GST-2673)');
     expect(fs.readFileSync(m![3]!, 'utf8')).toContain('export const a = 3;');
+    expect(fs.readFileSync(m![3]!, 'utf8')).toContain('advice only');
+    const before = fs.readFileSync(body, 'utf8');
     const record = path.join(repo.root, 'recheck.json');
     fs.writeFileSync(record, JSON.stringify({ from, head, range_diff_sha256: m![2], reader: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
     const carried = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--recheck', record, '--out', path.join(repo.root, 'run')], env);
-    expect([carried.status, carried.err.slice(0, 400)]).toEqual([EXIT.ok, expect.any(String)]);
-    expect(carried.out.trim().split('\n')[0]).toBe(`CARRY: carried from ${from.slice(0, 12)} to ${head.slice(0, 12)} (scoped re-check by anthropic/claude-opus-5-5 (range-diff ${m![1]} lines))`);
-    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt).toMatchObject({ head, carry: { from } });
-    const stale = path.join(repo.root, 'stale.json');
-    fs.writeFileSync(stale, JSON.stringify({ from: head, head, range_diff_sha256: 'f'.repeat(64), reader: 'x', verdict: 'clean' }));
-    commit({ 'src/app.ts': 'export const a = 4;\n' }, 'fix: a=4');
-    const bad = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--recheck', stale], env);
-    expect([bad.status, bad.out.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
-  }, 60_000);
-
-  test('a clean re-check cannot carry across a changed risk class', () => {
-    const { repo, from, body, env, commit } = reviewed();
-    const before = extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.review_depth!;
-    const head = commit({ 'src/app.ts': 'export const a = 3;\n', 'src/billing.ts': 'export function charge(cents: number) { return stripe.charges.create({ amount: cents }); }\n' }, 'feat: billing');
-    const refused = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], env);
-    const m = eligible(refused.err);
-    expect(m).not.toBeNull();
-    const record = path.join(repo.root, 'recheck.json');
-    fs.writeFileSync(record, JSON.stringify({ from, head, range_diff_sha256: m![2], reader: 'x', verdict: 'clean' }));
-    const r = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--recheck', record], env);
-    expect(r.status).toBe(EXIT.refused);
-    expect(r.err).toMatch(/risk class|review depth/);
-    expect(before.risk ?? []).not.toContain('money');
+    expect(carried.status).toBe(EXIT.refused);
+    expect(carried.err).toContain('--recheck is gone');
+    expect(fs.readFileSync(body, 'utf8')).toBe(before);
   }, 60_000);
 
   test('a legacy receipt, more changed paths than the walk names, and moved base context print RECHECK: not eligible', () => {

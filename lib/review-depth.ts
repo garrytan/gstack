@@ -388,6 +388,12 @@ export interface History {
   postReview?: boolean;
   /** In the loop, the CLI bound `granted` to the last fix-check's own stop head, its commit (--range-base): a new grant, never the previous link's. */
   chained?: boolean;
+  /** R51 rounds earlier /ship runs on this PR already spent, fix-checks and scoped passes included (--prior-rounds; GST-2673): printed as pr_rounds=. */
+  priorRounds?: number;
+  /** The full review rounds among them (--prior-full): the PR cap compares these plus this run's full passes with FULL_PASS_CAP, so a run's own fix rounds stay as the in-run table plans them. */
+  priorFull?: number;
+  /** The lane's or Captain's recorded round grant at this head (--round-grant): one more round for the PR, never the owner's. */
+  roundGrant?: string;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -407,7 +413,7 @@ export interface NextStep { step: Step; reason: string }
  * loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) adds one more the same way (GST-1681).
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
-  const n = h.lean ? leanStep(h, depth) : loopStep(h, depth);
+  const n = prCapped(h, h.lean ? leanStep(h, depth) : loopStep(h, depth));
   if (n.step !== 'stop') return n;
   if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
   const afterFixCheck = h.last === 'fix-check' && h.fullPasses === FULL_PASS_CAP - 1 && h.fixChecks === 1;
@@ -415,6 +421,29 @@ export function nextStep(h: History, depth?: Depth): NextStep {
   if (h.chained && h.last === 'fix-check' && h.granted && !h.blockingOpen) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check at the last fix-check's stop, a new link of the fix-check chain (docs/ship-policy.md#fix-check-chain); another stop needs a grant of its own` };
   if (!h.lean && h.granted && !h.blockingOpen && (afterFixCheck || (h.last === 'full' && h.fullPasses === FULL_PASS_CAP))) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check after round ${FULL_PASS_CAP} (review_loop_exception), ${afterFixCheck ? 'never a second' : 'never a fourth round'}` };
   return n;
+}
+
+/**
+ * R51 per pull request (GST-2673, docs/review-policy.md#rounds-per-pull-request): the rounds earlier /ship runs on this
+ * PR spent count against FULL_PASS_CAP with this run's, and a recorded round grant at this head adds one. At the cap a
+ * below-floor fix ships as notes and anything else stops with PR_ROUND_CAP for the lane or its Captain, never the owner.
+ * A PR already at the cap gets one read-only full review of this head: no fix round, the count does not reopen, and a
+ * blocker stops with PR_ROUND_CAP as the lane's Captain's decision.
+ */
+function prCapped(h: History, n: NextStep): NextStep {
+  const prior = h.priorFull ?? 0;
+  const cap = FULL_PASS_CAP + (h.roundGrant ? 1 : 0);
+  if (prior >= cap) {
+    if (h.last === 'none') return n.step === 'full' || n.step === 'scoped' ? { step: 'full', reason: `read-only final review (R51): this PR already had ${prior} full review rounds on earlier heads, so this head gets one full review with no fix round; a blocker goes to the lane's Captain as a decision and the count does not reopen` } : n;
+    if (n.step === 'done') return n;
+    if (!h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'done', reason: `read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round` };
+    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, a round grant, or park), not an owner ask` };
+  }
+  if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
+  const used = prior + h.fullPasses;
+  if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads, so this is its full round ${used + 1} of ${cap}${used + 1 === cap ? ', the last' : ''}` };
+  if (h.last !== 'none' && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate) return { step: 'done', reason: `PR round cap ${cap} reached (${prior} on earlier heads): the below-floor fixes ship as notes in the PR body and receipt` };
+  return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} full review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
 }
 
 /**
@@ -599,7 +628,11 @@ export function planReview(i: PlanInput): ReviewPlan {
       if (firstVoices) add('adversarial-native', 'adversarial', 'full', [], { reason: LIGHT_ADVERSARIAL_REASON });
     } else {
       for (const n of SPECIALISTS.filter(forced)) add('specialist', n, specialist);
-      skipped.push('specialists, red-team and adversarial-native (light depth, runtime 0)');
+      if (cls === 'docs' || dispatches.length) skipped.push('specialists, red-team and adversarial-native (light depth, runtime 0)');
+      else {
+        add('specialist', 'batched', specialist, cls === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(cls, i, skipped) });
+        skipped.push(`red-team and adversarial-native (light depth, runtime 0: one batched reader reads the ${cls} diff, R51)`);
+      }
     }
     if (h.fullPasses === 0 && i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
     else if (numbersChanged) add('outside-voice', 'outside-voice (numbers changed)', 'host');
@@ -654,7 +687,9 @@ export function planReview(i: PlanInput): ReviewPlan {
  * R65's lean dispatch (docs/review-policy.md#review-depth): pass 1 runs one native adversarial reader at the lane's reasoning, on
  * review.reader_model (the lane's model by default: FOUN-32, ggstack#52). A risk-class diff under review.panel off gets the merged
  * reader: the gate-class checklists, the Red Team checklist and the targeted brief for its classes; a non-risk code diff gets the
- * code-class checklists and the Red Team. Docs and tests keep the core read. A docs or tests diff with no numeric, results or prereg
+ * code-class checklists and the Red Team. Docs keep the core read; a tests diff, or code with no runtime lines, gets one batched
+ * reader on its class's checklists unless a forced specialist already reads it (R51: tests get one reviewer, so no non-docs pass 1
+ * plans zero readers). A docs or tests diff with no numeric, results or prereg
  * claims, under review.platform on, with the platform review at HEAD, runs no reader at all (mode platform).
  */
 /** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
@@ -690,7 +725,9 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     reader();
     skipped.push(`specialists, red-team and outside-voice as their own readers (R65: the one ${risky ? 'risk-class' : 'light'} reader carries them)`);
   } else if (next.step === 'full') {
-    for (const n of SPECIALISTS.filter(forcedBy(i))) add('specialist', n, i.tiers === false ? 'host' : ROLE_EFFORT.specialist);
+    const effort: Effort = i.tiers === false ? 'host' : ROLE_EFFORT.specialist;
+    for (const n of SPECIALISTS.filter(forcedBy(i))) add('specialist', n, effort);
+    if (depth.class !== 'docs' && !dispatches.length) add('specialist', 'batched', effort, depth.class === 'tests' ? docsAndOutputs : [], { checklists: batchChecklists(depth.class, i, skipped) });
     if (i.numbers.publishes) add('outside-voice', 'outside-voice', 'host');
     else skipped.push(`outside-voice (${depth.class} class, no numeric claims)`);
   } else if (next.step === 'voices') reader();
@@ -705,8 +742,8 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
   return plan(next, 'lean');
 }
 
-export function reviewPlanLine(p: ReviewPlan, pass: number): string {
-  return `REVIEW_PLAN: class=${p.class} pass=${pass} next=${p.next.step} dispatches=${p.dispatches.length} numbers=${p.numbers.publishes ? `yes(${p.numbers.claims})` : 'no'} fingerprint=${p.numbers.fingerprint} reason=${JSON.stringify(p.next.reason)}`;
+export function reviewPlanLine(p: ReviewPlan, pass: number, priorRounds = 0): string {
+  return `REVIEW_PLAN: class=${p.class} pass=${pass}${priorRounds ? ` pr_rounds=${priorRounds}` : ''} next=${p.next.step} dispatches=${p.dispatches.length} numbers=${p.numbers.publishes ? `yes(${p.numbers.claims})` : 'no'} fingerprint=${p.numbers.fingerprint} reason=${JSON.stringify(p.next.reason)}`;
 }
 
 export function reviewDepthLine(p: ReviewPlan): string {

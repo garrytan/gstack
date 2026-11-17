@@ -22,6 +22,8 @@
  *   --auto-redact IDS            Comma-separated finding ids to auto-redact;
  *                                prints the redacted body to stdout + diff to stderr.
  *   --max-bytes N                Override the fail-closed size cap (default 1 MiB).
+ *                                Input over 16 MiB is always refused; --max-bytes
+ *                                can't raise that ceiling, so split larger input.
  *
  * Security note: this is a GUARDRAIL, not airtight enforcement. A determined
  * user can always bypass it (direct gh/git). It catches accidents.
@@ -39,7 +41,11 @@ import {
 } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
 
-const MAX_STDIN_BYTES = 16 * 1024 * 1024; // hard ceiling before the engine cap
+const MAX_STDIN_MIB = 16;
+const MAX_STDIN_BYTES = MAX_STDIN_MIB * 1024 * 1024; // hard ceiling before the engine cap
+const CEILING_NOTE =
+  `The limit is ${MAX_STDIN_MIB} MiB and --max-bytes can't raise it. ` +
+  "Split the input and scan the parts.";
 
 // ── pre-push hook install/uninstall (chains any existing hook) ────────────────
 
@@ -156,7 +162,7 @@ function readInput(): string {
     const st = fs.statSync(file);
     if (st.size > MAX_STDIN_BYTES) {
       // Don't even read it — fail closed at the CLI boundary.
-      process.stderr.write(`gstack-redact: input file too large (${st.size} bytes)\n`);
+      process.stderr.write(`gstack-redact: input file too large (${st.size} bytes). ${CEILING_NOTE}\n`);
       process.exit(3);
     }
     return fs.readFileSync(file, "utf8");
@@ -178,7 +184,7 @@ function readInput(): string {
     if (n === 0) break;
     total += n;
     if (total > MAX_STDIN_BYTES) {
-      process.stderr.write("gstack-redact: stdin too large\n");
+      process.stderr.write(`gstack-redact: stdin too large. ${CEILING_NOTE}\n`);
       process.exit(3);
     }
     chunks.push(Buffer.from(buf.subarray(0, n)));
@@ -259,7 +265,10 @@ function printUsage(code: number): never {
       "       --self-email EMAIL --repo-public-emails PATH --auto-redact IDS\n" +
       "       --max-bytes N\n" +
       "\n" +
-      "Exit: 0 clean · 1 usage error · 2 MEDIUM present · 3 HIGH present\n",
+      `--max-bytes N raises the 1 MiB scan cap. Input over ${MAX_STDIN_MIB} MiB is always refused,\n` +
+      "whatever --max-bytes says; split it and scan the parts.\n" +
+      "\n" +
+      "Exit: 0 clean · 1 usage error · 2 MEDIUM present · 3 HIGH present or input too large\n",
   );
   process.exit(code);
 }

@@ -204,108 +204,25 @@ sync_active() {
   return 0
 }
 
-# Secret scan over a staged diff file. The first six pattern families are the
-# pre-commit hook's; the four after them mirror lib/redact-patterns.ts HIGH
-# rules (stripe.secret/restricted, slack.token, npm.token,
-# db.url_with_password) with its placeholder exemptions, so a row the
-# learnings and timeline writers accept is not held here. Only the family name
-# ever leaves this function, never the matched text. The diff is read as bytes and decoded with replacement, so
-# undecodable bytes cannot crash the scan into a false "clean".
-#   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
+# Secret scan over a staged diff file: bin/gstack-brain-secret-scan.py, the
+# same scanner the artifacts repo's pre-commit hook runs. It scans the whole
+# diff as written, each added line with its JSON string literals decoded and
+# each hunk's new text, and prints only family names, never the matched text.
+# It reads two diffs of the same index: the plain diff (the user's
+# diff.context and textconv drivers apply) and one with --text --no-textconv
+# -U3, so binary files arrive as bytes and a small diff.context cannot hide
+# the unchanged lines. Every finding from either reading counts.
+#   secret_scan gate <diff> [<text-diff>]       exit 0 clean, 3 hit (prints the
 #                                               family names); anything else is
 #                                               a scanner failure (fail closed)
-#   secret_scan attribute <diff> <names> <out>  one pass: splits the diff on its
-#                                               `diff --git` headers, pairs each
-#                                               section with the NUL-separated
-#                                               names from `git diff --name-only
-#                                               -z` (same order), writes
-#                                               "<family>\t<path>" per flagged
-#                                               path; exit 0, or 4 when sections
-#                                               and names disagree
+#   secret_scan attribute <diff> <names> <out> [<text-diff>]
+#                                               writes "<family>\t<path>" per
+#                                               flagged path; exit 0, or 4 when
+#                                               the diff's sections and the
+#                                               `git diff --name-only -z` names
+#                                               disagree
 secret_scan() {
-  python3 - "$@" <<'PYEOF'
-import re, sys
-patterns = [
-    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
-    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
-    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
-    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
-    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
-    ('bearer-token-json',
-     # JSON-embedded auth headers. The optional Bearer/Basic/Token prefix
-     # matters: real auth values include a literal space after the scheme
-     # name, but the value charset below does not include spaces, so
-     # without the optional prefix every Bearer token in a JSON blob slips
-     # past the scanner.
-     re.compile(r'"(authorization|api[_-]?key|apikey|token|secret|password)"\s*:\s*"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}"',
-                re.IGNORECASE)),
-]
-
-structural = [re.compile(p, re.I) for p in (r'^your[_-]', r'^<[^>]*>$', r'^\*+$', r'^x{6,}$')]
-substring = [re.compile(p, re.I) for p in (r'example', r'^pass(word)?$', r'^changeme$', r'^redacted',
-                                            r'^placeholder', r'^dummy', r'^fake', r'test[_-]?(key|token|secret)')]
-url_password_words = {'PASSWORD', 'PASS', 'PASSWD', 'YOUR_PASSWORD', 'DB_PASSWORD', 'MY_PASSWORD',
-                      'CHANGEME', 'CHANGE_ME', 'PLACEHOLDER', 'REDACTED', 'EXAMPLE'}
-interpolated = re.compile(r'^(\$\{.+\}|\$[A-Z_][A-Z0-9_]*)$')
-postgres_loopback = re.compile(r'^postgres(?:ql)?://postgres:postgres@(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?![\w.:@%-])')
-
-def real_token(m):
-    span = m.group(1)
-    return not any(rx.search(span) for rx in structural + substring)
-
-def real_db_url(m):
-    pw = m.group(2)
-    if pw == '' or interpolated.search(pw) or pw in url_password_words:
-        return False
-    if any(rx.search(pw) for rx in structural):
-        return False
-    return not postgres_loopback.search(m.group(1))
-
-patterns = [(name, rx, None) for name, rx in patterns] + [
-    ('stripe-live-key', re.compile(r'\b((?:sk|rk)_live_[A-Za-z0-9]{24,})\b'), real_token),
-    ('slack-token', re.compile(r'\b(xox[baprs]-[A-Za-z0-9-]{10,})\b'), real_token),
-    ('npm-token', re.compile(r'\b(npm_[A-Za-z0-9]{36})\b'), real_token),
-    # A diff line of a JSONL file is JSON text: the URL stops at an unescaped
-    # quote, so it cannot run across into the next field's "@".
-    ('db-url-password',
-     re.compile(r'\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@"]+:((?:[^@\s/"\\]|\\.)+)@[^\s/"]+)'),
-     real_db_url),
-]
-
-def families(text):
-    return [name for name, rx, real in patterns
-            if any(real is None or real(m) for m in rx.finditer(text))]
-
-def read(path):
-    with open(path, "rb") as f:
-        return f.read()
-
-mode = sys.argv[1]
-if mode == "gate":
-    hits = families(read(sys.argv[2]).decode("utf-8", "replace"))
-    if hits:
-        print(",".join(hits))
-        sys.exit(3)
-    sys.exit(0)
-
-diff_path, names_path, out_path = sys.argv[2:5]
-names = [n.decode("utf-8", "surrogateescape") for n in read(names_path).split(b"\0") if n]
-sections = []
-for line in read(diff_path).split(b"\n"):
-    if line.startswith(b"diff --git "):
-        sections.append([])
-    elif sections:
-        sections[-1].append(line)
-if len(sections) != len(names):
-    sys.exit(4)
-with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
-    for name, body in zip(names, sections):
-        if "\n" in name or "\t" in name:
-            sys.exit(4)
-        hits = families(b"\n".join(body).decode("utf-8", "replace"))
-        if hits:
-            out.write(hits[0] + "\t" + name + "\n")
-PYEOF
+  python3 "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$@"
 }
 
 # True (0) if the spool holds at least one record file.
@@ -1126,9 +1043,11 @@ hold_flagged_paths() {
   WAITING=0
   : > "$scan.hits"
   : > "$scan.blobs"
-  git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null || rc=1
+  (umask 077 && : > "$scan.diff" && : > "$scan.text") || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
-  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" "$scan.text" || rc=1; }
   [ "$rc" -eq 0 ] && { append_invalid_json_hits "$scan.names" "$scan.hits" || rc=1; }
   # A successful add need not stage the requested spelling or current bytes
   # (case-insensitive indexes and assume-unchanged can both report success).
@@ -1164,11 +1083,12 @@ hold_flagged_paths() {
     { grep -vxF -f "$scan.unstage" "$paths_file" || true; } > "$paths_file.kept"
     mv -f "$paths_file.kept" "$paths_file"
   fi
-  if ! git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null; then
+  if ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null \
+    || ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null; then
     block_drain "git could not read the staged diff for the re-scan"
     return 1
   fi
-  gate_out=$(secret_scan gate "$scan.diff") || gate_rc=$?
+  gate_out=$(secret_scan gate "$scan.diff" "$scan.text") || gate_rc=$?
   [ "$gate_rc" -eq 0 ] && return 0
   if [ "$gate_rc" -eq 3 ]; then
     block_drain "a re-scan after holding back the flagged files still matched ($gate_out)"

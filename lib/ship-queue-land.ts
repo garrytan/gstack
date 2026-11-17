@@ -357,7 +357,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   }
   if (!j) {
     const ci = ciAtHead(ctx, pin);
-    lines.push(`CI: ${ci.line}`);
+    lines.push(`CI: ${ci.line}`, ...ci.superseded);
     if (!ci.green) return fail(lines, { code: 'QUEUE_NOT_READY', message: `required checks are not green at the pin ${pin.slice(0, 12)}` }, run);
   }
   if (o.dryRun) {

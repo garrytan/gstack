@@ -94,6 +94,11 @@ Reply in the language of the user's latest message unless asked otherwise. Code,
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
 
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -194,7 +199,7 @@ quality gates that produce better results than answering inline.
 - User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
 - User asks to spec something out, file an issue, write up a ticket, "turn this into a GitHub issue", "backlog item" → invoke `/spec`
 - User asks about strategy, scope, ambition, "think bigger", "what should we build" → invoke `/plan-ceo-review`
-- User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/autoplan`
+- User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
 - User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`
 - User asks to review design of a plan → invoke `/plan-design-review`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
@@ -256,6 +261,7 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - Voice trigger "show me the browser" → invoke `/open-gstack-browser`
 - Voice trigger "pair agent", "connect agent", "share my browser", "remote browser access" → invoke `/pair-agent`
 - Voice trigger "dx review", "developer experience review", "devex review", "devex audit", "API design review", "onboarding review" → invoke `/plan-devex-review`
+- Voice trigger "tech review", "technical review", "plan engineering review" → invoke `/plan-eng-review`
 - Voice trigger "quality check", "test the app", "run QA" → invoke `/qa`
 - Voice trigger "bug report", "just check for bugs" → invoke `/qa-only`
 

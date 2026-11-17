@@ -34,7 +34,7 @@ test('the Windows lane runs nightly and by hand, plans, runs one strict shard pe
   const plan = windows.jobs['windows-plan'];
   expect(plan['runs-on']).toBe('ubuntu-24.04');
   const planStep = plan.steps.find((step: any) => step.id === 'plan');
-  expect(planStep.run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6');
+  expect(planStep.run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 8');
   expect(planStep.env.GSTACK_FREE_TEST_DURATIONS).toBe('scripts/free-test-durations-windows.json');
   const shard = windows.jobs['windows-free-shard'];
   expect(shard['runs-on']).toBe('windows-latest');
@@ -72,8 +72,8 @@ test.skipIf(!Bun.which('bash'))('windows-plan passes the one sub-shard constant,
     return { status: result.status, args: existsSync(path.join(directory, 'bun-args')) ? readFileSync(path.join(directory, 'bun-args'), 'utf8') : '' };
   };
   try {
-    expect(resolve('')).toEqual({ status: 0, args: expect.stringContaining(`--shards 6 --shard-jobs ${windows.env.WINDOWS_FREE_JOBS}`) });
-    expect(resolve('2')).toEqual({ status: 0, args: expect.stringContaining('--shards 6 --shard-jobs 2') });
+    expect(resolve('')).toEqual({ status: 0, args: expect.stringContaining(`--shards 8 --shard-jobs ${windows.env.WINDOWS_FREE_JOBS}`) });
+    expect(resolve('2')).toEqual({ status: 0, args: expect.stringContaining('--shards 8 --shard-jobs 2') });
     for (const bad of ['0', '5', '2; true', 'x']) {
       const refused = resolve(bad);
       expect(refused.status, bad).not.toBe(0);

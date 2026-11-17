@@ -281,6 +281,8 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
+  /** Passes that were scoped repeats (`"scope":"scoped"` rows): rounds, not full rounds (GST-2673). */
+  scoped?: number;
   /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
   rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
@@ -483,7 +485,11 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
   for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
-  const isRuled = (...keys: (string | undefined)[]) => keys.some(k => !!k && ruled.has(k));
+  const uses = new Map<string, number>();
+  const count = (keys: (string | undefined)[]) => { for (const k of new Set(keys.filter((x): x is string => !!x))) uses.set(k, (uses.get(k) ?? 0) + 1); };
+  for (const [k, s] of blockers) count([k, s.ledgerId, s.fingerprint]);
+  for (const l of ledgerOnlyKeys) count([l.key, l.fingerprint]);
+  const isRuled = (...keys: (string | undefined)[]) => keys.some(k => !!k && ruled.has(k) && uses.get(k) === 1);
   for (const [k, s] of blockers) if (!s.disposed && !s.gate && isRuled(k, s.ledgerId, s.fingerprint)) { s.disposed = true; noted.add(k); }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
   const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && isRuled(l.key, l.fingerprint)).length;
@@ -496,6 +502,8 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
   out.rounds = passes.length + fixChecks;
+  const scopedPasses = passes.filter(r => r.scope === 'scoped').length;
+  if (scopedPasses) out.scoped = scopedPasses;
   const byRole: Record<string, number> = {};
   let bytes = 0; let measured = false;
   for (const row of rows.filter(r => inRun(r) && DISPATCH_SKILLS.includes(r.skill))) {

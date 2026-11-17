@@ -3,16 +3,6 @@
   "layer_root": "qm/sandbox/skills",
   "skills": [
     {
-      "id": "gstack-review",
-      "source": "review",
-      "files": [
-        "SKILL.md",
-        "scripts/diff-base.sh"
-      ],
-      "first_step": "sh skills/gstack-review/scripts/diff-base.sh <base>",
-      "first_step_marker": "diff-base\\.sh|\\bgit\\s+(diff|merge-base)\\b"
-    },
-    {
       "id": "gstack-plan",
       "source": "plan-eng-review",
       "files": [
