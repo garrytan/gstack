@@ -284,7 +284,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
   },
   'office-hours': {
     skill: 'office-hours',
-    expectedSections: ['design-and-handoff.md', 'phase-2a-startup-diagnostic.md', 'phase-2b-builder-brainstorm.md'],
+    expectedSections: ['design-and-handoff.md', 'phase-2a-startup-diagnostic.md', 'phase-2b-builder-brainstorm.md', 'phase-2c-pivot-discovery.md', 'landscape.md'],
     // This fixture fixes startup mode; both its diagnostic and closing must run.
     requiredReads: ['phase-2a-startup-diagnostic.md', 'design-and-handoff.md'],
     scenario: `Run office hours in STARTUP mode through the diagnostic, premise challenge,
@@ -301,8 +301,9 @@ remain an open question or an assignment.
 - I run weekend ceramics workshops and can code. I have two weeks of evenings,
   a $100 budget, and no team. There is no product or existing implementation.
 - I interviewed seven independent workshop organizers. Three shared redacted
-  sample exports and two asked to try a pilot at their next event. Nobody has
-  paid, committed to a price, or used a prototype. Interest is not proven demand.
+  sample exports and two asked to try a pilot at their next event. Lee (below)
+  paid me $40 to reconcile last Saturday's list by hand and booked the same for
+  next month; nobody else has paid, committed to a price, or used a prototype.
 - Lee, the owner/instructor at Clay Room, is the first pilot candidate. Lee runs
   classes of 10-30 adults and combines marketplace bookings with direct bookings
   recorded in a spreadsheet. Lee said: "I just want to know nobody's missing
@@ -317,8 +318,9 @@ remain an open question or an assignment.
   customer data in this pilot. Keep attendee data local to the organizer.
 - Success to test: a correct list in under five minutes at three pilot events,
   with every source booking accounted for and discrepancies checked by Lee.
-  Willingness to pay and repeat usage are unknown. The seven interview contacts
-  are my only distribution channel; no invented acquisition metrics.
+  Willingness to pay beyond Lee's $40 and repeat use of a tool are unknown.
+  The seven interview contacts are my only distribution channel; no invented
+  acquisition metrics.
 
 Use the available Agent tool for the independent opinion and spec review when
 the workflow calls for them. The independent opinion is read-only. The spec

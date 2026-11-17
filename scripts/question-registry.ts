@@ -222,7 +222,7 @@ export const QUESTIONS = {
     skill: 'office-hours',
     category: 'routing',
     door_type: 'two-way',
-    options: ['startup', 'intrapreneur', 'hackathon', 'oss-research', 'learning', 'fun'],
+    options: ['startup', 'intrapreneur', 'pivot', 'hackathon', 'oss-research', 'learning', 'fun'],
     signal_key: 'session-mode',
     description: "What's your goal with this session? (Sets mode: startup vs builder)",
   },

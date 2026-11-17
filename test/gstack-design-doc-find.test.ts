@@ -113,4 +113,13 @@ describe('rendered Design Doc Check block', () => {
     const legacy = f.write(path.join(f.home, '.gstack/projects/proj/garry-main-design-20261001-120000.md'), 60);
     expect(run({})).toBe(`Design doc found: ${legacy}`);
   });
+  test('decision memos are never returned as design docs (GST-3024)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-memo-20261117.md'), 10);
+    f.write(path.join(f.repo, 'docs/memos/pricing-test.md'), 5);
+    expect(f.find()).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-20261101.md'), 1000);
+    expect(f.find()).toBe(doc);
+    expect(f.find({}, ['proj', 'other'])).toBe(doc);
+  });
 });
