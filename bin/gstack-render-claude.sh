@@ -129,14 +129,18 @@ gstack_claude_render_action() {
   fi
 }
 
+_GSTACK_RENDER_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # gstack_claude_render_plain SOURCE_DIR RENDER_DIR — render the pinned overlay
-# without brain blocks into a temp dir and swap it in only on success.
+# without brain blocks into a temp dir, apply the saved skill_prefix to its
+# name: fields (#4413), and swap it in only on success.
 gstack_claude_render_plain() {
   local src="$1" RENDER_DIR="$2" RENDER_TMP out rc=0
   RENDER_TMP="$RENDER_DIR.tmp.$$"
   rm -rf "$RENDER_TMP"
   _gstack_render_say "Rendering Claude skills with the $_GSTACK_OVERLAY overlay${_PLAN_MODE_ARG:+ and no plan-mode preamble}${_LOADOUT_ARG:+ and the ${_LOADOUT_ARG#--loadout=} loadout} into $RENDER_DIR (source checkout stays clean)..."
   out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] || out="$("$_GSTACK_RENDER_BIN/gstack-patch-names" "$RENDER_TMP" "$("$_GSTACK_RENDER_BIN/gstack-config" get skill_prefix 2>/dev/null || echo false)" 2>&1)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     rm -rf "$RENDER_TMP"
     printf '%s\n' "$out" | tail -3
