@@ -1,0 +1,4 @@
+{
+  "bytes": 52,
+  "why": "Step 14.5 says text after the result line gets the free whole-line re-ask, with a blocked verdict carried over (GST-2349)"
+}

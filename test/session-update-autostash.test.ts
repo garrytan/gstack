@@ -337,7 +337,7 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
     expect(cleanup!).toContain('[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$MYPID" ] && rm -rf "$LOCK_DIR"');
     // MYPID is written to the pidfile (the identity the trap compares against).
     expect(src).toContain('MYPID="${BASHPID:-$(sh -c \'echo $PPID\')}"');
-    expect(src).toContain('echo "$MYPID" > "$LOCK_DIR/pid"');
+    expect(src).toContain('gstack_lock_take "$LOCK_DIR" pid "$MYPID"');
     // (b) In-flight heartbeat: the step-boundary touches only fire AFTER the
     // pull / setup return, so a legitimately-slow step past the 30-min TTL
     // got reclaimed while ALIVE. The loop re-checks ownership each beat and
