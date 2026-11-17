@@ -520,6 +520,19 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 90_000);
 
+  // Value: protects=pack snapshots a checkout while git beside it is mid-way through writing or deleting a ref (two Free Tests reds on 2026-11-17, runs 44063454800 and 44050883970, from the churn test above); fails_when=pack asks upload-pack for every ref, which advertises a ref it cannot read with a null id, and the fetch then fails "not our ref 0000…"; why_new=the churn test hits that window about once in 600 fetches, an empty loose ref file is the same state held still; seam=none
+  test('pack skips a ref git cannot read (an empty loose ref file) and still ships every readable ref', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ubi-pack-broken-ref-'));
+    try {
+      const sh = (cmd: string, cwd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd, timeout: 30_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }); expect(r.exitCode, `${cmd}\n${r.stderr.toString()}`).toBe(0); return r.stdout.toString(); };
+      sh('git init -q -b main src && cd src && echo a > a && git add a && git commit -qm one && git tag -a v1 -m v1 && git branch side && : > .git/refs/heads/broken', d);
+      sh(`mkdir vm && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack src | tar -xzf - -C vm`, d);
+      const head = sh('git rev-parse HEAD', join(d, 'src')).trim();
+      expect(sh('git for-each-ref --format="%(refname) %(objectname)" refs/heads && git rev-parse v1^{commit}', join(d, 'vm')).split('\n').filter(Boolean))
+        .toEqual([`refs/heads/main ${head}`, `refs/heads/side ${head}`, head]);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 60_000);
+
   // Value: protects=pack never lets macOS tar add AppleDouble ._* entries (files with extended attributes), which the VM's tree check would count as untracked files and fail the run with UBI_VM_TREE_MISMATCH; fails_when=a tar call in pack runs without COPYFILE_DISABLE=1; why_new=only Apple's tar reads the variable, so no Linux run can see the ._* entries themselves; seam=PATH (a tar shim records its environment, then runs the real tar); no_claim=Apple tar's metadata behavior itself (checked by hand on a Mac)
   test('pack runs every tar with COPYFILE_DISABLE=1, for a checkout and for a plain directory', () => {
     const d = mkdtempSync(join(tmpdir(), 'ubi-pack-copyfile-'));
