@@ -1,0 +1,1 @@
+- **Windows Setup E2E now runs when `bin/gstack-lock.sh` changes.** `./setup` sources the lock helper on every install, but the workflow's path filter and its `windows-scope` list left it out, so a pull request that changed only the helper skipped the Windows install check. Both lists now name it.

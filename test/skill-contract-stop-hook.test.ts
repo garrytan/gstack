@@ -55,7 +55,7 @@ describe('block once, with the pinned text', () => {
     expect(out.reason).toBe(PINNED);
     expect(out.reason).not.toMatch(/skill_contracts|gstack-config|\boff\b/);
     const run = Object.values(record().runs)[0] as any;
-    expect(run).toMatchObject({ skill: 'verify', outcome: 'blocked', missing: ['debug-report', 'repro-after-fix'] });
+    expect(run).toMatchObject({ skill: 'verify', outcome: 'blocked', missing: ['debug-report'] });
     expect(fs.statSync(path.join(state, 'skill-contracts', 'sess-1.json')).mode & 0o777).toBe(0o600);
   });
 
@@ -65,7 +65,7 @@ describe('block once, with the pinned text', () => {
     const named = /run '([^']+)' waive <item>/.exec(reason)?.[1];
     expect(named).toBe(BIN);
     const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
-    const waive = spawnSync(named!, ['waive', 'repro-after-fix', '--reason', 'docs-only change'], { env: hookEnv(state, skills), encoding: 'utf8', timeout: 20_000 });
+    const waive = spawnSync(named!, ['waive', 'debug-report', '--reason', 'docs-only change'], { env: hookEnv(state, skills), encoding: 'utf8', timeout: 20_000 });
     expect(waive.status).toBe(0);
   });
 
@@ -151,11 +151,11 @@ describe('block once, with the pinned text', () => {
 
   test('a waiver read from the transcript satisfies the block but counts against follow', () => {
     const lines = [...J1_TRANSCRIPT.slice(0, -1),
-      tool('w1', 'Bash', { command: 'gstack-skill-contract waive repro-after-fix --reason "no test runner in this repo"' }),
-      result('w1', 'SKILL_CONTRACT_WAIVED repro-after-fix: no test runner in this repo'),
-      say(DEBUG_REPORT)];
+      tool('w1', 'Bash', { command: 'gstack-skill-contract waive debug-report --reason "a docs-only change, no bug to report"' }),
+      result('w1', 'SKILL_CONTRACT_WAIVED debug-report: a docs-only change, no bug to report'),
+      say('Updated the README.')];
     expect(stop(transcript(lines)).stdout).toBe('');
-    expect((Object.values(record().runs)[0] as any)).toMatchObject({ outcome: 'met_waived', waived: ['repro-after-fix'] });
+    expect((Object.values(record().runs)[0] as any)).toMatchObject({ outcome: 'met_waived', waived: ['debug-report'] });
   });
 });
 

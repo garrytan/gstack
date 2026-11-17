@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
 import { FLOOR_HOURS, FORCED_AFTER_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyInput, type ImportantChange } from '../scripts/release-cadence';
 import { gitIn, planDaily, type Gh } from '../scripts/release-cut';
+import { ciRest, ciShimCases } from '../../test/helpers/ci-attempts-fixture';
 
 const H = 3_600_000;
 // Tuesday 2026-11-10 14:00 UTC: not a regular day.
@@ -138,8 +139,9 @@ const GREEN = [{ name: 'free-tests', status: 'completed', conclusion: 'success' 
 function fakeGh(pending: Set<string> = new Set()): Gh {
   return (args) => {
     const api = args[0] === 'api' ? args[args.length - 1]! : '';
-    const m = /commits\/([0-9a-f]+)\/check-runs/.exec(api);
-    if (m) return { status: 0, stdout: JSON.stringify([{ check_runs: pending.has(m[1]!) ? [{ name: 'main-backstop', status: 'in_progress', conclusion: null }] : GREEN }]), stderr: '' };
+    const m = /commits\/([0-9a-f]+)\/|head_sha=([0-9a-f]+)/.exec(api);
+    const rest = m && ciRest(args, { check_runs: pending.has(m[1] ?? m[2]!) ? [{ name: 'main-backstop', status: 'in_progress', conclusion: null }] : GREEN });
+    if (rest) return rest;
     if (args[0] === 'release' && args[1] === 'view' && args[2] === 'v1.0.0') return { status: 0, stdout: '{}', stderr: '' };
     return { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
   };
@@ -245,7 +247,7 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     const r = repo(30);
     const shim = path.join(r.root, 'shim');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN }]) + '\' ;;\n  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(GREEN) + '  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
     const env: Record<string, string | undefined> = { ...process.env, PATH: shim + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
     for (const k of ['GITHUB_EVENT_NAME', 'GITHUB_STEP_SUMMARY']) delete env[k];
     const run = (...args: string[]) => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), '--repo', 'o/r', ...args],

@@ -11,6 +11,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
+import { PR303, PR303_RERUN_PASSED, ciRest, ciShimCases, type CiAtCommit } from '../../test/helpers/ci-attempts-fixture';
 import { gitFixtureTemplate, rebindGitDir } from '../../test/helpers/git-fixture-template';
 import {
   BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NEVER_GATING_WORKFLOWS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
@@ -42,8 +43,12 @@ function fakeGh(state: State): Gh {
   return (args) => {
     state.calls.push(args);
     const api = args[0] === 'api' ? args[args.length - 1]! : '';
-    const m = /commits\/([0-9a-f]+)\/check-runs/.exec(api);
-    if (m) return { status: 0, stdout: JSON.stringify([{ check_runs: state.checks[m[1]!] ?? GREEN }]), stderr: '' };
+    if (api && state.api && api in state.api) return { status: 0, stdout: JSON.stringify(state.api[api]), stderr: '' };
+    const m = /commits\/([0-9a-f]+)\/|head_sha=([0-9a-f]+)/.exec(api);
+    const sha = m?.[1] ?? m?.[2];
+    const listed = sha ? state.api?.['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100'] as Array<{ workflow_runs?: Array<Record<string, unknown>> }> | undefined : undefined;
+    const rest = sha && ciRest(args, { check_runs: state.checks[sha] ?? GREEN, workflow_runs: listed?.flatMap(p => p.workflow_runs ?? []) });
+    if (rest) return rest;
     if (api && state.api && api in state.api) return { status: 0, stdout: JSON.stringify(state.api[api]), stderr: '' };
     if (api) return { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
     if (args[0] === 'release' && args[1] === 'view') return state.released.has(args[2]!) ? { status: 0, stdout: '{}', stderr: '' } : { status: 1, stdout: '', stderr: 'release not found' };
@@ -171,9 +176,8 @@ describe('release-cut: planning', () => {
   // never a failed required run, a gh error, an unrelated running check or a second page; seam=none; no_claim=GitHub's real check-runs payload shape (a fake gh answers; unit only)
   test('gateVerdict: a failed free-tests run, an unreadable check-runs API, an unrelated running check and a paginated check list', () => {
     const checks = (runs: unknown[]): Gh => (args) => {
-      const api = args[args.length - 1]!;
-      if (/check-runs/.test(api)) return { status: 0, stdout: JSON.stringify(runs), stderr: '' };
-      return { status: 1, stdout: '', stderr: 'unexpected gh ' + args.join(' ') };
+      if (args.includes('--slurp')) return { status: 0, stdout: JSON.stringify(runs), stderr: '' };
+      return ciRest(args, { check_runs: (runs as Array<{ check_runs: Array<Record<string, unknown>> }>).flatMap(p => p.check_runs) }) ?? { status: 1, stdout: '', stderr: 'unexpected gh ' + args.join(' ') };
     };
     const failed = checks([{ check_runs: [{ name: REQUIRED_CHECK, status: 'completed', conclusion: 'failure' }] }]);
     expect(gateVerdict(failed, 'o/r', 'a'.repeat(40))).toEqual({ green: false, why: REQUIRED_CHECK + ' concluded failure', pending: false });
@@ -191,6 +195,16 @@ describe('release-cut: planning', () => {
     expect(gateVerdict(cancelled, 'o/r', 'a'.repeat(40))).toEqual({ green: false, why: 'red check runs: quality', pending: false });
     const skipped = checks([{ check_runs: [...GREEN, { name: 'docs', status: 'completed', conclusion: 'skipped' }] }]);
     expect(gateVerdict(skipped, 'o/r', 'a'.repeat(40))).toEqual({ green: true, via: BACKSTOP_CHECK });
+  });
+
+  // Value: protects=the release cut counts a failed check whose rerun attempt created no jobs and a workflow run that failed before any job, as the merge
+  // queue does, while a rerun that passed stays releasable; fails_when=gateVerdict reads only GitHub's default (latest-attempt) check-runs list and calls a
+  // main commit carrying gstack-evals#303's failures releasable; seam=lib/ci-head-checks.ts (ciAtHead) in gateVerdict, through ciRest's filter=latest/all
+  // split; no_claim=GitHub's attempt grouping (the fixture is #4235's recording)
+  test('gateVerdict: a failed check hidden behind a rerun attempt with no jobs, and a workflow run that failed with no jobs, are red (gstack-evals#303, GST-2252)', () => {
+    const at = (data: CiAtCommit): Gh => args => ciRest(args, { ...data, check_runs: [...GREEN, ...data.check_runs] }) ?? { status: 1, stdout: '', stderr: 'unexpected gh ' + args.join(' ') };
+    expect(gateVerdict(at(PR303), 'o/r', 'a'.repeat(40))).toEqual({ green: false, why: 'red check runs: checks, sealed (run 42671854799, no jobs)', pending: false });
+    expect(gateVerdict(at(PR303_RERUN_PASSED), 'o/r', 'a'.repeat(40))).toEqual({ green: true, via: BACKSTOP_CHECK });
   });
 
   test('an active freeze in refs/notes/gstack-trains refuses the cut; a cleared one does not', () => {
@@ -343,6 +357,27 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')]), 'o/r', sha))
       .toEqual({ green: false, why: 'no ' + BACKSTOP_CHECK + ' check run', pending: false });
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')], {}), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
+  });
+
+  // Value: protects=the every-attempt read (lib/ci-head-checks.ts) sets the cut's own runs aside by job id and workflow run id, the way the default list
+  // does, so a failed attempt of the cut's own job or a cut run that failed with no jobs never keeps a gated commit out, while another workflow's jobless
+  // failure still does; fails_when=headCheckRows rows skip GST-2463's exclusion and the cut deadlocks on its own "Cut the release" run (GST-2252 after
+  // #4297); seam=gh is faked with check-runs (filter=latest/all), actions/runs and jobs payloads; no_claim=a live workflow run
+  test('gateVerdict: the every-attempt read sets the cut\'s own earlier attempt and its jobless run aside by id, never by name (GST-2252, GST-2463)', () => {
+    const evidence = gatedBy(sha, '43072520821');
+    const wf = (id: number, path: string, conclusion: string) => ({ id, path, check_suite_id: id, workflow_id: id, name: path, status: 'completed', conclusion, created_at: '2026-11-11T00:00:00Z' });
+    const api = (runs: Array<Record<string, unknown>>, jobs: Record<number, number[]>) => Object.assign(
+      { ['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100']: [{ total_count: runs.length, workflow_runs: runs }] },
+      ...Object.entries(jobs).map(([id, ids]) => ({ ['repos/o/r/actions/runs/' + id + '/jobs?filter=all&per_page=100']: [{ total_count: ids.length, jobs: ids.map(j => ({ id: j })) }] })));
+    const earlier = { ...ownRun('completed', 'failure'), earlier_attempt: true } as CheckRun;
+    expect(gateVerdict(ghFor([...unbacked, earlier], api([wf(9001, CUT_WORKFLOW, 'success')], { 9001: [OWN_JOB] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: true, via: 'release gate run 43072520821' });
+    expect(gateVerdict(ghFor(unbacked, api([wf(9001, CUT_WORKFLOW, 'failure')], { 9001: [] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: true, via: 'release gate run 43072520821' });
+    expect(gateVerdict(ghFor(unbacked, api([wf(9001, CUT_WORKFLOW, 'failure'), wf(555, '.github/workflows/evals.yml', 'failure')], { 9001: [] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: .github/workflows/evals.yml (run 555, no jobs)', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, { ...earlier, id: 70555 } as CheckRun], api([wf(9001, CUT_WORKFLOW, 'success')], { 9001: [OWN_JOB] })), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
   });
 
@@ -527,7 +562,7 @@ describe('release-cut: train evidence gates a commit whose backstop never settle
     if (process.platform === 'win32') return;
     const shim = path.join(f.base, 'shim');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: f.state.checks[head] }]) + '\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(f.state.checks[head]) + '  *) exit 1 ;;\nesac\n', { mode: 0o755 });
     const run = (...args: string[]) => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), ...args],
       { cwd: f.work, encoding: 'utf8', timeout: 60_000, env: cliEnv(shim) });
     const cli = run('--repo', f.repo, '--dry-run', '--ref', head, '--required-check', 'ci', '--backstop-check', 'nightly-backstop', '--notes-ref', 'refs/notes/other-trains');
@@ -690,7 +725,7 @@ describe.skipIf(process.platform === 'win32')('release-cut: the workflow entry p
     const f = fixture();
     const shim = path.join(f.base, 'shim');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\necho "gh $*" >> "' + path.join(f.base, 'gh.log') + '"\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN }]) + '\' ;;\n  "release view v1.0.3 "*) echo \'{\"tagName\":\"v1.0.3\"}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\necho "gh $*" >> "' + path.join(f.base, 'gh.log') + '"\ncase "$*" in\n' + ciShimCases(GREEN) + '  "release view v1.0.3 "*) echo \'{\"tagName\":\"v1.0.3\"}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
     const run = (...args: string[]) => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), ...args],
       { cwd: f.work, encoding: 'utf8', timeout: 60_000, env: cliEnv(shim) });
 
@@ -724,7 +759,7 @@ describe.skipIf(process.platform === 'win32')('release-cut: the workflow entry p
     expect(refused.stdout).toContain('REFUSED: non-fast-forward');
 
     // Nothing green: the real cut goes red (exit 1), a dry run has answered (exit 0) and names every skip.
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN.filter(c => c.name !== BACKSTOP_CHECK) }]) + '\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(GREEN.filter(c => c.name !== BACKSTOP_CHECK)) + '  *) exit 1 ;;\nesac\n', { mode: 0o755 });
     git(f.seed, 'push', '-q', '--delete', 'origin', 'stable', 'refs/tags/v1.0.3');
     f.refresh(); git(f.work, 'tag', '-d', 'v1.0.3');
     const noneDry = run('--repo', f.repo, '--dry-run');
@@ -1186,7 +1221,7 @@ describe.skipIf(process.platform === 'win32')('release-cut: refusals at the work
     f.refresh();
     const shim = path.join(f.base, 'shim');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN }]) + '\' ;;\n  "release view v1.0.3 "*) echo \'{"publishedAt":"' + isoZ(at) + '"}\' ;;\n  *) echo "release not found" >&2; exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(GREEN) + '  "release view v1.0.3 "*) echo \'{"publishedAt":"' + isoZ(at) + '"}\' ;;\n  *) echo "release not found" >&2; exit 1 ;;\nesac\n', { mode: 0o755 });
     const run = (env: Record<string, string>, ...args: string[]) => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), '--repo', f.repo, ...args],
       { cwd: f.work, encoding: 'utf8', timeout: 60_000, env: cliEnv(shim, env) });
     const stable = () => git(f.origin, 'rev-parse', 'refs/heads/stable');

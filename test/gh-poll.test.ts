@@ -14,6 +14,7 @@ import type { GhResult } from '../lib/ci-gate';
 import { MAX_LIMIT_WAITS, MIN_POLL_MS, parseHeadChecks, parsePullState, pollDelayMs, rateLimitKind, rateLimitWaitMs, withRateLimit } from '../lib/gh-poll';
 import { GhError, fetchChecks, runGh } from '../lib/pr-wait-github';
 import { waitForRun } from '../lib/ci-carry';
+import { ciRest } from './helpers/ci-attempts-fixture';
 
 const fixture = (name: string): string => readFileSync(join(import.meta.dir, 'fixtures', 'gh-poll', name), 'utf8');
 const ok = (stdout: string): GhResult => ({ status: 0, stdout, stderr: '' });
@@ -172,8 +173,7 @@ describe('REST replies parse from recorded fixtures', () => {
     const calls: string[][] = [];
     const gh = (args: string[]): GhResult => {
       calls.push(args);
-      if (args[2]!.includes('/check-runs')) return ok([...runs, pushRun].map(r => JSON.stringify(r)).join('\n'));
-      return ok('');
+      return ciRest(args, { check_runs: [...runs, pushRun] }) ?? ok('');
     };
     const checks = fetchChecks({ gh, sleep: () => {}, log: () => {} }, 'garrytan/gstack', 'f'.repeat(40));
     expect(checks.size).toBe(new Set(runs.map(r => r.name)).size);
@@ -181,6 +181,10 @@ describe('REST replies parse from recorded fixtures', () => {
     expect(calls.map(c => c.slice(0, 3))).toEqual([
       ['api', '--paginate', `repos/garrytan/gstack/commits/${'f'.repeat(40)}/check-runs?per_page=100`],
       ['api', '--paginate', `repos/garrytan/gstack/commits/${'f'.repeat(40)}/status?per_page=100`],
+      ['api', `repos/garrytan/gstack/commits/${'f'.repeat(40)}/check-runs?per_page=100&page=1`],
+      ['api', `repos/garrytan/gstack/commits/${'f'.repeat(40)}/check-runs?filter=all&per_page=100&page=1`],
+      ['api', `repos/garrytan/gstack/commits/${'f'.repeat(40)}/status?per_page=100&page=1`],
+      ['api', `repos/garrytan/gstack/actions/runs?head_sha=${'f'.repeat(40)}&per_page=100&page=1`],
     ]);
     expect(calls.some(c => c[0] === 'pr' || c[1] === 'graphql')).toBe(false);
   });
