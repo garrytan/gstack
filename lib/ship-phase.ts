@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ledgerFileFor, mutateLedger, parseRecordBlock } from './ship-budget';
+import { bashCommandInvocation } from './script-invocation';
 import { timeStop } from './ship-clock';
 
 export interface PhaseEntry { sha: string; cmd: string; state: 'running' | 'done' | 'failed'; pid?: number; started: string; ended?: string; exit?: number; log: string; lines?: string[] }
@@ -44,8 +45,9 @@ function writeJournal(file: string, j: Journal): void {
 /** Start one command detached: its output goes to the log and its exit status to <log>.exit when it ends, even after this process returns. */
 function start(cmd: string, log: string, cwd: string, env: NodeJS.ProcessEnv): number | undefined {
   try { fs.rmSync(`${log}.exit`, { force: true }); } catch { /* absent */ }
-  const child = spawn('bash', ['-c', 'bash -c "$1" >"$2" 2>&1 </dev/null; echo $? >"$2.exit.tmp"; mv "$2.exit.tmp" "$2.exit"', 'gstack-ship-phase', cmd, log],
-    { cwd, env, detached: true, stdio: 'ignore' });
+  const inv = bashCommandInvocation('( eval "$GSTACK_SHIP_PHASE_CMD" ) >"$GSTACK_SHIP_PHASE_LOG" 2>&1 </dev/null; echo $? >"$GSTACK_SHIP_PHASE_LOG.exit.tmp"; mv "$GSTACK_SHIP_PHASE_LOG.exit.tmp" "$GSTACK_SHIP_PHASE_LOG.exit"');
+  if (!inv.ok) { fs.writeFileSync(log, `gstack-ship-phase: ${inv.error}\n`); fs.writeFileSync(`${log}.exit`, '127\n'); return undefined; }
+  const child = spawn(inv.cmd, inv.argv, { cwd, env: { ...env, GSTACK_SHIP_PHASE_CMD: cmd, GSTACK_SHIP_PHASE_LOG: log }, detached: true, stdio: 'ignore' });
   child.unref();
   return child.pid;
 }

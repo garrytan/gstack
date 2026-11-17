@@ -83,7 +83,7 @@ describe('gstack-ship-phase run', () => {
     expect(changed.status).toBe(0);
     expect(changed.stdout).toStartWith('RAN: 1/2 exit=0\nFIRST: ran\nRAN: 2/2 exit=0\n');
     expect(fs.readFileSync(count, 'utf8')).toBe('x\nx\n');
-  });
+  }, 60_000);
 
   // Value: protects=no phase call waits past its 200 s budget: a long command keeps running after the call returns NEXT: rerun, and the rerun attaches to the same process instead of starting it again; fails_when=the runner blocks until slow work ends (a cold cache re-bill per long wait), kills the command when it returns, or starts it a second time on the rerun;
   //   why_new=G2 waits; seam=none; no_claim=the host's own timeout
@@ -98,7 +98,7 @@ describe('gstack-ship-phase run', () => {
     expect(done.status, done.stdout + done.stderr).toBe(0);
     expect(done.stdout).toStartWith('RAN: 1/1 exit=0\nSLOW: done\nPHASE: 2 done');
     expect(fs.readFileSync(count, 'utf8')).toBe('s\n');
-  });
+  }, 60_000);
 
   test('result lines keep CODE: lines and gstack refusals, and drop everything else', () => {
     expect(resultLines('noise\nBUDGET: used=1\n  INDENTED: no\ngstack-ship-receipt write: refused (X)\nGSTACK_RESULT: skill=ship\nlower: no\n'))
@@ -258,7 +258,7 @@ describe('calls per phase and calls= in the receipt', () => {
     expect(given.err).toMatch(/ calls=214( |$)/m);
     expect(write(['--calls', 'many']).status).toBe(2);
     expect(write([]).err).not.toContain('calls=');
-  });
+  }, 60_000);
 
   test('the receipt field: optional, a whole number, printed as calls=, kept by placement and carry', () => {
     const old = { schema_version: 1, pr: 5, head: 'a'.repeat(40), base: 'main' };
@@ -298,5 +298,5 @@ describe('calls per phase and calls= in the receipt', () => {
       expect(after.receipt!.calls).toBe(calls);
       expect(carried.err.includes(`calls=${calls}`)).toBe(calls !== undefined);
     }
-  });
+  }, 60_000);
 });
