@@ -155,4 +155,34 @@ export const CAPY_RESULT_CODES = {
     summary: 'gstack-archive-check landed found no usable .gstack/plain-titles.json (missing, invalid or with no codes), so it cannot tell a tracker code from any other ref and closes nothing',
     fix: 'run it from the repository root, where .gstack/plain-titles.json lives; if the file is missing or invalid there, fix it on main (docs/ship-policy.md#plain-titles) and rerun; close nothing until then',
   },
+  FIRST_USE_PLAN_UNREADY: {
+    anchor: 'first-use-plan-unready',
+    summary: 'the plan has no usable ### Day one table to freeze (missing, malformed, empty, or a row still marked assumed)',
+    fix: 'add or fix the ### Day one table (action, frequency, source, feature, route, first build, check) and confirm every assumed row with the owner, then run start again',
+  },
+  FIRST_USE_PLAY_SPEC_INCOMPLETE: {
+    anchor: 'first-use-play-spec-incomplete',
+    summary: 'the play spec is missing one or more of the ten parts every ask to play or try a build carries',
+    fix: 'fill in the parts the line names in the play spec JSON (docs/first-use-check.md#play-spec), then run start again',
+  },
+  FIRST_USE_SAME_FAMILY: {
+    anchor: 'first-use-same-family',
+    summary: 'the checker is from the builder’s model family, its family is unknown, or a result was recorded by a model other than the run’s checker family',
+    fix: 'name the builder and checker as provider/model ids from different families (for example anthropic/… and openai/…), and record results only from the checker',
+  },
+  FIRST_USE_NO_PRIVATE_DRIVE: {
+    anchor: 'first-use-no-private-drive',
+    summary: 'on Capy, the first-use record needs exactly one user-level Capy Drive folder (~/.capy/drive/user-*) and found none or several',
+    fix: 'run it in a thread of the build’s owner, where his private user drive is mounted, or set GSTACK_FIRST_USE_DIR to his private folder; never fall back to the machine folder',
+  },
+  FIRST_USE_RECORD_INVALID: {
+    anchor: 'first-use-record-invalid',
+    summary: 'a first-use record input or file is invalid (bad flag value, unreadable manifest, a run outside the record root, bad evidence, or a write-once file that already exists)',
+    fix: 'correct the value the line names; never edit or delete files in a run directory, start a new run instead',
+  },
+  FIRST_USE_REFUSED: {
+    anchor: 'first-use-refused',
+    summary: 'the build has not cleared its first-use check, so no "try this build" message or "v1 is ready" report may go out',
+    fix: 'act on each reason the line lists: replay the failed or unplayed actions, rerun links within 15 minutes of sending, add the predicted score, or start a new run for a new build or changed day-one rows',
+  },
 } satisfies Record<string, ResultCode>;
