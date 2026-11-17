@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, inWindow, passCount, percentile, readComments, renderCsv,
+  BENCHMARKS, DEFAULTS, classifyGate, collectScorecard, fixtureSource, flakeRecords, fmtHours, gateOutcome, inWindow, passCount, percentile, readComments, receiptRounds, renderCsv,
   renderMarkdown, scorecardRows, searchRange, verdictCost, type FixtureFile, type ScorecardOptions,
 } from '../lib/factory-scorecard';
 
@@ -344,6 +344,14 @@ describe('factory-scorecard: pieces', () => {
     expect(passCount('"passes": 4 then passes=1 then REVIEW_PASSES: 2', new RegExp(DEFAULTS.passMarker, 'm'))).toBe(4);
     expect(passCount('reviews: 3 and passes=2', /(passes|reviews)[=: ]+(\d+)/m)).toBe(3);
     expect(passCount('no count here', new RegExp(DEFAULTS.passMarker, 'm'))).toBeNull();
+  });
+
+  // Value: protects=a PR shipped three times at two rounds each reports 6 rounds, not the largest run's 2 (GST-2673); fails_when=the scorecard takes the max again; why_new=R51 counts per PR; seam=none; no_claim=bodies without a receipt, which keep the marker's max
+  test('receiptRounds sums R51 rounds across the receipt and its runs', () => {
+    const run = (c: string, id: string) => JSON.stringify({ head: c.repeat(40), run: id, review_loop: { passes: 1, blocking_found: 0, deferred: 0, fix_checks: 1, rounds: 2 } });
+    const body = '```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, ...JSON.parse(run('c', 'r3')) }) + '\n```\n\n```gstack-receipt-runs\n' + run('a', 'r1') + '\n' + run('b', 'r2') + '\n```\n';
+    expect(receiptRounds(body)).toBe(6);
+    expect(receiptRounds('passes=2')).toBeNull();
   });
 
   test('verdict cost reads collector-outcomes.json and ignores an unreadable one; flake records skip torn lines and unknown rerun cost', () => {

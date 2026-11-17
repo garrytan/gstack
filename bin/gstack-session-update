@@ -315,7 +315,10 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
   #     holder touches the pidfile at step boundaries (after the pull, after
   #     setup), so a legitimately-slow run keeps itself alive. The TTL also
   #     bounds the missing/empty-pidfile states: inside the window they mean
-  #     "just acquired, between mkdir and echo" and are respected.
+  #     "just acquired, between mkdir and the pid write" and are respected.
+  # The take itself is gstack_lock_take (bin/gstack-lock.sh): it creates the
+  # pidfile with O_EXCL, because mkdir's exit status is not a lock on Ubuntu
+  # 26.04's uutils mkdir (two racing updaters both "won" it).
   LOCK_TTL_MINUTES=30
   lock_is_expired() {
     _hb="$LOCK_DIR/pid"
@@ -327,11 +330,18 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
   # mkdir (one rm can land between the other's rm and mkdir). `mv` of the lock
   # dir is atomic — exactly one contender's mv succeeds; the loser's mv fails
   # (ENOENT) and it backs off. The winner reaps the moved-aside dir at leisure.
-  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  #
+  # The pidfile holds the HOLDER's PID (see #2613 note above; macOS ships
+  # bash 3.2 with no BASHPID — the sh child's $PPID IS this subshell, so the
+  # fallback is exact there). MYPID is captured once, before the take, so the
+  # trap below can prove ownership before removing.
+  MYPID="${BASHPID:-$(sh -c 'echo $PPID')}"
+  . "$(cd "$(dirname "$0")" && pwd)/gstack-lock.sh" 2>/dev/null || { log_entry "SKIP lock_helper_missing"; exit 0; }
+  if ! gstack_lock_take "$LOCK_DIR" pid "$MYPID"; then
     if lock_is_expired; then
       mv "$LOCK_DIR" "$LOCK_DIR.reap.$$" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
       rm -rf "$LOCK_DIR.reap.$$" 2>/dev/null
-      mkdir "$LOCK_DIR" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+      gstack_lock_take "$LOCK_DIR" pid "$MYPID" || { log_entry "SKIP lock_contested"; exit 0; }
       log_entry "RECLAIMED lock_ttl_expired"
     elif [ -f "$LOCK_DIR/pid" ]; then
       LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo 0)
@@ -339,7 +349,7 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
         # Stale lock — mv aside atomically (see reclaim note above), re-acquire
         mv "$LOCK_DIR" "$LOCK_DIR.reap.$$" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
         rm -rf "$LOCK_DIR.reap.$$" 2>/dev/null
-        mkdir "$LOCK_DIR" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+        gstack_lock_take "$LOCK_DIR" pid "$MYPID" || { log_entry "SKIP lock_contested"; exit 0; }
       else
         # Live holder — or an empty/non-numeric pidfile inside the TTL
         # window (the -gt test fails on garbage, landing here by design).
@@ -347,18 +357,11 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
         exit 0
       fi
     else
-      # Missing pidfile inside the TTL window: just-acquired (mkdir→echo race).
+      # Missing pidfile inside the TTL window: just-acquired (mkdir→pid race).
       log_entry "SKIP locked_no_pid"
       exit 0
     fi
   fi
-
-  # Write the HOLDER's PID for stale lock detection (see #2613 note above;
-  # macOS ships bash 3.2 with no BASHPID — the sh child's $PPID IS this
-  # subshell, so the fallback is exact there). MYPID is captured once at
-  # write time so the trap below can prove ownership before removing.
-  MYPID="${BASHPID:-$(sh -c 'echo $PPID')}"
-  echo "$MYPID" > "$LOCK_DIR/pid" 2>/dev/null
 
   # In-flight heartbeat: the step-boundary touches below only fire AFTER the
   # pull / setup return, so a legitimately-slow step (cold clone, huge setup)

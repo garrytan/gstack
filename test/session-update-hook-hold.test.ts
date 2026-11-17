@@ -172,7 +172,7 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update: the incomi
   function installedUpdater(fx: Fx, checker: string): string {
     const bin = path.join(fx.base, 'installed-bin');
     fs.mkdirSync(bin, { recursive: true });
-    for (const f of ['gstack-session-update', 'gstack-state-root.sh', 'gstack-egress-lib.sh', 'gstack-egress-receipt', 'gstack-bun-version.sh', 'gstack-path-spelling.sh', 'gstack-ff-update']) {
+    for (const f of ['gstack-session-update', 'gstack-state-root.sh', 'gstack-egress-lib.sh', 'gstack-egress-receipt', 'gstack-bun-version.sh', 'gstack-path-spelling.sh', 'gstack-ff-update', 'gstack-lock.sh']) {
       fs.copyFileSync(path.join(ROOT, 'bin', f), path.join(bin, f));
     }
     fs.writeFileSync(path.join(bin, 'gstack-hook-check'), `#!/usr/bin/env bash\n${checker}\n`, { mode: 0o755 });

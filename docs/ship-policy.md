@@ -2262,20 +2262,19 @@ changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
 A `RECEIPT_CARRY_PRODUCT_CHANGED` on linear history against the reviewed base
 whose range-diff, plus the diff of the changed product paths, is at most 400
 lines and 64 KB, with no binary path and a receipt that
-records its review depth, also prints `RECHECK: eligible … packet=<file>`: one reader on that
-packet and `carry --recheck <record.json>` rebind the receipt instead of a
-full second /ship, unless HEAD needs a deeper review depth or another risk
-class ([scoped re-check](troubleshooting.md#receipt-carry-recheck), J1).
+records its review depth, also prints `RECHECK: advisory … packet=<file>`: one reader may read
+that packet for advice, but it never rebinds the receipt, so the head runs /ship and its plan
+reviews HEAD in full ([scoped re-check](troubleshooting.md#receipt-carry-recheck), J1; advice
+only since GST-2673, [rounds per pull request](review-policy.md#rounds-per-pull-request)).
 
 **Changed and context paths together (GST-1561).** When the base also moved
 context next to reviewed hunks in other paths, the scoped review and J1 compose
-into one bounded re-check instead of refusing each other (founderstar#563 hit
+into one bounded advisory packet instead of refusing each other (founderstar#563 hit
 this on every rules-number PR). The one packet holds the range-diff and the
 changed paths' diff, then the scoped-review sections of the context paths. The
 400-line and 64 KB caps count the whole packet, and `range_diff_sha256` binds
-all of it. The record also names `range_base`, the commit the reviewed range
-starts from (the fork point, or a landed stack parent), and the carry reason
-logs the context paths and that `range_base`. A context section with over 200
+all of it. The packet also names `range_base`, the commit the reviewed range
+starts from (the fork point, or a landed stack parent). A context section with over 200
 of the branch's own +/- lines, or a packet over the caps, prints `RECHECK: not eligible (<why>)` and stays
 `RECEIPT_CARRY_PRODUCT_CHANGED`. A changed path alone, or context paths alone,
 keep the routes above, and their output is unchanged.
