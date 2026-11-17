@@ -2405,6 +2405,36 @@ whose Plan line differs from the PR body's current line.
 **Fix.** The lane fixes the PR body's Plan line if needed and reruns
 `gstack-ship-queue ready --pr <n>` at the pin.
 
+<a id="first-use-plan-unready"></a>
+### `gstack-first-use start: ... (FIRST_USE_PLAN_UNREADY)`
+
+**Meaning.** `start` could not freeze the day-one actions: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, or one of them is still marked `assumed`. Exit 3; nothing is written. **Fix.** Give the plan the pinned table ([first-use-check.md](first-use-check.md#the-day-one-table)) and confirm every assumed row with the owner, then rerun `start`.
+
+<a id="first-use-play-spec-incomplete"></a>
+### `gstack-first-use start: ... (FIRST_USE_PLAY_SPEC_INCOMPLETE)`
+
+**Meaning.** The play spec JSON misses one of the ten parts every ask to play or try a build carries (links, device and setup, what it is, how to start, controls, how long, what we want to learn, how to report back, known quirks, reply word). The line names each missing part and field. Exit 3. **Fix.** Fill them in ([first-use-check.md](first-use-check.md#play-spec)); "none" is a fine value for known quirks.
+
+<a id="first-use-same-family"></a>
+### `gstack-first-use start|record|predict: ... (FIRST_USE_SAME_FAMILY)`
+
+**Meaning.** The check needs an agent from a different model family than the one that built the app. The builder and checker are the same family, a family could not be read from the model id, or `--by` on a result or prediction is not the run's checker family. Exit 3. **Fix.** Pass full `provider/model` ids from different families, and let only the checker record results.
+
+<a id="first-use-no-private-drive"></a>
+### `gstack-first-use: ... (FIRST_USE_NO_PRIVATE_DRIVE)`
+
+**Meaning.** On Capy the record holds the owner's scores and words, so it lives only in his private user-level drive folder. None or several `~/.capy/drive/user-*` folders are mounted, so the tool refuses rather than writing to the machine's throwaway folder. Exit 3. **Fix.** Run it in a thread the owner owns, or set `GSTACK_FIRST_USE_DIR` to his private folder.
+
+<a id="first-use-record-invalid"></a>
+### `gstack-first-use: ... (FIRST_USE_RECORD_INVALID)`
+
+**Meaning.** A value or file is invalid: a bad `--commit`, `--action`, `--verdict` or score, an `--account` or `--device-class` that isn't the run's owner-equivalent audience, a run directory outside the record root, evidence that is not a screenshot or short video (or is empty, a link, or over 100 MB), an unreadable manifest, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, start a new run.
+
+<a id="first-use-refused"></a>
+### `gstack-first-use check|message: ... (FIRST_USE_REFUSED)`
+
+**Meaning.** The build has not cleared its first-use check, so `message` prints no "try this build" text and `check` prints no `FIRST_USE: pass` line. The detail lists every reason: `build_mismatch`, `source_changed`, `source_missing`, `action_<n>_not_played`, `action_<n>_failed`, `action_<n>_evidence_stale`, `link_unchecked`, `link_down`, `link_stale` (over 15 minutes old), `no_predicted_score`, `record_unreadable`. Exit 3. **Fix.** Fix the build and replay failed actions, rerun `links` right before sending, or start a new run for a new build or changed day-one rows.
+
 ## /ship token budget and fresh-context handoffs (gstack-ship-budget)
 
 The flow, the BUDGET line field by field and the meters are in [ship-budget.md](ship-budget.md).

@@ -1,0 +1,148 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-first-use — the cold first-use check for an app build (docs/first-use-check.md).
+ *
+ *   gstack-first-use start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web --commit <sha>
+ *                            (--testflight <build> | --deploy <version>) --builder <model> --checker <model> [--json]
+ *   gstack-first-use brief   --run <dir>
+ *   gstack-first-use record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>] [--json]
+ *   gstack-first-use predict --run <dir> --score <1-10> --why <text> --by <model> [--json]
+ *   gstack-first-use links   --run <dir> --account <owner-equivalent account> --device-class ios|android|web [--json]
+ *   gstack-first-use check   --run <dir> --platform … --commit … (--testflight … | --deploy …) [--json]
+ *   gstack-first-use message --run <dir> --platform … --commit … (--testflight … | --deploy …)
+ *   gstack-first-use score   --run <dir> --score <1-10> --words "<owner's exact words>" --by <who relayed them> [--json]
+ *   gstack-first-use show    --run <dir> [--json]
+ *   gstack-first-use root
+ *
+ * start freezes the first five rows of the plan's ### Day one table and the build fingerprint into a
+ * write-once manifest; brief prints what the checker from the other model family gets; record, predict
+ * and links write its evidence, predicted score and dated link receipts; check prints FIRST_USE: pass
+ * or refuses (FIRST_USE_REFUSED); message prints the "try this build" text only when check passes;
+ * score keeps the owner's score and words beside the prediction. Records live in the owner's private
+ * user-level Capy Drive folder (GSTACK_FIRST_USE_DIR overrides). Logic: lib/first-use.ts.
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { buildLabel, checkLinks, decide, ownerScore, predict, readManifest, recordResult, recordRoot, startRun, type BuildId, type FirstUseError } from '../lib/first-use';
+import { renderBrief, renderPlayMessage } from '../lib/first-use-message';
+import { resultLine } from '../lib/result-codes';
+
+const HELP = `gstack-first-use — a cold first-use check on an app build before its owner tries it (docs/first-use-check.md)
+
+  start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web --commit <sha>
+          (--testflight <build> | --deploy <version>) --builder <model> --checker <model> [--json]
+  brief   --run <dir>                     what the checker from the other model family is given
+  record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>]
+  predict --run <dir> --score <1-10> --why <text> --by <model>
+  links   --run <dir> --account <text> --device-class ios|android|web   check every play link now, as the owner-equivalent audience
+  check   --run <dir> --platform … --commit … (--testflight … | --deploy …)    FIRST_USE: pass, or refused
+  message --run <dir> --platform … --commit … (--testflight … | --deploy …)    the "try this build" text, only after a pass
+  score   --run <dir> --score <1-10> --words "<owner's exact words>" --by <who relayed them>
+  show    --run <dir> [--json]
+  root                                    where records live
+
+${exitTableHelp()}`;
+
+const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const say = (line: string) => process.stdout.write(line + '\n');
+const refuse = (cmd: string, e: FirstUseError) => { process.stderr.write(resultLine(`gstack-first-use ${cmd}`, e.code, e.detail) + '\n'); return e.code === 'FIRST_USE_RECORD_INVALID' ? EXIT.fail : EXIT.refused; };
+const buildArgs = (a: string[]): Partial<BuildId> => ({ platform: flag(a, '--platform') as BuildId['platform'], commit: flag(a, '--commit'), testflight: flag(a, '--testflight'), deploy: flag(a, '--deploy') });
+
+/** The --run directory, which must sit inside the record root so evidence and scores stay in the private record. */
+function runDir(cmd: string, a: string[]): string | number {
+  const run = flag(a, '--run');
+  if (!run) { process.stderr.write(`gstack-first-use: ${cmd} needs --run <dir>\n`); return EXIT.usage; }
+  const root = recordRoot();
+  if ('error' in root) return refuse(cmd, root.error);
+  let real: string, realRoot: string;
+  try { real = fs.realpathSync(run); realRoot = fs.realpathSync(root.root); } catch { return refuse(cmd, { code: 'FIRST_USE_RECORD_INVALID', detail: `no run directory at ${run}` }); }
+  if (!real.startsWith(realRoot + path.sep)) return refuse(cmd, { code: 'FIRST_USE_RECORD_INVALID', detail: `${run} is outside the record root ${root.root}` });
+  return real;
+}
+
+function cmdStart(a: string[], json: boolean): number {
+  const need = ['--app', '--plan', '--play', '--platform', '--commit', '--builder', '--checker'].filter(f => !flag(a, f));
+  if (need.length) { process.stderr.write(`gstack-first-use: start needs ${need.join(', ')}\n`); return EXIT.usage; }
+  const root = recordRoot();
+  if ('error' in root) return refuse('start', root.error);
+  let play: unknown;
+  try { play = JSON.parse(fs.readFileSync(flag(a, '--play')!, 'utf8')); } catch { return refuse('start', { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `${flag(a, '--play')} is not a readable JSON play spec` }); }
+  const r = startRun({ root: root.root, app: flag(a, '--app')!, planPath: flag(a, '--plan')!, build: buildArgs(a), play, builder: flag(a, '--builder')!, checker: flag(a, '--checker')! });
+  if ('error' in r) return refuse('start', r.error);
+  if (json) { say(JSON.stringify({ run: r.dir, actions: r.manifest.actions.length, rows_sha256: r.manifest.source.rows_sha256, build: r.manifest.build })); return EXIT.ok; }
+  say(`FIRST_USE_RUN: ${r.dir}`);
+  say(`FIRST_USE_FROZEN: ${r.manifest.actions.length} actions rows=${r.manifest.source.rows_sha256.slice(0, 12)} build=${buildLabel(r.manifest.build)} checker=${r.manifest.checker.model}`);
+  r.manifest.actions.forEach(x => say(`  ${x.n}. ${x.action}`));
+  say(`NEXT: gstack-first-use brief --run "${r.dir}"  (give it to one fresh agent on ${r.manifest.checker.model}, never a ${r.manifest.builder.family} model)`);
+  return EXIT.ok;
+}
+
+function cmdShow(dir: string, json: boolean): number {
+  const read = readManifest(dir);
+  if ('error' in read) return refuse('show', read.error);
+  const m = read.manifest;
+  const d = decide(dir, m.build);
+  const summary = { app: m.app, build: buildLabel(m.build), checker: m.checker.model, actions: m.actions.length, passed: d.passed, reasons: d.reasons,
+    predicted: d.prediction?.score ?? null, owner: d.owner ? { score: d.owner.score, words: d.owner.words, at: d.owner.at } : null,
+    gap: d.prediction && d.owner ? d.owner.score - d.prediction.score : null };
+  if (json) { say(JSON.stringify(summary)); return EXIT.ok; }
+  say(`FIRST_USE_SHOW: app=${m.app} build=${summary.build} passed=${d.passed}/${m.actions.length} predicted=${summary.predicted ?? 'none'} owner=${summary.owner?.score ?? 'none'}${summary.gap === null ? '' : ` gap=${summary.gap > 0 ? '+' : ''}${summary.gap}`}`);
+  if (summary.owner) say(`OWNER_WORDS: ${summary.owner.words}`);
+  for (const r of d.reasons) say(`OPEN: ${r}`);
+  return EXIT.ok;
+}
+
+async function main(argv: string[]): Promise<number> {
+  const [cmd, ...a] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h') { say(HELP); return cmd ? EXIT.ok : EXIT.usage; }
+  const json = a.includes('--json');
+  if (cmd === 'root') { const r = recordRoot(); if ('error' in r) return refuse('root', r.error); say(`FIRST_USE_ROOT: ${r.root}`); return EXIT.ok; }
+  if (cmd === 'start') return cmdStart(a, json);
+  if (!['brief', 'record', 'predict', 'links', 'check', 'message', 'score', 'show'].includes(cmd)) { process.stderr.write(`gstack-first-use: unknown command ${cmd}\n${HELP}\n`); return EXIT.usage; }
+  const dir = runDir(cmd, a);
+  if (typeof dir === 'number') return dir;
+  if (cmd === 'show') return cmdShow(dir, json);
+  if (cmd === 'brief') {
+    const read = readManifest(dir);
+    if ('error' in read) return refuse(cmd, read.error);
+    process.stdout.write(renderBrief(read.manifest, dir));
+    process.stderr.write(`DISPATCH: give this brief, and nothing else about the build, to one fresh agent on ${read.manifest.checker.model} (not a ${read.manifest.builder.family} model) on its own machine; it runs its own gstack install check first\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'record') {
+    const n = Number(flag(a, '--action'));
+    const r = recordResult({ dir, action: Number.isInteger(n) ? n : -1, verdict: flag(a, '--verdict') ?? '', evidence: flag(a, '--evidence') ?? '', device: flag(a, '--device') ?? '', account: flag(a, '--account') ?? '', by: flag(a, '--by') ?? '', note: flag(a, '--note') });
+    if ('error' in r) return refuse(cmd, r.error);
+    say(json ? JSON.stringify(r.result) : `FIRST_USE_RESULT: action=${r.result.action} verdict=${r.result.verdict} evidence=${r.result.evidence.file} sha256=${r.result.evidence.sha256.slice(0, 12)}`);
+    return EXIT.ok;
+  }
+  if (cmd === 'predict') {
+    const r = predict({ dir, score: flag(a, '--score') ?? '', why: flag(a, '--why') ?? '', by: flag(a, '--by') ?? '' });
+    if ('error' in r) return refuse(cmd, r.error);
+    say(json ? JSON.stringify(r.prediction) : `FIRST_USE_PREDICTED: ${r.prediction.score} (${r.prediction.by.model})`);
+    return EXIT.ok;
+  }
+  if (cmd === 'score') {
+    const r = ownerScore({ dir, score: flag(a, '--score') ?? '', words: flag(a, '--words') ?? '', by: flag(a, '--by') ?? '' });
+    if ('error' in r) return refuse(cmd, r.error);
+    say(json ? JSON.stringify({ score: r.owner.score, at: r.owner.at }) : `FIRST_USE_OWNER_SCORE: ${r.owner.score} recorded in the private record`);
+    return EXIT.ok;
+  }
+  if (cmd === 'links') {
+    const r = await checkLinks(dir, { account: flag(a, '--account'), device_class: flag(a, '--device-class') as BuildId['platform'] });
+    if ('error' in r) return refuse(cmd, r.error);
+    if (json) say(JSON.stringify(r.receipts));
+    else r.receipts.forEach(x => say(`LINK: ${x.verdict} status=${x.status || x.error || 'none'} as=${x.audience.device_class} ${x.url}`));
+    return r.receipts.every(x => x.verdict === 'live') ? EXIT.ok : EXIT.fail;
+  }
+  const d = decide(dir, buildArgs(a));
+  if (!d.ok) return refuse(cmd, { code: 'FIRST_USE_REFUSED', detail: d.reasons.join('; ') });
+  if (cmd === 'message') { process.stdout.write(renderPlayMessage(d)); return EXIT.ok; }
+  const m = d.manifest!;
+  say(json ? JSON.stringify({ ok: true, app: m.app, build: m.build, passed: d.passed, links: d.links.length, predicted: d.prediction?.score })
+    : `FIRST_USE: pass app=${m.app} build=${buildLabel(m.build)} actions=${d.passed}/${m.actions.length} links=${d.links.length}/${m.play.links.length} checker=${m.checker.model} predicted=${d.prediction?.score}`);
+  return EXIT.ok;
+}
+
+process.exit(await main(process.argv.slice(2)));

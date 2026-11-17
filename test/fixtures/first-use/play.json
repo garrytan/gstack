@@ -1,0 +1,24 @@
+{
+  "links": [
+    {
+      "label": "TestFlight invite",
+      "url": "http://127.0.0.1:PORT/testflight"
+    },
+    {
+      "label": "Account page",
+      "url": "http://127.0.0.1:PORT/account",
+      "login_gated": true
+    }
+  ],
+  "device": "iPhone 17 Pro on iOS 26",
+  "setup": "Install TestFlight from the App Store first.",
+  "account": "a fresh Apple ID with notifications allowed",
+  "what": "Plantpal tells you which houseplant needs water today.",
+  "start": "Open the TestFlight invite, tap Install, then open Plantpal.",
+  "controls": "Tap to open, swipe left on a plant to mark it watered.",
+  "minutes": 10,
+  "learn": "Whether the Today list is the first thing you want every morning.",
+  "report": "Reply in this thread.",
+  "quirks": "The first photo can take a few seconds to upload.",
+  "reply_word": "played"
+}

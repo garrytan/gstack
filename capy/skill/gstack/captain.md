@@ -170,3 +170,11 @@ take every reading (start, notes, close) from its own row of the root thread's `
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.
+
+## 5. Asks to try a build
+
+An ask for the owner to try an app build, and any "v1 is ready" report, goes out only after the build clears
+`gstack-first-use` (`docs/first-use-check.md` in the checkout): an agent from another model family plays that exact
+build cold on the same kind of device and does the plan's first five day-one actions, with a screenshot or video of
+each. Send the text `gstack-first-use message` prints, unchanged; when it refuses, fix the build and replay instead of
+asking. Record the owner's score and words with `gstack-first-use score`, never in a PR or the repository.
