@@ -98,7 +98,7 @@ test('scoring and section dependencies are explicit while existing clean and pas
   expectMentions(section, [['do not', 'alignment', 'assume']], 'section');
   expect(section).toContain('Read `~/.claude/skills/gstack/plan-design-review/SKILL.md`');
   expectMentions(section, [['do not', 'existing', 'results']], 'section');
-  expect(section).toContain('After Pass 7: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.');
+  expect(section).toContain('After Pass 8: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.');
 });
 
 test('the design Completion Summary is its own section above the report, so the next review\'s rewrite keeps it (#3219)', () => {

@@ -15,6 +15,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { OUTSIDE_ROLE, sectionLoadFor, type Phase, type Scope } from './autoplan-prompts';
+import { DAY_ONE_STEPS } from './day-one-steps';
 import { RunError, type RunState } from './autoplan-state';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';
 import { redactFindingSpans } from './redact-engine';
@@ -133,6 +134,7 @@ export function leanPrompt(state: RunState, draft: DraftInput, dir: string): { b
       `${fence}diff\n${shown}\n${fence}`].join('\n');
   const brief = [
     '', '', 'MERGED REVIEW (R65 lean run; data about your role): you are the one reviewer of this plan. No other phase or voice runs, so apply every lens below in this one review and write one result.', '',
+    '### Day one first', 'Check these before any lens. You review the plan and never edit it: a missing or incomplete Day one table is a finding, and your result proposes the rows.', DAY_ONE_STEPS, '',
     ...lenses.flatMap(l => [l, '']),
     `ALWAYS ANSWER: ${OUTSIDE_TERMS} (third-party licenses or terms of service, data or content rights, model or dataset terms, trademarks). Say "none found" in your prose when there are none; each one you find is a finding.`, '',
     code, '',

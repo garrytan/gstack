@@ -32,6 +32,19 @@ hooks:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+## Day one first (before any other step)
+
+Prove the plan is useful to its owner on the first day. Finish these steps before the review's own first step (CEO Step 0, design Pass 1, autoplan Phase 1), reuse the table when the plan already has one, and keep it current as the review changes the plan.
+
+1. Write a `### Day one` table in the plan with these columns: action | frequency | source | feature | route | first build | check. One row for each of the owner's first five actions, on day one and every day after.
+2. `source` is the owner's own words or the owner's evidence (a calendar, past use). With neither, write `assumed`.
+3. `route` is the taps from the first screen to the feature. `first build` is the first PR whose build has it. `check` is how we know it works on the owner's device.
+4. Flag as High any daily row with no feature, no route from the first screen, or a first build later than a less frequent row's.
+5. Schedule a build on the owner's own device right after the first PR. Say what it does and what it won't do yet.
+6. No dead controls: every control in any build the owner receives works end to end or is hidden.
+7. Interactive run: before filling rows from guesses, ask the owner about real past days, one question at a time ("What did you do with your calendar yesterday?"). Unattended run: leave unsourced rows `assumed`; they go to the approval gate as owner questions.
+8. A plan nobody uses directly (a library, a backend job) writes one line naming who relies on it first and how, instead of the table.
+
 ## Shared preamble (load first)
 
 This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/autoplan/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
@@ -282,8 +295,12 @@ sections. Read a section in full before doing its step; do not work from memory.
 5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction; pick what a new contributor reads at a glance.
 6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns, don't block.
 
+**In the CEO phase, P1 and P2 read:** P1 **Most-used first**: the owner's most frequent
+Day one row is in the first build. P2 **Scope follows the owner's journey, not files**:
+approve what a Day one row needs; defer what no row needs.
+
 **Conflict resolution (context-dependent tiebreakers):**
-- **CEO phase:** P1 (completeness) + P2 (boil lakes) dominate.
+- **CEO phase:** P1 (most-used first) + P2 (owner's journey) dominate.
 - **Eng phase:** P5 (explicit) + P3 (pragmatic) dominate.
 - **Design phase:** P5 (explicit) + P1 (completeness) dominate.
 
@@ -599,8 +616,8 @@ Check the plan and conversation for each applicable deliverable:
 
 | Phase | Required outputs |
 |---|---|
-| CEO | Named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
-| Design, if UI | Scores for all 7 dimensions; identified and decided issues; litmus scorecard. |
+| CEO | Day one table (every daily row with a feature, a route and a first build, or a High finding); named premise challenges (the premise table's `REALITY:` lines); findings or explicit examination/no-findings per applicable section; Error & Rescue and Failure Modes registries (or N/A with reason); NOT in scope; What already exists; dream state delta; Completion Summary; consensus table. |
+| Design, if UI | Scores for all 7 dimensions; route coverage of the Day one table; dead-control list (Pass 8); identified and decided issues; litmus scorecard. |
 | DX, if developer-facing | Scores for all 8 dimensions; developer journey map; empathy narrative; TTHW assessment and target; DX Implementation Checklist; consensus table. |
 | Eng, always last | Scope challenge grounded in code with its `REALITY:` lines; architecture ASCII diagram; codepath-to-test diagram; test plan on disk at ~/.gstack/projects/$SLUG/; NOT in scope; What already exists; failure modes registry with critical gaps; Completion Summary; consensus table. |
 
@@ -608,6 +625,9 @@ Per phase, verify native and outside voice results or explicit unavailable/skipp
 status, cross-phase themes and one Decision Audit Trail row per auto-decision.
 Produce missing outputs before the gate; after at most 2 repair attempts, warn
 there with each incomplete item.
+
+**Feature added after a round cap:** before the gate, one reviewer reruns the
+day-one steps on the Day one table only; its findings join the gate.
 
 Reality rows: each phase's `PLAN_REALITY: … verdict=complete` from
 `~/.claude/skills/gstack/bin/gstack-plan-reality check --phase <ceo|eng> <review-file|->`. A missing applicable row is `incomplete`
