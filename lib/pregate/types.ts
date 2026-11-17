@@ -105,7 +105,7 @@ export interface CheckResult extends PregateCheck {
   environment?: EnvironmentCause;
 }
 
-export type EnvironmentKind = 'missing-binary' | 'network' | 'quota' | 'disk' | 'runtime' | 'tool';
+export type EnvironmentKind = 'missing-binary' | 'arg-limit' | 'network' | 'quota' | 'disk' | 'runtime' | 'tool';
 /** How the cause was established: `launch` (the command could not start, its binary is off PATH, the runtime or a gstack tool refused), or `output` (a rule matched the command's text before any test was counted, which the diff's own output could have written). */
 export type EnvironmentProof = 'launch' | 'output';
 export interface EnvironmentCause { kind: EnvironmentKind; evidence: string; proof: EnvironmentProof }
