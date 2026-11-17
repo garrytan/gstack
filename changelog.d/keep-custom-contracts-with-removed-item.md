@@ -1,0 +1,1 @@
+- **A skill you wrote whose contract still lists `check_after_last_edit` keeps the rest of its contract.** The optional Stop hook now skips only that item and keeps checking the skill's other items, where before the whole contract read as invalid and none of it was checked. Until you delete the item, the hook prints a `SKILL_CONTRACT_SKIPPED` line naming the file and the item.
