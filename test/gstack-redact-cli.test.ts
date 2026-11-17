@@ -102,6 +102,39 @@ describe("gstack-redact oversize fails closed", () => {
     expect(code).toBe(3);
     expect(stdout).toContain("too large");
   });
+
+  // #4351: input over the 16 MiB ceiling is refused before --max-bytes is
+  // consulted, so --help and both errors have to say so.
+  test("--help names the 16 MiB ceiling that --max-bytes can't raise", () => {
+    const { code, stdout } = run(["--help"], "");
+    expect(code).toBe(0);
+    expect(stdout).toContain("Input over 16 MiB is always refused");
+    expect(stdout).toContain("3 HIGH present or input too large");
+  });
+
+  test("a --from-file input over 16 MiB names the ceiling even with a bigger --max-bytes", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-ceiling-"));
+    try {
+      const f = path.join(dir, "big.txt");
+      fs.writeFileSync(f, "");
+      fs.truncateSync(f, 16 * 1024 * 1024 + 1);
+      const proc = Bun.spawnSync(["bun", BIN, "--from-file", f, "--max-bytes", "33554432"], {
+        timeout: 30_000,
+      });
+      expect(proc.exitCode).toBe(3);
+      expect(proc.stderr.toString()).toContain(
+        "input file too large (16777217 bytes). The limit is 16 MiB and --max-bytes can't raise it.",
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("stdin over 16 MiB names the ceiling even with a bigger --max-bytes", () => {
+    const { code, stderr } = run(["--max-bytes", "33554432"], "a".repeat(16 * 1024 * 1024 + 1));
+    expect(code).toBe(3);
+    expect(stderr).toContain("stdin too large. The limit is 16 MiB and --max-bytes can't raise it.");
+  });
 });
 
 describe("gstack-redact argv dispatch", () => {

@@ -62,8 +62,10 @@ const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
 // GBRAIN_HOME is a parent dir, `.gbrain` is appended) — must stay consistent
 // with lib/gbrain-local-status's config resolution, or the detect JSON
 // reports gbrain_local_status "ok" alongside gbrain_config_exists false for
-// relocated-home users. Both route through gbrainConfigDir.
-const GBRAIN_CONFIG = join(gbrainConfigDir(), "config.json");
+// relocated-home users. Both route through gbrainConfigDir, which returns
+// null for a GBRAIN_HOME gbrain refuses; that reads as no config.
+const GBRAIN_CONFIG_DIR = gbrainConfigDir();
+const GBRAIN_CONFIG = GBRAIN_CONFIG_DIR ? join(GBRAIN_CONFIG_DIR, "config.json") : null;
 const CLAUDE_JSON = join(userHome(), ".claude.json");
 
 function userHome(): string {
@@ -106,7 +108,7 @@ function detectGbrain(): { onPath: boolean; version: string | null } {
 
 // --- gbrain config existence + engine kind ---
 function detectConfig(): { exists: boolean; engine: "pglite" | "postgres" | null } {
-  if (!existsSync(GBRAIN_CONFIG)) return { exists: false, engine: null };
+  if (!GBRAIN_CONFIG || !existsSync(GBRAIN_CONFIG)) return { exists: false, engine: null };
   const parsed = tryReadJSON(GBRAIN_CONFIG) as { engine?: string } | null;
   if (!parsed) return { exists: true, engine: null };
   if (parsed.engine === "pglite" || parsed.engine === "postgres") {
@@ -121,6 +123,7 @@ function detectConfig(): { exists: boolean; engine: "pglite" | "postgres" | null
 // a PgBouncer transaction-mode pooler (port 6543). Surfaced so /sync-gbrain
 // and /setup-gbrain can advise users when search may require GBRAIN_PREPARE.
 function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
+  if (!GBRAIN_CONFIG) return null;
   const parsed = tryReadJSON(GBRAIN_CONFIG) as { database_url?: string } | null;
   if (!parsed?.database_url) return null;
   return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
@@ -289,7 +292,8 @@ function detectMcpMode(): McpMode | "none" {
 
 /** remote_mcp.mcp_url from gbrain's own config (thin-client marker, #2051). */
 function readRemoteMcpUrl(): string {
-  const cfg = tryReadJSON(join(gbrainConfigDir(), "config.json")) as
+  if (!GBRAIN_CONFIG) return "";
+  const cfg = tryReadJSON(GBRAIN_CONFIG) as
     | { remote_mcp?: { mcp_url?: string } }
     | null;
   return cfg?.remote_mcp?.mcp_url || "";

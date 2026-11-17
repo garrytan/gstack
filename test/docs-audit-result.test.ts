@@ -16,8 +16,9 @@ function scratch() {
   return root;
 }
 
-function result(output: string, auditId: string, repairOf?: { file: string; out: string }) {
+function result(output: string, auditId: string, repairOf?: { file: string; out: string }, files: string[] = []) {
   const root = scratch();
+  for (const f of files) { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), ''); }
   const file = path.join(root, 'child.txt');
   fs.writeFileSync(file, output);
   const out = repairOf?.out ?? path.join(root, 'record');
@@ -80,6 +81,58 @@ describe('gstack-docs-candidate result', () => {
     expect(r.stdout).toContain('(DOCS_RESULT_INVALID)');
     expect(r.stdout).toContain(message);
     expect(r.written).toEqual([]);
+  });
+
+  test.each([
+    ['a Next.js dynamic route', 'app/api/items/[id]/route.ts'],
+    ['a catch-all route', 'app/blog/[...slug]/page.tsx'],
+    ['an optional catch-all route', 'app/shop/[[...opt]]/page.tsx'],
+    ['a route group around a dynamic segment', 'app/(marketing)/blog/[slug]/page.tsx'],
+    ['a SvelteKit route', 'src/routes/blog/[slug]/+page.svelte'],
+    ...(process.platform === 'win32' ? [] : [['a file named with * and ?', 'docs/what-is-*this*?.md']]),
+  ])('%s that names a real file is a path, not a glob (#4313)', (_name, file) => {
+    const r = result(line({ documentation_section: SECTION, files_reviewed: ['README.md', file] }) + '\n', 'ship352b-docs-1', undefined, ['README.md', file]);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toContain('DOCS_RESULT: ok status=current');
+    expect(JSON.parse(fs.readFileSync(path.join(r.out, 'ship352b-docs-1-result.json'), 'utf8')).files_reviewed).toEqual(['README.md', file]);
+  });
+
+  test('a route group alone was never read as a glob', () => {
+    const r = result(line({ documentation_section: SECTION, files_reviewed: ['app/(group)/page.tsx'] }) + '\n', 'ship352b-docs-1');
+    expect(r.status).toBe(0);
+  });
+
+  test('an updated bracketed route file is accepted in files_updated too', () => {
+    const file = 'app/api/items/[id]/route.ts';
+    const r = result(line({ documentation_section: SECTION, status: 'updated', files_updated: [file], files_reviewed: [file] }) + '\n', 'ship352b-docs-1', undefined, [file]);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toContain('DOCS_RESULT: ok status=updated files_updated=1');
+  });
+
+  test.each([
+    ['a bracketed path that names no file', 'app/api/items/[id]/route.ts', []],
+    ['a glob even when it would match a file', 'docs/*.md', ['docs/a.md']],
+    ['a character class even when it would match a file', 'docs/[ab].md', ['docs/a.md']],
+  ])('%s is still refused as a glob', (_name, listed, files) => {
+    const r = result(line({ documentation_section: SECTION, files_reviewed: [listed] }) + '\n', 'ship352b-docs-1', undefined, files);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('(DOCS_RESULT_INVALID)');
+    expect(r.stdout).toContain('"files_reviewed" must list unique repo-relative files, not globs');
+    expect(r.written).toEqual([]);
+  });
+
+  test('a bracketed path is looked up from the repository root when result runs in a subdirectory', () => {
+    const file = 'app/api/items/[id]/route.ts';
+    const root = scratch();
+    expect(spawnSync('git', ['init', '-q', root], { encoding: 'utf8', timeout: 20_000 }).status).toBe(0);
+    fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), '');
+    const sub = path.join(root, 'sub');
+    fs.mkdirSync(sub);
+    const output = path.join(sub, 'child.txt');
+    fs.writeFileSync(output, line({ documentation_section: SECTION, files_reviewed: [file] }) + '\n');
+    const r = spawnSync(BIN, ['result', output, '--audit-id', 'ship352b-docs-1', '--out-dir', path.join(sub, 'record')], { cwd: sub, encoding: 'utf8', timeout: 20_000 });
+    expect([r.status, r.stderr]).toEqual([0, '']);
   });
 
   test('two keys that trim to the same name are refused, not merged', () => {

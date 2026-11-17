@@ -3,7 +3,8 @@
  * /document-release child ends with (ship/sections/documentation.md, "Return one JSON object on the LAST nonempty line").
  * Whitespace around a key is trimmed (GST-1843: a reader ended with `" documentation_section": "x"`), and every other rule
  * of the contract stays: all eight fields with their types, the exact audit id, schema 1, the status invariants, unique
- * repo-relative paths, and a section that is real Markdown rather than empty or a placeholder. A result that fails names
+ * repo-relative paths (a path holding *, ?, [ or ] is a glob unless it names a real file, so a Next.js or SvelteKit route such as
+ * app/api/items/[id]/route.ts passes, #4313), and a section that is real Markdown rather than empty or a placeholder. A result that fails names
  * each bad key and carries a retry note quoting the exact keys, so the one re-audit is told what to correct.
  * Text after a JSON line carrying this audit id is never ignored and never searched for another result (FOUN-267, HARN-83: the
  * section as prose after the object; GPT-6.1 Sol on #4285: a correction or a fenced example after it). It is a format slip whose
@@ -24,11 +25,12 @@ export interface DocsResult {
 }
 export type DocsResultCheck = { ok: true; result: DocsResult; trimmed: string[] } | { ok: false; problems: string[]; trimmed: string[]; repairable: boolean; kept: Record<string, unknown>; whole?: boolean };
 
-const badPath = (p: string) => p.startsWith('/') || p.includes('\\') || /[*?[\]]/.test(p) || p.split('/').some(part => !part || part === '.' || part === '..');
+export type IsFile = (repoPath: string) => boolean;
+const badPath = (p: string, isFile: IsFile) => p.startsWith('/') || p.includes('\\') || p.split('/').some(part => !part || part === '.' || part === '..') || (/[*?[\]]/.test(p) && !isFile(p));
 const isPlaceholder = (s: string) => /^[!-~]+$/.test(s) || /^<[^<>]*>$/.test(s);
 const shown = (x: unknown) => { const s = JSON.stringify(x) ?? String(x); return s.length > 40 ? `${s.slice(0, 40)}…` : s; };
 
-export function checkDocsResult(output: string, auditId: string): DocsResultCheck {
+export function checkDocsResult(output: string, auditId: string, isFile: IsFile = () => false): DocsResultCheck {
   const lines = output.replace(/\r\n/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
   const object = (l: string) => { try { const x: unknown = JSON.parse(l); return x && typeof x === 'object' && !Array.isArray(x) ? x : undefined; } catch { return undefined; } };
   const parsed = object(lines.at(-1) ?? '');
@@ -59,7 +61,7 @@ export function checkDocsResult(output: string, auditId: string): DocsResultChec
     const list = v[key];
     const pinsOutcome = key === 'files_updated' || key === 'blockers';
     if (!Array.isArray(list) || list.some(x => typeof x !== 'string' || !x.trim())) { problems.push(`"${key}" is not a list of nonempty strings`); bad.add(key); if (pinsOutcome) content = true; continue; }
-    if (key.startsWith('files_') && (new Set(list).size !== list.length || list.some(badPath))) { problems.push(`"${key}" must list unique repo-relative files, not globs`); bad.add(key); if (pinsOutcome) content = true; }
+    if (key.startsWith('files_') && (new Set(list).size !== list.length || list.some(p => badPath(p, isFile)))) { problems.push(`"${key}" must list unique repo-relative files, not globs`); bad.add(key); if (pinsOutcome) content = true; }
   }
   const section = v.documentation_section;
   const sectionProblems = problems.length;
@@ -106,10 +108,10 @@ export function docsRepairPrompt(output: string, auditId: string, problems: read
 }
 
 /** Checks a format repair's reply: a valid result whose every value the repaired line already gave correctly is unchanged. Never repairable again. */
-export function checkDocsRepair(output: string, original: string, auditId: string): DocsResultCheck {
-  const before = checkDocsResult(original, auditId);
+export function checkDocsRepair(output: string, original: string, auditId: string, isFile: IsFile = () => false): DocsResultCheck {
+  const before = checkDocsResult(original, auditId, isFile);
   if (before.ok || !before.repairable) return { ok: false, problems: ['the --repair-of output is not a format-only failure, so it has no format repair'], trimmed: [], repairable: false, kept: {} };
-  const after = checkDocsResult(output, auditId);
+  const after = checkDocsResult(output, auditId, isFile);
   if (!after.ok) return { ...after, repairable: false };
   const result = after.result as unknown as Record<string, unknown>;
   const changed = Object.keys(before.kept).filter(key => JSON.stringify(result[key]) !== JSON.stringify(before.kept[key]));

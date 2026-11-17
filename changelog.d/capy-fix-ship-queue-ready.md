@@ -1,1 +1,0 @@
-- **The free test suite is green on main again.** Two `gstack-ship-queue ready` tests still wrote a pre-merge check record with a single check, which `ready` has refused since the pre-merge check started requiring every registered check (GST-2194). Their fixtures now record every check, so the tests exercise what they were written for. No product behavior changed (GST-2282).

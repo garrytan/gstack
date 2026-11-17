@@ -13,6 +13,7 @@
 #                               [--database-url <url>]
 #   gstack-gbrain-source-wireup --probe
 #   gstack-gbrain-source-wireup --advance-only   # daily unattended worktree advance (#2516)
+#   gstack-gbrain-source-wireup --check-target   # read-only: could an earlier run have hit the wrong brain? (#4325)
 #   gstack-gbrain-source-wireup --help
 #
 # Exit codes:
@@ -28,9 +29,10 @@
 #   GSTACK_BRAIN_NO_SYNC — skip the gbrain sync step (tests; helper still
 #                          ensures source registration)
 #
-# Defense against external rewrites of ~/.gbrain/config.json:
+# Defense against external rewrites of gbrain's config.json:
 # At helper startup we capture the database URL ONCE — from --database-url,
-# from GBRAIN_DATABASE_URL/DATABASE_URL env, or from ~/.gbrain/config.json —
+# from GBRAIN_DATABASE_URL/DATABASE_URL env, or from the config.json gbrain
+# itself reads ($GBRAIN_HOME/.gbrain, else ~/.gbrain; gstack-gbrain-home.sh) —
 # and export it as GBRAIN_DATABASE_URL for every child `gbrain` invocation.
 # That env var overrides whatever's in config.json (per gbrain's loadConfig
 # at src/core/config.ts:53), so a process that flips config.json mid-sync
@@ -55,7 +57,9 @@ else
   REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 fi
 PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"
-GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+. "$SCRIPT_DIR/gstack-gbrain-home.sh"
+GBRAIN_HOME_VALID=1
+GBRAIN_CONFIG=$(gstack_gbrain_config_path) || GBRAIN_HOME_VALID=0
 
 # Git writes to $GSTACK_HOME (worktree add/prune/remove, the daily advance)
 # take the drain lock every gstack writer shares. A caller that already holds
@@ -80,20 +84,33 @@ while [ $# -gt 0 ]; do
     --uninstall)     MODE="uninstall"; shift ;;
     --probe)         MODE="probe"; shift ;;
     --advance-only)  MODE="advance-only"; shift ;;
+    --check-target)  MODE="check-target"; shift ;;
     --strict)        STRICT=1; shift ;;
     --no-pull)       NO_PULL=1; shift ;;
     --source-id)     SOURCE_ID="$2"; shift 2 ;;
     --database-url)  DATABASE_URL_ARG="$2"; shift 2 ;;
-    --help|-h)       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h)       sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)               echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
 
+prefix() { sed 's/^/gstack-gbrain-source-wireup: /' >&2; }
+warn()   { echo "$*" | prefix; }
+# die <message> [exit_code]: warn with just the message, exit with code (default 1).
+die()    { warn "$1"; exit "${2:-1}"; }
+
 # ---- lock the database URL at startup ----
 # Precedence: --database-url flag > existing GBRAIN_DATABASE_URL/DATABASE_URL
-# env > read once from ~/.gbrain/config.json. Whichever wins gets exported as
-# GBRAIN_DATABASE_URL so every child `gbrain` invocation uses THAT brain even
-# if config.json is rewritten by another process during the wireup.
+# env > read once from the config.json gbrain itself reads (GBRAIN_CONFIG
+# above; #4325). Whichever wins gets exported as GBRAIN_DATABASE_URL so every
+# child `gbrain` invocation uses THAT brain even if config.json is rewritten
+# by another process during the wireup. A GBRAIN_HOME that gbrain refuses
+# locks nothing: falling back to ~/.gbrain would pick a brain gbrain never reads.
+if [ "$GBRAIN_HOME_VALID" = "0" ]; then
+  warn "GBRAIN_HOME must be an absolute path with no '..' segments (gbrain refuses this one); not reading any gbrain config"
+fi
+# --check-target reports the caller's URL env, before the lock below sets it.
+_URL_ENV="GBRAIN_DATABASE_URL $([ -n "${GBRAIN_DATABASE_URL:-}" ] && echo set || echo unset), DATABASE_URL $([ -n "${DATABASE_URL:-}" ] && echo set || echo unset)"
 _locked_url=""
 if [ -n "$DATABASE_URL_ARG" ]; then
   _locked_url="$DATABASE_URL_ARG"
@@ -101,7 +118,7 @@ elif [ -n "${GBRAIN_DATABASE_URL:-}" ]; then
   _locked_url="$GBRAIN_DATABASE_URL"
 elif [ -n "${DATABASE_URL:-}" ]; then
   _locked_url="$DATABASE_URL"
-elif [ -f "$GBRAIN_CONFIG" ]; then
+elif [ -n "$GBRAIN_CONFIG" ] && [ -f "$GBRAIN_CONFIG" ]; then
   # Python heredoc reads config.json. On JSON parse failure or any IO error,
   # we WARN (not silently swallow) so the user knows the URL lock fell back
   # to gbrain's own loadConfig (which would still read this same file).
@@ -123,10 +140,6 @@ if [ -n "$_locked_url" ]; then
   export GBRAIN_DATABASE_URL="$_locked_url"
 fi
 
-prefix() { sed 's/^/gstack-gbrain-source-wireup: /' >&2; }
-warn()   { echo "$*" | prefix; }
-# die <message> [exit_code]: warn with just the message, exit with code (default 1).
-die()    { warn "$1"; exit "${2:-1}"; }
 
 # Refuse to rm anything outside $HOME/. Defends against GSTACK_BRAIN_WORKTREE=/
 # or empty-string overrides that would otherwise have line 169 / 161 nuke the
@@ -452,9 +465,63 @@ do_uninstall() {
   echo "uninstalled source=$id worktree=$WORKTREE"
 }
 
+do_check_target() {
+  # Read-only audit for #4325. Before the fix, a run with GBRAIN_HOME set and no
+  # database URL in its environment locked ~/.gbrain/config.json's database_url,
+  # so `sources add` and `sync` went to that brain instead of the one under
+  # GBRAIN_HOME. This compares the two configs and prints MATCH or MISMATCH.
+  # It calls no gbrain and no network, writes nothing, and never prints a
+  # database URL or any part of one: the URLs stay inside python3.
+  local id state=set
+  id=$(derive_source_id 2>/dev/null) || id="(unknown)"
+  if [ "$GBRAIN_HOME_VALID" = "0" ]; then
+    state=invalid
+  elif [ "$GBRAIN_CONFIG" = "$HOME/.gbrain/config.json" ] && [ -z "$(printf '%s' "${GBRAIN_HOME:-}" | tr -d '[:space:]')" ]; then
+    state=unset
+  fi
+  echo "SOURCE_ID: $id"
+  echo "URL_ENV: $_URL_ENV (a run with either set used that URL before and after the fix)"
+  CT_STATE="$state" CT_DEFAULT="$HOME/.gbrain/config.json" CT_NAMED="$GBRAIN_CONFIG" python3 -c '
+import json, os
+
+def read(p):
+    try:
+        with open(p) as f:
+            c = json.load(f)
+    except FileNotFoundError:
+        return "no file", None
+    except Exception:
+        return "unreadable", None
+    u = c.get("database_url") if isinstance(c, dict) else None
+    return ("database_url set", u) if isinstance(u, str) and u else ("no database_url", None)
+
+state, default, named = os.environ["CT_STATE"], os.environ["CT_DEFAULT"], os.environ["CT_NAMED"]
+d_status, d_url = read(default)
+print(f"GBRAIN_HOME: {state}")
+print(f"DEFAULT_CONFIG: {default} ({d_status})")
+if state == "set":
+    n_status, n_url = read(named)
+    print(f"GBRAIN_HOME_CONFIG: {named} ({n_status})")
+if state == "unset":
+    verdict = "MATCH GBRAIN_HOME is unset, so the old and new rules read the same config"
+elif state == "invalid":
+    verdict = "UNKNOWN gbrain refuses this GBRAIN_HOME (it must be absolute with no .. segments); check the value your wrapper sets"
+elif d_status == "unreadable":
+    verdict = "UNKNOWN the default config is unreadable, so the old rule locked nothing it could report"
+elif d_url is None or os.path.realpath(named) == os.path.realpath(default):
+    verdict = "MATCH the old rule locked nothing extra, so gbrain used the GBRAIN_HOME config itself"
+elif n_url == d_url:
+    verdict = "MATCH both configs name the same database"
+else:
+    verdict = "MISMATCH a run with GBRAIN_HOME set and no URL in its environment registered and synced this source in the brain named by DEFAULT_CONFIG, not GBRAIN_HOME_CONFIG; to confirm, run gbrain sources list with GBRAIN_HOME unset and look for SOURCE_ID"
+print(f"TARGET: {verdict}")
+' </dev/null
+}
+
 case "$MODE" in
   probe)        do_probe ;;
   wireup)       do_wireup ;;
   uninstall)    do_uninstall ;;
   advance-only) do_advance_only ;;
+  check-target) do_check_target ;;
 esac
