@@ -117,22 +117,18 @@ when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 See [docs/OPENCLAW.md](OPENCLAW.md) for advanced dispatch routing and
 the gstack-lite/gstack-full prompt templates.
 
-## Native OpenClaw Skills (via ClawHub)
+## /office-hours, /plan-ceo-review and /retro in OpenClaw
 
-Four methodology skills that work directly in your OpenClaw agent, no Claude Code
-session needed. Install from ClawHub:
+Your OpenClaw agent can run these directly in chat, with no Claude Code session.
+They come with native registration: `./setup --host openclaw` registers gstack's
+`gstack` router skill, which lists them with every other workflow and serves
+the current version of each ([install, verify and remove](#agent-harnesses)).
 
-```
-clawhub install gstack-openclaw-office-hours gstack-openclaw-ceo-review gstack-openclaw-retro
-```
-
-| Skill | What it does |
-|-------|-------------|
-| `gstack-openclaw-office-hours` | Product interrogation with 6 forcing questions |
-| `gstack-openclaw-ceo-review` | Strategic challenge with 4 scope modes |
-| `gstack-openclaw-retro` | Weekly engineering retrospective |
-
-These are conversational skills. Your OpenClaw agent runs them directly via chat.
+Earlier docs sent you to ClawHub for `gstack-openclaw-office-hours`,
+`gstack-openclaw-ceo-review` and `gstack-openclaw-retro`. Those copies were
+published once, in April 2026, and have not been updated since, so don't
+install them. If you already did, remove them, so your agent doesn't load an old
+copy next to the current one.
 
 ## Which agents a checkout renders for
 
