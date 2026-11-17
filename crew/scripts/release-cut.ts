@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
  * release-cut: tag the newest green commit on main as v<VERSION>, publish a
- * GitHub Release whose notes are that span's CHANGELOG headlines, and
+ * GitHub Release whose notes list that span's CHANGELOG changes (release-notes.ts), and
  * fast-forward refs/heads/stable to it (docs/releases.md). Run by
  * .github/workflows/weekly-release.yml ("Stable release") every day at 14:00
  * UTC with --daily (the daily check, crew/scripts/release-cadence.ts: an important
@@ -69,10 +69,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
+import { KIND_LABEL, NOTES_CAP, changeSources, changelogEntries, compareVersions, releaseKind, releaseNotes } from './release-notes';
 import { bucketClass } from '../../lib/ci-gate';
 import { headCheckRows, type AsideRuns } from '../../lib/ci-head-checks';
 
 export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
+export { NOTES_CAP, changelogEntries, compareVersions, releaseKind, releaseNotes };
 
 export type Gh = (args: string[]) => { status: number | null; stdout: string; stderr: string };
 export type Git = (args: string[]) => { ok: boolean; out: string };
@@ -87,7 +89,6 @@ const NOTES_LOCAL = 'refs/notes/gstack-trains-release';
 const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale']);
 export const WINDOW_DAYS = 7;
 export const WINDOW_COMMITS = 200;
-export const NOTES_CAP = 60_000;
 const HOUR = 3_600_000;
 
 export const runGh: Gh = (args) => {
@@ -102,16 +103,6 @@ export const gitIn = (cwd: string): Git => (args) => {
 function parseJson<T>(r: { status: number | null; stdout: string }): T | null {
   if (r.status !== 0) return null;
   try { return JSON.parse(r.stdout) as T; } catch { return null; }
-}
-
-/** Four-part versions compare numerically, part by part. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
 }
 
 /** Green names what gated the commit: the backstop check's name, or `train <nonce>`. Pending means a check run on it is still going. */
@@ -231,67 +222,8 @@ export function readTrainNotes(git: Git, notesRef = NOTES_REF): TrainNotes {
   return notes;
 }
 
-export interface ChangelogEntry { version: string; date: string; headline: string }
-
-/** Every "## [X.Y.Z.W] - date" entry of a CHANGELOG with its first prose line, markdown stripped. */
-export function changelogEntries(text: string): ChangelogEntry[] {
-  const out: ChangelogEntry[] = [];
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^## \[(\d+(?:\.\d+)+)\](?: - (\S+))?/.exec(lines[i]!);
-    if (!m) continue;
-    let headline = '';
-    for (let j = i + 1; j < lines.length && !lines[j]!.startsWith('## '); j++) {
-      const l = lines[j]!.trim();
-      if (!l || l.startsWith('#') || l.startsWith('|') || l.startsWith('-') || l.startsWith('```')) continue;
-      const bold = /^\*\*(.+?)\*\*/.exec(l);
-      headline = (bold ? bold[1]! : l.replace(/\*\*/g, '')).replace(/\s+/g, ' ');
-      break;
-    }
-    out.push({ version: m[1]!, date: m[2] ?? '', headline });
-  }
-  return out;
-}
-
-export interface NotesInput { repo: string; version: string; date: string; prevVersion: string | null; prevTag: string | null; entries: ChangelogEntry[]; hotfix: boolean; first?: boolean; exception?: Exception | null }
-
 /** A verified floor exception (a security or a regression cut): the sanitized reason and what tied it to the released commits. */
 export interface Exception { kind: 'security' | 'regression'; reason: string; evidence: string }
-
-const KIND_LABEL = { security: 'Security', regression: 'Regression' } as const;
-
-export function releaseKind(hotfix: boolean, exception: Exception | null | undefined): 'security' | 'regression' | 'hotfix' | 'regular' {
-  return exception ? exception.kind : hotfix ? 'hotfix' : 'regular';
-}
-
-/** Release notes: one headline per version in (prev, version], capped at NOTES_CAP. */
-export function releaseNotes(n: NotesInput): string {
-  const span = n.entries.filter(e => compareVersions(e.version, n.version) <= 0 && (!n.prevVersion || compareVersions(e.version, n.prevVersion) > 0))
-    .sort((a, b) => compareVersions(b.version, a.version));
-  const plural = span.length === 1 ? '' : 's';
-  const changelogUrl = 'https://github.com/' + n.repo + '/blob/v' + n.version + '/CHANGELOG.md';
-  const compare = n.prevTag ? '[Compare](https://github.com/' + n.repo + '/compare/' + n.prevTag + '...v' + n.version + ') or read ' : 'Read ';
-  const head = [
-    '## gstack v' + n.version + ' (' + releaseKind(n.hotfix, n.exception) + ' release)',
-    '',
-    ...(n.exception ? ['**' + KIND_LABEL[n.exception.kind] + ' release:** `' + n.exception.reason + '` (verified: ' + n.exception.evidence + '). Every version since the previous release ships with it.', ''] : []),
-    n.first || !n.prevVersion
-      ? 'First tagged release: the ' + span.length + ' version' + plural + (n.prevVersion ? ' since v' + n.prevVersion + ' (the week before it)' : '') + ', one line each; the [full changelog](' + changelogUrl + ') has every earlier one.'
-      : span.length + ' version' + plural + ' since v' + n.prevVersion + ', one line each. ' + compare + 'the [full changelog](' + changelogUrl + ').',
-    '',
-    'New installs and team-mode installs follow the stable branch, which now points here; gstack-config set update_channel main follows every merge instead ([docs/releases.md](https://github.com/' + n.repo + '/blob/v' + n.version + '/docs/releases.md)).',
-    '',
-  ].join('\n');
-  const bullets = span.map(e => '- **' + e.version + '**' + (e.date ? ' (' + e.date + ')' : '') + ': ' + (e.headline || 'see CHANGELOG.md'));
-  let body = head + bullets.join('\n') + '\n';
-  if (body.length > NOTES_CAP) {
-    const kept: string[] = [];
-    let size = head.length;
-    for (const b of bullets) { if (size + b.length + 1 > NOTES_CAP - 200) break; kept.push(b); size += b.length + 1; }
-    body = head + kept.join('\n') + '\n- ...and ' + (bullets.length - kept.length) + ' more versions; see CHANGELOG.md\n';
-  }
-  return body;
-}
 
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -448,8 +380,8 @@ export interface Plan {
   tagExists: 'no' | 'same' | 'other'; stableAt: boolean; notes: string; skipped: string[];
   exception: Exception | null; floor: Floor; ridingAlong: number;
 }
-export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'NO_RELEASE_PR' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
-/** `sha` names the candidate on NO_RELEASE_PR, which comes after the candidate was picked but before a plan exists. */
+export type RefusalCode = 'NOTHING_NEW' | 'NO_GREEN_COMMIT' | 'NO_RELEASE_PR' | 'NOTES_MISSING' | 'REFUSED' | 'REFUSED_FLOOR' | 'FLOOR_UNKNOWN' | 'REFUSED_SECURITY' | 'REFUSED_REGRESSION';
+/** `sha` names the candidate on NO_RELEASE_PR and NOTES_MISSING, which come after the candidate was picked but before a plan exists. */
 export type PlanResult = { ok: true; plan: Plan } | { ok: false; code: RefusalCode; message: string; skipped?: string[]; next?: string; plan?: Plan; sha?: string };
 
 export interface PlanOptions {
@@ -567,9 +499,11 @@ export function planRelease(o: PlanOptions): PlanResult {
   }
   const changelog = git(['show', sha + ':CHANGELOG.md']);
   const date = git(['show', '-s', '--format=%cs', sha]).out;
-  const notes = releaseNotes({ repo, version, date, prevVersion, prevTag, entries: changelog.ok ? changelogEntries(changelog.out) : [], hotfix: Boolean(o.ref), first: !before, exception });
+  const written = releaseNotes({ repo, version, date, prevVersion, prevTag, entries: changelog.ok ? changelogEntries(changelog.out) : [], hotfix: Boolean(o.ref), first: !before, exception, sources: changeSources(git, before, sha) });
+  if (!written.ok) return { ok: false, code: 'NOTES_MISSING', sha, message: written.why };
+  const notes = written.body;
   const floor = floorStatus({ git, gh, repo, prevStable, sha, exception: exception?.kind ?? null, scheduled: Boolean(o.scheduled), now: o.now?.() ?? Date.now(), floorHours: o.floorHours });
-  const ridingAlong = Math.max(0, notes.split('\n').filter(l => l.startsWith('- **')).length - 1);
+  const ridingAlong = written.versions - 1;
   const plan: Plan = { sha, version, tag, date, hotfix: Boolean(o.ref), via, prevStable, prevVersion, prevTag, tagExists, stableAt: prevStable === sha, notes, skipped, exception, floor, ridingAlong };
   if (floor.verdict === 'refused' || floor.verdict === 'unknown') return { ok: false, code: floor.verdict === 'refused' ? 'REFUSED_FLOOR' : 'FLOOR_UNKNOWN', message: floor.message!, next: floor.next, plan };
   return { ok: true, plan };
@@ -621,7 +555,7 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
     'CANDIDATE: ' + p.sha + ' (' + p.date + ')' + (p.hotfix ? ' [hotfix: --ref]' : '') + ' gated by ' + p.via,
     'VERSION: ' + p.version + ' -> tag ' + p.tag + (p.tagExists === 'same' ? ' (exists at this commit)' : ''),
     'STABLE: ' + (p.stableAt ? 'already at ' + p.sha.slice(0, 12) + ' (finishing an earlier cut)' : (p.prevStable ? p.prevStable.slice(0, 12) + ' (v' + (p.prevVersion ?? '?') + ')' : 'none yet') + ' -> ' + p.sha.slice(0, 12)),
-    'NOTES: ' + p.notes.split('\n').filter(l => l.startsWith('- ')).length + ' version lines, ' + p.notes.length + ' chars',
+    'NOTES: ' + p.notes.split('\n').filter(l => l.startsWith('- ')).length + ' change lines, ' + p.notes.length + ' chars',
     p.floor.line,
   ];
   if (p.exception) lines.push(p.exception.kind.toUpperCase() + ': `' + p.exception.reason + '` (verified: ' + p.exception.evidence + ')', 'RIDING_ALONG: ' + p.ridingAlong + ' other version' + (p.ridingAlong === 1 ? '' : 's') + ' ship with the fix');
@@ -638,7 +572,7 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
 /**
  * The daily check (--daily, crew/scripts/release-cadence.ts): plan at the 24-hour important floor, then let
  * decideDaily pick the trigger, if any; NO_RELEASE_PR becomes a blocked decision only when a trigger
- * is due. decision is null when the plan's refusal stands on its own (a freeze, nothing green,
+ * is due, and NOTES_MISSING stops only a cut decision (no version to cut today needs no notes). decision is null when the plan's refusal stands on its own (a freeze, nothing green,
  * FLOOR_UNKNOWN, a non-fast-forward, a version stamped on an unrelated commit); lines then say which
  * important changes are still waiting on the gate. A plan that cleared while the daily check itself
  * cannot date stable is held as FLOOR_UNKNOWN, so a null decision never reaches a cut.
@@ -652,7 +586,7 @@ export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned
   const noReleasePr = !planned.ok && planned.code === 'NO_RELEASE_PR';
   const sha = planned.ok ? planned.plan.sha
     : planned.code === 'REFUSED_FLOOR' ? planned.plan?.sha
-    : noReleasePr ? planned.sha
+    : noReleasePr || (!planned.ok && planned.code === 'NOTES_MISSING') ? planned.sha
     : planned.code === 'NOTHING_NEW' ? prev ?? undefined
     : undefined;
   const moved = prev ? stableMovedAt(git, gh, repo, prev) : null;

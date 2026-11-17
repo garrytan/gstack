@@ -17,6 +17,7 @@ import {
   BACKSTOP_CHECK, CUT_WORKFLOW, FLOOR_HOURS, NEVER_GATING_WORKFLOWS, NOTES_CAP, NOTES_REF, REQUIRED_CHECK, SCHEDULED_GRACE_HOURS, changelogEntries, compareVersions, cutRelease, describePlan, floorStatus,
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
+import { changeLine, changeSources, changesIn, type NotesSources } from '../scripts/release-notes';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
@@ -128,10 +129,11 @@ describe('release-cut: planning', () => {
       f.shas['1.0.3']!.slice(0, 12) + ': ' + BACKSTOP_CHECK + ' is still running',
       f.shas['1.0.2']!.slice(0, 12) + ': red check runs: windows-free-tests',
     ]);
-    expect(r.plan.notes).toContain('First tagged release: the 2 versions, one line each');
-    expect(r.plan.notes).toContain('- **1.0.1** (2026-10-21): Second: the updater no longer skips.');
-    expect(r.plan.notes).toContain('- **1.0.0**');
-    expect(r.plan.notes).not.toContain('1.0.2');
+    expect(r.plan.notes).toContain('First tagged release: the 2 versions;');
+    expect(r.plan.notes).toContain('- Second: the updater no longer skips.');
+    expect(r.plan.notes).toContain('- First one.');
+    expect(r.plan.notes).not.toContain('Third fixes Windows.');
+    expect(r.plan.notes).not.toContain('see CHANGELOG');
     const lines = describePlan(r.plan, true);
     expect(lines.some(l => l.startsWith('DRY_RUN:'))).toBe(true);
     expect(lines).toContain('  git push --force-with-lease=refs/heads/stable: origin ' + f.shas['1.0.1'] + ':refs/heads/stable');
@@ -605,10 +607,10 @@ describe('release-cut: cutting, hotfixes and the forward-only stable', () => {
     expect(promo.plan.prevStable).toBe(f.shas['1.0.3']);
     expect(promo.plan.prevTag).toBe('v1.0.3');
     expect(promo.plan.notes).toContain('## gstack v1.0.4 (hotfix release)');
-    expect(promo.plan.notes).toContain('1 version since v1.0.3');
+    expect(promo.plan.notes).not.toContain('First tagged release');
     expect(promo.plan.notes).toContain('compare/v1.0.3...v1.0.4');
-    expect(promo.plan.notes).toContain('- **1.0.4**');
-    expect(promo.plan.notes).not.toContain('- **1.0.3**');
+    expect(promo.plan.notes).toContain('- Hotfix: the lease never blocks.');
+    expect(promo.plan.notes).not.toContain('Fourth trims the preamble.');
     const cut2 = cutRelease(promo.plan, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base });
     expect(cut2.ok, cut2.lines.join('\n')).toBe(true);
     expect(git(f.origin, 'rev-parse', 'refs/heads/stable')).toBe(hot);
@@ -643,7 +645,7 @@ describe('release-cut: cutting, hotfixes and the forward-only stable', () => {
       expect(again.plan.stableAt).toBe(true);
       expect(again.plan.tagExists).toBe('same');
       expect(again.plan.prevVersion).toBeNull();
-      expect(again.plan.notes).toContain('First tagged release: the 4 versions, one line each');
+      expect(again.plan.notes).toContain('First tagged release: the 4 versions;');
       expect(describePlan(again.plan, true)[2]).toBe('STABLE: already at ' + f.shas['1.0.3']!.slice(0, 12) + ' (finishing an earlier cut)');
     }
     const done = cutRelease(resumed, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base });
@@ -665,9 +667,9 @@ describe('release-cut: cutting, hotfixes and the forward-only stable', () => {
     if (!finish.ok) return;
     expect(finish.plan.sha).toBe(hot);
     expect(finish.plan.prevTag).toBe('v1.0.3');
-    expect(finish.plan.notes).toContain('1 version since v1.0.3');
+    expect(finish.plan.notes).toContain('- Hotfix: the lease never blocks.');
     expect(finish.plan.notes).toContain('compare/v1.0.3...v1.0.4');
-    expect(finish.plan.notes).not.toContain('- **1.0.3**');
+    expect(finish.plan.notes).not.toContain('Fourth trims the preamble.');
     const once = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
     expect(cutRelease(finish.plan, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base }).ok).toBe(true);
     expect(once.ok).toBe(true);
@@ -739,7 +741,7 @@ describe.skipIf(process.platform === 'win32')('release-cut: the workflow entry p
     const written = fs.readFileSync(summary, 'utf8');
     expect(written).toContain('- CANDIDATE: ' + f.shas['1.0.3']);
     expect(written).toContain('<details><summary>Release notes</summary>');
-    expect(written).toContain('- **1.0.3** (2026-10-23): Fourth trims the preamble.');
+    expect(written).toContain('- Fourth trims the preamble.');
     expect(execFileSync('git', ['ls-remote', f.origin, 'refs/heads/stable', 'refs/tags/v1.0.3'], { encoding: 'utf8', timeout: 30_000 }).trim()).toBe('');
     expect(fs.readFileSync(path.join(f.base, 'gh.log'), 'utf8')).not.toContain('gh release');
 
@@ -818,7 +820,7 @@ describe('release-cut: the 72-hour floor', () => {
     if (!schedEarly.ok) { expect(schedEarly.code).toBe('REFUSED_FLOOR'); expect(schedEarly.message).toContain('a scheduled run needs 69 h (72 h less 3 h cron grace)'); }
     const schedOk = plan(FLOOR_HOURS - SCHEDULED_GRACE_HOURS, true);
     expect(schedOk.ok, JSON.stringify(schedOk)).toBe(true);
-    if (schedOk.ok) expect(schedOk.plan.notes).toContain('## gstack v1.0.4 (regular release)');
+    if (schedOk.ok) expect(schedOk.plan.notes).toContain('## gstack v1.0.4\n');
     const handInGrace = plan(70);
     expect(handInGrace.ok).toBe(false);
     if (!handInGrace.ok) expect(handInGrace.code).toBe('REFUSED_FLOOR');
@@ -1052,9 +1054,10 @@ describe('release-cut: the security exception', () => {
     if (!next.ok) return;
     expect(next.plan.exception).toBeNull();
     expect(next.plan.prevTag).toBe('v1.0.4');
-    expect(next.plan.notes).toContain('## gstack v1.0.6 (regular release)');
-    expect(next.plan.notes).toContain('2 versions since v1.0.4');
-    expect(next.plan.notes).not.toContain('- **1.0.4**');
+    expect(next.plan.notes).toContain('## gstack v1.0.6\n');
+    expect(next.plan.ridingAlong).toBe(1);
+    expect(next.plan.notes).toContain('compare/v1.0.4...v1.0.6');
+    expect(next.plan.notes).not.toContain('Hardens tar extraction.');
     expect(next.plan.notes).not.toContain('Security release');
   }, 30_000);
 
@@ -1274,20 +1277,217 @@ describe.skipIf(process.platform === 'win32')('release-cut: refusals at the work
 });
 
 describe('release-cut: notes', () => {
-  test('changelog headlines are the bold first line of each entry; versions order numerically', () => {
-    const entries = changelogEntries('# Changelog\n\n## [1.91.221.0] - 2026-10-25\n\n**The updater no longer skips.** More.\n\n### Fixed\n- x\n\n## [1.91.99.0] - 2026-10-01\n\n| a | b |\n\n**Older.**\n');
-    expect(entries).toEqual([{ version: '1.91.221.0', date: '2026-10-25', headline: 'The updater no longer skips.' }, { version: '1.91.99.0', date: '2026-10-01', headline: 'Older.' }]);
-    expect(changelogEntries('## [1.0.0] - 2026-01-01\n\nPlain lead with **some** bold.\n')[0]!.headline).toBe('Plain lead with some bold.');
+  // A fixture CHANGELOG in the shapes main has held: fragment-era bullets with bold leads, a plain bullet,
+  // and an older per-version entry with "### Fixed" and "### Tests" headings and a paragraph lead.
+  const CHANGELOG = [
+    '# Changelog', '',
+    '## [2.1.0.0] - 2026-11-14', '',
+    '- **/review now reads Rust files (GST-101).** It used to skip them.', '',
+    '- **The installer no longer deletes your config.** It kept a copy.', '',
+    '- **/ship\'s outside voice now reads the whole diff.** Before, it read half.', '',
+    '- `gstack-redact` now says its 16 MiB limit. Reported by @someone (#90).', '',
+    '## [2.0.1.0] - 2026-11-10', '',
+    'Faster startup for every skill.', '',
+    '### Fixed', '- **`bin/x`**: the updater stops skipping a version. More text.', '',
+    '### Tests', '- The free suite is green again.', '',
+    '## [2.0.0.0] - 2026-11-01', '',
+    '**Already released.**', '',
+  ].join('\n');
+  const sources: NotesSources = {
+    versions: {
+      '2.1.0.0': { pr: null, files: ['CHANGELOG.md', 'VERSION'], fragments: [
+        { pr: 11, files: ['review/SKILL.md', 'changelog.d/rust.md'], changes: changesIn(['- **/review now reads Rust files (GST-101).** It used to skip them.']) },
+        { pr: 12, files: ['bin/gstack-install', 'changelog.d/config.md'], changes: changesIn(['- **The installer no longer deletes your config.** It kept a copy.']) },
+        { pr: 13, files: ['test/ship-review.test.ts', 'changelog.d/voice.md'], changes: changesIn(['### Changed', '', '- **/ship\'s outside voice now reads the whole diff.** Before, it read half.']) },
+      ] },
+      '2.0.1.0': { pr: 9, files: ['lib/startup.ts', 'VERSION', 'CHANGELOG.md'], fragments: [] },
+    },
+  };
+
+  // Value: protects=release bodies list each change in plain words with its PR, grouped, never a "see CHANGELOG.md" stub; fails_when=a bullet-only
+  // entry yields no line (the v1.99.x stubs), a change links the release commit's PR instead of its own, groups ignore headings or files, internal
+  // codes leak, or the compare link goes missing; why_new=the old notes printed one headline per version and fell back to "see CHANGELOG.md".
+  test('a fixture changelog becomes grouped lines with their PR links and the compare link at the bottom', () => {
+    const notes = releaseNotes({ repo: 'o/r', version: '2.1.0.0', date: '2026-11-14', prevVersion: '2.0.0.0', prevTag: 'v2.0.0.0', entries: changelogEntries(CHANGELOG), hotfix: false, sources });
+    expect(notes.ok).toBe(true);
+    if (!notes.ok) return;
+    expect(notes.versions).toBe(2);
+    expect(notes.body).toBe([
+      '## gstack v2.1.0.0', '',
+      "### What's new", '',
+      '- /review now reads Rust files. ([#11](https://github.com/o/r/pull/11))',
+      '- `gstack-redact` now says its 16 MiB limit.',
+      '- Faster startup for every skill. ([#9](https://github.com/o/r/pull/9))', '',
+      '### Fixes', '',
+      '- The installer no longer deletes your config. ([#12](https://github.com/o/r/pull/12))',
+      '- `bin/x`: the updater stops skipping a version. ([#9](https://github.com/o/r/pull/9))', '',
+      '### Changes for maintainers', '',
+      "- /ship's second-model review now reads the whole diff. ([#13](https://github.com/o/r/pull/13))",
+      '- The free suite is green again. ([#9](https://github.com/o/r/pull/9))', '',
+      '[Compare v2.0.0.0...v2.1.0.0](https://github.com/o/r/compare/v2.0.0.0...v2.1.0.0) · [Full changelog](https://github.com/o/r/blob/v2.1.0.0/CHANGELOG.md)', '',
+    ].join('\n'));
+    expect(notes.body).not.toContain('see CHANGELOG');
+    expect(notes.body).not.toContain('Already released.');
     expect(compareVersions('1.91.221.0', '1.91.99.0')).toBeGreaterThan(0);
     expect(compareVersions('1.91.9.0', '1.91.10.0')).toBeLessThan(0);
   });
 
-  test('a span of a thousand versions stays under the notes cap and says how many were cut', () => {
-    const entries = Array.from({ length: 1000 }, (_, i) => ({ version: '1.91.' + (i + 1) + '.0', date: '2026-10-20', headline: 'Headline number ' + i + ' with enough words to take some room in the body.' }));
-    const notes = releaseNotes({ repo: 'o/r', version: '1.91.1000.0', date: '2026-10-26', prevVersion: '1.91.0.0', prevTag: null, entries, hotfix: false });
-    expect(notes.length).toBeLessThanOrEqual(NOTES_CAP);
-    expect(notes).toMatch(/- \.\.\.and \d+ more versions; see CHANGELOG\.md/);
-    expect(notes).toContain('1000 versions since v1.91.0.0');
-    expect(notes.split('\n')[0]).toBe('## gstack v1.91.1000.0 (regular release)');
+  // Value: protects=a security fix's release line keeps its CVE or GHSA advisory id while internal issue codes still drop; fails_when=the issue-code
+  // stripper removes an advisory id; why_new=the stripper matched any CODE-123 in parentheses; seam=none; no_claim=GitHub's advisory formats beyond these two.
+  test('a change line keeps CVE and GHSA ids and drops internal issue codes', () => {
+    expect(changeLine('**Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).** More.')).toBe('Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).');
+    expect(changeLine('**The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).** More.')).toBe('The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).');
+    expect(changeLine('**/review now reads Rust files (GST-101).** More.')).toBe('/review now reads Rust files.');
+  });
+
+  // Value: protects=a cut fails loudly instead of publishing a stub; fails_when=a version with an empty entry or a span with no entry still
+  // yields notes; why_new=the old notes always rendered, padding gaps with "see CHANGELOG.md".
+  test('a version with no change or a missing entry refuses instead of publishing a stub', () => {
+    const base = { repo: 'o/r', date: '2026-11-14', prevVersion: '2.0.0.0', prevTag: 'v2.0.0.0', hotfix: false };
+    const hollow = releaseNotes({ ...base, version: '2.1.0.0', entries: changelogEntries('## [2.1.0.0] - 2026-11-14\n\n## [2.0.5.0] - 2026-11-12\n\n- One change.\n') });
+    expect(hollow).toEqual({ ok: false, why: 'no change to list in the CHANGELOG entry of v2.1.0.0; write the entry before cutting the release' });
+    const missing = releaseNotes({ ...base, version: '2.1.0.0', entries: changelogEntries('## [2.0.0.0] - 2026-11-01\n\n- Old.\n') });
+    expect(missing).toEqual({ ok: false, why: 'CHANGELOG.md at the release has no entry for v2.1.0.0 or any version since v2.0.0.0' });
+  });
+
+  // Value: protects=a release names the version it ships, never an older one's changes under its heading; fails_when=a span holding only an older
+  // entry than the release version still publishes; why_new=the span filter took any entry in (prev, version]; seam=none; no_claim=folded versions.
+  test('a release version with no entry of its own refuses even when an older version in the span has one', () => {
+    const notes = releaseNotes({ repo: 'o/r', version: '2.1.0.0', date: '2026-11-14', prevVersion: '2.0.0.0', prevTag: 'v2.0.0.0', hotfix: false, entries: changelogEntries('## [2.0.5.0] - 2026-11-12\n\n- One change.\n\n## [2.0.0.0] - 2026-11-01\n\n- Old.\n') });
+    expect(notes).toEqual({ ok: false, why: 'CHANGELOG.md at the release has no entry for v2.1.0.0, only for the older v2.0.5.0; write the entry before cutting the release' });
+  });
+
+  // Value: protects=a fragment links the PR of the commit that added it even when its own text cites another PR; fails_when=the lookup reads the
+  // commit's patch along with its subject and takes the last "(#N)" it finds; why_new=git log with --diff-merges printed the patch; seam=a real git repo.
+  test('a fragment whose body cites another PR still links the PR of the commit that added it', () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.seed, 'changelog.d'), { recursive: true });
+    fs.writeFileSync(path.join(f.seed, 'changelog.d', 'redact.md'), '- **gstack-redact now says its size limit.** It follows the limit #7 added (#7).\n');
+    git(f.seed, 'add', '-A');
+    git(f.seed, 'commit', '-q', '-m', 'Say the redact size limit (#42)');
+    fs.writeFileSync(path.join(f.seed, 'CHANGELOG.md'), fs.readFileSync(path.join(f.seed, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', '# Changelog\n\n## [1.0.4] - 2026-10-24\n\n- **gstack-redact now says its size limit.** It follows the limit #7 added (#7).\n'));
+    fs.rmSync(path.join(f.seed, 'changelog.d', 'redact.md'));
+    git(f.seed, 'add', '-A');
+    git(f.seed, 'commit', '-q', '-m', 'v1.0.4 release (#43)');
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    f.refresh();
+    const sources = changeSources(f.git, f.shas['1.0.3']!, 'origin/main');
+    expect(sources.versions['1.0.4']?.pr).toBeNull();
+    expect(sources.versions['1.0.4']?.fragments.map(s => s.pr)).toEqual([42]);
+  });
+
+  // Value: protects=planRelease reads each change's PR from git and refuses a cut whose CHANGELOG lacks the version; fails_when=the fragment's
+  // own PR is not found along main, the release commit's PR is linked instead, or a missing entry still cuts; why_new=the notes never read git.
+  test('a cut links the PR that added each fragment, not the release commit, and refuses a version with no entry', () => {
+    const f = fixture();
+    const first = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(cutRelease(first.plan, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base }).ok).toBe(true);
+    const fragment = '- **The lease no longer blocks a push.** It waits instead.\n';
+    fs.mkdirSync(path.join(f.seed, 'changelog.d'), { recursive: true });
+    fs.writeFileSync(path.join(f.seed, 'changelog.d', 'lease.md'), fragment);
+    fs.writeFileSync(path.join(f.seed, 'lease.ts'), 'export const lease = 1;\n');
+    git(f.seed, 'add', '-A');
+    git(f.seed, 'commit', '-q', '-m', 'Stop the lease blocking a push (#42)');
+    const changelog = fs.readFileSync(path.join(f.seed, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', '# Changelog\n\n## [1.0.4] - 2026-10-24\n\n' + fragment);
+    fs.writeFileSync(path.join(f.seed, 'CHANGELOG.md'), changelog);
+    fs.writeFileSync(path.join(f.seed, 'VERSION'), '1.0.4\n');
+    fs.rmSync(path.join(f.seed, 'changelog.d', 'lease.md'));
+    git(f.seed, 'add', '-A');
+    git(f.seed, 'commit', '-q', '-m', 'v1.0.4 release (#43)');
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    const stamp = git(f.seed, 'rev-parse', 'HEAD');
+    f.refresh();
+    const r = planRelease({ repo: f.repo, ref: stamp, git: f.git, gh: f.gh, now: pastFloor });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.notes).toContain('### Fixes\n\n- The lease no longer blocks a push. ([#42](https://github.com/o/r/pull/42))');
+    expect(r.plan.notes).not.toContain('#43');
+
+    fs.writeFileSync(path.join(f.seed, 'VERSION'), '1.0.5\n');
+    fs.writeFileSync(path.join(f.seed, 'CHANGELOG.md'), changelog.replace('# Changelog\n', '# Changelog\n\n## [1.0.5] - 2026-10-25\n\n'));
+    git(f.seed, 'commit', '-q', '-am', 'v1.0.5 with an empty entry');
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    const bare = git(f.seed, 'rev-parse', 'HEAD');
+    f.refresh();
+    const refused = planRelease({ repo: f.repo, ref: bare, git: f.git, gh: f.gh, now: pastFloor });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect([refused.code, refused.message]).toEqual(['NOTES_MISSING', 'no change to list in the CHANGELOG entry of v1.0.5; write the entry before cutting the release']);
+  });
+  // Value: protects=each change links the PR whose squash commit added its own fragment file; fails_when=a change links another fragment's PR because
+  // its words appear inside that fragment, or a fragment file name reused after a release links the later PR; why_new=the lookup matched CHANGELOG
+  // prose against fragment bodies and took a file name's newest add; seam=a real git repo; no_claim=merge-commit histories.
+  test('each change links the PR that added its own fragment file, even with overlapping words or a reused fragment name', () => {
+    const f = fixture();
+    const first = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(cutRelease(first.plan, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base }).ok).toBe(true);
+    fs.mkdirSync(path.join(f.seed, 'changelog.d'), { recursive: true });
+    const commit = (subject: string, files: Record<string, string | null>) => {
+      for (const [file, text] of Object.entries(files)) {
+        if (text === null) fs.rmSync(path.join(f.seed, file));
+        else fs.writeFileSync(path.join(f.seed, file), text);
+      }
+      git(f.seed, 'add', '-A');
+      git(f.seed, 'commit', '-q', '-m', subject);
+    };
+    const lease = '- **The lease no longer blocks a push.**\n';
+    const retry = '- **The lease retries once.** It builds on the fix where the lease no longer blocks a push.\n';
+    const tar = '- **The tar path is safe again.**\n';
+    commit('Stop the lease blocking a push (#42)', { 'changelog.d/fix.md': lease });
+    commit('Retry the lease once (#44)', { 'changelog.d/a-retry.md': retry });
+    let changelog = fs.readFileSync(path.join(f.seed, 'CHANGELOG.md'), 'utf8').replace('# Changelog\n', '# Changelog\n\n## [1.0.4] - 2026-10-24\n\n' + retry + '\n' + lease);
+    commit('v1.0.4 release (#43)', { 'CHANGELOG.md': changelog, VERSION: '1.0.4\n', 'changelog.d/fix.md': null, 'changelog.d/a-retry.md': null });
+    commit('Make the tar path safe (#50)', { 'changelog.d/fix.md': tar });
+    changelog = changelog.replace('# Changelog\n', '# Changelog\n\n## [1.0.5] - 2026-10-25\n\n' + tar);
+    commit('v1.0.5 release (#51)', { 'CHANGELOG.md': changelog, VERSION: '1.0.5\n', 'changelog.d/fix.md': null });
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    const stamp = git(f.seed, 'rev-parse', 'HEAD');
+    f.refresh();
+    const r = planRelease({ repo: f.repo, ref: stamp, git: f.git, gh: f.gh, now: pastFloor });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    const link = (n: number) => '([#' + n + '](https://github.com/o/r/pull/' + n + '))';
+    expect(r.plan.notes).toContain('- The lease no longer blocks a push. ' + link(42));
+    expect(r.plan.notes).toContain('- The lease retries once. ' + link(44));
+    expect(r.plan.notes).toContain('- The tar path is safe again. ' + link(50));
+    expect(r.plan.notes.match(/\/pull\//g)?.length).toBe(3);
+  });
+
+  // Value: protects=a long span still publishes, cut to the cap with a pointer to the full changelog; fails_when=notes over the cap refuse the
+  // cut, run past the cap, or drop changes without saying how many; why_new=the cap refused the whole release; seam=none; no_claim=GitHub's own limit.
+  test('notes over the cap keep the newest changes and send the rest to the full changelog', () => {
+    const entries = Array.from({ length: 1000 }, (_, i) => ({ version: '2.0.' + (i + 1) + '.0', date: '2026-11-10', changes: [{ text: 'Change number ' + i + ' with enough words to take some room in the body.', heading: '' }] }));
+    const long = releaseNotes({ repo: 'o/r', date: '2026-11-14', prevVersion: '2.0.0.0', prevTag: 'v2.0.0.0', hotfix: false, version: '2.0.1000.0', entries });
+    expect(long.ok).toBe(true);
+    if (!long.ok) return;
+    expect(long.versions).toBe(1000);
+    expect(long.body.length).toBeLessThanOrEqual(NOTES_CAP);
+    expect(long.body).toContain('- Change number 999 with enough words');
+    expect(long.body).not.toContain('- Change number 0 with');
+    const more = /\n(\d+) more changes are in the \[full changelog\]\(https:\/\/github\.com\/o\/r\/blob\/v2\.0\.1000\.0\/CHANGELOG\.md\)\.\n/.exec(long.body);
+    expect(more).not.toBeNull();
+    expect(long.body.match(/^- Change number/gm)!.length + Number(more![1])).toBe(1000);
+    expect(long.body.trimEnd().endsWith('[Full changelog](https://github.com/o/r/blob/v2.0.1000.0/CHANGELOG.md)')).toBe(true);
+  });
+
+  // Value: protects=a "## " heading a fragment carries into the CHANGELOG keeps every change after it in that version; fails_when=the version's
+  // section ends at that heading and later changes vanish from the notes; why_new=any "## " line ended a version; seam=none; no_claim=lib/restamp.ts.
+  test('a "## " heading inside a version keeps the changes after it', () => {
+    const entries = changelogEntries('# Changelog\n\n## [2.1.0.0] - 2026-11-14\n\n- **One.**\n\n## Notes for contributors\n\n- **Two.**\n\n## [2.0.0.0] - 2026-11-01\n\n- Old.\n');
+    expect(entries.map(e => [e.version, e.changes.map(c => [c.text, c.heading])])).toEqual([
+      ['2.1.0.0', [['**One.**', ''], ['**Two.**', 'Notes for contributors']]],
+      ['2.0.0.0', [['Old.', '']]],
+    ]);
+  });
+
+  // Value: protects=a parenthetical that only starts like an issue code (SHA-256 ..., UTF-8 ...) stays in the line while a list of issue codes still
+  // drops; fails_when=the stripper removes "(SHA-256 of its bytes, ...)"; why_new=the stripper dropped any parenthetical opening with CODE-123;
+  // seam=none; no_claim=a bare "(SHA-256)", which has an issue code's shape.
+  test('a change line keeps a parenthetical that only starts like an issue code', () => {
+    expect(changeLine('**Receipts now pin each file (SHA-256 of its bytes, not its name).** More.')).toBe('Receipts now pin each file (SHA-256 of its bytes, not its name).');
+    expect(changeLine('**Reports lead with failures (GST-1455, GST-2349).** More.')).toBe('Reports lead with failures.');
   });
 });

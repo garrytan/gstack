@@ -55,6 +55,7 @@ on:
     paths:
       - '.github/workflows/weekly-release.yml'
       - 'crew/scripts/release-cut.ts'
+      - 'crew/scripts/release-notes.ts'
       - 'crew/scripts/release-cadence.ts'
       - 'lib/changelog-fragments.ts'
 
