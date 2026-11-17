@@ -2589,6 +2589,127 @@ tree, taking no lock and pushing nothing.
 <a id="land-direct"></a>
 ### `land --pin`: merge at the PR's own green head (`merge: direct`)
 
+<a id="land-normal"></a>
+#### Merge with land, even in a repo with one maintainer
+
+`gstack-ship-queue land --pr <n> --pin <sha>` is the normal way to merge a PR
+in any repository that uses gstack, including one with a single maintainer and
+nobody coordinating merges. Whoever merges runs it, with `<sha>` set to the
+commit they reviewed. It merges that exact commit or nothing, and afterward it
+checks that main holds what was reviewed.
+
+**Set two keys first.** Land reads `.gstack/ship-policy.json` from the base
+branch and refuses with `QUEUE_NOT_READY` unless both are set
+(`landDirect` in `lib/ship-queue-land-direct.ts`). Neither is on by default
+(`DEFAULT_POLICY` in `lib/ship-policy.ts` has `merge: "train"` and
+`changelog_fragments: null`), which is why land refuses in most repositories
+until someone adds them:
+
+- `"merge": "direct"` tells gstack each PR merges on its own, at its own green
+  head. Land refuses under any other value.
+- `"changelog_fragments"` makes each PR carry its changelog entry as a file in
+  `changelog.d/` instead of editing VERSION or CHANGELOG.md, so two PRs never
+  fight over the next version. `gstack-ship-queue ready` writes the READY note
+  land needs only when this key is set, so land refuses `merge: direct`
+  without it.
+
+The smallest policy that works:
+
+```json
+{
+  "merge": "direct",
+  "changelog_fragments": { "dir": "changelog.d" },
+  "min_gstack_version": "1.95.0.0"
+}
+```
+
+`min_gstack_version` is required because `merge` arrived in gstack 1.95.0.0,
+and an older gstack has to refuse the file by name rather than misread it.
+Every key you leave out keeps its default. Check the file with
+`gstack-ship-policy validate`. Land reads the policy from the base branch, so
+the PR that adds it merges by the [fallback](#land-fallback) below; land works
+from the next PR on. With PRs already open, run `land --census` first
+([migrating to fragments](#migrating-to-fragments)).
+
+**Each PR, start to finish:**
+
+```bash
+/ship                                         # review, tests, the changelog.d entry, the receipt in the PR body
+gstack-pregate run --allow-repo-commands      # once CI is green at the head
+gstack-ship-queue ready --pr 42 --no-screen   # records the READY note land looks for
+gstack-ship-queue land --pr 42 --pin <head sha>
+```
+
+Add `--allow-repo-commands` to `land` when the policy lists
+`land.merged_checks` (below). Versions don't move per PR. When you want a
+release, `gstack-release-stamp open` opens a release PR that sets the version
+and folds the `changelog.d` entries into CHANGELOG.md, and you land it the
+same way ([the release PR](#release-stamp)).
+
+**What land already checks, so you don't.** Before it merges, land refuses
+unless:
+
+- the PR's head is still the pin (`QUEUE_LAND_PIN_MOVED`);
+- the PR is open, targets the base branch, and comes from this repository, not
+  a fork;
+- every check at the pin is green, with none pending;
+- GitHub reports the PR `MERGEABLE` and `CLEAN`;
+- the /ship receipt in the PR body and a READY note are both bound to the pin.
+
+After merging, it checks that main's tree is exactly the pin merged onto the
+commit before it (`QUEUE_LAND_UNVERIFIED` otherwise). A script that reads
+these before calling land adds nothing; read land's output instead. Every
+check, with its refusal code, is in [the table below](#land-direct-contract).
+
+<a id="land-fallback"></a>
+**When a repo can't use land.** Check the receipt with the read-only half of
+land, then merge pinned to the same commit:
+
+```bash
+gstack-ship-queue verify --pr 42 --pin <sha>   # receipt bound to <sha>, gate dispositions accepted; merges nothing
+gh pr view 42 --json state,baseRefName,headRefOid,mergeable,mergeStateStatus
+gh pr checks 42                                # every check passed, none pending
+gh pr merge 42 --squash --match-head-commit <sha> \
+  --subject "<PR title> (#42)" \
+  --body "<what changed for a user, why, anything the reader must do>"
+gh pr view 42 --json state,mergeCommit         # MERGED, with its merge commit
+```
+
+`verify --pin` doesn't read CI or GitHub's merge state, so the two `gh`
+reads replace those checks. `--match-head-commit` makes GitHub refuse the
+merge if anyone pushed after you checked. Use `--merge` instead of
+`--squash` where branch rules allow only merge commits. Keep the subject and
+body plain: they become main's history.
+
+<a id="land-traps"></a>
+**Known traps.**
+
+- **GitHub merge queues.** Land doesn't support them. With a queue on the base
+  branch, `gh pr merge` only queues the PR and can exit 0 even when the queue
+  later drops it, so confirm the PR reads `MERGED` instead of trusting the
+  exit code.
+- **Migration collisions.** Two PRs can add the same migration number and both
+  pass CI, and land doesn't look at migrations. The check is
+  `gstack-pregate regate --against <gated head> --bundle <evidence-bundle.json> --pr <n>`
+  with the policy's `migrations` key set, which compares the branch's new
+  numbers with main and every open PR ([regate](pregate.md#regate)).
+- **`bump`.** Without `changelog_fragments`, the default `bump: ask` stops
+  an unattended /ship at `BUMP_ANSWER_REQUIRED`, so a repo on the fallback
+  sets `"bump": "patch"`. With fragments a PR never writes a version and
+  `bump` only sizes the release (PATCH under `patch`, MICRO otherwise), and
+  `bump: never` is refused next to `changelog_fragments`, so drop it before
+  switching.
+- **CI results belong to one commit.** Checks, the /ship receipt and the READY
+  note each name a sha, so after any push, a merge of main included, land
+  refuses until checks are green and `ready` has run at the new head (the
+  receipt itself can [carry across a base merge](#carrying-a-receipt-across-a-base-merge-or-a-test-only-fix)).
+  A `pull_request` CI run tests GitHub's merge commit rather than your branch,
+  so on a branch behind main `gstack-ci-carry` reports `tree_mismatch`:
+  dispatch the workflow on the branch (`gh workflow run <workflow> --ref <branch>`).
+
+<a id="land-direct-contract"></a>
+#### Every check land makes
+
 Under `"merge": "direct"` in the base policy, the Captain merges one READY PR
 at a time with `gstack-ship-queue land --pr <n> --pin <sha>`, where `<sha>`
 is the head the READY names. There's no train and no stamp commit. GitHub's
@@ -2948,3 +3069,59 @@ PR whose check is red or missing. A PR opened before the workflow existed has no
 run until its title or body is edited or a commit is pushed; do one of those
 before landing it. The workflow reads the PR body from the event file, not an
 environment variable, so a very long body still reaches the checker.
+
+## Approval classes
+
+`.gstack/approval-classes.json` lists change classes that need an explicit
+owner approval before `gstack-ship-receipt write` emits a ship receipt.
+`gstack-approval-classes` reads `.gstack/approval-classes.json` only from
+`origin/<base>` so a branch cannot weaken or drop its own classes.
+
+### Configuration
+
+Each entry in `classes` has a `name` (`^[a-z][a-z0-9-]{0,39}$`) and one or more
+matchers:
+
+| Key | Meaning |
+|-----|---------|
+| `name` | Short kebab-case identifier printed as `<class>@<digest12>` in scopes. |
+| `description` | Optional summary of why the class requires owner approval. |
+| `paths` | Glob patterns matched against changed file paths. |
+| `patterns` | Literal substrings matched against added lines in the diff. |
+| `allowed_paths` | Glob patterns excluded from this class's matches. |
+| `migrations` | When `true`, matches the ship policy's `migrations` files. |
+
+### Commands
+
+```bash
+gstack-approval-classes init [--force]
+gstack-approval-classes validate
+gstack-approval-classes check [--base <ref>] [--head <ref>] [--diff-base <sha>] [--json]
+```
+
+- `init` writes an example `.gstack/approval-classes.json` with `$schema` set
+  to `https://github.com/garrytan/gstack/docs/ship-policy.md#approval-classes`.
+- `validate` checks `.gstack/approval-classes.json` syntax and limits, exiting
+  `3` (`APPROVAL_CLASSES_INVALID`) on invalid fields.
+- `check` scans the diff and prints `APPROVAL_CLASS: <class> <file>:<line>` and
+  `APPROVAL_SCOPE: <class>@<digest12>` for each matched class, ending with
+  `APPROVAL_CLASSES: ok | found=<n> | none`. It exits `0` when no classes match
+  (or no config exists on base), `1` when classes match (`APPROVAL_CLASS_FOUND`),
+  and `3` when the base config is invalid or unavailable.
+
+### Citations
+
+When `gstack-approval-classes check` finds hits, `gstack-ship-receipt write`
+requires an owner citation for every matched scope (otherwise exiting with
+`APPROVAL_CITATION_MISSING`). Cite the approval in the PR body or plan using:
+
+```text
+Approved by <owner> <YYYY-MM-DD> via <plan sha|comment or review URL|ref> [for <class>@<digest12>]
+```
+
+The citation must be authored by a ship-policy maintainer and bound to the
+current `<class>@<digest12>` token (or the class name plus every affected path),
+so approvals for earlier revisions or unrelated work do not carry over.
+See [troubleshooting.md](troubleshooting.md#approval-classes-invalid) for
+error codes and remediation.
+

@@ -99,6 +99,11 @@ Reply in the language of the user's latest message unless asked otherwise. Code,
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
 
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:

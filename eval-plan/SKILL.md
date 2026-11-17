@@ -24,7 +24,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/eval-plan/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `227aca067dd3` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/eval-plan/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -134,9 +134,11 @@ Write (or open) the preregistration file. Each section is required and must be f
 
 | Section | What it holds |
 |---|---|
-| Bars | `lesson:` the public lesson the run is after, then one line per metric: name, pass bar, direction, what a miss means for the decision |
+| Bars | `lesson:` the public lesson the run is after, then one line per metric: name, pass bar, direction |
+| Decisions | one `if <result>: <what we do>` line per way the run can come out, at least two, with different actions |
 | Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
+| Scoring | `judge: none` or the judge model with `labels:` and `agreement:`; with two or more arms, `paired: yes`, `interval: 95%`, `mdd:` |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
 | Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
@@ -169,7 +171,22 @@ fixture is built to produce. The summarizer's last stdout line is one JSON objec
 Then run `prereg --check <path> --allow-repo-commands`. Without the flag, the summarizer is
 listed and the check exits 3. Every `PREREG_DIAGNOSTIC:` line must say `ok`.
 `PREREG_DIAGNOSTIC_UNTESTED` (exit 1) means a count, a missing diagnostic or an
-undeclared one does not match its definition. Fix that before you freeze.
+undeclared one does not match its definition. Fix that before you freeze. Any count
+the results may report as zero is declared here with a planted case: its fixture holds
+at least one, so `expected` is 1 or more and the summarizer is shown to find it.
+
+**Result checks** (docs/TESTING_INTERNALS.md#result-checks). `prereg --check` runs them;
+`PREREG_INCOMPLETE` names the line that fails:
+
+1. **Decisions before spend.** Each possible result names what we do differently. If
+   every result leads to the same action, the eval changes nothing: do not run it.
+2. **A checked judge.** A model judge comes from another model family than every arm,
+   is checked against at least 40 hand-labelled outputs (never held-out rows) at a
+   kappa of 0.6 or better, and the comparison is paired with a 95% interval and its
+   smallest detectable difference stated now.
+
+A `frozen: YYYY-MM-DD` line before 2026-11-15 keeps the rules it was frozen under
+(`result_checks=exempt`).
 
 ### Step 1b: Arms and their price
 
@@ -284,6 +301,18 @@ the preregistration, when `status=budget_exhausted`, or when `verdict=exceeds`.
 
 ## Step 4: The approval ask
 
+With a model judge, check it before asking. Label at least the preregistered number of
+outputs by hand as `{"id", "human", "judge"}` JSONL (development or calibration rows),
+then:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan judge --check <prereg-path> --labels <labels-path>
+```
+
+`JUDGE_AGREEMENT: ok` continues. `EVAL_JUDGE_UNCHECKED` (exit 1) means too few labels,
+one class, or kappa below the bar: replace the judge or fix its prompt, then
+relabel; never lower the bar.
+
 Price every paid gate the plan names (a benchmark or eval command that spends) from the
 repo's call-plan file; nothing is executed (`docs/eval-calls.md` in gstack). The gate
 command is free text, so it reaches the pricer only as a file:
@@ -309,7 +338,8 @@ Each `GATE_PRICE:` line goes into the ask. `EVAL_GATE_UNPRICED`, `EVAL_PLAN_STAL
 `--allow-unpriced "<reason>"` only on the owner's word.
 
 Present, in this order and nothing before it: the `PILOT_PROJECTION:` line, the spend
-table, each gate's `GATE_PRICE:` line, the pilot's per-bar results, and the preregistration's stop rules. Then ask one
+table, each gate's `GATE_PRICE:` line, the pilot's per-bar results, the `JUDGE_AGREEMENT:`
+line, the preregistration's Decisions lines, and its stop rules. Then ask one
 question with the projection as the recommended option only when `verdict=within`:
 
 - A) Run `<total-items>` items at the projected cost (recommended when within the cap)
@@ -328,12 +358,20 @@ from the Arms section, each `<model>#no-gstack` row beside its variants. Before 
 leaves the run (a report, a READY block, a PR body), check it:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path>
+~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path> [--labels <labels-path>]
 ```
 
-`RESULTS: ok` lets the numbers go out. `EVAL_REPORT_NO_GSTACK_ROW` (exit 1) names the arm
-whose filled row is missing from the table that holds the others; add it and rerun. A
-preregistration with `stack: none` needs no row.
+`RESULTS: ok` lets the numbers go out. Each refusal exits 1:
+
+- `EVAL_REPORT_NO_GSTACK_ROW` names the arm whose filled row is missing from the table
+  that holds the others; add it. A preregistration with `stack: none` needs no row.
+- `EVAL_JUDGE_UNCHECKED`: a model judge's numbers count only with `--labels` passing.
+- `EVAL_REPORT_UNPLANTED_ZERO`: a zero in any results table, in a column not named after
+  a Diagnostics counter with a planted case. Declare and run it, or report the zero as
+  unverified, outside the tables.
+- `EVAL_REPORT_NO_ANSWER_ONLY`: a failures column needs an `answer-only` column beside
+  it (failures by the grader's own rule on the final answer); a broader count can rise
+  while that one stays flat.
 
 The results file opens with two or three plain takeaways ("We learned X. You should do
 X."): what works first, then what didn't, with its number. Cost appears only as part of a
