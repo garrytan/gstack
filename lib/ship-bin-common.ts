@@ -221,15 +221,21 @@ export function recordCiTimeout(policy: Record<string, any> | null, base: string
  * Run each lane, at most `concurrency` at a time; results keep the lanes' order. With `base`, a lane the base branch maps in
  * `ship_lanes_from` is carried from a verified CI run at this exact tree when one exists; every mapped lane's carry is
  * decided before any lane runs. With `hold`, a mapped lane that does not carry stops the call: nothing runs, and every
- * lane that did not carry comes back `held` (GST-3019: --tests-only never starts a long lane on its own). Every other
+ * lane that did not carry comes back `held` (GST-3019: --tests-only never starts a long lane on its own). Under `hold`,
+ * gstack-ci-carry find checks every mapped lane read-only first, so a refusal stops before any lane's record-ci runs its
+ * per_file remainder or exception preflight here; only the refused lanes go to record-ci, for a cleared remote gate. Every other
  * lane runs through gstack-evidence run --reuse (a pass at this tree, command and runtime is reused; `reuse: false` forces a run).
  */
 export async function runLanes(cwd: string, list: { label: string; command: string }[], concurrency = Infinity, opts: { base?: string; reuse?: boolean; hold?: boolean } = {}): Promise<LaneResult[]> {
   const out: LaneResult[] = [];
   const mapped = opts.base ? mappedLanes(cwd, opts.base, list) : new Map<string, ShipLaneMapping>();
-  const carries = list.map(l => (mapped.has(l.label) ? carryLane(cwd, opts.base!, l) : null));
+  const refused = list.map(l => !!opts.hold && mapped.has(l.label) && bin(cwd, 'gstack-ci-carry', ['find', '--base', opts.base!, '--command', l.command, '--allow-repo-commands']).status !== 0);
+  const carries = list.map((l, i) => (refused[i] ? carryLane(cwd, opts.base!, l) : null));
   const done = (c: LaneResult | null) => !!(c?.carried || c?.remoteGate);
-  if (opts.hold && carries.some(c => c && !done(c))) return list.map((l, i) => { const c = carries[i]!; return done(c) ? c : { ...(c ?? { label: l.label, exit: null, testsRan: 'unknown', log: '-' }), held: true }; });
+  const held = () => list.map((l, i) => { const c = carries[i]; return c && done(c) ? c : { ...(c ?? { label: l.label, exit: null, testsRan: 'unknown', log: '-' }), held: true as const }; });
+  if (opts.hold && carries.some(c => c && !done(c))) return held();
+  for (const [i, l] of list.entries()) if (!carries[i] && mapped.has(l.label)) carries[i] = carryLane(cwd, opts.base!, l);
+  if (opts.hold && carries.some(c => c && !done(c))) return held();
   let next = 0;
   const worker = async () => {
     while (next < list.length) {

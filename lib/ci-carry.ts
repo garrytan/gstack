@@ -70,7 +70,8 @@ export function carriedFromLine(runs: RunEvidence[], head: string): string | und
 
 /**
  * The newest run of `profile` on `heads` (HEAD, then the commits with its exact tree) that verifies; a refusal lists each
- * candidate's reason, newest first. A newer red or running run on any of them vetoes.
+ * candidate's reason, newest first. A newer red or running run on any of them vetoes. A docs-only skipped run at another
+ * commit is owed nothing only when HEAD itself is docs-only against the base too.
  */
 function newestVerified(src: RunSource, name: string, profile: RunProfile, heads: string[], jobs: string[]): { ok: true; evidence: RunEvidence } | CarryRefused {
   if (jobs.length) profile = { ...profile, jobs: [...new Set([...profile.jobs, ...jobs])] };
@@ -78,8 +79,9 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, heads
   const twins = heads.slice(1).map(h => h.slice(0, 12));
   if (!listed.length) return no('no_run', `no ${profile.workflow} run (${profile.events.join(', ')}) on ${heads[0]!.slice(0, 12)}${twins.length ? ` or on ${twins.join(', ')}, which git reads as the same tree` : ''} yet`);
   const refusals: string[] = [];
+  const docsOnly = src.docsOnly && ((sha: string) => src.docsOnly!(sha) && (sha === heads[0] || src.docsOnly!(heads[0]!)));
   for (const run of listed) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly: src.docsOnly });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly });
     if (v.ok) return v;
     refusals.push(`run ${run.id}: ${v.reason}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
   }

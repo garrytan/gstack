@@ -544,6 +544,17 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(runs(f, 'free-runs')).toBe(1);
   });
 
+  // Value: protects=--tests-only decides its hold before any lane's record-ci runs a per_file remainder here (GST-3019 review: the hold ran
+  //   remainders, then said nothing ran); fails_when=the carrying lane's skipped file runs while another mapped lane refuses; why_new=GST-3019; seam=fake gh, gstack-ci-carry find
+  test('a refused mapped lane stops --tests-only before another lane runs its skipped remainder here', () => {
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: PER(0) }, [UNIT]: { profiles: ['ci/free'], jobs: ['lint'] } } }, null, 2) + '\n' }); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const held = preflight(f);
+    expect(held.status, held.stdout + held.stderr).toBe(3);
+    expect(lineOf(held.stdout, 'STOP')).toMatch(/^STOP: SHIP_LANE_NOT_CARRIED: lane unit did not carry /);
+    expect([args(f), runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual(['', 0, 0]);
+  });
+
   test('a remainder file that registers no test here carries nothing: the lane runs whole', () => {
     const zero = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: "printf ' 0 pass\\n 0 fail\\nRan 0 tests across 1 file. [1.00ms]\\n' >&2 # {files}" } } }, null, 2) + '\n' };
     const f = shipFixture(zero); fixtures.push(f);
