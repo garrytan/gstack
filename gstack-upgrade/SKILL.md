@@ -1,7 +1,7 @@
 ---
 name: gstack-upgrade
 version: 1.1.0
-description: Upgrade gstack to the latest version.
+description: "Upgrade gstack to the latest version. Use for: upgrade gstack, update gstack version."
 triggers:
   - upgrade gstack
   - update gstack version
@@ -16,8 +16,6 @@ allowed-tools:
 <!-- Regenerate: bun run gen:skill-docs -->
 
 # /gstack-upgrade
-
-Upgrade gstack to the latest version and show what's new.
 
 ## Inline upgrade flow
 

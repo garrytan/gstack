@@ -1,7 +1,7 @@
 ---
 name: cso
 version: 3.0.0
-description: "Security audit: supported static findings; qualified profiles add reproduction and repair candidates. (gstack)"
+description: "Security audit: supported static findings; qualified profiles add reproduction and repair candidates. Use for: security audit, check for vulnerabilities. (gstack)"
 allowed-tools:
   - "Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)"
   - "Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)"

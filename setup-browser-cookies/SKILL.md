@@ -2,7 +2,7 @@
 name: setup-browser-cookies
 preamble-tier: 1
 version: 1.0.0
-description: Import cookies from your real Chromium browser into the headless browse session. (gstack)
+description: "Import cookies from your real Chromium browser into the headless browse session. Use for: import browser cookies, login to test site. (gstack)"
 triggers:
   - import browser cookies
   - login to test site
@@ -97,6 +97,8 @@ The user has context you do not. Cross-model agreement is a recommendation, not 
 
 - Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
 - Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+- Ask each question once, after checking what you can yourself; until it is answered, list it as one waiting line in later updates instead of asking again.
+- Open every file you hand over and remove placeholders first: TODO, `<fill in>`, lorem ipsum, broken links and images.
 
 ## Completion Status Protocol
 
