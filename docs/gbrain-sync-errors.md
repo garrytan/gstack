@@ -483,9 +483,9 @@ names (usually `gh auth status`, or a merge conflict to resolve in
 
 ## `BRAIN_SYNC: dropped <N> queued record(s) with a malformed path`
 
-**Problem.** A queued sync record named a path with an empty, `.` or `..`
-component, such as `projects//timeline.jsonl` from a skill started where the
-project slug was empty (the working directory `/`).
+**Problem.** A queued sync record named an absolute path, or a path with an
+empty, `.` or `..` component, such as `projects//timeline.jsonl` from a
+skill started where the project slug was empty (the working directory `/`).
 
 **Cause.** Git stages such a path under another spelling, so the drain used
 to refuse the whole batch and every later record waited behind it. The drain
