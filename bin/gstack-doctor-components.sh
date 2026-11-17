@@ -401,6 +401,12 @@ gstack_result_anchor() {
     ARCHIVE_GH_READ_FAILED) printf '%s' 'archive-gh-read-failed' ;;
     ARCHIVE_PR_STATE_UNKNOWN) printf '%s' 'archive-pr-state-unknown' ;;
     ARCHIVE_POLICY_UNREADABLE) printf '%s' 'archive-policy-unreadable' ;;
+    FIRST_USE_PLAN_UNREADY) printf '%s' 'first-use-plan-unready' ;;
+    FIRST_USE_PLAY_SPEC_INCOMPLETE) printf '%s' 'first-use-play-spec-incomplete' ;;
+    FIRST_USE_SAME_FAMILY) printf '%s' 'first-use-same-family' ;;
+    FIRST_USE_NO_PRIVATE_DRIVE) printf '%s' 'first-use-no-private-drive' ;;
+    FIRST_USE_RECORD_INVALID) printf '%s' 'first-use-record-invalid' ;;
+    FIRST_USE_REFUSED) printf '%s' 'first-use-refused' ;;
     BUDGET_CAP_REACHED) printf '%s' 'budget-cap-reached' ;;
     BUDGET_READING_MISSING) printf '%s' 'budget-reading-missing' ;;
     METER_SCOPE_PARENT) printf '%s' 'meter-scope-parent' ;;
