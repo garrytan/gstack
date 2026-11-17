@@ -841,6 +841,19 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
+  // Value: protects=a host whose thread.get reports cost.dollars and no cost.credits still notes the pass with a credits reading (1,000 credits a dollar); fails_when=the pass passes --credits undefined and its note refuses it;
+  //   why_new=Capy's thread.get returned only cost.dollars on 2026-11-17; seam=tools.thread.get stub; no_claim=Capy's own pricing
+  test('a host that reports only cost.dollars still notes the pass in credits', async () => {
+    const { dir, env } = repo();
+    const rec = path.join(dir, '.state/rec.md');
+    fs.mkdirSync(path.dirname(rec), { recursive: true });
+    expect(spawnSync('bash', ['-c', 'gstack-ship-budget start --record "$1" --mode observe --reading 1000 --credits 1', '_', rec], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const h = host(dir, env);
+    h.tools.thread.get = async () => ({ cost: { tokens: 2000, dollars: '$0.05' } }) as never;
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x15d', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'jam_test', step: '9' });
+    expect(res).toMatch(/NOTE: \S+ used=\d+ credits=49 /);
+  }, 240_000);
+
   test('Step 14.5 runs as an audit-only pass: its docs reader alone, verbatim, with no reviewer plan', async () => {
     const { dir, env } = repo();
     const out = path.join(dir, '.state/run/docs');

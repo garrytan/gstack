@@ -102,6 +102,8 @@ export interface PregateFile {
 export interface ShipReceipt {
   schema_version: 1; head: string; base: string; pr?: number; version?: string; gated_tree?: string;
   gate?: Record<string, unknown>; ci?: Record<string, unknown>; spend_usd?: number | string; predecessor?: string;
+  /** The run's calls from the call log (lib/ship-clock.ts callsSince: gstack-command calls plus keep-alives), so a 200-call run shows at the receipt; absent on older receipts. */
+  calls?: number;
   /** GSTA-258: the lanes CI carried at this head's tree, one entry per run (gstack-evidence carried). */
   ci_carried?: Array<{ lane: string; run: number; attempt: number; tree: string; exception?: BoundLaneException }>;
   session_kind?: string; artifacts_consumed?: string; run?: string;
@@ -263,7 +265,7 @@ export const ARTIFACT_SCHEMAS = {
     type: 'object', required: ['schema_version', 'head', 'base'],
     properties: {
       schema_version: { const: 1 }, pr: { type: 'integer' }, head: str, version: str, base: str, gated_tree: str,
-      gate: { type: 'object' }, ci: { type: 'object' }, spend_usd: { type: ['number', 'string'] }, predecessor: str,
+      gate: { type: 'object' }, ci: { type: 'object' }, spend_usd: { type: ['number', 'string'] }, calls: { type: 'integer', minimum: 0 }, predecessor: str,
       ci_carried: { type: 'array', items: { type: 'object', required: ['lane', 'run', 'attempt', 'tree'], properties: { lane: str, run: { type: 'integer', minimum: 1 }, attempt: { type: 'integer', minimum: 1 }, tree: str,
         exception: { type: 'object', required: ['head', 'files', 'by', 'reason', 'at', 'approval', 'preflight'], properties: { head: str, files: strList, by: str, reason: str, at: str, approval: str,
           preflight: { type: 'object', required: ['label', 'tests_ran'], properties: { label: str, tests_ran: { type: 'integer', minimum: 1 } } } } } } } },

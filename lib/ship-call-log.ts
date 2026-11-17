@@ -25,6 +25,12 @@ export interface LoggedCalls {
 }
 
 const NESTED = 'GSTACK_SHIP_CALL_NESTED';
+let pending: { bin: string; sub: string; started: number } | null = null;
+
+/** This process's own row as it will be written at exit (null when it writes none), for a count taken before it exits (lib/ship-clock.ts). */
+export function pendingRow(): CallRow | null {
+  return pending && { v: 1, bin: pending.bin, sub: pending.sub, start: new Date(pending.started).toISOString(), ms: Date.now() - pending.started, exit: 0 };
+}
 const ROTATE_BYTES = 8 * 1024 * 1024;
 const JOIN_MS = 5_000;
 const POLL_S = 200;
@@ -41,6 +47,7 @@ export function logShipCall(bin: string, argv: string[] = process.argv.slice(2))
   const started = Date.now();
   const flag = (name: string) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };
   const num = (name: string) => { const v = Number(flag(name)); return flag(name) !== undefined && Number.isFinite(v) ? v : undefined; };
+  pending = { bin, sub: argv[0] && !argv[0].startsWith('-') ? argv[0] : '', started };
   process.on('exit', code => {
     try {
       const row: CallRow = { v: 1, bin, sub: argv[0] && !argv[0].startsWith('-') ? argv[0] : '', start: new Date(started).toISOString(), ms: Date.now() - started, exit: code };
