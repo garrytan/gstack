@@ -106,9 +106,9 @@ To run /office-hours, /plan-ceo-review or /retro in the OpenClaw agent itself,
 use native registration (see [Installation](#installation)): its `gstack` router
 skill serves the current version of each.
 
-The ClawHub copies (`gstack-openclaw-office-hours`, `gstack-openclaw-ceo-review`,
-`gstack-openclaw-retro`) were published once, in April 2026, and are out of
-date. Don't install them, and remove them if you did.
+gstack no longer publishes skills on ClawHub. If you installed the April 2026
+`gstack-openclaw-office-hours`, `gstack-openclaw-ceo-review` or
+`gstack-openclaw-retro` from there, remove them.
 
 ## Spawned session detection
 

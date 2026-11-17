@@ -4,8 +4,8 @@ Moved verbatim from CLAUDE.md (token-load reduction).
 
 **Status:** gstack's user docs no longer send anyone to ClawHub (#4421). Native
 registration (`./setup --host openclaw`) gives OpenClaw's agent the current
-/office-hours, /plan-ceo-review and /retro, and the ClawHub copies are still the
-1.0.0 builds published on 2026-04-05.
+/office-hours, /plan-ceo-review and /retro, and the gstack skills were removed
+from ClawHub on 2026-11-17.
 
 ## Workflow
 

@@ -125,10 +125,9 @@ They come with native registration: `./setup --host openclaw` registers gstack's
 the current version of each ([install, verify and remove](#agent-harnesses)).
 
 Earlier docs sent you to ClawHub for `gstack-openclaw-office-hours`,
-`gstack-openclaw-ceo-review` and `gstack-openclaw-retro`. Those copies were
-published once, in April 2026, and have not been updated since, so don't
-install them. If you already did, remove them, so your agent doesn't load an old
-copy next to the current one.
+`gstack-openclaw-ceo-review` and `gstack-openclaw-retro`. Those were April 2026
+builds, and gstack no longer publishes skills on ClawHub. If you installed them,
+remove them, so your agent doesn't load an old copy next to the current one.
 
 ## Which agents a checkout renders for
 
