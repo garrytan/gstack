@@ -14,11 +14,13 @@
  * not resurface.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { applyGuidance, buildGate } from '../lib/autoplan-gate';
-import { proposalCost, ownerContext } from '../lib/autoplan-gate-items';
+import { branchKey } from '../lib/approval-record';
+import { proposalCost, ownerContext, recordedOwnerWords } from '../lib/autoplan-gate-items';
 import { confirmBlock, openEarlier } from '../lib/autoplan-confirm';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, ownerWordsLine } from '../lib/autoplan-owner-text';
 import { ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
@@ -265,6 +267,20 @@ describe('parsers, render and redaction', () => {
     expect(brief.indexOf('### Day one')).toBeLessThan(brief.indexOf("### What it won't do yet"));
     expect(brief.indexOf("### What it won't do yet")).toBeLessThan(brief.indexOf('### Before → after'));
     expect(brief).toContain('| reviews the promises made in a meeting (our guess: asked below) | daily |');
+  });
+
+  test('a quote found in an approvals record on disk is verified, and reading it writes nothing to the state root', () => {
+    const state = makeRun('ledger', { plan: planText(), round2: round2(), round1: false });
+    const repo = path.dirname(state.plan_source);
+    expect(spawnSync('git', ['init', '-q', '-b', 'day-one-ledger', repo], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const home = path.join(TMP, 'ledger-home');
+    const mirror = path.join(TMP, 'ledger-mirror', 'some-slug');
+    fs.mkdirSync(mirror, { recursive: true });
+    fs.writeFileSync(path.join(mirror, `${branchKey('day-one-ledger')}.jsonl`), JSON.stringify({ schema_version: 1, id: 'x', words: 'The owner said: I want to remember what I promised people after every meeting' }) + '\n');
+    const env = { HOME: home, GSTACK_APPROVALS_DIR: path.dirname(mirror) };
+    const words = recordedOwnerWords(state, env);
+    expect(ownerContext(state, words).verified).toEqual(new Set([1]));
+    expect(fs.existsSync(home)).toBe(false);
   });
 
   test('quoted owner words are redacted from public copies', () => {

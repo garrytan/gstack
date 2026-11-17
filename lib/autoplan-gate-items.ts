@@ -13,10 +13,12 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { locate, readRecord } from './approval-record';
+import { spawnSync } from 'node:child_process';
+import { branchKey, captainApprovalsDir } from './approval-record';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
+import { resolveStateRoot } from './state-root';
 import type { GateItem } from './gate-list';
 import type { FindingRow } from './headless-artifacts';
 
@@ -25,16 +27,37 @@ export type NewItem = Omit<GateItem, 'id'> & { idKind: 'd' | 'uc'; key: string }
 export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: Array<OwnerQuote & { verified: boolean }>; reason?: string; fix?: string }
 export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean }
 
-/** Every owner reply this run recorded, plus the words in the approvals record for the plan's branch (best effort). */
+/**
+ * The owner's words in every approvals record already on disk for the branch checked out at `cwd` (lib/approval-record.ts
+ * layout: <state root>/projects/<slug>/approvals/<branch key>.jsonl and its mirrors). Read-only: the slug is not resolved,
+ * because resolving it writes the slug cache, and building a gate must not write outside the run.
+ */
+export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const head = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd, encoding: 'utf8', timeout: 10_000 });
+  const branch = head.status === 0 ? head.stdout.trim() : '';
+  if (!branch) return [];
+  const name = `${branchKey(branch)}.jsonl`;
+  const files: string[] = [];
+  const under = (root: string, sub: string[]) => { try { for (const d of fs.readdirSync(root)) files.push(path.join(root, d, ...sub, name)); } catch { /* no such root */ } };
+  under(path.join(resolveStateRoot(env), 'projects'), ['approvals']);
+  for (const root of [env.GSTACK_APPROVALS_DIR, captainApprovalsDir(env)]) if (root) under(root, []);
+  const words: string[] = [];
+  for (const file of files) {
+    let text: string;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    for (const line of text.split('\n')) {
+      try { const row = JSON.parse(line); if (typeof row?.words === 'string' && !row.words_by) words.push(row.words); } catch { /* a torn line */ }
+    }
+  }
+  return words;
+}
+
+/** Every owner reply this run recorded, plus the owner's words in the approvals records for the plan's branch. */
 export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = process.env): string[] {
   const out: string[] = [];
   for (const r of readJournal(state.out)) if (typeof r.owner_reply === 'string') out.push(r.owner_reply);
   for (const d of readDecisions(state.out)) if (typeof d.owner_reply === 'string') out.push(d.owner_reply);
-  try {
-    const loc = locate({ cwd: path.dirname(state.plan_input ?? state.plan_source), env });
-    if (!('code' in loc)) for (const row of readRecord(loc).rows) if (!row.words_by) out.push(row.words);
-  } catch { /* no approvals record: every quote reads unverified */ }
-  return out;
+  return [...out, ...ledgerWords(path.dirname(state.plan_input ?? state.plan_source), env)];
 }
 
 export function ownerContext(state: RunState, recorded: string[] = recordedOwnerWords(state)): OwnerContext {
