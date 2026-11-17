@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { FOUNDER_RESOURCES, renderIndex, renderPool, resourceUrl } from '../lib/founder-resources';
 import { runScriptSync } from '../lib/script-invocation';
@@ -51,6 +52,33 @@ describe('gstack-founder-resources command', () => {
     const r = run(['--shown', `${resourceUrl(FOUNDER_RESOURCES[24]!)},${resourceUrl(FOUNDER_RESOURCES[33]!)}`]);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe(renderIndex([resourceUrl(FOUNDER_RESOURCES[24]!), resourceUrl(FOUNDER_RESOURCES[33]!)]));
+  });
+
+  test('with no arguments it leaves out what the builder profile logged as shown', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'founder-resources-'));
+    try {
+      const env = { ...process.env, GSTACK_STATE_ROOT: home, GSTACK_HOME: home };
+      const shown = [resourceUrl(FOUNDER_RESOURCES[0]!), resourceUrl(FOUNDER_RESOURCES[9]!)];
+      const session = JSON.stringify({ date: '2026-11-17', mode: 'startup', resources_shown: shown });
+      expect(runScriptSync(path.join(ROOT, 'bin', 'gstack-developer-profile'), ['--log-session', session], { encoding: 'utf8', timeout: 30_000, env }).status).toBe(0);
+      const r = runScriptSync(BIN, [], { encoding: 'utf8', timeout: 30_000, env });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe(renderIndex(shown));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('an unreadable builder profile prints PROFILE_READ: failed and the whole pool', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'founder-resources-'));
+    try {
+      fs.writeFileSync(path.join(home, 'developer-profile.json'), 'not json');
+      const r = runScriptSync(BIN, [], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: home, GSTACK_HOME: home } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('PROFILE_READ: failed\n' + renderIndex([]));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test('unknown arguments are a usage error', () => {
