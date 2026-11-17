@@ -490,7 +490,9 @@ const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { ret
  */
 export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string;
   /** The gate a gate finding names (a JSON line's `gate`, else an RH tag its text or judged reason names) and its JSON `gate_id`: no ruling closes it (GST-2273). */
-  gate?: string; gate_id?: string }
+  gate?: string; gate_id?: string;
+  /** From when its reader was sent its brief (else the ledger's first event) to when its output was collected: an id ruling closes a finding only the ledger holds when the stop row's read covers this window (GST-2273). */
+  read?: { from: number; to: number } }
 function lineGate(texts: readonly string[]): { gate?: string; gate_id?: string } {
   for (const raw of texts) {
     try {
@@ -523,9 +525,13 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
   const readers = new Map<string, string>();
   const loci = new Map<string, string | null>();
   const candidates = new Set<string>();
+  const reads = new Map<string, { from: number; to: number }>();
   const gone = quarantinedIds(events);
+  const atOf = (e: LedgerEvent | undefined) => Date.parse(String(e?.at ?? ''));
   for (const o of events.filter(e => e.event === 'output' && idsOf(e).some(id => !gone.has(id)))) {
     const lines = jsonLines(read(o.merged, `merged file of ${String(o.reader)}`), String(o.merged)) as MergedLine[];
+    const to = atOf(o), sent = events.filter(e => e.event === 'sent' && e.reader === o.reader && atOf(e) <= to).at(-1);
+    const from = atOf(sent ?? events[0]);
     for (const id of idsOf(o).filter(id => !gone.has(id))) {
       const line = lines.find(l => l.id === id) ?? fail(`collected id ${id} is missing from ${String(o.merged)}`);
       ranks.set(id, rank(line.label) ?? 0);
@@ -534,6 +540,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
       if (line.summary_candidate === true) candidates.add(id);
       readers.set(id, String(o.reader));
       loci.set(id, lineLocus(line.raw));
+      if (Number.isFinite(from) && Number.isFinite(to)) reads.set(id, { from, to });
     }
   }
   const verdict = [...events].reverse().find(e => e.event === 'judge');
@@ -548,7 +555,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
       if (j.reason) reasons.set(j.id, j.reason);
     }
   }
-  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null, ...lineGate([raws.get(id) ?? '', reasons.get(id) ?? '']) }));
+  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null, ...lineGate([raws.get(id) ?? '', reasons.get(id) ?? '']), ...(reads.has(id) ? { read: reads.get(id) } : {}) }));
 }
 
 /**

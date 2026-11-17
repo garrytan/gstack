@@ -1739,8 +1739,8 @@ are ruled then reads `CURRENT` and Step 11.5 binds it, as
 [review-policy.md](review-policy.md#how-ship-converges-review_scope-frozen-the-default)
 promises. `gstack-review-scope summary` counts that finding `noted` instead of
 `unrecorded`. A finding only a dispatch ledger holds counts only when the run's newest
-/ship review, fix-check or Step 11 row read the ruled head and its whole pass ran
-inside that row's read. Nothing else closes: a fingerprint ruling, a bare id, a
+/ship review, fix-check or Step 11 row read the ruled head and the reader that raised
+it ran inside that row's read, from its brief to its collected output. Nothing else closes: a fingerprint ruling, a bare id, a
 ledger id two findings share, a ruling at another head or from before the read
 ended, a row logged before reads captured their start commit, and a gate finding,
 including a row finding whose paired ledger line names a gate (`gate`, or an RH

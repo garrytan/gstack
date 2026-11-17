@@ -10,7 +10,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { collect, readJsonl, recordJudgment, type JudgedLine, type MergedLine } from '../lib/review-ledger';
+import { collect, readJsonl, recordJudgment, recordSent, type JudgedLine, type MergedLine } from '../lib/review-ledger';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 setDefaultTimeout(90_000);
@@ -222,6 +222,20 @@ describe('an id ruling closes one Step 11 voice finding (#4266, #4257, GST-2273)
     });
     expect(summary(repo, out)).toMatchObject({ blocking_found: 2, unrecorded: 2 });
     ruleId(repo, 'p1-voices/adversarial-native#1', head);
+    expect(summary(repo, out)).toMatchObject({ noted: 1, unrecorded: 1 });
+  });
+
+  test('Step 11 voices that share their pass ledger close on the Step 11 row, whose read began after the pass started', () => {
+    const { repo, head, out } = run(STEP11, o => {
+      const dir = path.join(o, 'p1'), file = path.join(dir, 'review-ledger.jsonl');
+      ledger(dir, [['red-team', CLEAN]]);
+      const early = new Date(Date.now() - 120_000).toISOString();
+      fs.writeFileSync(file, readJsonl<Record<string, unknown>>(file).map(e => JSON.stringify({ ...e, at: early }) + '\n').join(''));
+      for (const reader of ['adversarial-native', 'outside-voice']) recordSent(file, reader, `${reader} brief`);
+      ledger(dir, [['adversarial-native', CLEAN], ['outside-voice', VOICE]]);
+    });
+    expect(summary(repo, out)).toMatchObject({ blocking_found: 2, noted: 0, unrecorded: 2 });
+    ruleId(repo, 'p1/outside-voice#1', head);
     expect(summary(repo, out)).toMatchObject({ noted: 1, unrecorded: 1 });
   });
 
