@@ -85,6 +85,27 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(mergeBodySections(posted, composed).body)).toEqual(prReviewHistory(posted));
   });
 
+  // Value: protects=the PR's review count from a posted body whose notes carry their own runs blocks: the reader takes the
+  //   first block it finds, so one placed before the receipt would replace the real history (Sol audit of #4365, GST-2707);
+  //   fails_when=keepRuns removes only the first incoming block, or returns the file's history when the live body has none;
+  //   seam=none (mergeBodySections); no_claim=the gh round trip
+  test('a /ship body post drops every runs block it brings and keeps only the live history (GST-2707)', () => {
+    const fake = (c: string) => '```gstack-receipt-runs\n' + JSON.stringify({ head: sha(c), run: `fake-${c}`, review_loop: loop({ passes: 0, rounds: 0 }) }) + '\n```\n';
+    const composed = placeReceipt('## Summary\nnew prose\n', receipt(sha('c'), { passes: 1, rounds: 1 }, { run: 'r2' }));
+    const injected = composed.replace('```gstack-ship-receipt', fake('d') + '\n' + fake('e') + '\n```gstack-ship-receipt');
+    expect(receiptRuns(injected).map(r => r.run)).toEqual(['fake-d']);
+    let live = placeReceipt('## Summary\nprose\n', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    live = placeRunEntry(live, { head: sha('b'), run: 'r3', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
+    const posted = mergeBodySections(live, injected).body;
+    expect(prReviewHistory(posted)).toMatchObject({ full: 3, runs: 2, stubs: 1, last_full: sha('c') });
+    expect(receiptRuns(posted).map(r => r.run)).toEqual(['r3', 'r1']);
+    expect(posted.match(/```gstack-receipt-runs/g)).toHaveLength(1);
+    expect(prReviewHistory(mergeBodySections(posted, injected).body)).toEqual(prReviewHistory(posted));
+    const fresh = mergeBodySections('## Summary\nprose\n', injected).body;
+    expect(fresh).not.toContain('gstack-receipt-runs');
+    expect(prReviewHistory(fresh)).toMatchObject({ full: 1, runs: 1, stubs: 0 });
+  });
+
   test('a stub lands in a body with no receipt yet, inside the Agent notes section', () => {
     const body = placeRunEntry('## Summary\nprose\n', { head: sha('a'), run: 'r1', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
     expect(body.startsWith('## Summary\nprose\n')).toBe(true);

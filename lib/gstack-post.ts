@@ -31,7 +31,7 @@ import { scan, type Finding, type RepoVisibility } from "./redact-engine";
 import { CI_RUN_WORD_BEFORE } from "./redact-patterns";
 import { agentNotesLines, splitAgentNotes } from "./agent-notes";
 import { checkTitle, loadPlainTitlePolicy, PLAIN_TITLE_POLICY_PATH } from "./plain-title";
-import { RECEIPT_FENCE, RUNS_FENCE, extractReceipt, placeReceipt, renderReceiptBlock, validateReceipt } from "./ship-receipt";
+import { RECEIPT_FENCE, RUNS_FENCE, RUNS_RE, extractReceipt, placeReceipt, renderReceiptBlock, validateReceipt } from "./ship-receipt";
 import type { ShipReceipt } from "./headless-artifacts";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
@@ -291,20 +291,27 @@ export function mergeBodySections(current: string, incoming: string): { body: st
 
 const RUNS_BLOCK_RE = new RegExp("^```" + RUNS_FENCE + "[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```[ \\t]*(?:\\r?\\n|$)", "m");
 
+/** Every runs block the history reader (lib/ship-receipt.ts receiptRuns) would recognize, not only one at a line start. */
+const READER_RUNS_RE = new RegExp(RUNS_RE.source, "g");
+
 /**
- * A /ship body post (an Agent notes section holding a receipt) keeps the live body's run history (GST-2706): the merge
- * replaces the notes, so the runs block placeReceipt would write on the live body (earlier runs, started stubs and the
- * replaced receipt) goes back right after the posted receipt, and gstack-ship-receipt history still counts every run.
+ * A post that brings its own Agent notes section keeps the live body's run history and none of the file's (GST-2706,
+ * GST-2707): the merge replaces the notes, so every runs block the file's notes hold is removed, since the history
+ * reader takes the first one it finds, and a block placed before the receipt would stand in for the real history. The
+ * runs block placeReceipt would write on the live body (earlier runs, started stubs and the replaced receipt) then goes
+ * back, once, right after the posted receipt; with no live history there is none, and gstack-ship-receipt history
+ * counts the posted receipt alone.
  */
 function keepRuns(current: string, next: Section[], m: ReturnType<typeof mergeSplit>): ReturnType<typeof mergeSplit> {
+  if (!next.some(n => n.key === NOTES_KEY)) return m;
   const posted = next.some(n => n.key === NOTES_KEY && extractReceipt(n.text).found) ? extractReceipt(m.body).receipt : undefined;
   const notesAt = (body: string) => splitAgentNotes(body).notes === null ? 0 : splitAgentNotes(body).readable.length;
   const placed = posted ? placeReceipt(current, posted) : "";
   const runs = RUNS_BLOCK_RE.exec(placed.slice(notesAt(placed)))?.[0];
   const at = notesAt(m.body);
-  const notes = m.body.slice(at).replace(RUNS_BLOCK_RE, "");
-  const end = runs && /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(notes);
-  return end ? { ...m, body: m.body.slice(0, at) + notes.slice(0, end.index + end[0].length) + "\n" + runs + notes.slice(end.index + end[0].length) } : m;
+  const notes = m.body.slice(at).replace(READER_RUNS_RE, "");
+  const end = runs ? /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(notes) : null;
+  return { ...m, body: m.body.slice(0, at) + (end ? notes.slice(0, end.index + end[0].length) + "\n" + runs + notes.slice(end.index + end[0].length) : notes) };
 }
 
 function mergeSplit(now: Section[], next: Section[], incoming: string): { body: string; replaced: string[]; kept: string[]; added: string[]; dropped: string[] } {

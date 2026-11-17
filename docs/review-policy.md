@@ -159,7 +159,9 @@ caught on another crew's PRs.
    run still reviews its head in full; what's lost is the cap on earlier
    runs, so check the PR body by hand when that line shows. A `/ship` body
    post keeps the live `gstack-receipt-runs` block (`lib/gstack-post.ts`), so
-   earlier runs and started stubs stay countable.
+   earlier runs and started stubs stay countable. Any runs block the posted
+   body brings in its own Agent notes is dropped first, so only the live
+   history is counted.
 2. **Runs that stop count too.** After each Step 9 pass, `gstack-ship-receipt
    stub --pr <n> --run <id> --review-loop <summary>` writes a `status: started`
    entry, so a run that stops before its receipt still counts. The run's receipt
