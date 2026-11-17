@@ -41,6 +41,8 @@ describe('routerLine (router-mode targets)', () => {
       l => { expect(l).toStartWith('Use when asked to'); expect(l).not.toContain('Pre-landing'); }],
     ['no trigger sentence: the triggers list leads', 'Pre-landing PR review. Analyzes the diff.', TRIGGERS, 160,
       l => expect(l).toStartWith('Use for: review this pr, code review')],
+    ['the catalog-trimmed "Use for:" clause gives way to the full triggers list', 'Pre-landing PR review. Use for: review this pr, code review. (gstack)', TRIGGERS, 160,
+      l => expect(l).toBe('Use for: review this pr, code review, check my diff, pre-landing review. Pre-landing PR review.')],
     ['neither: the first sentence, cut at a word', 'A very long first sentence about a workflow that goes on and on and on.', [], 40,
       l => { expect(l).toStartWith('A very long first sentence'); expect(l).toEndWith('...'); }],
   ];
