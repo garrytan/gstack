@@ -248,7 +248,7 @@ describe('generic trains end to end (fixture repos)', () => {
     expect(origin('rev-parse', 'main^{tree}')).toBe(t.gated[2].tree);
     expect(trainJson(fx, nonce)).toMatchObject({ state: 'merged', landing: { 1: { mode: 'direct', update: null }, 2: { mode: 'direct' } } });
     const merges = fx.read().log.filter(l => l.cmd === 'pr merge').map(l => (l.args as string[]).join(' '));
-    expect(merges[0]).toMatch(/^pr merge 1 --squash --match-head-commit [0-9a-f]{40} --subject Change from #1 \(#1\)$/);
+    expect(merges[0]).toMatch(/^pr merge 1 --squash --match-head-commit [0-9a-f]{40} --subject Change from #1 \(#1\) --body $/);
   }, 300_000);
 
   test('strict protection forces update; a rebase method refuses it; a fork head is refused', () => {
