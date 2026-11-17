@@ -91,6 +91,16 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
       ['KEY = "form.section.fieldName', "app/forms.py"],
     ]);
   });
+  test("hold: a dotted field path with a secret literal after it, or outside source code, still reports", () => {
+    holds([
+      ['password = "form.section.fieldName" or "' + S + '"', "app/forms.py"],
+      ['SECRET_KEY = "form.section.fieldName", "' + S + '"', "app/forms.py"],
+      ['  apiKey: "form.section.fieldName" || "' + S + '",', "src/forms.ts"],
+      ['PASSWORD="form.section.fieldName"', ".env"],
+      ['session_key: "form.section.fieldName"', "config/app.yml"],
+      ['PASSWORD="form.section.fieldName"', undefined],
+    ]);
+  });
 
   test("known limits: template keys, arrays of names and string-literal generic types still report, and so do the audit's bypass lines", () => {
     const template = (text: string) => text.replaceAll(BT, "\x60").replaceAll("@{", "$" + "{");

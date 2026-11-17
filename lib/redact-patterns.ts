@@ -1220,12 +1220,18 @@ function isCommentText(span: string, match: RegExpExecArray): boolean {
  * digit, a capital first letter or adjacent capitals (`"form.<secret>"`)
  * reports, and so do a path of one or two segments and an all-lowercase one,
  * which #4209 keeps reporting as a quoted literal (`session = "self.client.session"`).
+ * Only source files qualify, and the rest of the line must carry no secret
+ * literal or template, so `PASSWORD="form.section.fieldName"` in a config
+ * file and `password = "form.section.fieldName" or "<secret>"` still report.
  */
 const DOTTED_FIELD_PATH = /^[a-z]+(?:[A-Z][a-z]+)*(?:\.[a-z]+(?:[A-Z][a-z]+)*){2,}$/;
-function isDottedFieldPath(span: string, match: RegExpExecArray): boolean {
+function isDottedFieldPath(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
   const { start, end } = spanBounds(match);
   const quote = match.input[start - 1];
-  return (quote === '"' || quote === "'") && match.input[end] === quote && DOTTED_FIELD_PATH.test(span) && /[A-Z]/.test(span);
+  if ((quote !== '"' && quote !== "'") || match.input[end] !== quote || !DOTTED_FIELD_PATH.test(span) || !/[A-Z]/.test(span)) return false;
+  const rest = match.input.slice(end + 1).split("\n", 1)[0]!;
+  return !carriesSecretLiteral(rest) && !rest.includes("`");
 }
 
 /** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
@@ -1716,7 +1722,7 @@ export const PATTERNS: RedactPattern[] = [
           !isCallExpression(span, match) &&
           !isSourceExpression(span, match, opts?.sourcePath) &&
           !isAttributeReference(span, match, opts?.sourcePath) &&
-          !isDottedFieldPath(span, match) &&
+          !isDottedFieldPath(span, match, opts?.sourcePath) &&
           !isCommentText(span, match) &&
           !isSchemaFieldIdentifier(span, match) &&
           !isTestFixtureLabel(span, opts?.sourcePath) &&
