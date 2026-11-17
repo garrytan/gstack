@@ -6482,6 +6482,10 @@ what would merge. The one accepted difference is a train slot's stamp: when
 the current head is the pinned head's stamp commit (same tree modulo stamp
 files, or the pin with main merged in at slot 2 and later), the receipt
 written for the pinned head is the binding one and `verify --train` accepts it.
+It also refuses a receipt an older gstack carried through a scoped re-check
+(its `carry.reason` names `scoped re-check by`), even at its own head: the code
+that hop covered never got a full review (GST-2706,
+[rounds per pull request](review-policy.md#rounds-per-pull-request)).
 
 **Fix.** Rerun /ship on the current head so the receipt names it, then rerun
 `gstack-ship-queue ready --pr <n> --screen|--no-screen`. A lane never stamps
@@ -7122,9 +7126,10 @@ the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 **Meaning.** Every product path the branch touches has the reviewed +/- lines
 in the same places, but the base edited context lines next to some of them, so
 the 3-line patches differ (GST-384: main reworded the line above the PR's
-hunk). A hunk whose added lines are unchanged and whose removed lines differ only
-by the base's edit of the lines the branch replaces counts too (GST-1561: the base
-took `SAVE_VERSION := 83` under the branch's `:= 84`). The merge may have spliced the two, as in a JSON entry where the branch
+hunk). A hunk whose added lines are unchanged but whose removed lines changed with
+the base (the base took `SAVE_VERSION := 83` under the branch's `:= 84`) doesn't
+count: the PR's own removed lines changed, so it's `RECEIPT_CARRY_PRODUCT_CHANGED`
+and a full review (GST-2706). The merge may have spliced the two, as in a JSON entry where the branch
 changed one key and the base the next, so the receipt does not carry silently.
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
