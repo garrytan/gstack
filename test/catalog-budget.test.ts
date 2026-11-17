@@ -108,13 +108,15 @@ import { skillCensus } from './helpers/skill-census';
  *           most 64 chars (its triggers list, else its "Use when" sentence;
  *           scripts/gen-skill-docs.ts buildTrimmedDescription), and /review,
  *           /plan-eng-review and the root router reworded their leads;
- *           measured 9,173 bytes = 2,294 token-equivalents. Deliberate
+ *           measured 9,173 bytes = 2,294 token-equivalents, then 9,160
+ *           bytes = 2,290 after /ship's list dropped "deploy this" (it
+ *           belongs to /land-and-deploy). Deliberate
  *           growth, not a new skill: in GSTA-558's trials Opus 5.5 skipped
  *           /review on "review my changes" (0 of 3, 3 of 3 with the full
  *           text) and loaded no planning skill on "plan this feature" (0 of 9).
- * New ceiling: 2,294 token-equivalents (9,176 bytes), leaving 3 bytes.
+ * New ceiling: 2,290 token-equivalents (9,160 bytes), leaving 0 bytes.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 2_294;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 2_290;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.
