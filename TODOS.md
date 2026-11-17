@@ -2,13 +2,9 @@
 
 ## NEXT PRIORITY
 
-### P2: `/plan-eng-review` retirement follow-ups (filed 2026-11-06, GST-1698 /ship review of #4108)
+### P3: `/plan-eng-review` return follow-up (filed 2026-11-15, GST-2726)
 
-- **Delete the retired `plan-eng-multi-finding-batching` case and its counter subsystem.** The case checks one interactive question per eng finding; /autoplan Phase 3 auto-decides findings, so no shipped entry reaches it. The follow-up to #4108 took it out of the weekly lane through `PERIODIC_CI_EXCLUDE` instead of deleting it, because about 20 free tests and fixtures depend on its counter (`createEngBatchingIssueCounter` in `test/helpers/eng-seeded-coverage.ts`, `test/eng-batching-saved-ledger.test.ts`, `test/detector-corpus-plan-eng-multi-finding-batching.test.ts`, the `eng-batching-*` fixtures). Retirement card: detects=an eng review that batches findings into one plan write; non_test_callers=0; stronger_proof=the ceo/design/devex finding floors keep the shared one-question-per-finding contract; unlocks=the counter helpers, their free tests and fixtures. Delete each helper only after checking it has no other caller (plan-eng-review-artifact shares `engFirstReviewAUQ`). **Effort:** M. **Priority:** P3.
-- **Point the external-host methodology file's preamble Read at `gstack-autoplan`.** Every external host's `gstack-autoplan/plan-eng-review.md` says to Read `sections/preamble.md` relative to the installed `gstack-plan-eng-review` directory, which no longer exists. Normally the matching preamble id skips the reread, but after compaction late in a run the agent follows a missing path. Fixing it changes Phase 3 bytes, so it needs its own byte-pin update. **Effort:** S. **Priority:** P3.
-- **Redirect `gstack-doctor --for plan-eng-review`.** It now exits 2 with "unknown skill"; map the retired name to `/autoplan`'s requirements and print a one-line redirect, so saved lane scripts keep working. **Effort:** S. **Priority:** P3.
-- **Decide whether the QM edition keeps `gstack-plan`.** `hosts/qm.ts` and `qm/edition.json` still build `gstack-plan` from the `plan-eng-review` sources under another name, so the retired-name guards don't see it. Product call for Garry. **Effort:** S. **Priority:** P3.
-- **Pin the retirement in two more tests.** Assert that `generateLlmsTxt` output lists no `plan-eng-review` entry (`test/llms-txt-shape.test.ts`), and that `HYBRID_SKILLS` holds none of `RETIRED_SKILLS` (`test/harness-register.test.ts`). **Effort:** S. **Priority:** P3.
+- **Decide whether `plan-eng-multi-finding-batching` rejoins the weekly lane.** The cut of the standalone skill (GST-1698) took it out through `PERIODIC_CI_EXCLUDE`, because /autoplan Phase 3 auto-decides findings. The standalone `/plan-eng-review` is back (GST-2726) and asks one question per eng finding again, so the case reaches a shipped entry. Running it weekly is paid spend, so the call belongs to the measurement plan in GST-1966. The standalone paid cases deleted with the cut (`plan-eng-plan-mode`, `plan-eng-finding-floor`, `plan-eng-review-artifact-full`) are not restored either. **Effort:** S. **Priority:** P3.
 
 ### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
 
@@ -425,10 +421,17 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 - **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
   `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
   and eval harness, so a Codex/Factory/... runtime root would need most of the
-  development tree. It is the one `$GSTACK_ROOT` path
-  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
-  self-contained or have the skill call it from the source checkout
-  (`.source-path`). **Effort:** M. **Priority:** P3.
+  development tree. `bin/gstack-model-benchmark` (/benchmark-models imports
+  the test tree's providers) and `bin/gstack-ship-queue` (the merge queue
+  imports the eval gate) have the same problem and fail to start from a
+  copied Windows root. `test/runtime-root-assets.test.ts` defers all three.
+  For each, either make it self-contained or have the skill call it from the
+  source checkout (`.source-path`). That test also follows static imports
+  only: lazy `import()` and `require()` calls (`bin/gstack-evidence` loads
+  `scripts/lib/shard-engine` with a fallback, and
+  `lib/pregate/flaky-exception.ts` requires it and a test helper), modules a
+  shell script launches, and bare package imports go unchecked.
+  **Effort:** M. **Priority:** P3.
 - **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
   `office-hours/SKILL.md` (#2449) and now `plan-design-review/SKILL.md` sit in
   `~/.codex/skills/gstack/<skill>/` because skills read them as

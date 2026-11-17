@@ -109,6 +109,9 @@ function setupSkillifyWorkdir(suffix: string, installSkills: string[] = ['scrape
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
   }
+  // gstack-timeline-log and gstack-learnings-log import ../lib/redact-engine.ts
+  // from beside bin/. A copy, not a symlink: the agent runs inside workDir.
+  fs.cpSync(path.join(ROOT, 'lib'), path.join(workDir, 'lib'), { recursive: true });
 
   fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), `# Project Instructions
 
@@ -277,7 +280,7 @@ This run is non-interactive; AskUserQuestion is unavailable.`,
     logCost('scrape-prototype-path', result);
 
     const cmds = bashCommands(result);
-    const wentToFixture = browseNavigatedTo(result.toolCalls, fileUrl);
+    const wentToFixture = browseNavigatedTo(result.toolCalls, fileUrl, workDir);
     const fetchedHtml = cmds.some(c => /\bgoto\b|\bhtml\b|\btext\b/.test(c));
     const surface = fullSurface(result);
     const mentionsSkillify = /skillify/i.test(surface);

@@ -49,7 +49,7 @@ function stamp(repo: FixtureRepo): string {
 async function pregateAt(repo: FixtureRepo): Promise<PregateFile> {
   const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 4, testBackend: 'local' });
   if (!('ctx' in loaded)) throw new Error('fixture context refused');
-  const file = await runPregate(loaded.ctx, { stage: 'tests' });
+  const file = await runPregate(loaded.ctx, { stage: 'all' });
   expect(file.requires_remote).toEqual([expect.objectContaining({ lane: LANE, receipt: null })]);
   return file;
 }

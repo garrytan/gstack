@@ -42,7 +42,7 @@ export interface PlanRecord { line: string; state: 'approved' | 'exempt'; ref?: 
 export interface PlanFailure { code: ResultCodeName; message: string; fix: string }
 export type PlanResolution = { ok: true; record: PlanRecord; summary: string } | { ok: false; failure: PlanFailure };
 
-const NOT_PLAN_ROW = /\b(ruled_note|review_loop_grant|review_loop_exception|test_lane_exception)\b/;
+const NOT_PLAN_ROW = /\b(ruled_note|gate_disposition|review_loop_grant|review_loop_exception|test_lane_exception)\b/;
 const ROW_ID = /^a-[0-9a-f]{12}$/;
 const RECORD_ID = /^r-[0-9a-f]{12}$/;
 const LOCAL_SOURCE = 'state-root config';

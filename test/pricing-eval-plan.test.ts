@@ -57,7 +57,9 @@ describe('preregistration', () => {
     expect(check.empty.length).toBe(PREREG_SECTIONS.length);
     expect(check.ok).toBe(false);
     expect(PREREG_SECTIONS).toContain('Comparison');
-    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack');
+    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack')
+      .replace('## Decisions\n- filled in', '## Decisions\nif the bar is met: run the full set\nif the bar is missed: stop and fix the scorer')
+      .replace('## Scoring\n- filled in', '## Scoring\njudge: none');
     expect(checkPrereg(filled)).toMatchObject({ ok: true, missing: [], empty: [] });
     expect(checkPrereg('# nothing here\n').missing).toEqual([...PREREG_SECTIONS]);
   });

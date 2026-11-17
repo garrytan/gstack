@@ -141,6 +141,7 @@ describe('skill-end completion durability', () => {
 
   test('logger returns only after a delayed enqueue makes its spool record durable', () => {
     const shadow = path.join(fixture, 'bin'); fs.mkdirSync(shadow);
+    fs.symlinkSync(path.resolve(BIN, '../lib'), path.join(fixture, 'lib'));
     for (const f of fs.readdirSync(BIN)) { fs.symlinkSync(path.join(BIN, f), path.join(shadow, f)); }
     for (const f of ['gstack-timeline-log', 'gstack-brain-enqueue']) { fs.unlinkSync(path.join(shadow, f)); }
     fs.copyFileSync(path.join(BIN, 'gstack-timeline-log'), path.join(shadow, 'gstack-timeline-log'));

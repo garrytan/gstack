@@ -1,4 +1,0 @@
-- **gstack now waits for the "Plain title" check to pass before it lands a pull request.** The check reads the pull request's description from the event file GitHub hands the workflow, so a very long description no longer breaks it. A pull request that has never had the check run gets one when its title or description is edited, or when new commits are pushed.
-- **A ship receipt posted on its own now goes into the pull request's Agent notes section and keeps the opening paragraph where it was.** The new receipt replaces the one in that section, so it is the one gstack reads.
-- **An older receipt at the very top of a pull request description is still read after an Agent notes section without a receipt is added below it.** Receipt examples quoted in the readable part of a description stay where they are.
-- **Correction to the earlier entry about plain titles:** a repository without `.gstack/plain-titles.json` gets no title checks at all, not warnings.

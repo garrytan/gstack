@@ -5,8 +5,13 @@
  *
  * THIS IS A GUARDRAIL, NOT ENFORCEMENT. `git push --no-verify` bypasses it, as
  * does `GSTACK_REDACT_PREPUSH=skip`. It catches accidental credential pushes,
- * the most common real-world leak. It does NOT scan history, binary/LFS/submodule
- * files, or non-added lines. History scanning is /cso's job.
+ * the most common real-world leak. It does NOT scan history, LFS-stored or
+ * submodule content, or non-added lines. History scanning is /cso's job. Files
+ * git calls binary (a NUL byte, UTF-16, a `-diff` attribute) are diffed with
+ * --text, scanned once per reading scannableReadings gives and held to
+ * credential findings (GST-2195, GST-2261). Deleted files are left out of the
+ * diff (--irreversible-delete): a delete cannot add a secret, and a deleted
+ * binary's old bytes would fill the diff buffer.
  *
  * Git pre-push interface: refs are read from STDIN, one per line:
  *   <local ref> <local sha> <remote ref> <remote sha>
@@ -42,6 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
+import { scannableReadings } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -254,7 +260,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
     // gitStrict: a failed diff must never read as "nothing added" (#1946).
     // Collected per commit so a finding names the commit whose file line it is.
     out.push(...collectAddedLines(gitStrict([
-      "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+      "show", "--text", "--irreversible-delete", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
       "--src-prefix=a/", "--dst-prefix=b/", "--cc", "--format=", sha,
     ]), sha));
   }
@@ -267,7 +273,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
  * `text`, read from the hunk headers; `commit` is set when the lines came from
  * one commit's diff rather than the net diff of the pushed range.
  */
-interface AddedFile { file: string; text: string; lines: number[]; commit?: string }
+interface AddedFile { file: string; text: string; lines: number[]; commit?: string; binary?: boolean }
 
 /** Return the added lines for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
@@ -295,8 +301,14 @@ function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
   // secrets. Reachable from ordinary user config, not hypothetical. (#2498)
   // --no-textconv: a .gitattributes textconv driver can likewise rewrite
   // content before we ever see it. (#2498)
+  // --text: without it a file git calls binary (a NUL byte, UTF-16, a
+  // `-diff` attribute the push itself can add) prints "Binary files differ"
+  // and no added lines, so its credentials pushed unscanned. (GST-2195)
+  // --irreversible-delete: a deleted file's old lines are not printed. They
+  // add nothing to scan, and with --text a deleted 70 MiB binary filled the
+  // 64 MiB buffer and blocked the push. (GST-2261)
   const diff = gitStrict([
-    "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+    "diff", "--text", "--irreversible-delete", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
     "--src-prefix=a/", "--dst-prefix=b/", range,
   ]);
   return collectAddedLines(diff);
@@ -323,7 +335,9 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
   let nextLine = 0;
   const flush = () => {
     const lines = releaseVersionExempt(file, fileLines);
-    if (lines.length) added.push({ file, text: lines.join("\n"), lines: lineNumbers, ...(commit ? { commit } : {}) });
+    const text = lines.join("\n");
+    const binary = text.includes("\0");
+    if (lines.length) for (const reading of scannableReadings(text)) added.push({ file, text: reading, lines: lineNumbers, ...(commit ? { commit } : {}), ...(binary ? { binary } : {}) });
     fileLines = [];
     lineNumbers = [];
   };
@@ -693,17 +707,26 @@ function main() {
   // so the report names exactly what they suppressed.
   const allowed: string[] = [];
   const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
+  // The readings of one binary file share its line list: a token every reading keeps is reported once.
+  const reported = new Map<number[], Set<string>>();
   for (const { part, allowlist } of parts) {
     const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
     const findings = scanAddedLines(part.text, opts);
     const kept = allowlist.length
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
       : null;
+    const seen = reported.get(part.lines) ?? new Set<string>();
+    reported.set(part.lines, seen);
+    const lineTexts = part.text.split("\n");
     for (const f of findings) {
+      if (part.binary && f.category !== "secret") continue;
       if (kept && !kept.has(findingKey(f))) {
         if (f.severity === "HIGH" || f.severity === "MEDIUM") allowed.push(`  ${f.severity}  ${f.id}  ${findingWhere(f, part)}\n`);
         continue;
       }
+      const key = `${findingKey(f)}:${lineTexts[f.line - 1]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       if (f.severity === "HIGH") allHigh.push(f);
       else if (f.severity === "MEDIUM") {
         mediums.push(mediumLine(f, part));

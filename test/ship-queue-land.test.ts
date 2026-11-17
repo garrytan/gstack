@@ -786,3 +786,20 @@ describe('land: the READY receipt', () => {
     expect(land(fx, ['--pr', '28']).out).toContain('PUSHED: ');
   }, 90_000);
 });
+
+describe('land refreshes the base before its receipt check (GST-2232)', () => {
+  // Value: protects=land never binds a receipt against an origin/<base> it could not refresh; fails_when=land ignores a failed
+  //   base fetch and compares the receipt with the clone's old ref (the false RECEIPT_INVALID ready gave gbrain #8991);
+  //   why_new=every land test reaches a working origin; seam=land -> bindShippedReceipt; no_claim=merge: direct land (it refused
+  //   a failed fetch already)
+  test('an unfetchable origin/main refuses QUEUE_BASE_UNFETCHED before the receipt is compared or anything is pushed', () => {
+    const fx = setup();
+    const pin = openPr(fx, '7');
+    fx.repo.git('remote', 'set-url', 'origin', path.join(fx.repo.root, 'gone.git'));
+    const r = land(fx, ['--pr', '7']);
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toMatch(/cannot fetch origin\/main.*\(QUEUE_BASE_UNFETCHED\)/);
+    expect(r.out).not.toContain('SHIP_RECEIPT:');
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-7')).toBe(pin);
+  }, 90_000);
+});

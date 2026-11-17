@@ -94,7 +94,7 @@ shape, customization and localization, retro, and CI supply chain. Parked bugs
 sit under "parked in Wave 9" in the same file. Pick a theme up as a whole and
 credit every linked reporter in the CHANGELOG entry.
 
-Community pull requests follow the wave process in
-[CONTRIBUTING.md](../CONTRIBUTING.md#community-pr-triage-wave-process); a
+Community pull requests follow
+[How a contributor's PR lands](../CONTRIBUTING.md#how-a-contributors-pr-lands); a
 closed PR gets the same courtesy as a closed issue: a comment saying why and
 what supersedes it.

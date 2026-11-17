@@ -41,7 +41,9 @@
  * combined-diff matching; any lookup failure scans everything.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { sha256Hex, writeReceipt } from './egress-receipt';
 import { containedRelative, globToRegExp } from './ship-policy';
@@ -88,9 +90,61 @@ export function sealedErrors(raw: unknown): Array<{ path: string; message: strin
   return errors;
 }
 
+const GIT_TIMEOUT_MS = 120_000;
+
 function git(repoRoot: string, args: string[], input?: string, encoding: BufferEncoding = 'utf8'): { ok: boolean; out: string; err: string } {
-  const r = spawnSync('git', args, { cwd: repoRoot, encoding, input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  const r = spawnSync('git', args, { cwd: repoRoot, encoding, input, timeout: GIT_TIMEOUT_MS, maxBuffer: 256 * 1024 * 1024 });
   return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
+}
+
+/** Test seams for the streamed reads: read size, git binary and timeout. */
+export interface GitStreamOptions { chunkBytes?: number; bin?: string; timeoutMs?: number }
+type GitStdin = { text: string } | { file: string } | null;
+
+/** Runs git with stdout written to a private temp file, so no output size meets spawnSync's maxBuffer, and passes that file to `use` only after git exits 0. A spawn error, timeout, signal or non-zero exit throws `git <label> failed (<why>)`, so partial output never reaches a verdict. */
+function spoolGit<T>(repoRoot: string, label: string, args: string[], stdin: GitStdin, o: GitStreamOptions, use: (file: string) => T): T {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sealed-'));
+  try {
+    const file = path.join(dir, 'stdout');
+    const outFd = fs.openSync(file, 'wx', 0o600);
+    const inFd = stdin && 'file' in stdin ? fs.openSync(stdin.file, 'r') : null;
+    const timeout = o.timeoutMs ?? GIT_TIMEOUT_MS;
+    let r: ReturnType<typeof spawnSync>;
+    try { r = spawnSync(o.bin ?? 'git', args, { cwd: repoRoot, input: stdin && 'text' in stdin ? stdin.text : undefined, stdio: [inFd ?? (stdin ? 'pipe' : 'ignore'), outFd, 'pipe'], timeout, maxBuffer: 16 * 1024 * 1024 }); }
+    finally { fs.closeSync(outFd); if (inFd !== null) fs.closeSync(inFd); }
+    const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+    const why = code === 'ETIMEDOUT' ? `timed out after ${timeout / 1000} s, ${r.signal ?? 'killed'}` : r.error ? `could not run git: ${r.error.message}` : r.signal ? `killed by ${r.signal}` : r.status !== 0 ? `exit ${r.status}` : null;
+    if (why) { const err = (r.stderr ?? '').toString().trim().slice(0, 200); throw new Error(`git ${label} failed (${why})${err ? `: ${err}` : ''}`); }
+    return use(file);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Each line of a file, split exactly as `text.split('\n')` would, decoding one line at a time; memory holds one chunk and the longest line. */
+function readLines(file: string, encoding: BufferEncoding, onLine: (line: string) => void, chunkBytes = 1024 * 1024): void {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(chunkBytes);
+    let carry: Buffer[] = [];
+    for (let n = fs.readSync(fd, buf, 0, chunkBytes, null); n > 0; n = fs.readSync(fd, buf, 0, chunkBytes, null)) {
+      const view = buf.subarray(0, n);
+      let start = 0;
+      for (let nl = view.indexOf(10); nl !== -1; nl = view.indexOf(10, start)) {
+        onLine(Buffer.concat([...carry, view.subarray(start, nl)]).toString(encoding));
+        carry = []; start = nl + 1;
+      }
+      if (start < n) carry.push(Buffer.from(view.subarray(start)));
+    }
+    onLine(Buffer.concat(carry).toString(encoding));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** git's stdout, streamed line by line once git has exited 0 (spoolGit, readLines). */
+export function gitLines(repoRoot: string, label: string, args: string[], stdin: GitStdin, encoding: BufferEncoding, onLine: (line: string) => void, o: GitStreamOptions = {}): void {
+  spoolGit(repoRoot, label, args, stdin, o, file => readLines(file, encoding, onLine, o.chunkBytes));
 }
 
 export type PolicyRead = { policy: SealedPolicy | null; label: string } | { error: string; label: string };
@@ -175,30 +229,28 @@ function pathFindings(repoRoot: string, commits: string[], p: SealedPolicy): Sea
   return out;
 }
 
-/** Text rules over each commit's added lines (`--cc` for merges: only the resolution's own lines). */
-function textFindings(repoRoot: string, commits: string[], p: SealedPolicy): SealedFinding[] {
+/** Text rules over each commit's added lines (`--cc` for merges: only the resolution's own lines), streamed so the patch size is unbounded. */
+export function textFindings(repoRoot: string, commits: string[], p: SealedPolicy, stream: GitStreamOptions = {}): SealedFinding[] {
   const rules: Array<[SealedRule, RegExp]> = [
     ...p.answer_markers.map(r => ['sealed.answer', new RegExp(r)] as [SealedRule, RegExp]),
     ...p.seed_patterns.map(r => ['sealed.seed', new RegExp(r)] as [SealedRule, RegExp]),
     ...(p.local_paths ? [['sealed.local_path', LOCAL_PATH_RE] as [SealedRule, RegExp]] : []),
   ];
   if (!rules.length) return [];
-  const r = git(repoRoot, ['-c', 'core.quotePath=false', 'diff-tree', '--stdin', '-r', '--root', '-M', '-C', '--cc', '-p', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv'], commits.join('\n') + '\n');
-  if (!r.ok) throw new Error(`git diff-tree -p failed: ${r.err.slice(0, 200)}`);
   const out: SealedFinding[] = [];
   let commit = ''; let file = ''; let inHunk = false; let parents = 1; let next = 0;
-  for (const line of r.out.split('\n')) {
-    if (HEX.test(line)) { commit = line; inHunk = false; continue; }
-    if (line.startsWith('diff --')) { inHunk = false; file = ''; continue; }
-    if (line.startsWith('@@')) { inHunk = true; parents = (/^@+/.exec(line)?.[0].length ?? 2) - 1; next = Number(/ \+(\d+)(?:,\d+)? @+/.exec(line)?.[1] ?? 0); continue; }
-    if (!inHunk) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
+  gitLines(repoRoot, 'diff-tree -p', ['-c', 'core.quotePath=false', 'diff-tree', '--stdin', '-r', '--root', '-M', '-C', '--cc', '-p', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv'], { text: commits.join('\n') + '\n' }, 'utf8', line => {
+    if (HEX.test(line)) { commit = line; inHunk = false; return; }
+    if (line.startsWith('diff --')) { inHunk = false; file = ''; return; }
+    if (line.startsWith('@@')) { inHunk = true; parents = (/^@+/.exec(line)?.[0].length ?? 2) - 1; next = Number(/ \+(\d+)(?:,\d+)? @+/.exec(line)?.[1] ?? 0); return; }
+    if (!inHunk) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; return; }
     const prefix = line.slice(0, parents);
-    if (line.startsWith('\\') || prefix.includes('-')) continue;
+    if (line.startsWith('\\') || prefix.includes('-')) return;
     const n = next++;
-    if (!prefix.includes('+')) continue;
+    if (!prefix.includes('+')) return;
     const text = line.slice(parents);
     for (const [rule, re] of rules) if (re.test(text)) out.push({ rule, file, line: n, commit });
-  }
+  }, stream);
   return out;
 }
 
@@ -311,11 +363,8 @@ function publishedViaPulls(o: EvaluateOptions, listed: Set<string>, mbs: string[
   }
 }
 
-/** Diff text compared after a patch-id match: no commit line, blob ids or hunk line numbers. */
-const patchBody = (diff: string) => diff.split('\n').filter(l => !HEX.test(l) && !l.startsWith('index ')).map(l => l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@')).join('\n');
-
-/** Listed commits whose own patch (`--verbatim` patch-id, then equal diff text) is a base commit since the merge-base; merges never match. Diffs are read as latin1 so every byte counts: UTF-8 decoding folds invalid bytes into one replacement character. */
-function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: string[]): Map<string, string> {
+/** Listed commits whose own patch (`--verbatim` patch-id, then equal diff text) is a base commit since the merge-base; merges never match. Diffs are read as latin1 so every byte counts: UTF-8 decoding folds invalid bytes into one replacement character. Streamed: the diff text is compared by the sha256 of its lines without the commit line, blob ids and hunk line numbers. */
+export function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: string[], stream: GitStreamOptions = {}): Map<string, string> {
   const out = new Map<string, string>();
   if (!rest.length) return out;
   const base = git(o.repoRoot, ['rev-list', '--no-merges', o.baseRef!, ...mbs.map(b => `^${b}`)]);
@@ -324,16 +373,25 @@ function landedOnBase(o: EvaluateOptions, rest: string[], mbs: string[], notes: 
   if (!baseCommits.length) return out;
   if (baseCommits.length > MAX_LANDED_BASE || rest.length > MAX_LANDED_LISTED) { notes.push(`${baseCommits.length} base and ${rest.length} listed commits since the merge-base, over ${MAX_LANDED_BASE} or ${MAX_LANDED_LISTED}: commits whose patch landed are scanned`); return out; }
   const diffArgs = ['diff-tree', '-r', '--root', '-p', '--no-color', '--no-ext-diff', '--no-textconv'];
-  const ids = (list: string[]): string[][] => {
-    const d = git(o.repoRoot, [...diffArgs, '--stdin'], list.join('\n') + '\n', 'latin1');
-    if (!d.ok) throw new Error(`git diff-tree -p failed: ${d.err.slice(0, 200)}`);
-    const p = git(o.repoRoot, ['patch-id', '--verbatim'], d.out, 'latin1');
-    if (!p.ok) throw new Error(`git patch-id failed: ${p.err.slice(0, 200)}`);
-    return p.out.split('\n').map(l => l.split(' ')).filter(f => f.length === 2);
-  };
+  const ids = (list: string[]): string[][] => spoolGit(o.repoRoot, 'diff-tree -p', [...diffArgs, '--stdin'], { text: list.join('\n') + '\n' }, stream, diff => {
+    const pairs: string[][] = [];
+    gitLines(o.repoRoot, 'patch-id', ['patch-id', '--verbatim'], { file: diff }, 'latin1', l => { const f = l.split(' '); if (f.length === 2) pairs.push(f); }, stream);
+    return pairs;
+  });
   const byId = new Map<string, string>();
   for (const [id, c] of ids(baseCommits)) if (!byId.has(id!)) byId.set(id!, c!);
-  const body = (c: string) => { const r = git(o.repoRoot, [...diffArgs, c], undefined, 'latin1'); return r.ok && r.out.trim() ? patchBody(r.out) : null; };
+  const body = (c: string): string | null => {
+    const h = createHash('sha256'); let first = true; let blank = true;
+    try {
+      gitLines(o.repoRoot, 'diff-tree -p', [...diffArgs, c], null, 'latin1', l => {
+        if (blank && l.trim()) blank = false;
+        if (HEX.test(l) || l.startsWith('index ')) return;
+        h.update((first ? '' : '\n') + l.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, '@@'), 'latin1');
+        first = false;
+      }, stream);
+    } catch { return null; }
+    return blank ? null : h.digest('hex');
+  };
   for (const [id, c] of ids(rest)) {
     const b = byId.get(id!);
     if (!b) continue;

@@ -9,7 +9,7 @@
  * Used by skill:check and CI freshness checks.
  */
 
-import { discoverTemplates, discoverSectionTemplates, includesSkill, RETIRED_SKILLS } from './discover-skills';
+import { discoverTemplates, discoverSectionTemplates, includesSkill, AUTOPLAN_SIBLING_METHODOLOGIES } from './discover-skills';
 import { externalSkillName, extractNameAndDescription } from './external-skill-names';
 export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
@@ -755,10 +755,9 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const retired = RETIRED_SKILLS.includes(skillDir);
   // --out-dir mirrors the host tree (outputs only; inputs read from ROOT).
-  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', retired ? 'gstack-autoplan' : name);
-  const outputPath = path.join(outputDir, retired ? `${skillDir}.md` : 'SKILL.md');
+  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', name);
+  const outputPath = path.join(outputDir, 'SKILL.md');
 
   // Guard against symlink loops
   let symlinkLoop = false;
@@ -791,7 +790,7 @@ function processExternalHost(
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex). The
   // default_prompt comes from the template's codex_default_prompt: key when set.
-  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop && !retired ? {
+  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop ? {
     outputPath: path.join(outputDir, 'agents', 'openai.yaml'),
     content: generateOpenAIYaml(name, condenseOpenAIShortDescription(extractedDescription), extractCodexDefaultPrompt(tmplContent)),
   } : undefined;
@@ -807,7 +806,7 @@ function renderSharedPreamble(ctx: TemplateContext, hostConfig: HostConfig, opti
   return GENERATED_HEADER.replace('{{SOURCE}}', 'scripts/resolvers/preamble-hoist.ts') + content;
 }
 
-function processTemplate(tmplPath: string, host: Host, options: RenderOptions): { outputPath: string; content: string; symlinkLoop?: boolean; metadata?: { outputPath: string; content: string }; preamble?: { outputPath: string; content: string } } {
+function processTemplate(tmplPath: string, host: Host, options: RenderOptions): { outputPath: string; content: string; symlinkLoop?: boolean; metadata?: { outputPath: string; content: string }; preamble?: { outputPath: string; content: string }; autoplanSibling?: string } {
   // Normalize to LF at the entry point. Templates may have CRLF on disk when
   // checked out on Windows with core.autocrlf=true. Downstream regexes
   // (processVoiceTriggers, transformFrontmatter) hardcode \n, so without
@@ -885,10 +884,13 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   if (skillDir === '' || skillDir === '.') content = omitDisabledSkills(content, [...options.disabledSkills, ...excludedSkillDirs(options.modules)]);
   content = rewriteInstallRoot(insertRuntimePreludes(rewriteCarvedSectionRefs(content, ctx), ctx), currentHostConfig, options.installRoot);
 
-  const preamble = !(host !== 'claude' && RETIRED_SKILLS.includes(skillDir)) && hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
+  const preamble = hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
     ? { outputPath: path.join(path.dirname(outputPath), 'sections', SHARED_PREAMBLE_FILE), content: renderSharedPreamble(ctx, currentHostConfig, options) }
     : undefined;
-  return { outputPath, content, symlinkLoop, metadata, preamble };
+  const autoplanSibling = host !== 'claude' && AUTOPLAN_SIBLING_METHODOLOGIES.includes(skillDir)
+    ? path.join(options.outputRoot, currentHostConfig.hostSubdir, 'skills', 'gstack-autoplan', `${skillDir}.md`)
+    : undefined;
+  return { outputPath, content, symlinkLoop, metadata, preamble, autoplanSibling };
 }
 
 /** autoplan/DRIVER.md (field wave item 13): one host-neutral render of autoplan/DRIVER.md.tmpl through the same resolvers. */
@@ -1066,6 +1068,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
           continue;
         }
         emit(result.outputPath, result.content, 'skill', host);
+        if (result.autoplanSibling) emit(result.autoplanSibling, result.content, 'skill', host);
         if (result.metadata) emit(result.metadata.outputPath, result.metadata.content, 'metadata', host);
         if (result.preamble) emit(result.preamble.outputPath, result.preamble.content, 'preamble', host);
         if (skillDir === 'qa') {

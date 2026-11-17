@@ -36,6 +36,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the lane is not ready to report: the working tree, HEAD or CI state does not match the pushed PR head',
     fix: 'commit and push the work (or wait for CI on that exact head), then rerun gstack-ship-queue ready',
   },
+  QUEUE_BASE_UNFETCHED: {
+    anchor: 'queue-base-unfetched',
+    summary: 'ready, or the stamp path of land, could not fetch origin/<base>, so it did not compare the receipt with a base ref it could not refresh',
+    fix: 'fix the fetch (git fetch origin <base>), then rerun the same command',
+  },
   QUEUE_PROOF_MISSING: {
     anchor: 'queue-proof-missing',
     summary: 'a proof input the queue step needs is missing or does not match (gated head, base, stamp journal, version or tree)',
@@ -314,6 +319,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a push workflow on the merged commit (free tests, the Windows subset, the main backstop) concluded failure, timed out or was cancelled after the train merged it; a neutral or skipped check is not red',
     fix: 'read the red run (gstack-ship-queue verify --post-merge <sha> prints one CHECK: line per workflow), repair on a new PR or roll back the merge; gstack-ship-queue train status names the freeze if the backstop filed one',
   },
+  QUEUE_READY_NOTE_UNPUSHED: {
+    anchor: 'queue-ready-note-unpushed',
+    summary: 'ready wrote its READY receipt locally, but after three tries origin does not hold the note on refs/notes/gstack-trains (the push failed, or it exited 0 and origin read back without the note), so land would refuse the pin; the head is not READY',
+    fix: 'read the push error on the READY_RECEIPT line, fix what refused it (credentials, a hook or rule on refs/notes/*, the network), then rerun the printed gstack-ship-queue ready command, adding back any --pregate, --gate-exit or --gate-log you passed; it keeps ready_at and pushes the kept receipt',
+  },
   QUEUE_SCREEN_RED: {
     anchor: 'queue-screen-red',
     summary: 'the PR head’s dispatched screen run finished RED (its gate binding says so; a case that failed twice is real), so the head is not READY and a train will not seat it',
@@ -502,6 +512,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'queue-land-pin-moved',
     summary: 'the PR head is not the pin land was given, so the READY it was given does not describe what would merge',
     fix: 'the lane runs /ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
+  },
+  QUEUE_GATE_DISPOSITION: {
+    anchor: 'queue-gate-disposition',
+    summary: 'the owner gate dispositions the approval store applies at the pin are not all accepted by the lander, an accepted id is not applied, or the receipt or PR body differs from the store',
+    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /ship and ready at the pin',
   },
   QUEUE_LAND_CHECKS: {
     anchor: 'queue-land-checks',

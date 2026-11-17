@@ -29,7 +29,7 @@ import { recordVerdict, screenVerdict, verdictLines, type ScreenOutcome } from '
 import { execFor, prInfo, repoSlug } from './ship-queue-train-github';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { extractReceipt } from '../../lib/ship-receipt';
-import { loadReady, nowIso, persist, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
+import { loadReady, nowIso, persist, readyNoteUnpushed, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
 import { baseOverlap, fetchBase, mergeCommit, outOk, outPending, outRefused, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { checkWavePin } from './ship-queue-wave';
 import { readyPlan } from '../../lib/plan-record';
@@ -174,6 +174,18 @@ async function dispatchScreen(env: TrainEnv, o: ReadyOptions, slug: string | nul
   return { choice: { choice: 'screen', policy, nonce, run: found.databaseId, merge_sha: mergeSha }, lines: [`SCREEN_DISPATCH: ${dispatch.workflow} run ${found.databaseId} ${found.url} nonce ${nonce}${notFollowing}`] };
 }
 
+/**
+ * Record the READY receipt and require origin to hold its note: `land --pin` reads the note on origin, so a receipt
+ * written only here is not READY (reports/GSTA-461.md item 19). The local receipt stays for the rerun to push.
+ */
+function recordReceipt(env: TrainEnv, receipt: ReadyReceipt, lines: string[], again: string): TrainOut | null {
+  const file = readyPath(env.repo.key, receipt.pr, receipt.head);
+  const p = persist(env.ctx.repoRoot, [receipt], { remote: env.remote });
+  lines.push(`READY_RECEIPT: ${file} (${p.detail})`);
+  if (p.pushed) return null;
+  return outRefused(readyNoteUnpushed(receipt.pr, receipt.head, env.remote, p.detail), lines, `fix the notes push to ${env.remote}, then ${again}`, file);
+}
+
 const screenLine = (c: ScreenChoice) => `screen: ${c.choice}${c.policy ? ` policy=${c.policy} nonce=${c.nonce} run=${c.run ?? '-'}${c.verdict ? ` verdict=${c.verdict.outcome}` : ''}` : ''}`;
 
 /**
@@ -214,8 +226,8 @@ function conditionalReady(env: TrainEnv, o: ReadyOptions, lines: string[]): Trai
   lines.unshift(`READY #${o.pr} ${head} CONDITIONAL`, 'screen: no-screen');
   lines.push(`BASE_RED: ${red.cases.join(', ')} base=${red.base.slice(0, 12)} fixer=#${base_red.fixer} expires=${red.expires_at} (CI and the pregate ran on the broken base; the train gates every prefix and lands this PR only through an update commit with green checks)`);
   if (o.dryRun) return outOk([...lines, 'DRY-RUN: no READY receipt written'], `${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${base_red.fixer}`, 'none');
-  const p = persist(ctx.repoRoot, [receipt], { remote: env.remote });
-  lines.push(`READY_RECEIPT: ${readyPath(env.repo.key, o.pr, head)} (${p.detail})`);
+  const refused = recordReceipt(env, receipt, lines, `${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${base_red.fixer}`);
+  if (refused) return refused;
   return outOk(lines, `send the READY block; the coordinator builds the train with fixer #${base_red.fixer} at slot 1: ${Q} train build --prs ${base_red.fixer}@<sha>,${o.pr}@${head}`, readyPath(env.repo.key, o.pr, head));
 }
 
@@ -299,8 +311,8 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
   const receipt: ReadyReceipt = { schema: 1, kind: 'ready', repo_key: env.repo.key, pr: o.pr, head, base_sha: baseSha, ready_at: prior?.ready_at ?? now, screen: choice, updated_at: now, ...(o.fixesBaseRed ? { fixes_base_red: o.fixesBaseRed } : {}), ...(plan.record ? { plan: plan.record } : {}) };
   if (o.fixesBaseRed) lines.push(`FIXES_BASE_RED: ${o.fixesBaseRed.join(', ')} (T0 may be red on exactly these gate cases while this PR rides at slot 1)`);
   if (o.dryRun) return outOk([...lines, 'DRY-RUN: no READY receipt written, nothing dispatched'], `${Q} ready --pr ${o.pr} --${o.screen}${o.broad ? ' --broad' : ''}`, 'none');
-  const p = persist(ctx.repoRoot, [receipt], { remote: env.remote });
-  lines.push(`READY_RECEIPT: ${readyPath(env.repo.key, o.pr, head)} (${p.detail})`);
+  const refused = recordReceipt(env, receipt, lines, `${Q} ready --pr ${o.pr} --${o.screen}${o.broad ? ' --broad' : ''}${o.fixesBaseRed ? ` --fixes-base-red ${o.fixesBaseRed.join(',')}` : ''}`);
+  if (refused) return refused;
   return outOk(lines, `send the READY block; the coordinator builds the train: ${Q} train build --prs ${o.pr}@${head},...`, readyPath(env.repo.key, o.pr, head));
 }
 

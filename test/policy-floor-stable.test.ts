@@ -10,7 +10,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { runningGstackVersion, validatePolicy } from '../lib/ship-policy';
+import { BUMP_NEVER_KEY_VERSION, POLICY_KEY_INTRODUCED, runningGstackVersion, TRAIN_GATES_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { cmpVersion, parseVersion } from '../lib/version-source';
 import { useDoctorCleanup, REPO, makeFixture, doctor, write as writeFile } from './helpers/doctor-fixture';
 import { cleanup as cleanupPregate, commit, makeFixtureRepo as makePregateRepo, runBin as runPregateBin, type FixtureRepo as PregateRepo } from './helpers/pregate-fixture';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -187,12 +188,13 @@ describe('gstack-doctor --check floor row', () => {
   test('an unstamped main checkout gets the verdict validatePolicy gives: the newest policy key it knows counts', () => {
     const f = makeFixture();
     fs.copyFileSync(path.join(REPO, 'lib/ship-policy-keys.ts'), path.join(f.root, 'lib/ship-policy-keys.ts'));
-    const known = runningGstackVersion();
+    const newer = (a: string, b: string) => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
+    const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
     const dir = project(f, known);
     const at = floorRow(f, dir);
     expect(validatePolicy({ min_gstack_version: known })).toEqual([]);
     expect(at.status, at.line).toBe('PASS');
-    expect(at.line).toBe(known === VERSION ? `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION})` : `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION}, reads policies as ${known})`);
+    expect(at.line).toBe(!newer(known, VERSION) ? `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION})` : `PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed ${VERSION}, reads policies as ${known})`);
     // A checkout whose VERSION lags a key it carries reads the key's floor (validatePolicy agrees), so the row passes.
     writeFile(path.join(f.root, 'VERSION'), '1.0.0.0\n');
     const lagging = floorRow(f, project(f, known));

@@ -458,6 +458,7 @@ describe('gstack-skill-start behavior', () => {
     const log = path.join(tmp, 'egress.log');
     const sinks = ['gstack-telemetry-log', 'gstack-brain-sync', 'gstack-update-check'];
     fs.mkdirSync(shadow); fs.mkdirSync(gh);
+    fs.symlinkSync(path.join(ROOT, 'lib'), path.join(tmp, 'lib'));
     for (const name of fs.readdirSync(path.join(ROOT, 'bin'))) {
       if (!sinks.includes(name)) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(shadow, name));
     }
@@ -634,6 +635,30 @@ describe('gstack-skill-start behavior', () => {
   test('ARTIFACTS_SYNC reports off in a cold home', () => {
     const out = runStart();
     expect(out).toMatch(/^ARTIFACTS_SYNC: off$/m);
+  });
+
+  test('the /sync-gbrain hint follows GBRAIN_HOME the way gbrain resolves its config (#4325)', () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-bin-'));
+    const named = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-home-'));
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-empty-'));
+    try {
+      fs.writeFileSync(path.join(bin, 'gbrain'), '#!/bin/sh\necho "gbrain 0.0.0"\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(named, '.gbrain'));
+      fs.writeFileSync(path.join(named, '.gbrain', 'config.json'), '{}\n');
+      const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+      expect(runStart([], env)).not.toContain('GBrain configured');
+      expect(runStart([], { ...env, GBRAIN_HOME: named })).toContain('GBrain configured');
+      fs.mkdirSync(path.join(tmpHome, '.gbrain'));
+      fs.writeFileSync(path.join(tmpHome, '.gbrain', 'config.json'), '{}\n');
+      try {
+        expect(runStart([], env)).toContain('GBrain configured');
+        expect(runStart([], { ...env, GBRAIN_HOME: empty })).not.toContain('GBrain configured');
+      } finally {
+        fs.rmSync(path.join(tmpHome, '.gbrain'), { recursive: true, force: true });
+      }
+    } finally {
+      for (const dir of [bin, named, empty]) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('artifacts-sync consent is asked before any artifacts egress, and only in interactive sessions', () => {

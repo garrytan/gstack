@@ -4,8 +4,9 @@
  * go through bin/gstack-redact. Exit 0 is clean; 2 (MEDIUM) and 3 (HIGH)
  * fail unless the policy's `allowlist` names each finding (lib/pregate/allowlist.ts;
  * never env.value); a scanner that does not finish or exits outside its
- * contract is PREGATE_ENVIRONMENT (kind tool), never a pass. Runs regardless
- * of lint tools.
+ * contract is PREGATE_ENVIRONMENT (kind tool), never a pass, and so is a
+ * merge-base diff git did not finish. Files git calls binary are read too
+ * (scannableReadings). Runs regardless of lint tools.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -28,7 +29,9 @@ export function parseAddedLines(diff: string): Map<string, string[]> {
     if (line.startsWith('diff --')) { file = ''; inHunk = false; continue; }
     if (line.startsWith('@@')) { inHunk = true; continue; }
     if (!inHunk) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
-    if (line.startsWith('+')) files.set(file, [...(files.get(file) ?? []), line.slice(1)]);
+    if (!line.startsWith('+')) continue;
+    const lines = files.get(file);
+    if (lines) lines.push(line.slice(1)); else files.set(file, [line.slice(1)]);
   }
   return files;
 }
@@ -69,6 +72,38 @@ export function parsePostimages(diff: string): Map<string, string[]> {
   return files;
 }
 
+/**
+ * Texts the scanner can read from a file git calls binary, which the diff
+ * passes through with --text (GST-2195). Text with no NUL is its own only
+ * reading. Otherwise the file is read three ways. The plain reading turns each run of NUL,
+ * other control bytes or bytes that are not UTF-8 (an image chunk, an
+ * executable's padding) into one space. The little- and big-endian UTF-16
+ * readings first drop the NULs inside every run of character-then-NUL or
+ * NUL-then-character pairs, which UTF-16 text puts beside each character of
+ * its ASCII range however much of the file is Cyrillic or CJK, and set the run
+ * apart with a space on each side, so the bytes of a CJK character beside it
+ * cannot join a token. The first text is main's combined reading, each line
+ * holding its distinct readings side by side, so a keyword in one reading and
+ * its value in another still meet. Each distinct reading is then also a whole
+ * text of its own, scanned separately, so a token is found in whichever one keeps it whole (a
+ * plain token that a NUL-flanked byte beside it would glue or cut in a UTF-16
+ * reading, or a UTF-16 token whose neighbour pairs up with it in the other
+ * byte order), and a keyword and its value on the next line stay neighbours
+ * (GST-2261). Line breaks stay, so every reading keeps the file's line
+ * numbers. Callers keep only credential findings from such a file: privacy
+ * patterns read its bytes as noise (a run of digits in a compressed icon reads
+ * as a phone number).
+ */
+export function scannableReadings(text: string): string[] {
+  if (!text.includes('\0')) return [text];
+  const noise = /[\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]+/g;
+  const lines = text.split('\n');
+  const utf16 = (pairs: RegExp) => lines.map(line => line.replace(pairs, run => ` ${run.replaceAll('\0', '')} `).replace(noise, ' '));
+  const readings = [utf16(/(?:[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]\0){2,}/g), utf16(/(?:\0[^\0-\x08\x0b\x0c\x0e-\x1f\x7f\uFFFD]){2,}/g), lines.map(line => line.replace(noise, ' '))];
+  const combined = lines.map((_, i) => [...new Set(readings.map(reading => reading[i]))].join(' ')).join('\n');
+  return [...new Set([combined, ...readings.map(reading => reading.join('\n'))])];
+}
+
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
 const LEXICAL_CONTEXT_SOURCE = /\.(?:dart|pyi?)$/i;
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
@@ -84,10 +119,15 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * line. One too large, or whose full diff does not parse as one hunk holding
  * its added lines, is scanned under a neutral name, without that exemption. External diff and textconv
  * drivers are off: either can empty or rewrite the diff, and an empty diff
- * reads as clean.
+ * reads as clean. --text keeps a file git calls binary (a NUL byte, UTF-16, a
+ * `-diff` attribute the branch itself can add) from printing "Binary files
+ * differ" in place of its added lines; each such file is marked `binary`,
+ * carries every reading scannableReadings gives and is held to its credential findings. A diff git did not finish (an exit, a kill, a
+ * full buffer) throws: its partial output is never scanned as complete.
  */
-export function addedLines(ctx: PregateContext): Array<{ file: string; text: string; keep?: number[] }> {
-  const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+export function addedLines(ctx: PregateContext): Array<{ file: string; texts: string[]; keep?: number[]; binary?: boolean }> {
+  const diff = spawnSync('git', ['diff', '--text', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
+  if (diff.error || diff.status !== 0) throw new Error(`git diff ${ctx.mergeBase.slice(0, 12)} did not finish (${diff.error?.message ?? (diff.status === null ? `killed by ${diff.signal}` : `exit ${diff.status}: ${(diff.stderr ?? '').trim().split('\n').pop() ?? ''}`)})`);
   const files = parseAddedLines(diff.stdout ?? '');
   const numbers = parseAddedLineNumbers(diff.stdout ?? '');
   const whole = new Map<string, { text: string; keep: number[] }>();
@@ -113,13 +153,19 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; text: str
       files.set(t.path, [...(files.get(t.path) ?? []), ...lines]);
     } catch { /* unreadable: skipped */ }
   }
-  return [...files].map(([file, lines]) => whole.get(file) ? { file, ...whole.get(file)! } : { file, text: lines.join('\n') }).filter(p => p.text.trim());
+  return [...files]
+    .map(([file, lines]) => whole.get(file) ? { file, ...whole.get(file)! } : { file, text: lines.join('\n') })
+    .map(({ text, ...p }) => ({ ...p, texts: scannableReadings(text), ...(text.includes('\0') ? { binary: true } : {}) }))
+    .filter(p => p.texts.some(text => text.trim()));
 }
 type Finding = { id?: string; description?: string; severity?: string; category?: string; line?: number; col?: number; file: string; fileLine?: boolean };
 type Scanned = Finding & AllowlistFinding;
 
 function run(ctx: PregateContext): CheckResult {
-  const parts = addedLines(ctx);
+  let parts: ReturnType<typeof addedLines>;
+  try { parts = addedLines(ctx); } catch (err) {
+    return environmentResult({ id: 'secrets', stage: 'preflight', status: 'incomplete', inputs: baseInputs(ctx) }, launchCause('tool', (err as Error).message), 'git diff of the added lines did not finish; an incomplete scan never passes');
+  }
   const inputs = baseInputs(ctx, { added_lines: sha256(JSON.stringify(parts)), ...(ctx.config.allowlist.length ? { allowlist: allowlistDigest(ctx.config.allowlist) } : {}) });
   if (!parts.length) return { id: 'secrets', stage: 'preflight', status: 'pass', detail: 'no added lines', inputs };
   // A run killed mid-scan under the same --run id must not keep its added-line copies: clear them before writing new ones.
@@ -131,21 +177,28 @@ function run(ctx: PregateContext): CheckResult {
     let high = false;
     let medium = false;
     let parsedAll = true;
-    for (const [i, part] of parts.entries()) {
-      const file = path.join(tmp, String(i), (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : path.basename(part.file)) || 'added.txt');
+    for (const [i, part] of parts.entries()) for (const [j, text] of part.texts.entries()) {
+      const file = path.join(tmp, `${i}.${j}`, (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : path.basename(part.file)) || 'added.txt');
       fs.mkdirSync(path.dirname(file), { mode: 0o700 });
-      fs.writeFileSync(file, part.text, { mode: 0o600 });
+      fs.writeFileSync(file, text, { mode: 0o600 });
       const r = runScriptSync(path.join(BIN_DIR, 'gstack-redact'), ['--from-file', file, '--json', '--max-bytes', String(64 * 1024 * 1024)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: Math.min(ctx.timeoutMs, 300_000), maxBuffer: 64 * 1024 * 1024, env: ctx.env });
       if (r.error || r.status === null) return environmentResult(base, launchCause('tool', `gstack-redact did not finish on ${part.file || 'added lines'} (${r.error?.message ?? 'killed'})`), `gstack-redact did not finish on ${part.file || 'added lines'}; an incomplete scan never passes`);
       if (r.status !== 0 && r.status !== 2 && r.status !== 3) return environmentResult(base, launchCause('tool', `gstack-redact exited ${r.status} on ${part.file || 'added lines'}: ${(r.stderr ?? '').trim().split('\n').pop() ?? ''}`), `gstack-redact exited ${r.status}; an incomplete scan never passes`);
       high ||= r.status === 3;
       medium ||= r.status === 2;
-      const lines = part.text.split('\n');
-      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => !part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) findings.push(f); } catch { parsedAll = false; }
+      const lines = text.split('\n');
+      try { for (const f of (JSON.parse(r.stdout).findings ?? []).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep, lineText: f.line ? lines[f.line - 1] : undefined }))) findings.push(f); } catch { parsedAll = false; }
     }
     // The allowlist applies only to findings the scanner reported in full; an unparsed report keeps its exit-code verdict.
     const applied = parsedAll && ctx.config.allowlist.length ? applyAllowlist(findings, ctx.config.allowlist) : { kept: findings, allowlisted: [], untested: [], missed: [] };
-    const kept = applied.kept;
+    // Readings of one binary file that keep a line unchanged report its token again: list each finding once.
+    const reported = new Set<string>();
+    const kept = applied.kept.filter(f => {
+      const key = JSON.stringify([f.file, f.id, f.line, f.col, f.lineText]);
+      if (reported.has(key)) return false;
+      reported.add(key);
+      return true;
+    });
     if (parsedAll) { high = kept.some(f => f.severity === 'HIGH'); medium = kept.some(f => f.severity === 'MEDIUM'); }
     const render = (f: Scanned) => `${f.severity} ${f.id} [${f.category}]: ${f.description ?? ''}${f.line ? ` (${f.file ? `${f.file}, ` : ''}${f.fileLine ? 'line' : 'added line'} ${f.line})` : ''}`;
     const allowLines = [...applied.allowlisted.map(describeAllowlisted), ...applied.untested.map(describeUntested), ...applied.missed.map(describeMissed)];
@@ -155,9 +208,11 @@ function run(ctx: PregateContext): CheckResult {
     // there is no user to answer gstack-redact's per-finding question here.
     const blocking = kept.filter(f => f.severity === 'HIGH' || (f.severity === 'MEDIUM' && f.category === 'secret'));
     const advisory = kept.filter(f => f.severity === 'MEDIUM' && f.category !== 'secret');
-    const lineCount = parts.reduce((n, p) => n + (p.keep?.length ?? p.text.split('\n').length), 0);
+    const binary = parts.filter(p => p.binary).length;
+    const scanned = `${parts.length} file${parts.length === 1 ? '' : 's'}${binary ? ` (${binary} binary)` : ''}`;
+    const lineCount = parts.reduce((n, p) => n + (p.keep?.length ?? p.texts[0].split('\n').length), 0);
     const fail = (lines: string[], detail: string): CheckResult => ({ ...base, status: 'fail', cause: 'diff', lines: [...lines, ...allowLines], code: 'PREGATE_SECRETS', detail: `${detail}${allowNote}`, fix: 'rotate and remove the credential from the added lines (history included); secrets cannot be downgraded (a benign finding is allowlisted by id, path and pattern in the policy, never env.value)' });
-    if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
+    if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean in ${scanned}${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
     if (blocking.length) return fail([...blocking, ...advisory].map(render), `${blocking.length} credential finding(s) in added lines (${blocking.map(f => f.id).join(', ')})`);
     if (high) return fail(kept.map(render), 'HIGH finding(s) in added lines');
     return { ...base, status: 'warn', cause: 'diff', lines: [...advisory.map(render), ...allowLines], code: 'PREGATE_SECRETS', detail: `${advisory.length} MEDIUM non-credential finding(s) in added lines (${[...new Set(advisory.map(f => f.id))].join(', ')})${allowNote}`, fix: 'read each listed line; gstack-post asks about the same findings when the PR body quotes them; a benign one is allowlisted by id or category, path and pattern in the policy' };

@@ -145,4 +145,14 @@ export const CAPY_RESULT_CODES = {
     summary: 'gh could not read a PR gstack-archive-check needs, or answered for another PR, so the check fails closed',
     fix: 'check `gh auth status` and the repository, then rerun (at most 2 times); if it still fails, leave the thread unarchived (or the issue open) and tell the Captain',
   },
+  ARCHIVE_PR_STATE_UNKNOWN: {
+    anchor: 'archive-pr-state-unknown',
+    summary: 'gh pr view returned a PR state other than OPEN, CLOSED or MERGED (empty or unknown), so the PR may still be open and the check fails closed',
+    fix: 'rerun once; if gh still prints that state, check `gh --version` and the PR on GitHub, leave the thread unarchived (or the issue open) and tell the Captain',
+  },
+  ARCHIVE_POLICY_UNREADABLE: {
+    anchor: 'archive-policy-unreadable',
+    summary: 'gstack-archive-check landed found no usable .gstack/plain-titles.json (missing, invalid or with no codes), so it cannot tell a tracker code from any other ref and closes nothing',
+    fix: 'run it from the repository root, where .gstack/plain-titles.json lives; if the file is missing or invalid there, fix it on main (docs/ship-policy.md#plain-titles) and rerun; close nothing until then',
+  },
 } satisfies Record<string, ResultCode>;

@@ -341,7 +341,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   const recovered = j ? null : stampPin(root, info.headRefName, info.headRefOid, o.pr);
   const pin = j?.reviewed_pin ?? recovered ?? info.headRefOid;
   const lines = [`LAND: #${o.pr} branch=${info.headRefName} pin=${pin}${j ? ` (resuming at ${j.phase})` : recovered ? ` (the head ${info.headRefOid.slice(0, 12)} is land's stamp commit; restamping from its pin)` : ''}`, ...(reset ? [reset] : [])];
-  git(root, ['fetch', '-q', 'origin', ctx.base]);
+  if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail(lines, { code: 'QUEUE_BASE_UNFETCHED', message: `cannot fetch origin/${ctx.base}; land checks the receipt against the current base, never a ref it did not refresh`, fix: `fix the fetch (git fetch origin ${ctx.base}), then rerun land` }, run);
   const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [pin], mergedResume);
   lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
   if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: 'run /ship at the pinned head first' }, run);
@@ -357,7 +357,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   }
   if (!j) {
     const ci = ciAtHead(ctx, pin);
-    lines.push(`CI: ${ci.line}`);
+    lines.push(`CI: ${ci.line}`, ...ci.superseded);
     if (!ci.green) return fail(lines, { code: 'QUEUE_NOT_READY', message: `required checks are not green at the pin ${pin.slice(0, 12)}` }, run);
   }
   if (o.dryRun) {

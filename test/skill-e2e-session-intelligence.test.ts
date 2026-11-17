@@ -44,6 +44,9 @@ describeIfSelected('Session Intelligence E2E', [
     // gstack-skill-start and gstack-context-recovery, which call further bin
     // scripts, so ./bin/ is the whole runtime bin directory.
     fs.symlinkSync(path.join(ROOT, 'bin'), path.join(workDir, 'bin'), 'dir');
+    // gstack-timeline-log and gstack-learnings-log import ../lib/redact-engine.ts
+    // from beside ./bin/. A copy, not a symlink: the agent runs inside workDir.
+    fs.cpSync(path.join(ROOT, 'lib'), path.join(workDir, 'lib'), { recursive: true });
 
     // Compute slug (same logic as gstack-slug without git remote)
     slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');

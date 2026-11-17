@@ -64,10 +64,10 @@ function stamp(repo: FixtureRepo): string {
 }
 
 /** pregate.json for the current head on a 4-core machine: the test tier is the remote_gate obligation, uncleared. */
-async function pregateAt(repo: FixtureRepo) {
+async function pregateAt(repo: FixtureRepo, stage: 'tests' | 'all' = 'tests') {
   const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 4, testBackend: 'local' });
   if (!('ctx' in loaded)) throw new Error('fixture context refused');
-  const file = await runPregate(loaded.ctx, { stage: 'tests' });
+  const file = await runPregate(loaded.ctx, { stage });
   expect(file.requires_remote).toEqual([expect.objectContaining({ lane: LANE, receipt: null })]);
   fs.mkdirSync(path.join(repo.work, '.gstack/tmp'), { recursive: true });
   fs.writeFileSync(path.join(repo.work, PREGATE_FILE), JSON.stringify(file));
@@ -87,7 +87,7 @@ describe.skipIf(process.platform === 'win32')('clear --receipt accepts a stamp-o
   test('a receipt for the gated tree clears the stamped head; the substitution names the trees, the policy and every file with its rule, and verify passes', async () => {
     const { repo, gated, gatedTree } = gatedRepo();
     const head = stamp(repo);
-    const file = await pregateAt(repo);
+    const file = await pregateAt(repo, 'all');
     expect(file.tree).toBe(repo.git('rev-parse', `${head}^{tree}`));
     expect(file.tree).not.toBe(gatedTree);
     const r = clear(repo, ['--receipt', receiptFile(repo, gatedTree)]);
@@ -207,7 +207,7 @@ describe.skipIf(process.platform === 'win32')('clear --receipt accepts a stamp-o
   test('a same-tree receipt after a substituted clear drops the recorded substitution', async () => {
     const { repo, gatedTree } = gatedRepo();
     stamp(repo);
-    const file = await pregateAt(repo);
+    const file = await pregateAt(repo, 'all');
     expect(clear(repo, ['--receipt', receiptFile(repo, gatedTree)]).status).toBe(EXIT.ok);
     expect(pregateJson(repo).requires_remote[0].substitution).toBeDefined();
     expect(clear(repo, ['--receipt', receiptFile(repo, file.tree)]).status).toBe(EXIT.ok);

@@ -34,6 +34,13 @@ export function letteredOptions(text: string): string[] {
   return options;
 }
 
+/**
+ * A mention that says Aside is missing ("since Aside isn't available", "Aside was not detected", "with no Aside
+ * installed") names the browser the option does not use, so it never makes a drive option an Aside drive (gate
+ * 42748129558: "I drive it in gstack's own visible browser (recommended, since Aside isn't available)").
+ */
+const ASIDE_UNAVAILABLE = /\bAside(?:['’]s)?(?:\s+(?:browser|app))?\s+(?:is|was)(?:n['’]t|\s+not)\b|\bAside(?:\s+(?:browser|app))?\s+(?:is|was)\s+(?:unavailable|missing|absent)\b|\b(?:no|without)\s+(?:the\s+|your\s+)?Aside\b/gi;
+
 /** Inspect lettered consent options, not narration that quotes an unavailable option. */
 export function asideDriveOptions(text: string): string[] {
   return letteredOptions(text).filter(option => {
@@ -41,7 +48,7 @@ export function asideDriveOptions(text: string): string[] {
       /\b(?:I|we)(?:['’]ll| will) (?:re[- ]?ask|ask again)(?: (?:you|this question))? with (?:the )?(?:"[^"]+"|“[^”]+”|[\w -]+?) option(?: included)?\b/gi,
       '',
     );
-    return /\bAside\b/.test(option) && (/\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(currentOffer)
+    return /\bAside\b/.test(option.replace(ASIDE_UNAVAILABLE, '')) && (/\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(currentOffer)
       || /\bI(?:['’]ll| will)? (?:do|handle|create|complete) (?:it|this)\b/i.test(currentOffer));
   });
 }
@@ -65,13 +72,22 @@ export const offersDriveOption = (text: string): boolean => letteredOptions(text
  * waiting on you", "I refuse to mark this step as blocked on you", "otherwise I'll mark this step as blocked on you",
  * "if you skip it, I'll mark this step as blocked on you", "the step is not blocked on you" and "nothing stays blocked
  * on you" do not count, and neither does "waiting on you to approve it".
+ *
+ * Marking the step is what choosing the option does, so that clause counts on its own. The stays/remains/is predicate
+ * only describes the step's state, which any option can mention, so it counts only after an earlier part of the same
+ * option puts the step off ("later", "not yet", "not now"): "Later. This step remains waiting on you." counts, but "Sign
+ * in yourself. Until then the step stays blocked on you.", "Approve it in the dashboard. The step is waiting on you."
+ * and "Do it now, not later. The step stays blocked on you." do not.
  */
-const DEFER_OUTCOME = /(?:^|[.!?;:]\s+|\s-+\s+|[\u2013\u2014]\s*)(?:(?!\b(?:not|never|no|nothing|nobody|none|neither|nor|without|cannot|refus\w*|declin\w*|avoid\w*|rather|instead|if|unless|otherwise|else)\b|n['\u2019]t\b)[^.!?;:\u2013\u2014])*?\b(?:(?:I|we)(?:['\u2019]ll| will) |I |we )?(?:(?:mark|leave|keep)\w* (?:this|it|the)(?: [\w-]+)?(?: step)? (?:as )?|(?:stays|remains|is) )(?:blocked|waiting) on you(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i;
+const DEFER_OUTCOME = /(?:^|[.!?;:]\s+|\s-+\s+|[\u2013\u2014]\s*)(?:(?!\b(?:not|never|no|nothing|nobody|none|neither|nor|without|cannot|refus\w*|declin\w*|avoid\w*|rather|instead|if|unless|otherwise|else)\b|n['\u2019]t\b)[^.!?;:\u2013\u2014])*?\b(?:(?:I|we)(?:['\u2019]ll| will) |I |we )?(?:(?:mark|leave|keep)\w* (?:this|it|the)(?: [\w-]+)?(?: step)? (?:as )?|(?<status>(?:stays|remains|is) ))(?:blocked|waiting) on you(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/gi;
+const PUT_OFF = /(?<!\b(?:not|no)\s+)\blater\b|\bnot (?:yet|now)\b/i;
+const offersDeferOutcome = (option: string): boolean => [...option.matchAll(DEFER_OUTCOME)]
+  .some(match => !match.groups?.status || PUT_OFF.test(option.slice(0, match.index + match[0].lastIndexOf(match.groups.status))));
 export const offersDefer = (text: string): boolean => letteredOptions(text).some(option =>
   /\b(?:defer\w*|postpone\w*|put (?:this|it)(?: step)? off|skip (?:this|it)(?: step)? for now|come back to (?:this|it)(?: step)? later|leave (?:this|it)(?: step)? for (?:now|later))\b/i.test(option)
   || !/drive|browse|Aside/i.test(option)
     && (/(?:^|[.!?;:]\s+)(?:(?:we|I|let['\u2019]s) )?(?:wait|hold off)(?: on (?:this|it)(?: step)?)? for now\b(?=\s*(?:[.!?;:]|[-\u2013\u2014]|$))/i.test(option)
-      || !offersManualSteps(option) && DEFER_OUTCOME.test(option)));
+      || !offersManualSteps(option) && offersDeferOutcome(option)));
 
 /** The manual option: "manual", or one sentence offering instructions or steps the user follows themselves. */
 export function offersManualSteps(text: string): boolean {

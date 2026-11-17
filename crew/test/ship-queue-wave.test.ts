@@ -15,6 +15,9 @@ import { EXIT } from '../../lib/headless-artifacts';
 import { WAVE_HELP, areaKey, groupWaves, isHubFile, type PlanPr } from '../lib/ship-queue-wave';
 import { cleanup, runBin } from '../../test/helpers/restamp-fixture';
 import { line, openPr, queue, readyReceipt, shippedBody, trainFixture, type TrainFixture } from '../../test/helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../../lib/pregate/index';
+
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 
 const fixtures: TrainFixture[] = [];
 const make = () => { const f = trainFixture(); fixtures.push(f); return f; };
@@ -273,7 +276,7 @@ describe('ready and train build read the wave', () => {
     fx.write(d => { d.ci[head] = [{ status: 'completed', conclusion: 'success' }]; });
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
-    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: [{ id: 'unit', status: 'pass' }] }));
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
     const ok = queue(fx, ['ready', '--pr', '10', '--pregate', pregate, '--no-screen']);
     expect(ok.status).toBe(EXIT.ok);
     expect(line(ok.out, 'WAVE:')).toContain(`WAVE: ${nonce} area=`);

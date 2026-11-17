@@ -345,3 +345,48 @@ describe('G3: learnings-log temp file and TMPDIR', () => {
     expect(stderr).toContain('TMPDIR');
   });
 });
+
+// The four secret families brain sync's scanner used to miss (GST-2196).
+// Built by concatenation so this file never holds a scannable literal.
+const SECRET_FAMILIES: [string, string][] = [
+  ['stripe live key', 'sk_' + 'live_' + 'Q7d2Lm9Xr4Tb8Vn1Kp3Wz6Hc'],
+  ['slack bot token', 'xox' + 'b-' + '2384710293-4829103847-Zr8Qm2Lx7Vn4Tb'],
+  ['database url with a password', 'postgres://app:' + 'Vq8zR2' + 'mLp7@db.internal.example.com:5432/prod'],
+  ['npm token', 'npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'],
+];
+
+describe('gstack-learnings-log refuses HIGH-tier secrets', () => {
+  for (const [name, secret] of SECRET_FAMILIES) {
+    test(`rejects a ${name} in the insight and writes nothing`, () => {
+      const input = JSON.stringify({ skill: 'review', type: 'operational', key: 'env-setup', insight: `DATABASE_URL and keys: ${secret}`, confidence: 7, source: 'observed' });
+      const result = runLog(input, { expectFail: true });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout).toContain('HIGH-tier secret');
+      expect(result.stdout).not.toContain(secret);
+      expect(findLearningsFile()).toBeNull();
+    });
+  }
+
+  test('scans every stored field, not just the insight', () => {
+    const input = JSON.stringify({ skill: 'review', type: 'tool', key: 'npm-publish', insight: 'publish needs a token', confidence: 6, source: 'observed', files: [SECRET_FAMILIES[3][1]] });
+    const result = runLog(input, { expectFail: true });
+    expect(result.exitCode).not.toBe(0);
+    expect(findLearningsFile()).toBeNull();
+  });
+
+  test('prose about tokens and passwords still writes', () => {
+    const insight = 'Rotate the npm token before release; the password field and the Slack bot token live in the vault, never in the repo';
+    runLog(JSON.stringify({ skill: 'review', type: 'operational', key: 'secret-handling', insight, confidence: 8, source: 'observed' }));
+    const f = findLearningsFile();
+    expect(f).not.toBeNull();
+    expect(JSON.parse(fs.readFileSync(f!, 'utf-8').trim()).insight).toBe(insight);
+  });
+
+  test('placeholder database urls still write', () => {
+    const insight = 'Set DATABASE_URL=postgres://app:PASSWORD@host/db, or postgres://app:${DB_PASSWORD}@db/prod in CI';
+    runLog(JSON.stringify({ skill: 'review', type: 'operational', key: 'db-url-shape', insight, confidence: 8, source: 'observed' }));
+    const f = findLearningsFile();
+    expect(f).not.toBeNull();
+    expect(JSON.parse(fs.readFileSync(f!, 'utf-8').trim()).insight).toBe(insight);
+  });
+});
