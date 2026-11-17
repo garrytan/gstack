@@ -304,7 +304,7 @@ export function cmdLaunch(argv: string[], ctx: Ctx): Outcome {
   const log = path.join(path.dirname(block.return_file), `child-${session}.log`);
   joinMeter(block.parent_ledger, session, ctx.env);
   const out = fs.openSync(log, 'a', 0o600);
-  const child = spawn(claude.command, [...claude.argsPrefix, '-p', '--session-id', session, ...CHILD_PERMISSION_ARGS, prompt], { cwd: ctx.cwd, env: ctx.env, detached: true, stdio: ['ignore', out, out] });
+  const child = spawn(claude.command, [...claude.argsPrefix, '-p', '--session-id', session, ...CHILD_PERMISSION_ARGS, '--', prompt], { cwd: ctx.cwd, env: ctx.env, detached: true, stdio: ['ignore', out, out] });
   child.unref();
   fs.closeSync(out);
   return { stdout: [`CHILD: session=${session} pid=${child.pid} log=${log} return=${block.return_file}`], exit: 0 };
