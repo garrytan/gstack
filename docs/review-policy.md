@@ -1032,7 +1032,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    reverted that. A reply that says `NO FINDINGS` keeps only its structured findings (GST-2122). Those are JSON objects
    (malformed JSON included), lead labels, label headings, numbered finding headings, `Severity` fields, `Blocks: yes`,
    the native voice's FIXABLE or INVESTIGATE tag, and anything naming a file:line, which still collect at their label.
-   Its other prose collects nothing. Outside such a reply prose collects as described above. A denial that a change
+   Only a field, lead label, heading or JSON anchors there: a file:line in prose, a list item or the FIXABLE or
+   INVESTIGATE tag may be the reader confirming code (GST-2972), so under a valid verdict that declares fewer blockers such a row is a summary candidate (below) and still
+   blocks until lead judgment lowers it with a reason. Its other prose collects nothing. Outside such a reply prose collects as described above. A denial that a change
    introduced a severity ("No fix introduced a CRITICAL defect") is a no-defect clause too, and a line led by a bold,
    unlabelled lead ("**1. Coverage:** …", "- **Callers:** …") is read for those clauses after its lead. Each prose finding's line also
    records the Severity and Blocks its own text states as `stated`, beside the collected label and never in its place;
@@ -1068,7 +1070,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    | Malformed line (bad count, bad `at=`, more locations than `<n>`, two different lines) | Findings as parsed. `declared=malformed`, with the reason in `why=`. |
    | `blocking=<n>` equals the blocking rows parsed | Findings as parsed. `agrees=yes`. |
    | `<n>` is more than parsed | Every parsed row stays, and collect adds CRITICAL rows (ids `<reader>#v1`, `#v2`…): one per `at=` location that no parsed blocking row names, then one more row for the declared blockers left over. The added rows count toward what blocks like any other. |
-   | `<n>` is less than parsed | Nothing is lowered automatically. Each blocking row with no list item, heading, field, lead label, JSON or file:line, and no `Blocks: yes` (a row that blocks only because a sentence uses the word CRITICAL or P0, or because the native voice's FIXABLE raises it) is marked `summary_candidate`, so lead judgment may lower it with a written reason, which `judge` records as `dismissed`. Anchored rows keep blocking. |
+   | `<n>` is less than parsed | Nothing is lowered automatically. Each blocking row with no list item, heading, field, lead label or JSON (a file:line in prose is not an anchor, nor, in a reply that says `NO FINDINGS`, is a list item or the FIXABLE or INVESTIGATE tag, GST-2972), and no `Blocks: yes` (a row that blocks only because a sentence uses the word CRITICAL or P0, or because the native voice's FIXABLE raises it) is marked `summary_candidate`, so lead judgment may lower it with a written reason, which `judge` records as `dismissed`. Anchored rows keep blocking. |
 
    A valid line never lowers a row by itself. FOUN-298's native "nothing blocks … all FIXABLE" sentence with
    `blocking=0` still collects as CRITICAL, as a summary candidate the lead lowers with a reason. An automatic relabel
