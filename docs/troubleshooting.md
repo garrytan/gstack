@@ -7443,8 +7443,7 @@ every flag and code.
 
 `bin/gstack-prose-lint` reads the prose /ship is about to publish, a CHANGELOG
 entry (Step 13) and the sections the author writes in the PR body (Step 19:
-`## Why`, `## Summary` and `## Blast radius`, through `--sections`; the
-`## What changed` captions and image text stay a report), and the quality-gate
+`## Why`, `## What changed` and `## Blast radius`, through `--sections`), and the quality-gate
 workflow runs it over `CHANGELOG.md`'s `[Unreleased]` block. It decides only
 what a regular expression can: autopilot vocabulary, "not just X, but Y",
 metaphor nouns, a colon used as a conjunction, a bold label that restates its
