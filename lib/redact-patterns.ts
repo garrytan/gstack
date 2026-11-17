@@ -1151,17 +1151,22 @@ function isAttributeReference(span: string, match: RegExpExecArray, sourcePath: 
 }
 
 /**
- * GST-3004: text that names or builds a key rather than holding one. Split on
- * whitespace, every run must be short (under 8), a placeholder, under 3.0
- * bits, or letters-only words, lowercase or camelCase with an optional leading
- * capital, joined by `_ . - | : / #` (`over_tough`, `secretsOperations`,
- * `|over_tough|`). A generated credential carries digits or adjacent
- * capitals, so it keeps reporting; a letters-only passphrase in this shape
- * (`correctHorseBattery`) is the accepted residue.
+ * GST-3004: text that names or builds a key rather than holding one. Read with
+ * its whitespace removed, so a password with spaces is read whole, it must be
+ * short (under 8), a placeholder, under 3.0 bits, or letters-only words,
+ * lowercase or camelCase with an optional leading capital, joined by
+ * `_ . - | : / #` (`over_tough`, `secretsOperations`, `|over_tough|`). A
+ * generated credential carries digits or adjacent capitals, so it keeps
+ * reporting; a letters-only passphrase in this shape (`correctHorseBattery`)
+ * is the accepted residue. Comment prose is read run by run instead
+ * (isCommentText).
  */
 const KEY_TEXT = /^[_.\-|:/#]*[A-Za-z][a-z]+(?:[A-Z][a-z]+)*(?:[_.\-|:/#]+[A-Za-z][a-z]+(?:[A-Z][a-z]+)*)*[_.\-|:/#]*$/;
+function isSecretRun(run: string): boolean {
+  return run.length >= 8 && !isPlaceholderSpan(run) && shannonEntropy(run) >= 3.0 && !KEY_TEXT.test(run);
+}
 function holdsSecretText(text: string): boolean {
-  return text.split(/\s+/).some((run) => run.length >= 8 && !isPlaceholderSpan(run) && shannonEntropy(run) >= 3.0 && !KEY_TEXT.test(run));
+  return isSecretRun(text.replace(/\s+/g, ""));
 }
 
 /** The text of the `"…"` or `'…'` literal whose quote is at `i` and the index after it, or null when it does not close on the line. */
@@ -1239,14 +1244,15 @@ function isNameList(span: string, match: RegExpExecArray, sourcePath: string | u
  * fixed text that names a key (`key: \`${over.day}|${over.groomerId}|over_tough|\`,`)
  * builds a cache or list key; it holds no credential. The backtick must open a
  * template at the value (jsSpans), close on the same line and hold at least
- * one slot; every slot is names and operators only (no quote, backtick or
- * brace). The fixed text, joined across the slots so a secret split by them
+ * one slot; every slot is names, operators and numbers of up to five digits
+ * only (no quote, backtick, brace, slash or longer number literal, so a slot
+ * cannot spell a secret as a regex, string or number literal). The fixed text, joined across the slots so a secret split by them
  * is whole again, must pass holdsSecretText, and the rest of the line carries
  * no secret literal or further template. A template with no slot, a multi-line
  * one and one in a config file are checked as before.
  */
 const JS_SOURCE = /\.(?:[cm]?[jt]sx?)$/i;
-const TEMPLATE_SLOT = /^[\w$.?!\s|&+\-*/%()[\],:<>=]*$/;
+const TEMPLATE_SLOT = /^[\w$.?!\s|&+\-*%()[\],:<>=]*$/;
 function isTemplateKey(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !JS_SOURCE.test(sourcePath) || !span.startsWith("`")) return false;
   const { start } = spanBounds(match);
@@ -1262,7 +1268,8 @@ function isTemplateKey(span: string, match: RegExpExecArray, sourcePath: string 
       i += 1;
     } else if (line.startsWith("${", i)) {
       const close = line.indexOf("}", i);
-      if (close < 0 || !TEMPLATE_SLOT.test(line.slice(i + 2, close))) return false;
+      const slot = line.slice(i + 2, close);
+      if (close < 0 || !TEMPLATE_SLOT.test(slot) || /(?<![\w$])\d/.test(slot.replace(/(?<![\w$])\d{1,5}(?![\w$])/g, ""))) return false;
       slots += 1;
       i = close;
     } else text += line[i];
@@ -1282,7 +1289,7 @@ function isTemplateKey(span: string, match: RegExpExecArray, sourcePath: string 
 function isCommentText(span: string, match: RegExpExecArray): boolean {
   const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
   if (/^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*$/.test(match.input.slice(lineStart, match.index))) return false;
-  return !holdsSecretText(span.replace(/[,;.)]+$/, ""));
+  return !isSecretRun(span.replace(/[,;.)]+$/, ""));
 }
 
 /**
@@ -1756,11 +1763,12 @@ export const PATTERNS: RedactPattern[] = [
     // GST-3004 (#4289): a name may also start right after a comment marker
     // (`#`, `//`, `/*`, `<!--`) at the line start or after a space, so a
     // secret in a trailing or whole-line comment reports; that start is a
-    // lookbehind, so the code before the comment is still matched on its own
-    // and match[0] still starts at the name. A short first piece followed by
+    // bounded lookbehind (a run of spaces is matched after it, not inside it,
+    // so a long run stays linear), and the code before the comment is still
+    // matched on its own from the line start. A short first piece followed by
     // `+` is captured so concatenationHoldsSecret can read the rest of the
     // chain.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*|(?<=(?:^|[ \t])(?:#+|\/\/+|\/\*+|<!--)[ \t]*))(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)))[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,

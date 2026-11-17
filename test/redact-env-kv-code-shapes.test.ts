@@ -18,6 +18,7 @@ const ids = (text: string, sourcePath?: string) =>
 const kv = (text: string, sourcePath?: string) => ids(text, sourcePath).includes("env.kv");
 const S = "Qx9vL2mZp8Rt4Kw7Yn3Bh2Jd";
 const STRIPE = ["sk", "live", S].join("_");
+const SPACED = "R7m!2pX K4v@8Q j9W#3s";
 const passes = (cases: ReadonlyArray<readonly [string, string | undefined]>) => {
   for (const [code, file] of cases) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
 };
@@ -44,6 +45,10 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
       ["  key: `${over.day}|" + S + "|`,", "src/cache.ts"],
       ["  key: `Qx9v${a}L2mZ${b}p8Rt${c}4Kw7`,", "src/cache.ts"],
       ["  key: `" + S + "`,", "src/cache.ts"],
+      ["password = `" + SPACED + "${suffix}`;", "src/client.ts"],
+      ["password = `${/m4Fq8Wz2Rn7Yb3Hd9Vk6Lp5C/.source}`;", "src/client.ts"],
+      ["password = `${48213957601234}`;", "src/client.ts"],
+      ["password = `${0x9f3ac2e1b7d4}`;", "src/client.ts"],
       ['  key: `${lookup("' + S + '")}|over_tough`,', "src/cache.ts"],
       ["  key: `${over.day}|over_tough` + \"" + S + "\",", "src/cache.ts"],
       ["  key: `${over.day}|over_tough` + `" + S + "`,", "src/cache.ts"],
@@ -70,6 +75,7 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
   test("hold: a secret as a literal type or a default, a value in an object literal, and a config file still report", () => {
     holds([
       ['  session: Pick<Session, "' + S + '"> | null,', "src/orchestrator.ts"],
+      ['password: Pick<Session, "' + SPACED + '">,', "src/client.ts"],
       ['  session: Pick<Session, "id"> | null = "' + S + '",', "src/orchestrator.ts"],
       ['  session: Pick<Session, "id"> | null, other: "' + S + '",', "src/orchestrator.ts"],
       ['  session: "' + S + '",', "src/orchestrator.ts"],
@@ -94,6 +100,7 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
     const table = "src/core/operation-loaders.generated.ts";
     holds([
       ['  "get_token": [load_auth, "' + S + '"],', table],
+      ['password: [load_auth, "' + SPACED + '"],', "src/client.ts"],
       ['  "get_token": [load_auth, "authOperations", "' + S + '"],', table],
       ['  "get_token": [' + S + ', "authOperations"],', table],
       ['  "get_token": [load_auth, "authOperations"], "' + S + '",', table],

@@ -44,6 +44,13 @@ describe("env.kv: secrets built by concatenation or written in comments (GST-300
   test("a secret in the code and another in its comment report separately", () => {
     expect(findings('API_KEY="' + S + '"  # TOKEN="' + S2 + '"', "app/settings.py").map((f) => f.col)).toEqual([10, 46]);
   });
+  test("a long run of spaces or comment markers scans in linear time", () => {
+    for (const text of [" ".repeat(40_000) + "x", "# " + " ".repeat(40_000) + "x", "#".repeat(40_000) + "x", "/".repeat(40_000)]) {
+      const started = performance.now();
+      scan(text, { repoVisibility: "private", processEnv: {}, sourcePath: "src/client.ts", maxBytes: 1 << 20 });
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
   test("a line whose code is exempt still reports a secret in its comment", () => {
     expect(kv('    session = self.client.session  # TOKEN="' + S + '"', "tests/test_views.py")).toBe(true);
   });
