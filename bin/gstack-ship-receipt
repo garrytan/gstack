@@ -1072,12 +1072,17 @@ function cmdHistory(rest: string[], json: boolean): number {
   return EXIT.ok;
 }
 
-/** The round grant for this PR at HEAD, or at a head HEAD only merges the base into or out of (GST-2968). */
-function roundGrantAt(repoRoot: string | undefined, pr: string | undefined, head: string | undefined, base: string | undefined) {
+/**
+ * The round grant for this PR at HEAD, or at a head HEAD only merges the base into or out of (GST-2968). atOrBefore also
+ * takes a grant at a commit before HEAD, the plan's rule once a granted run's fix commits move HEAD past its grant.
+ */
+function roundGrantAt(repoRoot: string | undefined, pr: string | undefined, head: string | undefined, base: string | undefined, atOrBefore = false) {
   if (!repoRoot || !head || !pr || !/^\d+$/.test(pr)) return undefined;
   const b = (base ?? resolveBaseBranch(repoRoot)).replace(/^origin\//, '');
   const baseRef = [`origin/${b}`, b].find(ref => git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoRoot));
-  return grantFor(repoRoot, readReviewRoundGrants(repoRoot), Number(pr), head, baseRef);
+  const grants = readReviewRoundGrants(repoRoot);
+  return grantFor(repoRoot, grants, Number(pr), head, baseRef)
+    ?? (atOrBefore ? [...grants].reverse().find(g => g.pr === Number(pr) && git(['merge-base', '--is-ancestor', g.head, head], repoRoot) !== undefined) : undefined);
 }
 
 /** Step 9: this run's rounds so far, recorded before its receipt exists (a started stub), or voided; a run that started past the cap is marked read_only. */
@@ -1092,7 +1097,7 @@ function cmdStub(rest: string[]): number {
   const head = (flag(rest, '--head') ?? git(['rev-parse', 'HEAD']))?.toLowerCase();
   if (!head || !/^[0-9a-f]{40,64}$/.test(head)) { process.stderr.write('gstack-ship-receipt stub: cannot resolve HEAD\n'); return EXIT.usage; }
   const status = rest.includes('--void') ? 'voided' : 'started';
-  const grant = roundGrantAt(git(['rev-parse', '--show-toplevel']), read.pr ?? flag(rest, '--pr'), head, flag(rest, '--base'));
+  const grant = roundGrantAt(git(['rev-parse', '--show-toplevel']), read.pr ?? flag(rest, '--pr'), head, flag(rest, '--base'), true);
   const readOnly = status === 'started' && readOnlyRun(prReviewHistory(read.body, { exceptRun: run }), grant?.approval);
   const err = postBody(rest, read.pr, placeRunEntry(read.body, runStub({ head, run, status, loop, readOnly })));
   if (err) { process.stderr.write(`gstack-ship-receipt stub: ${err}; the run is not recorded\n`); return EXIT.fail; }

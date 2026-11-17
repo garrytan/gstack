@@ -153,7 +153,8 @@ const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\
  * The receipt and its runs block go at the end of the body's Agent notes section, which is created when the body has
  * none; the section's other content stays above them. The section's old receipt and runs blocks and a legacy block
  * that opens the body are removed, so one receipt remains; a fence quoted in the readable part stays, since it never
- * binds. A replaced receipt joins the runs block.
+ * binds. A replaced receipt joins the runs block. A started stub of this receipt's run stays only when it is read_only: it
+ * then counts nothing and marks the run's receipt read-only for the PR's round history (GST-2968).
  * A legacy body (a receipt and no section, as /ship posted before the section existed) keeps its layout: the block is
  * replaced in place at the top, because its Plan and issue lines sit in the readable part and a new section holding
  * only the receipt would hide them from the readers that prefer the section (a carry on an open PR, GST-1825).
@@ -161,7 +162,7 @@ const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\
 export function placeReceipt(body: string, receipt: ShipReceipt): string {
   const ex = extractReceipt(body);
   const prior = ex.receipt;
-  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || receipt.run === undefined || r.run !== receipt.run);
+  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || receipt.run === undefined || r.run !== receipt.run || (r.status === 'started' && r.read_only));
   if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
   const kept = runs.slice(-RECEIPT_RUNS_KEPT);
   const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');

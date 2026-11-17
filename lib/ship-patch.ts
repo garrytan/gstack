@@ -162,6 +162,7 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   try {
     const [mr3, mc3] = [sides.diff(s.reviewedBase, s.reviewed, 3), sides.diff(s.currentBase, s.current, 3)];
     if (mr3 === null || mc3 === null) return 'changed';
+    if (!mr3.trim() && !mc3.trim()) return 'same';
     const ids = [patchId(repoRoot, mr3), patchId(repoRoot, mc3)];
     if (ids[0] === null || ids[1] === null) return 'changed';
     const r0 = zeroHunks(sides.diff(s.reviewedBase, s.reviewed, 0) ?? '');

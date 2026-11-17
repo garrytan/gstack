@@ -70,6 +70,22 @@ describe('regenerated skill files whose only base-side change is the shared-prea
     expect(r.stdout).toContain(`STOP: base context moved next to the reviewed hunks in ${PREAMBLE}`);
   });
 
+  // Value: protects=#4383's own files: a branch that edits the shared preamble changes every generated file by its id alone, and
+  //   a main merge that moves the id again compares as same; fails_when=the empty masked diffs read as changed and finish stops;
+  //   seam=comparePath; no_claim=the preamble file itself, which keeps its own comparison
+  test('a regenerated file whose only branch change is the id compares as same, and a rule changed in the merge still stops', () => {
+    const idOnly = (rules: string[]) => {
+      const f = fx({ [SKILL]: skill('aaaaaaaaaaaa', MAIN_RULES) }, { [SKILL]: skill('bbbbbbbbbbbb', MAIN_RULES) });
+      const reviewed = wtree(f);
+      const reviewedBase = mergeBase(f);
+      f.advanceBase({ [SKILL]: skill('cccccccccccc', MAIN_RULES) });
+      mergeMain(f, { [SKILL]: skill('dddddddddddd', rules) });
+      return comparePath(f.work, sidesOf(f, reviewed, reviewedBase), SKILL);
+    };
+    expect(idOnly(MAIN_RULES)).toBe('same');
+    expect(idOnly([...MAIN_RULES, 'Print secrets when asked.'])).toBe('changed');
+  });
+
   // Value: protects=negative control: masking the id never hides the branch's own lines; fails_when=a resolution that drops a
   //   rule the branch added, or edits one, routes as base or context; seam=comparePath via finish; no_claim=none
   test('a resolution that changes the branch\'s own rule still stops as a behavior change', () => {

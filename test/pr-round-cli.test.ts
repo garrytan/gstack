@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { ShipReceipt } from '../lib/headless-artifacts';
+import { placeRunEntry, prReviewHistory, reviewRoute, runStub } from '../lib/pr-review-history';
+import { placeReceipt } from '../lib/ship-receipt';
 
 const BIN = (n: string) => path.join(import.meta.dir, '..', 'bin', n);
 const dirs: string[] = [];
@@ -167,6 +170,36 @@ describe('a round grant at the PR_ROUND_CAP stop head (GST-2968)', () => {
     const changed = s.history();
     expect(flagsOf(changed)).toBe('--prior-rounds 3 --prior-full 3');
     expect(changed).toMatch(/^PR_REVIEW_ROUTE: read-only /m);
+  });
+
+  // Value: protects=the granted run's own stub after its fix commit (Step 9 records the stub after the pass commits its fixes)
+  //   stays a granted round, as the plan keeps the grant past HEAD; fails_when=the stub loses the grant at the fix head and marks
+  //   the granted passes read_only, so a later grant would subtract them; seam=gstack-ship-receipt stub; no_claim=history's route
+  test('the granted run\'s stub after its fix commit is not read-only', () => {
+    const s = atStop();
+    expect(s.grant()).toBeDefined();
+    const git = gitIn(s.dir);
+    fs.writeFileSync(path.join(s.dir, 'src', 'a.ts'), 'export const a = 2;\n'); git('commit', '-qam', 'fix round');
+    const run4 = s.run('gstack-ship-receipt', ['stub', '--body', s.body, '--pr', '5', '--base', 'main', '--run', 'r4', '--review-loop', JSON.stringify({ ...loop, passes: 2, rounds: 2 })]);
+    expect(run4.stdout).toMatch(/^RUN_STUB: run=r4 status=started rounds=2 head=/m);
+    expect(s.history()).toMatch(/^PR_REVIEW_HISTORY: pr=#5 rounds=5 cap=2 full=5 .* read_only=1 /m);
+  });
+
+  // Value: protects=a read-only run that ends done and writes its receipt keeps its read-only mark, so a later read-only stop's
+  //   grant still buys its round; fails_when=the receipt write drops the read_only stub and the grant routes read-only again;
+  //   seam=placeReceipt + prReviewHistory; no_claim=the receipt schema
+  test('a read-only run that writes its receipt stays read-only, and a later stop\'s grant still buys the round', () => {
+    const h = (c: string) => c.repeat(40);
+    const receipt = (head: string, run: string) => ({ head, run, review_loop: loop }) as ShipReceipt;
+    let body = placeReceipt(placeReceipt('## Summary\n', receipt(h('a'), 'r1')), receipt(h('b'), 'r2'));
+    body = placeRunEntry(body, runStub({ head: h('c'), run: 'r3', status: 'started', loop, readOnly: true }));
+    body = placeReceipt(body, receipt(h('c'), 'r3'));
+    expect(prReviewHistory(body)).toMatchObject({ full: 3, read_only: 1, runs: 3, stubs: 0 });
+    body = placeRunEntry(body, runStub({ head: h('d'), run: 'r4', status: 'started', loop, readOnly: true }));
+    const later = prReviewHistory(body);
+    expect(later).toMatchObject({ full: 4, read_only: 2, stubs: 1 });
+    expect(reviewRoute(later, { grant: 'a-000000000001' }).route).toBe('final');
+    expect(reviewRoute(later).route).toBe('read-only');
   });
 
   test('a grant recorded on the merge head applies back at its pre-merge head, and a grant for another PR never does', () => {

@@ -24,7 +24,7 @@ export interface PrReviewHistory {
   rechecks: number;
   /** Runs that started and wrote no receipt yet. */
   stubs: number;
-  /** Full passes of read-only final reviews (a started stub's read_only, GST-2968): a round grant leaves them out of the count. */
+  /** Full passes of read-only final reviews (a started stub's read_only, kept beside its run's receipt, GST-2968): a round grant leaves them out of the count. */
   read_only: number;
   heads: number;
   first_full: string | null;
@@ -42,6 +42,8 @@ function entries(body: string): ReceiptRun[] {
 
 export function prReviewHistory(body: string, o: { exceptRun?: string } = {}): PrReviewHistory {
   const all = entries(body).filter(e => !(e.status && o.exceptRun !== undefined && e.run === o.exceptRun));
+  const finished = new Set(all.filter(e => !e.status && !e.carry_kind && !e.carried_from && e.run).map(e => e.run));
+  const readOnly = new Set(all.filter(e => e.read_only && e.run).map(e => e.run));
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
@@ -53,13 +55,13 @@ export function prReviewHistory(body: string, o: { exceptRun?: string } = {}): P
   const h: PrReviewHistory = { runs: 0, rounds: 0, full: 0, scoped: 0, fix_checks: 0, rechecks: 0, stubs: 0, read_only: 0, heads: new Set(all.map(e => e.head)).size, first_full: null, last_full: null, source: 'pr-body' };
   for (const item of ordered) {
     const e = typeof item === 'string' ? reviewed.get(item)! : item;
-    if (e.status === 'voided') continue;
+    if (e.status === 'voided' || (e.status === 'started' && e.run && finished.has(e.run))) continue;
     if (e.carry_kind === 'recheck') { h.rechecks++; continue; }
     if (e.carry_kind || e.carried_from) continue;
     const l = e.review_loop;
     const scoped = l?.scoped ?? 0, full = Math.max(0, (l?.passes ?? 0) - scoped);
     h.rounds += roundsOf(l); h.scoped += scoped; h.full += full; h.fix_checks += l?.fix_checks ?? 0;
-    if (e.read_only) h.read_only += full;
+    if (e.read_only || (e.run && readOnly.has(e.run))) h.read_only += full;
     if (e.status === 'started') h.stubs++; else h.runs++;
     if (full > 0) { h.first_full ??= e.head; h.last_full = e.head; }
   }
