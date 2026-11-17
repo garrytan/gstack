@@ -10,7 +10,8 @@
  *      import) and literal directories (`test/fixtures/x` → `x/**`), and in
  *      Python, dotted `mock.patch` targets (`'pkg.mod.Class.method'`);
  *   3. the `bin/<name>` → `test/<name>*.test.*` convention (with and without
- *      the `gstack-` prefix);
+ *      the `gstack-` prefix), and RSpec's `spec/<path>_spec.rb` → `app/<path>.rb`
+ *      or `<path>.rb` (Rails autoloads constants, so no require names the file);
  *   4. explicit `.gstack/pregate.json` `dependencies` declarations;
  *   5. in a Django project, the files Django loads by name (lib/pregate/django.ts);
  *   6. in a Cargo crate, every `.rs` file and the Cargo.toml select the crate's
@@ -468,6 +469,12 @@ function conventionBins(test: string, files: Set<string>): string[] {
   return out;
 }
 
+/** The Ruby sources an RSpec spec names by convention: spec/models/user_spec.rb names app/models/user.rb, spec/lib/parser_spec.rb names lib/parser.rb. */
+function conventionRubySubjects(test: string, files: Set<string>): string[] {
+  const m = /^spec\/(.+)_spec\.rb$/.exec(test);
+  return m ? [`app/${m[1]}.rb`, `${m[1]}.rb`].filter(f => files.has(f)) : [];
+}
+
 export interface BuildOptions {
   declarations?: Record<string, string[]>; maxBytes?: number;
   /** Paths that no longer exist (deleted or renamed-from) but that tests may still name; they resolve as dependencies so their consumers are found, and are never tests themselves (`git ls-files` still lists an unstaged deletion). */
@@ -502,12 +509,12 @@ export function buildGraph(repoRoot: string, opts: BuildOptions = {}): Graph {
   for (const e of rust.edges) addEdge(graph, e.dependency, e.dependent, e.via);
   const django = djangoEdges({ files: [...files], tests: graph.tests, read: rel => pySources.get(rel) ?? readRepoFile(repoRoot, rel, maxBytes), code: pythonCode, resolveDotted: dotted => pythonPatchTarget(files, dotted) });
   for (const e of django) addEdge(graph, e.dependency, e.dependent, 'framework');
-  for (const test of graph.tests) for (const bin of conventionBins(test, files)) addEdge(graph, bin, test, 'convention');
+  for (const test of graph.tests) for (const subject of [...conventionBins(test, files), ...conventionRubySubjects(test, files)]) addEdge(graph, subject, test, 'convention');
   if (opts.goneSources) {
     const present = new Set(all);
     graph.goneSubjects = new Map();
     for (const [rel, source] of opts.goneSources) {
-      const targets = [...referencesIn(files, dirs, rel, source, config, undefined, packages).map(r => r.target), ...conventionBins(rel, files)];
+      const targets = [...referencesIn(files, dirs, rel, source, config, undefined, packages).map(r => r.target), ...conventionBins(rel, files), ...conventionRubySubjects(rel, files)];
       graph.goneSubjects.set(rel, [...new Set(targets)].filter(t => present.has(t) && !isTestFile(t) && !TEST_TREE.test(t)).sort());
     }
   }
