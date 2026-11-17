@@ -51,7 +51,7 @@ const fetch = async code => {
     events.push(...transcript.items.map(i => ({ source: i.source, tool: i.tool, createdAt: i.createdAt,
       calls: i.calls?.map(c => ({ tool: c.tool })), state: String(i.input?.text ?? "").match(/"state\\?"\s*:\s*\\?"(\w+)/)?.[1],
       ms: i.calls?.reduce((s, c) => s + (c.durationMs ?? 0), 0),
-      ...(i.tool === "message_agent" ? { to: /[{,]\s*"to"\s*:/.test(i.input?.text ?? "") || (!!i.text && i.input?.chars > (i.input?.text ?? "").length) } : {}),
+      ...(i.tool === "message_agent" ? { to: /[{,]\s*"to"\s*:\s*"/.test(i.input?.text ?? "") || (!!i.text && i.input?.chars > (i.input?.text ?? "").length) } : {}),
       ...(i.tool === "wait" ? { input: i.input } : {}) })));
     if (!(before = transcript.beforeCursor)) break;
   }

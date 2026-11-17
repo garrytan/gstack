@@ -75,7 +75,7 @@ function waitArgs(item: Item): { ops: string; seconds: number | null } | null {
 function addressed(item: Item): boolean {
   if (item.to !== undefined) return !!item.to;
   const input = typeof item.input === 'string' ? { text: item.input } : item.input;
-  return /[{,]\s*"to"\s*:/.test(input?.text ?? '') || (!!item.text && (input?.chars ?? 0) > (input?.text ?? '').length);
+  return /[{,]\s*"to"\s*:\s*"/.test(input?.text ?? '') || (!!item.text && (input?.chars ?? 0) > (input?.text ?? '').length);
 }
 
 const ranMs = (i: Item) => i.ms ?? (i.calls ?? []).reduce((s, c) => s + (c.durationMs ?? 0), 0);
@@ -88,9 +88,10 @@ const ranMs = (i: Item) => i.ms ?? (i.calls ?? []).reduce((s, c) => s + (c.durat
  * GST-1597) is not a wake: one whose only call re-issues a wait on the operations the previous wake waited on, or a
  * 240-second timer naming those operations or none, within 30 minutes of the wait that started the run. Any wake that
  * closes on such a wait keeps the run's start, so a status read between check-ins counts but never restarts the 30 minutes.
- * Each wake is priced in warm model calls, one per tool call. A wake is cold when it started more than CACHE_TTL_S after
- * the thread's previous item, so the prompt cache had lapsed; its first call then costs COLD_CALL_PRICE, and so does
- * a call after a tool that ran past CACHE_TTL_S. The first wake read has no previous item and is priced warm.
+ * Each wake is priced in warm model calls, one per tool call, issued at its item's time less its own run time. A wake is
+ * cold when it started more than CACHE_TTL_S after the thread's previous model call, so the prompt cache had lapsed; its
+ * first call then costs COLD_CALL_PRICE once, and so does any later call issued more than CACHE_TTL_S after the model
+ * call before it (the call after a long tool). The first wake read has no previous model call and is priced warm.
  * The price ratio and the 5-minute cache are Opus 5.5's; other models differ.
  */
 export function wakes(items: readonly Item[]): Wake[] {
@@ -99,7 +100,7 @@ export function wakes(items: readonly Item[]): Wake[] {
   let acted = false, coldCalls = 0;
   let calls: Item[] = [];
   let start: { at: string; idleS: number | null } | null = null;
-  let prev: number | null = null;
+  let prevAt: number | null = null, prevModel: number | null = null;
   let last: { ops: string; since: number } | null = null;
   const close = () => {
     if (!calls.length || !start) return;
@@ -117,14 +118,15 @@ export function wakes(items: readonly Item[]): Wake[] {
   };
   for (const i of sorted) {
     const t = Date.parse(i.createdAt!);
-    if (i.source === 'assistant') { prev = t; continue; }
-    if (i.source !== 'tool') { close(); start ??= { at: i.createdAt!, idleS: prev === null ? null : (t - prev) / 1000 }; prev = t; continue; }
-    const gapS = prev === null ? 0 : (t - prev) / 1000;
-    const idleS = prev === null ? null : gapS - ranMs(i) / 1000;
-    if (calls.length && idleS !== null && idleS > CACHE_TTL_S) close();
-    else if (start && gapS > CACHE_TTL_S) coldCalls++;
-    start ??= { at: i.createdAt!, idleS };
-    prev = t;
+    if (i.source === 'assistant') { prevAt = prevModel = t; continue; }
+    if (i.source !== 'tool') { close(); start ??= { at: i.createdAt!, idleS: prevModel === null ? null : (t - prevModel) / 1000 }; prevAt = t; continue; }
+    const issued = Math.max(t - ranMs(i), prevAt ?? -Infinity);
+    if (calls.length && prevAt !== null && (issued - prevAt) / 1000 > CACHE_TTL_S) close();
+    const sinceModelS = prevModel === null ? null : (issued - prevModel) / 1000;
+    start ??= { at: i.createdAt!, idleS: sinceModelS };
+    const startCold = start.idleS !== null && start.idleS > CACHE_TTL_S;
+    if (sinceModelS !== null && sinceModelS > CACHE_TTL_S && (calls.length || !startCold)) coldCalls++;
+    prevAt = t; prevModel = issued;
     calls.push(i);
     const state = i.tool === 'message_agent' || i.tool === 'message_user' ? reportState(i) : undefined;
     const report = state === 'working' && !(i.tool === 'message_agent' && addressed(i));

@@ -143,6 +143,14 @@ describe('gstack-runaway scan', () => {
     const ran = run('scan', '--thread', write('long.thread.json', { ...doc, events: [] }), '--events', write('long.events.json', { transcript: { items: long } }), '--now', NOW, '--wakes').out;
     expect(ran).toContain('wakes=1 cold_wakes=0% empty_wakes=0% cold_extra_spend=86% empty_spend=0%');
     expect(ran).toContain('idle_s=unknown cache=warm calls=3 cold_calls=1 empty=no cost=21.4');
+    const queued = [{ source: 'tool', tool: 'end_turn', createdAt: t(0) },
+      { source: 'user', createdAt: t(600) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: t(1200) }, { source: 'tool', tool: 'end_turn', createdAt: t(1206) },
+      { source: 'user', createdAt: t(1300) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: t(1900) }, { source: 'tool', tool: 'end_turn', createdAt: t(1905) },
+      { source: 'tool', tool: 'execute', calls: [{ tool: 'bash', durationMs: 600_000 }], createdAt: t(2505) }, { source: 'tool', tool: 'end_turn', createdAt: t(2506) }];
+    const q = run('scan', '--thread', write('queued.thread.json', { ...doc, events: [] }), '--events', write('queued.events.json', { transcript: { items: queued } }), '--now', NOW, '--wakes').out;
+    expect(q).toContain('start=' + t(600) + ' idle_s=600 cache=cold calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(q).toContain('start=' + t(1300) + ' idle_s=94 cache=warm calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(q).toContain('start=' + t(2505) + ' idle_s=0 cache=warm calls=2 cold_calls=1 empty=no cost=20.4');
   });
 
   const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
@@ -392,6 +400,7 @@ describe('/runaway-stopper skill', () => {
     const doc = { code: 'GSTA-997', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [] };
     expect(run('scan', '--thread', write('sends.thread.json', { ...doc, events: page({ to: 'GSTA-12', state: 'working', text: 'go' }) }), '--now', NOW).out).toContain('empty_wake=0%/20');
     expect(run('scan', '--thread', write('notes.thread.json', { ...doc, events: page({ state: 'working', text: 'note' }) }), '--now', NOW).out).toContain('empty_wake=100%/20');
+    expect(run('scan', '--thread', write('nulls.thread.json', { ...doc, events: page({ state: 'working', text: 'note', to: null }) }), '--now', NOW).out).toContain('empty_wake=100%/20');
     const cut = (project({ id: 'm', source: 'tool', tool: 'message_agent', text: 'GSTA-12', createdAt: at(0), input: { text: '{"state":"working","text":"a long brief', chars: 9000 } }) as { to?: boolean }).to;
     expect(cut).toBe(true);
   });
