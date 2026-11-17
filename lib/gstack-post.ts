@@ -300,7 +300,8 @@ const READER_RUNS_RE = new RegExp(RUNS_RE.source, "g");
  * reader takes the first one it finds, and a block placed before the receipt would stand in for the real history. The
  * runs block placeReceipt would write on the live body (earlier runs, started stubs and the replaced receipt) then goes
  * back, once, right after the posted receipt; with no live history there is none, and gstack-ship-receipt history
- * counts the posted receipt alone.
+ * counts the posted receipt alone. Notes with no receipt (a body between a Step 9 stub and the receipt write) get the
+ * live body's runs block in place of the first block they bring, so their stubs are kept and never replaced.
  */
 function keepRuns(current: string, next: Section[], m: ReturnType<typeof mergeSplit>): ReturnType<typeof mergeSplit> {
   if (!next.some(n => n.key === NOTES_KEY)) return m;
@@ -309,6 +310,11 @@ function keepRuns(current: string, next: Section[], m: ReturnType<typeof mergeSp
   const placed = posted ? placeReceipt(current, posted) : "";
   const runs = RUNS_BLOCK_RE.exec(placed.slice(notesAt(placed)))?.[0];
   const at = notesAt(m.body);
+  if (!posted) {
+    const live = RUNS_RE.exec(current.slice(notesAt(current)))?.[0] ?? "";
+    let first = true;
+    return { ...m, body: m.body.slice(0, at) + m.body.slice(at).replace(READER_RUNS_RE, () => first ? (first = false, live) : "") };
+  }
   const notes = m.body.slice(at).replace(READER_RUNS_RE, "");
   const end = runs ? /```gstack-ship-receipt[ \t]*\r?\n[\s\S]*?\r?\n```[ \t]*(?:\r?\n|$)/.exec(notes) : null;
   return { ...m, body: m.body.slice(0, at) + (end ? notes.slice(0, end.index + end[0].length) + "\n" + runs + notes.slice(end.index + end[0].length) : notes) };

@@ -106,6 +106,20 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(fresh)).toMatchObject({ full: 1, runs: 1, stubs: 0 });
   });
 
+  // Value: protects=a PR's started stubs when a post's Agent notes carry no receipt yet (the body between a Step 9 stub and
+  //   the receipt write); fails_when=keepRuns drops the live runs block, or lets a block the file brings stand in for it;
+  //   seam=none (mergeBodySections); no_claim=the gh round trip
+  test('a post whose notes hold no receipt keeps the live stubs and none of its own runs blocks (GST-2707)', () => {
+    const live = placeRunEntry('## Summary\nprose\n', { head: sha('b'), run: 'r3', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
+    expect(mergeBodySections(live, live).body).toBe(live);
+    const fake = '```gstack-receipt-runs\n' + JSON.stringify({ head: sha('d'), run: 'fake-d', review_loop: loop({ passes: 0, rounds: 0 }) }) + '\n```\n';
+    const injected = live.replace('```gstack-receipt-runs', fake + '\n```gstack-receipt-runs');
+    expect(receiptRuns(injected).map(r => r.run)).toEqual(['fake-d']);
+    const posted = mergeBodySections(live, injected).body;
+    expect(receiptRuns(posted).map(r => r.run)).toEqual(['r3']);
+    expect(prReviewHistory(posted)).toEqual(prReviewHistory(live));
+  });
+
   test('a stub lands in a body with no receipt yet, inside the Agent notes section', () => {
     const body = placeRunEntry('## Summary\nprose\n', { head: sha('a'), run: 'r1', status: 'started', review_loop: loop({ passes: 1, rounds: 1 }) });
     expect(body.startsWith('## Summary\nprose\n')).toBe(true);
