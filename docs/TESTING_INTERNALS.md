@@ -2040,11 +2040,8 @@ ran, the session ended normally) still assert. This departs from "the same
 panel" above because these contracts are gstack's own rules: a plain model was
 never asked to keep them, so a failing `none` trial is the measurement, not a
 regression, and a red verdict would block the gate on behavior nobody
-specified. The router's `none` arm has no repro-first metric,
-since it never sees the router's rules; it records plain metrics instead:
-whether the suite is green, whether an edit came before the first read, and
-how many read-only calls came before the first edit. The first paid comparison
-with these arms gets its own preregistration.
+specified. The first paid comparison with these arms gets its own
+preregistration.
 
 **Cases without a `none` arm.** `safety-pair-agent-block` and
 `safety-ios-demo-ui-only` refuse `GSTACK_SAFETY_ARM=none` with the reason
