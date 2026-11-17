@@ -23,6 +23,8 @@
  * workflow produced itself (CUT_WORKFLOW: the jobs of a workflow run whose path
  * is that file; a job's id is its check run's id) are set aside, running or
  * finished: a cut lands its own job on main's head, the commit it may cut.
+ * Check runs from NEVER_GATING_WORKFLOWS (the nightly Windows free suite, which
+ * docs/support-tiers.md says never blocks) are set aside the same way.
  * Matching by job, not check suite, keeps check runs other workflows create
  * through the API, which GitHub files under any github-actions suite on the
  * commit. When the workflow runs cannot be read, nothing is set aside.
@@ -77,6 +79,8 @@ export const REQUIRED_CHECK = 'free-tests';
 export const BACKSTOP_CHECK = 'main-backstop';
 export const NOTES_REF = 'refs/notes/gstack-trains';
 export const CUT_WORKFLOW = '.github/workflows/weekly-release.yml';
+/** Workflows documented as never gating (docs/support-tiers.md): their check runs are set aside like the cut's own, matched the same way. */
+export const NEVER_GATING_WORKFLOWS: readonly string[] = ['.github/workflows/windows-free-tests.yml'];
 const NOTES_LOCAL = 'refs/notes/gstack-trains-release';
 const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale']);
 export const WINDOW_DAYS = 7;
@@ -127,12 +131,13 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
   if (runs.some(c => c.status !== 'completed' || RED.has(c.conclusion ?? ''))) {
     const wf = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`]));
     const wfRuns = (Array.isArray(wf) ? wf : wf ? [wf] : []) as Array<{ workflow_runs?: Array<{ id?: number; path?: string }> }>;
-    const own = new Set<number>();
-    for (const w of wfRuns.flatMap(p => p.workflow_runs ?? []).filter(w => w.path === CUT_WORKFLOW && typeof w.id === 'number')) {
+    const asideWorkflows = new Set([CUT_WORKFLOW, ...NEVER_GATING_WORKFLOWS]);
+    const aside = new Set<number>();
+    for (const w of wfRuns.flatMap(p => p.workflow_runs ?? []).filter(w => asideWorkflows.has(w.path ?? '') && typeof w.id === 'number')) {
       const jobs = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs/${w.id}/jobs?filter=all&per_page=100`]));
-      for (const p of (Array.isArray(jobs) ? jobs : jobs ? [jobs] : []) as Array<{ jobs?: Array<{ id?: number }> }>) for (const j of p.jobs ?? []) if (typeof j.id === 'number') own.add(j.id);
+      for (const p of (Array.isArray(jobs) ? jobs : jobs ? [jobs] : []) as Array<{ jobs?: Array<{ id?: number }> }>) for (const j of p.jobs ?? []) if (typeof j.id === 'number') aside.add(j.id);
     }
-    runs = runs.filter(c => !(typeof c.id === 'number' && own.has(c.id)));
+    runs = runs.filter(c => !(typeof c.id === 'number' && aside.has(c.id)));
   }
   let via = backstop;
   for (const name of [required, backstop]) {

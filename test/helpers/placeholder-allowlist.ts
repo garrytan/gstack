@@ -150,6 +150,7 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<plan-path>': { grammar: PATH, what: 'bound plan file path' },
   '<prereg-path>': { grammar: PATH, what: 'preregistration file path' },
   '<results-path>': { grammar: PATH, what: 'results table file path' },
+  '<labels-path>': { grammar: PATH, what: 'hand-label JSONL file path' },
   '<sketch-dir>': { grammar: PATH, what: 'sketch directory printed by an earlier block' },
   '<path-to-finalized.html>': { grammar: PATH, what: 'finalized HTML path' },
   '<path-to-page.html>': { grammar: PATH, what: 'saved page HTML path' },

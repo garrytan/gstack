@@ -759,7 +759,7 @@ plan; the audit is `not run`.
 <a id="plan-eng-review-not-persisted"></a>
 ### `PERSISTED: no` / `PERSIST: gstack-review-log '{...}'` / `no saved Eng Review: run the PERSIST: line ...`
 
-**Meaning.** The eng review methodology (`/autoplan`'s eng phase) ran where the caller forbids writes (for example
+**Meaning.** /plan-eng-review ran where the caller forbids writes (for example
 a delegating agent keeps the reviewer read-only, so it cannot edit the plan it
 judges). The review completed: it ends `DONE` with `PERSISTED: no`, records
 telemetry `success`, and returns the full report and decision ledger in its
@@ -777,7 +777,7 @@ review-log command with this review's values.
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review",...}'
 ```
 
-Or rerun /autoplan where it may write its report and log.
+Or rerun /plan-eng-review where it may write its report and log.
 
 **Expected result.** `gstack-review-read` lists the `plan-eng-review` entry and
 /ship's dashboard shows the Eng Review row (CLEAR when its status is `clean`).
@@ -4763,12 +4763,19 @@ parentheses; grep the code.
 ### `PREREG_INCOMPLETE`
 
 **Meaning.** `gstack-eval-plan prereg --check <file>` found a required
-preregistration section missing or empty: `## Bars`, `## Arms`,
-`## Comparison`, `## Decoys`, `## Stop rules` or `## Held-out exposure`
-(every held-out set the plan touches, its prior exposure and the reservation
-on it). It also fires when `## Comparison` has no `stack:` line, a value other
-than `loaded` or `none`, or `stack: none` without a `why:` line, and when a
-`## Diagnostics` declaration is malformed.
+preregistration section missing or empty: `## Bars`, `## Decisions`,
+`## Arms`, `## Comparison`, `## Scoring`, `## Decoys`, `## Stop rules` or
+`## Held-out exposure` (every held-out set the plan touches, its prior
+exposure and the reservation on it). It also fires when `## Comparison` has no
+`stack:` line, a value other than `loaded` or `none`, or `stack: none` without
+a `why:` line, and when a `## Diagnostics` declaration is malformed. The
+result checks add two more (`decisions:` and `scoring:` in the message):
+`## Decisions` needs two or more `if <result>: <action>` lines with different
+actions, and `## Scoring` needs a `judge:` line, a model judge from another
+model family than every arm with `labels:` of 40 or more and `agreement:` of
+0.6 or more, and with two or more arms `paired: yes`, `interval: 95%` and
+`mdd:`. A `frozen:` date before 2026-11-15 exempts both
+([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks)).
 
 **Fix.** Fill the named sections before any priced call. A plan that cannot
 name its stop rule or its held-out exposure is not preregistered; the pilot
@@ -4807,6 +4814,51 @@ the preregistration itself fails `prereg --check`.
 in one table, and rerun the check. Publish no number before it prints
 `RESULTS: ok`. A preregistration with `stack: none` needs no row. The rule is
 in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
+
+<a id="eval-judge-unchecked"></a>
+### `EVAL_JUDGE_UNCHECKED`
+
+**Meaning.** The preregistration's `## Scoring` names a model judge, and
+`gstack-eval-plan judge --check` or `results --check` found no `--labels`
+file, fewer labelled outputs than the preregistered count (at least 40), labels
+that are all one class (agreement is undefined), a repeated id, or a Cohen's
+kappa between the hand labels and the judge below the preregistered bar (at
+least 0.6). Until it passes, the judge's numbers do not count.
+
+**Fix.** Label outputs by hand from development or calibration rows, never
+held-out ones, as JSONL rows `{"id", "human", "judge"}`, covering every kind
+of output the judge scores, and pass the file with `--labels`. A judge below
+its bar is replaced or its prompt fixed and relabelled; the bar is not
+lowered. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
+
+<a id="eval-report-unplanted-zero"></a>
+### `EVAL_REPORT_UNPLANTED_ZERO`
+
+**Meaning.** `gstack-eval-plan results --check` found a zero (`0`, `0%`,
+`0/N`) in a column of any results table, and the preregistration's
+`## Diagnostics` declares no counter by that column's name with a planted
+case (`expected` of 1 or more). A counter that never fires also reports zero,
+so a zero from a counter nobody saw find anything proves nothing.
+
+**Fix.** Declare the counter under `## Diagnostics` with a synthetic fixture
+that plants at least one case, run `prereg --check --allow-repo-commands`
+until its `PREREG_DIAGNOSTIC:` line says ok, and name the results column after
+the diagnostic. Otherwise leave the zero out of the report. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
+
+<a id="eval-report-no-answer-only"></a>
+### `EVAL_REPORT_NO_ANSWER_ONLY`
+
+**Meaning.** A table in the results file has a column counting failures and no
+column headed `answer-only` beside it. A broad failure count (from
+transcripts, tool errors or a second rule) can rise while failures counted by
+the grader's own rule on the final answer do not move, and the two readings
+must be read side by side.
+
+**Fix.** Add an `answer-only` column to the same table, counting failures by
+the grader's rule on the final answer alone, and report both readings. The
+rule is in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
 
 <a id="eval-arm-duplicate"></a>
 ### `EVAL_ARM_DUPLICATE`

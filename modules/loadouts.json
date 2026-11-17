@@ -43,6 +43,7 @@
     "preamble:ask-user-format",
     "preamble:completion-status",
     "preamble:evidence",
+    "preamble:ground-rules",
     "section:autoplan/unattended",
     "section:ship/review-army",
     "section:ship/adversarial"

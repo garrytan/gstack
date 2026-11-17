@@ -616,6 +616,7 @@ Over the last 100 non-release commits on main (8663c3d2..8be7f213), money hit
 which hit 43 of 100; those paths already get full depth, so the gate class was
 narrowed to the gate scan's tagged hunks.
 
+<a id="targeted-only-read-after-the-loop"></a>
 ### Targeted-only read after the loop (GST-1598)
 
 A docs claim added after the review loop finished, such as a changelog
@@ -936,8 +937,8 @@ and a later reader agree on what was flagged:
 <a id="porting-a-contributors-work"></a>
 ## Crediting a contributor's lines
 
-Outside PRs are rewritten from main rather than ported
-([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
+Outside PRs, other than docs-only PRs for people, are rewritten from main rather than
+ported ([CONTRIBUTING.md](../CONTRIBUTING.md#how-a-contributors-pr-lands)). When a rewrite
 carries a contributor's lines over unchanged, the commit that carries them credits them.
 Pass the contributor's PR commits as the range, fetched as a ref and never checked out
 (`git fetch origin +pull/<n>/head:refs/contrib/<n>`, then `origin/<base>..refs/contrib/<n>`;
