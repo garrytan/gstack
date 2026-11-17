@@ -2,7 +2,7 @@
 name: gstack
 preamble-tier: 1
 version: 1.2.0
-description: "Picks the gstack skill that fits a request: planning, review, QA, shipping, debugging, docs, security or design. Use for: gstack, which gstack skill, route this with gstack. (gstack)"
+description: "Picks the gstack skill that fits a request: planning, review, QA, shipping, docs, security or design. Use for: gstack, which gstack skill, route this with gstack. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -206,7 +206,6 @@ quality gates that produce better results than answering inline.
 - User asks to review design of a plan → invoke `/plan-design-review`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
 - User wants all reviews done automatically, "review everything" → invoke `/autoplan`
-- User reports a bug, error, failing test or broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → check the cause by **Failures** below, then fix it test-first
 - User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
 - User asks to just report bugs without fixing → invoke `/qa-only`
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
@@ -266,11 +265,6 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - Voice trigger "tech review", "technical review", "plan engineering review" → invoke `/plan-eng-review`
 - Voice trigger "quality check", "test the app", "run QA" → invoke `/qa`
 - Voice trigger "bug report", "just check for bugs" → invoke `/qa-only`
-
-**Failures: check the cause, then fix it test-first.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
-
-- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, leave the suggested fix alone: reproduce the failure with a focused failing test, trace it to the root cause, fix that and rerun the test.
-- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause or scope is still unclear, write or run a focused test that fails on the bug before any edit, trace the failure to its root cause, fix that and rerun the test. If the intended behavior is unclear, ask the user.
 
 **Route only to skills in your available-skills list.** A rule above whose skill is
 not listed there is turned off on this install; skip it, never try to invoke it.

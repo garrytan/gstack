@@ -439,7 +439,6 @@
     "test/exit-propagation.test.ts": 489,
     "test/extension-pty-inject-invariant.test.ts": 52,
     "test/external-host-carve.test.ts": 7522,
-    "test/failure-routing-arm.test.ts": 2290,
     "test/flake-ledger.test.ts": 127,
     "test/free-home-guard.test.ts": 71,
     "test/free-seed-ratchet.test.ts": 550,
