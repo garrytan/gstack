@@ -7229,8 +7229,9 @@ record one round with the command the `NEXT:` line prints,
 `PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
 The grant buys one full round with its fix round at that head, also after a
 read-only review stopped there, whose pass then leaves the count. It names one
-head, or a base merge of it that leaves the PR's own lines byte-identical; a
-push that changes those lines needs a new grant. This is not an owner
+head, or a base merge of it that leaves the PR's own lines byte-identical and
+in the same places; a push that changes or moves those lines, or a base edit
+right next to them, needs a new grant. This is not an owner
 ask, and gstack cannot grant itself one (`--by gstack` is refused)
 ([review-policy.md](review-policy.md#rounds-per-pull-request)).
 

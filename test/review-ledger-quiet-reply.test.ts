@@ -74,4 +74,17 @@ describe('confirmation prose in a reply that says nothing blocks (GST-2972)', ()
     expect(unlocated.findings).toEqual([]);
     expect(unlocated.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 0, agrees: true });
   });
+
+  // Value: protects=the native voice's FIXABLE tag does not anchor a prose row in a NO FINDINGS reply (#4449's read-only final review),
+  //   so under blocking=0 it stays a summary candidate as on main; negative control: with no verdict asked it is a plain CRITICAL;
+  //   fails_when=the FIXABLE-only row is anchored (an owner stop) or stops blocking; seam=parseReply with the native voice
+  test('a FIXABLE-only prose row in a NO FINDINGS reply is a summary candidate, not an anchored Critical', () => {
+    const row = "The cache key ignores the user id, so one user can read another user's cached page. FIXABLE: key on the user id too.";
+    const head = 'REVIEWED_TREE: ' + 'a'.repeat(40) + ' /workspace/gstack\nREVIEW_VERDICT: blocking=0\n\nNO FINDINGS\n\n';
+    const asked = parseReply('adversarial-native', head + row + '\n', true, true);
+    expect(blocking(asked).map(f => [f.label, f.summary ?? false])).toEqual([['CRITICAL', true]]);
+    expect(asked.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 1, agrees: false });
+    const unasked = parseReply('adversarial-native', 'NO FINDINGS\n\n' + row + '\n', true, false);
+    expect(blocking(unasked).map(f => [f.label, f.summary ?? false])).toEqual([['CRITICAL', false]]);
+  });
 });
