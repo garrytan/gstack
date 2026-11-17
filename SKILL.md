@@ -2,7 +2,7 @@
 name: gstack
 preamble-tier: 1
 version: 1.2.0
-description: "Picks the gstack skill that fits a request: planning, review, QA, shipping, debugging, docs, security or design. Use for: gstack, which gstack skill, route this with gstack. (gstack)"
+description: "Picks the gstack skill that fits a request: planning, review, QA, shipping, docs, security or design. Use for: gstack, which gstack skill, route this with gstack. (gstack)"
 allowed-tools:
   - Bash
   - Read

@@ -234,7 +234,7 @@ describe('GSTA-135: registered skills get used', () => {
 
   test('router lines lead with each skill\'s trigger, within 160 chars; the router description leads with task verbs', () => {
     expect(ROUTER_DESCRIPTION.length).toBeLessThanOrEqual(ROUTER_DESCRIPTION_MAX);
-    for (const verb of ['review', 'debug', 'test', 'plan', 'ship']) expect(ROUTER_DESCRIPTION.slice(0, 200), verb).toContain(verb);
+    for (const verb of ['review', 'test', 'plan', 'ship']) expect(ROUTER_DESCRIPTION.slice(0, 200), verb).toContain(verb);
     const d = tmp();
     for (const [target, mode] of [['openclaw', 'router'], ['dots', 'router']] as const) {
       const r = register(opts(d, target, { mode, skillsDir: path.join(d, target) }));

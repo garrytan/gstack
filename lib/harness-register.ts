@@ -36,7 +36,7 @@ export const BLOCK_BEGIN = '<!-- gstack:begin harness-routing -->';
 export const BLOCK_END = '<!-- gstack:end harness-routing -->';
 /** Where a Dot keeps its own skills (feder-cr/dots nanobot/dots/skills.py DOT_SKILLS_DIR). */
 export const DOT_SKILLS_DIR = '/home/dot/skills';
-export const ROUTER_DESCRIPTION = 'Use to review a diff or PR, debug a bug or failing test, QA test a site, plan or review architecture, ship a PR, audit security or write release docs. Load first for any coding task: lists every gstack skill and where to read it.';
+export const ROUTER_DESCRIPTION = 'Use to review a diff or PR, QA test a site, plan or review architecture, ship a PR, audit security or write release docs. Load first for any coding task: lists every gstack skill and where to read it.';
 /** OpenClaw hybrid mode: these task skills are listed as skills of their own; the router carries the rest. */
 export const HYBRID_SKILLS = ['review', 'qa', 'ship', 'plan-eng-review'];
 /**
