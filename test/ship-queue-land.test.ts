@@ -626,7 +626,8 @@ describe('land: one pass, base, lock and history', () => {
     const r = land(fx, ['--pr', '13']);
     expect(r.err).toBe('');
     expect(r.out).toContain('LANDED: ');
-    expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toContain('--merge');
+    expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toEqual(['--merge', '--match-head-commit', expect.any(String), '--subject', 'PR 13 title (#13)', '--body', '']);
+    expect(r.out).toContain('SUBJECT: PR 13 title (#13)');
   }, 90_000);
 
   // Value: protects=a merge-only land interrupted after GitHub merged resumes to LANDED, though a true merge puts the pin inside

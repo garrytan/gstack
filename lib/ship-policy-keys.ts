@@ -54,6 +54,9 @@ export const PLAN_RECORD_KEY_VERSION = '1.98.0.0';
 export const DOCS_ONLY_KEY_VERSION = '1.99.0.0';
 /** `land.docs_only_skip` is a field of the older land key, so compatErrors and minimumReader check it by value, as for bump: never. */
 export const LAND_DOCS_ONLY_SKIP_KEY_VERSION = '1.99.0.0';
+/** `history: no-rewrite` and `land.merge_commit_paths` are a value and a field of older keys, checked by value like bump: never. */
+export const HISTORY_NO_REWRITE_KEY_VERSION = '1.100.0.0';
+export const LAND_MERGE_COMMIT_PATHS_KEY_VERSION = '1.100.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',

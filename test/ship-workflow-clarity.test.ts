@@ -223,7 +223,7 @@ test('Step 14.5 runs the doc caps before the verification gate and records the a
   expectTokens(docs, ['`DOCS_CAP: none declared`', '"status":"updated|current"', '"status":"blocked"', '"exception":{"accepted_by"', '`DOCS_AUDIT_BLOCKED`', 'An unattended run has no owner to accept: it stops here.'], 'ship documentation section');
   const compose = between(prTemplate, 'Handoff record first', '**Existing open PR/MR**');
   expectTokens(compose, ['--docs @.gstack/tmp/docs-audit.json', '`DOCS_AUDIT_BLOCKED`'], 'ship pr-body receipt write');
-  expectTokens(compact(between(prTemplate, '## Documentation', '## Test plan')), ['`Documentation exception: accepted by <accepted_by> <date> via <via>: <reason>`'], 'ship pr-body Documentation');
+  expectTokens(compact(between(prTemplate, '## Documentation', '## Tests')), ['`Documentation exception: accepted by <accepted_by> <date> via <via>: <reason>`'], 'ship pr-body Documentation');
 });
 
 test('Step 9.4 applies the cap before any edit, names its scratch files under .gstack/tmp/, logs Step 11 late defers, and hands reviewers the range from pass 2 (PR 1 review notes)', () => {
