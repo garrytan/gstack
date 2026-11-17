@@ -3,7 +3,9 @@
  * REVIEW_VERDICT said blocking=0 (p1fc at 00155f5) wrote "a High or Critical challenge" in a paragraph naming
  * autoplan-revise.ts:103, and a clean one (blocking=0 and NO FINDINGS, p3fc at b1b3c3c) had a nested bullet under a line naming
  * lib/autoplan-gate.ts:197. The file:line made each an anchored Critical that lead judgment could not lower, so each cost an owner
- * ruling. In a reply whose verdict says blocking=0 or NO FINDINGS, only structured finding lines collect.
+ * ruling. A reply that says NO FINDINGS now collects only structured finding lines. Under blocking=0 alone, Captain ruling D1
+ * (2026-11-14, test/review-verdict.test.ts) holds: the line lowers nothing by itself, so the prose row still blocks, but a file:line
+ * in prose no longer anchors it, so it is a summary candidate the lead may lower with a reason instead of an owner ruling.
  */
 import { describe, expect, test } from 'bun:test';
 import { parseReply } from '../lib/review-ledger';
@@ -14,22 +16,23 @@ const P3FC = "REVIEWED_TREE: b1b3c3cca68f1087cbca0d4f24c94e168daeb920 /workspace
 
 const blocking = (r: ReturnType<typeof parseReply>) => r.findings.filter(f => /^(CRITICAL|P0|P1|HIGH)$/i.test(f.label));
 
-describe('a reply whose own verdict says nothing blocks collects only structured findings (GST-2972)', () => {
-  // Value: protects=the two #4431 replies collect no Critical from prose, and the p1fc reply keeps its structured JSON finding;
-  //   fails_when=either reply mints a blocking finding, or the JSON line is lost; seam=parseReply as collect calls it (verdict asked);
-  //   no_claim=replies whose verdict declares a blocker (below)
-  test('the p1fc and p3fc replies mint no Critical and agree with their blocking=0 verdict', () => {
-    const p1 = parseReply('fix-check', P1FC, true, true);
-    expect(blocking(p1)).toEqual([]);
-    expect(p1.findings.map(f => f.label)).toEqual(['INFORMATIONAL']);
-    expect(p1.findings[0]!.raw).toContain('"path":"lib/autoplan-confirm.ts"');
-    expect(p1.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 0, agrees: true });
+describe('confirmation prose in a reply that says nothing blocks (GST-2972)', () => {
+  // Value: protects=the two #4431 replies: p3fc (NO FINDINGS) collects nothing, and p1fc (blocking=0) keeps its JSON finding and turns
+  //   its prose Critical into a summary candidate the lead may lower; fails_when=p3fc mints a finding, p1fc's prose row stays an
+  //   anchored Critical (the owner-ruling stop), or the JSON line is lost; seam=parseReply as collect calls it (verdict asked);
+  //   no_claim=what the lead decides about the candidate
+  test('p3fc collects nothing; p1fc keeps its JSON finding and its prose row is a summary candidate, not an anchored Critical', () => {
     const p3 = parseReply('fix-check', P3FC, true, true);
     expect(p3.findings).toEqual([]);
     expect(p3.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 0, agrees: true });
+    const p1 = parseReply('fix-check', P1FC, true, true);
+    expect(p1.findings.map(f => [f.label, f.summary ?? false])).toEqual([['INFORMATIONAL', false], ['Critical', true]]);
+    expect(p1.findings[0]!.raw).toContain('"path":"lib/autoplan-confirm.ts"');
+    expect(p1.findings[1]!.raw).toStartWith('Fixes 2 and 3 look sound.');
+    expect(p1.verdict).toMatchObject({ state: 'valid', declared: 0, parsed: 1, agrees: false });
   });
 
-  // Value: protects=negative controls: a structured blocker in a blocking=0 or NO FINDINGS reply still collects as CRITICAL and the
+  // Value: protects=negative controls: a structured blocker in a blocking=0 or NO FINDINGS reply still collects as CRITICAL, is no summary candidate, and the
   //   verdict disagrees, and the same prose under a verdict that declares a blocker still collects; fails_when=the quiet rule drops a
   //   lead-labelled, Severity-field, Blocks: yes or JSON blocker, or prose in a reply that declares one; seam=parseReply
   test('a structured blocker still collects in a quiet reply, and prose still collects when the verdict declares a blocker', () => {
@@ -43,12 +46,14 @@ describe('a reply whose own verdict says nothing blocks collects only structured
       for (const tail of ['', '\nNO FINDINGS\n']) {
         const r = parseReply('fix-check', head + line + '\n' + tail, true, true);
         expect(blocking(r).length).toBe(1);
+        expect(blocking(r)[0]!.summary).toBeUndefined();
         expect(r.verdict).toMatchObject({ declared: 0, parsed: 1, agrees: false });
       }
     }
     const declared = parseReply('fix-check', P1FC.replace('REVIEW_VERDICT: blocking=0', 'REVIEW_VERDICT: blocking=1 at=lib/autoplan-gate.ts:257'), true, true);
     expect(blocking(declared).length).toBeGreaterThanOrEqual(1);
+    expect(blocking(declared).every(f => !f.summary)).toBe(true);
     const unasked = parseReply('fix-check', P1FC, true, false);
-    expect(blocking(unasked).length).toBe(1);
+    expect(blocking(unasked).map(f => f.summary ?? false)).toEqual([false]);
   });
 });
