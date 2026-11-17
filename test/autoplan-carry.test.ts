@@ -243,12 +243,13 @@ describe('carry-forward', () => {
     const doIt = answeredAndRevised();
     phaseVia(r, doIt.out, 'ceo', NONE);
     const d = phaseVia(r, doIt.out, 'eng', PKG).outside;
-    expect(d.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason="do it" covers \w+; plan unchanged/m);
+    expect(d.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason="do it" covers [\w,]+; plan unchanged/m);
+    expect(d.stdout).toMatch(/^CARRIED_UNDER_DO_IT: \w+ Confirm the plan's direction is yours: .* -> yes, the plan as written is what I asked for/m);
     expect(d.stdout).toMatch(/^CARRIED_UNDER_DO_IT: \w+ Split the backoff into its own PR .*\(the owner has not seen this item\)$/m);
     expect(decisions(doIt.out).find(x => x.gate_rev === 2 && /Split the backoff/.test(x.title))).toMatchObject({ carried_under: 'do it' });
     const loaded = loadBriefInputs(doIt.out);
     if ('error' in loaded) throw new Error(String(loaded.error));
-    expect(renderCaptainBrief(loaded.inputs, { outDir: doIt.out }).text).toContain('Taken under "do it" without being shown to the owner: Split the backoff into its own PR.');
+    expect(renderCaptainBrief(loaded.inputs, { outDir: doIt.out }).text).toContain('Taken under "do it" without being shown to the owner: Split the backoff into its own PR;');
     const rec = answeredAndRevised([], 'rec');
     phaseVia(r, rec.out, 'ceo', NONE);
     expect(phaseVia(r, rec.out, 'eng', PKG).outside.stdout).toMatch(/^CARRY: no \(new item \w+: Split the backoff/m);

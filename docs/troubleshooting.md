@@ -5272,8 +5272,9 @@ directory, and this one already holds files.
 ### `OWNER_REPLY_REQUIRED`
 
 **Meaning.** An agent answered the gate (`--by agent:<id>`) without recording
-what the owner actually said, or answered a `uc` item (a user challenge or a
-round-cap approval, which only the owner settles) in its own words
+what the owner actually said, or answered a `uc` item (a user challenge, a
+reviewer's proposal, a day-one or cut question, or a round-cap approval, which
+only the owner settles) in its own words
 (`--words-by agent:<id>`). Nothing was applied.
 
 **Fix.** Pass the owner's words verbatim: `--owner-reply "<text>"`,
@@ -5387,8 +5388,10 @@ errors.
 
 **Meaning.** A public copy of an autoplan run still quotes the owner's own
 words: a gate reply the private run recorded (on a decision row, the gate or
-the journal), the words a carried gate reused, or a reason a human gave for
-deferring a phase, in prose or in one of gstack's renderings of that reason.
+the journal), the words a carried gate reused, a quote under the plan's
+`### Owner's words` heading (one a later revision removed included), or a
+reason a human gave for deferring a phase, in prose or in one of gstack's
+renderings of that reason.
 Nothing a person wrote leaves without their click. A reply of 3 or more words
 is a quote wherever it appears whole, and from 8 words any 8 consecutive words
 are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and

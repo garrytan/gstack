@@ -35,6 +35,7 @@ import { familyConflict, modelFamily } from './outside-voice-runner';
 import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
+import { ownerWordsLine, parseOwnerWords } from './autoplan-owner-text';
 import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLenses, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
 
 /** An unreadable run.lock younger than this is a lock some other gstack is still writing, never a stale one. */
@@ -313,7 +314,7 @@ function recordPlanReality(state: RunState): string[] {
   const verdict = rows.verdict !== 'complete' ? rows.verdict : plan.verdict;
   state.plan_reality = { plan_sha256: sha, checker: PLAN_REALITY_CHECKER, verdict, line: `${rows.line}; ${plan.line}` };
   journal(state.out, { event: 'plan_reality', plan_sha256: sha, checker: PLAN_REALITY_CHECKER, verdict });
-  return [`${rows.line} (report only)`, `${plan.line} (report only)`, ...plan.numberLines];
+  return [`${rows.line} (report only)`, `${plan.line} (report only)`, ...plan.numberLines, ownerWordsLine(parseOwnerWords(text))];
 }
 
 function resolveAttempt(v: VoiceState, attempt: string | undefined, phase: string, voice: Voice): AttemptState {
