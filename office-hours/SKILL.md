@@ -314,7 +314,7 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-5. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs. Unless the user already chose a mode, ask it even when the request suggests one, recommending that mode. Read the chosen mode's section before its first question.
+5. **Ask: what's your goal with this?** It decides how the session runs. Unless the user already chose a mode, ask it even when the request suggests one; recommend that mode by quoting the user's words and naming what another mode would skip. Read the chosen mode's section before its first question.
 
    Via AskUserQuestion, ask:
 
