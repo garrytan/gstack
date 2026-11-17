@@ -68,7 +68,8 @@ that did not note, then a loader 200 s or more later) and never below 0
 are not in it.
 
 **Credits.** Every command that takes `--reading` also takes `--credits <cost.credits>` from the
-same `thread.get`. Tokens count a cached read the same as a fresh one; credits are what the run
+same `thread.get`; when Capy reports only `cost.dollars`, the checked-in phase and pass programs pass
+`cost.dollars` x 1,000 instead. Tokens count a cached read the same as a fresh one; credits are what the run
 costs, including the full-context re-bill after a gap over five minutes (about 40x a cached call,
 handoffs/GSTA-167/cache-probe.md). The first credits reading is the baseline; the `BUDGET:`,
 `BUDGET_FINAL:` and record-block lines print `credits=<used>` once one exists, and a reading below
