@@ -11,6 +11,8 @@
  * repair re-asks for the whole line (`whole`), and only one way: every JSON line carrying the audit id must be content-clean, or
  * the failure counts, and a blocked status or blocker on any of them must survive the reply (round-2 review of #4285: a blocked
  * line, then a fenced "current" example, then a "current" reply). Nothing else carries over; the reply is judged on its own.
+ * The same carry holds when the last line parses: a last line that drops an earlier blocked status or blocker for this audit is
+ * never accepted, and gets that one-way re-ask (a blocked line, then an unfenced "current" line last).
  * A failure of shape alone (the line is one object; only keys, types or the section are wrong) is `repairable`: the parent
  * re-asks for the line once (docsRepairPrompt) without spending an attempt, and checkDocsRepair accepts the reply only when
  * every value the first line already gave correctly is unchanged (GBEV-3: a missing section, then a misnamed key set to "x").
@@ -36,14 +38,14 @@ export function checkDocsResult(output: string, auditId: string, isFile: IsFile 
   const lines = output.replace(/\r\n/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
   const object = (l: string) => { try { const x: unknown = JSON.parse(l); return x && typeof x === 'object' && !Array.isArray(x) ? x : undefined; } catch { return undefined; } };
   const parsed = object(lines.at(-1) ?? '');
+  const earlier = lines.slice(0, -1).filter(l => Object.entries(object(l) ?? {}).some(([key, value]) => key.trim() === 'audit_id' && value === auditId)).map(l => checkDocsResult(l, auditId, isFile));
+  const said = earlier.map(c => (c.ok ? c.result : c.kept) as Record<string, unknown>);
+  const carried = [...new Set(said.flatMap(s => Array.isArray(s.blockers) ? s.blockers as string[] : []))];
+  const carry = carried.length || said.some(s => s.status === 'blocked') ? { status: 'blocked', blockers: carried } : {};
   if (!parsed) {
-    const earlier = lines.slice(0, -1).filter(l => Object.entries(object(l) ?? {}).some(([key, value]) => key.trim() === 'audit_id' && value === auditId)).map(l => checkDocsResult(l, auditId, isFile));
     if (!earlier.length) return { ok: false, problems: ['the last nonempty line is not one JSON object'], trimmed: [], repairable: false, kept: {} };
     const content = earlier.flatMap(c => c.ok || c.repairable ? [] : c.problems);
-    const said = earlier.map(c => (c.ok ? c.result : c.kept) as Record<string, unknown>);
-    const blockers = [...new Set(said.flatMap(s => Array.isArray(s.blockers) ? s.blockers as string[] : []))];
-    const kept = blockers.length || said.some(s => s.status === 'blocked') ? { status: 'blocked', blockers } : {};
-    return { ok: false, problems: ['text follows the JSON result line', ...content], trimmed: [], repairable: !content.length, kept, whole: true };
+    return { ok: false, problems: ['text follows the JSON result line', ...content], trimmed: [], repairable: !content.length, kept: carry, whole: true };
   }
   const problems: string[] = [];
   const trimmed: string[] = [];
@@ -89,6 +91,8 @@ export function checkDocsResult(output: string, auditId: string, isFile: IsFile 
   }
   if (problems.length > invariants) content = true;
   const kept = Object.fromEntries(DOCS_RESULT_KEYS.filter(key => Object.hasOwn(v, key) && !bad.has(key)).map(key => [key, v[key]]));
+  const keeps = v.status === 'blocked' && Array.isArray(v.blockers) && carried.every(b => (v.blockers as unknown[]).includes(b));
+  if (carry.status === 'blocked' && !keeps && !(problems.length && content)) return { ok: false, problems: ['the last JSON line drops the blocked result an earlier line gave for this audit', ...problems], trimmed, repairable: true, kept: carry, whole: true };
   if (problems.length) return { ok: false, problems, trimmed, repairable: !content, kept };
   return { ok: true, result: v as unknown as DocsResult, trimmed };
 }

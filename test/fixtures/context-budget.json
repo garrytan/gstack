@@ -56,11 +56,11 @@
     "qa-only": 5743,
     "retro": 13501,
     "review": 15723,
-    "runaway-stopper": 4400,
+    "runaway-stopper": 4503,
     "scrape": 7487,
     "setup-browser-cookies": 3677,
     "setup-deploy": 5751,
-    "setup-gbrain": 10096,
+    "setup-gbrain": 10106,
     "ship": 16061,
     "skillify": 5864,
     "spec": 9152,
@@ -68,7 +68,7 @@
     "test-audit": 4636,
     "ubicloud": 4059,
     "unfreeze": 423,
-    "verify": 3139,
+    "verify": 3159,
     "write-skill": 2386
   }
 }

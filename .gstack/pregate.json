@@ -15,7 +15,8 @@
     "licenses/**": [],
     "contrib/**": [],
     "supabase/**": [],
-    "qm/sandbox/skills/gstack-review/scripts/diff-base.sh": ["test/qm-edition.test.ts"]
+    "qm/sandbox/skills/gstack-review/scripts/diff-base.sh": ["test/qm-edition.test.ts"],
+    "lib/shell-writes.ts": ["test/skill-contract.test.ts"]
   },
   "selection": {
     "free-tests.yml/free-suite": "bun run scripts/test-free-shards.ts --list"
