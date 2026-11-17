@@ -6,7 +6,9 @@
  * tracker-code regexes, `terms` are the project's own coined words, `allow`
  * entries (each with a reason) suppress a match they contain, `since` exempts
  * PRs created before that date, and `exempt_branch_prefixes` names generated
- * branches. Front for humans, end for machines: one trailing group of
+ * branches. DEFAULT_TERMS (the words gstack's own tools print) join `terms`
+ * unless `replace_default_terms` is true; `body_since` exempts older PRs from
+ * the body shape check (lib/pr-body-shape.ts) only. Front for humans, end for machines: one trailing group of
  * references such as `(GST-1713)` or `(#4122)` is never checked. A repository
  * without the file gets no findings. Callers: bin/gstack-plain-title,
  * gstack-post and the "Plain title" CI check.
@@ -17,11 +19,14 @@ import { splitAgentNotes } from './agent-notes';
 import { maskProse } from './prose-lint';
 import { redactFindingSpans } from './redact-engine';
 
-export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[] }
+export interface PlainTitlePolicy { codes: string[]; terms: string[]; allow: { text: string; reason: string }[]; since: string; exempt_branch_prefixes: string[]; body_since?: string }
 export interface PlainFinding { code: 'PLAIN_TITLE_REFUSED' | 'PLAIN_BRANCH_REFUSED' | 'PLAIN_OPENING_REFUSED' | 'PLAIN_CHANGELOG_REFUSED' | 'PLAIN_COMMIT_REFUSED'; kind: 'code' | 'term' | 'scope-prefix' | 'opening-shape'; match: string; hint: string }
 export const PLAIN_TITLE_POLICY_PATH = '.gstack/plain-titles.json';
 
-const KEYS = ['$schema', 'codes', 'terms', 'allow', 'since', 'exempt_branch_prefixes'];
+const KEYS = ['$schema', 'codes', 'terms', 'allow', 'since', 'exempt_branch_prefixes', 'replace_default_terms', 'body_since'];
+/** Words gstack's own tools print into PR text, which mean nothing to an outside reader; a policy's `terms` add to them. */
+export const DEFAULT_TERMS: readonly string[] = ['outside voice', 'pregate', 'receipt', 'receipts', 'ledger', 'ledgers', 'fix-check', 'carry', 'stamp', 'restamp', 'train', 'trains', 'lane', 'lanes', 'soak'];
+const isDate = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) && !Number.isNaN(Date.parse(v));
 const HINTS = {
   code: 'move the tracker code to one trailing group like (ABC-123)',
   PLAIN_BRANCH_REFUSED: 'keep at most one tracker code, at the very end of the branch name',
@@ -29,7 +34,7 @@ const HINTS = {
   PLAIN_CHANGELOG_REFUSED: 'leave tracker codes out of changelog entries',
   term: 'say what it does for someone using the project, in everyday words',
   'scope-prefix': 'drop the type(scope): prefix and start with what changed',
-  'opening-shape': 'open with one or two plain sentences: what changed and which goal of the project it serves',
+  'opening-shape': 'open with plain lines: what changed for a user, why, and anything the reader has to do',
 } as const;
 
 type Code = PlainFinding['code'];
@@ -63,10 +68,13 @@ export function loadPlainTitlePolicy(repoRoot: string): PlainTitlePolicy | null 
     if (typeof entry.text !== 'string' || !entry.text.trim()) throw bad(`allow[${i}].text`, 'must be a non-empty string');
     if (typeof entry.reason !== 'string' || !entry.reason.trim()) throw bad(`allow[${i}].reason`, 'must say why the entry is allowed');
   });
-  if (typeof obj.since !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(obj.since) || Number.isNaN(Date.parse(obj.since))) throw bad('since', 'must be a date like 2026-11-08');
+  if (!isDate(obj.since)) throw bad('since', 'must be a date like 2026-11-08');
+  if (obj.body_since !== undefined && !isDate(obj.body_since)) throw bad('body_since', 'must be a date like 2026-11-20');
+  if (obj.replace_default_terms !== undefined && typeof obj.replace_default_terms !== 'boolean') throw bad('replace_default_terms', 'must be true or false');
+  const terms = obj.replace_default_terms ? obj.terms : [...new Set([...obj.terms, ...DEFAULT_TERMS])];
   const prefixes = obj.exempt_branch_prefixes ?? [];
   if (!Array.isArray(prefixes) || !prefixes.every(p => typeof p === 'string' && p.length > 0)) throw bad('exempt_branch_prefixes', 'must be a list of non-empty strings');
-  return { codes: obj.codes, terms: obj.terms, allow: allow as PlainTitlePolicy['allow'], since: obj.since, exempt_branch_prefixes: prefixes as string[] };
+  return { codes: obj.codes, terms, allow: allow as PlainTitlePolicy['allow'], since: obj.since as string, exempt_branch_prefixes: prefixes as string[], body_since: (obj.body_since as string | undefined) ?? (obj.since as string) };
 }
 
 /** A whole-word, case-insensitive regex for a term; a space in the term matches any run of spaces. */
@@ -159,7 +167,7 @@ function openingShape(line: string): string | null {
   return null;
 }
 
-/** The readable part (above the Agent notes marker) opens with a prose paragraph of at most two sentences and no refused code or term. */
+/** The readable part (above the Agent notes marker) opens with a prose paragraph with no refused code or term; how long the opening may run is lib/pr-body-shape.ts's check. */
 export function checkOpening(body: string, policy: PlainTitlePolicy | null): PlainFinding[] {
   if (!policy) return [];
   const code: Code = 'PLAIN_OPENING_REFUSED';
@@ -173,12 +181,7 @@ export function checkOpening(body: string, policy: PlainTitlePolicy | null): Pla
   const paragraph = lines.slice(start, end < 0 ? undefined : end).join(' ')
     .replace(/\]\([^)\s]*\)/g, m => ']' + ' '.repeat(m.length - 1))
     .replace(/https?:\/\/\S+/g, 'URL');
-  const sentences = paragraph.replace(/`[^`]*`/g, 'x').replace(/\b(?:e\.g|i\.e|etc|vs)\./gi, 'x')
-    .split(/[.!?]+["')\]]*(?:\s+|$)/).filter(s => s.trim()).length;
-  return [
-    ...(sentences > 2 ? [shapeFinding(`${sentences} sentences`)] : []),
-    ...toFindings(code, scan(paragraph.replace(/`/g, ' '), policy)),
-  ];
+  return toFindings(code, scan(paragraph.replace(/`[^`]*`/g, ' '), policy));
 }
 
 /** No tracker code anywhere in the entry; refused terms only in its bold lead. Fenced and inline code, URLs and quoted words are skipped. */

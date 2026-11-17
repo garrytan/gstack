@@ -412,6 +412,26 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
       expect(u.stdout + u.stderr).toContain('--timeout needs whole seconds from 1 to 3600');
     }
   });
+
+  // Value: protects=a caller sets the whole Step 5 pregate's budget, and a kill at that limit says the limit was hit and names the
+  //   way out instead of "unreadable (exit 143)"; fails_when=the budget is a fixed hour, or a timed-out pregate reads as unreadable;
+  //   why_new=Vorflux via FOUN-32: gbrain's unit and serial suite ran past the fixed hour on 8-core Linux; seam=gstack-pregate under
+  //   preflight's spawn limit; no_claim=the finish fallback's own pregate limit
+  test('--step-timeout bounds the whole Step 5 pregate, and a kill at the limit says so with the way out', () => {
+    const slow = "const test = require('node:test');\ntest('slow', async () => { await new Promise(r => setTimeout(r, 30000)); });\n";
+    const f = fx(base({ timeout_s: 600 }), { 'test/slow.serial.test.js': slow });
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--step-timeout', '3', '--lane', LANE]);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: time limit hit \(Step 5's whole pregate ran past its 3 s budget, --step-timeout, and was stopped with exit \S+; no verdict\)$/);
+    expect(lineOf(r.stdout, 'STOP')).toBe("STOP: the tests are longer than this step's 3 s budget on this machine: push, let CI's full run at this tree carry them (gstack-ci-carry wait --base main, then rerun --tests-only; gbrain docs/ci-event-parity.md#ship-lanes), or rerun --tests-only with --step-timeout <s> above 3");
+    expect(r.stdout).not.toContain('unreadable');
+    expect(r.stdout).not.toContain('LANE: tests');
+    for (const bad of ['0', '86401', '1.5', 'x']) {
+      const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--step-timeout', bad, '--lane', LANE]);
+      expect(u.status).toBe(2);
+      expect(u.stdout + u.stderr).toContain('--step-timeout needs whole seconds from 1 to 86400');
+    }
+  });
 });
 
 describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {

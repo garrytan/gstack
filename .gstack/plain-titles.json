@@ -23,7 +23,12 @@
     "no-stop",
     "GStack Minder",
     "Capy Workflow Improver",
-    "Captain"
+    "Captain",
+    "Captains",
+    "crew",
+    "crews",
+    "lander",
+    "landers"
   ],
   "allow": [
     {
@@ -32,9 +37,11 @@
     }
   ],
   "since": "2026-11-08",
+  "body_since": "2026-11-18",
   "exempt_branch_prefixes": [
     "release/",
     "wave/",
-    "gstack-land-repair/"
+    "gstack-land-repair/",
+    "dependabot/"
   ]
 }

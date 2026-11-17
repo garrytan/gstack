@@ -4360,6 +4360,25 @@ or on the comment line directly above it. The marker waives only that line, and
 the check lists it as `waived:`. Don't use `warn: ["literals"]` for this, since
 that turns the check off for every constant.
 
+<a id="arg-limit"></a>
+### `PREGATE_ENVIRONMENT` with `environment: arg-limit — E2BIG` (or `Argument list too long`)
+
+**Meaning.** A command gstack started had a command line or environment over
+the system's limit, so it never ran and no test was counted. Linux caps one
+argument at 128 KiB and a whole command line plus environment at about 2 MiB,
+macOS caps the total at 1 MiB, and Windows caps a command line at 32,767
+characters. The usual trigger is a long file list: thousands of selected test
+files put into one argument.
+
+**Fix.** gstack keeps file lists out of single arguments: a local lane splits
+its files into runner processes of about 96 KB each (24 KB on Windows), and
+the `test_backend` command for the remote gate passes them in a setup script
+(docs/pregate.md#remote-gate). So this cause is a gstack bug: report it with
+the `environment:` line and the lane or command it names. Until it is fixed,
+run the lane remotely (push and let CI's full run carry it, or
+`gstack-pregate --remote`), or select fewer files. When the environment, not
+the file list, is what's large, unset the big variables before the run.
+
 <a id="pregate-no-lane"></a>
 ### `PREGATE_NO_LANE`
 
@@ -7494,8 +7513,7 @@ every flag and code.
 
 `bin/gstack-prose-lint` reads the prose /ship is about to publish, a CHANGELOG
 entry (Step 13) and the sections the author writes in the PR body (Step 19:
-`## Why`, `## Summary` and `## Blast radius`, through `--sections`; the
-`## What changed` captions and image text stay a report), and the quality-gate
+`## Why`, `## What changed` and `## Blast radius`, through `--sections`), and the quality-gate
 workflow runs it over `CHANGELOG.md`'s `[Unreleased]` block. It decides only
 what a regular expression can: autopilot vocabulary, "not just X, but Y",
 metaphor nouns, a colon used as a conjunction, a bold label that restates its
@@ -7874,7 +7892,12 @@ These codes come from `bin/gstack-plain-title`, which /ship, gstack-post and the
 <a id="plain-opening-refused"></a>
 ### `PLAIN_TITLE: PLAIN_OPENING_REFUSED <kind> "<match>" — …`
 
-**Meaning.** The readable part of the PR body (everything above the `<!-- gstack:agent-notes -->` marker) does not start with a plain paragraph: it starts with a heading, code block, list, table, HTML or image, runs past two sentences, or names a tracker code or listed word. /ship refuses it; CI only warns. **Fix.** Start the body with one or two sentences saying what changed and which goal of the project it serves. Move codes and records into the Agent notes section at the end.
+**Meaning.** The readable part of the PR body (everything above the `<!-- gstack:agent-notes -->` marker) does not start with a plain paragraph: it starts with a heading, code block, list, table, HTML or image, or names a tracker code or listed word. /ship refuses it, and so does CI in a repository with a policy for PRs created on or after its `body_since` date. **Fix.** Start the body with up to three plain lines: what changed for a user, why, and anything the reader has to do. Move codes and records into the Agent notes section at the end.
+
+<a id="plain-body-refused"></a>
+### `PLAIN_BODY: PLAIN_BODY_REFUSED <kind> "<match>" — …`
+
+**Meaning.** The PR body, folded the way gstack-post posts it, breaks the plain shape (docs/writing-prs.md). `visible-lines`: more than three lines or 600 characters show before the first fold. `unfolded`: text sits outside a fold between the first fold and the Agent notes section. `term`: a listed word appears above the Agent notes section (code spans, code blocks, links and quotes are skipped). `receipt-placement`: the /ship receipt sits outside the Agent notes section, or text follows that section. gstack-post exits 4 and posts nothing, and the Plain title CI check fails, in a repository with `.gstack/plain-titles.json` and for a PR created on or after its `body_since` date; everywhere else, and for comments, these are warnings. **Fix.** Rewrite the body file the way the line says: up to three plain lines first, every other section under a `## ` heading (gstack-post folds it; `gstack-post fold --body-file F` shows the result without posting), and records in the Agent notes section. Then post it again; an edited body reruns the CI check.
 
 <a id="plain-changelog-refused"></a>
 ### `PLAIN_TITLE: PLAIN_CHANGELOG_REFUSED <kind> "<match>" — …`

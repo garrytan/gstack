@@ -1,4 +1,0 @@
----
-important: blocker
----
-- **/ship's documentation audit no longer accepts a passing result when an earlier line from the same audit said "blocked".** A blocked result line followed by an unfenced "current" JSON line for the same audit as the very last line was accepted as current, and a last "current" line whose only fault was its format could be repaired back to current. Now a last line that drops an earlier blocked status or blocker is never accepted. It gets the free one-way re-ask, whose reply must stay blocked and keep those blockers. This corrects the previous entry's claim. A later JSON line, fenced or not, and a re-ask reply can no longer turn a blocked audit into a passing one. A blocker written only in prose after a passing line still depends on the re-ask counting it, which the parser can't check (GST-2349).

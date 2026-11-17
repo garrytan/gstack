@@ -440,6 +440,7 @@ gstack_result_anchor() {
     PLAIN_TITLE_REFUSED) printf '%s' 'plain-title-refused' ;;
     PLAIN_BRANCH_REFUSED) printf '%s' 'plain-branch-refused' ;;
     PLAIN_OPENING_REFUSED) printf '%s' 'plain-opening-refused' ;;
+    PLAIN_BODY_REFUSED) printf '%s' 'plain-body-refused' ;;
     PLAIN_CHANGELOG_REFUSED) printf '%s' 'plain-changelog-refused' ;;
     PLAIN_COMMIT_REFUSED) printf '%s' 'plain-commit-refused' ;;
     PLAIN_POLICY_INVALID) printf '%s' 'plain-policy-invalid' ;;

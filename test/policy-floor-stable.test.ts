@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { BUMP_NEVER_KEY_VERSION, POLICY_KEY_INTRODUCED, runningGstackVersion, TRAIN_GATES_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { BUMP_NEVER_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION, POLICY_KEY_INTRODUCED, runningGstackVersion, TRAIN_GATES_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { useDoctorCleanup, REPO, makeFixture, doctor, write as writeFile } from './helpers/doctor-fixture';
 import { cleanup as cleanupPregate, commit, makeFixtureRepo as makePregateRepo, runBin as runPregateBin, type FixtureRepo as PregateRepo } from './helpers/pregate-fixture';
@@ -189,7 +189,7 @@ describe('gstack-doctor --check floor row', () => {
     const f = makeFixture();
     fs.copyFileSync(path.join(REPO, 'lib/ship-policy-keys.ts'), path.join(f.root, 'lib/ship-policy-keys.ts'));
     const newer = (a: string, b: string) => cmpVersion(parseVersion(a)!, parseVersion(b)!) > 0;
-    const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
+    const known = [...Object.values(POLICY_KEY_INTRODUCED), BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION].reduce((a, b) => (newer(b, a) ? b : a));
     const dir = project(f, known);
     const at = floorRow(f, dir);
     expect(validatePolicy({ min_gstack_version: known })).toEqual([]);

@@ -43,7 +43,7 @@ describe('schema v1', () => {
       ['contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch}]', 'agent_dispatch needs match'],
       ['contract:\n  version: 1\n  items: [{id: a, kind: report_labels, heading: X, labels: []}]', 'needs labels'],
       ['contract:\n  version: 1\n  items: [{id: Bad_ID, kind: agent_dispatch, match: x}]', 'id must match'],
-      ['contract:\n  version: 1\n  items: [{id: a, kind: check_after_last_edit}]', 'unknown kind'],
+      ['contract:\n  version: 1\n  items: [{id: a, kind: check_after_last_edit}]', 'every item uses a removed kind'],
       ['contract: [unclosed', 'not valid YAML'],
     ];
     for (const [fm, msg] of bad) {
@@ -51,6 +51,14 @@ describe('schema v1', () => {
       expect(r && 'error' in r ? r.error : '').toContain(msg);
     }
   });
+});
+
+test('a contract that still lists the removed check_after_last_edit kind keeps its other items and names the skipped one', () => {
+  const parsed = parseContract('contract:\n  version: 1\n  items:\n    - {id: debug-report, kind: report_labels, heading: DEBUG REPORT, labels: [Symptom]}\n    - {id: repro-after-fix, kind: check_after_last_edit}');
+  if (!parsed || !('contract' in parsed)) throw new Error(JSON.stringify(parsed));
+  expect(parsed.contract.items.map(i => i.id)).toEqual(['debug-report']);
+  expect(parsed.contract.skipped).toEqual(['repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract']);
+  expect(parseContract('contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch, match: x}]')).toEqual({ contract: { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }] } });
 });
 
 describe('transcript parsing', () => {
@@ -241,6 +249,16 @@ describe('gstack-skill-contract CLI', () => {
     const unmet = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--json');
     expect(unmet.code).toBe(EXIT.UNMET);
     expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'verify', missing: ['debug-report'], follow: false });
+  });
+
+  test('check: a contract that still lists the removed kind warns once on stderr and checks the rest', () => {
+    const file = path.join(work, 'SKILL.md');
+    fs.writeFileSync(file, SKILLS.verify.replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n'));
+    const r = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--skill-file', file, '--json');
+    expect(r.code).toBe(EXIT.UNMET);
+    expect(JSON.parse(r.stdout)).toMatchObject({ missing: ['debug-report'] });
+    expect(r.stderr).toBe(`gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${file}: repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract
+`);
   });
 
   test('check: stable error exits 2, 3, 4, 5, 6', () => {

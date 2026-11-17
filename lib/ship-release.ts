@@ -546,7 +546,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
   for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q) && !carried.accepted.includes(q))) {
     const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
-    const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
+    const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?::\\d+(?::\\d+)?)?(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
     const lines = Number(stat[0]) + Number(stat[1]);
     const why = !audit ? 'needs --docs-result <the audit\'s saved result JSON>'

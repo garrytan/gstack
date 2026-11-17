@@ -19,9 +19,10 @@ import { ghSpawnSync } from './gh-poll';
 import { extractVersion } from './version-source';
 import { BIN_DIR, runBashSync, runScriptSync, scriptInvocation } from './script-invocation';
 
-export interface Run { status: number | null; stdout: string; stderr: string }
+/** `timedOut`: the call's own time limit stopped the process (spawnSync's ETIMEDOUT), whatever exit status it then gave. */
+export interface Run { status: number | null; stdout: string; stderr: string; timedOut?: boolean }
 const done = (r: { status: number | null; stdout?: string | Buffer | null; stderr?: string | Buffer | null; error?: Error }): Run =>
-  ({ status: r.status, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') + (r.error ? r.error.message : '') });
+  ({ status: r.status, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') + (r.error ? r.error.message : ''), ...((r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? { timedOut: true } : {}) });
 
 export function git(cwd: string, args: string[], timeout = 120_000): Run {
   return done(spawnSync('git', args, { cwd, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }));

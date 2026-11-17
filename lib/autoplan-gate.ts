@@ -27,7 +27,7 @@ import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf 
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
-import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
+import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -235,7 +235,8 @@ export function buildGate(state: RunState, gateRev: number): GateList {
         const title = `${n.title} [${row.native_id} + ${row.outside_id}]`;
         if (reran && !n.changes && !o.changes) { push(agentDecision(`d${++d}`, title, phase, 'both voices recommend changing your stated direction'), ids); continue; }
         const def = challengeDefault(row, n, o);
-        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, item_class: 'challenge2', ...(n.changes ?? o.changes ? { changes: n.changes ?? o.changes } : {}),
+        if (!quoted && def.recommended === 'a') { kept.push(`uc${uc + 1}`); keptIds.push(n.id, o.id); }
+        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, item_class: 'challenge2', ...(heaviestChanges([n, o]) ? { changes: heaviestChanges([n, o]) } : {}),
           why: `both voices recommend changing your stated direction; blind spot: ${o.title}; cost if wrong: ${o.resolution ?? n.resolution ?? 'unstated'}`,
           options: [KEEP('keep your direction (the plan as reviewed)'), { key: 'b', text: def.text, changes_plan: true }] }, ids);
         continue;

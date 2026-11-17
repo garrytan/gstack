@@ -24,6 +24,8 @@ import { resolveStateRoot } from './state-root';
 export const TRANSCRIPT_MAX_BYTES = 32 * 1024 * 1024;
 export const ITEM_KINDS = ['report_labels', 'selected_specialists_dispatched', 'agent_dispatch'] as const;
 export type ItemKind = typeof ITEM_KINDS[number];
+/** Kinds a contract may still list from an older gstack: each such item is skipped with a warning, not checked. */
+const REMOVED_KINDS = ['check_after_last_edit'];
 const ITEM_ID = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const MAX_ITEMS = 20;
 
@@ -42,12 +44,17 @@ export interface ContractItem {
   fix?: string;
   summary?: string;
 }
-export interface Contract { version: 1; items: ContractItem[] }
+/** skipped: one warning per item whose kind was removed from gstack; the item is not checked. */
+export interface Contract { version: 1; items: ContractItem[]; skipped?: string[] }
 
 export class StateError extends Error {
   constructor(readonly file: string, readonly why: string) { super(`${file}: ${why}`); }
 }
 export class UnknownShape extends Error {}
+
+export function skippedLine(file: string, why: string): string {
+  return `gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${file}: ${why}`;
+}
 
 export function stateErrorLine(file: string, why: string): string {
   return `gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR ${file}: ${why}; stop allowed, miss not recorded (see ${STATE_ERROR_DOC})`;
@@ -112,11 +119,16 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
     return { error: `contract items must be a list of 1 to ${MAX_ITEMS} items` };
   }
   const items: ContractItem[] = [];
+  const skipped: string[] = [];
   for (const [n, item] of raw.items.entries()) {
     if (!isObject(item)) return { error: `items[${n}] must be a mapping` };
     const id = item.id;
     if (typeof id !== 'string' || !ITEM_ID.test(id)) return { error: `items[${n}].id must match ${ITEM_ID}` };
     if (items.some(i => i.id === id)) return { error: `duplicate item id ${id}` };
+    if (REMOVED_KINDS.includes(item.kind)) {
+      skipped.push(`${id}: kind ${item.kind} was removed from gstack, so this item is not checked; delete it from the contract`);
+      continue;
+    }
     if (!(ITEM_KINDS as readonly string[]).includes(item.kind)) {
       return { error: `${id}: unknown kind ${JSON.stringify(item.kind)} (expected one of ${ITEM_KINDS.join(', ')})` };
     }
@@ -141,7 +153,8 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
     if (out.kind === 'agent_dispatch' && out.marker) return { error: `${id}: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)` };
     items.push(out);
   }
-  return { contract: { version: 1, items } };
+  if (!items.length) return { error: `every item uses a removed kind (${skipped.join('; ')})` };
+  return { contract: skipped.length ? { version: 1, items, skipped } : { version: 1, items } };
 }
 
 /** One plain phrase per item, for the routing hint's "Done means" variant. */

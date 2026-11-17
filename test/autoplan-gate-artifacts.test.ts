@@ -133,7 +133,7 @@ describe('B6: PLAN_REALITY flag beside the approval item', () => {
     const gate = JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')) as GateList;
     const p1 = gate.items.find(i => i.id === 'p1')!;
     expect(p1.flags).toEqual([expect.stringMatching(/^PLAN_REALITY "minimum effect" has no number, arm list or rule body \(plan\.md:6: .*minimum effect.*\) \(report only\)$/)]);
-    expect(renderGate(gate)).toMatch(/\n   flagged: PLAN_REALITY "minimum effect"/);
+    expect([1, 2].map(p => renderGate(gate, p)).join('\n')).toMatch(/\n   flagged: PLAN_REALITY "minimum effect"/);
     expect(readRun(out).status).toBe('gate_pending');
   });
 });
