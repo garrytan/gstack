@@ -94,6 +94,9 @@ nothing can be taken:
 
 A second `add` for the same source, action, target and scope with different words,
 author or limits is refused (`OWNER_ANSWERS_CONFLICT`). It is never silently kept.
+So is a `supersede` or `revoke` of a row that another row already replaces: supersede
+the current row instead. Two such rows can still appear when two machines write at once
+before their Drives sync, and then the record reads `uncertain` until one row file is removed.
 
 `status` lists each problem.
 
@@ -133,6 +136,9 @@ A plain-text file with one ask per line also works. Its lines are untyped, so
 - It carries a fresh-ask class, or its words trip the fresh-ask keyword net.
 - Its action, target or scope is missing.
 - No takeable row matches it exactly.
+- A matching row that can't be taken is newer than the takeable one, or narrower in scope (a
+  `repo:` or `captain:` row beside an `all` row). A later "no" or a scoped exception wins over an
+  older blanket yes.
 
 Otherwise it prints `PROPOSE_TAKE <line> <row id>` and the line the Captain adds to
 its message, for example `Not asked, you already said: "yes merge when green" (2026-10-16, CAPT-1, R6).`

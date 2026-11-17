@@ -72,8 +72,8 @@ export const CAPY_RESULT_CODES = {
   },
   OWNER_ANSWERS_CONFLICT: {
     anchor: 'owner-answers-conflict',
-    summary: 'a row for the same source, action, target and scope already records different words, author or limits',
-    fix: 'check which words the owner actually said at that source; record a correction with supersede <row id>, never a second add',
+    summary: 'a row for the same source, action, target and scope already records different words, author or limits, or the row named to supersede is already replaced',
+    fix: 'check which words the owner actually said at that source; record a correction with supersede <row id> on the current row, never a second add',
   },
   OWNER_ANSWERS_SELF_VERIFY: {
     anchor: 'owner-answers-self-verify',

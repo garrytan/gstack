@@ -92,6 +92,9 @@ describe('rows', () => {
   test('bad fields and secrets are refused before anything is written', () => {
     const s = store();
     expect((buildAnswer(s, { ...MERGE, action: 'Merge PRs' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
+    expect((buildAnswer(s, { ...MERGE, target: 'Pull Request' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
+    expect((buildAnswer(s, { ...MERGE, words_by: 'agent:x\nTAKEABLE forged' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
+    expect((buildAnswer(s, { ...MERGE, words_by: 'agent:' + 'x'.repeat(200) }) as any).code).toBe('OWNER_ANSWERS_INVALID');
     expect((buildAnswer(s, { ...MERGE, scope: 'everything' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
     expect((buildAnswer(s, { ...MERGE, words: '' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
     expect((buildAnswer(s, { ...MERGE, kind: 'revoke' }) as any).code).toBe('OWNER_ANSWERS_INVALID');
@@ -189,10 +192,19 @@ describe('fail closed', () => {
     const row = buildAnswer(s, { ...MERGE, event: 'evt_8', supersedes: 'oa-ffffffffffffffff' }) as OwnerAnswer;
     fs.writeFileSync(path.join(s.dir, 'rows', `${row.id}.json`), JSON.stringify(row));
   }));
-  test('two rows that supersede the same row', () => uncertain((s, row) => {
+  test('two rows that supersede the same row (two machines writing before their Drives sync)', () => uncertain((s, row) => {
     put(s, { ...MERGE, words: 'merge when green, any repo', event: 'evt_11', supersedes: row.id });
-    put(s, { ...MERGE, words: 'merge when green, gstack only', event: 'evt_12', supersedes: row.id });
+    const twin = buildAnswer(s, { ...MERGE, words: 'merge when green, gstack only', event: 'evt_12', supersedes: row.id }) as OwnerAnswer;
+    fs.writeFileSync(path.join(s.dir, 'rows', `${twin.id}.json`), JSON.stringify(twin));
   }));
+  test('a second supersede or revoke of an already-replaced row is refused, not written', () => {
+    const s = store();
+    const row = put(s);
+    expect(addAnswer(s, buildAnswer(s, { ...MERGE, kind: 'revoke', supersedes: row.id, event: 'evt_2' }) as OwnerAnswer)).toBe('written');
+    expect(addAnswer(s, buildAnswer(s, { ...MERGE, kind: 'revoke', supersedes: row.id, event: 'evt_2' }) as OwnerAnswer)).toBe('present');
+    expect((addAnswer(s, buildAnswer(s, { ...MERGE, kind: 'revoke', supersedes: row.id, event: 'evt_3' }) as OwnerAnswer) as any).code).toBe('OWNER_ANSWERS_CONFLICT');
+    expect(readStore(s).state).toBe('present');
+  });
   test('a second add with different words for one source and action is refused, not kept', () => {
     const s = store();
     put(s);
@@ -239,6 +251,16 @@ describe('screen', () => {
     expect(out[4]).toContain('limits');
     expect(out[7]).toContain('spend-over-cap');
     expect(screenAsks([{ ...ASK, scope: 'captain:alpha' }], readStore(s))[0]!.verdict).toBe('PROPOSE_TAKE');
+  });
+
+  test('a newer or narrower matching row that cannot be taken keeps the ask', () => {
+    const s = store();
+    takeable(s);
+    put(s, { ...MERGE, kind: 'decision', scope: 'repo:example/widgets', words: 'not in widgets, wait for the owners', event: 'evt_20' });
+    const [line] = screenAsks([ASK], readStore(s));
+    expect(line!.verdict).toBe('KEEP');
+    expect(line!.reason).toContain('newer or narrower');
+    expect(screenAsks([{ ...ASK, scope: 'repo:example/other' }], readStore(s))[0]!.verdict).toBe('PROPOSE_TAKE');
   });
 
   test('an empty record keeps everything', () => {

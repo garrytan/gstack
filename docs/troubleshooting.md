@@ -2180,9 +2180,11 @@ that is not in the record. Exit 3.
 ### `gstack-owner-answers: ... (OWNER_ANSWERS_CONFLICT)`
 
 **Meaning.** One source, action, target and scope make one row id, and that row
-already holds different words, a different author or different limits. Exit 3.
+already holds different words, a different author or different limits; or a
+`supersede` or `revoke` names a row that another row already replaces. Exit 3.
 Nothing was written. Check what the owner said at that source, then record the
-correction with `supersede <row id>`.
+correction with `supersede <row id>` on the current row (`list --all` shows which
+row replaced which).
 
 <a id="owner-answers-self-verify"></a>
 ### `gstack-owner-answers: ... (OWNER_ANSWERS_SELF_VERIFY)`

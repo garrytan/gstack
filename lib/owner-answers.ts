@@ -11,8 +11,9 @@
  * taken and asked decisions; one writer per file).
  *
  * Fail closed: an ask is dropped only on the pilot's confirmation of a PROPOSE_TAKE, and screen proposes
- * one only when the whole record reads cleanly and a verified, current, unlimited standing-yes row
- * matches the ask's typed action, target and scope exactly. Anything malformed, conflicting, unverified,
+ * one only when the whole record reads cleanly, a verified, current, unlimited standing-yes row
+ * matches the ask's typed action, target and scope exactly, and no newer or narrower matching row says
+ * otherwise. Anything malformed, conflicting, unverified,
  * superseded, untyped, compound or in a fresh-ask class keeps the ask. One source and action is one row id:
  * a second add with different words is refused (OWNER_ANSWERS_CONFLICT), never silently kept.
  */
@@ -125,10 +126,15 @@ export function buildAnswer(store: Store, input: NewAnswer, now = new Date()): O
     out[name] = v;
   }
   if (out.action && !TOKEN.test(out.action)) return { code: 'OWNER_ANSWERS_INVALID', message: '--action must be one lower-case token (letters, digits, hyphens)' };
+  if (out.target && !TOKEN.test(out.target)) return { code: 'OWNER_ANSWERS_INVALID', message: '--target must be one lower-case token (letters, digits, hyphens)' };
   if (!SCOPE.test(out.scope!)) return { code: 'OWNER_ANSWERS_INVALID', message: '--scope must be all, repo:<owner>/<name> or captain:<name>' };
   if (out.rule && !/^R\d{1,4}$/.test(out.rule)) return { code: 'OWNER_ANSWERS_INVALID', message: '--rule must look like R6' };
   const wordsBy = (input.words_by ?? '').trim() || `agent:${out.by}`;
-  if (wordsBy !== 'owner' && !/^agent:.+/.test(wordsBy)) return { code: 'OWNER_ANSWERS_INVALID', message: '--words-by must be owner or agent:<id>' };
+  if (wordsBy !== 'owner') {
+    if (!/^agent:\S.*$/.test(wordsBy)) return { code: 'OWNER_ANSWERS_INVALID', message: '--words-by must be owner or agent:<id> on one line' };
+    const agent = field('by', wordsBy.slice('agent:'.length), true);
+    if (isErr(agent)) return { code: agent.code, message: agent.message.replace('--by', '--words-by') };
+  }
   if (kind === 'revoke' && !input.supersedes?.trim()) return { code: 'OWNER_ANSWERS_INVALID', message: 'a revoke names the row it cancels with --supersedes' };
   const supersedes = (input.supersedes ?? '').trim();
   if (supersedes && !/^oa-[0-9a-f]{16}$/.test(supersedes)) return { code: 'OWNER_ANSWERS_INVALID', message: '--supersedes must be a row id (oa-…)' };
@@ -226,6 +232,8 @@ export function addAnswer(store: Store, row: OwnerAnswer): 'written' | 'present'
   if (row.supersedes) {
     const read = readStore(store);
     if (!read.rows.some(r => r.id === row.supersedes)) return { code: 'OWNER_ANSWERS_NOT_FOUND', message: `no row ${row.supersedes} to supersede` };
+    const other = read.rows.find(r => r.supersedes === row.supersedes && r.id !== row.id);
+    if (other) return { code: 'OWNER_ANSWERS_CONFLICT', message: `${row.supersedes} is already superseded by ${other.id}; supersede or revoke the current row instead` };
   }
   const file = path.join(store.dir, 'rows', `${row.id}.json`);
   const res = writeExclusive(file, row);
@@ -310,6 +318,8 @@ export function screenAsks(asks: AskLine[], read: StoreRead): Screened[] {
     const exact = current.filter(r => r.action === ask.action && r.target === ask.target && (r.scope === 'all' || r.scope === ask.scope));
     const take = exact.filter(r => !notTakeable(r, read)).at(-1);
     if (!take) return keep(exact.length ? `matching rows are not takeable: ${notTakeable(exact.at(-1)!, read)}` : 'no standing yes matches its action, target and scope');
+    const veto = exact.find(r => r !== take && notTakeable(r, read) && (r.recorded_at > take.recorded_at || (take.scope === 'all' && r.scope !== 'all')));
+    if (veto) return keep(`a newer or narrower answer for this action is not takeable: ${veto.id} (${notTakeable(veto, read)})`);
     return { line: ask.line, text: ask.text, verdict: 'PROPOSE_TAKE', reason: 'a verified, current standing yes matches exactly', take, related };
   });
 }
