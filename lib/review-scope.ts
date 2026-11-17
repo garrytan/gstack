@@ -17,7 +17,6 @@
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
 import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
-import type { RuledNote } from './ruled-notes';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -376,20 +375,6 @@ export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass
   return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge'), collected: Number.isFinite(collected) ? collected : NaN };
 }
 
-/**
- * The `id=<ledger id>` rulings that close findings on one /ship full pass or Step 11 row (GST-2273): each names one finding by
- * its ledger id, at the head the row read. The row must have started and ended at that commit (`review_binding.start_commit`
- * equals `commit_full`) and the ruling must be recorded after the read ended, so it answers this read and no earlier or later
- * one at the same head. Fingerprint rulings close nothing here; they keep their fix-check meaning (lib/ship-release.ts). It lives here, not in
- * lib/ruled-notes.ts, so the summary does not load the approval record's imports.
- */
-export function ruledIds(row: Record<string, any> | undefined, notes: readonly RuledNote[]): Set<string> {
-  const b = row?.review_binding, ended = Date.parse(String(b?.ended_at));
-  if (!row || row.via !== 'ship' || (row.skill !== 'review' && row.skill !== 'adversarial-review') || typeof row.commit_full !== 'string' ||
-      b?.start_commit !== row.commit_full || !Number.isFinite(ended)) return new Set();
-  return new Set(notes.filter(n => n.id && n.head === row.commit_full && Date.parse(n.at) > ended).map(n => n.finding));
-}
-
 /** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
 export interface FixTrailer { finding: string; reader: string; commit: string }
 export function parseFixTrailers(commit: string, values: readonly string[]): FixTrailer[] {
@@ -414,13 +399,14 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * ledgers than rows), a blocker no row disposes counts as fixed if a fix-check ledger started after the last ledger that raised it:
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
- * Owner rulings (`notes`, GST-2273): an `id=<ledger id>` ruling makes one undisposed blocker a noted disclosure. A row finding
- * closes when the row that logged it read the ruled head (ruledIds below) and no other finding on that row has its
+ * Owner rulings (`ruledOn`, GST-2273): the caller passes lib/ruled-notes.ts ruledIds over the branch's rulings, so this module
+ * never loads the approval record. An `id=<ledger id>` ruling makes one undisposed blocker a noted disclosure. A row finding
+ * closes when the row that logged it read the ruled head and no other finding on that row has its
  * ledger_id; a finding only a ledger holds closes when the run's stop row (its newest /ship review, fix-check or Step 11 row) read
  * the ruled head and its whole pass ran inside that row's read. A gate finding never closes this way, including a row finding
  * whose paired ledger line names a gate.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = [], notes: readonly RuledNote[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = [], ruledOn: (row: Record<string, any> | undefined) => ReadonlySet<string> = () => new Set()): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
@@ -445,7 +431,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   let scope: ReviewLoopSummary['scope'] = 'unknown';
   for (const row of loopRows) {
     if (REVIEW_SCOPE_POLICIES.includes(row.review_scope)) scope = row.review_scope;
-    const ruledHere = ruledIds(row, notes);
+    const ruledHere = ruledOn(row);
     const findings: unknown[] = Array.isArray(row.findings) ? row.findings : [];
     for (const f of findings as any[]) {
       if (!f || typeof f !== 'object') continue;
@@ -508,7 +494,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
   for (const [k, s] of blockers) if (!s.disposed && s.ruled && !s.gate) { s.disposed = true; noted.add(k); }
   const stop = rows.filter(r => inRun(r) && ['review', FIX_CHECK_SKILL, 'adversarial-review'].includes(r.skill)).sort((a, b) => rowTime(a) - rowTime(b)).at(-1);
-  const stopIds = ruledIds(stop, notes);
+  const stopIds = ruledOn(stop);
   const [readFrom, readTo] = [Date.parse(String(stop?.review_binding?.started_at)), Date.parse(String(stop?.review_binding?.ended_at))];
   const keyUses = new Map<string, number>();
   for (const b of ledgers.flat()) keyUses.set(b.key ?? b.id, (keyUses.get(b.key ?? b.id) ?? 0) + 1);

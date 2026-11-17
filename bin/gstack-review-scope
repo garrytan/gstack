@@ -23,7 +23,7 @@ import * as path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
-import { readRuledNotes, type RuledNote } from '../lib/ruled-notes';
+import { readRuledNotes, ruledIds, type RuledNote } from '../lib/ruled-notes';
 import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import {
@@ -216,7 +216,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
   let notes: RuledNote[] = [];
   try { notes = readRuledNotes(process.cwd()); } catch (e) { process.stderr.write(`gstack-review-scope: rulings unreadable, none applied: ${(e as Error).message}\n`); }
-  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers, notes);
+  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers, row => ruledIds(row, notes));
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
   for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);
