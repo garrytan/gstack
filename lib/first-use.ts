@@ -64,14 +64,18 @@ const FAMILY_WORDS: Array<[string, RegExp]> = [
   ['moonshotai', /\bkimi\b/],
   ['qwen', /\bqwen\b/],
 ];
-/** A model's family: the provider before the slash (`openai/gpt-6.2-sol` is openai), a bare family name, or a known model word; undefined when unknown. */
+/**
+ * A model's family: a known provider before the slash (`openai/gpt-6.2-sol` is openai), a bare family name, or a known
+ * model word, which also wins over a routing prefix (`openrouter/anthropic/claude-…` is anthropic); else the unknown
+ * provider before the slash, or undefined.
+ */
 export function modelFamily(model: string): string | undefined {
   const s = model.trim().toLowerCase();
   if (!s) return undefined;
   const slash = s.indexOf('/');
-  if (slash > 0) return s.slice(0, slash);
-  if (FAMILY_WORDS.some(([f]) => f === s)) return s;
-  return FAMILY_WORDS.find(([, re]) => re.test(s))?.[0];
+  const prefix = slash > 0 ? s.slice(0, slash) : s;
+  if (FAMILY_WORDS.some(([f]) => f === prefix)) return prefix;
+  return FAMILY_WORDS.find(([, re]) => re.test(s))?.[0] ?? (slash > 0 ? prefix : undefined);
 }
 
 /** The first five rows of the plan's `### Day one` table (lib/autoplan-owner-text.ts parses it; the format is pinned by test/first-use.test.ts). */
@@ -180,7 +184,7 @@ export function recordResult(o: RecordInput): Result<{ file: string; result: Act
     verdict: o.verdict, evidence: ev.evidence, device: o.device.trim(), account: o.account.trim(), by: who.by, note: o.note?.trim() ?? '',
   };
   const file = path.join(o.dir, 'results', `${o.action}-${stamp(now)}-${crypto.randomBytes(3).toString('hex')}.json`);
-  writeOnce(file, result);
+  try { writeOnce(file, result); } catch (e) { return fail('FIRST_USE_RECORD_INVALID', `cannot write ${file}: ${(e as Error).message}`); }
   return { file, result };
 }
 
@@ -194,8 +198,10 @@ function copyEvidence(dir: string, n: number, src: string): Result<{ evidence: A
   const bytes = fs.readFileSync(src);
   const digest = sha256(bytes);
   const file = path.join('evidence', `${n}-${digest.slice(0, 16)}${path.extname(src).toLowerCase()}`);
-  fs.mkdirSync(path.join(dir, 'evidence'), { recursive: true });
-  if (!fs.existsSync(path.join(dir, file))) fs.writeFileSync(path.join(dir, file), bytes, { flag: 'wx' });
+  try {
+    fs.mkdirSync(path.join(dir, 'evidence'), { recursive: true });
+    if (!fs.existsSync(path.join(dir, file))) fs.writeFileSync(path.join(dir, file), bytes, { flag: 'wx' });
+  } catch (e) { return fail('FIRST_USE_RECORD_INVALID', `cannot write ${path.join(dir, file)}: ${(e as Error).message}`); }
   return { evidence: { file, sha256: digest, bytes: bytes.length, kind } };
 }
 
@@ -223,7 +229,8 @@ export async function checkLinks(dir: string, as: Partial<Audience>, fetcher: Fe
     const live = (status >= 200 && status < 400) || (gated && (status === 401 || status === 403));
     const at = now();
     const receipt: LinkReceipt = { schema_version: 1, kind: 'first-use-link', url: link.url, build_fingerprint: m.build.fingerprint, audience, checked_at: at.toISOString(), status, login_gated: gated, verdict: live ? 'live' : 'down', ...(error ? { error } : {}) };
-    writeOnce(path.join(dir, 'links', `${stamp(at)}-${i + 1}-${crypto.randomBytes(3).toString('hex')}.json`), receipt);
+    const file = path.join(dir, 'links', `${stamp(at)}-${i + 1}-${crypto.randomBytes(3).toString('hex')}.json`);
+    try { writeOnce(file, receipt); } catch (e) { return fail('FIRST_USE_RECORD_INVALID', `cannot write ${file}: ${(e as Error).message}`); }
     receipts.push(receipt);
   }
   return { receipts };
@@ -252,7 +259,8 @@ export function ownerScore(o: { dir: string; score: string; words: string; by: s
   if (n === undefined || !o.words.trim() || !o.by.trim()) return fail('FIRST_USE_RECORD_INVALID', 'score needs --score 1-10, --words "<the owner’s exact words>" and --by <who relayed them>');
   const now = o.now ?? new Date();
   const owner: OwnerScore = { schema_version: 1, kind: 'first-use-owner-score', score: n, words: o.words, by: o.by.trim(), at: now.toISOString(), build_fingerprint: read.manifest.build.fingerprint };
-  writeOnce(path.join(o.dir, 'owner', `${stamp(now)}-${crypto.randomBytes(3).toString('hex')}.json`), owner);
+  const file = path.join(o.dir, 'owner', `${stamp(now)}-${crypto.randomBytes(3).toString('hex')}.json`);
+  try { writeOnce(file, owner); } catch (e) { return fail('FIRST_USE_RECORD_INVALID', `cannot write ${file}: ${(e as Error).message}`); }
   return { owner };
 }
 

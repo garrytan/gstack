@@ -91,6 +91,9 @@ describe('model families and build fingerprints', () => {
     expect(modelFamily('google')).toBe('google');
     expect(modelFamily('gemini-4-carbon')).toBe('google');
     expect(modelFamily('mystery-model')).toBeUndefined();
+    expect(modelFamily('openrouter/anthropic/claude-opus-5-5')).toBe('anthropic');
+    expect(modelFamily('bedrock/anthropic.claude-sonnet-5-5')).toBe('anthropic');
+    expect(modelFamily('zai/glm-5.3')).toBe('zai');
   });
 
   test('a same-family or unknown checker refuses at start', () => {
@@ -233,6 +236,17 @@ describe('the gate', () => {
     expect(fs.readdirSync(path.join(r.dir, 'owner'))).toHaveLength(2);
     const again = startRun({ root: r.root, app: 'plantpal', planPath: r.planPath, build: BUILD, play: PLAY, builder: 'anthropic/claude-opus-5-5', checker: 'openai/gpt-6.2-sol', now: T0 });
     expect(again).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+  });
+
+  test('a record write that fails refuses with FIRST_USE_RECORD_INVALID instead of throwing', async () => {
+    const r = passedRun();
+    for (const d of ['results', 'links', 'owner']) {
+      fs.rmSync(path.join(r.dir, d), { recursive: true, force: true });
+      fs.writeFileSync(path.join(r.dir, d), 'not a directory');
+    }
+    expect(recordResult({ dir: r.dir, action: 1, verdict: 'pass', evidence: shot(r.work, 'again.png', 'again'), device: 'd', account: PLAY.account, by: 'openai/gpt-6.2-sol' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+    expect(await checkLinks(r.dir, AS, okFetch)).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
+    expect(ownerScore({ dir: r.dir, score: '4', words: '4, fine', by: 'GStack Minder' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
   });
 
   test('the brief gives the checker only the play text and the frozen actions', () => {
