@@ -43,8 +43,11 @@ function fakeGh(state: State): Gh {
   return (args) => {
     state.calls.push(args);
     const api = args[0] === 'api' ? args[args.length - 1]! : '';
+    if (api && state.api && api in state.api) return { status: 0, stdout: JSON.stringify(state.api[api]), stderr: '' };
     const m = /commits\/([0-9a-f]+)\/|head_sha=([0-9a-f]+)/.exec(api);
-    const rest = m && ciRest(args, { check_runs: state.checks[m[1] ?? m[2]!] ?? GREEN });
+    const sha = m?.[1] ?? m?.[2];
+    const listed = sha ? state.api?.['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100'] as Array<{ workflow_runs?: Array<Record<string, unknown>> }> | undefined : undefined;
+    const rest = sha && ciRest(args, { check_runs: state.checks[sha] ?? GREEN, workflow_runs: listed?.flatMap(p => p.workflow_runs ?? []) });
     if (rest) return rest;
     if (api && state.api && api in state.api) return { status: 0, stdout: JSON.stringify(state.api[api]), stderr: '' };
     if (api) return { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
@@ -354,6 +357,27 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')]), 'o/r', sha))
       .toEqual({ green: false, why: 'no ' + BACKSTOP_CHECK + ' check run', pending: false });
     expect(gateVerdict(ghFor([...unbacked, ownRun('completed', 'failure')], {}), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
+  });
+
+  // Value: protects=the every-attempt read (lib/ci-head-checks.ts) sets the cut's own runs aside by job id and workflow run id, the way the default list
+  // does, so a failed attempt of the cut's own job or a cut run that failed with no jobs never keeps a gated commit out, while another workflow's jobless
+  // failure still does; fails_when=headCheckRows rows skip GST-2463's exclusion and the cut deadlocks on its own "Cut the release" run (GST-2252 after
+  // #4297); seam=gh is faked with check-runs (filter=latest/all), actions/runs and jobs payloads; no_claim=a live workflow run
+  test('gateVerdict: the every-attempt read sets the cut\'s own earlier attempt and its jobless run aside by id, never by name (GST-2252, GST-2463)', () => {
+    const evidence = gatedBy(sha, '43072520821');
+    const wf = (id: number, path: string, conclusion: string) => ({ id, path, check_suite_id: id, workflow_id: id, name: path, status: 'completed', conclusion, created_at: '2026-11-11T00:00:00Z' });
+    const api = (runs: Array<Record<string, unknown>>, jobs: Record<number, number[]>) => Object.assign(
+      { ['repos/o/r/actions/runs?head_sha=' + sha + '&per_page=100']: [{ total_count: runs.length, workflow_runs: runs }] },
+      ...Object.entries(jobs).map(([id, ids]) => ({ ['repos/o/r/actions/runs/' + id + '/jobs?filter=all&per_page=100']: [{ total_count: ids.length, jobs: ids.map(j => ({ id: j })) }] })));
+    const earlier = { ...ownRun('completed', 'failure'), earlier_attempt: true } as CheckRun;
+    expect(gateVerdict(ghFor([...unbacked, earlier], api([wf(9001, CUT_WORKFLOW, 'success')], { 9001: [OWN_JOB] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: true, via: 'release gate run 43072520821' });
+    expect(gateVerdict(ghFor(unbacked, api([wf(9001, CUT_WORKFLOW, 'failure')], { 9001: [] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: true, via: 'release gate run 43072520821' });
+    expect(gateVerdict(ghFor(unbacked, api([wf(9001, CUT_WORKFLOW, 'failure'), wf(555, '.github/workflows/evals.yml', 'failure')], { 9001: [] })), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: .github/workflows/evals.yml (run 555, no jobs)', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, { ...earlier, id: 70555 } as CheckRun], api([wf(9001, CUT_WORKFLOW, 'success')], { 9001: [OWN_JOB] })), 'o/r', sha, { evidence }))
       .toEqual({ green: false, why: 'red check runs: Cut the release', pending: false });
   });
 

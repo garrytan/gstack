@@ -19,7 +19,15 @@
  * failed, and the trains notes ref (--notes-ref, default
  * refs/notes/gstack-trains) holds no active freeze. The newest such commit in
  * the window (7 days, 200 first-parent commits) is the candidate; a commit
- * with a check run still going is skipped, not waited for.
+ * with a check run still going is skipped, not waited for. Check runs this
+ * workflow produced itself (CUT_WORKFLOW: the jobs of a workflow run whose path
+ * is that file; a job's id is its check run's id) are set aside, running or
+ * finished: a cut lands its own job on main's head, the commit it may cut.
+ * Check runs from NEVER_GATING_WORKFLOWS (the nightly Windows free suite, which
+ * docs/support-tiers.md says never blocks) are set aside the same way.
+ * Matching by job, not check suite, keeps check runs other workflows create
+ * through the API, which GitHub files under any github-actions suite on the
+ * commit. When the workflow runs cannot be read, nothing is set aside.
  *
  * Gated means one of three kinds of evidence. Either the backstop check run
  * (--backstop-check, default main-backstop) succeeded: evals-main-backstop.yml
@@ -62,7 +70,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
 import { bucketClass } from '../../lib/ci-gate';
-import { headCheckRows } from '../../lib/ci-head-checks';
+import { headCheckRows, type AsideRuns } from '../../lib/ci-head-checks';
 
 export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
 
@@ -72,6 +80,9 @@ export type Git = (args: string[]) => { ok: boolean; out: string };
 export const REQUIRED_CHECK = 'free-tests';
 export const BACKSTOP_CHECK = 'main-backstop';
 export const NOTES_REF = 'refs/notes/gstack-trains';
+export const CUT_WORKFLOW = '.github/workflows/weekly-release.yml';
+/** Workflows documented as never gating (docs/support-tiers.md): their check runs are set aside like the cut's own, matched the same way. */
+export const NEVER_GATING_WORKFLOWS: readonly string[] = ['.github/workflows/windows-free-tests.yml'];
 const NOTES_LOCAL = 'refs/notes/gstack-trains-release';
 const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale']);
 export const WINDOW_DAYS = 7;
@@ -105,7 +116,7 @@ export function compareVersions(a: string, b: string): number {
 
 /** Green names what gated the commit: the backstop check's name, or `train <nonce>`. Pending means a check run on it is still going. */
 export type Verdict = { green: true; via: string } | { green: false; why: string; pending: boolean };
-interface CheckRun { name: string; status: string; conclusion: string | null }
+interface CheckRun { id?: number; name: string; status: string; conclusion: string | null }
 
 /** Main commits a green, merging or merged train record lists in merged[], by sha and by tree, each naming the train; `release` maps a commit a green release gate passed to its run (crew/lib/release-gate.ts). */
 export interface TrainEvidence { bySha: Map<string, string>; byTree: Map<string, string>; release?: Map<string, string> }
@@ -122,7 +133,22 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
   const paged = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/commits/${sha}/check-runs?per_page=100`]));
   if (!paged) return { green: false, why: 'cannot read its check runs', pending: false };
   const pages = (Array.isArray(paged) ? paged : [paged]) as Array<{ check_runs?: CheckRun[] }>;
-  const runs = pages.flatMap(p => p.check_runs ?? []);
+  let runs = pages.flatMap(p => p.check_runs ?? []);
+  const setAside = (): AsideRuns => {
+    const wf = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`]));
+    const wfRuns = (Array.isArray(wf) ? wf : wf ? [wf] : []) as Array<{ workflow_runs?: Array<{ id?: number; path?: string }> }>;
+    const asideWorkflows = new Set([CUT_WORKFLOW, ...NEVER_GATING_WORKFLOWS]);
+    const checkRunIds = new Set<number>();
+    const workflowRunIds = new Set<number>();
+    for (const w of wfRuns.flatMap(p => p.workflow_runs ?? []).filter(w => asideWorkflows.has(w.path ?? '') && typeof w.id === 'number')) {
+      workflowRunIds.add(w.id!);
+      const jobs = parseJson<unknown>(gh(['api', '--paginate', '--slurp', `repos/${repo}/actions/runs/${w.id}/jobs?filter=all&per_page=100`]));
+      for (const p of (Array.isArray(jobs) ? jobs : jobs ? [jobs] : []) as Array<{ jobs?: Array<{ id?: number }> }>) for (const j of p.jobs ?? []) if (typeof j.id === 'number') checkRunIds.add(j.id);
+    }
+    return { checkRunIds, workflowRunIds };
+  };
+  let aside = runs.some(c => c.status !== 'completed' || RED.has(c.conclusion ?? '')) ? setAside() : undefined;
+  if (aside) runs = runs.filter(c => !(typeof c.id === 'number' && aside!.checkRunIds.has(c.id)));
   let via = backstop;
   for (const name of [required, backstop]) {
     const named = runs.filter(c => c.name === name);
@@ -135,7 +161,8 @@ export function gateVerdict(gh: Gh, repo: string, sha: string, o: GateOptions = 
     if (named.length === 0) return { green: false, why: `no ${name} check run`, pending: false };
     return { green: false, why: `${name} concluded ${named.map(c => c.conclusion).join(',')}`, pending: false };
   }
-  const head = headCheckRows(gh, repo, sha);
+  let head = headCheckRows(gh, repo, sha, aside);
+  if (!aside && 'rows' in head && head.rows.some(r => bucketClass(r.bucket) !== 'pass')) head = headCheckRows(gh, repo, sha, aside = setAside());
   if ('error' in head) return { green: false, why: 'cannot read its check runs', pending: false };
   const red = [...runs.filter(c => c.status === 'completed' && RED.has(c.conclusion ?? '')).map(c => c.name), ...head.rows.filter(r => bucketClass(r.bucket) === 'fail').map(r => r.name)];
   if (red.length > 0) return { green: false, why: `red check runs: ${[...new Set(red)].join(', ')}`, pending: false };
