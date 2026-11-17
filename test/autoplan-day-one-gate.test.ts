@@ -297,6 +297,35 @@ describe('owner_quote downgrade, the day-one page requirement and the cost line'
   });
 });
 
+describe('two-voice challenges (known gaps after #4431)', () => {
+  const pair = (o: { native: 'ordering' | 'scope'; outside: 'ordering' | 'scope'; fix?: [string, string] }) => ({
+    native: [row('ceo', 'native', { id: `${RUN}-ceo-r2-native-1`, severity: 'High', title: 'Ship the before-meeting card before the live lane', user_challenge: true, changes: o.native, resolution: o.fix?.[0] ?? 'build the card first' })],
+    outside: [row('ceo', 'outside', { id: `${RUN}-ceo-r2-outside-1`, severity: 'High', title: 'Ship the before-meeting card before the live lane', user_challenge: true, changes: o.outside, resolution: o.fix?.[1] ?? 'build the card first' })],
+  }) as unknown as ReturnType<typeof round2>;
+
+  test('an ordering plus scope pair is a scope change, so taking it is re-reviewed, never settled', () => {
+    const list = buildGate(makeRun('pair-scope', { plan: planText({ owner: null }), round2: pair({ native: 'ordering', outside: 'scope' }), round1: false }), 1);
+    const item = byClass(list, 'challenge2')[0]!;
+    expect(item.changes).toBe('scope');
+    expect(applyGuidance({ changes: item.changes, item: item.id })).toBe('edit the plan, then revise');
+  });
+
+  test("with no Owner's words section, a two-voice challenge that keeps the plan's direction asks the owner to confirm it", () => {
+    const list = buildGate(makeRun('pair-keep', { plan: planText({ owner: null }), round2: pair({ native: 'scope', outside: 'scope', fix: ['build the card first', 'drop the live lane'] }), round1: false }), 1);
+    const item = byClass(list, 'challenge2')[0]!;
+    expect(item.recommended).toBe('a');
+    const confirm = byClass(list, 'confirm_direction');
+    expect(confirm.length).toBe(1);
+    expect(confirm[0]!.title).toContain(item.id);
+  });
+
+  test('a two-voice challenge that recommends the change adds no confirm item', () => {
+    const list = buildGate(makeRun('pair-change', { plan: planText({ owner: null }), round2: pair({ native: 'scope', outside: 'scope' }), round1: false }), 1);
+    expect(byClass(list, 'challenge2')[0]!.recommended).toBe('b');
+    expect(byClass(list, 'confirm_direction')).toEqual([]);
+  });
+});
+
 describe('parsers, render and redaction', () => {
   test("Owner's words: ok, none and malformed, with the OWNER_WORDS line", () => {
     expect(parseOwnerWords(planText())).toEqual({ status: 'ok', quotes: [{ n: 1, who: 'The owner, day 0', text: 'I want to remember what I promised people after every meeting' }] });
@@ -349,10 +378,21 @@ describe('parsers, render and redaction', () => {
     const mirror = path.join(TMP, 'ledger-mirror', 'some-slug');
     fs.mkdirSync(mirror, { recursive: true });
     fs.writeFileSync(path.join(mirror, `${branchKey('day-one-ledger')}.jsonl`), JSON.stringify({ schema_version: 1, id: 'x', words: 'The owner said: I want to remember what I promised people after every meeting' }) + '\n');
-    const env = { HOME: home, GSTACK_APPROVALS_DIR: path.dirname(mirror) };
+    const env = { HOME: home, GSTACK_APPROVALS_DIR: path.dirname(mirror), GSTACK_PROJECT_SLUG: 'some-slug' };
     const words = recordedOwnerWords(state, env);
     expect(ownerContext(state, words).verified).toEqual(new Set([1]));
     expect(fs.existsSync(home)).toBe(false);
+  });
+
+  test("another repo's approvals record on a branch of the same name never verifies a quote", () => {
+    const state = makeRun('ledger-other-repo', { plan: planText(), round2: round2(), round1: false });
+    expect(spawnSync('git', ['init', '-q', '-b', 'main', path.dirname(state.plan_source)], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const root = path.join(TMP, 'ledger-other-mirror');
+    fs.mkdirSync(path.join(root, 'other-repo'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'other-repo', `${branchKey('main')}.jsonl`), JSON.stringify({ schema_version: 1, id: 'y', words: 'I want to remember what I promised people after every meeting' }) + '\n');
+    const env = { HOME: path.join(TMP, 'ledger-other-home'), GSTACK_APPROVALS_DIR: root, GSTACK_PROJECT_SLUG: 'this-repo' };
+    expect(ownerContext(state, recordedOwnerWords(state, env)).verified).toEqual(new Set());
+    expect(ownerContext(state, recordedOwnerWords(state, { ...env, GSTACK_PROJECT_SLUG: 'other-repo' })).verified).toEqual(new Set([1]));
   });
 
   test('quoted owner words are redacted from public copies', () => {

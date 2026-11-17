@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { branchKey, captainApprovalsDir } from './approval-record';
+import { readVersionedSlugCache } from './bin-context';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
@@ -28,19 +29,23 @@ export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: A
 export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean }
 
 /**
- * The owner's words in every approvals record already on disk for the branch checked out at `cwd` (lib/approval-record.ts
- * layout: <state root>/projects/<slug>/approvals/<branch key>.jsonl and its mirrors). Read-only: the slug is not resolved,
- * because resolving it writes the slug cache, and building a gate must not write outside the run.
+ * The owner's words in this repository's approvals record for the branch checked out at `cwd` (lib/approval-record.ts
+ * layout: <state root>/projects/<slug>/approvals/<branch key>.jsonl and <mirror>/<slug>/<branch key>.jsonl). Read-only:
+ * the slug comes from GSTACK_PROJECT_SLUG or the slug cache gstack-slug already wrote, never a fresh resolution (that
+ * writes the cache, and building a gate must not write outside the run). No known slug reads no record, so a quote stays
+ * unverified rather than matching another repository's branch of the same name.
  */
 export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): string[] {
   const head = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd, encoding: 'utf8', timeout: 10_000 });
   const branch = head.status === 0 ? head.stdout.trim() : '';
   if (!branch) return [];
+  const stateRoot = resolveStateRoot(env);
+  const pinned = path.basename((env.GSTACK_PROJECT_SLUG ?? '').trim());
+  const slug = pinned && pinned !== '.' && pinned !== '..' ? pinned : readVersionedSlugCache(stateRoot, cwd);
+  if (!slug) return [];
   const name = `${branchKey(branch)}.jsonl`;
-  const files: string[] = [];
-  const under = (root: string, sub: string[]) => { try { for (const d of fs.readdirSync(root)) files.push(path.join(root, d, ...sub, name)); } catch { /* no such root */ } };
-  under(path.join(resolveStateRoot(env), 'projects'), ['approvals']);
-  for (const root of [env.GSTACK_APPROVALS_DIR, captainApprovalsDir(env)]) if (root) under(root, []);
+  const files = [path.join(stateRoot, 'projects', slug, 'approvals', name),
+    ...[env.GSTACK_APPROVALS_DIR, captainApprovalsDir(env)].flatMap(root => (root ? [path.join(root, slug, name)] : []))];
   const words: string[] = [];
   for (const file of files) {
     let text: string;
@@ -92,13 +97,18 @@ export function proposalCost(ctx: OwnerContext, phase: string, changes: string):
 /** A proposal behind a Critical or High row keeps the finding path's b: the draft stands and the finding becomes a blocking build task. */
 export const blockingProposal = (rows: ChallengeRow[]): boolean => rows.some(r => r.severity === 'Critical' || r.severity === 'High');
 
+/** The heaviest `changes` any row names: scope, cost or direction before packaging or ordering, so a pair never settles a scope change. */
+export function heaviestChanges(rows: Array<{ changes?: string } | undefined>): string | undefined {
+  const named = rows.flatMap(r => (r?.changes ? [r.changes] : []));
+  return ['scope', 'cost', 'direction'].find(c => named.includes(c)) ?? named[0];
+}
+
 /**
  * One proposal from one or both voices (a paired twin) against agent-written plan text: a takes the change, b keeps the draft.
  * Its `changes` is the heaviest any row names (scope, cost, direction, then packaging or ordering), so a pair never settles a scope change.
  */
 export function proposalItem(ctx: OwnerContext, phase: string, rows: ChallengeRow[], o: { carried?: boolean } = {}): NewItem {
-  const named: string[] = rows.flatMap(r => (r.changes ? [r.changes] : []));
-  const changes = ['scope', 'cost', 'direction'].find(c => named.includes(c)) ?? named[0] ?? 'direction';
+  const changes = heaviestChanges(rows) ?? 'direction';
   const keep = blockingProposal(rows) ? "keep the plan's draft; carry it into the build as a blocking task (no plan change)" : "keep the plan's draft";
   const fixes = [...new Set(rows.map(r => r.resolution).filter((r): r is string => !!r))];
   const voices = rows.map(r => r.voice).join(' + ');

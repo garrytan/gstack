@@ -64,7 +64,7 @@ describe('answer', () => {
     const out = gatedRun('shape');
     const gate = JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8'));
     expect(gate.gate_rev).toBe(1);
-    expect(gate.items.map((i: any) => [i.id, i.kind, i.phase ?? null])).toEqual([['d1', 'auto', 'ceo'], ['uc1', 'approval', 'ceo'], ['d2', 'auto', 'ceo'], ['uc2', 'approval', 'eng'], ['d3', 'auto', 'eng'], ['d4', 'auto', 'eng'], ['p1', 'approval', null]]);
+    expect(gate.items.map((i: any) => [i.id, i.kind, i.phase ?? null])).toEqual([['d1', 'auto', 'ceo'], ['uc1', 'approval', 'ceo'], ['d2', 'auto', 'ceo'], ['uc2', 'approval', 'eng'], ['d3', 'auto', 'eng'], ['d4', 'auto', 'eng'], ['d5', 'auto', null], ['p1', 'approval', null]]);
     expect(gate.items.filter((i: any) => i.finding).map((i: any) => i.id)).toEqual(['d2', 'd3', 'd4']);
     expect(gate.items[0].why).toMatch(/voices disagree: severity: native High, outside Low/);
   }, 30_000);
@@ -147,7 +147,7 @@ describe('answer', () => {
     expect(eng.outside.stdout).toContain('status=gate_pending');
     expect(readRun(out).gate_rev).toBe(2);
     const rows = decisions(out);
-    expect(rows.filter((x: any) => x.gate_rev === 1)).toHaveLength(7);
+    expect(rows.filter((x: any) => x.gate_rev === 1)).toHaveLength(8);
     expect(rows.filter((x: any) => x.gate_rev === 2 && x.status === 'pending').length).toBeGreaterThan(0);
     const staleAgain = autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', 'all']);
     expect(staleAgain.status).toBe(3);
