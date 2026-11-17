@@ -41,6 +41,7 @@
   "exempt_branch_prefixes": [
     "release/",
     "wave/",
-    "gstack-land-repair/"
+    "gstack-land-repair/",
+    "dependabot/"
   ]
 }

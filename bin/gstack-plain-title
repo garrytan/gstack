@@ -95,18 +95,18 @@ function check(args: string[]): number {
 
   const title = opts['--title'] ?? read['--title-file']?.replace(/\r?\n+$/, '');
   const severity = mode === 'warn' ? 'warned' : 'refused';
+  const older = (createdAt !== undefined && Date.parse(createdAt) < Date.parse(policy.body_since)) || policy.exempt_branch_prefixes.some(p => (opts['--head-branch'] ?? '').startsWith(p));
   const findings: Array<(PlainFinding | BodyFinding) & { severity: string }> = [
     ...(title !== undefined ? checkTitle(title, policy) : []),
     ...(opts['--branch'] !== undefined ? checkBranch(opts['--branch'], policy) : []),
-    ...(read['--body-file'] !== undefined ? checkOpening(read['--body-file'], policy) : []),
     ...(read['--changelog'] !== undefined ? checkChangelogEntry(read['--changelog'], policy) : []),
   ].map(f => ({ ...f, severity }));
+  if (read['--body-file'] !== undefined) findings.push(...checkOpening(read['--body-file'], policy).map(f => ({ ...f, severity: older ? 'warned' : severity })));
   for (const line of (read['--commits-file'] ?? '').split(/\r?\n/)) {
     if (line.trim()) findings.push(...checkCommitSubject(line, policy).map(f => ({ ...f, severity: 'warned' })));
   }
   if (!json) for (const f of findings) process.stdout.write(`PLAIN_TITLE: ${f.code} ${f.kind} "${clean(f.match)}" — ${f.hint}${f.severity === 'warned' ? ' (warning only)' : ''}\n`);
   if (read['--body-file'] !== undefined) {
-    const older = (createdAt !== undefined && Date.parse(createdAt) < Date.parse(policy.body_since)) || policy.exempt_branch_prefixes.some(p => (opts['--head-branch'] ?? '').startsWith(p));
     const shape = checkBodyShape(foldSections(read['--body-file']), policy.terms);
     if (!json) for (const f of shape) process.stdout.write(bodyFindingLine(f, older || severity === 'warned') + '\n');
     findings.push(...shape.map(f => ({ ...f, severity: older ? 'warned' : severity })));

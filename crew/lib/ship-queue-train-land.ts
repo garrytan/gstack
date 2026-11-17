@@ -147,6 +147,7 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   let args = ['pr', 'merge', pr, '--rebase', '--match-head-commit', head];
   if (method !== 'rebase') {
     const viewed = ctx.gh(['pr', 'view', pr, '--json', 'title,body']);
+    if (!viewed.ok) return outPending({ code: 'QUEUE_PROOF_MISSING', message: `cannot read #${pr}'s title and body: ${(viewed.err ?? viewed.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
     let view: { title?: unknown; body?: unknown } = {};
     try { view = viewed.ok ? JSON.parse(viewed.out) : {}; } catch {}
     const root = ctx.repoRoot;

@@ -143,7 +143,8 @@ describe('checkBranch', () => {
     expect(src('lib/release-stamp.ts')).toContain('`release/${version}`');
     expect(src('crew/lib/ship-queue-wave.ts')).toContain("startsWith('wave/')");
     expect(src('lib/ship-queue-land.ts')).toContain('`gstack-land-repair/${j.pr}`');
-    expect(policy.exempt_branch_prefixes).toEqual(['release/', 'wave/', 'gstack-land-repair/']);
+    expect(fs.existsSync(path.join(ROOT, '.github/dependabot.yml'))).toBe(true);
+    expect(policy.exempt_branch_prefixes).toEqual(['release/', 'wave/', 'gstack-land-repair/', 'dependabot/']);
   });
 });
 
@@ -270,6 +271,18 @@ describe('bin/gstack-plain-title', () => {
     expect(r.stdout).toContain('PLAIN_BODY: PLAIN_BODY_REFUSED term "pregate"');
     expect(run(dirs.policy, ['check', '--body-file', long, '--created-at', '2026-11-10T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
     expect(run(dirs.policy, ['check', '--body-file', long, '--head-branch', 'release/1.2.3.0'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+  });
+
+  // Value: protects=the opening's own findings follow the same body_since and exempt-branch downgrade as the shape findings;
+  // fails_when=an older PR, a release/ PR or a Dependabot PR fails the required check for a listed word in its opening;
+  // why_new=the opening moved from the warn step to the refusing body step (GST-2737 review)
+  test('an older PR or an exempt branch only warns about its opening too', () => {
+    const body = file('lane.md', 'This lane makes the merge faster for users.\n');
+    expect(run(dirs.policy, ['check', '--body-file', body, '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 1, last: 'PLAIN_TITLE: refused=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--created-at', '2026-11-10T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', 'release/1.2.3.4', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', 'dependabot/bun/production-dependencies-ea1c777f8f', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', '', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 1, last: 'PLAIN_TITLE: refused=2' });
   });
 
   test('a changelog entry is checked', () => {

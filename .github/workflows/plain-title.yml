@@ -81,16 +81,20 @@ jobs:
       # The body: its opening, at most three lines before the first fold, and no
       # listed word above the Agent notes fold (docs/writing-prs.md). A PR created
       # before the policy's body_since date, or from a generated branch the policy
-      # exempts (release notes repeat CHANGELOG text), only gets warnings.
+      # exempts (release notes repeat CHANGELOG text), only gets warnings. Only a
+      # branch in this repository counts as exempt: a fork names its own branches.
       - name: Check the body
         if: ${{ !cancelled() }}
         env:
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: |
           set -euo pipefail
+          exempt_branch=""
+          if [ "$PR_HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then exempt_branch="$PR_BRANCH"; fi
           bun --no-env-file --config=/dev/null bin/gstack-plain-title check \
-            --body-file "$RUNNER_TEMP/pr-body.txt" --head-branch "$PR_BRANCH" \
+            --body-file "$RUNNER_TEMP/pr-body.txt" --head-branch "$exempt_branch" \
             --created-at "$PR_CREATED_AT" --mode refuse
 
       - name: Check the branch name and commit subjects (warnings only)

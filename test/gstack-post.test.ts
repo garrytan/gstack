@@ -971,6 +971,18 @@ describe("gstack-post refuses a title that is not in plain words (exit 4)", () =
     } finally { fs.rmSync(none, { recursive: true, force: true }); fs.rmSync(broken, { recursive: true, force: true }); }
   });
 
+  // Value: protects=a comment is never held back by a broken policy file, which it never needed before the body check;
+  // fails_when=an invalid policy stops pr-comment, issue-comment and reply; why_new=comments now read the policy for warnings (GST-2737 review)
+  test("an invalid policy file warns and still posts a comment", () => {
+    const broken = repoWith("{ not json");
+    try {
+      const c = fakeEnv({ root: broken, files: { "/b": "The pregate passed.\n" } });
+      expect(run(["pr-comment", "7", "--body-file", "/b"], c)).toBe(EXIT.posted);
+      expect(c.posts()).toHaveLength(1);
+      expect(c.stderr()).toContain("(PLAIN_POLICY_INVALID); the comment is posted unchecked");
+    } finally { fs.rmSync(broken, { recursive: true, force: true }); }
+  });
+
   test("the help names exit 4", () => {
     const f = fakeEnv();
     expect(run(["--help"], f)).toBe(EXIT.posted);

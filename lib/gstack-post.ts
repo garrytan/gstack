@@ -656,12 +656,14 @@ function send(env: PostEnv, kind: HostKind, req: Request, n: string | undefined,
  * title passes or the repository has no policy. A finding prints one `PLAIN_TITLE:` line each, in gstack-plain-title's
  * format, then `PLAIN_TITLE: refused=<n>`; an invalid policy refuses too, so nothing is posted until it is fixed.
  */
-function plainPolicy(env: PostEnv): PlainTitlePolicy | null | "invalid" {
+function plainPolicy(env: PostEnv, comment = false): PlainTitlePolicy | null | "invalid" {
   const top = env.run("git", ["rev-parse", "--show-toplevel"]);
   const root = top.status === 0 ? top.stdout.trim() : "";
   if (!root) return null;
   try { return loadPlainTitlePolicy(root); } catch (e) {
-    env.err(`gstack-post: ${e instanceof Error ? e.message : String(e)} (PLAIN_POLICY_INVALID); nothing was posted. Fix the policy (gstack-plain-title validate), then rerun.\n`);
+    const why = `gstack-post: ${e instanceof Error ? e.message : String(e)} (PLAIN_POLICY_INVALID)`;
+    if (comment) { env.err(`${why}; the comment is posted unchecked. Fix the policy (gstack-plain-title validate).\n`); return null; }
+    env.err(`${why}; nothing was posted. Fix the policy (gstack-plain-title validate), then rerun.\n`);
     return "invalid";
   }
 }
@@ -710,7 +712,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
     if (req.op === "reply" && remote.kind !== "github") throw new UsageError("reply is supported on GitHub only");
     const n = req.target === undefined ? undefined : targetNumber(req.target, req.op, remote);
     const title = req.titleFile ? readText(env, req.titleFile, "title") : undefined;
-    const policy = req.op === "issue-create" ? null : plainPolicy(env);
+    const policy = req.op === "issue-create" ? null : plainPolicy(env, COMMENT_OPS.has(req.op));
     const titleOk = title === undefined || !(req.op === "pr-title" || req.op === "pr-create") || plainTitle(env, title, policy);
     let body = req.bodyFile ? readText(env, req.bodyFile, "body") : undefined;
     if (req.op === "pr-body" && !req.replace) {
