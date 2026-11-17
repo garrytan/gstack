@@ -55,7 +55,7 @@ export function readOneTree(cwd: string, row: Record<string, any>): boolean {
   if (!commit || typeof row.tree !== 'string' || row.tree !== b.end_wtree) return false;
   if (typeof b.start_commit === 'string') return commitOf(cwd, b.start_commit) === commit;
   const made = Date.parse(git(cwd, ['log', '-1', '--format=%cI', commit]).stdout.trim()), started = Date.parse(b.started_at);
-  return Number.isFinite(made) && Number.isFinite(started) && made <= started;
+  return Number.isFinite(made) && Number.isFinite(started) && made < Math.floor(started / 1000) * 1000;
 }
 
 /**

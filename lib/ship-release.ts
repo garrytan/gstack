@@ -357,7 +357,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
     : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
   if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
   const canRule = (x: { f: any; key?: string }) => !!x.f && typeof x.f === 'object' && !x.f.gate && RULABLE.has(x.f.action) && !!x.key;
-  const holding = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).map((f: any, i: number) => ({ f, i, key: findingKeys(f)[0] }))
+  const holding = (l: FixLink) => ((all: unknown[]) => all.map((f: any, i: number) => ({ f, i, key: findingKeys(f).find(k => all.filter(g => findingKeys(g).includes(k)).length === 1) })))(Array.isArray(l.row.findings) ? l.row.findings : [])
     .filter(x => holdsOpen(x.f, true) && !(canRule(x) && ruledFinding(l.row.findings, ruledOn(l))(x.f)));
   const rulable = (l: FixLink) => holding(l).filter(canRule).map(x => x.key!);
   for (const l of notCounted ? chain : []) if (rulable(l).length) r.add(`FIX_CHECK_OPEN: ${rulable(l).join(',')} on the fix-check at ${l.commit.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${l.commit.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`);

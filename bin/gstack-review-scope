@@ -214,7 +214,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const log = spawnSync('git', ['log', '--first-parent', '--no-merges', `--since=${since}`, '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', 'HEAD'], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   if (log.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `git log for Review-Finding trailers failed: ${(log.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
-  const notes = readRuledNotes(process.cwd());
+  let notes: ReturnType<typeof readRuledNotes> = []; try { notes = readRuledNotes(process.cwd()); } catch (e) { process.stderr.write(`gstack-review-scope: rulings unreadable, none applied: ${(e as Error).message}\n`); }
   const sinceMs = Date.parse(since);
   const startOf = (r: Record<string, unknown>) => Date.parse(String((r.review_binding as any)?.started_at ?? r.timestamp));
   const stop = rows.filter(r => r.via === 'ship' && ['review', 'review-fix-check', 'adversarial-review'].includes(String(r.skill)) && startOf(r) >= sinceMs).sort((a, b) => startOf(a) - startOf(b)).at(-1);

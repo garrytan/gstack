@@ -29,7 +29,9 @@ if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
     const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
     const { dispositionedOn, gateKey, readGateDispositions, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
     const { readRuledNotes, rulingsFor } = await import(process.env.GSTACK_RULED_LIB);
-    const notes = readRuledNotes(process.cwd());
+    let notes = [];
+    try { notes = readRuledNotes(process.cwd()); }
+    catch (e) { console.error("gstack-review-read: rulings unreadable, none applied: " + e.message); }
     let dispositions = [];
     try { dispositions = readGateDispositions(process.cwd()); }
     catch (e) { console.error("gstack-review-read: gate dispositions unreadable, none applied: " + e.message); }

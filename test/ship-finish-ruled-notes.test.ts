@@ -446,6 +446,13 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     expect([r.status, lineOf(r.stdout, 'FIX_CHECK'), lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, NONCONVERGED, openLine([NEW_B], fixHead)]);
   });
 
+  test('two findings that share a fingerprint are named by their ledger ids, the only keys a ruling can close', () => {
+    const twin = (id: string) => ({ fingerprint: NEW_A, ledger_id: id, severity: 'CRITICAL', action: 'open', locus: 'fix-range', blocking: true, raised_by: 'fix-check' });
+    const { f, fixHead, reviewed, post } = grantedFixCheck({ ...HE361, findings: [twin('fc/fix-check#1'), twin('fc/fix-check#2')] });
+    const r = finishLoop(f, reviewed, post, fixHead);
+    expect([r.status, lineOf(r.stdout, 'FIX_CHECK_OPEN')]).toEqual([3, openLine(['fc/fix-check#1', 'fc/fix-check#2'], fixHead)]);
+  });
+
   test('the lane\'s own claim rules nothing, and a ruling at a head outside the fix-check\'s range closes nothing', () => {
     const claimed = { ...HE361, findings: HE361.findings.map(x => ({ ...x, ruled: 'note', ruled_by: 'harness minder (HARN-1)', approval: 'a-9628d51bef2d' })) };
     const { f, fixHead, reviewed, post } = grantedFixCheck(claimed);
