@@ -7294,7 +7294,10 @@ the audit id (`text follows the JSON result line`) gets the same free re-ask for
 the whole line, but only when every such line is free of content problems (a
 content problem counts as an attempt). A blocked status and its blockers on any
 such line must survive the reply, which may add blockers; nothing else from the
-earlier line is kept or accepted. Otherwise run Step 14.5's one
+earlier line is kept or accepted. The same holds when the last line is a JSON
+result that drops an earlier blocked status or blocker for the audit (`the last
+JSON line drops the blocked result an earlier line gave for this audit`): it is
+never accepted, and its re-ask must stay blocked. Otherwise run Step 14.5's one
 remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names
