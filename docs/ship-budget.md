@@ -31,9 +31,10 @@ delegated, so a run spends no call on the meter: each program the driver runs en
     gstack-ship-budget note --run <id> --step <last step> [--label <what ran>] --reading <tokens> --credits <credits> \
       [--dispatched-at <tokens before the readers> --dispatched-credits <credits before> --readers <n>]
 
-which prints `NOTE: <step>[:<label>] used=<n> credits=<c> [readers=<n> readers_tokens=<n> readers_credits=<c>]`
-and the `BUDGET:` line. The cap is one hard stop: a note (or a check) whose `used + unknown` is past
-`--token-cap` prints the stop block and exits 3, and nothing else stops the run. No review-log marker
+which prints `NOTE: <step>[:<label>] used=<n> credits=<c> [readers=<n> readers_tokens=<n> readers_credits=<c>] [calls=<n>]`
+and the `BUDGET:` line. `calls=` is the calls since the previous note, counted from the call log
+(below), so `BUDGET_TIMELINE:` shows where a run's calls went. The cap is the one stop on spend: a note (or a check) whose `used + unknown` is past
+`--token-cap` prints the stop block and exits 3. The other stop is the clock ([The 100-minute stop](#the-100-minute-stop)). No review-log marker
 is written, so `gstack-review-log --start` takes no `--reservation`, and `close` audits no
 unreserved dispatch. `close` prints `BUDGET_TIMELINE:`, one entry per note. The admission mode
 below is what `ship/SKILL.md` runs; it is unchanged.
@@ -67,13 +68,55 @@ that did not note, then a loader 200 s or more later) and never below 0
 are not in it.
 
 **Credits.** Every command that takes `--reading` also takes `--credits <cost.credits>` from the
-same `thread.get`. Tokens count a cached read the same as a fresh one; credits are what the run
+same `thread.get`; when Capy reports only `cost.dollars`, the checked-in phase and pass programs pass
+`cost.dollars` x 1,000 instead. Tokens count a cached read the same as a fresh one; credits are what the run
 costs, including the full-context re-bill after a gap over five minutes (about 40x a cached call,
 handoffs/GSTA-167/cache-probe.md). The first credits reading is the baseline; the `BUDGET:`,
 `BUDGET_FINAL:` and record-block lines print `credits=<used>` once one exists, and a reading below
 the last is refused like a token reading ([BUDGET_READING_REJECTED](troubleshooting.md#budget-reading-rejected)).
 A successor thread's readings open a new epoch for credits as well as tokens
 ([Successor handoff](#successor-handoff)).
+
+### The 100-minute stop
+
+ship/DRIVER.md stops a run past 100 minutes. Measured conductors ran past it in 10 of 12 runs while it was a
+line of prose (handoffs/ship-conductor-cost-2026-11-16), so it is now code (`lib/ship-clock.ts`). In observe mode
+the first `note`, or `gstack-ship-phase run --record`, past 100 minutes from the ledger's start prints
+
+    STOP: past 100 minutes (<m> min since <start>) head=<sha12> rounds=<n> calls=<n> next=<next act> state=<ledger dir>/stop.json
+    RECOVER: hand <stop.json> to the next session; it runs gstack-ship-budget resume --record <rec> (the clock restarts), then reruns the phase that stopped
+    GSTACK_RESULT: skill=ship status=incomplete run=<ledger dir>
+
+and exits 3. `stop.json` holds the head, the review passes noted so far (`rounds`: Step 9 notes that dispatched
+readers), the next act (the last line under the record's Next steps heading) and the run's calls, so the stop is a
+clean handoff. Until `resume` the ledger stays stopped: every `note` and every `gstack-ship-phase run --record`
+prints the stop again and runs nothing. `resume` prints `CLOCK: restarted at <iso>` and the next 100 minutes count
+from there. Admission mode (`ship/SKILL.md`) has no clock.
+
+### The phase runner
+
+`gstack-ship-phase run --dir <run dir> --phase <n> [--record <rec>] [--wait-s 200] -- '<command>'...` runs one
+driver phase's commands in order, each in the background with its output in `<run dir>/phases/<n>/<k>.log`, and
+prints only result lines (`CODE: …` lines and `gstack-<bin>: …` refusals): `RAN: <k>/<N> exit=<c>` per command,
+then `PHASE: <n> done`. A command still running after `--wait-s` keeps running; the run prints `WAITING:` and
+`NEXT: rerun`, and the same command resumes the wait. A failed command prints `STOP:` (exit 3); after the fix, the
+same command starts at it, because the journal (`phases/<n>/journal.json`) keeps each finished command by the
+sha256 of its text. A command a restart killed runs again; a changed list stops a replaced command that still runs, then reruns from its first changed command.
+
+On Capy one call runs a whole phase: `gstack-ship-phase program` prints the checked-in program
+`lib/capy-ship-phase.js`, loaded like the review pass program. It reads this jam's counter into
+`$GSTACK_SHIP_READING` and `$GSTACK_SHIP_CREDITS` for the commands, runs `gstack-ship-phase run`, then either the
+review pass program (`input.pass`) or the closing `note` with a fresh reading, then the next phase's section parts.
+
+**Waits priced by length.** A warm keep-alive at a conductor's average 231k-token context costs about $0.05 and a
+cold re-cache about $1.16, so they break even at about 80 minutes of waiting (estimated). Keep the 200 s keep-alive
+for expected waits under about 80 minutes; end the turn on one wait for longer ones (full CI, a long preflight);
+never poll every 10 to 15 minutes, which pays a full re-cache each time.
+
+**calls= in the receipt.** `gstack-ship-receipt write --budget-record <rec>` (or `--calls <n>`) puts the run's
+calls, start to write, in the receipt; `SHIP_RECEIPT:` prints `calls=<n>`. The count is the call log's
+(`total_est` over the run): calls that ran a gstack command plus the keep-alive estimate, so quick calls that run
+no gstack command are not in it. Receipts written before it have no `calls` and still validate, print and carry.
 
 ## Quickstart
 

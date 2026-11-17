@@ -301,6 +301,27 @@ describe('delegation', () => {
 });
 
 describe('Claude Code child launch', () => {
+  /**
+   * The argv rules of `claude --help` (2.1.292 pinned in CI, 2.1.326): a `<values...>` option takes
+   * every following argument up to the next one that starts with '-', and '--' ends the options.
+   */
+  function parseLikeClaudeCli(argv: string[]): { options: Record<string, string[]>; prompts: string[] } {
+    const variadic = new Set(['--allowedTools', '--allowed-tools', '--disallowedTools', '--disallowed-tools', '--add-dir', '--tools']);
+    const valued = new Set(['--session-id', '--permission-mode', '--model', '--settings', '--output-format']);
+    const options: Record<string, string[]> = {};
+    const prompts: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+      const arg = argv[i]!;
+      if (arg === '--') { prompts.push(...argv.slice(i + 1)); break; }
+      if (variadic.has(arg)) {
+        const values = options[arg] ??= [];
+        while (i + 1 < argv.length && !argv[i + 1]!.startsWith('-')) values.push(argv[++i]!);
+      } else if (valued.has(arg)) options[arg] = [argv[++i]!];
+      else if (!arg.startsWith('-')) prompts.push(arg);
+    }
+    return { options, prompts };
+  }
+
   test('launch runs the child in the background with explicit permission flags and the return file named', async () => {
     const h = fresh();
     const s = started(h, ['--token-cap', '80M', '--meter', 'estimate']);
@@ -314,9 +335,12 @@ describe('Claude Code child launch', () => {
     const session = h.field(r.out, 'CHILD', 'session');
     expect(h.field(r.out, 'CHILD', 'return')).toBe(ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!);
     for (let i = 0; i < 50 && !fs.existsSync(argsFile); i++) await Bun.sleep(100);
-    const args = fs.readFileSync(argsFile, 'utf8').split('\n');
+    const args = fs.readFileSync(argsFile, 'utf8').split('\n').slice(0, -1);
     expect(args.slice(0, 7)).toEqual(['-p', '--session-id', session, '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash,Read,Edit,Write,Grep,Glob']);
-    expect(args[7]).toContain(`verify-handoff --in ${file} --session ${session}`);
+    const parsed = parseLikeClaudeCli(args);
+    expect(parsed.options['--allowedTools']).toEqual(['Bash,Read,Edit,Write,Grep,Glob']);
+    expect(parsed.prompts).toHaveLength(1);
+    expect(parsed.prompts[0]).toContain(`verify-handoff --in ${file} --session ${session}`);
   });
 });
 
