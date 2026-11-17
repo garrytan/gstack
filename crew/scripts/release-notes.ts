@@ -5,15 +5,19 @@
  *
  * A change is a top-level bullet of a version's section, or a paragraph when it is not a bullet. Its line is
  * the bullet's bold lead when that lead is a sentence, else its first sentence, with internal issue codes in
- * parentheses dropped. Its pull request is read from git (changeSources): the commit that added the
- * changelog.d fragment holding the change (wherever that commit sits, since a release can fold fragments that
- * landed before the previous one), or, for a version written straight into the CHANGELOG, the commit
- * that added the version's heading; a release commit (a "v<version> release" subject) links nothing.
+ * parentheses dropped. Its pull request is read from git (changeSources), never from its words: the commit that
+ * added a version's heading folded the changelog.d fragments it deleted, in path order, so a folded version lists
+ * each of those fragments' changes, as the fragment read just before the fold, with the trailing "(#N)" of the
+ * squash commit that added that file there (wherever it sits, since a release can fold fragments that landed
+ * before the previous one, and never a later commit that reused the file name). Changes the version holds past
+ * its fragments' link the heading commit's pull request; a release commit (a "v<version> release" subject)
+ * links nothing.
  * Its group comes from the heading it sits under ("### Fixed", "### Added", "### Tests" and the like, read
  * inside its fragment when it has one), else from the files its pull request touched (only tests, CI and
  * gstack's own release tooling: maintainers), else from its words (internal shipping machinery: maintainers;
  * "no longer", "again", "fix": a fix; anything else is new). A release whose own version has no entry, or a version
- * with no change, refuses the notes instead of publishing a stub or an older version's entry.
+ * with no change, refuses the notes instead of publishing a stub or an older version's entry. Notes past NOTES_CAP
+ * keep the changes that fit and send the rest to the full changelog.
  */
 import { parseFragment } from '../../lib/changelog-fragments';
 import type { Exception, Git } from './release-cut';
@@ -22,9 +26,11 @@ export const NOTES_CAP = 60_000;
 
 export interface Change { text: string; heading: string }
 export interface ChangelogEntry { version: string; date: string; changes: Change[] }
-/** Where a change came from: its pull request (null when no commit names one) and the files that commit touched. */
-export interface ChangeSource { pr: number | null; files: string[]; text: string }
-export interface NotesSources { fragments: ChangeSource[]; versions: Record<string, ChangeSource> }
+/** A folded fragment: the pull request whose commit added its file (null when that commit names none), the files that commit touched, and its changes. */
+export interface FragmentSource { pr: number | null; files: string[]; changes: Change[] }
+/** The commit that added a version's heading: its pull request (null for a release commit), its files, and the fragments it folded in path order. */
+export interface VersionSource { pr: number | null; files: string[]; fragments: FragmentSource[] }
+export interface NotesSources { versions: Record<string, VersionSource> }
 export interface NotesInput { repo: string; version: string; date: string; prevVersion: string | null; prevTag: string | null; entries: ChangelogEntry[]; hotfix: boolean; first?: boolean; exception?: Exception | null; sources?: NotesSources }
 export type Notes = { ok: true; body: string; versions: number } | { ok: false; why: string };
 type Group = 'new' | 'fix' | 'maintainers';
@@ -60,7 +66,7 @@ export function changesIn(lines: string[]): Change[] {
     const l = raw.trimEnd();
     if (/^\s*(```|~~~)/.test(l)) { fence = !fence; continue; }
     if (fence) continue;
-    if (/^#{3,}\s/.test(l)) { heading = l.replace(/^#+\s*/, '').trim(); open = null; continue; }
+    if (/^#{2,}\s/.test(l)) { heading = l.replace(/^#+\s*/, '').trim(); open = null; continue; }
     if (!l.trim()) { blank = true; continue; }
     const wasBlank = blank;
     blank = false;
@@ -81,7 +87,7 @@ export function changelogEntries(text: string): ChangelogEntry[] {
     const m = /^## \[(\d+(?:\.\d+)+)\](?: - (\S+))?/.exec(lines[i]!);
     if (!m) continue;
     let j = i + 1;
-    while (j < lines.length && !lines[j]!.startsWith('## ')) j++;
+    while (j < lines.length && !lines[j]!.startsWith('## [')) j++;
     out.push({ version: m[1]!, date: m[2] ?? '', changes: changesIn(lines.slice(i + 1, j)) });
     i = j - 1;
   }
@@ -105,54 +111,54 @@ export function changeLine(text: string): string {
   const bold = /^\*\*(.+?)\*\*/.exec(text);
   const lead = bold && /[.!?]["')`]*$/.test(bold[1]!.trim()) ? bold[1]! : firstSentence(text);
   return lead.replace(/\*\*/g, '')
-    .replace(/\s*\((?!CVE-|GHSA-)(?:[A-Z][A-Z0-9]*-\d+)[^()]*\)/g, '')
+    .replace(/\s*\((?!CVE-|GHSA-)[A-Z][A-Z0-9]*-\d+(?:(?:,\s*|\s+and\s+)(?!CVE-|GHSA-)[A-Z][A-Z0-9]*-\d+)*\)/g, '')
     .replace(/\b([Oo])utside voice/g, (_, o: string) => (o === 'O' ? 'S' : 's') + 'econd-model review')
     .replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
 }
 
-const norm = (s: string) => s.replace(/[*`_]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-
 function prOf(subject: string): number | null {
-  const squash = [...subject.matchAll(/\(#(\d+)\)/g)].at(-1);
+  const squash = /\(#(\d+)\)\s*$/.exec(subject);
   const merge = /^Merge pull request #(\d+)/.exec(subject);
   return squash ? Number(squash[1]) : merge ? Number(merge[1]) : null;
 }
 
 /**
- * The pull requests behind the changes released in from..to, read along main's first-parent history. Fragments: every
- * changelog.d file a commit in the range added or deleted (a release folds and deletes fragments that may have landed
- * before the previous release), each with the pull request and files of the commit that added it. Versions: the commit
- * in the range that added each "## [version]" heading of the CHANGELOG. No from (a first release) reads nothing.
+ * The pull requests behind the versions whose headings were added in from..to along main's first-parent history: for
+ * each, the commit that added its "## [version]" heading and the changelog.d fragments that commit deleted, each read
+ * as it stood just before that commit, with the pull request of the commit that added that file. No from (a first
+ * release) reads nothing.
  */
 export function changeSources(git: Git, from: string | null, to: string): NotesSources {
-  const out: NotesSources = { fragments: [], versions: {} };
+  const out: NotesSources = { versions: {} };
   if (!from) return out;
   const range = ['--first-parent', '--diff-merges=first-parent', '--no-renames', from + '..' + to];
   const log = git(['log', '--format=%x00%H%x09%s', '--name-status', ...range]);
   if (!log.ok) return out;
-  const commits = new Map<string, { pr: number | null; stamp: boolean; files: string[] }>();
-  const fragments = new Set<string>();
+  const commits = new Map<string, { pr: number | null; stamp: boolean; files: string[]; folded: string[] }>();
   for (const block of log.out.split('\0').filter(b => b.trim())) {
     const [head, ...rest] = block.split('\n');
     const [sha, subject = ''] = head!.split('\t');
     const status = rest.filter(l => l.trim()).map(l => l.split('\t'));
-    commits.set(sha!, { pr: prOf(subject), stamp: STAMP_SUBJECT.test(subject), files: status.map(s => s.at(-1)!) });
-    for (const [kind, file] of status) if ((kind === 'A' || kind === 'D') && /^changelog\.d\/[^/]+\.md$/.test(file!) && file !== 'changelog.d/README.md') fragments.add(file!);
+    const folded = status.filter(([kind, file]) => kind === 'D' && /^changelog\.d\/[^/]+\.md$/.test(file!) && file !== 'changelog.d/README.md').map(([, file]) => file!).sort();
+    commits.set(sha!, { pr: prOf(subject), stamp: STAMP_SUBJECT.test(subject), files: status.map(s => s.at(-1)!), folded });
   }
-  for (const file of fragments) {
-    const added = git(['log', '-1', '--no-patch', '--diff-merges=first-parent', '--diff-filter=A', '--format=%H%x09%s', to, '--', file]);
+  const fragment = (fold: string, file: string): FragmentSource | null => {
+    const added = git(['log', '-1', '--no-patch', '--first-parent', '--diff-merges=first-parent', '--diff-filter=A', '--format=%H%x09%s', fold + '^', '--', file]);
     const [sha, subject = ''] = added.ok ? added.out.split('\t') : [];
-    if (!sha) continue;
-    const files = git(['show', '--diff-merges=first-parent', '--no-renames', '--format=', '--name-only', sha]);
-    const shown = git(['show', sha + ':' + file]);
+    const shown = git(['show', fold + '^:' + file]);
     const parsed = shown.ok ? parseFragment(file, shown.out) : null;
-    if (parsed && 'body' in parsed) out.fragments.push({ pr: prOf(subject), files: files.ok ? files.out.split('\n').filter(Boolean) : [], text: parsed.body });
-  }
+    if (!parsed || !('body' in parsed)) return null;
+    const files = sha ? git(['show', '--diff-merges=first-parent', '--no-renames', '--format=', '--name-only', sha]) : null;
+    return { pr: sha ? prOf(subject) : null, files: files?.ok ? files.out.split('\n').filter(Boolean) : [], changes: changesIn(parsed.body.split('\n')) };
+  };
   const headings = git(['log', '--format=%x00%H', '-p', '--unified=0', ...range, '--', 'CHANGELOG.md']);
   if (headings.ok) for (const block of headings.out.split('\0').filter(b => b.trim())) {
-    const c = commits.get(block.slice(0, 40));
-    if (!c || c.stamp) continue;
-    for (const m of block.matchAll(/^\+## \[(\d+(?:\.\d+)+)\]/gm)) out.versions[m[1]!] = { pr: c.pr, files: c.files, text: '' };
+    const sha = block.slice(0, 40);
+    const c = commits.get(sha);
+    if (!c) continue;
+    for (const m of block.matchAll(/^\+## \[(\d+(?:\.\d+)+)\]/gm)) {
+      out.versions[m[1]!] = { pr: c.stamp ? null : c.pr, files: c.files, fragments: c.folded.map(file => fragment(sha, file)).filter((f): f is FragmentSource => f !== null) };
+    }
   }
   return out;
 }
@@ -176,20 +182,19 @@ export function releaseNotes(n: NotesInput): Notes {
     .sort((a, b) => compareVersions(b.version, a.version));
   if (!span.length) return { ok: false, why: 'CHANGELOG.md at the release has no entry for v' + n.version + (n.prevVersion ? ' or any version since v' + n.prevVersion : '') };
   if (compareVersions(span[0]!.version, n.version) !== 0) return { ok: false, why: 'CHANGELOG.md at the release has no entry for v' + n.version + ', only for the older v' + span[0]!.version + '; write the entry before cutting the release' };
-  const sources = n.sources ?? { fragments: [], versions: {} };
   const grouped: Record<Group, string[]> = { new: [], fix: [], maintainers: [] };
   const empty: string[] = [];
   for (const e of span) {
+    const version = n.sources?.versions[e.version];
+    const folded = version?.fragments ?? [];
+    const own = e.changes.slice(folded.reduce((count, f) => count + f.changes.length, 0));
+    const items: Array<{ change: Change; from?: { pr: number | null; files: string[] } }> = [...folded.flatMap(f => f.changes.map(change => ({ change, from: f }))), ...own.map(change => ({ change, from: version }))];
     let lines = 0;
-    for (const c of e.changes) {
-      const line = changeLine(c.text);
+    for (const { change, from } of items) {
+      const line = changeLine(change.text);
       if (!line) continue;
-      const key = norm(c.text).slice(0, 160);
-      const fragment = sources.fragments.find(f => norm(f.text).includes(key));
-      const own = fragment ? changesIn(fragment.text.split('\n')).find(fc => norm(fc.text).startsWith(key)) : undefined;
-      const from = fragment ?? sources.versions[e.version];
       const pr = from?.pr ? ' ([#' + from.pr + '](https://github.com/' + n.repo + '/pull/' + from.pr + '))' : '';
-      grouped[groupOf(line, fragment ? own?.heading ?? '' : c.heading, from?.files ?? [])].push('- ' + line + pr);
+      grouped[groupOf(line, change.heading, from?.files ?? [])].push('- ' + line + pr);
       lines++;
     }
     if (!lines) empty.push('v' + e.version);
@@ -198,15 +203,22 @@ export function releaseNotes(n: NotesInput): Notes {
   const kind = releaseKind(n.hotfix, n.exception);
   const changelogUrl = 'https://github.com/' + n.repo + '/blob/v' + n.version + '/CHANGELOG.md';
   const plural = span.length === 1 ? '' : 's';
-  const body = [
+  const render = (omitted: number) => [
     '## gstack v' + n.version + (kind === 'regular' ? '' : ' (' + kind + ' release)'),
     '',
     ...(n.exception ? ['**' + KIND_LABEL[n.exception.kind] + ' release:** `' + n.exception.reason + '` (verified: ' + n.exception.evidence + '). Every version since the previous release ships with it.', ''] : []),
     ...(n.first || !n.prevVersion ? ['First tagged release: the ' + span.length + ' version' + plural + (n.prevVersion ? ' since v' + n.prevVersion : '') + '; the [full changelog](' + changelogUrl + ') has every earlier one.', ''] : []),
     ...GROUPS.filter(([g]) => grouped[g].length).flatMap(([g, title]) => ['### ' + title, '', ...grouped[g], '']),
+    ...(omitted ? [omitted + (omitted === 1 ? ' more change is' : ' more changes are') + ' in the [full changelog](' + changelogUrl + ').', ''] : []),
     (n.prevTag ? '[Compare ' + n.prevTag + '...v' + n.version + '](https://github.com/' + n.repo + '/compare/' + n.prevTag + '...v' + n.version + ') · ' : '') + '[Full changelog](' + changelogUrl + ')',
     '',
   ].join('\n');
-  if (body.length > NOTES_CAP) return { ok: false, why: 'the notes for ' + span.length + ' version' + plural + ' run to ' + body.length + ' characters, over the ' + NOTES_CAP + ' cap; cut a release more often or split the span with --ref' };
+  let omitted = 0, body = render(0);
+  for (const g of [...GROUPS].reverse().map(([g]) => g)) {
+    while (body.length > NOTES_CAP && grouped[g].length) {
+      grouped[g].pop();
+      body = render(++omitted);
+    }
+  }
   return { ok: true, body, versions: span.length };
 }

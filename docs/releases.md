@@ -108,14 +108,23 @@ A release's notes list every change in the CHANGELOG versions it ships. A
 change is a top-level bullet of a version's entry, or a paragraph that is not a
 bullet. Its line is the bullet's bold lead when that lead is a whole sentence,
 else its first sentence, so a fragment's first sentence is what people read on
-the release page: say what changed for them, in plain words. Issue codes in
-parentheses are dropped, and "outside voice" reads "second-model review".
+the release page: say what changed for them, in plain words. A parenthesis
+that holds only issue codes, such as `(GST-101)` or `(GST-1455, GST-2349)`,
+is dropped; one that says more, such as `(SHA-256 of the file)`, and CVE and
+GHSA ids stay. "Outside voice" reads "second-model review". A `## ` heading
+inside a fragment is read like a `### ` one and never ends its version.
 
-Each line links the pull request that made the change: the commit that added
-the `changelog.d/` fragment holding it (wherever that commit sits, since a
-release can fold fragments that landed before the previous one), or, for an
-older version written straight into the CHANGELOG, the commit that added the
-version's heading. Lines sit under three headings, read in this order:
+Each line links the pull request that made the change, read from git and never
+from the change's words. The commit that added a version's `## [version]`
+heading folded the `changelog.d/` fragments it deleted, in path order, so the
+version lists each of those fragments' changes, as the fragment read just
+before the fold, linked to the trailing `(#N)` of the squash commit that added
+that file (wherever that commit sits, since a release can fold fragments that
+landed before the previous one; a later pull request that reuses the file name
+never takes the link). Changes the version holds past its fragments', and every
+change of an older version written straight into the CHANGELOG, link the
+commit that added the version's heading; a release commit links nothing.
+Lines sit under three headings, read in this order:
 
 1. the heading the change sits under, inside its fragment when it has one:
    `### Added` is What's new, `### Fixed` is Fixes, and `### Tests` or
@@ -127,7 +136,8 @@ version's heading. Lines sit under three headings, read in this order:
 
 A cut whose CHANGELOG has no entry for its version, or holds a version entry
 that lists no change, stops with `NOTES_MISSING` instead of publishing empty
-notes, and so do notes over 60,000 characters. An upgrade step or a summary
+notes. Notes over 60,000 characters keep the changes that fit, dropping
+maintainer changes first, and say how many more are in the full changelog. An upgrade step or a summary
 sentence can be added by hand after the cut with
 `gh release edit v<X> --notes-file <file>`; that edits the release page only.
 
@@ -572,5 +582,5 @@ reset --hard 'v<good version>'`. Its next update check fast-forwards it to
 | `DAILY: no-op: ...`, `DAILY: wait: ...` | the daily check found no trigger, or an important change still under its 24-hour floor (`NEXT_ALLOWED:` follows); exit 0 with a notice |
 | `IMPORTANT_UNGATED: ...` | an important change landed but no green, gated commit holds it yet; informational |
 | `NO_RELEASE_PR: ...` | the candidate's VERSION is already released on an earlier commit (no release PR landed since that cut): the Captain stamps a release PR. A plain cut always reports it; the daily check reports it only when a trigger is due. Exit 1 (0, with a warning, on a dry run) |
-| `NOTES_MISSING: ...` | the CHANGELOG at the candidate has no entry for its version, a version in the span lists no change, or the notes run over 60,000 characters ([Release notes](#release-notes)); nothing is tagged or published. Exit 1 |
+| `NOTES_MISSING: ...` | the CHANGELOG at the candidate has no entry for its version, or a version in the span lists no change ([Release notes](#release-notes)); nothing is tagged or published. Exit 1 |
 | `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated; exit 1 (0 on a dry run) |
