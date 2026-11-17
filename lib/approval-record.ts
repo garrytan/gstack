@@ -153,7 +153,7 @@ function validDate(d: string): boolean {
 
 export interface NewRow { ask: string; words: string; by: string; scope: string; pending?: string; outcome?: string; date?: string; source?: string }
 
-/** An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, then a 14-digit time stamp. */
+/** An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, six random letters (since GST-3015), a hyphen, then a 14-digit time stamp. */
 const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
 /** The part of a minted run id the exemption covers: the 14-digit stamp and, when the name ends in a thread code, its digits. */
 const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?\d{14}$/;

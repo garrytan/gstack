@@ -13,6 +13,7 @@ import { PHASES, RESULT_FORMAT } from '../../lib/autoplan-prompts';
 import { SCOPE_FLAG_TOKENS } from '../../lib/autoplan-scope';
 import { RESULT_CODES } from '../../lib/result-codes';
 import { DEFAULT_HOST_ESTIMATE_USD, DEFAULT_MAX_ROUNDS } from '../../lib/autoplan-budget';
+import { outsideVoiceFailurePolicy } from './outside-voice';
 import type { ResolverFn } from './types';
 
 /** One entry per command line the loop runs, as the field-wave plan specifies them. */
@@ -75,3 +76,10 @@ export const generateAutoplanDriverCodes: ResolverFn = () => DRIVER_CODES.map(co
   const row = (RESULT_CODES as Record<string, { fix: string }>)[code];
   return `- \`${code}\`: ${row?.fix ?? PENDING_FIX[code]}`;
 }).join('\n');
+
+/** GST-3015: the outside voice in an unattended run, one line so it sits inside the loop's dispatch step. An explicit codex_reviews: enabled is consent; the voice runs in the foreground with a bounded timeout. */
+export const generateAutoplanUnattendedVoice: ResolverFn = ctx => [
+  "**Outside voice, unattended.** A stored `codex_reviews: enabled` is the owner's standing consent to send each phase's review input to the outside model (`next` prints `OUTSIDE_CONSENT: given by codex_reviews=enabled`), so run the outside attempt: the preamble's unattended consent rule does not cover it, and you never close it `--unavailable` over consent or data leaving the machine. The runner itself enforces `disabled` or an unreadable config (`OUTSIDE: <phase> not_run reason=consent_missing`, no outside attempt); an unset `codex_reviews` keeps its existing handling.",
+  "Run the voice in the foreground, inside this turn: `gstack-outside-voice run ... --timeout-ms 540000` with the tool's own timeout above it (Claude Code Bash `timeout: 600000`), or a subagent you await. Never `run_in_background`, never a monitor, never end the turn to wait for it: an unattended session ends with its turn. When the voice fails, `submit --voice outside --unavailable \"<line>\"` with the matching line and carry on in the same turn, the native voice still counting:",
+  ...outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-coverage', stderrOnEmpty: true, fallback: 'none', escape: 0 }).split('\n').map(l => l.replace(/^- /, '')),
+].join(' ');
