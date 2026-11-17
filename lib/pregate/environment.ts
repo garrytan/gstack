@@ -23,6 +23,7 @@ const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const NOT_FOUND = /command not found|is not recognized as an internal or external command/;
 const RULES: Array<{ kind: EnvironmentKind; re: RegExp }> = [
   { kind: 'missing-binary', re: new RegExp(`${NOT_FOUND.source}|No such file or directory: ['"]?[\\w./-]+|spawn \\S+ ENOENT|\\bENOENT\\b.*\\bspawn\\b|not on PATH`) },
+  { kind: 'arg-limit', re: /\bE2BIG\b|[Aa]rgument list too long/ },
   { kind: 'quota', re: /\bquota\b|\b429 Too Many Requests|status(?: code)?[:= ]+429\b|HTTP(?:\/[\d.]+)? 429\b|\brate.?limit(?:ed)?\b|insufficient_quota/i },
   { kind: 'network', re: /\bE(?:NOTFOUND|CONNREFUSED|CONNRESET|TIMEDOUT|HOSTUNREACH|NETUNREACH|AI_AGAIN|PIPE)\b|getaddrinfo|Could not resolve host|Connection refused|Connection reset|Network is unreachable|fetch failed|TLS handshake|certificate verify failed|UNABLE_TO_GET_ISSUER_CERT|Temporary failure in name resolution/ },
   { kind: 'disk', re: /\bENOSPC\b|No space left on device|\bEDQUOT\b|Disk quota exceeded/ },
@@ -72,6 +73,7 @@ export function classifyCommandEnvironment(command: string, output: string, exit
 
 const FIX: Record<EnvironmentKind, string> = {
   'missing-binary': 'install the named tool on this machine (or put it on PATH), or run the lane remotely (--remote, or clear it with a run URL)',
+  'arg-limit': 'the command line or environment passed to the runner is over the system\'s argument limit (E2BIG); gstack splits a lane\'s file list to stay under it, so report this as a gstack bug with this line, and meanwhile run the lane remotely or split the selection',
   network: 'check the network, proxy or registry this machine reaches, then rerun; or run the lane remotely',
   quota: 'wait for the quota or raise it, free the backend\'s capacity, then rerun',
   disk: 'free disk space (or move the state root) and rerun',

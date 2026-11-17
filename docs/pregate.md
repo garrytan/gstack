@@ -428,7 +428,11 @@ Two stages with separate clocks, both printed:
   `workflow.yml/job`, unless `local` names that lane. `--explain` prints each test's provenance and every
   uncertain mapping (a planner-computed matrix without a `selection` manifest
   selects conservatively). Test files matching `serial_patterns` (default
-  `**/*.serial.test.*`) run one process per file after the unit files. The
+  `**/*.serial.test.*`) run one process per file after the unit files. A unit
+  group whose quoted file list would pass the system's argument limits (Linux
+  caps one argument at 128 KiB) runs as several runner processes in sequence,
+  each under about 96 KB of file arguments, read back as one run: counts add up,
+  any failing chunk fails the lane, and they share the group's one `--timeout`. The
   runner and every guard run with the verified launch Bun first on PATH: the
   first of `$BUN_INSTALL/bin` and `~/.bun/bin` whose Bun satisfies gstack's and
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
@@ -1858,6 +1862,7 @@ failure the branch caused carries `cause: "diff"` (`PREGATE_LANE_FAILED`,
 | Kind | Evidence |
 |---|---|
 | `missing-binary` | exit 127, `command not found`, a spawn `ENOENT`, a runner tool `not on PATH` (dart, flutter, cargo, a package manager, `python3`, or `pytest` when python3 cannot import it), Playwright's browsers not installed |
+| `arg-limit` | `E2BIG`, `Argument list too long`: a command line or environment over the system's limit. gstack splits a lane's file list to stay under it, so this is a gstack bug to report |
 | `network` | `ENOTFOUND`, `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, `Could not resolve host`, `fetch failed`, a TLS handshake or certificate failure |
 | `quota` | `quota`, `429 Too Many Requests`, `rate limit`, `insufficient_quota` (a vCPU quota on the remote backend) |
 | `disk` | `ENOSPC`, `No space left on device`, `EDQUOT` |
