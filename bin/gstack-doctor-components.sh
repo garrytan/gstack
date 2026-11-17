@@ -413,6 +413,9 @@ gstack_result_anchor() {
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
+    EVAL_JUDGE_UNCHECKED) printf '%s' 'eval-judge-unchecked' ;;
+    EVAL_REPORT_UNPLANTED_ZERO) printf '%s' 'eval-report-unplanted-zero' ;;
+    EVAL_REPORT_NO_ANSWER_ONLY) printf '%s' 'eval-report-no-answer-only' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;

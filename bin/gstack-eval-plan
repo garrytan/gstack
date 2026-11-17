@@ -10,7 +10,8 @@
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
  *   gstack-eval-plan pilot release --out <dir> --attempt <id>
  *   gstack-eval-plan pilot report --out <dir> --total <items> [--workers W] [--json]
- *   gstack-eval-plan results --check <prereg> <results.md> [--json]
+ *   gstack-eval-plan results --check <prereg> <results.md> [--labels <labels.jsonl>] [--json]
+ *   gstack-eval-plan judge --check <prereg> --labels <labels.jsonl> [--json]
  *   gstack-eval-plan price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file <file>] [--base <branch>] [--cap-usd N]
  *                               [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out <dir>] [--json]
  *
@@ -27,13 +28,15 @@
  * price-gate lint every arm's model against the base branch's
  * .gstack/eval-models.json (docs/eval-models.md; lib/eval-models.ts). Exit 0 ok, 1 fail (incomplete
  * prereg, failed check, exceeded cap, unpriced or stale gate), 2 usage, 3 refused.
- * Logic: lib/eval-plan.ts; `results --check` in lib/eval-plan-report.ts.
+ * Logic: lib/eval-plan.ts; `results --check` in lib/eval-plan-report.ts; the result checks
+ * (decisions, scoring, judge labels) in lib/eval-plan-checks.ts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { armModel, checkPrereg, DEFAULT_TOKENS, PREREG_SECTIONS, dryRun, pilotReport, preregTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
+import { armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
 import { checkResults } from '../lib/eval-plan-report';
+import { checkJudgeLabels, renderJudgeLabels } from '../lib/eval-plan-checks';
 import { checkModelRules, EVAL_SCOPES, type EvalScope, type ModelRulesCheck } from '../lib/eval-models';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
@@ -43,8 +46,11 @@ import { SpendCapExceeded } from '../lib/spend-ledger';
 const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, priced pilot (eval-plan/SKILL.md)
 
   prereg --check <file> [--allow-repo-commands] [--json]
-                                     the required sections exist and are filled: Bars, Arms, Comparison, Decoys, Stop rules,
-                                     Held-out exposure, and No-gstack arm when the Comparison says stack: loaded;
+                                     the required sections exist and are filled: Bars, Decisions, Arms, Comparison, Scoring,
+                                     Decoys, Stop rules, Held-out exposure, and No-gstack arm when the Comparison says stack: loaded;
+                                     Decisions needs two or more "if <result>: <action>" lines with different actions; Scoring a
+                                     judge (none, or another model family with labels >= 40 and agreement >= 0.6) and, with two or
+                                     more arms, paired: yes, interval: 95% and mdd:; a frozen: date before 2026-11-15 skips both;
                                      an optional Diagnostics section's summarizer runs on its synthetic fixture only with
                                      --allow-repo-commands (else it is listed and exit 3) and every count must match
   prereg --init <file> [--title <t>] write the template
@@ -60,9 +66,13 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      settle unknown, and sit outside the cap and the projection until one settles a charge
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
   pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
-  results --check <prereg> <results.md> [--json]
+  results --check <prereg> <results.md> [--labels labels.jsonl] [--json]
                                      one table in the results file has a filled row for every Arms identity, each no-gstack arm
-                                     beside its variants; reads text only (docs/TESTING_INTERNALS.md#no-gstack-arm)
+                                     beside its variants; a model judge's labels pass; a zero in any results table comes from a
+                                     Diagnostics counter with a planted case; a failures column has an answer-only column beside
+                                     it; reads text only (docs/TESTING_INTERNALS.md#result-checks)
+  judge --check <prereg> --labels labels.jsonl [--json]
+                                     Cohen's kappa of the preregistered judge against {"id","human","judge"} hand labels
   price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file f] [--base b] [--cap-usd N] [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out dir] [--json]
                                      price a paid gate from its GSTACK_EVAL_CALLS v1 call-plan file (--plan-file, else the base
                                      policy's price_file at HEAD); checks the gate/head/input binding, executes nothing, writes a
@@ -126,11 +136,11 @@ function doPrereg(rest: string[]): number {
   const run = runnable && allowed ? runPreregDiagnostics(d, repoRoot) : null;
   if (rest.includes('--json')) process.stdout.write(JSON.stringify({ file, ...r, diagnostics_run: run }) + '\n');
   else {
-    process.stdout.write(`PREREG: ${r.ok ? 'ok' : 'incomplete'} present=${r.present.length}/${PREREG_SECTIONS.length}${r.missing.length ? ` missing=${r.missing.join(',')}` : ''}${r.empty.length ? ` empty=${r.empty.join(',')}` : ''}${r.comparison.stack ? ` stack=${r.comparison.stack}` : ''}${r.no_gstack.required ? ` no_gstack_arm=${r.no_gstack.ok ? 'ok' : r.no_gstack.problems[0] === 'missing section' ? 'missing' : 'incomplete'}` : ''}${d ? ` diagnostics=${d.errors.length ? 'invalid' : d.expected.length}` : ''} file=${file}\n`);
+    process.stdout.write(`PREREG: ${r.ok ? 'ok' : 'incomplete'} present=${r.present.length}/${r.present.length + r.missing.length + r.empty.length}${r.missing.length ? ` missing=${r.missing.join(',')}` : ''}${r.empty.length ? ` empty=${r.empty.join(',')}` : ''}${r.comparison.stack ? ` stack=${r.comparison.stack}` : ''}${r.no_gstack.required ? ` no_gstack_arm=${r.no_gstack.ok ? 'ok' : r.no_gstack.problems[0] === 'missing section' ? 'missing' : 'incomplete'}` : ''}${d ? ` diagnostics=${d.errors.length ? 'invalid' : d.expected.length}` : ''}${r.grandfathered ? ` frozen=${r.frozen} result_checks=exempt` : ''} file=${file}\n`);
     if (runnable && !allowed) process.stdout.write(`PREREG_COMMAND: summarizer=${JSON.stringify(d.summarizer)} fixture=${d.fixture} cwd=${repoRoot}\n`);
     if (run) process.stdout.write(renderPreregDiagnostics(run));
   }
-  const incomplete = [...r.missing.map(m => `missing ${m}`), ...r.empty.map(e => `empty ${e}`), ...r.comparison.errors.map(e => `comparison: ${e}`), ...(d?.errors ?? []).map(e => `diagnostics: ${e}`)];
+  const incomplete = [...r.missing.map(m => `missing ${m}`), ...r.empty.map(e => `empty ${e}`), ...r.comparison.errors.map(e => `comparison: ${e}`), ...r.decisions.errors.map(e => `decisions: ${e}`), ...r.scoring.errors.map(e => `scoring: ${e}`), ...(d?.errors ?? []).map(e => `diagnostics: ${e}`)];
   if (incomplete.length) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_INCOMPLETE', incomplete.join('; ')) + '\n');
   if (!r.no_gstack.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_NO_GSTACK_ARM', `no-gstack arm: ${r.no_gstack.problems.join('; ')}`) + '\n');
   if (run && !run.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_DIAGNOSTIC_UNTESTED', run.error ?? run.rows.filter(row => row.status !== 'ok').map(row => `${row.name} ${row.status} (expected ${row.expected ?? 'undeclared'}, got ${row.got ?? 'none'})`).join('; ')) + '\n');
@@ -141,12 +151,27 @@ function doPrereg(rest: string[]): number {
 
 function doResults(rest: string[]): number {
   const prereg = flag(rest, '--check');
-  const results = rest.filter(a => !a.startsWith('--') && a !== prereg)[0];
+  const labels = flag(rest, '--labels');
+  const results = rest.filter(a => !a.startsWith('--') && a !== prereg && a !== labels)[0];
   if (!prereg || !results || !fs.existsSync(prereg) || !fs.existsSync(results)) return usage('results needs --check <existing prereg> <existing results file>');
-  const r = checkResults(fs.readFileSync(prereg, 'utf8'), fs.readFileSync(results, 'utf8'));
+  if (labels !== undefined && !fs.existsSync(labels)) return usage('results --labels needs an existing labels file');
+  const r = checkResults(fs.readFileSync(prereg, 'utf8'), fs.readFileSync(results, 'utf8'), labels === undefined ? null : fs.readFileSync(labels, 'utf8'));
   if (rest.includes('--json')) process.stdout.write(JSON.stringify({ prereg, results, ...r }) + '\n');
   else process.stdout.write(`RESULTS: ${r.ok ? 'ok' : 'incomplete'} no_gstack_rows=${r.no_gstack.filter(id => r.found.includes(id)).length}/${r.no_gstack.length} rows=${r.found.length}/${r.required.length} file=${results}\n`);
-  if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan results', 'EVAL_REPORT_NO_GSTACK_ROW', r.problems.join('; ')) + '\n'); return EXIT.fail; }
+  if (r.judge && !rest.includes('--json')) process.stdout.write(renderJudgeLabels(r.judge));
+  for (const code of new Set(r.issues.map(i => i.code))) process.stderr.write(resultLine('gstack-eval-plan results', code, r.issues.filter(i => i.code === code).map(i => i.message).join('; ')) + '\n');
+  return r.ok ? EXIT.ok : EXIT.fail;
+}
+
+function doJudge(rest: string[]): number {
+  const prereg = flag(rest, '--check');
+  const labels = flag(rest, '--labels');
+  if (!prereg || !labels || !fs.existsSync(prereg) || !fs.existsSync(labels)) return usage('judge needs --check <existing prereg> --labels <existing labels file>');
+  const { scoring } = checkPrereg(fs.readFileSync(prereg, 'utf8'));
+  if (!scoring.judge || scoring.judge.toLowerCase() === 'none') return usage('judge --check needs a preregistration whose ## Scoring names a judge model');
+  const r = checkJudgeLabels(scoring, fs.readFileSync(labels, 'utf8'));
+  process.stdout.write(rest.includes('--json') ? JSON.stringify({ prereg, labels, ...r }) + '\n' : renderJudgeLabels(r));
+  if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan judge', 'EVAL_JUDGE_UNCHECKED', r.problems.join('; ')) + '\n'); return EXIT.fail; }
   return EXIT.ok;
 }
 
@@ -266,6 +291,7 @@ function main(argv: string[]): number {
     if (cmd === 'pilot') return doPilot(rest);
     if (cmd === 'price-gate') return doPriceGate(rest);
     if (cmd === 'results') return doResults(rest);
+    if (cmd === 'judge') return doJudge(rest);
     return usage(`unknown command ${cmd}`);
   } catch (e: any) {
     if (e instanceof SpendCapExceeded) { process.stderr.write(resultLine(`gstack-eval-plan ${cmd}`, 'EVAL_BUDGET_EXHAUSTED', e.message) + '\n'); return EXIT.fail; }
