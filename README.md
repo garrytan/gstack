@@ -92,7 +92,7 @@ installs and passes the conformance tests but has no certification run yet;
 | Hermes | experimental | `--host hermes` (every skill in `$HERMES_HOME/skills/gstack`; automatic when setup runs inside Hermes) | ask for the task, or `/gstack-review` | advisory, not blocked | — | `./setup --host hermes` |
 | GBrain (mod) | instruction-only | `--host gbrain` (brain-aware variants ship from the GBrain repo) | — | advisory, not blocked | — | — |
 
-Per-host notes (agent harnesses, Copilot, Antigravity, Gemini CLI, OpenClaw and ClawHub, the Codex behavioral profile and model tiers, outside-review providers, the design binary's models) are in [docs/hosts.md](docs/hosts.md). Any rules-reading agent (Zed, Amp, Jules) can use the 2KB [agents digest](agents-digest/gstack-AGENTS.md) with no install. Adding a host: [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
+Per-host notes (agent harnesses, Copilot, Antigravity, Gemini CLI, OpenClaw native skills, the Codex behavioral profile and model tiers, outside-review providers, the design binary's models) are in [docs/hosts.md](docs/hosts.md). Any rules-reading agent (Zed, Amp, Jules) can use the 2KB [agents digest](agents-digest/gstack-AGENTS.md) with no install. Adding a host: [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 
 ## See it work
 
@@ -262,7 +262,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [gstack + Capy: the software factory](capy/README.md) | What we built with Capy Captains and gstack, how the pieces fit, the measured before/after, tips, and how Garry uses it |
 | [Why gstack](docs/why-gstack.md) | The story, the productivity numbers and their caveats, Karpathy's failure modes, parallel sprints |
 | [Install details](docs/install.md) | Setup timing, requirements in detail, team mode, the hooks setup registers, agent harness registration |
-| [Other agents](docs/hosts.md) | Agent harnesses (OpenClaw, Hermes, dots, QM, Muse Code, Grok, any other), OpenClaw and ClawHub, per-host notes, the Codex profile and model tiers, outside-review providers, the design binary's models |
+| [Other agents](docs/hosts.md) | Agent harnesses (OpenClaw, Hermes, dots, QM, Muse Code, Grok, any other), OpenClaw native skills, per-host notes, the Codex profile and model tiers, outside-review providers, the design binary's models |
 | [QA without a webpage](docs/qa-without-a-webpage.md) | `/qa` and `/qa-only` on CLIs, APIs, jobs, workers and webhooks |
 | [Standalone binaries](docs/standalone-binaries.md) | The standalone `gstack-*` CLIs (egress auditor, context bill, model benchmark, the review and evidence ledgers, the iOS QA daemon), and the CSO evaluation producer contract |
 | [Privacy & Telemetry](docs/privacy.md) | What is sent, what never is, the update check, outside reviews, egress receipts |
