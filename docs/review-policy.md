@@ -195,16 +195,21 @@ caught on another crew's PRs.
    own code changed since still gets one full review of its final head. It has
    no fix round: below-floor findings ship as notes, and a blocker (open or
    fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
-   to decide: ship with the note, or park. A round grant recorded after the
-   read-only review doesn't buy a fix round, because that review already spent
-   the round the grant would add. The count does not reopen.
+   to decide: ship with the note, park, or record a round grant at the head
+   the stop names. That grant buys the round there: once it applies, the
+   history leaves read-only passes out of `--prior-full`, since they had no fix
+   round. `gstack-ship-receipt stub` marks a run that started past the cap
+   `read_only` in the runs block. Without a grant the count does not reopen.
 6. **Round grant.** `gstack-approvals round-grant --pr <n> --head <sha> --kind
    extra-round --reason <why> --by <lane or Captain>` records one grant for one
    head: one round past the cap, with its fix round, instead of the read-only
    review. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant <id>`, which
    raises that run's cap by one round, and the plan refuses a grant for another
-   head or PR. The plan keeps the grant after the fix round's commits move HEAD
-   past it. gstack never grants itself a round: `--by gstack` and a grant
+   head or PR. When the granted round is the run's pass 1, its pass 2 is the
+   fix round and still plans; nothing past it does. The plan keeps the grant
+   after the fix round's commits move HEAD past it, and the history finds a
+   grant across a base merge that leaves the PR's own added and removed lines
+   byte-identical (preflight merges the base before the review, GST-2968). gstack never grants itself a round: `--by gstack` and a grant
    from inside an open `/ship` run are refused, and `add` refuses the scope.
    The receipt lists grants under `review_round_grants`.
 

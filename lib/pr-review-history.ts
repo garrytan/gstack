@@ -24,6 +24,8 @@ export interface PrReviewHistory {
   rechecks: number;
   /** Runs that started and wrote no receipt yet. */
   stubs: number;
+  /** Full passes of read-only final reviews (a started stub's read_only, GST-2968): a round grant leaves them out of the count. */
+  read_only: number;
   heads: number;
   first_full: string | null;
   last_full: string | null;
@@ -38,8 +40,8 @@ function entries(body: string): ReceiptRun[] {
   return [...receiptRuns(body), ...(current && typeof current.head === 'string' ? [receiptRun(current)] : [])];
 }
 
-export function prReviewHistory(body: string): PrReviewHistory {
-  const all = entries(body);
+export function prReviewHistory(body: string, o: { exceptRun?: string } = {}): PrReviewHistory {
+  const all = entries(body).filter(e => !(e.status && o.exceptRun !== undefined && e.run === o.exceptRun));
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
@@ -48,7 +50,7 @@ export function prReviewHistory(body: string): PrReviewHistory {
     if (!reviewed.has(key)) ordered.push(key);
     reviewed.set(key, e);
   });
-  const h: PrReviewHistory = { runs: 0, rounds: 0, full: 0, scoped: 0, fix_checks: 0, rechecks: 0, stubs: 0, heads: new Set(all.map(e => e.head)).size, first_full: null, last_full: null, source: 'pr-body' };
+  const h: PrReviewHistory = { runs: 0, rounds: 0, full: 0, scoped: 0, fix_checks: 0, rechecks: 0, stubs: 0, read_only: 0, heads: new Set(all.map(e => e.head)).size, first_full: null, last_full: null, source: 'pr-body' };
   for (const item of ordered) {
     const e = typeof item === 'string' ? reviewed.get(item)! : item;
     if (e.status === 'voided') continue;
@@ -57,6 +59,7 @@ export function prReviewHistory(body: string): PrReviewHistory {
     const l = e.review_loop;
     const scoped = l?.scoped ?? 0, full = Math.max(0, (l?.passes ?? 0) - scoped);
     h.rounds += roundsOf(l); h.scoped += scoped; h.full += full; h.fix_checks += l?.fix_checks ?? 0;
+    if (e.read_only) h.read_only += full;
     if (e.status === 'started') h.stubs++; else h.runs++;
     if (full > 0) { h.first_full ??= e.head; h.last_full = e.head; }
   }
@@ -82,8 +85,18 @@ export function placeRunEntry(body: string, entry: ReceiptRun): string {
 }
 
 /** A started (or voided) stub for a /ship run that has not written its receipt yet. */
-export const runStub = (o: { head: string; run: string; status: 'started' | 'voided'; loop: NonNullable<ShipReceipt['review_loop']> }): ReceiptRun =>
-  ({ head: o.head, run: o.run, status: o.status, review_loop: o.loop });
+export const runStub = (o: { head: string; run: string; status: 'started' | 'voided'; loop: NonNullable<ShipReceipt['review_loop']>; readOnly?: boolean }): ReceiptRun =>
+  ({ head: o.head, run: o.run, status: o.status, review_loop: o.loop, ...(o.readOnly ? { read_only: true as const } : {}) });
+
+/**
+ * The full rounds that count against the cap (GST-2968). A read-only final review has no fix round, so a round grant at the
+ * head it stopped on leaves it out: the grant buys the round the PR_ROUND_CAP stop names, with its fix round, once. The
+ * granted run's own passes count, so a later head is read-only again.
+ */
+type Counted = Pick<PrReviewHistory, 'full'> & { read_only?: number };
+export const countedFull = (h: Counted, grant?: string) => (grant ? h.full - (h.read_only ?? 0) : h.full);
+/** Whether a run that starts on this history is the read-only final review, the condition lib/review-depth.ts prCapped plans. */
+export const readOnlyRun = (h: Counted, grant?: string) => countedFull(h, grant) >= FULL_PASS_CAP + (grant ? 1 : 0);
 
 export type Route = { route: 'first' | 'final' | 'read-only'; reason: string };
 
@@ -94,15 +107,16 @@ export type Route = { route: 'first' | 'final' | 'read-only'; reason: string };
  * whose blocker goes to the lane's Captain as a decision; an extra-round grant at this head buys a fix round instead.
  * A scoped re-check is advice only and never stands in (GST-2673).
  */
-export function reviewRoute(h: Pick<PrReviewHistory, 'full'>, o: { grant?: string } = {}): Route {
-  if (!h.full) return { route: 'first', reason: 'no full review round on this PR yet' };
-  if (h.full < FULL_PASS_CAP) return { route: 'final', reason: `the PR had ${h.full} full review round${h.full === 1 ? '' : 's'}; this head gets a fresh full review, the PR's round ${h.full + 1} of ${FULL_PASS_CAP} and its last before merge (R51)` };
-  if (o.grant && h.full === FULL_PASS_CAP) return { route: 'final', reason: `the PR had ${h.full} full review rounds; round grant ${o.grant} buys one more at this head, with its fix round` };
-  return { route: 'read-only', reason: `the PR had ${h.full} full review rounds; this head gets one read-only full review: no fix round, a blocker goes to the lane's Captain as a decision, and the count does not reopen (R51)` };
+export function reviewRoute(h: Counted, o: { grant?: string } = {}): Route {
+  const full = countedFull(h, o.grant);
+  if (!full) return { route: 'first', reason: 'no full review round on this PR yet' };
+  if (full < FULL_PASS_CAP) return { route: 'final', reason: `the PR had ${full} full review round${full === 1 ? '' : 's'}; this head gets a fresh full review, the PR's round ${full + 1} of ${FULL_PASS_CAP} and its last before merge (R51)` };
+  if (!readOnlyRun(h, o.grant)) return { route: 'final', reason: `the PR had ${full} full review rounds${h.full > full ? ` and ${h.full - full} read-only review${h.full - full === 1 ? '' : 's'}` : ''}; round grant ${o.grant} buys one more at this head, with its fix round` };
+  return { route: 'read-only', reason: `the PR had ${full} full review rounds; this head gets one read-only full review: no fix round, a blocker goes to the lane's Captain as a decision${o.grant ? `, and round grant ${o.grant} at this head is already spent` : ', who may record a round grant at this head for one round with its fix round'} (R51)` };
 }
 
 const s12 = (s: string | null) => (s ? s.slice(0, 12) : 'none');
 
 export function historyLine(pr: string, h: PrReviewHistory): string {
-  return `PR_REVIEW_HISTORY: pr=#${pr} rounds=${h.rounds} cap=${FULL_PASS_CAP} full=${h.full} scoped=${h.scoped} fix_checks=${h.fix_checks} rechecks=${h.rechecks} runs=${h.runs} stubs=${h.stubs} heads_reviewed=${h.heads} first_full=${s12(h.first_full)} last_full=${s12(h.last_full)} source=${h.source}`;
+  return `PR_REVIEW_HISTORY: pr=#${pr} rounds=${h.rounds} cap=${FULL_PASS_CAP} full=${h.full} scoped=${h.scoped} fix_checks=${h.fix_checks} rechecks=${h.rechecks} runs=${h.runs} stubs=${h.stubs} read_only=${h.read_only} heads_reviewed=${h.heads} first_full=${s12(h.first_full)} last_full=${s12(h.last_full)} source=${h.source}`;
 }

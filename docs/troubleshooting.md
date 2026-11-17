@@ -7227,7 +7227,10 @@ record one round with the command the `NEXT:` line prints,
 `gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason
 <why> --by <lane or Captain>`, then rerun `gstack-ship-preflight`: its
 `PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
-The grant names one head; a new push needs a new grant. This is not an owner
+The grant buys one full round with its fix round at that head, also after a
+read-only review stopped there, whose pass then leaves the count. It names one
+head, or a base merge of it that leaves the PR's own lines byte-identical; a
+push that changes those lines needs a new grant. This is not an owner
 ask, and gstack cannot grant itself one (`--by gstack` is refused)
 ([review-policy.md](review-policy.md#rounds-per-pull-request)).
 
