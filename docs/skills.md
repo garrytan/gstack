@@ -1064,7 +1064,8 @@ and those with no TTL once they are 4 hours old, never another owner's; every ru
 ends with `UBICLOUD: left=0` or fails; the
 quota preflight refuses before the create request when the project's running
 VMs plus the new size exceed the known ceiling (`UBI_QUOTA_VCPUS`, or the
-maximum the last refusal printed; `UBI_QUOTA_WAIT` waits for room instead); a
+maximum the last refusal printed; `UBI_QUOTA_WAIT` waits for room instead, and
+`gstack-ubi room` prints how many more VMs fit so a fan-out can size each batch); a
 watchdog kills a remote command silent for `UBI_IDLE_TIMEOUT` seconds (1800)
 with exit 124 and its last 40 lines, and prints a heartbeat every
 `UBI_HEARTBEAT` seconds; and `gstack-ubi verify` runs the repository's
