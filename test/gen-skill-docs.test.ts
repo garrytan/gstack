@@ -2061,7 +2061,7 @@ describe('office-hours closing reads the builder profile before logging the sess
       const home = path.join(dir, 'home'), state = path.join(dir, 'state');
       const bin = path.join(home, '.claude/skills/gstack/bin');
       fs.mkdirSync(bin, { recursive: true });
-      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
+      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
         fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
         fs.chmodSync(path.join(bin, file), 0o755);
       }

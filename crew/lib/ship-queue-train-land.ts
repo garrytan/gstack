@@ -35,6 +35,7 @@ import { verifyPostMerge } from './ship-queue-post-merge';
 import { bindTrainReceipt } from './ship-queue-train-gate';
 import { checkRun, prInfo, type PrInfo } from './ship-queue-train-github';
 import { landPlan } from '../../lib/plan-record';
+import { landMessage, mergeArgs, messageLines } from '../../lib/squash-message';
 import { TERMINAL_STATES, activeFreeze, attemptsOf, freezeLockCleared, loadReady, nowIso, trainFile, type LandingRecord, type TrainRecord } from './ship-queue-train-record';
 import { fetchBase, fetchTrainBranch, findTrain, frozenLines, nextFor, outFailed, outPending, outRefused, save, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { confirmMerged, stopped } from './ship-queue-train-verify';
@@ -133,7 +134,7 @@ function chooseMode(ctx: QueueContext, s: Slot, mainSha: string, conditional: bo
   return { mode: 'update', why: `the pin's own checks are not green (${ci.line}${missing.length ? `; missing ${missing.join(', ')}` : ''}); they ran against an older base` };
 }
 
-/** Merge with the policy's method at an exact head, the PR title as the commit subject (a rebase has none), then confirm main's tree is the slot's prefix. */
+/** Merge with the policy's method at an exact head and lib/squash-message.ts's subject and body (a rebase has none; a land.merge_commit_paths match turns a squash into a merge), then confirm main's tree is the slot's prefix. */
 async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): Promise<TrainOut> {
   const pr = s.t.slots[s.i]!.pr;
   const method = s.env.train.land?.merge_method ?? 'squash';
@@ -143,13 +144,23 @@ async function mergeAt(ctx: QueueContext, s: Slot, head: string, base: string): 
   const target = prInfo(ctx, pr);
   if ('error' in target) return outPending({ code: 'QUEUE_PROOF_MISSING', message: target.error }, s.lines, s.rerun, s.run);
   if (target.baseRefName && target.baseRefName !== ctx.base) return retargeted(s, target.baseRefName, ctx.base);
+  let args = ['pr', 'merge', pr, '--rebase', '--match-head-commit', head];
+  if (method !== 'rebase') {
+    const viewed = ctx.gh(['pr', 'view', pr, '--json', 'title,body']);
+    if (!viewed.ok) return outPending({ code: 'QUEUE_PROOF_MISSING', message: `cannot read #${pr}'s title and body: ${(viewed.err ?? viewed.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
+    let view: { title?: unknown; body?: unknown } = {};
+    try { view = viewed.ok ? JSON.parse(viewed.out) : {}; } catch {}
+    const root = ctx.repoRoot;
+    const msg = landMessage(root, { pr, title: String(view.title ?? ''), prBody: String(view.body ?? ''), mergeBase: git(root, ['merge-base', base, head]).out, pin: head, tip: base, policy: s.env.policy.policy });
+    if ('error' in msg) return outFailed({ code: 'QUEUE_NOT_READY', message: msg.error }, s.lines, s.rerun, s.run);
+    const m = method === 'merge' ? { ...msg, method: 'merge' as const, why: 'train.land.merge_method: merge' } : msg;
+    s.lines.push(...messageLines(m));
+    args = mergeArgs(pr, head, m);
+  }
   const moved = lockPhase(s, 'merging');
   if (moved) return outFailed(moved, s.lines, s.rerun, s.run);
   s.lock.effect = true;
-  const viewed = method === 'rebase' ? null : ctx.gh(['pr', 'view', pr, '--json', 'title']);
-  let title = '';
-  try { title = viewed?.ok ? String(JSON.parse(viewed.out).title ?? '').trim() : ''; } catch {}
-  const m = ctx.gh(['pr', 'merge', pr, `--${method}`, '--match-head-commit', head, ...(title ? ['--subject', `${title} (#${pr})`] : [])]);
+  const m = ctx.gh(args);
   if (!m.ok) return outFailed({ code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200)}` }, s.lines, s.rerun, s.run);
   main = mainNow(ctx, s.env);
   if ('error' in main) return outPending({ code: 'QUEUE_PROOF_MISSING', message: `merged; ${main.error}` }, s.lines, s.rerun, s.run);

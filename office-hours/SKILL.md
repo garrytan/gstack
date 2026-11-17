@@ -2,7 +2,7 @@
 name: office-hours
 preamble-tier: 3
 version: 2.0.0
-description: YC Office Hours — two modes. (gstack)
+description: "YC Office Hours — two modes. Use for: brainstorm this, is this worth building. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -49,7 +49,7 @@ gbrain:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/office-hours/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/office-hours/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -314,7 +314,7 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-5. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs. Unless the user already chose a mode, ask it even when the request suggests one, recommending that mode. Read the chosen mode's section before its first question.
+5. **Ask: what's your goal with this?** It decides how the session runs. Unless the user already chose a mode, ask it even when the request suggests one; recommend that mode by quoting the user's words and naming what another mode would skip. Read the chosen mode's section before its first question.
 
    Via AskUserQuestion, ask:
 

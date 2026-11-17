@@ -2,7 +2,7 @@
 name: document-generate
 preamble-tier: 2
 version: 1.0.0
-description: Generate missing documentation from scratch for a feature, module, or entire project. (gstack)
+description: "Generate missing documentation from scratch for a feature, module, or entire project. Use for: write docs for this, generate documentation. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -25,7 +25,7 @@ triggers:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/document-generate/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/document-generate/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

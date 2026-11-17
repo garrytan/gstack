@@ -2,7 +2,7 @@
 name: review
 preamble-tier: 4
 version: 1.0.0
-description: Use when you review this PR's diff. (gstack)
+description: "Use when you review a diff before it lands: local changes, a branch or a PR. Use for: review my changes, look over my diff, review this pr. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -14,11 +14,11 @@ allowed-tools:
   - AskUserQuestion
   - WebSearch
 triggers:
-  - review this pr
+  - review my changes
   - look over my diff
+  - review this pr
   - code review
   - check my diff
-  - review my changes
   - pre-landing review
 contract:
   version: 1
@@ -50,7 +50,7 @@ Finish only when each of these exists (contract v1):
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

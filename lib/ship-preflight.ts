@@ -30,6 +30,8 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
                            (a branch that adds the lane for a file it touches); anything else is PREGATE_HEAD_POLICY_LOOSENS
       --timeout <s>        Step 5's pregate --timeout for each runner process, 1 to 3600; unset, the base .gstack/pregate.json
                            timeout_s applies, else 600 s, and a longer lane is PREGATE_INCOMPLETE
+      --step-timeout <s>   the whole Step 5 pregate's budget (every check and lane together), 1 to 86400, default 3600; at the
+                           limit it is stopped and prints PREGATE: time limit hit with the way out (push and let CI's full run carry it)
   gstack-ship-preflight --tests-only --base <base> --policy-from head --simulate [--allow-repo-commands] --lane <label>=<command>...
       a dry run that proves a new ship_lanes_from mapping: which lanes the branch's own map would carry from a verified
       CI run at this tree. Every line starts SIMULATION:; no lane runs, no evidence or ledger row is written and no
@@ -96,12 +98,14 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
     const carry = bin(cwd, 'gstack-ship-receipt', ['carry', '--pr', n, '--base', base, '--dry-run'], 120_000);
     const line = (carry.stdout.match(/^CARRY: .*$/m) ?? [`CARRY: check failed (${firstLine(carry.stderr)})`])[0];
     r.add(`PR: #${n}`).add(line);
+    // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and the review this
+    // head gets: a product change runs Steps 2-16, whose plan is the merge head's full review; a re-check never carries.
+    const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n], 120_000);
+    const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE): /.test(l));
+    histLines.forEach(l => r.add(l));
+    if (hist.status !== 0 || !histLines.some(l => l.startsWith('PR_REVIEW_FLAGS: '))) r.add('PR_REVIEW_FLAGS: --prior-rounds 0').add(`PR_REVIEW_ROUTE: first (history unavailable: ${firstLine(hist.stderr) || `gstack-ship-receipt history exit ${hist.status}`}; the plan counts this run's rounds only)`);
     if (line.startsWith('CARRY: would carry')) {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), commit, gstack-ship-release push --branch ${branch} --early, gstack-ci-carry wait --base ${base} (CI_CARRY: none is not a stop), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
-      return false;
-    }
-    if (line === 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)' && /^RECHECK: eligible /m.test(carry.stderr ?? '')) {
-      r.next(`carry route (Step 1.4, J1): the product changed since the receipt within the scoped re-check cap: gstack-ship-receipt carry --pr ${n} --base ${base} writes the re-check packet; one reader reads it; gstack-pregate --allow-repo-commands, then carry again with --recheck <record.json> --pregate .gstack/tmp/pregate.json; a blocking finding runs Steps 2-16`);
       return false;
     }
     if (line === 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)') {
@@ -193,8 +197,13 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, run: { concurrency: number; line: string }, r: Report): Promise<void> {
-  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], 3_600_000);
+async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string }, r: Report): Promise<void> {
+  const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], step.seconds * 1000);
+  if (pg.timedOut) {
+    r.add(`PREGATE: time limit hit (Step 5's whole pregate ran past its ${step.seconds} s budget, ${step.source}, and was stopped with exit ${pg.status ?? 'none'}; no verdict)`);
+    r.stop(`the tests are longer than this step's ${step.seconds} s budget on this machine: push, let CI's full run at this tree carry them (gstack-ci-carry wait --base ${base}, then rerun --tests-only; gbrain docs/ci-event-parity.md#ship-lanes), or rerun --tests-only with --step-timeout <s> above ${step.seconds}`);
+    return;
+  }
   const refusal = pg.status === 3 ? /\((PREGATE_[A-Z_]+|POLICY_[A-Z_]+)[;)]/.exec(pg.stderr)?.[1] : undefined;
   const verdict = refusal ? `refused (${refusal})` : /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
   r.add(`PREGATE: ${verdict}`);
@@ -261,6 +270,9 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (!['base', 'head'].includes(policyFrom)) return { text: 'gstack-ship-preflight: --policy-from needs base|head\n', exit: 2 };
   const timeout = flag('--timeout');
   if (has('--timeout') && !(timeout && /^[1-9]\d*$/.test(timeout) && Number(timeout) <= 3600)) return { text: 'gstack-ship-preflight: --timeout needs whole seconds from 1 to 3600\n', exit: 2 };
+  const stepTimeout = flag('--step-timeout');
+  if (has('--step-timeout') && !(stepTimeout && /^[1-9]\d*$/.test(stepTimeout) && Number(stepTimeout) <= 86_400)) return { text: 'gstack-ship-preflight: --step-timeout needs whole seconds from 1 to 86400\n', exit: 2 };
+  const step = stepTimeout ? { seconds: Number(stepTimeout), source: '--step-timeout' } : { seconds: 3600, source: 'the default; set --step-timeout' };
   if (!base || typeof list === 'string') return { text: `gstack-ship-preflight: ${typeof list === 'string' ? list : '--base <base> is required'}\n`, exit: 2 };
   const run = flag('--run');
   if (has('--run') && !(run && RUN_ID.test(run))) return { text: 'gstack-ship-preflight: --run needs a run id: letters, digits, dot, underscore or dash, at most 128\n', exit: 2 };
@@ -271,7 +283,7 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, run, r)) {
-    if (list.length) await tests(cwd, base, list, policyFrom, timeout, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
+    if (list.length) await tests(cwd, base, list, policyFrom, timeout, step, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})` }, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
   return { text: r.render(), exit: r.exit };

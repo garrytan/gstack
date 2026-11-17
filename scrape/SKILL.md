@@ -2,7 +2,7 @@
 name: scrape
 preamble-tier: 1
 version: 2.0.0
-description: Pull data from a web page through the Aside browser — your real, already signed-in sessions. (gstack)
+description: "Pull data from a web page through the Aside browser — your real, already signed-in sessions. Use for: scrape this page, get data from, pull from. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -94,6 +94,13 @@ No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, 
 Reply in the language of the user's latest message unless asked otherwise. Code, commands, paths, identifiers and quoted output stay verbatim.
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
+
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+- Ask each question once, after checking what you can yourself; until it is answered, list it as one waiting line in later updates instead of asking again.
+- Open every file you hand over and remove placeholders first: TODO, `<fill in>`, lorem ipsum, broken links and images.
 
 ## Completion Status Protocol
 

@@ -37,6 +37,8 @@ The lane's own lines, after the block:
 
 ```text
 pin: <sha40>                      # the full head SHA, restated
+Failed or skipped: <none | each check, case or step that failed or never ran, and why>
+Also changed: <none | each config, CI or out-of-scope file the PR touches>
 screen choice: <--no-screen: cases <ids> ran focused and passed | --screen: <reason>>
 flaky: <none | case, both run ids, logged in the ledger on <date>>
 review passes: <n> (deferred: <findings kept on the PR, or none>)
@@ -50,6 +52,10 @@ inherited from another thread, and a review finding set aside on an assumption n
 tested. `none` means the lane looked for each of these and found none. A missing line is
 asked for as a follow-up message: it never holds a PR out of a train, does not stale
 READYs sent before the line existed, and needs no new `ready` or /ship run.
+
+Every number, "green" and "ready" in the block names where it came from (a run id, a commit,
+a command) and is read at the pinned head; anything carried over from an earlier head goes
+under `Unverified:` until it is re-read ([ETHOS.md: write-up checklist](../../ETHOS.md#write-up-checklist)).
 
 Optional lines a crew's rules file may require:
 

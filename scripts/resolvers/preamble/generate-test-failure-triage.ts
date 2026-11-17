@@ -1,13 +1,6 @@
 
 import { FREE_TEXT_WRITE_RULE, freeTextFileBash, freeTextFileUse } from '../free-text-file';
 
-export function generateFailureRouting(): string {
-  return `**Failures: check the cause, then fix it test-first.** A failing test, error or stack trace shows where a failure surfaces, not its root cause.
-
-- **Cause supplied** (the user names a specific cause and a narrow fix): make one read-only check of the evidence it rests on, such as the named file, test or log. If that confirms the cause, make the fix and run the focused test that covers it. If it does not, leave the suggested fix alone: reproduce the failure with a focused failing test, trace it to the root cause, fix that and rerun the test.
-- **Cause unknown:** make one read-only triage pass over the supplied evidence and the directly implicated test and code. Do not reproduce, test hypotheses or search wider. If that pass establishes the root cause and a narrow fix, make the fix and run the focused test that covers it. If the cause or scope is still unclear, write or run a focused test that fails on the bug before any edit, trace the failure to its root cause, fix that and rerun the test. If the intended behavior is unclear, ask the user.`;
-}
-
 export function generateTestFailureTriage(): string {
   return `## Test Failure Ownership Triage
 

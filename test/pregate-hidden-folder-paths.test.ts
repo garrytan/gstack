@@ -73,8 +73,9 @@ describe.skipIf(process.platform === 'win32')('lanes check on a test under a hid
     const result = await lanes(DETECTED, { [TEST]: GREEN }, [], { cores: 4, testBackend: 'ubicloud' });
     expect(result.status).toBe('requires-remote');
     const run = result.lines?.find(l => l.startsWith('run: ')) ?? '';
-    expect(run).toContain('./.github/scripts/select.test.mjs');
-    expect(run).not.toMatch(/'\.github\/scripts/);
+    const listed = fs.readFileSync(/--setup '([^']+)'/.exec(run)![1]!, 'utf8').split('\n');
+    expect(listed).toContain('./.github/scripts/select.test.mjs');
+    expect(listed).not.toContain('.github/scripts/select.test.mjs');
   }, 120_000);
 
   // Value: protects=the lane still runs and judges a hidden-folder test; fails_when=the fix passes the lane without running the test

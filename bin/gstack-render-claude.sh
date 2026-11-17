@@ -1,5 +1,6 @@
 # gstack-render-claude.sh — the Claude skill render shared by ./setup and
-# `gstack-config gbrain-refresh`. Source it; it only defines functions.
+# `gstack-config gbrain-refresh`. Source it; it only defines functions, and
+# sources bin/gstack-lock.sh beside it for the render lock.
 # bash-3.2-clean and safe under `set -euo pipefail`.
 #
 # Overlay selection is opt-in: the overlay is the family of the persisted
@@ -25,6 +26,8 @@
 # Callers define `_swap_in_render` (setup and bin/gstack-config each keep
 # their tested copy) and may define `log` and `bun_cmd`; plain echo and bun
 # are used otherwise.
+
+. "$(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack: $(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 _gstack_render_say() {
   if declare -F log >/dev/null 2>&1; then log "$@"; else echo "$@"; fi
@@ -84,12 +87,13 @@ gstack_claude_overlay_field() {
 }
 
 # gstack_render_lock DIR / gstack_render_unlock DIR — serialize the swap and
-# record write of concurrent renders (mkdir lock, no flock). A lock whose
-# holder is gone is broken; after 30 s the swap proceeds unlocked.
+# record write of concurrent renders (gstack_lock_take from bin/gstack-lock.sh,
+# no flock). A lock whose holder is gone is broken; after 30 s the swap
+# proceeds unlocked.
 gstack_render_lock() {
   local lock="$1.lock" i=0 pid
   mkdir -p "$(dirname "$1")" 2>/dev/null || true
-  while ! mkdir "$lock" 2>/dev/null; do
+  while ! gstack_lock_take "$lock" pid "$$"; do
     pid="$(cat "$lock/pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       rm -rf "$lock"
@@ -99,7 +103,6 @@ gstack_render_lock() {
     [ "$i" -lt 300 ] || return 0
     sleep 0.1
   done
-  echo "$$" > "$lock/pid"
 }
 gstack_render_unlock() {
   rm -rf "$1.lock"

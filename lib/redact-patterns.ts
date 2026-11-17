@@ -420,13 +420,14 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
 
 /**
  * The owner's grant of one scoped fix-check is recorded as `review_loop_grant <stop head sha>`, and an accepted stop as
- * `review_loop_exception <sha>` (docs/review-policy.md). About one 12-character sha in 300 is all digits
+ * `review_loop_exception <sha>` (docs/review-policy.md), and a lane's review round grant as `review_round_grant <sha>`
+ * or `review_round_grant <kind> at <sha>` (GST-2673). About one 12-character sha in 300 is all digits
  * (`367120488513`), and pii.phone.e164 read it as a phone number, so gstack-approvals refused the owner's grant
  * (APPROVAL_RECORD_SECRET; Free Tests 41667825418, 41766865679). Only the position decides: a digits-only span right
  * after one of those two tokens and a space, `=` or `:`. The same digits anywhere else, or a number with a `+`,
  * spaces or dashes after the token, still report.
  */
-const REVIEW_LOOP_SHA_BEFORE = /\breview_loop_(?:grant|exception)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
+const REVIEW_LOOP_SHA_BEFORE = /\breview_(?:loop_(?:grant|exception)|round_grant(?:[ \t]+extra-round[ \t]+at)?)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
 function isReviewLoopSha(span: string, match: RegExpExecArray): boolean {
   if (!/^\d+$/.test(span)) return false;
   const input = match.input ?? "";

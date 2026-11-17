@@ -167,10 +167,11 @@ describe('shared-code skill distribution', () => {
     }
   });
 
-  test('standalone catalog entry adds exactly the approved 82 bytes', () => {
+  // 82 approved bytes, plus 36 for the when-to-use clause every Claude catalog entry gained in GST-2774 and the YAML quotes it needs.
+  test('standalone catalog entry adds exactly the approved 118 bytes', () => {
     const skill = readFileSync(join(output, 'deslop-shared-libs/SKILL.md'), 'utf8');
     const description = skill.match(/^description: (.+)$/m)?.[1];
-    expect(description).toBe('Find worthwhile shared-code extractions in recent work. (gstack)');
-    expect(Buffer.byteLength('deslop-shared-libs') + Buffer.byteLength(description!)).toBe(82);
+    expect(description).toBe('"Find worthwhile shared-code extractions in recent work. Use for: find code worth sharing. (gstack)"');
+    expect(Buffer.byteLength('deslop-shared-libs') + Buffer.byteLength(description!)).toBe(118);
   });
 });

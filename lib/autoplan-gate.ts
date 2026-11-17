@@ -26,7 +26,8 @@ import { FILES, RunError, journal as journalRow, now, readDecisions, voiceRows, 
 import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf } from './autoplan-budget';
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
-import { FINDING_ORIGIN, previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -196,6 +197,15 @@ function agentDecision(id: string, title: string, phase: string, why: string): G
 export function buildGate(state: RunState, gateRev: number): GateList {
   const items: GateItem[] = [];
   let d = 0, uc = 0;
+  const owner = ownerContext(state);
+  const quoted = owner.words.status !== 'none';
+  const kept: string[] = [];
+  const keptIds: string[] = [];
+  const add = ({ idKind, key, ...item }: NewItem, origin: (options: GateOption[]) => string): string => {
+    const id = idKind === 'uc' ? `uc${++uc}` : `d${++d}`;
+    items.push({ id, ...item, origin: origin(item.options) });
+    return id;
+  };
   for (const phase of state.phase_order) {
     const ps = state.phases[phase];
     if (!ps?.closed_at || ps.deferred) continue;
@@ -208,17 +218,25 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const push = (item: GateItem, ids: string, tag?: string) => items.push({ ...item, origin: [origin(ids, item.options), ...(tag ? [tag] : [])].join('|') });
     const challenged = new Set<string>();
     const twins = new Map(consensus.rows.filter(r => sameProblem(r) && (r.disposition === 'confirmed' || r.disposition === 'unverified')).map(r => [r.native_id!, r.outside_id]));
+    const carried = openEarlier(state, phase, [...native, ...outside]) as ChallengeRow[];
+    for (const f of carried) byId.set(f.id, f);
+    const propose = (rows: ChallengeRow[], fromEarlier = false) => {
+      rows.forEach(r => challenged.add(r.id));
+      add(proposalItem(owner, phase, rows, { carried: fromEarlier }), options => [origin(rows.map(r => r.id).join('+'), options), ...(blockingProposal(rows) ? [FINDING_ORIGIN] : [])].join('|'));
+    };
     for (const row of consensus.rows) {
       const o = byId.get(row.outside_id)! as FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string };
       if (o.settled_by) continue;
       const n = (row.native_id ? byId.get(row.native_id) : undefined) as (FindingRow & { user_challenge?: boolean; changes?: string }) | undefined;
       const ids = `${row.native_id}+${row.outside_id}`;
       if (o.user_challenge && n?.user_challenge && row.disposition !== 'new' && row.basis !== 'file') {
+        if (!directionIsOwners(owner, [n, o])) { propose([n, o]); continue; }
         challenged.add(o.id); challenged.add(n.id);
         const title = `${n.title} [${row.native_id} + ${row.outside_id}]`;
         if (reran && !n.changes && !o.changes) { push(agentDecision(`d${++d}`, title, phase, 'both voices recommend changing your stated direction'), ids); continue; }
         const def = challengeDefault(row, n, o);
-        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, item_class: 'challenge2', ...(n.changes ?? o.changes ? { changes: n.changes ?? o.changes } : {}),
+        if (!quoted && def.recommended === 'a') { kept.push(`uc${uc + 1}`); keptIds.push(n.id, o.id); }
+        push({ id: `uc${++uc}`, title, kind: 'approval', recommended: def.recommended, recommended_basis: def.basis, phase, item_class: 'challenge2', ...(heaviestChanges([n, o]) ? { changes: heaviestChanges([n, o]) } : {}),
           why: `both voices recommend changing your stated direction; blind spot: ${o.title}; cost if wrong: ${o.resolution ?? n.resolution ?? 'unstated'}`,
           options: [KEEP('keep your direction (the plan as reviewed)'), { key: 'b', text: def.text, changes_plan: true }] }, ids);
         continue;
@@ -230,10 +248,18 @@ export function buildGate(state: RunState, gateRev: number): GateList {
           options: [{ key: 'a', text: `native position (${row.severity.native})`, changes_plan: false }, { key: 'b', text: `outside position (${row.severity.outside})`, changes_plan: true }] }, ids);
       }
     }
-    for (const f of [...native, ...outside] as Array<FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string }>) {
-      if (!f.user_challenge || challenged.has(f.id) || f.settled_by) continue;
-      const why = `one voice (${f.voice}) recommends changing your stated direction`;
+    const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
+    for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
+      if (challenged.has(f.id) || f.settled_by) continue;
+      if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
+        const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
+        propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));
+        continue;
+      }
+      if (!f.user_challenge || !directionIsOwners(owner, [f])) continue;
+      const why = `one voice (${f.voice}) recommends changing your stated direction${carried.includes(f) ? '; raised in an earlier round and still open' : ''}`;
       if (reran && !f.changes) { push(agentDecision(`d${++d}`, `${f.title} [${f.id}]`, phase, why), f.id); continue; }
+      if (!quoted) { kept.push(`d${d + 1}`); keptIds.push(f.id); }
       push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', why, ...(f.changes ? { changes: f.changes } : {}),
         cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your direction'), { key: 'b', text: 'accept the change', changes_plan: true }] }, f.id);
     }
@@ -242,7 +268,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     for (const f of [...native, ...outside] as Array<FindingRow & { user_challenge?: boolean; settled_by?: string }>) {
       if (f.voice === 'outside' && pairedOutside.has(f.id)) continue;
       const group = [f, ...(twins.has(f.id) ? [byId.get(twins.get(f.id)!)!] : [])] as Array<FindingRow & { user_challenge?: boolean; settled_by?: string }>;
-      if (group.some(g => challenged.has(g.id) || g.user_challenge || g.settled_by)) continue;
+      if (group.some(g => challenged.has(g.id) || (g.user_challenge && directionIsOwners(owner, [g])) || g.settled_by)) continue;
       const severity = group.some(g => g.severity === 'Critical') ? 'Critical' : group.some(g => g.severity === 'High') ? 'High' : null;
       if (!severity) continue;
       const ids = group.map(g => g.id);
@@ -253,8 +279,11 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     }
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
+  if (!quoted && kept.length) add(confirmDirectionItem(kept), options => ['owner', 'confirm-direction', optionHash(options), keptIds.join('+')].join('|'));
+  for (const item of dayOneItems(owner)) add(item, options => ['owner', item.key, optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16)].join('|'));
   items.push(planApproval(state, items));
   const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,
+    ...(quoted ? { owner_words: gateOwnerWords(owner) } : {}),
     ...(fs.existsSync(state.active_plan) ? { eli5: buildEli5(fs.readFileSync(state.active_plan, 'utf8'), state.active_plan) } : {}) };
   const problems = validateGateList(list);
   if (problems.length) throw new Error(`gate list invalid: ${problems.join('; ')}`);

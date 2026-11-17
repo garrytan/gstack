@@ -73,7 +73,7 @@ mock.module(path.join(root, 'test/helpers/session-runner.ts'), () => ({
     } else {
       const prBody = fs.readFileSync(path.join(fixture.skills, 'ship/sections/pr-body.md'), 'utf8');
       const start = prBody.indexOf('## Documentation');
-      const end = prBody.indexOf('## Test plan', start);
+      const end = prBody.indexOf('## Tests', start);
       expect(start).toBeGreaterThan(0);
       expect(end).toBeGreaterThan(start);
       expect(phase).toContain(prBody.slice(start, end));

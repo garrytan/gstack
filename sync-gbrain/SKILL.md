@@ -2,7 +2,7 @@
 name: sync-gbrain
 preamble-tier: 2
 version: 1.0.0
-description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. (gstack)
+description: "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Use for: sync gbrain, refresh gbrain, reindex repo. (gstack)"
 triggers:
   - sync gbrain
   - refresh gbrain
@@ -22,7 +22,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/sync-gbrain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/sync-gbrain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

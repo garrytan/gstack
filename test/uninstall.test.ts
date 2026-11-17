@@ -298,7 +298,7 @@ describe('hook cleanup runs before the install root is deleted', () => {
       fs.mkdirSync(installBin, { recursive: true });
       // The installed copies — the uninstaller under test IS the one inside
       // the root it deletes.
-      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh']) {
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
         const src = path.join(ROOT, 'bin', b);
         const dst = path.join(installBin, b);
         fs.copyFileSync(src, dst);
@@ -357,7 +357,7 @@ describe('the Memorable bridge hook is removed by name and the kept config is le
       const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
       const installBin = path.join(installRoot, 'bin');
       fs.mkdirSync(installBin, { recursive: true });
-      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh']) {
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
         const dst = path.join(installBin, b);
         fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
         fs.chmodSync(dst, 0o755);
@@ -400,7 +400,7 @@ describe('the Memorable arm stays quiet when nothing of its is registered', () =
       const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
       const installBin = path.join(installRoot, 'bin');
       fs.mkdirSync(installBin, { recursive: true });
-      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh']) {
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
         const dst = path.join(installBin, b);
         fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
         fs.chmodSync(dst, 0o755);
@@ -432,7 +432,7 @@ describe('hook cleanup under lock contention is loud, never silent (review-army)
       const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
       const installBin = path.join(installRoot, 'bin');
       fs.mkdirSync(installBin, { recursive: true });
-      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh']) {
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
         const dst = path.join(installBin, b);
         fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
         fs.chmodSync(dst, 0o755);
@@ -489,7 +489,7 @@ describe('the consent key never outlives the hook, even when the config lives ou
       const installBin = path.join(installRoot, 'bin');
       fs.mkdirSync(installBin, { recursive: true });
       fs.mkdirSync(otherRoot, { recursive: true });
-      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh']) {
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
         const dst = path.join(installBin, b);
         fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
         fs.chmodSync(dst, 0o755);
@@ -520,7 +520,7 @@ describe('the consent flip does not depend on the hook manager being present', (
       const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
       const installBin = path.join(installRoot, 'bin');
       fs.mkdirSync(installBin, { recursive: true });
-      for (const b of ['gstack-uninstall', 'gstack-config', 'gstack-state-root.sh']) { // no settings hook, no session-update
+      for (const b of ['gstack-uninstall', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) { // no settings hook, no session-update
         const dst = path.join(installBin, b);
         fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
         fs.chmodSync(dst, 0o755);
@@ -548,7 +548,7 @@ describe('state-root safety: only the default root is deleted (docs/state-root.m
     installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
     installBin = path.join(installRoot, 'bin');
     fs.mkdirSync(installBin, { recursive: true });
-    for (const b of ['gstack-uninstall', 'gstack-config', 'gstack-state-root.sh']) {
+    for (const b of ['gstack-uninstall', 'gstack-config', 'gstack-state-root.sh', 'gstack-lock.sh']) {
       fs.copyFileSync(path.join(ROOT, 'bin', b), path.join(installBin, b));
       fs.chmodSync(path.join(installBin, b), 0o755);
     }

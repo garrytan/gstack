@@ -2,7 +2,7 @@
 name: runaway-stopper
 preamble-tier: 1
 version: 0.1.0
-description: Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats. (gstack)
+description: "Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats. Use for: find runaway threads, stop runaway jobs. (gstack)"
 triggers:
   - find runaway threads
   - stop runaway jobs
@@ -94,6 +94,13 @@ Reply in the language of the user's latest message unless asked otherwise. Code,
 
 The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
 
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+- Ask each question once, after checking what you can yourself; until it is answered, list it as one waiting line in later updates instead of asking again.
+- Open every file you hand over and remove placeholders first: TODO, `<fill in>`, lorem ipsum, broken links and images.
+
 ## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -174,6 +181,8 @@ const fetch = async code => {
     doc ??= rest;
     events.push(...transcript.items.map(i => ({ source: i.source, tool: i.tool, createdAt: i.createdAt,
       calls: i.calls?.map(c => ({ tool: c.tool })), state: String(i.input?.text ?? "").match(/"state\\?"\s*:\s*\\?"(\w+)/)?.[1],
+      ms: i.calls?.reduce((s, c) => s + (c.durationMs ?? 0), 0),
+      ...(i.tool === "message_agent" ? { to: /[{,]\s*"to"\s*:\s*"/.test(i.input?.text ?? "") || (!!i.text && i.input?.chars > (i.input?.text ?? "").length) } : {}),
       ...(i.tool === "wait" ? { input: i.input } : {}) })));
     if (!(before = transcript.beforeCursor)) break;
   }
@@ -194,7 +203,8 @@ automation's standing thread) rotates past 500M own tokens (total minus subagent
 waiting, or a turn in the last 24 hours), warn at 400M. A crew thread keeps its PR until it merges or closes, never
 rotated mid-PR on a token count; past 1B own tokens it checks in with its Captain once. Open or unknown PRs block rotation
 (R91). A subagent past 100M: stop and look. Empty wakes past 25% of the
-last 40 turns (warm-wait check-ins left out). Review rounds past 2 per PR. Act on each line:
+last 40 turns (warm-wait check-ins left out). Review rounds past 2 per PR. `cold_extra_spend` and `empty_spend` are the shares of spend that
+cold starts (after the 5-minute cache lapsed) and empty wakes cost; `scan --wakes` prices each wake. Act on each line:
 
 | Line | Do |
 |---|---|

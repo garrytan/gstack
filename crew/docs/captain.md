@@ -68,7 +68,7 @@ surface. Keep it small and predictable:
 | `DIGEST.md` | the controller | Needs you / New / In progress, rewritten every turn ([template](../../captain/templates/DIGEST.md)) |
 | `NOTES.md` | the controller | the append-only timestamped log the digest is derived from ([template](../../captain/templates/NOTES.md)) |
 | `skills/<name>/SKILL.md` | the controller | crew procedures the lanes load (the runbooks) |
-| `reports/<code>.md` | each lane, once | Outcome with its Unverified line, PR, Needs, Cost, Lesson, Approvals ([template](../../captain/templates/report.md)) |
+| `reports/<code>.md` | each lane, once | Outcome with its Failed or skipped, Also changed and Unverified lines, PR, Needs, Cost, Lesson, Approvals ([template](../../captain/templates/report.md)) |
 | `reports/postmortem-<n>.md` | the controller, or a lane it names | why a reverted or S1-fixed merged PR passed every reviewer ([template](../../captain/templates/postmortem.md)) |
 | `handoffs/` | lanes | datasets and specs the next lane needs; `handoffs/flaky-ledger.md` is the flaky ledger ([template](../../captain/templates/flaky-ledger.md)) |
 | `plans/` | the controller | approved plans, with their Approvals table |
@@ -106,7 +106,7 @@ Where each rule lives:
 | 4 | File ownership: edit only what you own; the controller routes the rest | [Lane discipline](#lane-discipline); the ownership list is the digest's **In progress** |
 | 5 | Standing spend and its cap per rerun | [Approvals, shape A](#approvals-three-shapes); the `SPEND` parameter |
 | 6 | The job ends at an unstamped READY; stamp on call; never merge | [The READY contract](#the-ready-contract), the [READY](../../captain/templates/READY.md) and [slot call](../../captain/templates/slot-call.md) templates, [ship-policy.md](../../docs/ship-policy.md#stamp-at-merge) |
-| 7 | One report per lane: Outcome with its Unverified line, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../../captain/templates/report.md) |
+| 7 | One report per lane: Outcome with its Failed or skipped, Also changed and Unverified lines, PR, Needs, Cost, Lesson, Approvals | [Drive layout](#drive-layout); the [report template](../../captain/templates/report.md) |
 | 8 | One path: everything through the controller, never peer to peer | [Roles](#roles); [Lane discipline](#lane-discipline) |
 | 9 | Hands: a real browser, the owner's session or local work go through the controller | [The owner's device](#the-owners-device) |
 | 10 | Keep going; come back only for scope, a conflict, access or the owner's decision | [Lane discipline](#lane-discipline) |
@@ -427,7 +427,9 @@ cases are already in the ledger; the CHANGELOG entry sits under `## [Unreleased]
 the version files at the base's version; the lane declares the head frozen; and an
 `Unverified:` line lists every claim the lane did not check itself (a local test that
 timed out, a paid run skipped, a number a model reported, a review finding set aside on an
-assumption nobody tested), or says `none`. A green PR page is not a READY. A cheap test
+assumption nobody tested), or says `none`. `Failed or skipped:` and `Also changed:` lines
+name each check, case or step that failed or never ran, and each config, CI or out-of-scope
+file the PR touches, or say `none`. A green PR page is not a READY. A cheap test
 tier is not merge evidence. The controller refuses a block that misses any of this and
 sends the lane back, never into a train. When the
 contract changes (a new required line, a new check name, a new receipt), every READY
@@ -435,6 +437,8 @@ taken before the change is stale: the lane runs `ready` again at the same pin an
 the fresh block; the controller trains nothing older than the change. The `Unverified:`
 line is the one exception: the controller asks for a missing line in a follow-up message,
 never refuses or stales a READY for it, and the lane reruns neither `ready` nor /ship.
+The same exception covers a missing `Failed or skipped:` or `Also changed:` line: the
+controller asks for it in a follow-up message and never refuses or stales a READY over it.
 
 ### The lane's /ship sequence before READY
 
@@ -668,6 +672,9 @@ case-kind change, closing a contribution without landing it, and anything destru
 Standing spend is the commonest standing approval: `SPEND` in CREW.md names what the
 owner pre-approved (train gates, screens, bisects, the backstop, focused paid cases) with
 the owner's date and words and the cap per rerun; anything over the cap is a fresh ask.
+A review round past a PR's two (`PR_ROUND_CAP`) is the lane's or the controller's call, recorded
+with `gstack-approvals round-grant`, never an owner ask
+([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)).
 
 **B. The plan ask** ([template](../../captain/templates/plan-ask.md)): before → after, why it
 matters, what caused this work, the big decisions, and what we need from you in the ask

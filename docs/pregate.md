@@ -103,7 +103,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `sealed` | sealed or eval output that must never reach a public destination; read by the pre-push hook and `gstack-pregate sealed` (see [sealed output](#sealed)) |
 | `price_file` | repo-relative path of the paid gate's call-plan data file (`GSTACK_EVAL_CALLS v1`); `gstack-eval-plan price-gate` prices from it and never executes anything ([docs/eval-calls.md](eval-calls.md)) |
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
-| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` forwards its own `--timeout`; without it, and in the `finish` fallback, this is how a repo with long lanes sets theirs |
+| `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` forwards its own `--timeout`; without it, and in the `finish` fallback, this is how a repo with long lanes sets theirs. The whole pregate under `gstack-ship-preflight` has a separate budget, `--step-timeout <s>` (1 to 86400, default 3600): a pregate stopped there prints `PREGATE: time limit hit` and a STOP naming the way out, push and let CI's full run at the tree carry the tests ([CI carry](#ci-carry)), or a larger `--step-timeout` |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
@@ -428,7 +428,11 @@ Two stages with separate clocks, both printed:
   `workflow.yml/job`, unless `local` names that lane. `--explain` prints each test's provenance and every
   uncertain mapping (a planner-computed matrix without a `selection` manifest
   selects conservatively). Test files matching `serial_patterns` (default
-  `**/*.serial.test.*`) run one process per file after the unit files. The
+  `**/*.serial.test.*`) run one process per file after the unit files. A unit
+  group whose quoted file list would pass the system's argument limits (Linux
+  caps one argument at 128 KiB) runs as several runner processes in sequence,
+  each under about 96 KB of file arguments (24 KB on Windows), read back as one run: counts add up,
+  any failing chunk fails the lane, and they share the group's one `--timeout`. The
   runner and every guard run with the verified launch Bun first on PATH: the
   first of `$BUN_INSTALL/bin` and `~/.bun/bin` whose Bun satisfies gstack's and
   the project's `engines.bun` (the row prints `runtime: bun <v> from <dir>`),
@@ -559,7 +563,11 @@ test_backend` is not `local`, the lanes check runs nothing locally: it records
 the selected local files as a `requires-remote` obligation with the command to
 run, `pregate.json/remote_gate` (the declared command) or
 `test_backend/<backend>` (gstack's `scripts/ubicloud/ubi-runner.sh run --src
-<repo> -- '<runner> <files>'`). Without either, the tier runs locally under
+<repo> --setup <file> -- '<runner>'`, where the setup script, kept under
+`<state root>/projects/<slug>/pregate/remote-files/` and named by its content,
+writes the selected files to `~/.pregate-files.txt` on the VM and the runner
+reads them from there; the list never goes on the command line, which reaches
+the VM as one argument, see [arg-limit](troubleshooting.md#arg-limit)). Without either, the tier runs locally under
 the supervision above. Close the obligation one of four ways:
 
 - by default, when the base declares `remote_gate_runs`, let CI clear it: the
@@ -996,7 +1004,7 @@ conclusion. On main the free tier's Windows smoke lane is
 Two narrower Windows lanes are owed only when a branch selects their own test
 files: `free-tests.yml/cso-windows-launcher` (cleared by a `free-tests.yml`
 run) and `windows-setup-e2e.yml/windows-setup` (cleared by a
-`windows-setup-e2e.yml` run). The six-shard
+`windows-setup-e2e.yml` run). The eight-shard
 `windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
 obligation. A branch cut before
 `windows-smoke.yml` landed still owes `windows-free-tests.yml/windows-free-shard`
@@ -1858,6 +1866,7 @@ failure the branch caused carries `cause: "diff"` (`PREGATE_LANE_FAILED`,
 | Kind | Evidence |
 |---|---|
 | `missing-binary` | exit 127, `command not found`, a spawn `ENOENT`, a runner tool `not on PATH` (dart, flutter, cargo, a package manager, `python3`, or `pytest` when python3 cannot import it), Playwright's browsers not installed |
+| `arg-limit` | `E2BIG`, `Argument list too long`: a command line or environment over the system's limit. gstack splits a lane's file list to stay under it, so this is a gstack bug to report ([troubleshooting](troubleshooting.md#arg-limit)) |
 | `network` | `ENOTFOUND`, `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, `Could not resolve host`, `fetch failed`, a TLS handshake or certificate failure |
 | `quota` | `quota`, `429 Too Many Requests`, `rate limit`, `insufficient_quota` (a vCPU quota on the remote backend) |
 | `disk` | `ENOSPC`, `No space left on device`, `EDQUOT` |

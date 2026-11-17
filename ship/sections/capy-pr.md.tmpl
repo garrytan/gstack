@@ -4,9 +4,13 @@ Read only when Step 19 printed `CAPY_PR: on`. Under Capy a person decides the me
 the READY report, through a Captain, so the body shows what changed in pictures, why, and who
 approved what. Guide: `captain.md` beside the Capy `gstack` skill's SKILL.md.
 
-**Order.** The plain opening sentences come first, then `## What changed`, `## Why` and `## Blast radius`,
-then the standard sections below. `## Approvals` goes inside the closing Agent notes section, where
-`gstack-ship-receipt write` also puts the receipt. Keep `## Summary` to commit themes; do not repeat the captions.
+**Order.** The plain opening lines come first (at most three), then `## What changed`, `## Why` and `## Blast radius`,
+then the standard sections. `## What changed` holds the pictures below, then the template's themes, without
+repeating the captions. gstack-post folds each into a collapsed section. `## Approvals` goes inside the closing
+Agent notes section, where `gstack-ship-receipt write` also puts the receipt. A body posted any other way,
+Capy's PR tool included, is folded first: pass the output of
+`~/.claude/skills/gstack/bin/gstack-post fold --body-file "$PR_BODY_FILE"` (it posts nothing, and exit 4
+with `PLAIN_BODY:` lines means rewrite the body file first).
 
 1. **Pick the evidence:** one to three before/after pairs, highest-signal first. The first is the
    key image.

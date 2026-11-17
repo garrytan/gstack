@@ -251,8 +251,10 @@ if [ -n "${GSTACK_SETUP_LOCK_OWNER:-}" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null
   LOCK_HANDED=1
 else
   mkdir -p "$GSTACK_STATE_ROOT" 2>/dev/null
-  mkdir "$LOCK_DIR" 2>/dev/null || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
-  echo "$$" > "$LOCK_DIR/pid"
+  . "$ROOT/bin/gstack-lock.sh" 2>/dev/null || refuse "$ROOT/bin/gstack-lock.sh is missing" "reinstall with cd $ROOT && ./setup"
+  # gstack_lock_take creates the pid file with O_EXCL: mkdir's exit status is
+  # not a lock on Ubuntu 26.04's uutils mkdir.
+  gstack_lock_take "$LOCK_DIR" pid "$$" || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
   trap '[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
 fi
 

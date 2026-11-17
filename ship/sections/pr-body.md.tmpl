@@ -71,15 +71,19 @@ Run `[ "${GSTACK_CAPY:-}" = 1 ] && echo 'CAPY_PR: on' || echo 'CAPY_PR: off'`. O
 lead; `## Approvals` goes into the Agent notes. On `CAPY_PR: off`, skip it.
 
 The PR/MR body should contain these sections (never reuse a prior run's body). The front is for people,
-the end is for machines: the body opens with one or two plain sentences (what changed for someone using
-the project, and which goal from the project's README it serves; with no stated goals, the user-visible
-benefit), with no heading above them. Tracker codes, receipts, approval and Plan lines, review-loop and
-gate lines and every other machine-read line go only in the closing Agent notes section, never above it.
+the end is for machines (docs/writing-prs.md): the body opens with at most three plain lines and 600
+characters, with no heading above them: what changed for someone using the project, why (the README goal it
+serves, or the user-visible benefit), and anything the reader has to do. Everything else goes under a `## `
+heading, which gstack-post folds into a collapsed section on publish, each thing said once, with long logs
+and review output linked rather than pasted. Tracker codes, receipts, approval and Plan lines, review-loop
+and gate lines and every other machine-read line go only in the closing Agent notes section, never above it,
+and so do in-house words such as the ones docs/writing-prs.md lists.
 
 ```
-<One or two plain sentences: what changed for a user, and the README goal it serves.>
+<Up to three plain lines, 600 characters in all: what changed for a user; why (the README goal it
+serves); and what the reader has to do, or "Nothing to do".>
 
-## Summary
+## What changed
 <Open with the problem in the user's words (what they hit, saw or asked), then the fix
 and what they get now; themes from `git log origin/<base>..HEAD --oneline` after that,
 minus VERSION/CHANGELOG bookkeeping. Never an inventory or a commit list. BAD: "Adds
@@ -93,6 +97,7 @@ files, hosts) and the one fact that makes that safe, with the rung of the eviden
 ladder the fact reached (file:line read, walked failure path, script ran, repro).>
 
 ## Test Coverage
+<Only when Step 7 ran or found gaps; otherwise omit (the Tests section says what ran).>
 <coverage diagram from Step 7, or "All new code paths have test coverage.">
 <If Step 7 ran: "Tests: {before} → {after} (+{delta} new)">
 <If Step 7 ran: "Coverage: {X}% value-weighted ({Y}% including {W} weakly covered paths)">
@@ -105,10 +110,10 @@ details for cards whose file type has no known comment syntax.>
 ZERO-RUN lane never reaches this body unresolved.>
 
 ## Pre-Landing Review
-<findings from Step 9 code review, or "No issues found."; then Step 9.4's `REVIEW_LOOP:` line.>
-<Each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
+<findings from Step 9 code review in plain words, or "No issues found."; link long review output instead of pasting it.>
+<In the Agent notes section, never here: Step 9.4's `REVIEW_LOOP:` line, each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
 with its ruler and reason; each `Gate disposition: …` line `gstack-approvals dispositions` prints, verbatim; finish's `MECHANICAL: x` as `Mechanical retake: x` and its `UID_SIDECAR: x (beside y)` as `Godot UID sidecar: x (beside y)`. `gstack-ship-receipt write --body` refuses a body missing one.>
-<Gate edits: Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
+<Gate edits: in the Agent notes section, Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
 `N listed, M read, K findings — J kept, R restored, O open`, `partial (...)` or
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
 kept finding's `gate`, path and `reason`, and each open finding's `gate` and path.
@@ -176,15 +181,13 @@ word for word as Step 14.5 saved it in `.gstack/tmp/docs-audit.json`:
 the receipt write below refuses (`DOCS_AUDIT_BLOCKED`) when the body lacks it.>
 <Always include the status and reviewed scope: updated, current, or blocked with the actual user's named risk exception. Never omit this section or reuse another invocation's audit.>
 
-## Test plan
-- [x] <Each executed test lane's command>: <observed passing summary>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## Tests
+- [x] <Each executed test command>: <observed passing summary>
 
 <!-- gstack:agent-notes -->
 <details><summary>Agent notes</summary>
 
-<Machine-read lines, last: `Refs <issue codes>`, the `## Approvals` output (Capy) with its Plan line,
+<Machine-read lines, last: "🤖 Generated with Claude Code", `Refs <issue codes>`, the `## Approvals` output (Capy) with its Plan line,
 and the Pre-Landing Review section's `REVIEW_LOOP:`, `Gate edits:`, `Ruled note:`, `Gate disposition:`, `Review-loop exception:`
 and exception lines. `gstack-ship-receipt write` adds the receipt here; never type it.>
 
@@ -200,8 +203,9 @@ tool-attributed fences (` ```codex-review ` / ` ```review-bot `) so the scanner
 WARN-degrades the example credentials those tools quote instead of blocking the PR
 (a live-format credential inside the fence still blocks).
 
-Write the body from above into two private files: the first through the
-`## Documentation` heading line, the second from `## Test plan` on, ending with the Agent notes section.
+Write the body from above into two private files, with plain `## ` headings (gstack-post folds them;
+never write `<details>` by hand): the first through the `## Documentation` heading line, the second
+from `## Tests` on, ending with the Agent notes section.
 
 {{FREE_TEXT_FILE:BODY_TOP_FILE=pr-body-top:BODY_REST_FILE=pr-body-rest}}
 
@@ -215,8 +219,8 @@ PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-pr-body.XXXXXX") || { echo "ERROR:
 BODY_TOP_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-top-file-name>"
 BODY_REST_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-rest-file-name>"
 [ -s "$BODY_TOP_FILE" ] && [ -s "$BODY_REST_FILE" ] || { echo "Not composed: $BODY_TOP_FILE or $BODY_REST_FILE is empty, so the body was never written. Write both, then rerun." >&2; exit 1; }
-~/.claude/skills/gstack/bin/gstack-prose-lint "$BODY_TOP_FILE" --sections 'Why,Summary,Blast radius' --gate >&2 || { echo "Not composed: fix what gstack-prose-lint printed above (a PROSE: line is a sentence to rewrite in the draft; a usage line means the draft lost a heading), then rerun." >&2; exit 1; }
-~/.claude/skills/gstack/bin/gstack-plain-title check --body-file "$BODY_TOP_FILE" >&2 || { echo "Not composed: rewrite the opening the PLAIN_TITLE: lines above name (one or two plain sentences, no heading or code above them), then rerun." >&2; exit 1; }
+~/.claude/skills/gstack/bin/gstack-prose-lint "$BODY_TOP_FILE" --sections 'Why,What changed,Blast radius' --gate >&2 || { echo "Not composed: fix what gstack-prose-lint printed above (a PROSE: line is a sentence to rewrite in the draft; a usage line means the draft lost a heading), then rerun." >&2; exit 1; }
+~/.claude/skills/gstack/bin/gstack-plain-title check --body-file "$BODY_TOP_FILE" >&2 || { echo "Not composed: rewrite what the PLAIN_TITLE: and PLAIN_BODY: lines above name (at most three plain lines before the first ## heading, no listed word above the Agent notes section), then rerun." >&2; exit 1; }
 { awk 1 "$BODY_TOP_FILE" && cat -- "$DOCS_SECTION_FILE" && echo && awk 1 "$BODY_REST_FILE"; } > "$PR_BODY_FILE" || exit 1
 rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
@@ -230,7 +234,7 @@ per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
 rm -f .gstack/tmp/review-loop.json
 NS=$(~/.claude/skills/gstack/bin/gstack-no-stop list | sed -n 's/^NO_STOP_FILE: //p'); [ -s "$NS" ] || NS=
 ~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json &&
-~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json $([ -s .gstack/tmp/targeted.json ] && echo --review-targeted @.gstack/tmp/targeted.json) ${NS:+--no-stop "@$NS"} --body "$PR_BODY_FILE"
+~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --run <SESSION_ID> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json $([ -s .gstack/tmp/targeted.json ] && echo --review-targeted @.gstack/tmp/targeted.json) ${NS:+--no-stop "@$NS"} --body "$PR_BODY_FILE"
 ```
 
 If write refuses `review_targeted` for a docs claim added after the read, or after a granted fix round (add its `--grant`), rerun Step 9's plan with `--range-base <its head>
@@ -308,8 +312,9 @@ With open gate findings the same command carries `--draft` before `--title-file`
 
 Branch on the exit code of either block:
 - **0** posted. Remove `$PR_BODY_FILE` and the title file.
-- **4** `PLAIN_TITLE_REFUSED`: nothing was posted, body included. Rewrite the title file's front the way
-  each `PLAIN_TITLE:` line says (Step 18 item 5) and rerun the same block.
+- **4** nothing was posted, title and body checked in one pass. For each `PLAIN_TITLE:` line, rewrite the
+  title file's front the way it says (Step 18 item 5); for each `PLAIN_BODY:` line, rewrite `$PR_BODY_FILE`
+  the way it says (docs/troubleshooting.md#plain-body-refused). Then rerun the same block.
 - **1** HIGH finding: BLOCKED — do not publish. Rotate and redact at the source, then
   compose fresh files.
 - **2** MEDIUM findings, printed as `RULE:` lines with a `TOKEN:`. AskUserQuestion per

@@ -8,11 +8,10 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  DEFAULT_MATCHERS, EXIT, STATUS_RE, blockMessage, checkContract, isCheckCommand, isMiss, isPlaceholder, parseContract, parseTranscript, reportRows, skillLoads, UnknownShape,
+  DEFAULT_MATCHERS, EXIT, STATUS_RE, blockMessage, checkContract, isMiss, isPlaceholder, parseContract, parseTranscript, reportRows, skillLoads, UnknownShape,
   type CheckResult,
   type Contract,
 } from '../lib/skill-contract';
-import { lastBashWrite } from '../lib/shell-writes';
 import { readFrontmatter } from '../lib/skill-route';
 import {
   CONTRACT_HOOK, DEBUG_REPORT, INTERACTIVE_TURNS, J1_TRANSCRIPT, ROOT, SKILLS, hookEnv, meta, result, runHook, say, skillsDir, slash, tmpDir, tool, user,
@@ -29,7 +28,7 @@ const check = (lines: string[], skill = 'verify') => checkContract(parseTranscri
 
 describe('schema v1', () => {
   test('block and flow style parse to the same items', () => {
-    expect(contractOf('verify').items.map(i => [i.id, i.kind])).toEqual([['debug-report', 'report_labels'], ['repro-after-fix', 'check_after_last_edit']]);
+    expect(contractOf('verify').items.map(i => [i.id, i.kind])).toEqual([['debug-report', 'report_labels']]);
     expect(contractOf('review').items.map(i => i.kind)).toEqual(['selected_specialists_dispatched', 'agent_dispatch', 'report_labels']);
   });
 
@@ -43,7 +42,8 @@ describe('schema v1', () => {
       ['contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch, match: "("}]', 'not a valid regular expression'],
       ['contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch}]', 'agent_dispatch needs match'],
       ['contract:\n  version: 1\n  items: [{id: a, kind: report_labels, heading: X, labels: []}]', 'needs labels'],
-      ['contract:\n  version: 1\n  items: [{id: Bad_ID, kind: check_after_last_edit}]', 'id must match'],
+      ['contract:\n  version: 1\n  items: [{id: Bad_ID, kind: agent_dispatch, match: x}]', 'id must match'],
+      ['contract:\n  version: 1\n  items: [{id: a, kind: check_after_last_edit}]', 'every item uses a removed kind'],
       ['contract: [unclosed', 'not valid YAML'],
     ];
     for (const [fm, msg] of bad) {
@@ -51,6 +51,14 @@ describe('schema v1', () => {
       expect(r && 'error' in r ? r.error : '').toContain(msg);
     }
   });
+});
+
+test('a contract that still lists the removed check_after_last_edit kind keeps its other items and names the skipped one', () => {
+  const parsed = parseContract('contract:\n  version: 1\n  items:\n    - {id: debug-report, kind: report_labels, heading: DEBUG REPORT, labels: [Symptom]}\n    - {id: repro-after-fix, kind: check_after_last_edit}');
+  if (!parsed || !('contract' in parsed)) throw new Error(JSON.stringify(parsed));
+  expect(parsed.contract.items.map(i => i.id)).toEqual(['debug-report']);
+  expect(parsed.contract.skipped).toEqual(['repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract']);
+  expect(parseContract('contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch, match: x}]')).toEqual({ contract: { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }] } });
 });
 
 describe('transcript parsing', () => {
@@ -73,10 +81,10 @@ describe('transcript parsing', () => {
 });
 
 describe('checkContract is a pure function of the transcript', () => {
-  test('J1 transcript: both items missing, and the block text is the pinned one', () => {
+  test('J1 transcript: the report is missing, and the block text is the pinned one', () => {
     const r = check(J1_TRANSCRIPT);
     expect(r.loaded).toBe(true);
-    expect(r.missing).toEqual(['debug-report', 'repro-after-fix']);
+    expect(r.missing).toEqual(['debug-report']);
     expect(blockMessage(r, '/opt/gstack/bin/gstack-skill-contract')).toBe(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd().replace('{bin}', '/opt/gstack/bin/gstack-skill-contract'));
     expect(check(J1_TRANSCRIPT)).toEqual(r);
   });
@@ -87,17 +95,6 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(check([...J1_TRANSCRIPT, say('**DEBUG REPORT**\n**Symptom:** a\n**Root cause:** b\n- Fix: c\nEvidence: TBD')]).items[0].detail).toContain('Evidence');
     for (const v of ['', '[x]', '<path>', 'TBD', '...', 'DONE | BLOCKED']) expect(isPlaceholder(v)).toBe(true);
     for (const v of ['N/A, no test runner', 'none found', 'src/a.ts:3']) expect(isPlaceholder(v)).toBe(false);
-  });
-
-  test('check_after_last_edit: only a test or repro command after the LAST edit counts; quoted words do not', () => {
-    const edited = J1_TRANSCRIPT.slice(0, -1);
-    const runAfter = (command: string) => check([...edited, tool('b', 'Bash', { command }), result('b', 'ok')]).items[1].status;
-    expect(runAfter('bun test test/auth.test.ts')).toBe('met');
-    expect(runAfter('git commit -m "add test"')).toBe('missing');
-    expect(runAfter('cat src/auth.ts')).toBe('missing');
-    const before = check([...J1_TRANSCRIPT.slice(0, 4), tool('b', 'Bash', { command: 'bun test' }), ...J1_TRANSCRIPT.slice(4)]);
-    expect(before.items[1].status).toBe('missing');
-    expect(check([slash('verify'), say('No code change was needed.')]).items[1]).toMatchObject({ status: 'met', detail: 'no edits since the skill loaded' });
   });
 
   test('selected_specialists_dispatched (lane B marker), agent_dispatch and the /review report', () => {
@@ -142,20 +139,19 @@ describe('checkContract is a pure function of the transcript', () => {
     const printed = spawnSync('bash', ['-c', `printf %s ${cmd}`], { cwd: tmpDir('gstack-contract-quote-'), encoding: 'utf8', timeout: 10_000 });
     expect(printed.stdout).toBe(bin);
     expect(fs.existsSync(path.join(printed.stdout, '..', 'pwned'))).toBe(false);
-    const base = [...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)];
-    const waived = check([...base, tool('w', 'Bash', { command: `${cmd} waive repro-after-fix --reason "docs-only change"` }), result('w', 'ack')]);
-    expect(waived).toMatchObject({ met: true, waived: ['repro-after-fix'] });
+    const waived = check([...J1_TRANSCRIPT, tool('w', 'Bash', { command: `${cmd} waive debug-report --reason "no bug, a docs-only change"` }), result('w', 'ack')]);
+    expect(waived).toMatchObject({ met: true, waived: ['debug-report'] });
   });
 
   test('waivers come from waive Bash calls in the transcript; an errored waive or another skill\'s waive does not count', () => {
     const waive = (cmd: string, isError = false) => [tool('w', 'Bash', { command: cmd }), result('w', 'ack', isError)];
-    const base = [...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)];
-    const ok = check([...base, ...waive('~/.claude/skills/gstack/bin/gstack-skill-contract waive repro-after-fix --reason "docs-only change"')]);
-    expect(ok).toMatchObject({ met: true, follow: false, waived: ['repro-after-fix'] });
-    expect(ok.items[1].reason).toBe('docs-only change');
-    expect(check([...base, ...waive('gstack-skill-contract waive repro-after-fix --reason x', true)]).met).toBe(false);
-    expect(check([...base, ...waive('gstack-skill-contract waive repro-after-fix --reason x --skill review')]).met).toBe(false);
-    expect(check([...base, ...waive('gstack-skill-contract waive repro-after-fix')]).met).toBe(false);
+    const base = J1_TRANSCRIPT;
+    const ok = check([...base, ...waive('~/.claude/skills/gstack/bin/gstack-skill-contract waive debug-report --reason "docs-only change"')]);
+    expect(ok).toMatchObject({ met: true, follow: false, waived: ['debug-report'] });
+    expect(ok.items[0].reason).toBe('docs-only change');
+    expect(check([...base, ...waive('gstack-skill-contract waive debug-report --reason x', true)]).met).toBe(false);
+    expect(check([...base, ...waive('gstack-skill-contract waive debug-report --reason x --skill review')]).met).toBe(false);
+    expect(check([...base, ...waive('gstack-skill-contract waive debug-report')]).met).toBe(false);
   });
 
   test('status line, pending question and running agents', () => {
@@ -172,7 +168,7 @@ describe('checkContract is a pure function of the transcript', () => {
 
   test('items are checked from the skill\'s LAST load: an earlier run\'s report does not satisfy a new one', () => {
     const r = check([...INTERACTIVE_TURNS.flat(), user('another bug'), tool('s', 'Skill', { skill: 'verify' }), tool('e', 'Edit', { file_path: 'x' })]);
-    expect(r.missing).toEqual(['debug-report', 'repro-after-fix']);
+    expect(r.missing).toEqual(['debug-report']);
   });
 
   test('an early exit counts as met: /review "Nothing to review" or STATUS: BLOCKED, /verify Status: BLOCKED in its DEBUG REPORT', () => {
@@ -183,7 +179,7 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(early([slash('review'), say('Base branch could not be found.\nSTATUS: BLOCKED')], 'review').met).toBe(true);
     const blockedReport = DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED');
     expect(early([...J1_TRANSCRIPT.slice(0, -1), say(blockedReport)], 'verify')).toMatchObject({ met: true, statusLine: 'BLOCKED' });
-    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'verify').missing).toEqual(['repro-after-fix']);
+    expect(early([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT)], 'verify').missing).toEqual([]);
     expect(early([slash('review'), say('I would print STATUS: BLOCKED if the base were missing, but it is here. Done.')], 'review').met).toBe(false);
     expect(early([slash('review'), say('Nothing to review under docs/; checking lib/ next.'), say('Done.')], 'review').met).toBe(false);
     expect(early([...J1_TRANSCRIPT.slice(0, -1), say('There is nothing to review in the docs folder. Fixed it.')], 'verify').met).toBe(false);
@@ -194,95 +190,6 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(loads('/home/u/.claude/skills/gstack/verify/SKILL.md')).toEqual(['verify']);
     expect(loads('C:\\Users\\u\\.claude\\skills\\review\\SKILL.md')).toEqual(['review']);
     expect(loads('/home/u/src/gstack/review/SKILL.md')).toEqual([]);
-  });
-
-  test('check_after_last_edit: a command counts by the program it runs, not by a word inside it', () => {
-    for (const cmd of ['bun test', 'cd repo && npm test', 'FOO=1 timeout 60 pytest -x', './scripts/run-tests.sh', 'node repro.js | tail -5', 'bin/gstack-verify',
-      'bundle exec rspec', 'uv run pytest', 'poetry run pytest', 'docker compose run app pytest', 'xvfb-run -a npm test', 'bash scripts/test.sh', 'mix test', 'bazel test //...'])
-      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['npm test', 'npm run test:unit', 'yarn jest', 'go test ./...', 'cargo test', 'make check', 'python -m pytest', 'bun repro.ts', 'npx vitest run', 'curl -s http://localhost:3000/api'])
-      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['git commit -m wip --no-verify', 'git add test/a.test.ts', 'cat test/a.test.ts', 'git diff --check', 'ls go', 'test -f README.md', './scripts/fetch-latest.sh', 'bash scripts/deploy.sh',
-      'bun install', 'npm install lodash', 'bun add zod', 'go build ./...', 'go mod tidy', 'node --version', 'make clean', 'make', 'npm run build', 'curl --version'])
-      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
-  });
-
-  test('check_after_last_edit: a Bash write to a repo file is an edit, so a fix written through the shell needs a check after it (GST-1633)', () => {
-    const loaded = J1_TRANSCRIPT.slice(0, 4);
-    const bash = (id: string, command: string) => [tool(id, 'Bash', { command }), result(id, 'ok')];
-    const after = (...commands: string[]) => check([...loaded, ...bash('t0', 'bun test'), ...commands.flatMap((c, i) => bash(`b${i}`, c))]).items[1];
-    const writes = [
-      "python3 - <<'EOF'\np = 'src/auth.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('a', 'b'))\nEOF",
-      "sed -i 's/session.user/session?.user/' src/auth.ts",
-      "echo 'export const x = 1' | tee src/auth.ts",
-      "printf 'fixed\\n' >> src/auth.ts",
-      "cat > src/auth.ts <<'EOF'\nexport function login() {}\nEOF",
-      "git apply <<'EOF'\n--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1 +1 @@\n-a\n+b\nEOF",
-      'patch -p1 < fix.diff',
-      "cd src && perl -pi -e 's/a/b/' auth.ts",
-      'python3 -c "from pathlib import Path; Path(\'src/auth.ts\').write_text(\'x\')"',
-      'node -e "require(\'fs\').writeFileSync(\'/repo/src/auth.ts\', \'x\')"',
-      "cat > /tmp/fix.py <<'EOF'\nwith open('src/auth.ts', 'w') as f:\n    f.write('x')\nEOF\npython3 /tmp/fix.py",
-      'grep -rl session.user src | xargs sed -i s/session.user/session?.user/',
-    ];
-    for (const w of writes) {
-      expect([w, after(w).status]).toEqual([w, 'missing']);
-      expect([w, after(w, 'bun test test/auth.test.ts').status]).toEqual([w, 'met']);
-      expect([w, after(`${w}\nbun test`).status]).toEqual([w, 'met']);
-      expect([w, after(`bun test\n${w}`).status]).toEqual([w, 'missing']);
-    }
-    expect(after(writes[1]).detail).toBe('no test or repro command after the last Bash write (src/auth.ts)');
-    expect(after(writes[0], 'git diff src/auth.ts').status).toBe('missing');
-  });
-
-  test('check_after_last_edit: reads, stdout, writes outside the repo and fd redirects are not edits (GST-1633)', () => {
-    const edited = [...J1_TRANSCRIPT.slice(0, -1), tool('t0', 'Bash', { command: 'bun test' }), result('t0', 'ok')];
-    const after = (command: string) => check([...edited, tool('b', 'Bash', { command }), result('b', 'ok')]).items[1].status;
-    const controls = [
-      'cat src/auth.ts', 'grep -n user src/auth.ts', 'sed -n 1,20p src/auth.ts', 'echo done', 'echo "a > src/auth.ts"', "grep '>' src/auth.ts",
-      "python3 - <<'EOF'\nprint(open('src/auth.ts').read())\nEOF", 'python3 -c "open(\'/tmp/x\', \'w\').write(\'y\')"',
-      'echo x > /tmp/out.txt', "cat > /tmp/fix.py <<'EOF'\nx = 1\nEOF", 'cd /tmp && echo x > notes.txt', 'echo x | tee /tmp/log', 'sed -i s/a/b/ /tmp/a.txt',
-      'echo x > ../elsewhere/a.txt', 'echo x > /home/u/notes.txt', 'echo x > ~/notes.txt', 'echo x > "$OUT"',
-      'bun test 2>&1 | tail -5', 'ls >/dev/null 2>&1', 'git status 2>&1', '[[ 2 > 1 ]] && echo ok', '(( 2 > 1 )) && echo ok',
-      'git apply --check fix.diff', 'patch --dry-run -p1 < fix.diff', "cat <<'EOF'\necho x > src/auth.ts\nEOF",
-    ];
-    for (const c of controls) expect([c, after(c)]).toEqual([c, 'met']);
-    expect(after('bun test > test-output.log')).toBe('met');
-    expect(after('bun test 2>&1 | tee test-output.log')).toBe('met');
-    const noCwd = (lines: string[]) => lines.map(l => { const o = JSON.parse(l); delete o.cwd; return JSON.stringify(o); });
-    const bare = (command: string) => check(noCwd([...edited, tool('b', 'Bash', { command }), result('b', 'ok')])).items[1].status;
-    expect(bare('sed -i s/a/b/ src/auth.ts')).toBe('missing');
-    expect(bare('echo x > /repo/src/auth.ts')).toBe('met');
-    expect(bare('cd /tmp && sed -i s/a/b/ a.txt')).toBe('met');
-  });
-
-  test('lastBashWrite: the files a Bash line writes and the commands that ran after the last one (GST-1633)', () => {
-    const w = (line: string, cwd = '/repo') => lastBashWrite(line, cwd, '/repo');
-    expect(w('bash -c "sed -i s/a/b/ src/a.py && bun test"')).toEqual({ files: ['src/a.py'], after: 'bun test' });
-    expect(w('(cd /tmp && echo x > a) && echo y > b.txt')).toEqual({ files: ['b.txt'], after: 'echo y >b.txt' });
-    expect(w("sed -i '' 's/a/b/' src/a.py")).toEqual({ files: ['src/a.py'], after: '' });
-    expect(w('echo x1>src/a.py')?.files).toEqual(['src/a.py']);
-    expect(w("cat <<A > x.txt; cat <<B > /tmp/y\na\nA\nb\nB\npytest")).toEqual({ files: ['x.txt'], after: 'cat >x.txt\ncat >/tmp/y\npytest' });
-    expect(w("python3 - <<'PY'\nimport pathlib\np = pathlib.Path('src/a.py')\np.write_text('x')\nPY")?.files).toEqual(['src/a.py']);
-    expect(w('git apply fix.diff')?.files).toEqual(['.']);
-    expect(w('git -C /tmp/other apply fix.diff')).toBeNull();
-    expect(w('sed -i s/a/b/ a.py', '/repo/src')?.files).toEqual(['src/a.py']);
-    expect(w("for f in src/*.py; do sed -i 's/a/b/' \"$f\"; done")).toBeNull();
-    expect(w("node -e \"fs.writeFileSync(path.join('src', 'a'), 'x')\"")).toBeNull();
-    for (const read of ['perl -Ilib t/basic.t', "perl -MList::Util=sum -le 'print sum(1, 2)'", 'sed -fscript.sed src/a.py', "sed -es/i/j/ src/a.py"]) expect([read, w(read)]).toEqual([read, null]);
-    expect(w("perl -Ilib -pi -e 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
-    expect(w("perl -i.bak -pe 's/a/b/' src/a.pm")?.files).toEqual(['src/a.pm']);
-  });
-
-  test('check_after_last_edit: an option value is never the verb, and a long chain of wrapper words stays fast', () => {
-    for (const cmd of ['make -C web test', 'npm --prefix web test', 'pnpm --filter app test', 'bun --cwd app test', 'yarn workspace app test',
-      'xcodebuild -scheme App test', 'cargo +nightly test', 'mvn clean test', 'bun run typecheck', 'node --test'])
-      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, true]);
-    for (const cmd of ['make -C web build', 'npm --prefix web install', 'pnpm --filter app build', 'xcodebuild -scheme App build'])
-      expect([cmd, isCheckCommand(cmd)]).toEqual([cmd, false]);
-    const started = performance.now();
-    expect(isCheckCommand(`${Array(40).fill('sh').join(' ')} echo`)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(500);
   });
 
   test('report re-checks a deferred run: unmet is a miss, met is met', () => {
@@ -341,7 +248,17 @@ describe('gstack-skill-contract CLI', () => {
     expect(met.stdout).toStartWith('SKILL_CONTRACT_MET verify (contract v1)');
     const unmet = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--json');
     expect(unmet.code).toBe(EXIT.UNMET);
-    expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'verify', missing: ['debug-report', 'repro-after-fix'], follow: false });
+    expect(JSON.parse(unmet.stdout)).toMatchObject({ exit: 1, skill: 'verify', missing: ['debug-report'], follow: false });
+  });
+
+  test('check: a contract that still lists the removed kind warns once on stderr and checks the rest', () => {
+    const file = path.join(work, 'SKILL.md');
+    fs.writeFileSync(file, SKILLS.verify.replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n'));
+    const r = cli('check', '--transcript', write(J1_TRANSCRIPT), '--skill', 'verify', '--skill-file', file, '--json');
+    expect(r.code).toBe(EXIT.UNMET);
+    expect(JSON.parse(r.stdout)).toMatchObject({ missing: ['debug-report'] });
+    expect(r.stderr).toBe(`gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${file}: repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract
+`);
   });
 
   test('check: stable error exits 2, 3, 4, 5, 6', () => {
@@ -357,10 +274,10 @@ describe('gstack-skill-contract CLI', () => {
   });
 
   test('waive is stateless: validates and acknowledges, writes nothing', () => {
-    const ok = cli('waive', 'repro-after-fix', '--reason', 'docs-only change', '--skill', 'verify');
-    expect(ok).toEqual({ code: 0, stdout: 'SKILL_CONTRACT_WAIVED repro-after-fix (verify): docs-only change (this session only; counted as a miss for follow)\n', stderr: '' });
+    const ok = cli('waive', 'debug-report', '--reason', 'docs-only change', '--skill', 'verify');
+    expect(ok).toEqual({ code: 0, stdout: 'SKILL_CONTRACT_WAIVED debug-report (verify): docs-only change (this session only; counted as a miss for follow)\n', stderr: '' });
     expect(fs.readdirSync(state)).toEqual([]);
-    expect(cli('waive', 'repro-after-fix').code).toBe(EXIT.USAGE);
+    expect(cli('waive', 'debug-report').code).toBe(EXIT.USAGE);
     expect(cli('waive', 'Not An Id', '--reason', 'x').code).toBe(EXIT.USAGE);
     expect(cli('waive', 'nope', '--reason', 'x', '--skill', 'verify').code).toBe(EXIT.USAGE);
   });
@@ -377,7 +294,7 @@ describe('gstack-skill-contract CLI', () => {
     const rep = JSON.parse(r.stdout);
     expect(rep.runs).toBe(2);
     expect(rep.misses.map((m: any) => [m.session, m.outcome])).toEqual([['s-missed', 'miss']]);
-    expect(rep.items).toEqual([{ skill: 'verify', item: 'debug-report', misses: 1 }, { skill: 'verify', item: 'repro-after-fix', misses: 1 }]);
+    expect(rep.items).toEqual([{ skill: 'verify', item: 'debug-report', misses: 1 }]);
     expect(cli('report').stdout).toStartWith('SKILL_CONTRACT_REPORT runs=2 misses=1');
   });
 

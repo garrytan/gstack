@@ -1,7 +1,7 @@
 ---
 name: deslop-shared-libs
 version: 1.0.0
-description: Find worthwhile shared-code extractions in recent work. (gstack)
+description: "Find worthwhile shared-code extractions in recent work. Use for: find code worth sharing. (gstack)"
 allowed-tools:
   - Bash
   - Read

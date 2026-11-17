@@ -30,7 +30,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { baseInputs, sha256 } from '../context';
+import { baseInputs, defaultScratchRoot, sha256 } from '../context';
 import { PREGATE_CONFIG_PATH } from '../config';
 import { classifyCommandEnvironment, classifyEnvironment, environmentLine, environmentResult, launchCause } from '../environment';
 import { checkScratch } from '../run-scratch';
@@ -365,18 +365,56 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Bytes of quoted file arguments one runner process may take. supervise passes the whole command as one `bash -c`
+ * argument: Linux caps a single execve argument at 128 KiB (MAX_ARG_STRLEN), every POSIX system caps argv plus the
+ * environment (ARG_MAX: 1 MiB on macOS, 2 MiB by default on Linux), and Windows caps a whole command line at 32,767
+ * characters. The runner text itself and a margin come off the top.
+ */
+export function argBudget(runner: string, env: NodeJS.ProcessEnv, platform = process.platform): number {
+  const envBytes = Object.entries(env).reduce((n, [k, v]) => n + Buffer.byteLength(`${k}=${v ?? ''}`) + 9, 0);
+  const cap = platform === 'win32' ? 24 * 1024 : Math.min(96 * 1024, 1024 * 1024 - 64 * 1024 - envBytes);
+  return cap - Buffer.byteLength(runner) - 512;
+}
+
+/** `args` split in order into chunks whose quoted, space-joined text fits `budget` bytes; an argument over it runs alone. */
+export function argChunks(args: readonly string[], budget: number): string[][] {
+  const chunks: string[][] = [];
+  let size = 0;
+  for (const a of args) {
+    const n = Buffer.byteLength(quote(a)) + 1;
+    if (!chunks.length || size + n > budget) { chunks.push([]); size = 0; }
+    chunks.at(-1)!.push(a);
+    size += n;
+  }
+  return chunks;
+}
+
 async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup, files: string[], log: string, counter: Counter): Promise<LocalRun> {
   // playwright test reads each file argument as a case-insensitive regex: escape it and anchor it to a path segment, so `a[1].spec.ts` runs that file, not `a1.spec.ts`.
   const args = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? files.map(f => `(?:^|/)${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : testFileArgs(g.runner, files);
-  const joined = args.map(quote).join(' ');
-  const run = g.runner.replace('{files}', () => joined);
-  const command = g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run;
-  const shown = g.cwd ? files.map(f => `${g.cwd}/${f}`) : files;
-  const r = await supervise({ command: run, cwd: path.join(ctx.repoRoot, g.cwd), env: { ...env, CI: env.CI ?? '1' }, log, deadline: Date.now() + ctx.timeoutMs, stallMs: ctx.stallTimeoutMs, label: `lanes (${shown.length === 1 ? shown[0] : `${shown.length} files`})`, files, adapter: adapterFor(g.runner), counter, progress: ctx.progress });
-  const output = readRange(log, r.start, r.end);
-  const summary = parseSummary(output, g.runner);
-  const noBrowsers = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? PLAYWRIGHT_NO_BROWSERS.exec(output)?.[0].trim().slice(0, 200) : undefined;
-  return { ...(noBrowsers ? { noBrowsers } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) };
+  const runEnv = { ...env, CI: env.CI ?? '1' };
+  // A file list over the argument limits (#4424: E2BIG on Linux) runs as chunks in sequence under the group's one deadline, read back as one run:
+  // the first unfinished, else the first non-zero chunk decides; counts add up; a chunk that did not finish ends the group, as a killed runner would.
+  const deadline = Date.now() + ctx.timeoutMs;
+  const parts: LocalRun[] = [];
+  let at = 0;
+  for (const chunk of argChunks(args, argBudget(g.runner, runEnv))) {
+    const part = files.slice(at, at += chunk.length);
+    const joined = chunk.map(quote).join(' ');
+    const run = g.runner.replace('{files}', () => joined);
+    const shown = g.cwd ? part.map(f => `${g.cwd}/${f}`) : part;
+    const r = await supervise({ command: run, cwd: path.join(ctx.repoRoot, g.cwd), env: runEnv, log, deadline, stallMs: ctx.stallTimeoutMs, label: `lanes (${shown.length === 1 ? shown[0] : `${shown.length} files`})`, files: part, adapter: adapterFor(g.runner), counter, progress: ctx.progress });
+    const output = readRange(log, r.start, r.end);
+    const summary = parseSummary(output, g.runner);
+    const noBrowsers = /(?<![\w-])playwright\s+test(?![\w-])/.test(g.runner) ? PLAYWRIGHT_NO_BROWSERS.exec(output)?.[0].trim().slice(0, 200) : undefined;
+    parts.push({ ...(noBrowsers ? { noBrowsers } : {}), exit: r.exit, outcome: r.outcome, signal: r.signal, observedStart: r.observedStart, ...summary, tail: output.trim().split('\n').slice(-25), runner: g.runner, command: g.cwd ? `(cd ${quote(g.cwd)} && ${run})` : run, files: shown, lastFile: r.lastFile && g.cwd ? `${g.cwd}/${r.lastFile}` : r.lastFile, ms: r.ms, ...(r.error ? { error: r.error } : {}) });
+    if (r.exit === null) break;
+  }
+  if (parts.length === 1) return parts[0]!;
+  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.at(-1)!;
+  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
+  return { ...(parts.every(p => p.noBrowsers) ? { noBrowsers: parts[0]!.noBrowsers } : {}), exit: bad.exit, outcome: bad.outcome, signal: bad.signal, observedStart: parts.some(p => p.observedStart), ran: sum('ran'), failed: sum('failed'), tail: bad.tail, runner: g.runner, command: parts.map(p => p.command).join(' && '), files: parts.flatMap(p => p.files), lastFile: bad.lastFile, ms: parts.reduce((n, p) => n + p.ms, 0), ...(bad.error ? { error: bad.error } : {}) };
 }
 
 /**
@@ -460,10 +498,37 @@ const GSTACK_ROOT = path.resolve(import.meta.dir, '..', '..', '..');
  */
 function remoteObligation(ctx: PregateContext, sel: Selection): RemoteObligation {
   const declared = ctx.config.remote_gate;
-  const runner = detectRunner(ctx, sel.gateTests);
-  const command = declared ?? `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)} -- ${quote(runner ? runner.replace('{files}', testFileArgs(runner, sel.gateTests).map(quote).join(' ')) : '<test runner> <selected files>')}`;
+  const command = declared ?? backendCommand(ctx, sel.gateTests);
   const [workflow, job] = declared ? REMOTE_GATE_LANE.split('/') as [string, string] : ['test_backend', ctx.testBackend];
   return { lane: `${workflow}/${job}`, platform: 'remote', workflow, job, tests: sel.gateTests, receipt: null, command };
+}
+
+/**
+ * The test backend's command: gstack's Ubicloud runner, with the selected files in a setup script that writes them one per line
+ * on the VM. The command reaches the VM as one argument and Linux caps one argument at 128 KiB (#4424), so the list never goes in
+ * it. The script lives under the state root, named by its content, so the same selection prints the same command every run and a
+ * same-tree clear still matches it; an unwritable state root keeps it in this run's scratch. A path the one-per-line list can't
+ * hold (a newline, or the list's end marker) keeps the quoted inline form, so no path can end the list early and run as shell.
+ */
+function backendCommand(ctx: PregateContext, files: readonly string[]): string {
+  const ubi = `${GSTACK_ROOT}/scripts/ubicloud/ubi-runner.sh run --src ${quote(ctx.repoRoot)}`;
+  const runner = detectRunner(ctx, files);
+  if (!runner) return `${ubi} -- ${quote('<test runner> <selected files>')}`;
+  const args = testFileArgs(runner, files);
+  if (args.some(f => f.includes('\n') || f === 'PREGATE_FILES')) return `${ubi} -- ${quote(runner.replace('{files}', () => args.map(quote).join(' ')))}`;
+  const setup = `cat > ~/.pregate-files.txt <<'PREGATE_FILES'\n${args.map(f => `${f}\n`).join('')}PREGATE_FILES\n`;
+  const name = `${sha256(setup).slice(0, 16)}.sh`;
+  let file: string;
+  try {
+    const dir = path.join(path.dirname(defaultScratchRoot(ctx.repoRoot, ctx.env)), 'remote-files');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    file = path.join(dir, name);
+    fs.writeFileSync(file, setup);
+  } catch {
+    file = path.join(checkScratch(ctx.scratch, 'remote'), name);
+    fs.writeFileSync(file, setup);
+  }
+  return `${ubi} --setup ${quote(file)} -- ${quote(`mapfile -t PREGATE_FILES < ~/.pregate-files.txt && ${runner.replace('{files}', () => '"${PREGATE_FILES[@]}"')}`)}`;
 }
 
 export const REMOTE_GATE_LANE = 'pregate.json/remote_gate';

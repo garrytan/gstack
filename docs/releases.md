@@ -45,13 +45,20 @@ regression fix (below).
 **Green** means, on that exact commit: the `free-tests` check run succeeded
 (the status main requires), the commit was gated (below), every check run on
 it has completed and none failed, and `refs/notes/gstack-trains` holds no
-active freeze. A cancelled check run counts as red. A commit with a check run
+active freeze. A cancelled check run counts as red. Check runs are read the
+way the merge queue reads them, so a failed check whose rerun attempt created
+no jobs, and a workflow run that failed before creating any job, count as red
+even though GitHub's default list hides them. A failed commit status counts
+as red too, and a pending one counts as still going. A commit with a check run
 still going is skipped and the next older one is considered, back through 7
 days or 200 first-parent commits. The cut's own job lands a check run on
 main's head, the very commit it may cut, so check runs from this workflow's
 own runs (its file path, `.github/workflows/weekly-release.yml`, matched
 by the job ids of those workflow runs) are set aside whether running or
-failed; every other check run counts as above. The lookup needs the
+failed. Check runs from the nightly Windows free suite
+(`.github/workflows/windows-free-tests.yml`), which
+[never blocks](support-tiers.md#windows-ci), are set aside the same way;
+every other check run counts as above. The lookup needs the
 workflow's `actions: read` permission; when it cannot read those runs, nothing
 is set aside. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate

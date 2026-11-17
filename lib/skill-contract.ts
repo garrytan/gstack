@@ -18,13 +18,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { atomicWriteSync } from './fs-atomic';
-import { lastBashWrite } from './shell-writes';
 import { readFrontmatter, scanInstalledSkills } from './skill-route';
 import { resolveStateRoot } from './state-root';
 
 export const TRANSCRIPT_MAX_BYTES = 32 * 1024 * 1024;
-export const ITEM_KINDS = ['report_labels', 'check_after_last_edit', 'selected_specialists_dispatched', 'agent_dispatch'] as const;
+export const ITEM_KINDS = ['report_labels', 'selected_specialists_dispatched', 'agent_dispatch'] as const;
 export type ItemKind = typeof ITEM_KINDS[number];
+/** Kinds a contract may still list from an older gstack: each such item is skipped with a warning, not checked. */
+const REMOVED_KINDS = ['check_after_last_edit'];
 const ITEM_ID = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const MAX_ITEMS = 20;
 
@@ -43,12 +44,17 @@ export interface ContractItem {
   fix?: string;
   summary?: string;
 }
-export interface Contract { version: 1; items: ContractItem[] }
+/** skipped: one warning per item whose kind was removed from gstack; the item is not checked. */
+export interface Contract { version: 1; items: ContractItem[]; skipped?: string[] }
 
 export class StateError extends Error {
   constructor(readonly file: string, readonly why: string) { super(`${file}: ${why}`); }
 }
 export class UnknownShape extends Error {}
+
+export function skippedLine(file: string, why: string): string {
+  return `gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${file}: ${why}`;
+}
 
 export function stateErrorLine(file: string, why: string): string {
   return `gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR ${file}: ${why}; stop allowed, miss not recorded (see ${STATE_ERROR_DOC})`;
@@ -113,11 +119,16 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
     return { error: `contract items must be a list of 1 to ${MAX_ITEMS} items` };
   }
   const items: ContractItem[] = [];
+  const skipped: string[] = [];
   for (const [n, item] of raw.items.entries()) {
     if (!isObject(item)) return { error: `items[${n}] must be a mapping` };
     const id = item.id;
     if (typeof id !== 'string' || !ITEM_ID.test(id)) return { error: `items[${n}].id must match ${ITEM_ID}` };
     if (items.some(i => i.id === id)) return { error: `duplicate item id ${id}` };
+    if (REMOVED_KINDS.includes(item.kind)) {
+      skipped.push(`${id}: kind ${item.kind} was removed from gstack, so this item is not checked; delete it from the contract`);
+      continue;
+    }
     if (!(ITEM_KINDS as readonly string[]).includes(item.kind)) {
       return { error: `${id}: unknown kind ${JSON.stringify(item.kind)} (expected one of ${ITEM_KINDS.join(', ')})` };
     }
@@ -142,7 +153,8 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
     if (out.kind === 'agent_dispatch' && out.marker) return { error: `${id}: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)` };
     items.push(out);
   }
-  return { contract: { version: 1, items } };
+  if (!items.length) return { error: `every item uses a removed kind (${skipped.join('; ')})` };
+  return { contract: skipped.length ? { version: 1, items, skipped } : { version: 1, items } };
 }
 
 /** One plain phrase per item, for the routing hint's "Done means" variant. */
@@ -150,7 +162,6 @@ export function itemSummary(item: ContractItem): string {
   if (item.summary) return item.summary;
   switch (item.kind) {
     case 'report_labels': return `a ${item.heading} with ${(item.labels ?? []).join(', ')}`;
-    case 'check_after_last_edit': return 'a test or repro run after your last edit';
     case 'selected_specialists_dispatched': return 'one Agent dispatch per selected specialist';
     case 'agent_dispatch': return `an Agent dispatch matching /${item.match}/`;
   }
@@ -158,10 +169,9 @@ export function itemSummary(item: ContractItem): string {
 
 export type TranscriptEvent =
   | { kind: 'prompt' | 'meta' | 'text'; line: number; text: string }
-  | { kind: 'tool_use'; line: number; id: string; name: string; input: Record<string, any>; cwd?: string }
+  | { kind: 'tool_use'; line: number; id: string; name: string; input: Record<string, any> }
   | { kind: 'tool_result'; line: number; id: string; text: string; isError: boolean };
-/** cwd is the session directory: the first record's working directory, when the transcript names one. */
-export interface Transcript { events: TranscriptEvent[]; sessionId: string | null; cwd?: string | null }
+export interface Transcript { events: TranscriptEvent[]; sessionId: string | null }
 
 const META_PREFIX = /^\s*<(?:local-command-stdout|local-command-stderr|system-reminder|task-notification|user-prompt-submit-hook|bash-input|bash-stdout|bash-stderr)\b/;
 
@@ -179,7 +189,6 @@ function blockText(content: unknown): string {
 export function parseTranscript(text: string, opts: { includeSidechain?: boolean } = {}): Transcript {
   const events: TranscriptEvent[] = [];
   let sessionId: string | null = null;
-  let cwd: string | null = null;
   let lines = 0;
   let objects = 0;
   let messages = 0;
@@ -198,14 +207,13 @@ export function parseTranscript(text: string, opts: { includeSidechain?: boolean
     messages++;
     if (rec.isSidechain === true && !opts.includeSidechain) continue;
     if (typeof rec.sessionId === 'string') sessionId = rec.sessionId;
-    if (cwd === null && typeof rec.cwd === 'string') cwd = rec.cwd;
     const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
     for (const block of blocks) {
       if (!isObject(block)) continue;
       if (rec.type === 'assistant') {
         if (block.type === 'text' && typeof block.text === 'string') events.push({ kind: 'text', line, text: block.text });
         if (block.type === 'tool_use' && typeof block.name === 'string') {
-          events.push({ kind: 'tool_use', line, id: String(block.id ?? ''), name: block.name, input: isObject(block.input) ? block.input : {}, ...(typeof rec.cwd === 'string' ? { cwd: rec.cwd } : {}) });
+          events.push({ kind: 'tool_use', line, id: String(block.id ?? ''), name: block.name, input: isObject(block.input) ? block.input : {} });
         }
       } else if (block.type === 'tool_result') {
         events.push({ kind: 'tool_result', line, id: String(block.tool_use_id ?? ''), text: blockText(block.content), isError: block.is_error === true });
@@ -216,7 +224,7 @@ export function parseTranscript(text: string, opts: { includeSidechain?: boolean
   }
   if (lines > 0 && objects === 0) throw new UnknownShape('no line is a JSON object');
   if (objects > 0 && messages === 0) throw new UnknownShape('no user or assistant message records');
-  return { events, sessionId, cwd };
+  return { events, sessionId };
 }
 
 /**
@@ -271,69 +279,8 @@ export function skillLoads(t: Transcript): SkillLoad[] {
 }
 
 export const STATUS_RE = /^[ \t>*_-]*(?:\*\*|__)?(?:STATUS|Status)(?:\*\*|__)?[ \t]*(?:\*\*|__)?:[ \t]*(?:\*\*|__)?[ \t]*(DONE_WITH_CONCERNS|DONE|BLOCKED|NEEDS_CONTEXT)\b/m;
-const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 const AGENT_TOOLS = /^(?:Agent|Task)$/;
-const TEST_RUNNER = /^(?:pytest|py\.test|jest|vitest|mocha|rspec|phpunit|ctest|tox|nox|tsc|rake|playwright|cypress)$/i;
-const CHECK_SCRIPT = /(?:^|[-_.:])(?:tests?|spec|repro|check|typecheck|verify|lint)(?:[-_.:]|$)/i;
-const CHECK_VERB = /^(?:tests?|t|check|verify|spec|vet|clippy|nextest|lint|e2e)$/i;
-const SUBCOMMAND_TOOL = /^(?:make|cargo|go|dotnet|swift|mix|bazel|just|dart|flutter|rails|mvn|gradlew?|xcodebuild|bun|npm|pnpm|yarn|deno)$/i;
-const RUNS_PROGRAM = /^(?:cargo|go|dotnet|swift)$/i;
-const PACKAGE_EXEC = /^(?:npx|bunx|pnpx)$/i;
-const INTERPRETER = /^(?:node|python3?|ruby|php|perl|tsx|ts-node)$/i;
-const FILE_INTERPRETER = /^(?:bun|deno)$/i;
-const COMMAND_WRAPPER = /^(?:bundle|uv|poetry|pipenv|docker|podman|xvfb-run|bash|sh|zsh)$/;
-const COMMAND_PREFIX = /^(?:env|sudo|time|nice|timeout|command|exec|\w+=\S*|-\S*|\d+[smh]?)$/;
-const SCRIPT_ARG = /[\\/]|\.(?:[cm]?[jt]sx?|py|rb|php|pl|sh)$/;
-/** Options whose next word is their value (`make -C web test`, `pnpm --filter app test`, `xcodebuild -scheme App test`). */
-const VALUE_FLAG = /^(?:-[CfpwF]|--(?:prefix|filter|cwd|dir|directory|workspace|package|manifest-path|project|file)|-(?:scheme|project|workspace|destination|configuration|target|sdk))$/;
-const WRAPPER_DEPTH = 3;
-const baseName = (word: string) => word.split(/[\\/]/).pop() ?? '';
-const isCheckScript = (word: string) => { const name = baseName(word); return name !== 'test' && CHECK_SCRIPT.test(name); };
-
-/** The words after the program that are not options or option values. */
-function positionals(words: string[]): string[] {
-  const out: string[] = [];
-  for (let i = 1; i < words.length; i++) {
-    if (words[i] === '--') break;
-    if (!words[i].startsWith('-')) out.push(words[i]);
-    else if (VALUE_FLAG.test(words[i])) i++;
-  }
-  return out;
-}
-
-/**
- * One command's words (prefixes removed): does it run tests, a check, or a repro? Installs, builds and version probes
- * do not. Wrappers nest at most WRAPPER_DEPTH deep, so a long chain of wrapper words costs linear time, not exponential.
- */
-function runsCheck(words: string[], depth = 0): boolean {
-  const program = baseName(words[0] ?? '');
-  const args = positionals(words);
-  if (TEST_RUNNER.test(program) || isCheckScript(words[0] ?? '')) return true;
-  if (depth < WRAPPER_DEPTH && PACKAGE_EXEC.test(program)) return runsCheck(words.slice(1).filter(w => !w.startsWith('-')), depth + 1);
-  if (COMMAND_WRAPPER.test(program)) return depth < WRAPPER_DEPTH && [1, 2, 3, 4, 5].some(i => i < words.length && runsCheck(words.slice(i), depth + 1));
-  if (INTERPRETER.test(program)) return args.length > 0 || words.slice(1).some(w => /^-[ecm]$|^--test$/.test(w));
-  if (program === 'curl') return args.some(a => /^https?:\/\/|^localhost|^127\./.test(a));
-  if (FILE_INTERPRETER.test(program) && args[0] && SCRIPT_ARG.test(args[0])) return true;
-  if (!SUBCOMMAND_TOOL.test(program) || !args[0]) return false;
-  const [verb, next] = args;
-  if (CHECK_VERB.test(verb) || isCheckScript(verb) || args.some(a => CHECK_VERB.test(a))) return true;
-  if (verb === 'run' || verb === 'exec' || verb === 'x') return RUNS_PROGRAM.test(program) || (!!next && (CHECK_VERB.test(next) || isCheckScript(next) || TEST_RUNNER.test(baseName(next)) || SCRIPT_ARG.test(next)));
-  return /^(?:yarn|pnpm)$/i.test(program) && TEST_RUNNER.test(verb);
-}
 const SAFE_SPECIALIST = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/;
-
-/**
- * A test or repro run: some segment of the command (split on && || ; | and newlines) runs a test runner, a test verb
- * (`npm test`, `go test`, `make check`), a test, check or repro script, or code through an interpreter, directly or
- * behind a wrapper (bundle exec, uv run, docker compose run, xvfb-run, bash). Installs, builds and version probes do not count.
- */
-export function isCheckCommand(cmd: string): boolean {
-  return cmd.split(/&&|\|\||[;|\n]/).some(segment => {
-    const words = segment.trim().replace(/^[({]\s*/, '').split(/\s+/);
-    while (words.length > 1 && COMMAND_PREFIX.test(words[0])) words.shift();
-    return runsCheck(words);
-  });
-}
 const WAIVE_RE = /gstack-skill-contract["']?\s+waive\s+["']?([A-Za-z0-9][A-Za-z0-9_.-]*)["']?/;
 
 type ToolUse = Extract<TranscriptEvent, { kind: 'tool_use' }>;
@@ -341,7 +288,6 @@ type ToolResult = Extract<TranscriptEvent, { kind: 'tool_result' }>;
 const isToolUse = (e: TranscriptEvent): e is ToolUse => e.kind === 'tool_use';
 const bashCommand = (e: TranscriptEvent) => (isToolUse(e) && e.name === 'Bash' ? String(e.input.command ?? '') : null);
 const agentText = (e: ToolUse) => [e.input.description, e.input.prompt, e.input.subagent_type, e.input.name].filter(v => typeof v === 'string').join('\n');
-const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 3)}...` : s).replace(/\s+/g, ' ');
 
 export function labelValue(text: string, label: string): string | null {
   const re = new RegExp(`^[ \\t>*_|-]*(?:\\*\\*|__)?${escapeRe(label)}[ \\t]*(?:\\*\\*|__)?[ \\t]*:[ \\t]*(?:\\*\\*|__)?(.*)$`, 'im');
@@ -363,7 +309,7 @@ function parseNames(raw: string): string[] {
 
 interface ItemCheck { met: boolean; detail: string; fix: string }
 
-function checkItem(item: ContractItem, run: TranscriptEvent[], root: string | null): ItemCheck {
+function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
   const texts = run.filter(e => e.kind === 'text').map(e => (e as { text: string }).text);
   const agents = run.filter((e): e is ToolUse => isToolUse(e) && AGENT_TOOLS.test(e.name));
   switch (item.kind) {
@@ -378,28 +324,6 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], root: string | nu
       return bad.length
         ? { met: false, detail: `${heading} lacks a real value for ${bad.join(', ')}`, fix: item.fix ?? `fill ${bad.join(', ')} in the ${heading} with real values` }
         : { met: true, detail: `${heading} has all ${labels.length} labels`, fix: '' };
-    }
-    case 'check_after_last_edit': {
-      let lastEdit = -1;
-      let edit = '';
-      let sameCall = '';
-      run.forEach((e, i) => {
-        if (!isToolUse(e)) return;
-        const cmd = bashCommand(e);
-        const write = cmd === null ? null : lastBashWrite(cmd, e.cwd ?? root, root);
-        if (write) [lastEdit, edit, sameCall] = [i, `Bash write (${cut(write.files.join(', '), 60)})`, write.after];
-        else if (EDIT_TOOLS.test(e.name)) [lastEdit, edit, sameCall] = [i, e.name, ''];
-      });
-      if (lastEdit < 0) return { met: true, detail: 'no edits since the skill loaded', fix: '' };
-      const re = item.match ? new RegExp(item.match, 'i') : null;
-      const check = [sameCall || null, ...run.slice(lastEdit + 1).map(bashCommand)].find(cmd => {
-        if (!cmd || /gstack-skill-contract/.test(cmd)) return false;
-        const bare = cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
-        return re ? re.test(bare) : isCheckCommand(bare);
-      });
-      return check
-        ? { met: true, detail: `ran "${cut(check)}" after the last edit`, fix: '' }
-        : { met: false, detail: `no test or repro command after the last ${edit}`, fix: item.fix ?? 'run the test or repro again after your last edit and show its result' };
     }
     case 'selected_specialists_dispatched': {
       const marker = markerPattern(item.marker ?? DEFAULT_MATCHERS.specialistSelection);
@@ -485,7 +409,7 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
   const items: ItemResult[] = load ? contract.items.map(item => {
     if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
-    const r = checkItem(item, run, t.cwd ?? null);
+    const r = checkItem(item, run);
     if (r.met) return { id: item.id, kind: item.kind, status: 'met', detail: r.detail, fix: '' };
     const reason = waived.get(item.id);
     return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };

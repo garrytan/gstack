@@ -2,6 +2,8 @@
 
 Frozen on 2026-10-31 before the first paid run of this design: three with/without pairs per task, a no-gstack arm on the pinned model, a spend ledger, and a paired judge that decides only after calibration. The instrument gates nothing; its assertions cover harness mechanics only.
 
+frozen: 2026-10-31
+
 ## Bars
 - Metric order per arm: functional checks pass rate (tasks with an oracle), then paired over_engineering (wins/ties/losses and mean over both orders), then the per-diff armJudge mean (the no-loss diagnostic), then net LOC and tokens.
 - Decider bar, paired-judge calibration (`arm-pair`): before the paid run, `bun run scripts/judge-calibration.ts run --config arm-pair --budget 8` on the 16 paired items in test/fixtures/judge-calibration/arm-pair/corpus.json. The bar is `pairCalibrationBar` (test/helpers/arm-pair-judge.ts) on the `new` panels: all 6 crossing pairs decided in both orders for the less over-engineered diff, so 6/6 correct, 0 reversed, 0 tied, 0 incomplete. Position bias on the 4 identical-diff pairs is reported, not gated.

@@ -147,7 +147,7 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     copy = tmpDir('gstack-switch-default-');
     fs.cpSync(path.join(ROOT, 'lib'), path.join(copy, 'lib'), { recursive: true });
     fs.cpSync(path.join(ROOT, 'hosts', 'claude', 'hooks'), path.join(copy, 'hosts', 'claude', 'hooks'), { recursive: true });
-    for (const f of ['gstack-config', 'gstack-state-root.sh', 'gstack-skill-route']) fs.cpSync(path.join(ROOT, 'bin', f), path.join(copy, 'bin', f));
+    for (const f of ['gstack-config', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-skill-route']) fs.cpSync(path.join(ROOT, 'bin', f), path.join(copy, 'bin', f));
     fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'));
     skills = skillsDir(['verify']);
     work = tmpDir('gstack-switch-default-work-');

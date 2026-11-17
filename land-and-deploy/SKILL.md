@@ -2,7 +2,7 @@
 name: land-and-deploy
 preamble-tier: 4
 version: 1.0.0
-description: Land and deploy workflow. (gstack)
+description: "Land and deploy workflow. Use for: merge and deploy, land the pr, ship to production. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -20,7 +20,7 @@ disable-model-invocation: true
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/land-and-deploy/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/land-and-deploy/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
