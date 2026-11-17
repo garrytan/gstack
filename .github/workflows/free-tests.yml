@@ -816,13 +816,13 @@ jobs:
         if: env.TRUNK_ORG_API_TOKEN != ''
         timeout-minutes: 5
         continue-on-error: true
-        uses: trunk-io/analytics-uploader@a86313c7029d22e6ea2d5c346060a224d90053dc # v2.1.6
+        uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
         with:
           junit-paths: ${{ runner.temp }}/free-junit/**/*.xml
           org-slug: garry-tan
           token: ${{ env.TRUNK_ORG_API_TOKEN }}
           test-collection-id: 7yDVXXE3
-          cli-version: 0.16.2
+          cli-version: 0.17.0
           use-cache: 'false'
           quarantine: 'false'
           use-uncloned-repo: 'true'
