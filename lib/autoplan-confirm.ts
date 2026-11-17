@@ -113,8 +113,8 @@ export const earlierRows = (state: RunState, phase: string): FindingRow[] =>
 type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; correlates?: string[]; resolves?: string };
 /**
  * Earlier rounds' challenges and `changes` findings in this phase that are still open (full runs; a lean run has one
- * round): not answered at a gate, not settled, and neither repeated (`correlates`) nor marked fixed (`resolves`) by a
- * later round. A later round staying silent on one never closes it.
+ * round): not answered at a gate, not settled, and neither repeated (`correlates` on a challenge or settled row) nor marked
+ * fixed (`resolves`) by a later round. A later round staying silent on one, or naming it only in an ordinary finding, never closes it.
  */
 export function openEarlier(state: RunState, phase: string, current: FindingRow[] = []): FindingRow[] {
   if (state.lean) return [];
@@ -122,7 +122,7 @@ export function openEarlier(state: RunState, phase: string, current: FindingRow[
   if (!earlier.length) return [];
   const answered = settledIds(state);
   const ids = new Set(current.map(r => r.id));
-  const covered = new Set(([...current, ...earlier] as ChallengeRow[]).flatMap(r => [...(r.correlates ?? []), ...(r.resolves ? [r.resolves] : [])]));
+  const covered = new Set(([...current, ...earlier] as ChallengeRow[]).flatMap(r => [...(r.user_challenge || r.changes || r.settled_by ? r.correlates ?? [] : []), ...(r.resolves ? [r.resolves] : [])]));
   const open = new Map<string, FindingRow>();
   for (const r of earlier) if ((r.user_challenge || r.changes) && !r.settled_by && !answered.has(r.id) && !ids.has(r.id) && !covered.has(r.id)) open.set(r.id, r);
   return [...open.values()];

@@ -200,6 +200,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   const owner = ownerContext(state);
   const quoted = owner.words.status !== 'none';
   const kept: string[] = [];
+  const keptIds: string[] = [];
   const add = ({ idKind, key, ...item }: NewItem, origin: (options: GateOption[]) => string): string => {
     const id = idKind === 'uc' ? `uc${++uc}` : `d${++d}`;
     items.push({ id, ...item, origin: origin(item.options) });
@@ -249,7 +250,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
     for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
       if (challenged.has(f.id) || f.settled_by) continue;
-      if (quoted && f.changes && !ownerQuoteOf(owner, f)) {
+      if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
         const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
         propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));
         continue;
@@ -257,7 +258,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
       if (!f.user_challenge || !directionIsOwners(owner, [f])) continue;
       const why = `one voice (${f.voice}) recommends changing your stated direction${carried.includes(f) ? '; raised in an earlier round and still open' : ''}`;
       if (reran && !f.changes) { push(agentDecision(`d${++d}`, `${f.title} [${f.id}]`, phase, why), f.id); continue; }
-      if (!quoted) kept.push(`d${d + 1}`);
+      if (!quoted) { kept.push(`d${d + 1}`); keptIds.push(f.id); }
       push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', why, ...(f.changes ? { changes: f.changes } : {}),
         cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your direction'), { key: 'b', text: 'accept the change', changes_plan: true }] }, f.id);
     }
@@ -277,8 +278,8 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     }
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
-  if (!quoted && kept.length) add(confirmDirectionItem(kept), options => ['owner', 'confirm-direction', optionHash(options)].join('|'));
-  for (const item of dayOneItems(owner)) add(item, options => ['owner', item.key, optionHash(options)].join('|'));
+  if (!quoted && kept.length) add(confirmDirectionItem(kept), options => ['owner', 'confirm-direction', optionHash(options), keptIds.join('+')].join('|'));
+  for (const item of dayOneItems(owner)) add(item, options => ['owner', item.key, optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16)].join('|'));
   items.push(planApproval(state, items));
   const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,
     ...(quoted ? { owner_words: gateOwnerWords(owner) } : {}),

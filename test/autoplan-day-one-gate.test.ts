@@ -203,6 +203,34 @@ describe('owner_quote downgrade, the day-one page requirement and the cost line'
     expect(covering(list, `${RUN}-ceo-r2-native-1`)!.item_class).toBe('proposal');
   });
 
+  test('a below-High challenge with no changes and no real owner line still reaches the gate as a proposal', () => {
+    const native = [row('ceo', 'native', { id: `${RUN}-ceo-r2-native-9`, severity: 'Medium', title: 'Make the summary daily instead of weekly', user_challenge: true, owner_quote: 99 })];
+    const list = buildGate(makeRun('challenge-no-changes', { plan: planText(), round2: { native, outside: [] }, round1: false }), 1);
+    const item = covering(list, `${RUN}-ceo-r2-native-9`)!;
+    expect(item.item_class).toBe('proposal');
+    expect(item.changes).toBe('direction');
+    expect(item.recommended).toBe('a');
+  });
+
+  test('an ordinary finding that only correlates with an earlier challenge does not close it', () => {
+    const state = makeRun('correlated', { plan: planText(), round2: round2() });
+    const naming = row('ceo', 'native', { id: `${RUN}-ceo-r2-native-8`, severity: 'Low', title: 'Build order wording', correlates: [`${RUN}-ceo-native-4`] } as Row);
+    expect(openEarlier(state, 'ceo', [naming]).map(r => r.id)).toContain(`${RUN}-ceo-native-4`);
+    const repeat = row('ceo', 'native', { id: `${RUN}-ceo-r2-native-7`, severity: 'High', title: 'Build order again', changes: 'ordering', correlates: [`${RUN}-ceo-native-4`] } as Row);
+    expect(openEarlier(state, 'ceo', [repeat]).map(r => r.id)).not.toContain(`${RUN}-ceo-native-4`);
+  });
+
+  test('a changed cut list or challenge list gets a new origin, so an earlier answer is asked again instead of carried', () => {
+    const origin = (list: GateList, cls: string) => byClass(list, cls)[0]!.origin;
+    const cuts = (extra: string) => planText().replace('- No shared team calendars\n', `- No shared team calendars\n${extra}`);
+    const before = buildGate(makeRun('cuts-before', { plan: cuts(''), round2: round2(), round1: false }), 1);
+    const after = buildGate(makeRun('cuts-after', { plan: cuts('- No web dashboard\n'), round2: round2(), round1: false }), 1);
+    expect(origin(after, 'cuts')).not.toBe(origin(before, 'cuts'));
+    const confirmOne = buildGate(makeRun('confirm-one', { plan: planText({ owner: null }), round2: round2(), round1: false }), 1);
+    const confirmTwo = buildGate(makeRun('confirm-two', { plan: planText({ owner: null }), round2: round2() }), 1);
+    expect(origin(confirmTwo, 'confirm_direction')).not.toBe(origin(confirmOne, 'confirm_direction'));
+  });
+
   test('an app plan with no Day one table gets one item; a backend plan never does', () => {
     const app = buildGate(makeRun('no-day-one-app', { plan: planText({ dayOne: false }), round2: round2(), round1: false }), 1);
     expect(byClass(app, 'day_one').map(i => [i.title.slice(0, 32), i.recommended])).toEqual([['The plan has no day-one page: th', 'a']]);
