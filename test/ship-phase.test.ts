@@ -100,6 +100,20 @@ describe('gstack-ship-phase run', () => {
     expect(fs.readFileSync(count, 'utf8')).toBe('s\n');
   }, 60_000);
 
+  // Value: protects=a changed command list never credits the replaced command's exit status to its replacement: the replaced process is stopped before the new command starts on the same log; fails_when=the old process keeps running and writes exit 0 into the file the new command is judged by (a false pass);
+  //   why_new=/ship outside-voice review of #4451 reproduced the false pass; seam=none; no_claim=a process that ignores SIGTERM (it stops the phase instead)
+  test.skipIf(process.platform === 'win32')('a replaced command still running is stopped, so its exit never settles the new command', () => {
+    const b = box();
+    const first = phase(b, ['--phase', '5', '--wait-s', '1'], [`sleep 2; echo 'OLD: ok'`]);
+    expect(first.stdout).toContain('NEXT: rerun');
+    const changed = phase(b, ['--phase', '5', '--wait-s', '30'], [`sleep 4; echo 'NEW: failed'; exit 1`]);
+    expect(changed.stdout).toMatch(/^REPLACED: 1\/1 pid=\d+ ran a command this list no longer names; stopping it/);
+    expect(changed.status, changed.stdout + changed.stderr).toBe(3);
+    expect(changed.stdout).toContain('RAN: 1/1 exit=1');
+    expect(changed.stdout).toContain('NEW: failed');
+    expect(changed.stdout).not.toContain('OLD: ok');
+  }, 60_000);
+
   test('result lines keep CODE: lines and gstack refusals, and drop everything else', () => {
     expect(resultLines('noise\nBUDGET: used=1\n  INDENTED: no\ngstack-ship-receipt write: refused (X)\nGSTACK_RESULT: skill=ship\nlower: no\n'))
       .toEqual(['BUDGET: used=1', 'gstack-ship-receipt write: refused (X)', 'GSTACK_RESULT: skill=ship']);

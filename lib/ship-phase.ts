@@ -77,7 +77,14 @@ export async function runPhase(o: RunOpts): Promise<PhaseOut> {
   const n = o.commands.length;
   const firstChanged = j.entries.findIndex((e, i) => i >= n || e.sha !== sha256(o.commands[i]!));
   if (firstChanged >= 0) {
-    for (const e of j.entries.slice(firstChanged)) if (e.state === 'running' && alive(e.pid)) out.push(`REPLACED: ${firstChanged + 1}/${n} pid=${e.pid} still runs a command this list no longer names (log=${e.log})`);
+    const live = j.entries.slice(firstChanged).filter(e => e.state === 'running' && alive(e.pid));
+    for (const e of live) {
+      out.push(`REPLACED: ${j.entries.indexOf(e) + 1}/${n} pid=${e.pid} ran a command this list no longer names; stopping it (log=${e.log})`);
+      try { process.kill(-e.pid!, 'SIGTERM'); } catch { /* already gone */ }
+    }
+    for (let t = 0; t < 50 && live.some(e => alive(e.pid)); t++) await Bun.sleep(100);
+    const stuck = live.filter(e => alive(e.pid));
+    if (stuck.length) return { stdout: [...out, `STOP: phase ${o.phase}: replaced command pid ${stuck.map(e => e.pid).join(',')} is still running and shares its log and exit file with the new list; stop it (kill -- -<pid>), then rerun the same command`], exit: 3 };
     j.entries.length = firstChanged;
   }
   for (let i = 0; i < n; i++) {

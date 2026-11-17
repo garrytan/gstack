@@ -100,7 +100,7 @@ prints only result lines (`CODE: …` lines and `gstack-<bin>: …` refusals): `
 then `PHASE: <n> done`. A command still running after `--wait-s` keeps running; the run prints `WAITING:` and
 `NEXT: rerun`, and the same command resumes the wait. A failed command prints `STOP:` (exit 3); after the fix, the
 same command starts at it, because the journal (`phases/<n>/journal.json`) keeps each finished command by the
-sha256 of its text. A command a restart killed runs again; a changed list reruns from its first changed command.
+sha256 of its text. A command a restart killed runs again; a changed list stops a replaced command that still runs, then reruns from its first changed command.
 
 On Capy one call runs a whole phase: `gstack-ship-phase program` prints the checked-in program
 `lib/capy-ship-phase.js`, loaded like the review pass program. It reads this jam's counter into
