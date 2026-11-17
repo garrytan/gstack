@@ -552,18 +552,21 @@ read_config_value() {
 
 # ── Config writes: one lock, one read-modify-write rename ──────────────────
 # Every mutation of config.yaml (set, unset, the transcript_repos pair, the
-# user-slug writer) holds an atomic mkdir lock and replaces the file with one
+# user-slug writer) holds one lock directory and replaces the file with one
 # rename, so concurrent writers never lose each other's keys and an
-# interrupted write leaves the old file. The pid file holds "<pid> <epoch>";
-# a lock whose holder is dead or older than 10 s is taken over. No flock(1):
-# stock macOS does not ship it.
+# interrupted write leaves the old file. The lock is taken with
+# gstack_lock_take (bin/gstack-lock.sh), which creates the pid file with
+# O_EXCL because mkdir's exit status is not a lock on Ubuntu 26.04's uutils
+# mkdir. The pid file holds "<pid> <epoch>"; a lock whose holder is dead or
+# older than 10 s is taken over. No flock(1): stock macOS does not ship it.
 CONFIG_LOCK="$STATE_DIR/.config-yaml.lock"
 _config_locked=""
 
 config_lock() {
   mkdir -p "$STATE_DIR"
+  . "$(dirname "$0")/gstack-lock.sh" 2>/dev/null || { echo "Error: $(dirname "$0")/gstack-lock.sh is missing. Existing value left unchanged. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
   local waited=0 held pid ts stale
-  while ! mkdir "$CONFIG_LOCK" 2>/dev/null; do
+  while ! gstack_lock_take "$CONFIG_LOCK" pid "$$ $(date +%s)"; do
     if [ ! -w "$STATE_DIR" ]; then
       echo "Error: cannot write to $STATE_DIR (its config lock could not be created). Existing value left unchanged." >&2
       exit 1
@@ -589,7 +592,6 @@ config_lock() {
     fi
     sleep 0.05
   done
-  printf '%s %s\n' "$$" "$(date +%s)" > "$CONFIG_LOCK/pid"
   _config_locked=1
   trap 'config_unlock' EXIT
 }
