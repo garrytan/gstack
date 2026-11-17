@@ -1808,7 +1808,7 @@ install change is `package.json`'s version line. Both filters are pinned by
 a branch, dispatch `windows-scoped-tests.yml` with `-f files='<file> <file>'`.
 
 The full curated suite below runs nightly on main and on dispatch, never on a PR.
-`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6
+`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 8
 --shard-jobs $WINDOWS_FREE_JOBS`), runs one strict serial shard per
 `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux

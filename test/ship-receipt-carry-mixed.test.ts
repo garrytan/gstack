@@ -66,7 +66,7 @@ function founderstar(resolvedSave = 84, baseBlock = 0) {
 }
 
 const scopedPacket = (err: string) => /one fix-check reviewer reads (\S+), then rerun carry/.exec(err)?.[1];
-const eligible = (err: string) => /^RECHECK: eligible range_diff_lines=(\d+) range_diff_sha256=([0-9a-f]{64}) packet=(\S+);/m.exec(err);
+const eligible = (err: string) => /^RECHECK: advisory range_diff_lines=(\d+) range_diff_sha256=([0-9a-f]{64}) packet=(\S+);/m.exec(err);
 const recordAt = (f: ShipFx, name: string, v: object) => { const file = path.join(f.root, name); fs.writeFileSync(file, JSON.stringify(v)); return file; };
 
 describe('a base-side removed line next to byte-identical added lines (GST-1561 ask 2)', () => {
@@ -136,26 +136,19 @@ describe('carry: a changed path plus context paths compose into one bounded re-c
     return { ...x, head: x.f.git('rev-parse', 'HEAD').stdout.trim() };
   };
 
-  test('one packet holds the range-diff and the context hunks, bound to range_base; a clean record carries', () => {
+  test('one advisory packet holds the range-diff and the context hunks, bound to range_base; no record carries (GST-2673)', () => {
     const { f, from, head, reviewedBase, carry, body } = composed();
     const ask = carry();
     expect([ask.status, ask.stdout.trim().split('\n')[0]], ask.stderr).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
     const m = eligible(ask.stderr);
     expect(m, ask.stderr).not.toBeNull();
-    const rangeBase = /"range_base":"([0-9a-f]{40,64})"/.exec(ask.stderr)?.[1];
-    expect(rangeBase).toBe(reviewedBase);
     const text = fs.readFileSync(m![3]!, 'utf8');
     for (const s of ['var score0 := 2', 'was_vesting_clear', 'moved by the base', 'const SAVE_VERSION := 83', `range_base ${reviewedBase}`]) expect(text).toContain(s);
-    const record = { from, head, range_base: rangeBase, range_diff_sha256: m![2], reader: READER, verdict: 'clean' };
-    const noBase = carry(['--recheck', recordAt(f, 'nobase.json', { ...record, range_base: undefined })]);
-    expect([noBase.status, noBase.stdout.includes('RECEIPT_CARRY_REFUSED'), noBase.stderr.includes('range_base')]).toEqual([EXIT.refused, true, true]);
-    const ok = carry(['--recheck', recordAt(f, 'recheck.json', record)]);
-    expect([ok.status, ok.stderr.slice(0, 600)]).toEqual([EXIT.ok, expect.any(String)]);
-    expect(ok.stdout).toContain(`scoped re-check by ${READER}`);
-    const reason = extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.carry!.reason;
-    expect(reason).toContain(`scoped re-check by ${READER}`);
-    expect(reason).toContain(VESTING);
-    expect(reason).toContain(`range_base ${reviewedBase.slice(0, 12)}`);
+    const before = fs.readFileSync(body, 'utf8');
+    const record = { from, head, range_base: reviewedBase, range_diff_sha256: m![2], reader: READER, verdict: 'clean' };
+    const r = carry(['--recheck', recordAt(f, 'recheck.json', record)]);
+    expect([r.status, r.stderr.includes('--recheck is gone')]).toEqual([EXIT.refused, true]);
+    expect(fs.readFileSync(body, 'utf8')).toBe(before);
   });
 
   test('past the size cap it refuses as before: RECEIPT_CARRY_PRODUCT_CHANGED, re-check not eligible', () => {

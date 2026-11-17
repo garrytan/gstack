@@ -556,6 +556,13 @@ describe('gstack-ff-update: self-contained, with twins pinned', () => {
     expect(ffSrc).toContain('[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$MYPID" ] && rm -rf "$LOCK_DIR" 2>/dev/null');
   });
 
+  // Value: protects=the self-contained bin takes its lock exactly like every other gstack lock; fails_when=the inlined gstack_lock_take drifts from bin/gstack-lock.sh; why_new=the lock moved off mkdir's exit status (Ubuntu 26.04 uutils); seam=none; no_claim=the race itself, proven in test/gstack-lock-race.test.ts
+  test('the inlined gstack_lock_take is byte-identical to bin/gstack-lock.sh', () => {
+    const lockSrc = fs.readFileSync(path.join(path.dirname(FF), 'gstack-lock.sh'), 'utf8');
+    expect(fn(ffSrc, 'gstack_lock_take')).toBeDefined();
+    expect(fn(ffSrc, 'gstack_lock_take')).toBe(fn(lockSrc, 'gstack_lock_take'));
+  });
+
   test.skipIf(process.platform === 'win32')('ff_flatten flattens newlines and strips control characters and escape sequences', () => {
     const r = spawnSync('bash', ['-c', `eval "$(sed -n '/^ff_flatten() {/,/^}/p' "${FF}")"; ff_flatten "$(printf 'bad\\nstages=x \\033[31mred\\033[0m\\001end')" 200`], { encoding: 'utf8', timeout: 30_000 });
     expect(r.stdout).toBe('bad stages=x redend');

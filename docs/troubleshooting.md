@@ -1882,6 +1882,36 @@ A `tracked-by-project` or `version-reverted` cause has its own section:
 listed changes, check out the default branch, move local commits to another
 branch), then re-run `bin/gstack-upgrade`. A reinstall that failed after the
 fast-forward is completed by the next run (`reinstall pending from <version>`).
+For `another gstack updater holds <state root>/.setup-lock (pid <n>)`, wait
+for that update to finish. If no gstack update is running (`kill -0 <n>`
+fails, or the pid reads `unknown` because the holder was killed before it
+wrote one), remove the lock with `rm -rf <state root>/.setup-lock` and
+re-run. See [how gstack's shell locks work](#shell-locks).
+
+<a id="shell-locks"></a>
+### Two gstack updates, setups or config writes ran at once (Ubuntu 26.04, uutils `mkdir`)
+
+**Meaning.** gstack's shell locks (the updater's `.setup-lock`, the config
+lock `.config-yaml.lock`, the install registry, the developer profile,
+settings.json, the Chromium install, the brain-sync drain, freeze and the
+lease directory) are lock directories. Older gstack held one when
+`mkdir <lock>` succeeded. Rust coreutils (uutils) 0.8.0, the `mkdir` on
+Ubuntu 26.04 and on GitHub's `ubuntu-latest` from 2026-11-09, reports success
+even when another process created the directory first, so two racing callers
+could both hold the lock: two updates moving one checkout, or two
+`gstack-config set` calls where one write dropped the other's key. GNU and
+BSD `mkdir` never did this.
+
+**Fix.** Upgrade gstack (`/gstack-upgrade`). Every lock is now taken by
+`gstack_lock_take` in `bin/gstack-lock.sh`: `mkdir` only makes the
+directory, and the holder is whoever creates its `pid` (or `owner`) file
+with the shell's noclobber redirect, which opens it `O_CREAT|O_EXCL`, so
+exactly one caller wins whatever `mkdir` reports. Waiting, stale-lock
+recovery and release are unchanged. A lock directory with no owner file
+inside, left by a process killed while taking it, still counts as held until
+the caller's own stale-lock rule clears it; when nothing is running, remove it
+with `rm -rf <lock>`. Re-set any config key you set during a concurrent write
+on 26.04 (`gstack-config get <key>` shows what stuck).
 
 <a id="upgrade-busy"></a>
 ### `gstack-upgrade: live gstack sessions hold this installation: pid <p> (<age>m), ...; nothing was changed; fix: ... (UPGRADE_BUSY)` / `gstack-upgrade: a shared harness (capy-server, pid <p>) holds a lease <n>m old; ... (UPGRADE_BUSY)`
@@ -7127,34 +7157,52 @@ In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
 
 <a id="receipt-carry-recheck"></a>
-### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1)
+### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1, advice only)
 
 **Meaning.** The product diff changed since the receipt's head, so the receipt
-can't carry as it is. When the history is linear, the base is the one the
-receipt was reviewed against, and `git range-diff` of the reviewed range
-against the current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
-`crew/lib/ship-recheck.ts`), carry also prints `RECHECK: eligible
-range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader on that
-range-diff can clear it instead of a full second /ship. A rebased branch
+can't carry. When the history is linear, the base is the one the receipt was
+reviewed against, and `git range-diff` of the reviewed range against the
+current one is at most 400 lines (`RECHECK_RANGE_DIFF_CAP` in
+`crew/lib/ship-recheck.ts`), carry also prints `RECHECK: advisory
+range_diff_lines=N range_diff_sha256=<sha> packet=<file>`: one reader may read
+that range-diff for advice, but it never carries the receipt. A rebased branch
 (`RECEIPT_CARRY_TREE_MISMATCH`), a retargeted stack, a receipt with no
 `review_depth`, more than 20 changed product paths, a binary path, a moved
 base context section with over 200 of the branch's own +/- lines, an empty or unreadable range-diff and a
 packet over 400 lines or 64 KB print `RECHECK: not eligible (<why>)` instead.
 When base context also moved next to reviewed hunks in other paths, their
-scoped-review sections join the same packet (GST-1561): the caps count the
-whole packet, `range_diff_sha256` binds all of it, and the RECHECK line's record
-adds `"range_base"`.
+scoped-review sections join the same packet (GST-1561), the caps count the
+whole packet, and the packet names its `range_base`.
 
-**Fix.** Dispatch one reader on the packet (`.git/gstack/recheck-<head12>.md`;
-`--dry-run` writes none). When it comes back clean, write
-`{"from":"<reviewed head>","head":"<HEAD>","range_diff_sha256":"<from the RECHECK line>","reader":"<model>","verdict":"clean"}`
-(plus `"range_base"` when the line's record names one; a record without it then
-refuses) and rerun `gstack-ship-receipt carry ... --recheck <record.json>`. The carry
-reason records the reader and the range-diff size, and with moved context the
-context paths and `range_base`. Carry still refuses when
-HEAD needs a deeper review depth or a different risk class than the receipt
-recorded; that, or a blocking finding, means /ship on the new head. In /ship
-Step 1, `gstack-ship-preflight` prints this as `NEXT: carry route (Step 1.4, J1)`.
+**Fix.** Run /ship on HEAD: its review plan gives the PR's final head a full
+review ([rounds per pull request](review-policy.md#rounds-per-pull-request)).
+The packet (`.git/gstack/recheck-<head12>.md`; `--dry-run` writes none) is
+advice for that run, never a substitute: in the replay behind this rule a
+diff-only re-check caught none of 8 real faults that full rounds had caught
+(GST-2673). `carry --recheck` is refused. In /ship Step 1,
+`gstack-ship-preflight` sends this head to Steps 2-16.
+
+<a id="pr-round-cap"></a>
+### `PR_ROUND_CAP`
+
+**Meaning.** `gstack-review-plan --prior-full <n>` found that this pull
+request already had its two full review rounds (R51), counted across every head and
+`/ship` run from the PR body's receipt history, so it planned no new round with a fix
+round. A PR at the cap whose own code changed gets one read-only full review of its
+final head; this stop then means that review found a blocker or a gate-class edit.
+`/ship` Step 1 prints the count as `PR_REVIEW_HISTORY:` and passes it on from
+`PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes
+listed instead of stopping.
+
+**Fix.** The lane's Captain decides. Ship with the open notes listed, or, when a finding above the floor is
+open in this PR's own change or the design changed, have the lane or Captain
+record one round with the command the `NEXT:` line prints,
+`gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason
+<why> --by <lane or Captain>`, then rerun `gstack-ship-preflight`: its
+`PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
+The grant names one head; a new push needs a new grant. This is not an owner
+ask, and gstack cannot grant itself one (`--by gstack` is refused)
+([review-policy.md](review-policy.md#rounds-per-pull-request)).
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
@@ -7241,7 +7289,12 @@ not an attempt: send `gstack-docs-candidate repair-prompt <output> --audit-id <i
 to one fresh agent with no tools (never the audit child, which can still edit), save its one-line
 reply and run `result <reply> --audit-id <id> --out-dir <dir> --repair-of <output>`.
 The reply passes only if every value the first line gave correctly is
-unchanged, and each audit gets one repair. Otherwise run Step 14.5's one
+unchanged, and each audit gets one repair. Text after a JSON line that carries
+the audit id (`text follows the JSON result line`) gets the same free re-ask for
+the whole line, but only when every such line is free of content problems (a
+content problem counts as an attempt). A blocked status and its blockers on any
+such line must survive the reply, which may add blockers; nothing else from the
+earlier line is kept or accepted. Otherwise run Step 14.5's one
 remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names
@@ -7255,7 +7308,12 @@ one stdout line per real event, prefixed `#<pr>`; progress and recoverable
 errors go to stderr. `/land-and-deploy` Step 3 runs it with `--until green`.
 Exit 0 means the `--until` condition is met or the PR merged; exit 1 and 2
 end with one of the two codes below. `green` gates on every check on the
-head, as `gstack-ci-gate` does, so the two never disagree; a check the base
+head, as `gstack-ci-gate` does, so the two never disagree. Both read every
+attempt of each check suite as `gstack-ship-queue ready` does: a failed check
+whose rerun attempt created no jobs (GitHub's default list then hides it) and a
+workflow run that failed before creating any job (`check failed: <workflow>
+(run <id>, no jobs)`) block `green`, and a rerun that passed clears its
+failure. A check the base
 branch requires (rulesets and classic branch protection) counts as pending
 until it appears. `--exclude <check,...>` leaves a named non-required check
 out of the verdict, as `gstack-ci-gate --exclude` does: it neither holds

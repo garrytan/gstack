@@ -265,12 +265,13 @@ describe('settings hook preserves the resolved settings target', () => {
     fs.writeFileSync(target + '.lock/owner', 'fixture-owner');
     const bin = path.join(root, 'bin');
     fs.mkdirSync(bin);
-    const realMkdir = spawnSync('which', ['mkdir'], { encoding: 'utf8', timeout: 5_000 }).stdout.trim();
-    expect(realMkdir).not.toBe('');
+    // The writer is seen waiting when it reads the held lock's age (gstack_lock_take never runs mkdir on a held lock).
+    const realStat = spawnSync('which', ['stat'], { encoding: 'utf8', timeout: 5_000 }).stdout.trim();
+    expect(realStat).not.toBe('');
     const observed = path.join(root, 'lock-observed');
-    fs.writeFileSync(path.join(bin, 'mkdir'), '#!/bin/bash\nif [ "$1" = "$LOCK_EXPECTED" ]; then printf seen > "$LOCK_OBSERVED"; fi\nexec "$REAL_MKDIR" "$@"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'stat'), '#!/bin/bash\nif [ "${@: -1}" = "$LOCK_EXPECTED" ]; then printf seen > "$LOCK_OBSERVED"; fi\nexec "$REAL_STAT" "$@"\n', { mode: 0o755 });
     const child = spawn('bash', [hook, ...addArgs()], {
-      env: { ...env(), PATH: `${bin}:${process.env.PATH}`, LOCK_EXPECTED: target + '.lock', LOCK_OBSERVED: observed, REAL_MKDIR: realMkdir },
+      env: { ...env(), PATH: `${bin}:${process.env.PATH}`, LOCK_EXPECTED: target + '.lock', LOCK_OBSERVED: observed, REAL_STAT: realStat },
       stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
     });
     let stderr = '';

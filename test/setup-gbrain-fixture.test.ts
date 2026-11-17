@@ -36,7 +36,7 @@ describe('setup-gbrain documented lock acquisition', () => {
       // The block resolves the state root through the installed gstack-paths.
       const installBin = path.join(home, '.claude', 'skills', 'gstack', 'bin');
       fs.mkdirSync(installBin, { recursive: true });
-      for (const b of ['gstack-paths', 'gstack-state-root.sh']) fs.copyFileSync(path.join(import.meta.dir, '..', 'bin', b), path.join(installBin, b));
+      for (const b of ['gstack-paths', 'gstack-state-root.sh', 'gstack-lock.sh']) fs.copyFileSync(path.join(import.meta.dir, '..', 'bin', b), path.join(installBin, b));
       fs.chmodSync(path.join(installBin, 'gstack-paths'), 0o755);
       const source = fs.readFileSync(path.join(import.meta.dir, '..', 'setup-gbrain', 'SKILL.md.tmpl'), 'utf8');
       const script = source.match(/\*\*Concurrent-run lock\.\*\*[\s\S]*?```bash\n([\s\S]*?)\n  ```/)?.[1];
@@ -46,8 +46,10 @@ describe('setup-gbrain documented lock acquisition', () => {
       if (scenario === 'fresh-home') {
         expect(fs.statSync(lock).isDirectory()).toBe(true);
         expect(result.stderr).toBe('');
+        expect(fs.readFileSync(path.join(lock, 'pid'), 'utf8')).toMatch(/^\d+\n$/);
       } else {
-        expect(result.stderr).toContain('mkdir:');
+        // gstack_lock_take never runs mkdir on an existing path, so only the parent's mkdir -p error reaches stderr.
+        if (scenario === 'parent-file') expect(result.stderr).toContain('mkdir:');
         expect(result.stderr.includes('Another /setup-gbrain instance')).toBe(scenario === 'existing-lock');
         if (scenario === 'existing-lock') expect(fs.readFileSync(path.join(lock, 'owner'), 'utf8')).toBe('preserve owner');
         if (scenario === 'parent-file') {
