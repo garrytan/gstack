@@ -640,7 +640,7 @@ do not launch the downstream skill or open a browser.`,
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 38_637, // GST-2774 (2026-11-14): the Claude catalog description keeps a when-to-use clause (GSTA-558: Opus 5.5 skipped /review and the planning skills when the listing said only what a skill is); measured 38,637 (before: 38,629 on 18652cc). Before that: GSTA-96 hoist (2026-10-26): lowered from 60_450 by the shared preamble that moved to sections/preamble.md, keeping the pre-hoist headroom of 323 bytes; measured 38,306. Before: + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 60_013
+    maxSkeletonBytes: 38_676, // GST-2774 (2026-11-14): the Claude catalog description keeps a when-to-use clause (GSTA-558: Opus 5.5 skipped /review and the planning skills when the listing said only what a skill is); measured 38,676 on the merge with dc36681 (before: 38,629). Before that: GSTA-96 hoist (2026-10-26): lowered from 60_450 by the shared preamble that moved to sections/preamble.md, keeping the pre-hoist headroom of 323 bytes; measured 38,306. Before: + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 60_013
     minUnionBytes: 78_300, // measured union 79,139
     mustContain: ['PGLite', 'Supabase', 'claude mcp add', 'read_secret_to_env', 'pooler'],
     maxSizeRatio: 1.07, // measured 1.051 vs the branch monolith: index + stubs + 4 STOP pointers
