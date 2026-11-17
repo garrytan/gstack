@@ -68,7 +68,7 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 If \`SCOPE_FRONTEND=false\`, skip the entire design review silently.
 
-**0. Mechanical pass first.** Always run the probe below; never skip it. It searches the environment and install caches, which no file listing shows, so never assume or report a detector absent without its output; write its first line in the review as \`Design detector: <first line>\`. This pass never offers to install one (the design skills ask, once). On \`${SENTINEL.READY}\`, scan the changed frontend files before reading them yourself:
+**0. Mechanical pass first.** Always run the probe below for a design detector the user installed. It searches the environment and install caches, which no file listing shows, so never assume or report a detector absent without its output; state its first line in the design review. This pass never offers to install one (the design skills ask, once). On \`${SENTINEL.READY}\`, scan the changed frontend files before reading them yourself:
 
 \`\`\`bash
 bun --no-env-file --config=/dev/null run ~/.claude/skills/gstack/bin/gstack-design-detect.ts probe --host claude
