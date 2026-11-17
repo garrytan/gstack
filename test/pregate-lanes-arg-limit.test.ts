@@ -19,7 +19,7 @@ const FILES = 700;
 const name = (i: number, tag = 'x') => `test/big/${tag.padEnd(186, 'x')}${String(i).padStart(4, '0')}.test.js`;
 const RUNNER = [
   'const files = process.argv.slice(2);',
-  "const failed = files.filter(f => f.includes('/fail')).length;",
+  "const failed = files.filter(f => f.includes('fail')).length;",
   "console.log(`ℹ tests ${files.length}\\nℹ pass ${files.length - failed}\\nℹ fail ${failed}`);",
   'process.exit(failed ? 1 : 0);',
 ].join('\n');
@@ -49,7 +49,7 @@ describe.skipIf(process.platform === 'win32')('a local lane whose file list is o
     expect(green.detail).not.toContain('E2BIG');
     expect(green).toMatchObject({ status: 'pass', detail: `${FILES} tests ran in ${FILES} file(s), exit 0` });
 
-    const red = await lanesOver([...tests.slice(1), name(0, 'fail')]);
+    const red = await lanesOver([...tests.slice(0, -1), name(FILES - 1, 'zfail')]);
     expect(red).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED', detail: `local lane exited 1 (1 failed of ${FILES} ran; ${FILES} files; pipefail)` });
   }, 120_000);
 });
