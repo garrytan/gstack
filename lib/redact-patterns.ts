@@ -1066,14 +1066,15 @@ function expressionTail(line: string, comment: string): string | null {
 }
 
 /**
- * CAPY-1: the value capture stops at a type's first space, so an annotation
- * with spaced or string-literal generic arguments
- * (`session: Pick<Session, "id" | "forkedFrom"> | null,`) never reached the
- * name-chain test as a closed type. Read on its line, the type is names, `<>`,
- * `[]`, `|`, `&`, `,` and `?`, with quoted literal types only inside `<>`,
- * each of them text that names a key (holdsSecretText); it ends at a `,`
+ * GST-3004: the value capture stops at a type's first space, so an annotation
+ * with spaced generic arguments (`session: Awaited<ReturnType<typeof launch>>;`)
+ * never reached the name-chain test as a closed type. Read on its line, the
+ * type is names, `<>`, `[]`, `|`, `&`, `,` and `?` only; it ends at a `,`
  * `;`, `)` or `=` outside the brackets, or at the line end, and the rest of
- * the line carries no secret literal or template.
+ * the line carries no secret literal or template. A string-literal type
+ * (CAPY-1's `Pick<Session, "id" | "forkedFrom">`) still reports: an entropy
+ * test on the literal alone let random hex through, so that shape is a known
+ * limit, allowlisted by value.
  */
 const GENERIC_TYPE_HEAD = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*</;
 function isGenericType(line: string): boolean {
@@ -1081,11 +1082,7 @@ function isGenericType(line: string): boolean {
   let i = 0;
   for (; i < line.length; i += 1) {
     const c = line[i]!;
-    if (c === '"' || c === "'") {
-      const literal = depth > 0 ? quotedAt(line, i) : null;
-      if (!literal || holdsSecretText(literal.text)) return false;
-      i = literal.end - 1;
-    } else if (c === "<") depth += 1;
+    if (c === "<") depth += 1;
     else if (c === ">") {
       if (--depth < 0) return false;
     } else if (depth === 0 && /[,;)=]/.test(c)) break;
@@ -1203,87 +1200,11 @@ function concatenationHoldsSecret(match: RegExpExecArray): boolean {
 }
 
 /**
- * GBRA-615: in source code, an array value whose elements are names and
- * quoted text, with at least one name, all of them passing holdsSecretText
- * (`"get_token": [load_auth, "authOperations"],`), is code: an unquoted name
- * there is code by #3048's rule. The array must close on the value's line,
- * followed only by `,` `;` `)` `]` `}` and a comment. A config file's
- * unquoted element is a string, so YAML's `[<secret>]` is checked as before,
- * and so are a multi-line array and one holding a call or a nested array.
- */
-const LIST_NAME = /[ \t]*[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*[ \t]*/y;
-function isNameList(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !CODE_SOURCE.test(sourcePath) || !span.startsWith("[")) return false;
-  const { start } = spanBounds(match);
-  const line = match.input.slice(start + 1).split("\n", 1)[0]!;
-  let names = 0;
-  let i = 0;
-  for (;;) {
-    const quote = /^[ \t]*["']/.exec(line.slice(i));
-    if (quote) {
-      const literal = quotedAt(line, i + quote[0].length - 1);
-      if (!literal || holdsSecretText(literal.text)) return false;
-      i = literal.end + /^[ \t]*/.exec(line.slice(literal.end))![0].length;
-    } else {
-      LIST_NAME.lastIndex = i;
-      const name = LIST_NAME.exec(line);
-      if (!name || holdsSecretText(name[0].trim())) return false;
-      names += 1;
-      i = LIST_NAME.lastIndex;
-    }
-    if (line[i] === "]") break;
-    if (line[i] !== ",") return false;
-    i += 1 + /^[ \t]*/.exec(line.slice(i + 1))![0].length;
-    if (line[i] === "]") break;
-  }
-  return names > 0 && /^[ \t,;)\]}]*(?:(?:\/\/|#).*)?\r?$/.test(line.slice(i + 1)) && !insideString(match.input, start, sourcePath);
-}
-
-/**
- * #4287 (#4309): in JS/TS source, a template literal made of `${…}` slots and
- * fixed text that names a key (`key: \`${over.day}|${over.groomerId}|over_tough|\`,`)
- * builds a cache or list key; it holds no credential. The backtick must open a
- * template at the value (jsSpans), close on the same line and hold at least
- * one slot; every slot is names, operators and numbers of up to five digits
- * only (no quote, backtick, brace, slash or longer number literal, so a slot
- * cannot spell a secret as a regex, string or number literal). The fixed text, joined across the slots so a secret split by them
- * is whole again, must pass holdsSecretText, and the rest of the line carries
- * no secret literal or further template. A template with no slot, a multi-line
- * one and one in a config file are checked as before.
- */
-const JS_SOURCE = /\.(?:[cm]?[jt]sx?)$/i;
-const TEMPLATE_SLOT = /^[\w$.?!\s|&+\-*%()[\],:<>=]*$/;
-function isTemplateKey(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
-  if (!sourcePath || !JS_SOURCE.test(sourcePath) || !span.startsWith("`")) return false;
-  const { start } = spanBounds(match);
-  const spans = jsSpans(match.input);
-  if (!inSpans(spans, start) || inSpans(spans, start - 1)) return false;
-  const line = match.input.slice(start + 1).split("\n", 1)[0]!;
-  let text = "";
-  let slots = 0;
-  let i = 0;
-  for (; i < line.length && line[i] !== "`"; i += 1) {
-    if (line[i] === "\\") {
-      text += line.slice(i, i + 2);
-      i += 1;
-    } else if (line.startsWith("${", i)) {
-      const close = line.indexOf("}", i);
-      const slot = line.slice(i + 2, close);
-      if (close < 0 || !TEMPLATE_SLOT.test(slot) || /(?<![\w$])\d/.test(slot.replace(/(?<![\w$])\d{1,5}(?![\w$])/g, ""))) return false;
-      slots += 1;
-      i = close;
-    } else text += line[i];
-  }
-  const rest = line.slice(i + 1);
-  return i < line.length && slots > 0 && !holdsSecretText(text) && !carriesSecretLiteral(rest) && !rest.includes("`");
-}
-
-/**
  * #4289: the regex also starts a name right after a comment marker, and
  * comments are prose: `# Auth: authentication, authorization, sessions`. A
  * match that starts after other text on its line is a comment's, and its value,
- * less trailing punctuation, reports only when it holds a secret by
- * holdsSecretText. Code before the comment is matched from the line start and
+ * less trailing punctuation, reports only when it is a secret run by
+ * isSecretRun. Code before the comment is matched from the line start and
  * checked as before.
  */
 function isCommentText(span: string, match: RegExpExecArray): boolean {
@@ -1781,9 +1702,8 @@ export const PATTERNS: RedactPattern[] = [
     // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
-    // GST-3004: so is an array of names in source (isNameList), a JS/TS
-    // template key (isTemplateKey, #4287) and a dotted field path
-    // (isDottedFieldPath, #4289), and so is key-naming text in a comment
+    // GST-3004: so is a dotted field path (isDottedFieldPath, #4289), and so
+    // is key-naming text in a comment
     // (isCommentText). A secret literal in a `+` chain reports first,
     // whatever the exemptions say about the chain's first piece
     // (concatenationHoldsSecret).
@@ -1796,8 +1716,6 @@ export const PATTERNS: RedactPattern[] = [
           !isCallExpression(span, match) &&
           !isSourceExpression(span, match, opts?.sourcePath) &&
           !isAttributeReference(span, match, opts?.sourcePath) &&
-          !isNameList(span, match, opts?.sourcePath) &&
-          !isTemplateKey(span, match, opts?.sourcePath) &&
           !isDottedFieldPath(span, match) &&
           !isCommentText(span, match) &&
           !isSchemaFieldIdentifier(span, match) &&

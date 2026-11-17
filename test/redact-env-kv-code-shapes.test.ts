@@ -1,15 +1,17 @@
 /**
  * GST-3004: env.kv ("secret-named assignment with high-entropy value") flagged
  * code as a secret, and the pregate secrets check, which cannot be downgraded,
- * stopped pushes on it: a JS/TS template key (#4287, #4309), a TypeScript type
- * annotation with spaced generic arguments (CAPY-1, qm#3589), an array of
- * loader names in gbrain's generated operation table (GBRA-615), a Python
- * keyword argument reading a settings constant and a quoted dotted field path
- * (#4289). Each exemption is decided by the value's shape, never by the key's
- * name or the file's path, and each pass below has a hold case putting a
- * real-looking secret in the same position.
+ * stopped pushes on it. Three shapes are now read as code, each by the value's
+ * shape and never by the key's name or the file's path, and each pass has a
+ * hold case putting a real-looking secret in the same position: a TypeScript
+ * type with spaced generic arguments, a Python keyword argument reading a
+ * CONSTANT_CASE setting, and a quoted camelCase dotted field path (#4289).
+ * Three reported shapes stay known limits: a JS/TS template key (#4287), an
+ * array of names (GBRA-615) and a string-literal generic type (CAPY-1). An
+ * entropy test on their text alone let random hex and encoded literals through
+ * (the second-model audit's bypasses below), so they still report.
  */
-// Value: protects=env.kv passes the five code shapes above while a secret in the same position, a config file or a string still reports; fails_when=one of the false positives returns, or an exemption lets a high-entropy or provider-shaped value through; why_new=the cases had no test; seam=none; no_claim=scanner-level only, the pregate case lives in pregate-secrets-source-context.test.ts
+// Value: protects=env.kv passes three code shapes while a secret in the same position, a config file or a string still reports, and the three known-limit shapes and the audit's bypass lines keep reporting; fails_when=one of the fixed false positives returns, or an exemption lets a high-entropy, hex, encoded or provider-shaped value through; why_new=the cases had no test; seam=none; no_claim=scanner-level only, the pregate case lives in pregate-secrets-source-context.test.ts
 import { describe, expect, test } from "bun:test";
 import { scan } from "../lib/redact-engine";
 
@@ -17,8 +19,10 @@ const ids = (text: string, sourcePath?: string) =>
   scan(text, { repoVisibility: "private", processEnv: {}, ...(sourcePath ? { sourcePath } : {}) }).findings.map((f) => f.id);
 const kv = (text: string, sourcePath?: string) => ids(text, sourcePath).includes("env.kv");
 const S = "Qx9vL2mZp8Rt4Kw7Yn3Bh2Jd";
+const HEX = ["9d1e7ebb", "51b069eb", "1bd6"].join("");
 const STRIPE = ["sk", "live", S].join("_");
 const SPACED = "R7m!2pX K4v@8Q j9W#3s";
+const BT = "~";
 const passes = (cases: ReadonlyArray<readonly [string, string | undefined]>) => {
   for (const [code, file] of cases) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: false });
 };
@@ -27,90 +31,26 @@ const holds = (cases: ReadonlyArray<readonly [string, string | undefined]>) => {
 };
 
 describe("env.kv: code shapes are not secrets (GST-3004)", () => {
-  const template = '  key: `${over.day}|${over.groomerId}|over_tough|`,';
-  test("a JS/TS template key made of slots and key-naming text passes (#4287)", () => {
+  test("a TypeScript annotation with spaced generic arguments passes", () => {
     passes([
-      [template, "src/cache.ts"],
-      [template, "src/Cache.tsx"],
-      [template, "src/cache.js"],
-      [template, "src/cache.mjs"],
-      ["  token: `tok-${over.ordinal ?? 1}`,", "test/prepass.test.ts"],
-      ["  key = `${candidate.dev}:${candidate.ino}`,", "lib/cache.ts"],
-      ["  idempotency_key: `autopilot-cycle:${src.id}:${opts.slot}`,", "src/fanout.ts"],
-      ["  apiKey = `${tenant}:${user.id}:over_tough`; // cache key", "src/cache.ts"],
-    ]);
-  });
-  test("hold: a secret in the template's text, a template without a slot, a literal in a slot or after it, and other files still report", () => {
-    holds([
-      ["  key: `${over.day}|" + S + "|`,", "src/cache.ts"],
-      ["  key: `Qx9v${a}L2mZ${b}p8Rt${c}4Kw7`,", "src/cache.ts"],
-      ["  key: `" + S + "`,", "src/cache.ts"],
-      ["password = `" + SPACED + "${suffix}`;", "src/client.ts"],
-      ["password = `${/m4Fq8Wz2Rn7Yb3Hd9Vk6Lp5C/.source}`;", "src/client.ts"],
-      ["password = `${" + "4821395" + "7601234}`;", "src/client.ts"],
-      ["password = `${0x9f3ac2e1b7d4}`;", "src/client.ts"],
-      ['  key: `${lookup("' + S + '")}|over_tough`,', "src/cache.ts"],
-      ["  key: `${over.day}|over_tough` + \"" + S + "\",", "src/cache.ts"],
-      ["  key: `${over.day}|over_tough` + `" + S + "`,", "src/cache.ts"],
-      ["  key: `${over.day}|\n" + S + "`,", "src/cache.ts"],
-      ['  key: "`${over.day}|' + S + '`",', "src/cache.ts"],
-      ["/*\n  key: `${over.day}|" + S + "`,\n*/", "src/cache.ts"],
-      [template, ".env"],
-      [template, "config.yaml"],
-      [template, undefined],
-    ]);
-    expect(ids("  key: `${over.day}|" + STRIPE + "`,", "src/cache.ts")).toEqual(expect.arrayContaining(["env.kv", "stripe.secret"]));
-  });
-
-  test("a TypeScript annotation with spaced or literal generic arguments passes (CAPY-1)", () => {
-    passes([
-      ['  session: Pick<Session, "id" | "forkedFrom"> | null,', "src/orchestrator.ts"],
-      ["  session: Pick<ClaudePtySession, 'send'>,", "test/helpers/launch.ts"],
       ["  session: Awaited<ReturnType<typeof launchClaudePty>>;", "test/trust.test.ts"],
-      ["  auth: Pick<AuthInfo, 'clientId' | 'principal'> | undefined,", "src/context.ts"],
-      ["  key: Omit<CacheKey, 'cluster_generation'>,", "src/cache.ts"],
       ["  credentials: Record<string, CredentialEntry>;", "src/vault.ts"],
+      ["  auth: Map<string, AuthInfo> | undefined,", "src/context.ts"],
+      ["  session: Pick<ClaudePtySession, Send | Close> | null,", "src/launch.ts"],
     ]);
   });
-  test("hold: a secret as a literal type or a default, a value in an object literal, and a config file still report", () => {
+  test("hold: a literal type, a default value, an object-literal value and a config file still report", () => {
     holds([
       ['  session: Pick<Session, "' + S + '"> | null,', "src/orchestrator.ts"],
+      ['  session: Pick<Session, "' + HEX + '">,', "src/orchestrator.ts"],
       ['password: Pick<Session, "' + SPACED + '">,', "src/client.ts"],
-      ['  session: Pick<Session, "id"> | null = "' + S + '",', "src/orchestrator.ts"],
-      ['  session: Pick<Session, "id"> | null, other: "' + S + '",', "src/orchestrator.ts"],
+      ['  session: Awaited<ReturnType<typeof launch>> = "' + S + '",', "src/orchestrator.ts"],
+      ['  session: Map<string, AuthInfo>, other: "' + S + '",', "src/orchestrator.ts"],
       ['  session: "' + S + '",', "src/orchestrator.ts"],
-      ['  session: Pick<Session, "id" | "' + S + '">', "deploy/values.yaml"],
-      ['  session: Pick<Session, "id" | "forkedFrom"> | null,', undefined],
+      ["  session: Awaited<ReturnType<typeof " + S + ">>;", "deploy/values.yaml"],
+      ["  session: Awaited<ReturnType<typeof launchClaudePty>>;", undefined],
     ]);
     expect(ids('  session: Pick<Session, "' + STRIPE + '">,', "src/a.ts")).toEqual(expect.arrayContaining(["env.kv", "stripe.secret"]));
-  });
-
-  test("an array of names and key-naming literals in source passes (GBRA-615)", () => {
-    const table = "src/core/operation-loaders.generated.ts";
-    passes([
-      ['  "reveal_secret": [load_secrets, "secretsOperations"],', table],
-      ['  "get_token": [load_auth, "authOperations"],', table],
-      ['  "get_token": [load_auth, "authOperations"], // generated', table],
-      ["  get_token: [loaders.auth, authOperations]", table],
-      ['    "session": [load_session, "sessionOperations"],', "gbrain/loaders.py"],
-    ]);
-    expect(kv('  "storage_list": [load_storage_manifest, "storageOperations"],', table)).toBe(false);
-  });
-  test("hold: a secret element, a random name, more text after the array, a call or a multi-line array, and a config file still report", () => {
-    const table = "src/core/operation-loaders.generated.ts";
-    holds([
-      ['  "get_token": [load_auth, "' + S + '"],', table],
-      ['password: [load_auth, "' + SPACED + '"],', "src/client.ts"],
-      ['  "get_token": [load_auth, "authOperations", "' + S + '"],', table],
-      ['  "get_token": [' + S + ', "authOperations"],', table],
-      ['  "get_token": [load_auth, "authOperations"], "' + S + '",', table],
-      ['  "get_token": [load_auth("' + S + '"), "authOperations"],', table],
-      ['  "get_token": [load_auth,', table],
-      ["  get_token: [load_auth, " + S + "]", "config/loaders.yaml"],
-      ['  "get_token": [load_auth, "authOperations"],', "config/loaders.json"],
-      ['  "get_token": [load_auth, "authOperations"],', undefined],
-    ]);
-    expect(ids('  "get_token": [load_auth, "' + STRIPE + '"],', table)).toEqual(expect.arrayContaining(["env.kv", "stripe.secret"]));
   });
 
   test("a Python keyword argument reading a CONSTANT_CASE setting passes (#4289)", () => {
@@ -149,6 +89,21 @@ describe("env.kv: code shapes are not secrets (GST-3004)", () => {
       ['KEY = "form.section2.fieldName"', "app/forms.py"],
       ['KEY = "section.fieldNameValue"', "app/forms.py"],
       ['KEY = "form.section.fieldName', "app/forms.py"],
+    ]);
+  });
+
+  test("known limits: template keys, arrays of names and string-literal generic types still report, and so do the audit's bypass lines", () => {
+    const template = (text: string) => text.replaceAll(BT, "\x60").replaceAll("@{", "$" + "{");
+    holds([
+      [template("  key: ~@{over.day}|@{over.groomerId}|over_tough|~,"), "src/cache.ts"],
+      ['  "reveal_secret": [load_secrets, "secretsOperations"],', "src/core/operation-loaders.generated.ts"],
+      ['  session: Pick<Session, "id" | "forkedFrom"> | null,', "src/orchestrator.ts"],
+      [template("password = ~" + SPACED + "@{suffix}~;"), "src/client.ts"],
+      [template("password = ~@{tenant}" + HEX + "~;"), "src/client.ts"],
+      [template("password = ~@{/m4Fq8Wz2Rn7Yb3Hd9Vk6Lp5C/.source}~;"), "src/client.ts"],
+      [template("password = ~@{String.fromCharCode(109,52,70,113,56,87,122,50)}~;"), "src/client.ts"],
+      ['password: [load_auth, "' + SPACED + '"],', "src/client.ts"],
+      ['password: [load_auth, "' + HEX + '"],', "src/client.ts"],
     ]);
   });
 });
