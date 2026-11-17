@@ -413,6 +413,9 @@ gstack_result_anchor() {
     PREREG_DIAGNOSTIC_UNTESTED) printf '%s' 'prereg-diagnostic-untested' ;;
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
+    EVAL_JUDGE_UNCHECKED) printf '%s' 'eval-judge-unchecked' ;;
+    EVAL_REPORT_UNPLANTED_ZERO) printf '%s' 'eval-report-unplanted-zero' ;;
+    EVAL_REPORT_NO_ANSWER_ONLY) printf '%s' 'eval-report-no-answer-only' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
@@ -437,6 +440,7 @@ gstack_result_anchor() {
     PLAIN_TITLE_REFUSED) printf '%s' 'plain-title-refused' ;;
     PLAIN_BRANCH_REFUSED) printf '%s' 'plain-branch-refused' ;;
     PLAIN_OPENING_REFUSED) printf '%s' 'plain-opening-refused' ;;
+    PLAIN_BODY_REFUSED) printf '%s' 'plain-body-refused' ;;
     PLAIN_CHANGELOG_REFUSED) printf '%s' 'plain-changelog-refused' ;;
     PLAIN_COMMIT_REFUSED) printf '%s' 'plain-commit-refused' ;;
     PLAIN_POLICY_INVALID) printf '%s' 'plain-policy-invalid' ;;

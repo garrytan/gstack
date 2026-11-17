@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, splitTitle, type PlainFinding } from '../lib/plain-title';
+import { DEFAULT_TERMS, PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, splitTitle, type PlainFinding } from '../lib/plain-title';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin/gstack-plain-title');
@@ -26,7 +26,7 @@ const MAIN_SUBJECTS: Array<[string, string[]]> = [
   ['fix(ship): record-ci reuses its own CI row at the same tree, run and selection (GST-1795)', ['scope-prefix:fix(ship):']],
   ['v1.98.0.0 release: fold the changelog fragments', []],
   ['ship tooling: post-review voices dispatch, same-tree pregate clears, fix-check p<N> ledgers (GST-1775)', ['term:voices', 'term:pregate', 'term:fix-check', 'term:ledgers']],
-  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", []],
+  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", ['term:crew', 'term:carry']],
   ['Require the daemon secret and loopback Host/Origin on the design and iOS QA daemons', []],
   ["browse: keep tunnel-paired agents on web URLs and away from the daemon's disk", []],
   ['feat(diff-scope): template UI in .ts/.js counts as frontend; receipt records the static design pass (GST-1718)', ['scope-prefix:feat(diff-scope):', 'term:receipt']],
@@ -34,7 +34,7 @@ const MAIN_SUBJECTS: Array<[string, string[]]> = [
   ['fix(ship-receipt): name the non-ancestor targeted-read commit in RECEIPT_INVALID (GST-1700)', ['scope-prefix:fix(ship-receipt):', 'term:receipt']],
   ['fix: release stamps and a docs-audit edit after the last fix-check are no gate-class edit (GST-1702)', ['term:fix-check']],
   ["fix(ship): a cleared remote gate for HEAD's exact tree satisfies a lane whose inventory refuses that tree (GST-1688)", ['scope-prefix:fix(ship):', 'term:lane']],
-  ['fix: the receipt and the review plan agree on stamp and docs carry for review_targeted (GST-1689)', ['term:receipt']],
+  ['fix: the receipt and the review plan agree on stamp and docs carry for review_targeted (GST-1689)', ['term:receipt', 'term:carry', 'term:stamp']],
   ['Capy session: defer the upgrade while a /ship or review run is open; upgrade-path fixes (GST-1677, GST-1658)', []],
   ['Playwright 1.65.0: bundled Chromium 158 drops the distrusted eMudhra root (#3338)', []],
   ['changelog.d: a second GST-1631 fragment names what the audit redaction does not cover yet (GST-1635)', ['code:GST-1631']],
@@ -143,7 +143,8 @@ describe('checkBranch', () => {
     expect(src('lib/release-stamp.ts')).toContain('`release/${version}`');
     expect(src('crew/lib/ship-queue-wave.ts')).toContain("startsWith('wave/')");
     expect(src('lib/ship-queue-land.ts')).toContain('`gstack-land-repair/${j.pr}`');
-    expect(policy.exempt_branch_prefixes).toEqual(['release/', 'wave/', 'gstack-land-repair/']);
+    expect(fs.existsSync(path.join(ROOT, '.github/dependabot.yml'))).toBe(true);
+    expect(policy.exempt_branch_prefixes).toEqual(['release/', 'wave/', 'gstack-land-repair/', 'dependabot/']);
   });
 });
 
@@ -163,15 +164,15 @@ describe('checkOpening', () => {
     expect(brief(checkOpening(NOTES, policy))).toEqual(['opening-shape:no opening paragraph']);
   });
 
-  test('more than two sentences, or a code or term in the opening, is refused', () => {
-    expect(brief(checkOpening('One thing. Two things. Three things.', policy))).toEqual(['opening-shape:3 sentences']);
+  test('three lines of sentences pass (the body shape check owns length); a code or term in the opening is refused', () => {
+    expect(checkOpening('One thing. Two things. Three things.', policy)).toEqual([]);
     expect(checkOpening('This changes the setup, e.g. the default. It is plain.', policy)).toEqual([]);
     expect(brief(checkOpening('The pregate clears faster (GST-1713).', policy))).toEqual(['code:GST-1713', 'term:pregate']);
   });
 
   test('a marker quoted inline in the opening does not end it; only the section marker on its own line does', () => {
     const opening = 'Readers find the `<!-- gstack:agent-notes -->` section at the end. It holds the checks. It stays collapsed.\n\n';
-    expect(brief(checkOpening(opening + NOTES, policy))).toEqual(['opening-shape:3 sentences']);
+    expect(checkOpening(opening + NOTES, policy)).toEqual([]);
   });
 });
 
@@ -206,7 +207,10 @@ describe('policy', () => {
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, allow: [{ text: 'R2' }] })))).toThrow(/allow\[0\]\.reason/);
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, since: 'soon' })))).toThrow(/since/);
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, extra: 1 })))).toThrow(/extra is not a known key/);
-    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify(base)))).toEqual(base);
+    expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, body_since: 'later' })))).toThrow(/body_since/);
+    expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, replace_default_terms: 'yes' })))).toThrow(/replace_default_terms/);
+    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify(base)))).toEqual({ ...base, terms: ['a', ...DEFAULT_TERMS], body_since: base.since });
+    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, replace_default_terms: true, body_since: '2026-11-20' })))).toEqual({ ...base, body_since: '2026-11-20' });
   });
 
   test("gstack's policy loads and every allow entry says why", () => {
@@ -252,6 +256,33 @@ describe('bin/gstack-plain-title', () => {
     expect(commits.stdout).toContain('(warning only)');
     const both = run(dirs.policy, ['check', '--title', 'pregate', '--commits-file', file('c2.txt', 'GST-1 done\n')]);
     expect([both.status, both.last]).toEqual([1, 'PLAIN_TITLE: refused=1 warned=1']);
+  });
+
+  // Value: protects=--body-file checks the folded shape (three visible lines, no listed word above Agent notes) and refuses
+  // only for a PR created on or after body_since on a branch the policy does not exempt; fails_when=an unfolded /ship draft
+  // is refused for its ## sections, or older and generated PRs start failing CI; why_new=R76 as amended 2026-11-15 (GST-2737)
+  test('a body file is checked once folded; an older PR or an exempt branch only warns', () => {
+    const draft = file('draft.md', 'What changed.\n\nWhy it helps.\n\nNothing to do.\n\n## What changed\n\n- one\n\n## Tests\n\n- two\n');
+    expect(run(dirs.policy, ['check', '--body-file', draft])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: ok' });
+    const long = file('long.md', 'One.\n\nTwo.\n\nThree.\n\nFour.\n\n## Tests\n\n- the pregate passed\n');
+    const r = run(dirs.policy, ['check', '--body-file', long, '--created-at', '2026-11-20T00:00:00Z']);
+    expect([r.status, r.last]).toEqual([1, 'PLAIN_TITLE: refused=2']);
+    expect(r.stdout).toContain('PLAIN_BODY: PLAIN_BODY_REFUSED visible-lines "4 lines');
+    expect(r.stdout).toContain('PLAIN_BODY: PLAIN_BODY_REFUSED term "pregate"');
+    expect(run(dirs.policy, ['check', '--body-file', long, '--created-at', '2026-11-10T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', long, '--head-branch', 'release/1.2.3.0'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+  });
+
+  // Value: protects=the opening's own findings follow the same body_since and exempt-branch downgrade as the shape findings;
+  // fails_when=an older PR, a release/ PR or a Dependabot PR fails the required check for a listed word in its opening;
+  // why_new=the opening moved from the warn step to the refusing body step (GST-2737 review)
+  test('an older PR or an exempt branch only warns about its opening too', () => {
+    const body = file('lane.md', 'This lane makes the merge faster for users.\n');
+    expect(run(dirs.policy, ['check', '--body-file', body, '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 1, last: 'PLAIN_TITLE: refused=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--created-at', '2026-11-10T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', 'release/1.2.3.4', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', 'dependabot/bun/production-dependencies-ea1c777f8f', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 0, last: 'PLAIN_TITLE: warned=2' });
+    expect(run(dirs.policy, ['check', '--body-file', body, '--head-branch', '', '--created-at', '2026-11-20T00:00:00Z'])).toMatchObject({ status: 1, last: 'PLAIN_TITLE: refused=2' });
   });
 
   test('a changelog entry is checked', () => {

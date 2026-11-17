@@ -2,7 +2,7 @@
 name: ship
 preamble-tier: 4
 version: 1.0.0
-description: "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR. (gstack)"
+description: "Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG, push and create a PR. Use for: ship it, create a pr, push to main. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -17,14 +17,13 @@ triggers:
   - ship it
   - create a pr
   - push to main
-  - deploy this
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/ship/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/ship/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

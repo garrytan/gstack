@@ -1036,8 +1036,10 @@ namespaces Chromium's sandbox needs, and `python3-venv` is absent (required by
 the Python runner tests).
 
 VMs are named `ubirun-<owner>-<epoch>-<hex>`, plus a `-t<hours>` TTL suffix
-(below); `<owner>` is `UBI_OWNER` (the thread id on a Capy machine; lowercase
-letters and digits, at most 12), which `up`, `run` and `verify` require. Every exit
+(below); `<owner>` is `UBI_OWNER` in full (the thread id on a Capy machine; lowercase
+letters and digits, at most 31, longer is refused with `UBI_OWNER_TOO_LONG`), which `up`, `run` and `verify` require. Older runner copies cut the owner to 12
+characters, so owners sharing that prefix reaped each other's VMs (#3748); a VM named under the cut form
+counts as a longer owner's only when this machine's VM record lists it under that form. Every exit
 path destroys the client's own VM (`trap` on EXIT, INT, TERM, HUP and QUIT), and
 `down` fails loudly (`FAILED to destroy <location>/<name> (HTTP <code>)`) unless
 the VM is confirmed gone. `list --mine` shows this owner's VMs, `usage` the
@@ -1069,7 +1071,14 @@ before the create request when that exceeds the known ceiling
 (`UBI_QUOTA_VCPUS`, or the maximum the last refusal printed, remembered in the
 state root; `UBI_QUOTA_WAIT=<seconds>` waits for room instead). When the usage read fails (`usage` exits 1 on an
 unreadable VM list or size and skips a VM that 404s), the preflight retries
-within `UBI_QUOTA_WAIT`, then logs and leaves the decision to the API. `run`, `verify`
+within `UBI_QUOTA_WAIT`, then refuses under a `UBI_QUOTA_VCPUS` ceiling
+(`UBI_QUOTA_UNREADABLE`, nothing launched) and leaves the decision to the API under a
+cached refusal maximum, which is the API's own ceiling. The usage read and the
+booking of the new VM's vCPUs run under one lock per machine (`UBI_QUOTA_LOCK`), and a
+booking counts until its create is answered, so shards a fan-out starts together
+on one machine cannot all pass on the same reading; `room [-s SIZE]` prints how many
+VMs fit now (`UBICLOUD_ROOM: room=<n> ...`) for a fan-out to size each batch. Callers
+on different machines still race, which the project's 48 spare vCPUs absorb. `run`, `verify`
 and `ssh NAME COMMAND` stream the remote output through a watchdog: a heartbeat
 line every `UBI_HEARTBEAT` seconds (300), and a command silent for
 `UBI_IDLE_TIMEOUT` seconds (1800) or older than `UBI_RUN_TIMEOUT` (0, unlimited)
@@ -1808,7 +1817,7 @@ install change is `package.json`'s version line. Both filters are pinned by
 a branch, dispatch `windows-scoped-tests.yml` with `-f files='<file> <file>'`.
 
 The full curated suite below runs nightly on main and on dispatch, never on a PR.
-`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6
+`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 8
 --shard-jobs $WINDOWS_FREE_JOBS`), runs one strict serial shard per
 `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
@@ -2003,24 +2012,18 @@ appears only when it is part of the lesson, and datasets or tools are opened
 only with a stated reason. The rules and their honesty bars are in
 [ETHOS.md, Explain the Number](../ETHOS.md#8-explain-the-number).
 
-**Safety-rule and router evals: a descriptive third arm.** The W1 safety-rule
+**Safety-rule evals: a descriptive third arm.** The W1 safety-rule
 evals compare `GSTACK_SAFETY_ARM=rule` (the shipped rule) with `removed` (the
-rule paragraph deleted), and the router failure-routing evals compare
-`GSTACK_ROUTER_ARM=current` with `before` (the base branch's router). Both
-variables also take `none` (GST-470): the same fixture, tools and user request,
-with no skill excerpt, rule text, step file or installed skill. Any other value
-throws, so a typo cannot run one arm under another's label. The `rule`,
-`removed`, `current` and `before` prompts are byte for byte what they were
-before `none` existed (`test/safety-none-arm.test.ts`,
-`test/failure-routing-arm.test.ts`). To run the three arms as a comparison, run
-the same case once per arm, each as its CI panel:
+rule paragraph deleted). The variable also takes `none` (GST-470): the same
+fixture, tools and user request, with no skill excerpt, rule text, step file or
+installed skill. Any other value throws, so a typo cannot run one arm under
+another's label. The `rule` and `removed` prompts are byte for byte what they
+were before `none` existed (`test/safety-none-arm.test.ts`). To run the three
+arms as a comparison, run the same case once per arm, each as its CI panel:
 
 ```bash
 for arm in rule removed none; do
   GSTACK_SAFETY_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case safety-ship-stale-evidence
-done
-for arm in current before none; do
-  GSTACK_ROUTER_ARM=$arm bun run scripts/test-paid-shards.ts --tier gate --case router-failure-verified-cause
 done
 ```
 
@@ -2037,11 +2040,8 @@ ran, the session ended normally) still assert. This departs from "the same
 panel" above because these contracts are gstack's own rules: a plain model was
 never asked to keep them, so a failing `none` trial is the measurement, not a
 regression, and a red verdict would block the gate on behavior nobody
-specified. The router's `none` arm has no repro-first metric,
-since it never sees the router's rules; it records plain metrics instead:
-whether the suite is green, whether an edit came before the first read, and
-how many read-only calls came before the first edit. The first paid comparison
-with these arms gets its own preregistration.
+specified. The first paid comparison with these arms gets its own
+preregistration.
 
 **Cases without a `none` arm.** `safety-pair-agent-block` and
 `safety-ios-demo-ui-only` refuse `GSTACK_SAFETY_ARM=none` with the reason
@@ -2058,6 +2058,37 @@ decides only after it passes calibration; the per-diff `armJudge` stays beside
 it as the diagnostic. Candidate folders and git identity name a project, never
 the arm. The model panel (`test/skill-e2e-model-panel.test.ts`) runs a
 `<model>#no-gstack` arm beside each model (GST-468, GST-469).
+
+## Result checks
+
+`/eval-plan` runs four checks so that a number which cannot change a decision, or
+which comes from an unchecked instrument, never leaves the run. Each one is a
+refusal from `bin/gstack-eval-plan` (logic in `lib/eval-plan-checks.ts` and
+`lib/eval-plan-report.ts`), not advice:
+
+| Check | When it runs | Refusal |
+|---|---|---|
+| `## Decisions`: one `if <result>: <what we do>` line per possible result, at least two, with different actions | `prereg --check`, before anything is spent | `PREREG_INCOMPLETE` |
+| `## Scoring`: `judge: none`, or a judge model from another family than every arm with `labels:` (40 or more) and `agreement:` (kappa 0.6 or more); with two or more arms, `paired: yes`, `interval: 95%` and `mdd:` stated before the run | `prereg --check` | `PREREG_INCOMPLETE` |
+| The judge's Cohen's kappa against `{"id", "human", "judge"}` hand labels, at the preregistered count and bar | `judge --check` before the approval ask; `results --check --labels` before any number goes out | `EVAL_JUDGE_UNCHECKED` |
+| A zero in any results table comes from a column named after a `## Diagnostics` counter whose synthetic fixture plants at least one case (expected 1 or more) | `results --check` | `EVAL_REPORT_UNPLANTED_ZERO` |
+| A results table with a failures column also has an `answer-only` column: failures by the grader's own rule on the final answer | `results --check` | `EVAL_REPORT_NO_ANSWER_ONLY` |
+
+Why: in our own agent teams, a counter that never fired reported zero for one
+model while an outside check with planted cases found every one, and a reported
+rise in failures vanished once failures were counted by the grader's own rule.
+A judge from the same family as the arm it grades, or one never compared with
+people, gives numbers nobody can weigh. An eval whose every result leads to the
+same action spends money to change nothing.
+
+Model families come from the model id (`claude` is Anthropic, `gpt` and `o`
+models OpenAI, `gemini` Google, `grok` xAI), else its first word. A judge
+whose labels are all one class has undefined agreement and is refused.
+
+A preregistration with a `frozen: YYYY-MM-DD` line before 2026-11-15 keeps the
+rules it was frozen under: the PREREG line shows `result_checks=exempt` and
+none of the four checks apply. Text frozen before a priced call is not edited
+to meet a newer rule.
 
 ## Frontier models under test
 

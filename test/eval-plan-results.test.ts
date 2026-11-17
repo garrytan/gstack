@@ -14,7 +14,8 @@ const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-eval-plan');
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
-const BASE = ['Bars', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n');
+const RESULT_SECTIONS = '## Decisions\nif the variant passes more items: adopt it\nif there is no difference: keep the default\n\n## Scoring\njudge: none\npaired: yes\ninterval: 95%\nmdd: 2 of 9 items\n';
+const BASE = ['Bars', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n') + '\n' + RESULT_SECTIONS;
 const PREREG = BASE + `
 ## Arms
 - claude-opus-5-5#review-g default settings

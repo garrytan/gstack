@@ -284,3 +284,13 @@ test('a decision whose grounding line names no plan file stays bound by the owne
   unread.publicTools=unread.publicTools.filter(e=>e.toolUseId!==sourceId);
   expect(()=>buildCeoHoldPostureReview(unread)).toThrow('complete original source Read/ACK');
 });
+
+test('a decision whose grounding line does not restate the mode stays bound by its HOLD answer (census 43815320847 HOLD D4)',()=>{
+  const line='Project/branch/task: main branch, PLAN.md saved project views; the repo contains only PLAN.md and CLAUDE.md.';
+  const f=input();revise(f,q=>{q.question=q.question.replace(/Project\/branch\/task:[^\n]*/,line);});
+  expect(buildCeoHoldPostureReview(f)!.plan).toBe(f.source.content);
+  for(const other of ['SELECTIVE EXPANSION','SCOPE REDUCTION','previous']){
+    const g=input();revise(g,q=>{q.question=q.question.replace(/Project\/branch\/task:[^\n]*/,line.replace('main branch,',`main branch, ${other} review,`));});
+    expect(()=>buildCeoHoldPostureReview(g)).toThrow('decision is not current HOLD work');
+  }
+});

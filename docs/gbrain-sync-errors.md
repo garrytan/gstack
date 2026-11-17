@@ -465,6 +465,39 @@ If it stays at zero, re-register the source with `gstack-gbrain-source-wireup`.
 
 ---
 
+## `artifacts not pushed (push_failed: ...; details: gstack-brain-sync --status)`
+
+**Problem.** `/sync-gbrain`'s brain-sync stage is `ERR`.
+
+**Cause.** The artifacts push failed, was blocked, or stopped before
+committing (`push_failed`, `blocked` or `error`). The commits and queue are
+kept and retried. A failed push stays `push_failed` until a push succeeds,
+even when later runs have nothing new to commit. Before this release the
+stage read only the exit code and said "curated artifacts pushed".
+
+**Fix.** Run `gstack-brain-sync --status` and follow the fix its message
+names (usually `gh auth status`, or a merge conflict to resolve in
+`~/.gstack`).
+
+---
+
+## `BRAIN_SYNC: dropped <N> queued record(s) with a malformed path`
+
+**Problem.** A queued sync record named an absolute path, or a path with an
+empty, `.` or `..` component, such as `projects//timeline.jsonl` from a
+skill started where the project slug was empty (the working directory `/`).
+
+**Cause.** Git stages such a path under another spelling, so the drain used
+to refuse the whole batch and every later record waited behind it. The drain
+now drops the record, syncs the rest, and lists the dropped paths in
+`~/.gstack/.brain-sync-drops.json`. `gstack-brain-enqueue` refuses these
+paths, so new ones are not queued.
+
+**Fix.** Nothing to do. A stray `~/.gstack/projects/timeline.jsonl` left by
+such a run is local only and can be deleted.
+
+---
+
 ## `[gbrain-sync] gbrain source <id>: path unavailable (<path>); gstack skips it.`
 
 **Problem.** A gbrain code source points at a directory that no longer

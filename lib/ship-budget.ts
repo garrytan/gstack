@@ -70,7 +70,7 @@ export interface Reservation {
   starts?: Array<{ token: string; at: string }>;
 }
 /** One observation: the run's totals at a program's end, and the readers it dispatched when it measured them. */
-export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number } }
+export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number }; calls?: number }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
@@ -102,6 +102,8 @@ export interface Ledger {
   /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
   meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
+  /** Where the 100-minute clock starts (lib/ship-clock.ts): created_at, or the resume after a time stop. */
+  clock_from?: string;
 }
 
 /** A refusal: exit 2 for usage and validation (stderr), exit 3 for a stop. */

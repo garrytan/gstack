@@ -4,7 +4,10 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { extractReceipt, orderReceipt, placeReceipt, readyTailLines, receiptRuns, RECEIPT_RUNS_KEPT, validateReceipt } from '../lib/ship-receipt';
-import type { ShipReceipt } from '../lib/headless-artifacts';
+import { EXIT, type ShipReceipt } from '../lib/headless-artifacts';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { cleanup, makeFixtureRepo, runBin } from './helpers/pregate-fixture';
 
 const receipt = (head: string, loop: Partial<NonNullable<ShipReceipt['review_loop']>> = {}): ShipReceipt =>
   orderReceipt({ schema_version: 1, head, base: 'main', version: '1.94.1.0', review_loop: { passes: 1, blocking_found: 0, deferred: 0, ...loop } });
@@ -67,5 +70,25 @@ describe('no_stop receipt field (K1)', () => {
     expect(Object.keys(ok).at(-1)).toBe('no_stop');
     expect(validateReceipt({ ...ok, no_stop: [{ class: 'merge-anyway', reason: 'x', evidence: 'y' }] } as any).length).toBeGreaterThan(0);
     expect(validateReceipt({ ...ok, no_stop: [{ class: 'stamp-only-carry', reason: 'x' }] } as any).length).toBeGreaterThan(0);
+  });
+
+  test('stamp-only-carry is no class any more (GST-2706), so a receipt that records one is invalid and its PR runs /ship again', () => {
+    const ok = orderReceipt({ ...receipt('e'.repeat(40)), no_stop: [{ class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }] });
+    expect(validateReceipt({ ...ok, no_stop: [{ class: 'stamp-only-carry', reason: 'restamp', evidence: 'commit abc' }] } as any)).not.toEqual([]);
+  });
+
+  // Value: protects=a branch whose ledger an older gstack wrote with stamp-only-carry can still write a receipt (p3/outside-voice#1);
+  // fails_when=write passes the retired row through and the receipt is RECEIPT_INVALID on every /ship; why_new=the class was removed here;
+  // seam=none (the real bin on a fixture repo); no_claim=the gh round trip
+  test('write drops a retired ledger row from --no-stop, names it on stderr and keeps the current ones', () => {
+    const repo = makeFixtureRepo();
+    try {
+      const ledger = path.join(repo.root, 'no-stop.json');
+      fs.writeFileSync(ledger, JSON.stringify([{ class: 'stamp-only-carry', reason: 'restamp', evidence: 'commit abc' }, { class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }]));
+      const body = path.join(repo.root, 'body.md');
+      const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--no-stop', `@${ledger}`, '--body', body]);
+      expect([w.status, w.err], w.out).toEqual([EXIT.ok, expect.stringContaining('NO_STOP: dropped "stamp-only-carry"')]);
+      expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.no_stop).toEqual([{ class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }]);
+    } finally { cleanup(repo); }
   });
 });

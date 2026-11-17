@@ -30,9 +30,10 @@ change or a week-old stable can trigger one. A cut takes the newest green
 commit on main and:
 
 1. tags it `v<VERSION>` (the VERSION file at that commit, an annotated tag);
-2. publishes a GitHub Release whose notes are one line per CHANGELOG version
-   since the previous release, with a compare link and a link to the full
-   CHANGELOG at that tag;
+2. publishes a GitHub Release whose notes list every change in the CHANGELOG
+   versions since the previous release, one plain line each with the pull
+   request that made it, then a compare link and a link to the full CHANGELOG
+   at that tag ([Release notes](#release-notes));
 3. fast-forwards the `stable` branch to it.
 
 A tag and its release never change. `stable` is a moving pointer: always a
@@ -44,13 +45,20 @@ regression fix (below).
 **Green** means, on that exact commit: the `free-tests` check run succeeded
 (the status main requires), the commit was gated (below), every check run on
 it has completed and none failed, and `refs/notes/gstack-trains` holds no
-active freeze. A cancelled check run counts as red. A commit with a check run
+active freeze. A cancelled check run counts as red. Check runs are read the
+way the merge queue reads them, so a failed check whose rerun attempt created
+no jobs, and a workflow run that failed before creating any job, count as red
+even though GitHub's default list hides them. A failed commit status counts
+as red too, and a pending one counts as still going. A commit with a check run
 still going is skipped and the next older one is considered, back through 7
 days or 200 first-parent commits. The cut's own job lands a check run on
 main's head, the very commit it may cut, so check runs from this workflow's
 own runs (its file path, `.github/workflows/weekly-release.yml`, matched
 by the job ids of those workflow runs) are set aside whether running or
-failed; every other check run counts as above. The lookup needs the
+failed. Check runs from the nightly Windows free suite
+(`.github/workflows/windows-free-tests.yml`), which
+[never blocks](support-tiers.md#windows-ci), are set aside the same way;
+every other check run counts as above. The lookup needs the
 workflow's `actions: read` permission; when it cannot read those runs, nothing
 is set aside. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate
@@ -93,6 +101,45 @@ A cut that stopped half-way (tag and `stable` pushed, release not created) is
 finished by the next run, by cron or by hand: `stable` itself stays a
 candidate until its release exists, and its notes compare against the release
 tag before it.
+
+## Release notes
+
+A release's notes list every change in the CHANGELOG versions it ships. A
+change is a top-level bullet of a version's entry, or a paragraph that is not a
+bullet. Its line is the bullet's bold lead when that lead is a whole sentence,
+else its first sentence, so a fragment's first sentence is what people read on
+the release page: say what changed for them, in plain words. A parenthesis
+that holds only issue codes, such as `(GST-101)` or `(GST-1455, GST-2349)`,
+is dropped; one that says more, such as `(SHA-256 of the file)`, and CVE and
+GHSA ids stay. "Outside voice" reads "second-model review". A `## ` heading
+inside a fragment is read like a `### ` one and never ends its version.
+
+Each line links the pull request that made the change, read from git and never
+from the change's words. The commit that added a version's `## [version]`
+heading folded the `changelog.d/` fragments it deleted, in path order, so the
+version lists each of those fragments' changes, as the fragment read just
+before the fold, linked to the trailing `(#N)` of the squash commit that added
+that file (wherever that commit sits, since a release can fold fragments that
+landed before the previous one; a later pull request that reuses the file name
+never takes the link). Changes the version holds past its fragments', and every
+change of an older version written straight into the CHANGELOG, link the
+commit that added the version's heading; a release commit links nothing.
+Lines sit under three headings, read in this order:
+
+1. the heading the change sits under, inside its fragment when it has one:
+   `### Added` is What's new, `### Fixed` is Fixes, and `### Tests` or
+   `### For contributors` is Changes for maintainers;
+2. Changes for maintainers when its pull request touched only tests, CI and
+   gstack's own release tooling (`test/`, `crew/`, `.github/`), or its line
+   names that machinery (receipts, the release gate, the merge queue);
+3. Fixes when the line says "no longer", "again" or "fix"; What's new otherwise.
+
+A cut whose CHANGELOG has no entry for its version, or holds a version entry
+that lists no change, stops with `NOTES_MISSING` instead of publishing empty
+notes. Notes over 60,000 characters keep the changes that fit, dropping
+maintainer changes first, and say how many more are in the full changelog. An upgrade step or a summary
+sentence can be added by hand after the cut with
+`gh release edit v<X> --notes-file <file>`; that edits the release page only.
 
 <a id="the-daily-check"></a>
 ## The daily check
@@ -434,7 +481,7 @@ first, then promote.
 
 Run the workflow with `dry_run=true` (the default for a manual run) to see the
 plan without changing anything: the candidate, its VERSION and tag, the stable
-move, how many version lines the notes would carry, every skipped commit with
+move, how many change lines the notes would carry, every skipped commit with
 its reason, the floor verdict, and the exact commands a real cut would run. The scheduled
 runs are never dry runs.
 
@@ -447,8 +494,8 @@ gh run watch
 The step summary carries the same plan plus the full release notes.
 
 A pull request that touches `.github/workflows/weekly-release.yml`,
-`crew/scripts/release-cut.ts`, `crew/scripts/release-cadence.ts` or
-`lib/changelog-fragments.ts` runs the same dry run against main as its own job
+`crew/scripts/release-cut.ts`, `crew/scripts/release-notes.ts`,
+`crew/scripts/release-cadence.ts` or `lib/changelog-fragments.ts` runs the same dry run against main as its own job
 (`Dry run against main`, read-only token), once plain and once as the daily
 check, so a change to the release tooling is exercised against real check runs
 before it merges.
@@ -535,4 +582,5 @@ reset --hard 'v<good version>'`. Its next update check fast-forwards it to
 | `DAILY: no-op: ...`, `DAILY: wait: ...` | the daily check found no trigger, or an important change still under its 24-hour floor (`NEXT_ALLOWED:` follows); exit 0 with a notice |
 | `IMPORTANT_UNGATED: ...` | an important change landed but no green, gated commit holds it yet; informational |
 | `NO_RELEASE_PR: ...` | the candidate's VERSION is already released on an earlier commit (no release PR landed since that cut): the Captain stamps a release PR. A plain cut always reports it; the daily check reports it only when a trigger is due. Exit 1 (0, with a warning, on a dry run) |
+| `NOTES_MISSING: ...` | the CHANGELOG at the candidate has no entry for its version, or a version in the span lists no change ([Release notes](#release-notes)); nothing is tagged or published. Exit 1 |
 | `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated; exit 1 (0 on a dry run) |

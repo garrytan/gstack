@@ -7,7 +7,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { usePrivateStateRoot } from './helpers/private-state-root';
 import { expectMentions } from './helpers/prompt-structure';
-import { generateFailureRouting } from '../scripts/resolvers/preamble/generate-test-failure-triage';
 import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 import { readSkillStartup } from './helpers/skill-startup';
 import { RETIRED_SKILLS } from '../scripts/discover-skills';
@@ -2031,23 +2030,13 @@ describe('Test failure triage in ship skill', () => {
   });
 });
 
-describe('Failure routing: verified cause → fix, unknown cause → bounded triage (#3157, #3158)', () => {
-  const rule = generateFailureRouting();
-  const unknownCause = rule.slice(rule.indexOf('**Cause unknown:** ') + '**Cause unknown:** '.length);
-
-  test('the router sends bug reports through the failure rule and names no retired skill (GST-1717)', () => {
+describe('Bug reports: the router has no bug-fix route, other surfaces keep their bounded triage (GST-2873)', () => {
+  test('the router routes no bug report and carries no failure rule, so bug fixes run plain', () => {
     const router = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(router).toContain(rule);
-    const bugRule = router.split('\n').find(line => line.startsWith('- User reports a bug'));
-    expect(bugRule).toContain('**Failures**');
-    expect(bugRule).toContain('then fix it test-first');
+    expect(router.split('\n').some(line => line.startsWith('- User reports a bug'))).toBe(false);
+    expect(router).not.toContain('**Failures');
+    expect(router).not.toContain('**Cause supplied**');
     expect(router).not.toContain('/investigate');
-  });
-
-  test('the rule keeps the root-cause bar on both paths, with a focused failing test when the cause is unclear', () => {
-    expect(rule).toMatch(/\*\*Cause supplied\*\*[^\n]*one read-only check[^\n]*If it does not, leave the suggested fix alone: reproduce the failure with a focused failing test, trace it to the root cause/);
-    expect(unknownCause).toMatch(/^make one read-only triage pass[^\n]*Do not reproduce, test hypotheses or search wider[^\n]*still unclear, write or run a focused test that fails on the bug before any edit, trace the failure to its root cause/);
-    expect(rule).not.toContain('/investigate');
   });
 
   test('the routing gstack offers for CLAUDE.md, and this repo\'s own, fix bugs directly behind a cause check or a failing test', () => {

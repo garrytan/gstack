@@ -8,6 +8,8 @@ seen. Instrument: test/skill-e2e-model-panel.test.ts with
 test/helpers/model-panel-harness.ts; free selftest:
 test/model-panel-selftest.test.ts.
 
+frozen: 2026-10-31
+
 ## Bars
 - Pass rate per arm: scored (non-INFRA) cells whose hidden deterministic check passes, with a Wilson 95% interval. Descriptive only: the panel gates nothing and no arm "wins".
 - Publication floor: an arm needs PANEL_MIN_COMPLETED = 12 scored cells before any number about it is published; below that its row says INCOMPLETE.

@@ -13,12 +13,31 @@ import * as path from 'node:path';
 import { parseChangelog } from './changelog-check';
 import { effectiveBump, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef, type RestampResult } from './restamp';
+import { withAgentNotes } from './agent-notes';
+import { foldSections } from './pr-body-shape';
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { buildReceipt } from './tree-receipt';
 import { regeneratedAtBase } from '../crew/lib/version-gate-train';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth } from './version-source';
 
 export const RELEASE_BRANCH = /^release\/(\d+(?:\.\d+){2,3})$/;
+
+/**
+ * The release notes (R76): one plain line per change the release folds, from each changelog fragment's entries (a
+ * fragment may hold several `- ` entries): the bold lead sentence, or else the first sentence, with the pull request
+ * whose squash commit added the fragment (`(#n)` at the end of its subject) when git finds one.
+ */
+export function releaseNoteLines(root: string, ref: string, fragments: readonly string[]): string[] {
+  return fragments.flatMap(file => {
+    const pr = /\(#(\d+)\)\s*$/.exec(git(root, ['log', '-1', '--diff-filter=A', '--format=%s', ref, '--', file]).out)?.[1];
+    const text = git(root, ['show', `${ref}:${file}`]).out.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+    return text.split(/\n(?=- )/).map(entry => {
+      const first = entry.replace(/^- +/, '').replace(/\s+/g, ' ').trim();
+      const lead = (/^\*\*(.+?)\*\*/.exec(first)?.[1] ?? first.split(/(?<=[.!?])\s/)[0] ?? '').replace(/\*\*/g, '').trim();
+      return lead ? `- ${lead}${pr ? ` (#${pr})` : ''}` : '';
+    }).filter(Boolean);
+  });
+}
 
 export type ReleaseVerdict = { ok: true; version: string; fragments: string[] } | { ok: false; reason: string };
 
@@ -132,16 +151,22 @@ export function openRelease(o: OpenOptions): OpenResult {
       if (!r.ok) return fail('RELEASE_STAMP_INVALID', `git ${step[0]} failed in the release worktree: ${r.err.split('\n')[0]}`);
     }
     const head = git(dir, ['rev-parse', 'HEAD']).out;
+    const notes = releaseNoteLines(dir, baseSha, git(dir, ['diff', '--name-only', '--diff-filter=D', baseSha, head]).out.split('\n').filter(f => f.endsWith('.md')));
     const push = git(dir, ['push', '-q', '--force', 'origin', `HEAD:refs/heads/${branch}`]);
     if (!push.ok) return fail('RELEASE_STAMP_INVALID', `git push origin ${branch} failed: ${push.err.split('\n')[0]}`);
     lines.push(`PUSHED: ${branch} ${head}`);
-    const body = [
+    const body = withAgentNotes([
+      `v${version} ships ${notes.length} user-visible change${notes.length === 1 ? '' : 's'}, listed one per line under Release notes with the pull request that made each.`,
+      '', 'It changes only the version, the CHANGELOG and the files generated from them, so it needs no review: merge it once its checks are green.',
+      '', '## Release notes', '', ...(notes.length ? notes : ['- No user-visible changes.']), '',
+    ].join('\n'), [
       `Release stamp for v${version}, made by \`gstack-release-stamp open\` (\`gstack-restamp --release\`) on origin/${o.base} ${baseSha.slice(0, 12)}: VERSION, the package.json version, the CHANGELOG and the release outputs.`,
       '', `Folds: ${folded}`, '',
       `Land it with \`gstack-ship-queue land --pr <this PR> --pin ${head}\` once its checks are green. land checks that this head is exactly the release stamp of its merge base (RELEASE_STAMP_INVALID otherwise), so a release PR needs no /ship receipt.`,
-    ].join('\n');
+    ].join('\n'));
+    const posted = foldSections(body);
     const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository | not)][0].url // ""'], dir);
-    const pr = open.ok && open.out.trim() ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', body], dir);
+    const pr = open.ok && open.out.trim() ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', posted], dir);
     if (!pr.ok) return fail('RELEASE_STAMP_INVALID', `gh pr create failed (${pr.err.trim().split('\n')[0]}); ${branch} is pushed, so open its PR by hand`);
     const url = pr.out.trim().split('\n').pop() ?? '';
     const n = /\/pull\/(\d+)/.exec(url)?.[1];

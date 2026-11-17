@@ -2,7 +2,7 @@
 name: plan-ceo-review
 preamble-tier: 3
 version: 1.0.0
-description: CEO/founder-mode plan review. (gstack)
+description: "CEO/founder-mode plan review. Use for: think bigger, expand scope, strategy review. (gstack)"
 allowed-tools:
   - Read
   - Grep
@@ -51,7 +51,7 @@ gbrain:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-ceo-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-ceo-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 

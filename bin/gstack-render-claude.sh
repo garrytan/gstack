@@ -1,5 +1,6 @@
 # gstack-render-claude.sh — the Claude skill render shared by ./setup and
-# `gstack-config gbrain-refresh`. Source it; it only defines functions.
+# `gstack-config gbrain-refresh`. Source it; it only defines functions, and
+# sources bin/gstack-lock.sh beside it for the render lock.
 # bash-3.2-clean and safe under `set -euo pipefail`.
 #
 # Overlay selection is opt-in: the overlay is the family of the persisted
@@ -25,6 +26,8 @@
 # Callers define `_swap_in_render` (setup and bin/gstack-config each keep
 # their tested copy) and may define `log` and `bun_cmd`; plain echo and bun
 # are used otherwise.
+
+. "$(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { echo "gstack: $(dirname "${BASH_SOURCE[0]}")/gstack-lock.sh is missing; reinstall with ./setup" >&2; return 2; }
 
 _gstack_render_say() {
   if declare -F log >/dev/null 2>&1; then log "$@"; else echo "$@"; fi
@@ -84,12 +87,13 @@ gstack_claude_overlay_field() {
 }
 
 # gstack_render_lock DIR / gstack_render_unlock DIR — serialize the swap and
-# record write of concurrent renders (mkdir lock, no flock). A lock whose
-# holder is gone is broken; after 30 s the swap proceeds unlocked.
+# record write of concurrent renders (gstack_lock_take from bin/gstack-lock.sh,
+# no flock). A lock whose holder is gone is broken; after 30 s the swap
+# proceeds unlocked.
 gstack_render_lock() {
   local lock="$1.lock" i=0 pid
   mkdir -p "$(dirname "$1")" 2>/dev/null || true
-  while ! mkdir "$lock" 2>/dev/null; do
+  while ! gstack_lock_take "$lock" pid "$$"; do
     pid="$(cat "$lock/pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       rm -rf "$lock"
@@ -99,7 +103,6 @@ gstack_render_lock() {
     [ "$i" -lt 300 ] || return 0
     sleep 0.1
   done
-  echo "$$" > "$lock/pid"
 }
 gstack_render_unlock() {
   rm -rf "$1.lock"
@@ -126,14 +129,18 @@ gstack_claude_render_action() {
   fi
 }
 
+_GSTACK_RENDER_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # gstack_claude_render_plain SOURCE_DIR RENDER_DIR — render the pinned overlay
-# without brain blocks into a temp dir and swap it in only on success.
+# without brain blocks into a temp dir, apply the saved skill_prefix to its
+# name: fields (#4413), and swap it in only on success.
 gstack_claude_render_plain() {
   local src="$1" RENDER_DIR="$2" RENDER_TMP out rc=0
   RENDER_TMP="$RENDER_DIR.tmp.$$"
   rm -rf "$RENDER_TMP"
   _gstack_render_say "Rendering Claude skills with the $_GSTACK_OVERLAY overlay${_PLAN_MODE_ARG:+ and no plan-mode preamble}${_LOADOUT_ARG:+ and the ${_LOADOUT_ARG#--loadout=} loadout} into $RENDER_DIR (source checkout stays clean)..."
   out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] || out="$("$_GSTACK_RENDER_BIN/gstack-patch-names" "$RENDER_TMP" "$("$_GSTACK_RENDER_BIN/gstack-config" get skill_prefix 2>/dev/null || echo false)" 2>&1)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     rm -rf "$RENDER_TMP"
     printf '%s\n' "$out" | tail -3

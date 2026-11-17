@@ -1,7 +1,7 @@
 /**
- * The five no-stop defaults (GSTA-258 K1, lib/no-stop.ts, bin/gstack-no-stop): each routine stop that qualifies is
+ * The four no-stop defaults (GSTA-258 K1, lib/no-stop.ts, bin/gstack-no-stop): each routine stop that qualifies is
  * recorded as {class, reason, evidence} and the run goes on; anything that does not qualify, and any stop outside
- * the five, still stops for the owner. The autoplan re-gate is covered in test/autoplan-carry.test.ts.
+ * the four, still stops for the owner. The autoplan re-gate is covered in test/autoplan-carry.test.ts.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { validateReceipt } from '../lib/ship-receipt';
 import { lineDiff } from '../lib/autoplan-confirm';
-import { checkNoStop, notEli5Only, notStampOnly, parseDiff, type NoStopRecord } from '../lib/no-stop';
+import { checkNoStop, notEli5Only, parseDiff, type NoStopRecord } from '../lib/no-stop';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-no-stop');
@@ -54,16 +54,13 @@ describe('lib/no-stop: what qualifies', () => {
     expect(check('pregate-flake-rerun', undefined, [{ class: 'pregate-flake-rerun', reason: 'x', evidence: 'y' }])).toMatchObject({ ok: false });
   });
 
-  test('stamp-only-carry: a version-only VERSION or package.json move qualifies; a dependency or a product file stops', () => {
+  test('stamp-only-carry is gone (GST-2706): a refused carry already goes on to Steps 2-16, so there is no stop to record past', () => {
     const stamp = diff('package.json', ['  "version": "1.94.41.0",'], ['  "version": "1.94.42.0",']) + diff('VERSION', ['1.94.41.0'], ['1.94.42.0']);
-    expect(check('stamp-only-carry', stamp)).toMatchObject({ ok: true, detail: 'version stamp only in package.json, VERSION' });
-    expect(notStampOnly(parseDiff(diff('package.json', ['  "zod": "3.0.0",'], ['  "zod": "4.0.0",'])))).toContain('changes more than the version');
-    expect(check('stamp-only-carry', diff('package.json', ['  "dev": "bun run a",'], ['  "dev": "bun run b",']))).toMatchObject({ ok: false, reason: expect.stringContaining('more than the version') });
-    expect(check('stamp-only-carry', stamp + diff('lib/worker.ts', ['a'], ['b']))).toMatchObject({ ok: false, reason: 'lib/worker.ts is not a stamp file' });
+    expect(check('stamp-only-carry', stamp)).toMatchObject({ ok: false, reason: expect.stringContaining('not one of the four no-stop classes') });
   });
 
-  test('anything outside the five, a missing reason or evidence, or a hand-recorded re-gate still stops', () => {
-    expect(check('merge-anyway')).toMatchObject({ ok: false, reason: expect.stringContaining('not one of the five') });
+  test('anything outside the four, a missing reason or evidence, or a hand-recorded re-gate still stops', () => {
+    expect(check('merge-anyway')).toMatchObject({ ok: false, reason: expect.stringContaining('not one of the four') });
     expect(checkNoStop({ cls: 'pregate-flake-rerun', reason: ' ', evidence: 'run 1', prior: [] })).toMatchObject({ ok: false });
     expect(check('autoplan-regate')).toMatchObject({ ok: false, reason: expect.stringContaining('gstack-autoplan decides') });
   });
@@ -153,13 +150,13 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
     expect(r.stderr).toContain('the approval record already holds this branch\'s K1 grant');
   });
 
-  test('a class outside the five stops, and the range-based classes need --range-base', () => {
+  test('a class outside the four stops, and the range-based classes need --range-base', () => {
     expect(run('record', '--class', 'merge-anyway', '--reason', 'r', '--evidence', 'e').status).toBe(3);
-    expect(run('record', '--class', 'stamp-only-carry', '--reason', 'r', '--evidence', 'e').status).toBe(2);
+    expect(run('record', '--class', 'test-timeout-fix', '--reason', 'r', '--evidence', 'e').status).toBe(2);
   });
 });
 
-describe('gstack-no-stop record --class stamp-only-carry --base, and import', () => {
+describe('gstack-no-stop record after a base merge and a restamp, and import', () => {
   const work = path.join(tmp, 'stamp');
   const env = { ...process.env, ...ID, GSTACK_STATE_ROOT: path.join(tmp, 'state2'), GSTACK_APPROVALS_DIR: path.join(tmp, 'approvals2') };
   const git = (...args: string[]) => {
@@ -182,30 +179,11 @@ describe('gstack-no-stop record --class stamp-only-carry --base, and import', ()
   spawnSync('git', ['merge', '-q', 'main', '-m', 'merge main'], { cwd: work, encoding: 'utf8', timeout: 30_000, env });
   write('VERSION', '1.0.3.0\n'); git('add', '-A'); git('commit', '-qm', 'merge main + stamp');
 
-  test('a base merge plus a version stamp qualifies against the receipt head merged into the base', () => {
-    const r = run('record', '--class', 'stamp-only-carry', '--range-base', receiptHead, '--base', 'main', '--reason', 'restamp after the base moved', '--evidence', `commit ${git('rev-parse', 'HEAD').slice(0, 12)}`);
-    expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toMatch(/^NO_STOP: stamp-only-carry recorded \(version stamp only in VERSION\)$/m);
-    const plain = run('record', '--class', 'stamp-only-carry', '--range-base', receiptHead, '--reason', 'r', '--evidence', 'e');
-    expect(plain.status).toBe(3);
-    expect(plain.stderr).toContain('other.ts is not a stamp file');
-  });
-
-  test('a product edit inside the stamp commit still stops', () => {
-    write('app.ts', 'export const a = 3;\n'); write('VERSION', '1.0.4.0\n'); git('commit', '-qam', 'stamp plus a sneaky edit');
-    const r = run('record', '--class', 'stamp-only-carry', '--range-base', receiptHead, '--base', 'main', '--reason', 'r', '--evidence', 'e');
+  test('a base merge plus a version stamp records nothing: the refused carry runs Steps 2-16 with no stop to skip (GST-2706)', () => {
+    const r = run('record', '--class', 'stamp-only-carry', '--range-base', receiptHead, '--reason', 'restamp after the base moved', '--evidence', `commit ${git('rev-parse', 'HEAD').slice(0, 12)}`);
     expect(r.status).toBe(3);
-    expect(r.stderr).toContain('app.ts is not a stamp file');
-  });
-
-  test('a rename into changelog.d with an edit is a deletion plus an add, so it still stops', () => {
-    write('notes.md', 'one\ntwo\nthree\nfour\nfive\nsix\n'); git('add', '-A'); git('commit', '-qm', 'notes');
-    const from = git('rev-parse', 'HEAD');
-    fs.mkdirSync(path.join(work, 'changelog.d'), { recursive: true });
-    git('mv', 'notes.md', 'changelog.d/notes.md'); write('changelog.d/notes.md', 'one\ntwo\nthree\nfour\nfive\nseven\n'); git('add', '-A'); git('commit', '-qm', 'move');
-    const r = run('record', '--class', 'stamp-only-carry', '--range-base', from, '--reason', 'r', '--evidence', 'e');
-    expect(r.status).toBe(3);
-    expect(r.stderr).toContain('notes.md is not a stamp file');
+    expect(r.stderr).toContain('stamp-only-carry is not one of the four no-stop classes');
+    expect(JSON.parse(run('list', '--json').stdout).records).toEqual([]);
   });
 
   test('import adds an autoplan run\'s re-gate records once and skips every other class', () => {
@@ -215,7 +193,7 @@ describe('gstack-no-stop record --class stamp-only-carry --base, and import', ()
     expect(first).toMatch(/^NO_STOP: imported 1 record\(s\)/m);
     expect(first).toMatch(/^NO_STOP: skipped 3 record\(s\): import takes only autoplan-regate records/m);
     expect(run('import', '--from', src).stdout).toMatch(/^NO_STOP: imported 0 record\(s\)/m);
-    expect(JSON.parse(run('list', '--json').stdout).records.map((r: NoStopRecord) => r.class)).toEqual(['stamp-only-carry', 'autoplan-regate']);
+    expect(JSON.parse(run('list', '--json').stdout).records.map((r: NoStopRecord) => r.class)).toEqual(['autoplan-regate']);
   });
 });
 
@@ -223,12 +201,16 @@ describe('the no-stop defaults in the /ship and /autoplan sources', () => {
   const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const ship = read('ship/sections/tests.md.tmpl');
   const help = spawnSync('bun', [...bunIsolationArgs(), BIN, '--help'], { encoding: 'utf8', timeout: 60_000 }).stdout;
-  test.each(['scoped-fix-check', 'test-timeout-fix', 'pregate-flake-rerun', 'stamp-only-carry', 'autoplan-regate'])('the bin help and the policy say what to do on %s', cls => {
+  test.each(['scoped-fix-check', 'test-timeout-fix', 'pregate-flake-rerun', 'autoplan-regate'])('the bin help and the policy say what to do on %s', cls => {
     expect(help).toMatch(new RegExp('^      ' + cls + ' +\\S', 'm'));
     expect(read('docs/review-policy.md')).toContain('| `' + cls + '` |');
   });
+  test('neither the bin help nor the policy offers stamp-only-carry any more', () => {
+    expect(help).not.toContain('stamp-only-carry');
+    expect(read('docs/review-policy.md')).not.toContain('| `stamp-only-carry` |');
+  });
   test('a refused case and any other stop still stop; the receipt write carries the ledger', () => {
-    expect(ship).toContain('three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,\n`refused` stops.');
+    expect(ship).toContain('two other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,\n`refused` stops.');
     expect(help).toContain('NO_STOP: refused (exit 3): the stop stands. Anything else still stops.');
     expect(read('ship/sections/pr-body.md.tmpl')).toContain('${NS:+--no-stop "@$NS"}');
     expect(read('ship/DRIVER.md.tmpl')).toContain('end the run, except `gstack-no-stop`');

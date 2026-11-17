@@ -10,15 +10,20 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bodyFindingLine, checkBodyShape, foldSections, type BodyFinding } from '../lib/pr-body-shape';
 import { PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, type PlainFinding, type PlainTitlePolicy } from '../lib/plain-title';
 import { resultLine } from '../lib/result-codes';
 
 const HELP = `gstack-plain-title — check that titles, branch names, PR openings and changelog entries read in plain words (docs/ship-policy.md#plain-titles)
 
-  check [--title <t> | --title-file <f>] [--branch <b>] [--body-file <f>] [--changelog <f>]
+  check [--title <t> | --title-file <f>] [--branch <b>] [--body-file <f> [--head-branch <b>]] [--changelog <f>]
         [--commits-file <f>] [--created-at <iso>] [--mode refuse|warn] [--json]
         check each input against ${PLAIN_TITLE_POLICY_PATH}; --commits-file holds one commit
-        subject per line and only ever warns; a PR created before the policy's since date is exempt
+        subject per line and only ever warns; a PR created before the policy's since date is exempt;
+        --body-file also checks the body's shape once folded (docs/writing-prs.md: at most 3 lines
+        and 600 characters before the first fold, listed words below the Agent notes fold), printed as
+        PLAIN_BODY: lines, which only warn for a PR created before the policy's body_since date or
+        whose --head-branch starts with one of its exempt_branch_prefixes (a generated release PR)
   validate              check ${PLAIN_TITLE_POLICY_PATH} against its schema
   init [--force]        write an example ${PLAIN_TITLE_POLICY_PATH}
 
@@ -34,7 +39,7 @@ const EXAMPLE = {
   exempt_branch_prefixes: ['release/'],
 };
 
-const VALUE_FLAGS = ['--title', '--title-file', '--branch', '--body-file', '--changelog', '--commits-file', '--created-at', '--mode'];
+const VALUE_FLAGS = ['--head-branch', '--title', '--title-file', '--branch', '--body-file', '--changelog', '--commits-file', '--created-at', '--mode'];
 
 function usage(message: string): number {
   process.stderr.write(`gstack-plain-title: ${message}\n${HELP}\n`);
@@ -80,7 +85,7 @@ function check(args: string[]): number {
 
   const policy = loadPolicy(repoRoot(), 'gstack-plain-title check');
   if (policy === 'invalid') return 3;
-  const done = (status: string, findings: Array<PlainFinding & { severity: string }> = []) => {
+  const done = (status: string, findings: Array<(PlainFinding | BodyFinding) & { severity: string }> = []) => {
     const refused = findings.filter(f => f.severity === 'refused').length;
     process.stdout.write(json ? JSON.stringify({ status, refused, warned: findings.length - refused, findings }) + '\n' : `PLAIN_TITLE: ${status}\n`);
     return refused ? 1 : 0;
@@ -90,16 +95,22 @@ function check(args: string[]): number {
 
   const title = opts['--title'] ?? read['--title-file']?.replace(/\r?\n+$/, '');
   const severity = mode === 'warn' ? 'warned' : 'refused';
-  const findings = [
+  const older = (createdAt !== undefined && Date.parse(createdAt) < Date.parse(policy.body_since)) || policy.exempt_branch_prefixes.some(p => (opts['--head-branch'] ?? '').startsWith(p));
+  const findings: Array<(PlainFinding | BodyFinding) & { severity: string }> = [
     ...(title !== undefined ? checkTitle(title, policy) : []),
     ...(opts['--branch'] !== undefined ? checkBranch(opts['--branch'], policy) : []),
-    ...(read['--body-file'] !== undefined ? checkOpening(read['--body-file'], policy) : []),
     ...(read['--changelog'] !== undefined ? checkChangelogEntry(read['--changelog'], policy) : []),
   ].map(f => ({ ...f, severity }));
+  if (read['--body-file'] !== undefined) findings.push(...checkOpening(read['--body-file'], policy).map(f => ({ ...f, severity: older ? 'warned' : severity })));
   for (const line of (read['--commits-file'] ?? '').split(/\r?\n/)) {
     if (line.trim()) findings.push(...checkCommitSubject(line, policy).map(f => ({ ...f, severity: 'warned' })));
   }
   if (!json) for (const f of findings) process.stdout.write(`PLAIN_TITLE: ${f.code} ${f.kind} "${clean(f.match)}" — ${f.hint}${f.severity === 'warned' ? ' (warning only)' : ''}\n`);
+  if (read['--body-file'] !== undefined) {
+    const shape = checkBodyShape(foldSections(read['--body-file']), policy.terms);
+    if (!json) for (const f of shape) process.stdout.write(bodyFindingLine(f, older || severity === 'warned') + '\n');
+    findings.push(...shape.map(f => ({ ...f, severity: older ? 'warned' : severity })));
+  }
   const refused = findings.filter(f => f.severity === 'refused').length;
   const warned = findings.length - refused;
   return done(refused ? `refused=${refused}${warned ? ` warned=${warned}` : ''}` : warned ? `warned=${warned}` : 'ok', findings);

@@ -29,8 +29,6 @@ contract:
       kind: report_labels
       heading: DEBUG REPORT
       labels: [Symptom, Root cause, Fix, Evidence]
-    - id: repro-after-fix
-      kind: check_after_last_edit
 ---
 # /verify (fixture)
 

@@ -164,6 +164,14 @@ case "$1" in
     fi
     echo '${sources}' ;;
   import)
+    if [ -n "$GBRAIN_REFUSE_IMPORTS" ]; then
+      ( cd "$2" && find . -name '*.md' -type f | sed 's#^[.]/##' ) | while read -r p; do
+        echo "  Warning: skipped $p: Managed import must run on the active canonical owner for the selected source." >&2
+      done
+      n=$( cd "$2" && find . -name '*.md' -type f | wc -l | tr -d ' ')
+      echo "{\\"status\\":\\"success\\",\\"imported\\":0,\\"skipped\\":0,\\"errors\\":$n,\\"total_files\\":$n}"
+      exit 0
+    fi
     # One import per gbrain source (A4): pages of one ingest run accumulate;
     # a new run (different parent pid) starts a fresh list.
     if [ "$(cat "${stagedList}.ppid" 2>/dev/null)" != "$PPID" ]; then echo "$PPID" > "${stagedList}.ppid"; : > "${stagedList}"; fi
@@ -454,6 +462,52 @@ describe.skipIf(process.platform === "win32")("memory stage transcript consent",
       const r = spawnSync("bun", [INGEST, "--bulk", "--quiet"], { encoding: "utf-8", timeout: 60_000, cwd: sb.home, env: { ...process.env, ...sb.env } });
       expect(r.status).toBe(0);
       expect(transcripts(sb).join("\n")).toMatch(/old00000000/);
+    } finally {
+      sb.cleanup();
+    }
+  });
+});
+
+// #4417: gstack-memory-ingest exits 0 when gbrain refuses single pages (they
+// are retried next run), and the memory row used to read only that exit code,
+// so it printed OK with every page refused.
+describe.skipIf(process.platform === "win32")("memory stage failure counts (#4417)", () => {
+  test("pages gbrain refuses make the row ERR with the count and the first cause", () => {
+    const sb = sandbox();
+    try {
+      const r = runSync(sb, ["--incremental"], { GBRAIN_REFUSE_IMPORTS: "1" });
+      const stage = memoryStage(sb) as { ok: boolean; warn?: boolean; summary: string };
+      expect(stage.ok).toBe(false);
+      expect(stage.summary).toMatch(/^0 imported, [1-9][0-9]* failed [(]retried next run/);
+      expect(stage.summary).toContain("Managed import must run on the active canonical owner");
+      expect(r.stdout).toMatch(/ERR +memory +0 imported, [1-9][0-9]* failed/);
+      expect(r.stdout).not.toMatch(/OK +memory/);
+      expect(r.status).toBe(1);
+
+      // The refusal clears: the same pages import and the row is OK again.
+      const ok = runSync(sb, ["--incremental"]);
+      expect(ok.status).toBe(0);
+      expect(memoryStage(sb).ok).toBe(true);
+      expect(ok.stdout).toMatch(/OK +memory/);
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  // A transcript that cannot be parsed is never stamped, so it is counted on
+  // every run; it must not turn the row ERR for good.
+  test("an unparseable transcript is a note on an OK row, every run", () => {
+    const sb = sandbox({ mode: "all" });
+    try {
+      writeFileSync(join(sb.home, ".claude", "projects", "work-acme", "empty0001.jsonl"), "");
+      for (let run = 0; run < 2; run++) {
+        const r = runSync(sb, ["--incremental"]);
+        const stage = memoryStage(sb) as { ok: boolean; warn?: boolean; summary: string };
+        expect(stage.ok).toBe(true);
+        expect(stage.warn).toBeUndefined();
+        expect(stage.summary).toContain("1 source file(s) could not be parsed and were skipped");
+        expect(r.status).toBe(0);
+      }
     } finally {
       sb.cleanup();
     }

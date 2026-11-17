@@ -9,7 +9,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isKeepalive, type TranscriptItem } from './ship-calls';
+import { CACHE_TTL_S, isKeepalive, type TranscriptItem } from './ship-calls';
 
 export const LIMITS = {
   ownRotate: 500e6,
@@ -25,6 +25,8 @@ export const LIMITS = {
   warmWindowS: 30 * 60,
   maxRounds: 2,
 } as const;
+/** A cold model call's price in warm calls: Opus 5.5 after the 5-minute prompt cache lapsed, $2.42 against $0.125 per million counted tokens (measured 2026-11-08). */
+export const COLD_CALL_PRICE = 19.4;
 
 export interface Task { label?: string; path?: string; title?: string; status?: string; cost?: { tokens?: number; credits?: number } }
 export interface ThreadDoc {
@@ -32,12 +34,15 @@ export interface ThreadDoc {
   cost?: { tokens?: number; credits?: number }; tasks?: Task[]; tasks_total?: number; captain_thread?: unknown; crew?: unknown;
   events?: Item[]; standing?: boolean; pull_requests?: Array<{ number?: number; state?: string }>; pull_requests_total?: number;
 }
-export interface Item extends TranscriptItem { input?: { text?: string } | string; state?: string }
+export interface Item extends TranscriptItem {
+  input?: { text?: string; chars?: number } | string; state?: string; to?: unknown; text?: string; ms?: number; calls?: Array<{ tool?: string; durationMs?: number }>;
+}
+export interface Wake { start: string; idleS: number | null; cold: boolean; calls: number; coldCalls: number; empty: boolean; cost: number }
 export interface Flag { action: 'ROTATE' | 'STOP' | 'LOOK' | 'WARN' | 'REPORT' | 'CHECK_IN'; text: string }
 export interface Verdict {
   code: string; verdict: 'OK' | 'LOOK' | 'WARN' | 'STOP' | 'ROTATE' | 'REPORT' | 'CHECK_IN' | 'DEFER'; captain: boolean;
   own: number; ownBound: 'exact' | 'upper'; total: number; credits: number; ageDays: number; active: boolean;
-  empty: { turns: number; empty: number } | null; rounds: ReturnType<typeof reviewRounds>;
+  empty: { turns: number; empty: number } | null; wakes: Wake[]; rounds: ReturnType<typeof reviewRounds>;
   flags: Flag[]; defer: string[]; held: string[];
 }
 
@@ -66,41 +71,79 @@ function waitArgs(item: Item): { ops: string; seconds: number | null } | null {
   } catch { return null; }
 }
 
+/** A message_agent send to another thread (it names `to`), which is action whatever its state; a report to the parent names none. A send's text is its target, which also covers an input cut short before `to`. */
+function addressed(item: Item): boolean {
+  if (item.to !== undefined) return !!item.to;
+  const input = typeof item.input === 'string' ? { text: item.input } : item.input;
+  return /[{,]\s*"to"\s*:\s*"/.test(input?.text ?? '') || (!!item.text && (input?.chars ?? 0) > (input?.text ?? '').length);
+}
+
+const ranMs = (i: Item) => i.ms ?? (i.calls ?? []).reduce((s, c) => s + (c.durationMs ?? 0), 0);
+
 /**
- * Turns from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
- * ends one. A turn is empty when it made no call beyond status reads, waits and "working" reports. A warm-wait
- * check-in (crew/docs/captain.md, Warm waits; GST-1597) is not a turn: one whose only call re-issues a wait on the
- * operations the previous turn waited on, or a 240-second timer naming those operations or none, within 30 minutes
- * of the wait that started the run. Any turn that closes on such a wait keeps the run's start, so a status read
- * between check-ins counts but never restarts the 30 minutes.
+ * Wakes (turns) from transcript items: an inbound message starts one; end_turn, wait or a final/needs_you report
+ * ends one, and so does more than CACHE_TTL_S idle before a call (its gap less its own run time): an unrecorded
+ * platform event woke the thread. A wake is empty when it made no call beyond status reads, waits and "working"
+ * reports to the parent; a send to another thread is action. A warm-wait check-in (crew/docs/captain.md, Warm waits;
+ * GST-1597) is not a wake: one whose only call re-issues a wait on the operations the previous wake waited on, or a
+ * 240-second timer naming those operations or none, within 30 minutes of the wait that started the run. Any wake that
+ * closes on such a wait keeps the run's start, so a status read between check-ins counts but never restarts the 30 minutes.
+ * Each wake is priced in warm model calls, one per tool call, issued at its item's time less its own run time. A wake is
+ * cold when it started more than CACHE_TTL_S after the thread's previous model call, so the prompt cache had lapsed; its
+ * first call then costs COLD_CALL_PRICE once, and so does any later call issued more than CACHE_TTL_S after the model
+ * call before it (the call after a long tool). The first wake read has no previous model call and is priced warm.
+ * The price ratio and the 5-minute cache are Opus 5.5's; other models differ.
  */
-export function emptyWakes(items: readonly Item[]): { turns: number; empty: number } {
-  const sorted = items.filter(i => i.createdAt && i.source !== 'assistant').sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
-  const turns: boolean[] = [];
-  let acted = false, open = false;
+export function wakes(items: readonly Item[]): Wake[] {
+  const sorted = items.filter(i => Number.isFinite(Date.parse(i.createdAt ?? ''))).sort((a, b) => a.createdAt!.localeCompare(b.createdAt!));
+  const out: Wake[] = [];
+  let acted = false, coldCalls = 0;
   let calls: Item[] = [];
+  let start: { at: string; idleS: number | null } | null = null;
+  let prevAt: number | null = null, prevModel: number | null = null;
   let last: { ops: string; since: number } | null = null;
   const close = () => {
-    if (!open) return;
+    if (!calls.length || !start) return;
     const closing = calls.at(-1);
     const args = closing?.tool === 'wait' ? waitArgs(closing) : null;
     const at = Date.parse(closing?.createdAt ?? '');
     const same = !!args && !!last && (args.ops ? args.ops === last.ops : args.seconds === LIMITS.warmWaitS);
-    if (!(same && calls.length === 1 && at - last!.since <= LIMITS.warmWindowS * 1000)) turns.push(!acted);
+    if (!(same && calls.length === 1 && at - last!.since <= LIMITS.warmWindowS * 1000)) {
+      const cold = start.idleS !== null && start.idleS > CACHE_TTL_S;
+      const n = coldCalls + (cold ? 1 : 0);
+      out.push({ start: start.at, idleS: start.idleS, cold, calls: calls.length, coldCalls: n, empty: !acted, cost: calls.length + n * (COLD_CALL_PRICE - 1) });
+    }
     last = args ? (same ? last : { ops: args.ops, since: at }) : null;
-    acted = false; open = false; calls = [];
+    acted = false; coldCalls = 0; calls = []; start = null;
   };
   for (const i of sorted) {
-    if (i.source !== 'tool') { close(); continue; }
-    open = true;
+    const t = Date.parse(i.createdAt!);
+    if (i.source === 'assistant') { prevAt = prevModel = t; continue; }
+    if (i.source !== 'tool') { close(); start ??= { at: i.createdAt!, idleS: prevModel === null ? null : (t - prevModel) / 1000 }; prevAt = t; continue; }
+    const issued = Math.max(t - ranMs(i), prevAt ?? -Infinity);
+    if (calls.length && prevAt !== null && (issued - prevAt) / 1000 > CACHE_TTL_S) close();
+    const sinceModelS = prevModel === null ? null : (issued - prevModel) / 1000;
+    start ??= { at: i.createdAt!, idleS: sinceModelS };
+    const startCold = start.idleS !== null && start.idleS > CACHE_TTL_S;
+    if (sinceModelS !== null && sinceModelS > CACHE_TTL_S && (calls.length || !startCold)) coldCalls++;
+    prevAt = t; prevModel = issued;
     calls.push(i);
     const state = i.tool === 'message_agent' || i.tool === 'message_user' ? reportState(i) : undefined;
-    if (i.tool !== 'end_turn' && state !== 'working' && !isKeepalive(i)) acted = true;
+    const report = state === 'working' && !(i.tool === 'message_agent' && addressed(i));
+    if (i.tool !== 'end_turn' && !report && !isKeepalive(i)) acted = true;
     if (i.tool === 'end_turn' || i.tool === 'wait' || state === 'final' || state === 'needs_you') close();
   }
   close();
-  const window = turns.slice(-LIMITS.emptyWindow);
-  return { turns: window.length, empty: window.filter(Boolean).length };
+  return out;
+}
+
+/** Shares of all wakes read: cold-started and empty wakes by count, and by price, the cold calls' extra over warm and the empty wakes' whole cost. */
+export function wakeCost(ws: readonly Wake[]): { wakes: number; cold: number; empty: number; coldExtra: number; emptySpend: number } {
+  const total = ws.reduce((s, w) => s + w.cost, 0) || 1;
+  const n = ws.length || 1;
+  const empty = ws.filter(w => w.empty);
+  return { wakes: ws.length, cold: ws.filter(w => w.cold).length / n, empty: empty.length / n,
+    coldExtra: ws.reduce((s, w) => s + w.coldCalls, 0) * (COLD_CALL_PRICE - 1) / total, emptySpend: empty.reduce((s, w) => s + w.cost, 0) / total };
 }
 
 /**
@@ -175,9 +218,12 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
     const live = !TERMINAL.has(t.status ?? '');
     flags.push({ action: live ? 'STOP' : 'LOOK', text: 'subagent ' + pathOf(t) + ' ' + quote(t.title) + ' ' + fmtTokens(tok(t)) + ' > ' + fmtTokens(LIMITS.subagentStop) + ' (' + (t.status ?? 'unknown') + ')' });
   }
-  const empty = opts.items?.length ? emptyWakes(opts.items) : null;
+  const ws = opts.items?.length ? wakes(opts.items) : [];
+  const recent = ws.slice(-LIMITS.emptyWindow);
+  const empty = ws.length ? { turns: recent.length, empty: recent.filter(w => w.empty).length } : null;
   if (empty && empty.turns >= LIMITS.emptyMinTurns && empty.empty / empty.turns > LIMITS.emptyRate)
-    flags.push({ action: 'WARN', text: 'empty_wake ' + Math.round(100 * empty.empty / empty.turns) + '% of ' + empty.turns + ' turns > ' + LIMITS.emptyRate * 100 + '%' });
+    flags.push({ action: 'WARN', text: 'empty_wake ' + Math.round(100 * empty.empty / empty.turns) + '% of ' + empty.turns + ' turns > ' + LIMITS.emptyRate * 100 + '%'
+      + ', ' + Math.round(100 * wakeCost(recent).emptySpend) + '% of their spend' });
   const rounds = reviewRounds(listed);
   if (rounds && rounds.rounds > LIMITS.maxRounds) flags.push({ action: 'WARN', text: 'review_rounds ' + rounds.rounds + ' on #' + rounds.pr + ' > ' + LIMITS.maxRounds });
 
@@ -188,15 +234,21 @@ export function assess(doc: ThreadDoc, opts: { items?: Item[]; subagents?: { tas
   const worst = (['ROTATE', 'REPORT', 'STOP', 'WARN', 'CHECK_IN', 'LOOK'] as const).find(a => flags.some(f => f.action === a));
   const holds = flags.some(f => f.action === 'ROTATE') || stopsShipping;
   const verdict: Verdict['verdict'] = holds && defer.length ? 'DEFER' : held.length && (!worst || worst === 'LOOK') ? 'DEFER' : (worst ?? 'OK');
-  return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, rounds, flags, defer, held };
+  return { code, verdict, captain, own, ownBound, total, credits: doc.cost?.credits ?? 0, ageDays, active, empty, wakes: ws, rounds, flags, defer, held };
 }
 
-export function render(v: Verdict): string[] {
+const pct = (x: number) => Math.round(100 * x) + '%';
+
+export function render(v: Verdict, opts: { wakes?: boolean } = {}): string[] {
   const e = v.empty ? Math.round(100 * v.empty.empty / Math.max(1, v.empty.turns)) + '%/' + v.empty.turns : 'unmeasured';
+  const c = wakeCost(v.wakes);
   const out = ['RUNAWAY: thread=' + v.code + ' verdict=' + v.verdict + (v.captain ? ' captain=yes' : '') + ' own=' + fmtTokens(v.own) + '(' + v.ownBound + ')'
     + ' total=' + fmtTokens(v.total) + ' credits=' + Math.round(v.credits) + ' age_days=' + v.ageDays.toFixed(1) + ' active=' + (v.active ? 'yes' : 'no')
     + ' empty_wake=' + e + ' max_rounds=' + (v.rounds?.pr ? v.rounds.rounds + '(#' + v.rounds.pr + ')' : '0')
-    + ' review_subagents=' + (v.rounds?.reviewers ?? 0) + '(unattributed ' + (v.rounds?.unattributed ?? 0) + ')'];
+    + ' review_subagents=' + (v.rounds?.reviewers ?? 0) + '(unattributed ' + (v.rounds?.unattributed ?? 0) + ')'
+    + ' wakes=' + (c.wakes ? c.wakes + ' cold_wakes=' + pct(c.cold) + ' empty_wakes=' + pct(c.empty) + ' cold_extra_spend=' + pct(c.coldExtra) + ' empty_spend=' + pct(c.emptySpend) : 'unmeasured')];
+  if (opts.wakes) for (const w of v.wakes) out.push('WAKE: thread=' + v.code + ' start=' + w.start + ' idle_s=' + (w.idleS === null ? 'unknown' : Math.round(w.idleS))
+    + ' cache=' + (w.cold ? 'cold' : 'warm') + ' calls=' + w.calls + ' cold_calls=' + w.coldCalls + ' empty=' + (w.empty ? 'yes' : 'no') + ' cost=' + w.cost.toFixed(1));
   for (const f of v.flags) out.push('FLAG: ' + f.action + ' ' + f.text);
   if (v.verdict === 'DEFER') for (const d of v.defer) out.push('DEFER: ' + d);
   for (const h of v.held) out.push('DEFER: ' + h);
@@ -230,7 +282,7 @@ function itemsOf(x: unknown): Item[] {
 
 const USAGE = [
   'gstack-runaway — find runaway Capy threads and subagents (read-only; /runaway-stopper)',
-  '  scan --thread <thread.get json> [--events <transcript json>] [--subagents <subagent.list json>] [--now <iso>]',
+  '  scan --thread <thread.get json> [--events <transcript json>] [--subagents <subagent.list json>] [--now <iso>] [--wakes]',
   '  scan --dir <dir> [--now <iso>]   reads every <code>.thread.json with its <code>.events.json and <code>.subagents.json',
   '  and <dir>/crew.json (the thread.list codes, {"items": [...]}): an empty crew list is RUNAWAY_INPUT, never a clean SWEEP.',
   'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT|CHECK_IN, DEFER, SWEEP (--dir).',
@@ -240,12 +292,17 @@ const USAGE = [
   'pull_requests are missing or partial (DEFER, R91); any other thread is a crew thread that keeps its PR and gets one',
   'CHECK_IN past 1B own; subagent > 100M stop (LOOK when it already ended); empty wakes > 25% of the last 40 turns',
   '(20+; warm-wait check-ins left out); review rounds > 2 per PR; Captains REPORT, never rotate.',
+  'Each wake read is priced in warm model calls (one per tool call); it is cold when it starts more than ' + CACHE_TTL_S + ' s after the',
+  '  thread\'s previous item (the prompt cache lapsed), and its first call then costs ' + COLD_CALL_PRICE + ', as does a call after a tool that ran',
+  '  that long. cold_extra_spend is the cold calls\' extra over warm, empty_spend the empty wakes\' cost, both as shares of the',
+  '  wakes read; --wakes prints each wake with its cost in warm calls.',
   'A thread file that is not valid JSON or lacks cost.tokens or created_at prints RUNAWAY_INPUT and is skipped.',
   'Exit 0 after a clean scan, 1 when any input was unreadable, 2 on a usage error.',
 ];
 
 export function runawayMain(argv: string[]): number {
-  const [cmd, ...rest] = argv;
+  const [cmd, ...args] = argv;
+  const rest = args.filter(a => a !== '--wakes');
   if (cmd === '--help' || cmd === '-h') { console.log(USAGE.join('\n')); return 0; }
   const fail = (msg: string) => { console.error('RUNAWAY_USAGE: ' + msg + '\n' + USAGE.join('\n')); return 2; };
   if (cmd !== 'scan') return fail(cmd ? 'unknown command ' + JSON.stringify(cmd) : 'no command');
@@ -302,7 +359,7 @@ export function runawayMain(argv: string[]): number {
     }
   }
   verdicts.sort((a, b) => b.own - a.own);
-  for (const v of verdicts) console.log(render(v).join('\n'));
+  for (const v of verdicts) console.log(render(v, { wakes: args.includes('--wakes') }).join('\n'));
   if (dir) {
     const n = (k: Verdict['verdict']) => verdicts.filter(v => v.verdict === k).length;
     console.log('SWEEP: threads=' + verdicts.length + ' rotate=' + n('ROTATE') + ' stop=' + n('STOP') + ' defer=' + n('DEFER')

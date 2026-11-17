@@ -24,7 +24,7 @@ import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
 import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
 import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
-import { diffStat, lineDiff } from './autoplan-confirm';
+import { diffStat, earlierRows, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { normalizeRevision, reviewHash, scaffold } from './autoplan-plan-text';
 import { parseScopeTokens } from './autoplan-scope';
@@ -90,20 +90,22 @@ function settleEvidence(state: RunState, ids: string[], revised?: string): { pla
 
 const SEVERITY_ORDER = ['Informational', 'Low', 'Medium', 'High', 'Critical'];
 export const BELOW_HIGH = ['Informational', 'Low', 'Medium'];
+/** A finding that changes these is re-reviewed whatever its severity: the owner took a reviewer's scope, direction or cost change. */
+const REREVIEWED_CHANGES = ['scope', 'direction', 'cost'];
 
 /**
  * The severity an incorporated decision resolves to: the highest of the findings its gate item named (the
  * decisions.jsonl origin's ids, looked up in that phase's bound rows). `unknown` when the row, its origin or a
- * finding is missing; `challenge` for a user challenge, whose direction change is always re-reviewed.
+ * finding is missing; `challenge` for a user challenge or a scope, direction or cost change, which is always re-reviewed.
  */
 export function decisionSeverity(state: RunState, decision: string): string {
   const row = readDecisions(state.out).find(d => d.id === decision);
   const [phase, ids] = row?.origin?.split('|') ?? [];
   if (!phase || !ids || !state.phases[phase]?.closed_at) return 'unknown';
-  const rows = [...voiceRows(state, phase, 'native'), ...voiceRows(state, phase, 'outside')];
+  const rows = [...voiceRows(state, phase, 'native'), ...voiceRows(state, phase, 'outside'), ...earlierRows(state, phase)];
   const found = ids.split('+').filter(id => id && id !== 'null').map(id => rows.find(r => r.id === id));
   if (!found.length || found.some(f => !f)) return 'unknown';
-  if (found.some(f => (f as { user_challenge?: boolean }).user_challenge)) return 'challenge';
+  if (found.some(f => (f as { user_challenge?: boolean }).user_challenge || REREVIEWED_CHANGES.includes((f as { changes?: string }).changes ?? ''))) return 'challenge';
   return found.map(f => f!.severity).reduce((a, b) => (SEVERITY_ORDER.indexOf(b) > SEVERITY_ORDER.indexOf(a) ? b : a));
 }
 

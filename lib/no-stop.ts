@@ -1,14 +1,13 @@
 /**
- * The five no-stop defaults (GSTA-258 plan K1, docs/review-policy.md#no-stop): routine stops /ship and
+ * The four no-stop defaults (GSTA-258 plan K1, docs/review-policy.md#no-stop): routine stops /ship and
  * /autoplan record in the receipt's `no_stop` field and go on past instead of waiting for a Captain.
- * Each class has one deterministic test here; anything that fails it, and any stop outside the five,
+ * Each class has one deterministic test here; anything that fails it, and any stop outside the four,
  * still stops for the owner.
  *
  * - scoped-fix-check: one scoped fix-check past R51's two-round cap when the round-2 fix is docs-only
  *   (docs class, lib/review-depth.ts classifyPath) or timeout-only. One per branch.
  * - test-timeout-fix: a fix whose every changed line, all in test files, only raises a timeout value.
  * - pregate-flake-rerun: one rerun of a failed pregate case at the same tree (CREW rule 16). One per branch.
- * - stamp-only-carry: a refused receipt carry whose changes since the receipt head are version stamps only.
  * - autoplan-regate: a later autoplan gate revision whose plan-file edit only adds ELI5 lines that name no
  *   number, spend, cap, arm or verdict (lib/autoplan-carry.ts asks notEli5Only before it carries).
  *
@@ -30,9 +29,7 @@ export interface FileDiff { path: string; pairs: Array<[string, string]>; added:
 /** A number that is a timeout's value: after a timeout key (`timeout: 5`, `timeoutMs = 5`, `setDefaultTimeout(5)`, `--timeout=5`) or bun's and jest's trailing per-test argument (`}, 30_000);`). */
 const TIMEOUT_VALUE = /(\b[a-z]*timeout\w*\s*(?::|=|\()\s*|--timeout[= ]|\}\s*,\s*)(\d[\d_]*)/gi;
 const ASSERTION = /\b(?:expect|assert\w*)\b|\s[<>]=?\s/;
-const VERSION = /\d+\.\d+\.\d+(?:\.\d+)?/g;
 const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$/;
-const STAMP_PATHS = ['VERSION', 'package.json', 'CHANGELOG.md', 'agents-digest/gstack-AGENTS.md'];
 /** Words that mean spend, a cap, an eval arm, a model or a verdict: an ELI5 addition naming one goes to the owner. */
 const REGATE_WORDS = /\$|\b(?:spend|spending|spent|costs?|budgets?|prices?|caps?|capped|credits?|limits?|max|maximum|arms?|models?|judges?|verdicts?|thresholds?|bars?|pass(?:es)? at|trials?|samples?|stop rules?|kill rules?|paid|evals?|opus|sonnet|haiku|gpt[\w.-]*|gemini|claude)\b|\bn\s*=/i;
 
@@ -92,19 +89,6 @@ export function notDocsOnly(paths: string[], root: string): string | null {
   return code.length ? `not docs: ${code.slice(0, 3).join(', ')}` : null;
 }
 
-/** Why the diff is not a version stamp, or null: only stamp files change, and in VERSION or package.json only a version string moves. */
-export function notStampOnly(files: FileDiff[]): string | null {
-  if (!files.length) return 'nothing changed since the receipt head';
-  for (const f of files) {
-    if (!STAMP_PATHS.includes(f.path) && !/^changelog\.d\/[^/]+\.md$/.test(f.path)) return `${f.path} is not a stamp file`;
-    if (f.path !== 'VERSION' && f.path !== 'package.json') continue;
-    if (f.whole || f.added.length || f.removed.length) return `${f.path} adds or removes lines`;
-    const bad = f.pairs.find(([was, now]) => was.replace(VERSION, 'V') !== now.replace(VERSION, 'V') || (f.path === 'package.json' && !/^\s*"version"\s*:/.test(now)));
-    if (bad) return `${f.path} changes more than the version: ${bad[1].trim().slice(0, 80)}`;
-  }
-  return null;
-}
-
 const HEADING = /^#{1,6}\s+(.*)$/;
 const ELI5 = /^eli5\b/i;
 
@@ -135,7 +119,7 @@ export interface NoStopInput { cls: string; reason: string; evidence: string; pr
 
 /** The verdict for one stop: the record to add, or why it still stops. */
 export function checkNoStop(i: NoStopInput): NoStopVerdict {
-  if (!(NO_STOP_CLASSES as readonly string[]).includes(i.cls)) return { ok: false, reason: `${i.cls} is not one of the five no-stop classes (${NO_STOP_CLASSES.join(', ')})` };
+  if (!(NO_STOP_CLASSES as readonly string[]).includes(i.cls)) return { ok: false, reason: `${i.cls} is not one of the four no-stop classes (${NO_STOP_CLASSES.join(', ')})` };
   const cls = i.cls as NoStopClass;
   if (!i.reason.trim() || !i.evidence.trim()) return { ok: false, reason: 'a no-stop record needs a reason and evidence that resolves (run id, commit or file)' };
   const record = { class: cls, reason: i.reason.trim(), evidence: i.evidence.trim() };
@@ -144,10 +128,6 @@ export function checkNoStop(i: NoStopInput): NoStopVerdict {
   if (cls === 'autoplan-regate') return { ok: false, reason: 'gstack-autoplan decides re-gates at the gate (lib/autoplan-carry.ts), never by hand' };
   const files = parseDiff(i.diff ?? '');
   const where = files.map(f => f.path).join(', ');
-  if (cls === 'stamp-only-carry') {
-    const why = notStampOnly(files);
-    return why ? { ok: false, reason: why } : { ok: true, record, detail: `version stamp only in ${where}` };
-  }
   const timeout = notTimeoutOnly(files);
   if (cls === 'test-timeout-fix') {
     const outside = files.filter(f => !TEST_PATH.test(f.path)).map(f => f.path);

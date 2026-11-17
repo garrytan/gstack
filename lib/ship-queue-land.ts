@@ -23,6 +23,8 @@ import { matchesAny, type ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { QUEUE_DIR_REL, git, writeJsonAtomic, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { landPlan } from './plan-record';
+import { landMessage, mergeArgs, messageLines } from './squash-message';
+import { withAgentNotes } from './agent-notes';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { TERMINAL_STATES, freezeLockCleared, loadReady, loadTrain, rebuildFromNotes, repoIdentity } from '../crew/lib/ship-queue-train-record';
 
@@ -51,9 +53,10 @@ export interface LandJournal {
   drift_main?: string; repair_pr?: string;
   phase: 'locked' | 'stamped' | 'pushed' | 'merged' | 'landed' | 'drift';
 }
-export interface LandOptions { pr: string; repair?: boolean; dryRun?: boolean; noWait?: boolean; breakLock?: boolean; breakTrainLock?: boolean; allowRepoCommands?: boolean; waitTimeoutMin?: number; now?: () => Date; holder?: string }
+export interface LandOptions { pr: string; body?: string; repair?: boolean; dryRun?: boolean; noWait?: boolean; breakLock?: boolean; breakTrainLock?: boolean; allowRepoCommands?: boolean; waitTimeoutMin?: number; now?: () => Date; holder?: string }
 
 const fail = (lines: string[], failure: QueueFailure, run: string): StepOutput => ({ ok: false, lines, failure, run });
+const MESSAGE_FIX = 'rewrite the PR title or the opening lines of its body, or pass land --body-file <file> with the plain lines to use; then rerun land';
 export const landJournalRel = (pr: string) => `${QUEUE_DIR_REL}/land/${pr}.json`;
 
 function readJson<T>(file: string): T | null { try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return null; } }
@@ -303,7 +306,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
       pushed = remote[0]!;
       lines.push(`branch: ${branch} already on origin at ${pushed.slice(0, 12)} (an earlier --repair pushed it); opening or finding its PR`);
     }
-    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Add a changelog entry for changes merged by hand next to #${j.pr}`, '--body', `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`]);
+    const pr = ctx.gh(['pr', 'create', '--base', ctx.base, '--head', branch, '--title', `Add a changelog entry for changes merged by hand next to #${j.pr}`, '--body', withAgentNotes(`Adds a CHANGELOG entry for ${outside.length || 'the'} change${outside.length === 1 ? '' : 's'} merged into ${ctx.base} by hand next to #${j.pr}, so the next release lists ${outside.length === 1 ? 'it' : 'them'}.\n\nMerge it like any other pull request; nothing else to do.\n`, `QUEUE_LAND_DRIFT repair (docs/troubleshooting.md#queue-land-drift). Outside commits: ${outside.join(', ') || 'unknown'}.`)]);
     const n = /\/pull\/(\d+)/.exec(`${pr.out}\n${pr.err ?? ''}`)?.[1];
     if (!n) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr create failed: ${(pr.err ?? pr.out).trim().slice(0, 160)}` }, run);
     j.repair_pr = n; writeJsonAtomic(file, j);
@@ -355,6 +358,10 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
     if (plan.line) lines.push(plan.line);
     if (plan.failure) return fail(lines, plan.failure, run);
   }
+  const message = (reviewed: string) => {
+    const tip = git(root, ['rev-parse', `origin/${ctx.base}`]).out;
+    return landMessage(root, { pr: o.pr, title: info.title ?? '', prBody: info.body ?? '', mergeBase: git(root, ['merge-base', tip, reviewed]).out, pin: reviewed, tip, policy, override: o.body });
+  };
   if (!j) {
     const ci = ciAtHead(ctx, pin);
     lines.push(`CI: ${ci.line}`, ...ci.superseded);
@@ -364,7 +371,9 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
     git(root, ['fetch', '-q', 'origin', ctx.base]);
     const s = buildStamp(ctx, policy, { pin, baseSha: git(root, ['rev-parse', `origin/${ctx.base}`]).out, pr: o.pr, title: info.title, allowRepoCommands: !!o.allowRepoCommands, now: now() });
     if ('code' in s) return fail(lines, s, run);
-    return { ok: true, run, lines: [...lines, ...s.lines, `STAMP_VERSION: ${s.version}`, `STAMP_TREE: ${s.tree}`, 'DRY-RUN: nothing locked, pushed or merged'] };
+    const msg = message(pin);
+    if ('error' in msg) return fail(lines, { code: 'QUEUE_NOT_READY', message: msg.error, fix: MESSAGE_FIX }, run);
+    return { ok: true, run, lines: [...lines, ...s.lines, `STAMP_VERSION: ${s.version}`, `STAMP_TREE: ${s.tree}`, ...messageLines(msg), 'DRY-RUN: nothing locked, pushed or merged'] };
   }
 
   let driftOf: string | undefined;
@@ -443,9 +452,12 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
       const ci = ciAtHead(ctx, j.stamp_commit!);
       lines.push(`CI: ${ci.line}`);
       if (!ci.green) return { ok: !ci.line.startsWith('red'), run, lines: [...lines, `NEXT: gstack-pr-wait ${o.pr} --until green && gstack-ship-queue land --pr ${o.pr}`], failure: ci.line.startsWith('red') ? { code: 'QUEUE_NOT_READY', message: `a check failed on the stamp commit ${j.stamp_commit!.slice(0, 12)}` } : undefined };
+      const msg = message(j.reviewed_pin);
+      if ('error' in msg) return fail(lines, { code: 'QUEUE_NOT_READY', message: msg.error, fix: MESSAGE_FIX }, run);
+      lines.push(...messageLines(msg));
       const fm = setLock('merging');
       if (fm) return fail(lines, fm, run);
-      const m = ctx.gh(['pr', 'merge', o.pr, policy.history === 'merge-only' ? '--merge' : '--squash', '--match-head-commit', j.stamp_commit!]);
+      const m = ctx.gh(mergeArgs(o.pr, j.stamp_commit!, msg));
       if (!m.ok) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200)}` }, run);
       j.phase = 'merged'; save();
     }

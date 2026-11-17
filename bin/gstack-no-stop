@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * gstack-no-stop — record one of the five no-stop defaults and go on (GSTA-258 K1, docs/review-policy.md#no-stop).
+ * gstack-no-stop — record one of the four no-stop defaults and go on (GSTA-258 K1, docs/review-policy.md#no-stop).
  *
  *   gstack-no-stop record --class <class> --reason <text> --evidence <ref> [--range-base <sha>] [--json]
  *   gstack-no-stop import --from <autoplan run>/no-stop.json [--json]
@@ -19,7 +19,7 @@ import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendLedger, checkNoStop, ledgerPath, readLedger } from '../lib/no-stop';
 import { runScriptSync } from '../lib/script-invocation';
 
-const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/review-policy.md#no-stop)
+const HELP = `gstack-no-stop — record one of the four no-stop defaults (docs/review-policy.md#no-stop)
 
   record --class <class> --reason <text> --evidence <run id, commit or file> [--range-base <sha>] [--json]
       NO_STOP: <class> recorded: go on. NO_STOP: refused (exit 3): the stop stands. Anything else still stops.
@@ -28,15 +28,11 @@ const HELP = `gstack-no-stop — record one of the five no-stop defaults (docs/r
       test-timeout-fix     a fix that only raises a test's timeout (--range-base the commit before it): its gate
                            finding takes the printed GATE_DISPOSITION: kept reason instead of open
       pregate-flake-rerun  one rerun of a failed pregate case at the same tree (rule 16): green is flaky, red is real
-      stamp-only-carry     carry refused a head whose change is a version stamp (--range-base the receipt head,
-                           --base origin/<base>): take the carry's RECHECK: route instead of Steps 2-16
       autoplan-regate      gstack-autoplan records it; import --from <run>/no-stop.json adds it here
       Step 19's receipt write adds --no-stop @<NO_STOP_FILE> when list shows records.
       --range-base: the commit the fix or change is measured from (round 2's PASS_HEAD for scoped-fix-check, which must be
       the newest review-log pass row's commit,
-      the commit before the fix for test-timeout-fix, the receipt head for stamp-only-carry); required for those three
-      --base <ref> (stamp-only-carry): compare HEAD with the receipt head merged into <ref> (base side on conflict),
-      so a base merge plus a stamp qualifies and a product conflict resolution does not
+      the commit before the fix for test-timeout-fix); required for those two
   import --from <file> [--json]   add an autoplan run's no-stop.json records to the branch's ledger
   list [--json]   the branch's ledger and its path
 
@@ -44,7 +40,7 @@ ${exitTableHelp()}`;
 
 const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const git = (args: string[]) => spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
-const NEEDS_RANGE = ['scoped-fix-check', 'test-timeout-fix', 'stamp-only-carry'];
+const NEEDS_RANGE = ['scoped-fix-check', 'test-timeout-fix'];
 const K1_BY = 'gstack no-stop default (K1)';
 const AUTOPLAN_EVIDENCE = /^autoplan:\S+@gate_rev=\d+$/;
 
@@ -74,8 +70,7 @@ function record(args: string[], json: boolean): number {
   const cls = flag(args, '--class') ?? '';
   const commit = (ref: string | undefined) => { if (!ref) return undefined; const r = git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]); return r.status === 0 ? r.stdout.trim() : null; };
   const rangeBase = commit(flag(args, '--range-base'));
-  const base = cls === 'stamp-only-carry' ? commit(flag(args, '--base')) : undefined;
-  if (rangeBase === null || base === null) { process.stderr.write(`gstack-no-stop record: --range-base and --base must name commits\n`); return EXIT.usage; }
+  if (rangeBase === null) { process.stderr.write(`gstack-no-stop record: --range-base must name a commit\n`); return EXIT.usage; }
   if (!cls) { process.stderr.write(`gstack-no-stop record: --class is required\n${HELP}\n`); return EXIT.usage; }
   if (NEEDS_RANGE.includes(cls) && !rangeBase) { process.stderr.write(`gstack-no-stop record: --class ${cls} needs --range-base <sha>\n`); return EXIT.usage; }
   const file = ledgerPath(process.cwd());
@@ -94,13 +89,7 @@ function record(args: string[], json: boolean): number {
   }
   let diff: string | undefined;
   if (rangeBase) {
-    let from = rangeBase;
-    if (base) {
-      const merged = git(['merge-tree', '--write-tree', '-X', 'ours', base, rangeBase]);
-      if (merged.status !== 0) { process.stderr.write(`NO_STOP: refused ${cls} (git merge-tree ${base} ${rangeBase} failed: ${merged.stderr.trim() || 'conflict'}); stop for the owner\n`); return EXIT.refused; }
-      from = merged.stdout.split('\n')[0]!.trim();
-    }
-    const d = git(['diff', '--no-color', '--no-ext-diff', '--no-renames', from, 'HEAD']);
+    const d = git(['diff', '--no-color', '--no-ext-diff', '--no-renames', rangeBase, 'HEAD']);
     if (d.status !== 0) { process.stderr.write(`gstack-no-stop record: git diff ${rangeBase} HEAD failed: ${d.stderr.trim()}\n`); return EXIT.fail; }
     diff = d.stdout;
   }

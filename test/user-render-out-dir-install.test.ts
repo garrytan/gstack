@@ -144,6 +144,70 @@ describe(':user render targets the out-dir, never the checkout (#2569)', () => {
   });
 });
 
+// Value: protects=with skill_prefix=true every rendered Claude skill keeps its gstack-<name> after a re-render, because each path that swaps a fresh
+// render into a live render dir runs gstack-patch-names on it first; fails_when=a render path (setup's gbrain branch, gstack-config gbrain-refresh,
+// gstack_claude_render_plain) swaps in the generator's unprefixed name: fields, the #4413 symptom; why_new=#2738 patched the render only from
+// gstack-relink, which setup runs before these renders; seam=none; no_claim=the scan pins the call order, not each path's end-to-end behavior
+describe('skill_prefix survives every Claude re-render (#4413)', () => {
+  const RENDER_HELPER = path.join(ROOT, 'bin', 'gstack-render-claude.sh');
+
+  test('every render swap is preceded by gstack-patch-names on the same temp dir', () => {
+    const sources: Array<[string, string]> = [
+      ['setup', SETUP_SRC],
+      ['bin/gstack-config', CONFIG_SRC],
+      ['bin/gstack-render-claude.sh', fs.readFileSync(RENDER_HELPER, 'utf-8')],
+    ];
+    let swaps = 0;
+    for (const [rel, src] of sources) {
+      const lines = src.split('\n');
+      lines.forEach((line, i) => {
+        const m = /^\s*_swap_in_render "([^"]+)" "([^"]+)"/.exec(line);
+        if (!m) return;
+        swaps++;
+        const before = lines.slice(Math.max(0, i - 30), i).join('\n');
+        expect(before, `${rel}:${i + 1} swaps ${m[2]} in without gstack-patch-names`).toContain(`gstack-patch-names" "${m[2]}"`);
+      });
+    }
+    expect(swaps).toBe(4);
+  });
+
+  function renderPlain(prefix: string) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-render-prefix-'));
+    try {
+      const state = path.join(tmp, 'state');
+      fs.mkdirSync(state, { recursive: true });
+      fs.writeFileSync(path.join(state, 'config.yaml'), `skill_prefix: ${prefix}\n`);
+      const render = path.join(tmp, 'render', 'claude');
+      const script = [
+        'set -euo pipefail',
+        `. ${JSON.stringify(RENDER_HELPER)}`,
+        extractFn(SETUP_SRC, '_swap_in_render'),
+        'bun_cmd() {',
+        '  local out="" prev=""',
+        '  for a in "$@"; do [ "$prev" = --out-dir ] && out="$a"; prev="$a"; done',
+        '  mkdir -p "$out/retro" "$out/gstack-upgrade"',
+        `  printf -- '---\\nname: gstack\\n---\\n' > "$out/SKILL.md"`,
+        `  printf -- '---\\nname: retro\\n---\\n' > "$out/retro/SKILL.md"`,
+        `  printf -- '---\\nname: gstack-upgrade\\n---\\n' > "$out/gstack-upgrade/SKILL.md"`,
+        '}',
+        '_GSTACK_OVERLAY=claude',
+        `gstack_claude_render_plain ${JSON.stringify(tmp)} ${JSON.stringify(render)}`,
+      ].join('\n');
+      const r = runBashScript(script, { timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: tmp, GSTACK_STATE_ROOT: state } });
+      expect(r.status, r.stderr).toBe(0);
+      const name = (rel: string) => /^name: (.*)$/m.exec(fs.readFileSync(path.join(render, rel), 'utf-8'))?.[1];
+      return { root: name('SKILL.md'), retro: name('retro/SKILL.md'), upgrade: name('gstack-upgrade/SKILL.md') };
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  test('gstack_claude_render_plain serves prefixed names with skill_prefix true and the generator names with it false', () => {
+    expect(renderPlain('true')).toEqual({ root: 'gstack', retro: 'gstack-retro', upgrade: 'gstack-upgrade' });
+    expect(renderPlain('false')).toEqual({ root: 'gstack', retro: 'retro', upgrade: 'gstack-upgrade' });
+  });
+});
+
 describe('link_claude_skill_dirs prefers rendered SKILL.md (behavior)', () => {
   test('a rendered variant is served; skills without one fall back to source', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-render-pref-'));

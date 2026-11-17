@@ -116,6 +116,43 @@ describe('gstack-runaway scan', () => {
     expect(r.out).toContain('FLAG: WARN empty_wake 65% of 31 turns > 25%');
   });
 
+  // Value: protects=each wake carries its price and cache state, so the report says what cold starts and empty wakes cost (GST-2770);
+  //   fails_when=a wake after more than 300 s of quiet is priced warm, a send counts as empty, or silence inside a turn hides a cold
+  //   start; seam=wakes() through gstack-runaway scan --wakes
+  test('wakes are priced in warm calls: a start after 300 s of quiet pays a cold first call, and so does a call after silence mid-turn', () => {
+    const t = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
+    const items = [
+      { source: 'user', createdAt: t(0) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }, { tool: 'edit' }], createdAt: t(5) }, { source: 'tool', tool: 'end_turn', createdAt: t(10) },
+      { source: 'user', createdAt: t(610) }, { source: 'tool', tool: 'message_agent', state: 'working', to: true, createdAt: t(615) }, { source: 'tool', tool: 'end_turn', createdAt: t(620) },
+      { source: 'user', createdAt: t(680) }, { source: 'tool', tool: 'message_agent', state: 'working', createdAt: t(685) }, { source: 'tool', tool: 'end_turn', createdAt: t(690) },
+      { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: t(1100) }, { source: 'tool', tool: 'end_turn', createdAt: t(1105) },
+      { source: 'user', createdAt: t(1200) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'edit' }], createdAt: t(1205) }, { source: 'tool', tool: 'end_turn', createdAt: t(1600) },
+    ];
+    const doc = { code: 'GSTA-996', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [], events: items };
+    const f = write('priced.thread.json', doc);
+    const out = run('scan', '--thread', f, '--now', NOW, '--wakes').out;
+    expect(out).toContain('wakes=6 cold_wakes=50% empty_wakes=33% cold_extra_spend=85% empty_spend=33%');
+    expect(out).toContain('WAKE: thread=GSTA-996 start=' + t(0) + ' idle_s=unknown cache=warm calls=2 cold_calls=0 empty=no cost=2.0');
+    expect(out).toContain('WAKE: thread=GSTA-996 start=' + t(610) + ' idle_s=600 cache=cold calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(out).toContain('WAKE: thread=GSTA-996 start=' + t(680) + ' idle_s=60 cache=warm calls=2 cold_calls=0 empty=yes cost=2.0');
+    expect(out).toContain('WAKE: thread=GSTA-996 start=' + t(1100) + ' idle_s=410 cache=cold calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(out).toContain('WAKE: thread=GSTA-996 start=' + t(1600) + ' idle_s=395 cache=cold calls=1 cold_calls=1 empty=yes cost=19.4');
+    expect(run('scan', '--thread', f, '--now', NOW).out).not.toContain('WAKE:');
+    const long = [{ source: 'user', createdAt: t(0) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash', durationMs: 5000 }], createdAt: t(10) },
+      { source: 'tool', tool: 'execute', calls: [{ tool: 'subagent_list', durationMs: 590_000 }], createdAt: t(610) }, { source: 'tool', tool: 'end_turn', createdAt: t(620) }];
+    const ran = run('scan', '--thread', write('long.thread.json', { ...doc, events: [] }), '--events', write('long.events.json', { transcript: { items: long } }), '--now', NOW, '--wakes').out;
+    expect(ran).toContain('wakes=1 cold_wakes=0% empty_wakes=0% cold_extra_spend=86% empty_spend=0%');
+    expect(ran).toContain('idle_s=unknown cache=warm calls=3 cold_calls=1 empty=no cost=21.4');
+    const queued = [{ source: 'tool', tool: 'end_turn', createdAt: t(0) },
+      { source: 'user', createdAt: t(600) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: t(1200) }, { source: 'tool', tool: 'end_turn', createdAt: t(1206) },
+      { source: 'user', createdAt: t(1300) }, { source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }], createdAt: t(1900) }, { source: 'tool', tool: 'end_turn', createdAt: t(1905) },
+      { source: 'tool', tool: 'execute', calls: [{ tool: 'bash', durationMs: 600_000 }], createdAt: t(2505) }, { source: 'tool', tool: 'end_turn', createdAt: t(2506) }];
+    const q = run('scan', '--thread', write('queued.thread.json', { ...doc, events: [] }), '--events', write('queued.events.json', { transcript: { items: queued } }), '--now', NOW, '--wakes').out;
+    expect(q).toContain('start=' + t(600) + ' idle_s=600 cache=cold calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(q).toContain('start=' + t(1300) + ' idle_s=94 cache=warm calls=2 cold_calls=1 empty=no cost=20.4');
+    expect(q).toContain('start=' + t(2505) + ' idle_s=0 cache=warm calls=2 cold_calls=1 empty=no cost=20.4');
+  });
+
   const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
   const wait = (s: number, input: Record<string, unknown>) => ({ source: 'tool', tool: 'wait', input: { text: JSON.stringify({ description: 'w', ...input }) }, createdAt: at(s) });
   const work = (s: number) => ({ source: 'tool', tool: 'execute', calls: [{ tool: 'bash' }, { tool: 'edit' }], createdAt: at(s) });
@@ -127,7 +164,7 @@ describe('gstack-runaway scan', () => {
   // Value: protects=warm-wait check-ins (crew/docs/captain.md Warm waits, #4060) are not empty wakes: a turn whose only call re-issues the
   //   wait on the same operation, or a 240 s timer, inside 30 minutes of the wait that began the run is left out; a re-wait past 30
   //   minutes, a different wait, or a turn that also reads status still counts; fails_when=/runaway-stopper flags a lane that follows the
-  //   rule (GST-1597); seam=emptyWakes; no_claim=whether the lane should have warm-waited at all
+  //   rule (GST-1597); seam=wakes; no_claim=whether the lane should have warm-waited at all
   test('warm-wait check-ins inside 30 minutes are not empty wakes; past the window they count again', () => {
     const lane: unknown[] = [];
     for (let k = 0; k < 20; k++) { lane.push(work(k * 2000)); lane.push(wait(k * 2000 + 1, { operation_ids: ['op' + k], duration_seconds: 240 })); for (let c = 1; c <= 7; c++) lane.push(wait(k * 2000 + 1 + c * 240, c % 2 ? { duration_seconds: 240 } : { operation_ids: ['op' + k] })); }
@@ -149,7 +186,7 @@ describe('gstack-runaway scan', () => {
   // Value: protects=a 240 s timer chains only on the run's operations or none, and a counted turn that re-waits on the run's operation
   //   keeps the run's start, so polling one operation for hours with a status read every 28 minutes still counts; fails_when=a timer
   //   naming other operations is left out, or a status-read turn restarts the 30-minute window (GST-1597 /ship findings 2 and 3);
-  //   seam=emptyWakes; no_claim=how often a lane should read status
+  //   seam=wakes; no_claim=how often a lane should read status
   test('a 240 s timer on other operations counts; a status-read turn does not restart the warm window', () => {
     const timer = (ops: (k: number) => Record<string, unknown>) => {
       const items: unknown[] = [];
@@ -347,6 +384,25 @@ describe('/runaway-stopper skill', () => {
     const out = run('scan', '--thread', write('skill-warm.thread.json', doc), '--now', NOW).out;
     expect(out).toContain('empty_wake=0%/20');
     expect(out).not.toContain('FLAG: WARN empty_wake');
+  });
+  // Value: protects=a Captain's sends to its crew are action, so its empty-wake share is not inflated (four Captains measured 46%, 46%,
+  //   53% and 35% empty with sends counted as reports, against a hand count of 34%, 36%, 43% and 31%); fails_when=the projection drops
+  //   `to`, loses it when thread.get cuts a long input short, or the scan treats an addressed "working" send as a report;
+  //   seam=the template's projection, then gstack-runaway scan
+  test('the fetch program keeps whether a message_agent names a target: a send is action, a working report to the parent is not', () => {
+    const src = skill.match(/transcript\.items\.map\((i => \(\{[\s\S]*?\}\))\)\);/)?.[1];
+    const project = new Function('return ' + src)() as (i: unknown) => unknown;
+    const at = (s: number) => new Date(Date.parse('2026-11-06T12:00:00Z') + s * 1000).toISOString();
+    const page = (input: Record<string, unknown>) => Array.from({ length: 20 }, (_, k) => [
+      { id: 'u' + k, source: 'user', text: 'report', createdAt: at(k * 100) },
+      { id: 'm' + k, source: 'tool', tool: 'message_agent', text: 'X', createdAt: at(k * 100 + 5), input: { text: JSON.stringify(input), chars: JSON.stringify(input).length } },
+      { id: 'e' + k, source: 'tool', tool: 'end_turn', text: 'done', createdAt: at(k * 100 + 9) }]).flat().map(project);
+    const doc = { code: 'GSTA-997', status: 'idle', created_at: '2026-11-06T02:00:00Z', cost: { tokens: 1e6 }, tasks: [] };
+    expect(run('scan', '--thread', write('sends.thread.json', { ...doc, events: page({ to: 'GSTA-12', state: 'working', text: 'go' }) }), '--now', NOW).out).toContain('empty_wake=0%/20');
+    expect(run('scan', '--thread', write('notes.thread.json', { ...doc, events: page({ state: 'working', text: 'note' }) }), '--now', NOW).out).toContain('empty_wake=100%/20');
+    expect(run('scan', '--thread', write('nulls.thread.json', { ...doc, events: page({ state: 'working', text: 'note', to: null }) }), '--now', NOW).out).toContain('empty_wake=100%/20');
+    const cut = (project({ id: 'm', source: 'tool', tool: 'message_agent', text: 'GSTA-12', createdAt: at(0), input: { text: '{"state":"working","text":"a long brief', chars: 9000 } }) as { to?: boolean }).to;
+    expect(cut).toBe(true);
   });
   test('the fetch program marks standing threads, and only a standing thread with no open PR is rotated', () => {
     expect(skill).toContain('content: JSON.stringify({ ...doc, events, standing: standing.includes(doc.code) })');

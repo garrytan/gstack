@@ -1,7 +1,8 @@
 /**
  * captain-brief — the plan-approval ask in the shape Capy Captains relay to
  * their person (capy/skill/gstack/captain.md): a two-line header with the
- * one-word reply, then Before → after, Why it matters, What caused this work,
+ * one-word reply, then the plan's day-one table, what it won't do yet and the
+ * owner's words it follows when the plan has them (lib/autoplan-owner-text.ts), then Before → after, Why it matters, What caused this work,
  * Big decisions (each read from the reviewed plan through the shared heading
  * parser) and What we need from you: the owner's ask format (crew/docs/captain.md
  * § The ask format), one lettered line per gate choice with the Captain's name
@@ -19,6 +20,7 @@ import * as path from 'node:path';
 import { gateCost, gateCostSentence, priorChoices } from './autoplan-gate-cost';
 import { parseReply, recHash, type GateEli5, type GateItem } from './gate-list';
 import { renderUrgentBlock } from './headless-artifacts';
+import { renderDayOne } from './autoplan-owner-text';
 import { findSection, firstTitle } from './markdown-sections';
 import type { BriefInputs } from './owner-brief';
 
@@ -47,6 +49,7 @@ const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 const OPTION_WORDS: Record<string, string> = {
   'keep your direction': 'keep the plan as written (a reviewer suggested changing it)',
   'accept the change': "make the reviewer's change",
+  "keep the plan's draft": 'keep the plan as written (a reviewer suggested changing it)',
 };
 const plainOption = (t: string) => {
   const s = t.replace(/\s*\([^)]*gstack-autoplan[^)]*\)/g, '').trim();
@@ -139,7 +142,8 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
     `\`gstack-autoplan answer --out ${o.outDir} --gate-rev ${list.gate_rev} --reply rec --rec-hash ${hash} --by agent:<id> --owner-reply "<their exact words>"\`, then \`gstack-approvals import --autoplan ${o.outDir} --by <name>\`.`;
   // The price sits above the trailer: the relaying agent sends everything above that line, so the person approving sees it.
   const cost = inputs.run ? ['### Cost', '', gateCostSentence(gateCost(o.outDir, list, { phase_order: inputs.run.phase_order ?? [], outside_enabled: inputs.run.outside_enabled !== false, spend_cap_usd: inputs.run.spend_cap_usd ?? null, scope_flags: inputs.run.scope_flags, lean: inputs.run.lean })), ''] : [];
-  const text = [...urgent, ...header, '', ...body, ...need, ...cost, '---', '', trailer, ''].join('\n');
+  const dayOne = renderDayOne(plan.text, list.owner_words?.quotes);
+  const text = [...urgent, ...header, '', ...dayOne, ...body, ...need, ...cost, '---', '', trailer, ''].join('\n');
   return { text, missing, pending, recHash: hash };
 }
 

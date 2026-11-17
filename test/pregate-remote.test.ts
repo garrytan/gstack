@@ -68,9 +68,19 @@ describe('small machines record the test tier for the remote gate (C4)', () => {
     expect(viaBackend.lanes.status).toBe('requires-remote');
     const obligation = viaBackend.file.requires_remote![0]!;
     expect(obligation.lane).toBe('test_backend/ubicloud');
-    expect(obligation.command).toMatch(/scripts\/ubicloud\/ubi-runner\.sh run --src '.*\/work' -- 'node --test '\\''test\/util\.test\.js'\\'''$/);
+    expect(obligation.command).toMatch(/scripts\/ubicloud\/ubi-runner\.sh run --src '.*\/work' --setup '(.*\/remote-files\/[0-9a-f]{16}\.sh)' -- 'mapfile -t PREGATE_FILES < ~\/\.pregate-files\.txt && node --test "\$\{PREGATE_FILES\[@\]\}"'$/);
+    expect(fs.readFileSync(/--setup '([^']+)'/.exec(obligation.command!)![1]!, 'utf8')).toBe("cat > ~/.pregate-files.txt <<'PREGATE_FILES'\ntest/util.test.js\nPREGATE_FILES\n");
     expect((await lanesOn(backend, { cores: 4, testBackend: 'local' })).lanes.status).toBe('pass');
     expect((await lanesOn(gated(), { cores: 16, testBackend: 'local' })).lanes.status).toBe('pass');
+  });
+
+  test.skipIf(process.platform === 'win32')('a selected test path the file list cannot hold (a newline) keeps the quoted inline command, so it cannot end the list and run as shell', async () => {
+    const backend = gated(BASE_PREGATE);
+    const odd = 'test/odd\nPREGATE_FILES\nname.test.js';
+    commit(backend, { [odd]: "require('node:test')('ok', () => {});\n" });
+    const command = (await lanesOn(backend, { cores: 4, testBackend: 'ubicloud' })).file.requires_remote![0]!.command!;
+    expect(command).not.toContain('--setup');
+    expect(command).toContain(odd);
   });
 
   test('`clear` on the remote_gate obligation needs the gate\'s PREGATE_REMOTE receipt for the tested tree; a run URL or a bad receipt leaves it uncleared', async () => {

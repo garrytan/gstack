@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
 import { FLOOR_HOURS, FORCED_AFTER_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyInput, type ImportantChange } from '../scripts/release-cadence';
 import { gitIn, planDaily, type Gh } from '../scripts/release-cut';
+import { ciRest, ciShimCases } from '../../test/helpers/ci-attempts-fixture';
 
 const H = 3_600_000;
 // Tuesday 2026-11-10 14:00 UTC: not a regular day.
@@ -138,8 +139,9 @@ const GREEN = [{ name: 'free-tests', status: 'completed', conclusion: 'success' 
 function fakeGh(pending: Set<string> = new Set()): Gh {
   return (args) => {
     const api = args[0] === 'api' ? args[args.length - 1]! : '';
-    const m = /commits\/([0-9a-f]+)\/check-runs/.exec(api);
-    if (m) return { status: 0, stdout: JSON.stringify([{ check_runs: pending.has(m[1]!) ? [{ name: 'main-backstop', status: 'in_progress', conclusion: null }] : GREEN }]), stderr: '' };
+    const m = /commits\/([0-9a-f]+)\/|head_sha=([0-9a-f]+)/.exec(api);
+    const rest = m && ciRest(args, { check_runs: pending.has(m[1] ?? m[2]!) ? [{ name: 'main-backstop', status: 'in_progress', conclusion: null }] : GREEN });
+    if (rest) return rest;
     if (args[0] === 'release' && args[1] === 'view' && args[2] === 'v1.0.0') return { status: 0, stdout: '{}', stderr: '' };
     return { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
   };
@@ -183,7 +185,7 @@ describe('planDaily', () => {
     expect(blocked.decision?.lines[0]).toStartWith('NO_RELEASE_PR: important change waiting, no release PR');
     expect(blocked.planned.ok).toBe(false);
 
-    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'changelog.d/fix.md': null });
+    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n', 'changelog.d/fix.md': null });
     r.refresh();
     const cut = day(25);
     expect(cut.decision).toMatchObject({ action: 'cut', trigger: 'important' });
@@ -215,7 +217,7 @@ describe('planDaily', () => {
   // seam=gh faked (only the last release view fails), git real; no_claim=which gh errors are transient
   test('a plan that clears while the daily check cannot date stable is FLOOR_UNKNOWN, never a cuttable plan with no decision', () => {
     const r = repo();
-    r.commit('release 1.0.1', { VERSION: '1.0.1\n' });
+    r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n' });
     r.refresh();
     const g = gitIn(r.work);
     const green = fakeGh();
@@ -245,7 +247,7 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     const r = repo(30);
     const shim = path.join(r.root, 'shim');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n  *check-runs*) echo \'' + JSON.stringify([{ check_runs: GREEN }]) + '\' ;;\n  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(GREEN) + '  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
     const env: Record<string, string | undefined> = { ...process.env, PATH: shim + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
     for (const k of ['GITHUB_EVENT_NAME', 'GITHUB_STEP_SUMMARY']) delete env[k];
     const run = (...args: string[]) => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), '--repo', 'o/r', ...args],
@@ -276,7 +278,7 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     expect(plainCut.status).toBe(1);
     expect(plainCut.stdout).toContain('::error title=release-cut NO_RELEASE_PR::');
 
-    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'changelog.d/fix.md': null, 'changelog.d/docs.md': null });
+    const stamped = r.commit('release 1.0.1', { VERSION: '1.0.1\n', 'CHANGELOG.md': '# Changelog\n\n## [1.0.1] - 2026-11-02\n\n- **The fix.**\n\n## [1.0.0] - 2026-11-01\n\n**First.**\n', 'changelog.d/fix.md': null, 'changelog.d/docs.md': null });
     r.refresh();
     const due = run('--daily', '--dry-run');
     expect(due.status, due.stdout + due.stderr).toBe(0);
@@ -296,5 +298,35 @@ describe.skipIf(process.platform === 'win32')('release-cut --daily (the workflow
     const ref = run('--daily', '--ref', stamped);
     expect(ref.status).toBe(2);
     expect(ref.stderr).toContain('--daily picks its own candidate');
+  });
+
+  // Value: protects=no version to cut today needs no notes: a stamped version whose CHANGELOG lacks its entry leaves a day with no due trigger green,
+  // and only a due cut refuses NOTES_MISSING; fails_when=the daily check goes red on a quiet day because the notes were built before the decision, or a
+  // due cut publishes without notes; why_new=planDaily dropped the candidate on NOTES_MISSING, so no decision ran; seam=gh shim on PATH, real bare origin;
+  // no_claim=GitHub's API or a real gh
+  test('a version with no CHANGELOG entry stays green on a day with no due trigger and refuses NOTES_MISSING only when a cut is due', () => {
+    const r = repo(30);
+    const shim = path.join(r.root, 'shim');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'gh'), '#!/usr/bin/env bash\ncase "$*" in\n' + ciShimCases(GREEN) + '  "release view v1.0.0 "*) echo \'{}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    const env: Record<string, string | undefined> = { ...process.env, PATH: shim + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
+    for (const k of ['GITHUB_EVENT_NAME', 'GITHUB_STEP_SUMMARY']) delete env[k];
+    const run = () => spawnSync(process.execPath, [...bunIsolationArgs(), 'run', path.join(path.resolve(import.meta.dir, '..', '..'), 'crew', 'scripts', 'release-cut.ts'), '--repo', 'o/r', '--daily'],
+      { cwd: r.work, encoding: 'utf8', timeout: 60_000, env });
+
+    r.commit('release 1.0.1', { VERSION: '1.0.1\n' });
+    r.refresh();
+    const quiet = run();
+    expect(quiet.status, quiet.stdout + quiet.stderr).toBe(0);
+    expect(quiet.stdout.split('\n')[0]).toStartWith('DAILY: no-op: nothing important since stable');
+    expect(quiet.stdout).not.toContain('NOTES_MISSING');
+
+    r.commit('fix the tar path (#4101)', { 'changelog.d/fix.md': '---\nimportant: security\n---\n- tar\n' });
+    r.refresh();
+    const due = run();
+    expect(due.status, due.stdout + due.stderr).toBe(1);
+    expect(due.stdout.split('\n')[0]).toStartWith('DAILY: cut (important: security in #4101');
+    expect(due.stdout).toContain('NOTES_MISSING: CHANGELOG.md at the release has no entry for v1.0.1');
+    expect(due.stdout).toContain('::error title=release-cut NOTES_MISSING::');
   });
 });

@@ -33,7 +33,7 @@ Conventions:
 - [/document-release](document-release/SKILL.md): Release documentation audit.
 - [/eval-plan](eval-plan/SKILL.md): Preregister a paid eval (bars, arms, decoys, stop rules), dry-run it at zero cost, then run a three-item priced pilot whose spend table gates approval.
 - [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
-- [/gstack](SKILL.md): Router for the gstack skill suite.
+- [/gstack](SKILL.md): Picks the gstack skill that fits a request: planning, review, QA, shipping, docs, security or design.
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
@@ -53,12 +53,12 @@ Conventions:
 - [/plan-ceo-review](plan-ceo-review/SKILL.md): CEO/founder-mode plan review.
 - [/plan-design-review](plan-design-review/SKILL.md): Designer's eye plan review — interactive, like CEO and Eng review.
 - [/plan-devex-review](plan-devex-review/SKILL.md): Interactive developer experience plan review.
-- [/plan-eng-review](plan-eng-review/SKILL.md): Eng manager-mode plan review.
+- [/plan-eng-review](plan-eng-review/SKILL.md): Use when you plan a feature before building it, or review a plan: locks in architecture, data flow, diagrams, edge cases, test coverage and performance.
 - [/plan-tune](plan-tune/SKILL.md): Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
 - [/qa](qa/SKILL.md): Use when you test the site, API or CLI and fix bugs.
 - [/qa-only](qa-only/SKILL.md): Report browser/API/CLI/job/worker/webhook bugs.
 - [/retro](retro/SKILL.md): Weekly engineering retrospective.
-- [/review](review/SKILL.md): Use when you review this PR's diff.
+- [/review](review/SKILL.md): Use when you review a diff before it lands: local changes, a branch or a PR.
 - [/runaway-stopper](runaway-stopper/SKILL.md): Find runaway Capy threads and subagents, stop or rotate them safely, and prevent repeats.
 - [/scrape](scrape/SKILL.md): Pull data from a web page through the Aside browser — your real, already signed-in sessions.
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.

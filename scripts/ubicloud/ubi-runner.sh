@@ -24,11 +24,16 @@
 # from dev boxes, containers, and cloud sandboxes.
 #
 # Ownership: VMs are named ubirun-<owner>-<epoch>-<suffix>-t<hours>. <owner> is UBI_OWNER
-# (lowercased, letters and digits only, at most 12 characters, starting with a
-# letter). `up`, `run` and `verify` refuse without it (UBI_OWNER_REQUIRED), so
-# every VM names whoever can be asked about it; read-only commands fall back to a
-# per-machine id kept in $STATE_ROOT/owner-id. Ubicloud names allow 63 characters
-# of [a-z0-9-], so a full name stays under 45.
+# in full (lowercased, letters and digits only, starting with a letter), and an
+# owner longer than 31 characters is refused (UBI_OWNER_TOO_LONG): Ubicloud names
+# allow 63 characters of [a-z0-9-], and the rest of the name takes 32. `up`, `run`
+# and `verify` refuse without it (UBI_OWNER_REQUIRED), so every VM names whoever
+# can be asked about it; read-only commands fall back to a per-machine id kept in
+# $STATE_ROOT/owner-id. Runner copies before GST-2852 cut the owner to its first
+# 12 characters, so two owners sharing that prefix reaped each other's VMs
+# (#3748). A VM named under that cut form of a longer owner still counts as this
+# owner's only when this machine's VM record lists it under the cut form in a
+# row an older copy wrote (five columns; this copy adds a sixth, full).
 #
 # Teardown: `up` records each VM's state (location, create status) before it
 # sends the create request, and `down` destroys and polls until the VM is
@@ -77,7 +82,15 @@
 # Quota preflight: when the project's vCPU ceiling is known (UBI_QUOTA_VCPUS, or
 # the maximum a refusal printed, cached in $STATE_ROOT/quota-max), `up` adds the
 # size's vCPUs to the project's running VMs and refuses before any create when
-# that exceeds it; UBI_QUOTA_WAIT=<seconds> waits for room instead.
+# that exceeds it; UBI_QUOTA_WAIT=<seconds> waits for room instead. The read and
+# the booking happen under one lock per machine (UBI_QUOTA_LOCK, beside the VM
+# record), and each booking counts until its create is answered, so shards a
+# fan-out starts together on one machine share the room instead of all passing
+# on the same reading. `room [-s SIZE]` prints how many VMs of SIZE fit now, for
+# a fan-out to size each batch. When usage can't be read, a UBI_QUOTA_VCPUS
+# ceiling refuses the create (UBI_QUOTA_UNREADABLE); a cached refusal maximum is
+# the API's own ceiling, so there the API's answer decides. Merge checks and
+# canaries set no UBI_QUOTA_VCPUS, so the eval limit never holds them back.
 #
 # Watchdog: `run`, `verify` and `ssh NAME COMMAND` stream the remote output
 # through a watchdog that logs a heartbeat every UBI_HEARTBEAT seconds (300)
@@ -171,6 +184,8 @@ PREFIX="ubirun"
 if [ -n "${UBI_VM_RECORD:-}" ]; then VM_RECORD="$UBI_VM_RECORD"
 elif [ -d "$HOME/.capy/work" ]; then VM_RECORD="$HOME/.capy/work/ubi-runner/vms.tsv"
 else VM_RECORD="$STATE_ROOT/vms.tsv"; fi
+QUOTA_LOCK="${UBI_QUOTA_LOCK:-$(dirname "$VM_RECORD")/quota.lock}"
+QUOTA_LEDGER="$QUOTA_LOCK.booked"
 if [ -n "${UBI_CHECKPOINT_DIR:-}" ]; then CHECKPOINT_DIR="$UBI_CHECKPOINT_DIR"
 elif [ -d "$HOME/.capy/work" ]; then CHECKPOINT_DIR="$HOME/.capy/work/ubi-runner/checkpoints"
 else CHECKPOINT_DIR="$STATE_ROOT/checkpoints"; fi
@@ -214,9 +229,14 @@ owner_id() {
   raw=$(printf %s "$raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
   [ -n "$raw" ] || die "UBI_OWNER must contain letters or digits"
   [[ "$raw" =~ ^[a-z] ]] || raw="u$raw"
-  echo "${raw:0:12}"
+  [ ${#raw} -le 31 ] || die "UBI_OWNER is ${#raw} characters once lowercased to letters and digits ($raw), and a VM name has room for 31; use a shorter owner such as your thread code (UBI_OWNER_TOO_LONG)"
+  echo "$raw"
 }
 OWNER=$(owner_id)
+# Runner copies before GST-2852 cut the owner to 12 characters; vm_rows reads
+# that cut form as this owner only for VMs an older copy recorded under it here.
+LEGACY_OWNER=""
+[ ${#OWNER} -le 12 ] || LEGACY_OWNER=${OWNER:0:12}
 
 # require_owner: up, run and verify create VMs, and a VM must name its owner
 # and carry a TTL. Only creates check UBI_TTL_HOURS, so an old value never
@@ -802,8 +822,12 @@ vm_rows() {
   while read -r loc name; do
     [ -n "$name" ] || continue
     owner=. created="" expires=-
-    if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,11})-([0-9]{10})- ]]; then
+    if [[ "$name" =~ ^${PREFIX}-([a-z][a-z0-9]{0,30})-([0-9]{10})- ]]; then
       owner=${BASH_REMATCH[1]} created=${BASH_REMATCH[2]}
+      if [ -n "$LEGACY_OWNER" ] && [ "$owner" = "$LEGACY_OWNER" ] && [ -f "$VM_RECORD" ] \
+        && awk -F'\t' -v n="$name" -v o="$LEGACY_OWNER" '$1 == n && $3 == o && NF == 5 { f = 1 } END { exit !f }' "$VM_RECORD"; then
+        owner=$OWNER
+      fi
     elif [[ "$name" =~ ^${PREFIX}-([0-9]{10})- ]]; then
       owner=- created=${BASH_REMATCH[1]}
     fi
@@ -916,9 +940,11 @@ write_state() {
 }
 
 # record_vm NAME LOCATION [OWNER]: append to the scratch VM-id file (record-before-create).
+# The sixth column, full, marks a row whose owner was never cut to 12 characters,
+# so vm_rows never reads it as a longer owner's cut form; older copies write five.
 record_vm() {
   mkdir -p "$(dirname "$VM_RECORD")" 2>/dev/null || return 0
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-$OWNER}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\tfull\n' "$1" "$2" "${3:-$OWNER}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" >>"$VM_RECORD"
 }
 
 # forget_vm NAME: drop the VM from the scratch file once it is confirmed gone.
@@ -1047,7 +1073,7 @@ cmd_recover() {
       *) die "recover: unknown option $1" ;;
     esac
   done
-  [[ "$from" =~ ^[a-z][a-z0-9]{0,11}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
+  [[ "$from" =~ ^[a-z][a-z0-9]{0,30}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
   [ -n "$dir" ] || die "UBI_RECOVERY_REQUIRED: recover reads bundles from UBI_RECOVERY_DIR (or --dir DIR), and neither is set"
   command -v openssl >/dev/null || die "UBI_RECOVERY_UNAVAILABLE: openssl is required to open recovery bundles"
   mkdir -p "$STATE_ROOT"
@@ -1222,51 +1248,165 @@ new_name() {
 # vcpus SIZE: the vCPU count a Ubicloud size name carries (standard-16 -> 16).
 vcpus() { [[ "$1" =~ -([0-9]+)$ ]] && echo "${BASH_REMATCH[1]}"; }
 
-# quota_preflight LOCATION NAME SIZE: refuse (or wait UBI_QUOTA_WAIT seconds)
-# before the create request when the project's running VMs plus this size
-# exceed the known vCPU ceiling. The ceiling comes from UBI_QUOTA_VCPUS or the
-# maximum the last refusal printed; without either the API's own refusal rules.
+# quota_ceiling: set QUOTA_MAX and QUOTA_SOURCE to the known vCPU ceiling, from
+# UBI_QUOTA_VCPUS or the maximum the last refusal printed; QUOTA_MAX stays empty
+# when neither is known, and the API's own refusal rules then.
 QUOTA_CACHE_MAX_AGE=86400
-quota_preflight() {
-  local location=$1 name=$2 size=$3 need max used remaining step source="UBI_QUOTA_VCPUS" cache="$STATE_ROOT/quota-max"
-  need=$(vcpus "$size") || return 0
-  max=$QUOTA_VCPUS
-  if [ -z "$max" ] && [ -f "$cache" ]; then
+QUOTA_MAX="" QUOTA_SOURCE="" QUOTA_BOOKED=""
+quota_ceiling() {
+  local cache="$STATE_ROOT/quota-max"
+  QUOTA_MAX=$QUOTA_VCPUS QUOTA_SOURCE=UBI_QUOTA_VCPUS
+  if [ -z "$QUOTA_MAX" ] && [ -f "$cache" ]; then
     # A refusal's maximum is remembered for a day: after that (a raised quota,
     # another project's key) the API's own answer decides again.
     if [ $(( $(date +%s) - $(mtime "$cache") )) -lt "$QUOTA_CACHE_MAX_AGE" ]; then
-      max=$(cat "$cache" 2>/dev/null || true); source="the last refusal, cached in $cache"
+      QUOTA_MAX=$(cat "$cache" 2>/dev/null || true) QUOTA_SOURCE="the last refusal, cached in $cache"
     else
       rm -f "$cache"
     fi
   fi
-  [[ "$max" =~ ^[0-9]+$ ]] || return 0
+  [[ "$QUOTA_MAX" =~ ^[0-9]+$ ]] || QUOTA_MAX=""
+}
+
+# quota_lock SECONDS: take this machine's quota lock on fd 9, waiting up to
+# SECONDS. It is flock(2) through python3, which the runner needs anyway and
+# which macOS has where flock(1) is missing; the lock belongs to the open file,
+# so it ends with this process however the process exits. quota_unlock drops it.
+quota_lock() {
+  mkdir -p "$(dirname "$QUOTA_LOCK")" 2>/dev/null && exec 9>>"$QUOTA_LOCK" || return 1
+  python3 -c 'import fcntl, sys, time
+end = time.time() + float(sys.argv[1])
+while True:
+    try:
+        fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except BlockingIOError:
+        if time.time() >= end:
+            sys.exit(1)
+        time.sleep(0.2)' "$1" 2>/dev/null || { exec 9>&-; return 1; }
+}
+quota_unlock() { exec 9>&-; }
+
+# quota_booked: under the lock, print the vCPUs this machine's creates have
+# booked and not yet had answered. A booking whose process is gone, or older
+# than any create can take (two API timeouts and the create grace), is dropped.
+quota_booked() {
+  local name n pid at now total=0 keep
+  [ -s "$QUOTA_LEDGER" ] || { echo 0; return 0; }
+  now=$(date +%s) keep="$QUOTA_LEDGER.$$"
+  : >"$keep"
+  while read -r name n pid at; do
+    [[ "$n" =~ ^[0-9]+$ && "$pid" =~ ^[0-9]+$ && "$at" =~ ^[0-9]+$ ]] || continue
+    kill -0 "$pid" 2>/dev/null && [ $(( now - at )) -lt $(( 2 * API_TIMEOUT + CREATE_GRACE + 60 )) ] || continue
+    echo "$name $n $pid $at" >>"$keep"
+    total=$(( total + n ))
+  done <"$QUOTA_LEDGER"
+  mv "$keep" "$QUOTA_LEDGER"
+  echo "$total"
+}
+
+# quota_release: drop this call's booking once its create is answered (the VM
+# is then in the project's list, or was never made). A booking the lock can't
+# reach here still ends with its process or its age.
+quota_release() {
+  [ -n "$QUOTA_BOOKED" ] || return 0
+  if quota_lock 30; then
+    awk -v n="$QUOTA_BOOKED" -v p="$$" '!($1 == n && $3 == p)' "$QUOTA_LEDGER" >"$QUOTA_LEDGER.$$" 2>/dev/null \
+      && mv "$QUOTA_LEDGER.$$" "$QUOTA_LEDGER" || rm -f "$QUOTA_LEDGER.$$"
+    quota_unlock
+  fi
+  QUOTA_BOOKED=""
+}
+
+# quota_preflight LOCATION NAME SIZE: under this machine's quota lock, read the
+# project's usage and this machine's open bookings, and book SIZE's vCPUs when
+# they fit the known ceiling; otherwise refuse (or wait UBI_QUOTA_WAIT seconds)
+# before the create request. Shards started together on one machine therefore
+# see each other's bookings instead of all passing on the same reading. When
+# usage can't be read, a UBI_QUOTA_VCPUS ceiling refuses (it is ours, and the API
+# would let the create through); a cached refusal maximum is the API's own, so
+# there the API's answer decides.
+quota_preflight() {
+  local location=$1 name=$2 size=$3 need used held remaining step why booked_note
+  need=$(vcpus "$size") || return 0
+  quota_ceiling
+  [ -n "$QUOTA_MAX" ] || return 0
   # The budget counts seconds spent waiting for room, not the usage calls
   # between them: a slow first usage read must not shave the printed budget.
   remaining=$QUOTA_WAIT
   while :; do
-    if ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
-      if [ "$remaining" -le 0 ]; then
-        log "quota preflight: could not read the project's vCPU usage; the API's own answer decides"
+    why="" held=0
+    if ! quota_lock 300; then
+      why="could not take this machine's quota lock ($QUOTA_LOCK) within 300s"
+    elif ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
+      why="could not read the project's vCPU usage"
+    else
+      held=$(quota_booked)
+      if [ $(( used + held + need )) -le "$QUOTA_MAX" ]; then
+        echo "$name $need $$ $(date +%s)" >>"$QUOTA_LEDGER"
+        QUOTA_BOOKED=$name
+        quota_unlock
         return 0
       fi
-      log "quota: could not read the project's vCPU usage; retrying, up to ${remaining}s more"
-      step=$(( remaining < 30 ? remaining : 30 ))
-      sleep "$step"
-      remaining=$(( remaining - step ))
-      continue
     fi
-    [ $(( used + need )) -gt "$max" ] || return 0
+    quota_unlock
+    booked_note=""
+    [ "$held" -eq 0 ] || booked_note=", with $held more booked by creates in flight on this machine"
     if [ "$remaining" -le 0 ]; then
-      log "quota preflight refused $location/$name ($size): it needs $need vCPUs and the project's VMs already use $used of $max (ceiling from $source; other usage such as managed runners counts on top)"
+      if [ -n "$why" ]; then
+        if [ "$QUOTA_SOURCE" != UBI_QUOTA_VCPUS ]; then
+          log "quota preflight: $why; the API's own answer decides"
+          return 0
+        fi
+        die "create refused before any request: $why, so the UBI_QUOTA_VCPUS=$QUOTA_MAX ceiling can't be checked and nothing was launched (UBI_QUOTA_UNREADABLE); rerun once the API answers, or set UBI_QUOTA_WAIT=<seconds> to retry for that long"
+      fi
+      log "quota preflight refused $location/$name ($size): it needs $need vCPUs and the project's VMs already use $used of $QUOTA_MAX$booked_note (ceiling from $QUOTA_SOURCE; other usage such as managed runners counts on top)"
       cmd_usage >&2 || true
       die "create refused before any request: vCPU quota exhausted (quota full); wait for running VMs to finish (UBI_QUOTA_WAIT=<seconds> waits here), run $0 reap, use a smaller size, or set UBI_QUOTA_VCPUS to the project's real ceiling"
     fi
-    log "quota: $used of $max vCPUs in use and $need needed; waiting up to ${remaining}s more for room"
+    if [ -n "$why" ]; then
+      log "quota: $why; retrying, up to ${remaining}s more"
+    else
+      log "quota: $used of $QUOTA_MAX vCPUs in use$booked_note and $need needed; waiting up to ${remaining}s more for room"
+    fi
     step=$(( remaining < 30 ? remaining : 30 ))
     sleep "$step"
     remaining=$(( remaining - step ))
   done
+}
+
+# room [-s SIZE]: how many more VMs of SIZE fit under the known ceiling now, from
+# one usage read plus this machine's open bookings, so a fan-out can size each
+# batch to the room left. It books nothing; each up still books its own VM.
+cmd_room() {
+  local size=$DEFAULT_SIZE need used held=0 why="" room
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -s|--size) size=$2; shift 2 ;;
+      *) die "room: unknown option $1" ;;
+    esac
+  done
+  need=$(vcpus "$size") || die "room: cannot tell how many vCPUs size $size has"
+  quota_ceiling
+  if [ -z "$QUOTA_MAX" ]; then
+    echo "UBICLOUD_ROOM: room=unknown size=$size reason=no-ceiling (set UBI_QUOTA_VCPUS)"
+    return 1
+  fi
+  if ! quota_lock 300; then
+    why=lock-busy
+  elif ! used=$(cmd_usage 2>/dev/null | awk '$1=="total" {print $3}') || ! [[ "$used" =~ ^[0-9]+$ ]]; then
+    why=usage-unreadable
+  else
+    held=$(quota_booked)
+  fi
+  quota_unlock
+  if [ -n "$why" ]; then
+    echo "UBICLOUD_ROOM: room=unknown size=$size reason=$why max=$QUOTA_MAX"
+    return 1
+  fi
+  room=$(( (QUOTA_MAX - used - held) / need ))
+  [ "$room" -gt 0 ] || room=0
+  echo "UBICLOUD_ROOM: room=$room size=$size used=$used booked=$held max=$QUOTA_MAX"
 }
 
 valid_name() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
@@ -1358,6 +1498,7 @@ cmd_up() {
     write_state "$name" "$location" "$size" "" "$created" "$create_at"
     [ "$created" = unknown ] || bundle_save "$name"
   fi
+  [ "$created" = unknown ] || quota_release
   trap 'exit 130' INT TERM HUP QUIT
   [ -z "$interrupted" ] || exit 130
   if [ "$created" = unknown ]; then
@@ -1378,6 +1519,7 @@ cmd_up() {
       200) created=yes ;;
       404) created=no ;;
     esac
+    quota_release
     write_state "$name" "$location" "$size" "" "$created" "$create_at"
     case $created in
       yes) bundle_save "$name"; log "create of $location/$name went through; teardown waits until this call's key opens it" ;;
@@ -1561,7 +1703,11 @@ cmd_pack() {
     trap "rm -rf $(printf %q "$tmp")" EXIT
     # No template hooks from a global init.templateDir, and no auto-gc under the tar.
     git -c gc.auto=0 init -q --bare --template= "$tmp/.git"
-    git -C "$tmp/.git" -c gc.auto=0 fetch -q --no-tags --update-shallow "$src" '+refs/*:refs/*' \
+    # Fetch the object ids one for-each-ref read, not upload-pack's own ref list: a ref that git running beside pack is
+    # deleting is advertised with a null id that no fetch can want, while for-each-ref skips it as broken.
+    git -C "$src" for-each-ref --format='+%(objectname):%(refname)' refs/ \
+      | git -C "$tmp/.git" -c gc.auto=0 fetch -q --no-tags --update-shallow --stdin \
+          --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' "$src" \
       || die "pack: could not snapshot the refs of $src"
     if [ -z "$branch" ]; then
       branch="detached-${head:0:12}"
@@ -2081,6 +2227,9 @@ usage: ubi-runner.sh <command> [args]
   down NAME [-l LOC]     destroy the VM; returns once it is confirmed gone or never existed
   list [--mine]          list all VMs in the project, or only this owner's
   usage                  VMs and vCPUs per owner across the project
+  room [-s SIZE]         how many more VMs of SIZE fit under the quota ceiling now
+                         (UBICLOUD_ROOM: room=<n> ...; exit 1 with room=unknown), so
+                         a fan-out can size each batch to the room left
   owner                  print this caller's owner tag ($OWNER)
   records                VMs this machine created and has not confirmed gone ($VM_RECORD)
   gc HOURS               destroy this owner's VMs older than HOURS (never other owners')
@@ -2102,6 +2251,7 @@ env: UBI_TTL_HOURS (${TTL_HOURS}h in the name, 1-999), UBI_REAP (0: up skips the
      UBI_RUN_TIMEOUT (${RUN_TIMEOUT}s wall clock; 0 unlimited), UBI_HEARTBEAT (${HEARTBEAT}s between heartbeat lines),
      UBI_QUOTA_VCPUS (project vCPU ceiling for the preflight; else the last refusal's maximum),
      UBI_QUOTA_WAIT (${QUOTA_WAIT}s to wait for quota room instead of refusing),
+     UBI_QUOTA_LOCK (this machine's quota lock; its bookings sit beside it in .booked),
      UBI_GC_HOURS (unset/0: no sweep on up), UBI_CREATE_GRACE (${CREATE_GRACE}s),
      UBI_DOWN_TIMEOUT (${DOWN_TIMEOUT}s), UBI_API_TIMEOUT (${API_TIMEOUT}s), UBI_VM_RECORD (scratch VM-id file),
      UBI_ALLOWED_STORAGE (the -S sizes Ubicloud accepts; default "320 640"),
@@ -2136,6 +2286,7 @@ case $cmd in
   recover) cmd_recover "$@" ;;
   list) cmd_list "$@" ;;
   usage) cmd_usage ;;
+  room) cmd_room "$@" ;;
   owner) echo "$OWNER" ;;
   records) cmd_records ;;
   gc) cmd_gc "$@" ;;

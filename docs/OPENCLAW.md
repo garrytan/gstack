@@ -101,15 +101,14 @@ The orchestrator persists the plan link to its own memory store (brain repo,
 knowledge base, or whatever is configured in AGENTS.md). When the user is
 ready to build, spawn a FULL session that references the saved plan.
 
-### Native methodology skills
-Published to ClawHub. Install with `clawhub install`:
-- `gstack-openclaw-office-hours` — Product interrogation (6 forcing questions)
-- `gstack-openclaw-ceo-review` — Strategic challenge (10-section review, 4 modes)
-- `gstack-openclaw-retro` — Operational retrospective (weekly review)
+### Methodology skills in the OpenClaw agent
+To run /office-hours, /plan-ceo-review or /retro in the OpenClaw agent itself,
+use native registration (see [Installation](#installation)): its `gstack` router
+skill serves the current version of each.
 
-Source lives in `openclaw/skills/` in the gstack repo. These are hand-crafted
-adaptations of the gstack methodology for OpenClaw's conversational context.
-No gstack infrastructure (no browser, no telemetry, no preamble).
+gstack no longer publishes skills on ClawHub. If you installed the April 2026
+`gstack-openclaw-office-hours`, `gstack-openclaw-ceo-review` or
+`gstack-openclaw-retro` from there, remove them.
 
 ## Spawned session detection
 
@@ -175,7 +174,7 @@ For OpenClaw users: tell your OpenClaw agent "install gstack for openclaw."
 
 The agent should:
 1. Install gstack-lite CLAUDE.md into its coding session templates
-2. Install the 4 native methodology skills
+2. Register gstack's native skills with `./setup --host openclaw` (below)
 3. Add dispatch routing to AGENTS.md
 4. Verify with a test spawn
 

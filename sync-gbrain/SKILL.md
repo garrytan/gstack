@@ -2,7 +2,7 @@
 name: sync-gbrain
 preamble-tier: 2
 version: 1.0.0
-description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. (gstack)
+description: "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Use for: sync gbrain, refresh gbrain, reindex repo. (gstack)"
 triggers:
   - sync gbrain
   - refresh gbrain
@@ -22,7 +22,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/sync-gbrain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/sync-gbrain/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -352,6 +352,16 @@ still run. State is persisted to `~/.gstack/.gbrain-sync-state.json` via
 tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 `~/.gstack/.sync-gbrain.lock` (5-min stale-takeover).
 
+Report each stage row as printed, never better than it is:
+- **memory**: `OK` only when no page failed. `WARN` means some pages failed and
+  `ERR` means pages failed and none imported; give the failed count and the
+  first cause from the row, and say failed pages retry next run.
+- **brain-sync**: say artifacts were pushed only when the row says
+  `curated artifacts pushed`. `nothing new to push` means this run had nothing
+  to send; `artifacts not pushed (<status>: ...)` means the push failed, was
+  blocked or stopped, and the commits and queue are kept for the next run.
+  Point the user at `gstack-brain-sync --status` for the cause.
+
 ---
 
 ## Step 3: Code-index health check
@@ -679,9 +689,9 @@ transient or machine-local failure. Agents must not treat unknown as ready.
 ## Status reporting
 
 End with a Completion Status (per the preamble protocol):
-- **DONE** — all stages green, CLAUDE.md guidance block present, verdict GREEN.
-- **DONE_WITH_CONCERNS** — sync ran but at least one stage failed or capability
-  read was unverified. List which and preserve retry guidance.
+- **DONE** — all stages `OK`, CLAUDE.md guidance block present, verdict GREEN.
+- **DONE_WITH_CONCERNS** — sync ran but at least one stage is `WARN` or `ERR`, or
+  the capability read was unverified. List which and preserve retry guidance.
 - **BLOCKED** — could not acquire lock, gbrain not on PATH, or per-repo policy
   is deny. State the blocker.
 - **NEEDS_CONTEXT** — /setup-gbrain has not been run, or `gbrain doctor` shows

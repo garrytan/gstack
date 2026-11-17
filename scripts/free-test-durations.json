@@ -704,7 +704,6 @@
     "test/extension-pty-inject-invariant.test.ts": 15,
     "test/external-host-carve.test.ts": 2750,
     "test/factory-scorecard.test.ts": 369,
-    "test/failure-routing-arm.test.ts": 217,
     "test/flake-ledger.test.ts": 30,
     "test/flaky-run.test.ts": 688,
     "test/founder-resources-optout.test.ts": 190,
