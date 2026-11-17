@@ -1030,8 +1030,8 @@ sets the defaults that keep it from coming back.
   open PR rotates), a subagent past 100M (stop), empty wakes past 25% of the
   last 40 turns (warm-wait check-ins are left out), and review rounds past 2 per PR. Captains are reported, never rotated.
   The `RUNAWAY:` line also prices the wakes it read: `cold_wakes` and `empty_wakes` are their shares by count,
-  `cold_extra_spend` the extra a wake pays when it starts after the 5-minute prompt cache lapsed, and `empty_spend`
-  what the empty wakes cost. `scan --wakes` prints one `WAKE:` line per wake with its cost in warm model calls.
+  `cold_extra_spend` the share of spend that cold model calls add over warm ones (a wake that starts after the
+  5-minute prompt cache lapsed, or a call after a tool that ran that long), and `empty_spend` the share the empty wakes cost. `scan --wakes` prints one `WAKE:` line per wake with its cost in warm model calls.
 - **Stop.** A live subagent past 100M is stopped with its reason. A standing thread is rotated at a clean point through
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain once none of
   its PRs is open (R91), through `gstack-archive-check thread`. A thread
