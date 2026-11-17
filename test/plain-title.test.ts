@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, splitTitle, type PlainFinding } from '../lib/plain-title';
+import { DEFAULT_TERMS, PLAIN_TITLE_POLICY_PATH, checkBranch, checkChangelogEntry, checkCommitSubject, checkOpening, checkTitle, loadPlainTitlePolicy, splitTitle, type PlainFinding } from '../lib/plain-title';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin/gstack-plain-title');
@@ -26,7 +26,7 @@ const MAIN_SUBJECTS: Array<[string, string[]]> = [
   ['fix(ship): record-ci reuses its own CI row at the same tree, run and selection (GST-1795)', ['scope-prefix:fix(ship):']],
   ['v1.98.0.0 release: fold the changelog fragments', []],
   ['ship tooling: post-review voices dispatch, same-tree pregate clears, fix-check p<N> ledgers (GST-1775)', ['term:voices', 'term:pregate', 'term:fix-check', 'term:ledgers']],
-  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", []],
+  ["feat: crew PRs carry their brief's Plan line; ship-queue ready and land check it (GST-1751)", ['term:carry']],
   ['Require the daemon secret and loopback Host/Origin on the design and iOS QA daemons', []],
   ["browse: keep tunnel-paired agents on web URLs and away from the daemon's disk", []],
   ['feat(diff-scope): template UI in .ts/.js counts as frontend; receipt records the static design pass (GST-1718)', ['scope-prefix:feat(diff-scope):', 'term:receipt']],
@@ -34,7 +34,7 @@ const MAIN_SUBJECTS: Array<[string, string[]]> = [
   ['fix(ship-receipt): name the non-ancestor targeted-read commit in RECEIPT_INVALID (GST-1700)', ['scope-prefix:fix(ship-receipt):', 'term:receipt']],
   ['fix: release stamps and a docs-audit edit after the last fix-check are no gate-class edit (GST-1702)', ['term:fix-check']],
   ["fix(ship): a cleared remote gate for HEAD's exact tree satisfies a lane whose inventory refuses that tree (GST-1688)", ['scope-prefix:fix(ship):', 'term:lane']],
-  ['fix: the receipt and the review plan agree on stamp and docs carry for review_targeted (GST-1689)', ['term:receipt']],
+  ['fix: the receipt and the review plan agree on stamp and docs carry for review_targeted (GST-1689)', ['term:receipt', 'term:carry', 'term:stamp']],
   ['Capy session: defer the upgrade while a /ship or review run is open; upgrade-path fixes (GST-1677, GST-1658)', []],
   ['Playwright 1.65.0: bundled Chromium 158 drops the distrusted eMudhra root (#3338)', []],
   ['changelog.d: a second GST-1631 fragment names what the audit redaction does not cover yet (GST-1635)', ['code:GST-1631']],
@@ -163,15 +163,15 @@ describe('checkOpening', () => {
     expect(brief(checkOpening(NOTES, policy))).toEqual(['opening-shape:no opening paragraph']);
   });
 
-  test('more than two sentences, or a code or term in the opening, is refused', () => {
-    expect(brief(checkOpening('One thing. Two things. Three things.', policy))).toEqual(['opening-shape:3 sentences']);
+  test('three lines of sentences pass (the body shape check owns length); a code or term in the opening is refused', () => {
+    expect(checkOpening('One thing. Two things. Three things.', policy)).toEqual([]);
     expect(checkOpening('This changes the setup, e.g. the default. It is plain.', policy)).toEqual([]);
     expect(brief(checkOpening('The pregate clears faster (GST-1713).', policy))).toEqual(['code:GST-1713', 'term:pregate']);
   });
 
   test('a marker quoted inline in the opening does not end it; only the section marker on its own line does', () => {
     const opening = 'Readers find the `<!-- gstack:agent-notes -->` section at the end. It holds the checks. It stays collapsed.\n\n';
-    expect(brief(checkOpening(opening + NOTES, policy))).toEqual(['opening-shape:3 sentences']);
+    expect(checkOpening(opening + NOTES, policy)).toEqual([]);
   });
 });
 
@@ -206,7 +206,10 @@ describe('policy', () => {
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, allow: [{ text: 'R2' }] })))).toThrow(/allow\[0\]\.reason/);
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, since: 'soon' })))).toThrow(/since/);
     expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, extra: 1 })))).toThrow(/extra is not a known key/);
-    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify(base)))).toEqual(base);
+    expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, body_since: 'later' })))).toThrow(/body_since/);
+    expect(() => loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, replace_default_terms: 'yes' })))).toThrow(/replace_default_terms/);
+    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify(base)))).toEqual({ ...base, terms: ['a', ...DEFAULT_TERMS], body_since: base.since });
+    expect(loadPlainTitlePolicy(withPolicy(JSON.stringify({ ...base, replace_default_terms: true, body_since: '2026-11-20' })))).toEqual({ ...base, body_since: '2026-11-20' });
   });
 
   test("gstack's policy loads and every allow entry says why", () => {
