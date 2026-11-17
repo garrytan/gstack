@@ -1733,7 +1733,9 @@ closes none of them: rule each by its ledger id. The summary takes rulings only 
 the run's newest via:ship review row. The binding rules do not change: the ruling's
 head must be the commit the row read, only an approved
 `gstack-approvals rule` row rules, a gate finding is never ruled, and an edit after
-the bound head still needs review. A stopped read (an `incomplete` binding) is
+the bound head still needs review. A finding only a dispatch ledger holds counts as a gate
+finding when the reader's line carries a `gate` field or names an RH tag, and no ruling
+notes it. A stopped read (an `incomplete` binding) is
 promoted only when it read one committed tree: the row must end at the commit its
 start captured (a row logged before starts captured one must end at a commit made
 before the read began), so equal start and end trees around an A→B→A read do not

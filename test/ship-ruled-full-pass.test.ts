@@ -280,4 +280,13 @@ describe('a ruling closes only the finding and head the owner named (GST-2273 au
     expect(s).toMatchObject({ noted: 2 });
     expect(s.unrecorded).toBeUndefined();
   });
+  test('a Step 11 voice gate finding no row records stays unrecorded whatever the owner rules; a non-gate one is noted', () => {
+    const { repo, head, out } = run([{ skill: 'review', pass: 1, status: 'clean', findings: [] }, { skill: 'adversarial-review', status: 'issues_found', completed: true, converged: true }]);
+    ledger(path.join(out, 'p1'), [['red-team', CLEAN]]);
+    ledger(path.join(out, 'p1-voices'), [['adversarial-native', CLEAN], ['outside-voice', ['1. test/review-grant.test.ts:12 RH-1 the grant test is skipped, so the gate never runs. Severity: Critical Blocks: yes',
+      '2. lib/review-grant.ts:49 A date-only timestamp sorts before the grant. Severity: Critical Blocks: yes', 'Recommendation: fix both because each lets a grant bind where it should not'].join('\n')]]);
+    expect(summary(repo, out)).toMatchObject({ blocking_found: 2, noted: 0, unrecorded: 2 });
+    for (const id of ['p1-voices/outside-voice#1', 'p1-voices/outside-voice#2', 'test/review-grant.test.ts:12:outside-voice']) expect(rule(repo, id, head).status).toBe(0);
+    expect(summary(repo, out)).toMatchObject({ noted: 1, unrecorded: 1 });
+  });
 });

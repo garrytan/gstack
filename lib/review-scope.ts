@@ -458,7 +458,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
   if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);
   const paired = new Set<string>();
-  const ledgerOnlyKeys: Array<{ key: string; id: string; fixed: boolean; fingerprint?: string }> = [];
+  const ledgerOnlyKeys: Array<{ key: string; id: string; fixed: boolean; gate: boolean; fingerprint?: string }> = [];
   const pairedIds = new Set<string>();
   const followedIds = new Set<string>();
   const lastPaired = new Map<string, number>();
@@ -472,7 +472,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
       const open = ([k]: [string, Seen]) => !paired.has(`${n}\0${k}`);
       const id = [...seen].find(e => open(e) && (e[1].ledgerId === key || e[1].ledgerId === b.id))?.[0]
         ?? (b.locus ? [...seen].find(e => open(e) && !e[1].ledgerId && e[1].candidate && e[1].locus === b.locus && (!e[1].raiser || !by || e[1].raiser === by))?.[0] : undefined);
-      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else ledgerOnlyKeys.push({ key, id: b.id, fixed: followed(n), ...(b.locus && by ? { fingerprint: `${b.locus}:${by}` } : {}) });
+      if (id) { paired.add(`${n}\0${id}`); pairedIds.add(id); if (!((ledgerPasses[lastPaired.get(id) ?? -1]?.started ?? -Infinity) > (ledgerPasses[n]?.started ?? -Infinity))) lastPaired.set(id, n); } else ledgerOnlyKeys.push({ key, id: b.id, fixed: followed(n), gate: !!b.gate, ...(b.locus && by ? { fingerprint: `${b.locus}:${by}` } : {}) });
     }
   }
   for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
@@ -492,7 +492,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const isRuled = (...keys: (string | undefined)[]) => keys.some(k => !!k && ruled.has(k) && uses.get(k) === 1);
   for (const [k, s] of blockers) if (!s.disposed && !s.gate && isRuled(k, s.ledgerId, s.fingerprint)) { s.disposed = true; noted.add(k); }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
-  const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && isRuled(l.key, l.fingerprint)).length;
+  const ledgerOnlyRuled = ledgerOnlyKeys.filter(l => !l.fixed && !l.gate && isRuled(l.key, l.fingerprint)).length;
   const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed - ledgerOnlyRuled + blockers.filter(([, s]) => !s.disposed).length;
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size + ledgerOnlyRuled, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;

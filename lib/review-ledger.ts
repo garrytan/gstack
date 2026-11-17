@@ -488,13 +488,24 @@ const realPath = (f: string) => { try { return fs.realpathSync(f); } catch { ret
  * included) so the summary can find its row.
  * A ledger, merged file or judged set it cannot read, or a judged set changed since judge, throws: the count is never a guess.
  */
-export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string }
+export interface LedgerBlocker { id: string; locus: string | null; /** The run-unique `<pass dir>/<id>` a row's ledger_id and a fix trailer name (GST-1168); the caller sets it. */ key?: string;
+  /** The RH tag when the reader's line is a gate finding (its JSON `gate`, or an RH tag it names), and its `gate_id` if given: a ruling never closes one (GST-2273). */
+  gate?: string; gate_id?: string }
 function lineLocus(raw: string): string | null {
   try {
     const o = JSON.parse(raw);
     if (o && typeof o.path === 'string' && Number.isInteger(o.line)) return `${o.path.replace(/^\.\//, '')}:${o.line}`;
   } catch { /* a prose finding */ }
   return /(?:[\w.-]+\/)+[\w.-]+:\d+|[\w.-]+\.\w+:\d+/.exec(raw)?.[0]?.replace(/^\.\//, '') ?? null;
+}
+function lineGate(raw: string): { gate?: string; gate_id?: string } {
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o.gate === 'string' && o.gate) return { gate: o.gate, ...(typeof o.gate_id === 'string' && o.gate_id ? { gate_id: o.gate_id } : {}) };
+  } catch { /* a prose finding */ }
+  const tag = /\bRH-\d+\b/.exec(raw)?.[0];
+  const id = /\bgate_id\W{0,3}([\w.:-]+)/.exec(raw)?.[1];
+  return tag ? { gate: tag, ...(id ? { gate_id: id } : {}) } : {};
 }
 export function ledgerBlockers(ledger: string): LedgerBlocker[] {
   const fail = (why: string): never => { throw new Error(`${ledger}: ${why}`); };
@@ -534,7 +545,7 @@ export function ledgerBlockers(ledger: string): LedgerBlocker[] {
       if (!loci.has(j.id)) loci.set(j.id, lineLocus(j.reason ?? ''));
     }
   }
-  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null }));
+  return [...ranks].filter(([id, r]) => r >= 4 && !(r <= (unblocking.get(id) ?? -1))).map(([id]) => ({ id, locus: loci.get(id) ?? null, ...lineGate(raws.get(id) ?? '') }));
 }
 
 /**
