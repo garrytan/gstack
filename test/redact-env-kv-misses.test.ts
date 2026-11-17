@@ -15,6 +15,7 @@ const findings = (text: string, sourcePath?: string) =>
   scan(text, { repoVisibility: "private", processEnv: {}, ...(sourcePath ? { sourcePath } : {}) }).findings.filter((f) => f.id === "env.kv");
 const kv = (text: string, sourcePath?: string) => findings(text, sourcePath).length > 0;
 const S = "Qx9vL2mZp8Rt4Kw7Yn3Bh2Jd";
+const S2 = ["Zz8Kq2Lm", "7Np4Rs9T", "v3Wx6Yb"].join("");
 
 describe("env.kv: secrets built by concatenation or written in comments (GST-3004, #4289)", () => {
   test("a secret after a short concatenated piece, or split across pieces, reports", () => {
@@ -41,7 +42,7 @@ describe("env.kv: secrets built by concatenation or written in comments (GST-300
     ] as const) expect({ code, file, kv: kv(code, file) }).toEqual({ code, file, kv: true });
   });
   test("a secret in the code and another in its comment report separately", () => {
-    expect(findings('API_KEY="' + S + '"  # TOKEN="Zz8Kq2Lm7Np4Rs9Tv3Wx6Yb"', "app/settings.py").map((f) => f.col)).toEqual([10, 46]);
+    expect(findings('API_KEY="' + S + '"  # TOKEN="' + S2 + '"', "app/settings.py").map((f) => f.col)).toEqual([10, 46]);
   });
   test("a line whose code is exempt still reports a secret in its comment", () => {
     expect(kv('    session = self.client.session  # TOKEN="' + S + '"', "tests/test_views.py")).toBe(true);
