@@ -117,8 +117,8 @@ mdd: about $7 a run on cost (20% of C's $35; estimated from the profile's 121 to
 
 **Catches, by rule (no judge).** A trial catches its planted bug when either (a) a finding in the run's findings
 record (`merged.jsonl`) or final report names the labelled path, a line within 3 of the labelled line, and at least
-one cause word; or (b) the run's final head no longer holds the planted lines and one of the run's findings or commit
-messages names that file. A case's catch rate in an arm is its catches over 3 trials. The script that applies this
+one cause word; or (b) the sealed regression test for the plant (from the label file, run by the runner, never shown to
+the arm) passes at the run's final head, and one of the run's findings or commit messages names that file. A case's catch rate in an arm is its catches over 3 trials. The script that applies this
 rule is checked against the decoys below before any trial runs.
 
 **Real problems, by judge.** Every finding that is not the plant and that the run marked blocking, or that led to a
@@ -137,7 +137,7 @@ or of catch rates, with a 95% t interval over the 10 cases. Every trial is repor
 ## Decoys
 Before any trial, the catch script scores 50 synthetic finding lists built from the sealed labels, 5 per case: the
 right file with the line 4 or more away; the right line with no cause word; the cause words on another file; a final
-head with the planted lines reworded but the bug kept; and one exact match. It must score the 40 decoys 0 and the 10
+head with the planted lines reworded but the bug kept (the sealed regression test still fails); and one exact match. It must score the 40 decoys 0 and the 10
 matches 1. A decoy pass proves the rule rejects near misses and does not credit a cosmetic edit as a fix.
 
 ## Blinding
