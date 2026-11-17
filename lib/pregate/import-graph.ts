@@ -213,7 +213,9 @@ interface ConfigOptions { baseUrl?: Located<string>; paths?: Located<Record<stri
 /** `baseUrl` and `paths` of one config after its relative `extends` chain (later entries and the config itself override). */
 function effectiveOptions(repoRoot: string, rel: string, depth: number, seen: Set<string>, notes: string[]): ConfigOptions | null {
   let json: { extends?: unknown; compilerOptions?: { baseUrl?: unknown; paths?: unknown } };
-  try { json = JSON.parse(stripJsonc(fs.readFileSync(path.join(repoRoot, rel), 'utf8'))) ?? {}; } catch { return null; }
+  const text = readRepoFile(repoRoot, rel);
+  if (text === null) return null;
+  try { json = JSON.parse(stripJsonc(text)) ?? {}; } catch { return null; }
   const dir = path.posix.dirname(rel);
   let options: ConfigOptions = {};
   const parents = typeof json.extends === 'string' ? [json.extends] : Array.isArray(json.extends) ? json.extends.filter((e): e is string => typeof e === 'string') : [];

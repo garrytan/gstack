@@ -192,6 +192,18 @@ describe('import graph: a nested tsconfig governs the files under it', () => {
     expect(testsFor(g, 'packages/core/src/plan.ts').tests).toEqual([]);
     expect(g.aliasNotes).toEqual(['apps/api/tsconfig.json extends ../../../outside.json: outside the repo or a cycle, not followed']);
   });
+
+  test.skipIf(process.platform === 'win32')('a nested tsconfig that is a symlink to a file outside the repository is not read', () => {
+    const repo = fixture();
+    fs.writeFileSync(path.join(repo.root, 'outside.json'), '{ "compilerOptions": { "paths": { "#core/*": ["../../packages/core/src/*"] } } }\n');
+    fs.mkdirSync(path.join(repo.work, 'apps', 'api'), { recursive: true });
+    fs.symlinkSync(path.join(repo.root, 'outside.json'), path.join(repo.work, 'apps', 'api', 'tsconfig.json'));
+    commit(repo, {
+      'packages/core/src/plan.ts': 'export const plan = 1;\n',
+      'apps/api/test/plan.test.ts': "import { plan } from '#core/plan';\nplan;\n",
+    });
+    expect(testsFor(buildGraph(repo.work), 'packages/core/src/plan.ts').tests).toEqual([]);
+  });
 });
 
 describe('import graph: alias precedence, extends and the no-lane explanation', () => {
