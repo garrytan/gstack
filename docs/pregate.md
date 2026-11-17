@@ -1841,6 +1841,29 @@ those, each with its scope and its reason:
   Any other call's literal (`make_password("orange_monkey_pass")`), a later
   argument or fallback (`os.getenv("SECRET_KEY", "orange_monkey_pass")`) and a
   kebab passphrase still report.
+- Three more code shapes are names, not credentials (GST-3004): a TypeScript
+  type with spaced generic arguments
+  (`session: Awaited<ReturnType<typeof launch>>;`), a Python keyword
+  argument that reads a CONSTANT_CASE setting
+  (`aws_secret_access_key=settings.S3_SECRET_KEY,`, #4289), and a quoted
+  camelCase dotted field path of three word segments
+  (`"form.section.fieldName"`; an all-lowercase one still reports). Each is
+  read from the value, never from the key's name or the file's path, and a
+  secret in the same position, a literal after it on the line, or the same text
+  in a config file still reports.
+- Known limits, still reported, allowlist them by value: a JS/TS template key
+  built from `${…}` slots (#4287), an array of names in source code
+  (`"get_token": [load_auth, "authOperations"]`), and a generic type with
+  string-literal arguments (`Pick<Session, "id" | "forkedFrom">`). Exempting
+  them needed an entropy test on their text alone, which let random hex and
+  encoded literals through.
+- Two misses are closed (#4289): the string pieces of a `+` chain are joined
+  and checked (`KEY = "form.x" + "<secret>"`), and a secret-named assignment
+  right after `#`, `//`, `/*` or `<!--` reports in a trailing or
+  whole-line comment unless its value is prose or key-naming text
+  (letters-only words joined by `_ . - | : / #`). An array whose first
+  element is a quoted secret (`"get_token": ["<secret>"]`) still reports
+  only through a provider rule such as `stripe.secret`.
 
 The `secrets` row says `N allowlisted (<ids>)` and lists each allowlisted
 finding with the entry (`allowlisted env.kv (evals/receipts/t1.json, added line

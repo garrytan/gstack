@@ -117,6 +117,18 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
+  // Value: protects=a TS annotation with spaced generic arguments and a Python settings read pass the never-downgradable secrets check, while a secret
+  //   in a + chain or a trailing comment fails it; fails_when=the GST-3004 false positives return at the pregate level, or the concatenation or comment
+  //   read is lost there; why_new=GST-3004's cases came from pregate runs, and TS files reach the scanner as added lines under their base name; seam=fixture repo; no_claim=Dart files
+  test('a spaced generic type and a Python settings read pass; a secret in a + chain or a trailing comment still fails (GST-3004)', () => {
+    const secret = ['Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const ts = 'export interface Launch {\n  session: Awaited<ReturnType<typeof launchSession>>;\n  credentials: Record<string, CredentialEntry>;\n}\n';
+    const py = 'client = boto3.client(\n    "s3",\n    aws_secret_access_key=settings.S3_SECRET_KEY,\n)\n';
+    expect(repo({ 'src/launch.ts': ts, 'app/storage.py': py }).secrets()).toMatchObject({ status: 'pass', lines: [] });
+    const r = repo({ 'src/launch.ts': ts + 'export const client = {\n  apiKey: "sk" + "' + secret + '",\n', 'app/storage.py': py + 'RETRIES = 3  # API_KEY = "' + secret + '"\n' }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(app/storage.py, line 5)'), expect.stringContaining('(src/launch.ts, added line 6)')] });
+  });
+
   test('parseAddedLineNumbers numbers each added line from its hunk header', () => {
     const diff = ['diff --git a/a.py b/a.py', '--- a/a.py', '+++ b/a.py', '@@ -3,0 +4,2 @@', '+one', '+two', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     expect([...parseAddedLineNumbers(diff)]).toEqual([['a.py', [4, 5, 11]]]);
