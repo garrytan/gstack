@@ -1,0 +1,60 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-ship-phase — one ship/DRIVER.md phase as one call (G2).
+ *
+ *   gstack-ship-phase run --dir <run dir> --phase <n> [--record <rec>] [--wait-s <s>] -- '<command>' ['<command>' ...]
+ *       Runs the phase's commands in order, each in the background (output in <run dir>/phases/<n>/<k>.log), and prints
+ *       only result lines: RAN: <k>/<N> exit=<c> with each command's CODE: lines, then PHASE: <n> done. A command still
+ *       running after --wait-s (default 200) keeps running and the run prints WAITING: and NEXT: rerun; rerun the same
+ *       command to resume. A failed command prints STOP: (exit 3); fix it and rerun the same command: finished commands
+ *       stay done (the journal keys each by the sha256 of its text). With --record, a stopped run or one past 100
+ *       minutes prints STOP: and runs nothing (exit 3); past 100 minutes it also writes <ledger dir>/stop.json.
+ *   gstack-ship-phase program
+ *       Prints the checked-in Capy phase program (lib/capy-ship-phase.js): PROGRAM: v<n> sha256=<h> bytes=<n>, then its
+ *       text as one JSON string. Load it the way capy/skill/gstack/SKILL.md loads the review pass program.
+ *
+ * Exit: 0 done or waiting · 3 stop · 2 usage. Logic: lib/ship-phase.ts, lib/ship-clock.ts.
+ */
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { runPhase } from '../lib/ship-phase';
+import { logShipCall } from '../lib/ship-call-log';
+
+logShipCall('gstack-ship-phase');
+
+const PROGRAM_VERSION = 1;
+const [command, ...rest] = process.argv.slice(2);
+const usage = (why: string) => { process.stderr.write(`gstack-ship-phase: ${why} (usage; see gstack-ship-phase --help)\n`); process.exit(2); };
+
+if (!command || command === '--help' || command === '-h') {
+  const lines = (await Bun.file(import.meta.path).text()).split('\n');
+  (command ? console.log : console.error)(lines.slice(2, lines.indexOf(' */')).map(l => l.replace(/^ \* ?/, '')).join('\n'));
+  process.exit(command ? 0 : 2);
+}
+if (command === 'program') {
+  const text = fs.readFileSync(path.join(import.meta.dir, '..', 'lib', 'capy-ship-phase.js'), 'utf8');
+  const sha = createHash('sha256').update(text).digest('hex');
+  process.stdout.write(`PROGRAM: v${PROGRAM_VERSION} sha256=${sha} bytes=${Buffer.byteLength(text)}\n${JSON.stringify(text)}\n`);
+  process.exit(0);
+}
+if (command !== 'run') usage(`unknown command '${command}'`);
+const sep = rest.indexOf('--');
+const opts = sep < 0 ? rest : rest.slice(0, sep);
+const commands = sep < 0 ? [] : rest.slice(sep + 1);
+const flag = (name: string) => { const i = opts.indexOf(`--${name}`); return i >= 0 ? opts[i + 1] : undefined; };
+const known = new Set(['--dir', '--phase', '--record', '--wait-s']);
+for (let i = 0; i < opts.length; i += 2) if (!known.has(opts[i]!) || opts[i + 1] === undefined) usage(`run: unexpected '${opts[i]}'`);
+const dir = flag('dir'), phase = flag('phase'), waitRaw = flag('wait-s');
+if (!dir) usage('run needs --dir <run dir>');
+if (!phase || !/^[A-Za-z0-9._-]+$/.test(phase)) usage('run needs --phase <n> (letters, digits, dot, underscore or dash)');
+if (!commands.length || commands.some(c => !c.trim())) usage("run needs the phase's commands after --, one argument each");
+if (waitRaw !== undefined && !/^\d+$/.test(waitRaw)) usage(`--wait-s '${waitRaw}' is not a whole number of seconds`);
+try {
+  const out = await runPhase({ dir: dir!, phase: phase!, commands, record: flag('record'), waitS: waitRaw === undefined ? undefined : Number(waitRaw), cwd: process.cwd(), env: process.env });
+  if (out.stdout.length) process.stdout.write(out.stdout.join('\n') + '\n');
+  process.exit(out.exit);
+} catch (e: any) {
+  process.stderr.write(`gstack-ship-phase: ${e?.message ?? e}\n`);
+  process.exit(e?.exit === 3 ? 3 : 2);
+}

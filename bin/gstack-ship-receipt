@@ -3,7 +3,7 @@
  * gstack-ship-receipt — the handoff record, identifiers first (plan C5).
  *
  *   gstack-ship-receipt write [--pr <n>] [--head <sha>] [--base <ref>] [--version <X>] [--gated-tree <sha>]
- *                             [--predecessor <sha>] [--gate <json|@file>] [--ci <json|@file>] [--spend-usd <n>]
+ *                             [--predecessor <sha>] [--gate <json|@file>] [--ci <json|@file>] [--spend-usd <n>] [--calls <n> | --budget-record <rec>]
  *                             [--session-kind <k>] [--artifacts-consumed <n>/<m>] [--run <id>] [--thread <id>]
  *                             [--receipt <tree-receipt.json>] [--policy <label>] [--preregistration <text>] [--history <text>]
  *                             [--pregate <pregate.json>] [--issues <json|@file>] [--approval <line>]... [--approval-run <dir>]...
@@ -66,6 +66,7 @@ import { historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub } fro
 import { grantAt, readReviewRoundGrants } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
+import { runCalls } from '../lib/ship-clock';
 
 const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block (docs/ship-policy.md#ship-receipt)
 
@@ -108,6 +109,7 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       instead); any over (or absent) file exits 1 (DOCS_AUDIT_BLOCKED)
 
 write flags: --pr --head --base --version --gated-tree --predecessor --gate <json|@file> --ci <json|@file> --spend-usd
+  --calls <n> | --budget-record <rec> (calls=: the run's calls from the call log since gstack-ship-budget start; lib/ship-clock.ts)
   --session-kind --artifacts-consumed <n>/<m> --run --thread --receipt <tree-receipt.json> --policy --preregistration
   --history --queue-mode --pregate <pregate.json> (C8: refused unless current, green and every requires-remote obligation
   carries a receipt: PREGATE_STALE / PREGATE_LANE_FAILED / PREGATE_INCOMPLETE / PREGATE_REMOTE_UNCLEARED) --issues <json|@file>
@@ -232,6 +234,15 @@ function ciCarried(base: string): ShipReceipt['ci_carried'] {
   try { const list = JSON.parse(r.stdout); return Array.isArray(list) && list.length ? list : undefined; } catch { return undefined; }
 }
 
+/** calls= (G2): --calls <n>, or the run's count from the call log through its budget record; absent when neither is given or the log holds no row. */
+function callsArg(rest: string[]): number | undefined {
+  const raw = flag(rest, '--calls');
+  if (raw !== undefined) { if (!/^\d+$/.test(raw)) throw new Error(`--calls '${raw}' is not a whole number`); return Number(raw); }
+  const record = flag(rest, '--budget-record');
+  if (record === undefined) return undefined;
+  try { return runCalls(record, process.env) ?? undefined; } catch (e: any) { throw new Error(`--budget-record ${record}: ${e.message}`); }
+}
+
 function cmdWrite(rest: string[], json: boolean): number {
   const repoRoot = git(['rev-parse', '--show-toplevel']) ?? process.cwd();
   const checkedOut = git(['rev-parse', 'HEAD'], repoRoot);
@@ -350,6 +361,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       tree: tree?.tree, gate_reuse: tree ? `${tree.gate_reuse} (${tree.gate_reuse_reason})` : undefined,
       gate: jsonArg(flag(rest, '--gate')), ci: jsonArg(flag(rest, '--ci')), ci_carried: carried,
       spend_usd: flag(rest, '--spend-usd') !== undefined ? (Number.isFinite(Number(flag(rest, '--spend-usd'))) ? Number(flag(rest, '--spend-usd')) : flag(rest, '--spend-usd')) : undefined,
+      calls: callsArg(rest),
       session_kind: sessionKind, artifacts_consumed: flag(rest, '--artifacts-consumed'), run: flag(rest, '--run'), thread: flag(rest, '--thread'),
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
