@@ -105,7 +105,7 @@ describe('skill-route hook', () => {
     expect(expectHookSchema(route(prompt('fix this bug'), { GSTACK_SKILL_ROUTING: 'on', GSTACK_SKILL_ROUTE_HINT: 'step' }).stdout))
       .toContain('Its first step: Reproduce the failure before you change code');
     expect(expectHookSchema(route(prompt('fix this bug'), { GSTACK_SKILL_ROUTING: 'on', GSTACK_SKILL_ROUTE_HINT: 'contract' }).stdout))
-      .toContain('Done means: a DEBUG REPORT with Symptom, Root cause, Fix, Evidence; a test or repro run after your last edit.');
+      .toContain('Done means: a DEBUG REPORT with Symptom, Root cause, Fix, Evidence.');
   });
 
   test('with nothing set SWITCH_DEFAULT decides; off in config, and off in env over config on', () => {
