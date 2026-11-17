@@ -437,7 +437,8 @@ taken before the change is stale: the lane runs `ready` again at the same pin an
 the fresh block; the controller trains nothing older than the change. The `Unverified:`
 line is the one exception: the controller asks for a missing line in a follow-up message,
 never refuses or stales a READY for it, and the lane reruns neither `ready` nor /ship.
-The `Failed or skipped:` and `Also changed:` lines are optional the same way.
+The same exception covers a missing `Failed or skipped:` or `Also changed:` line: the
+controller asks for it in a follow-up message and never refuses or stales a READY over it.
 
 ### The lane's /ship sequence before READY
 
