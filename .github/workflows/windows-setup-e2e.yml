@@ -75,6 +75,7 @@ on:
       - 'bin/gstack-config'
       - 'bin/gstack-patch-names'
       - 'bin/gstack-state-root.sh'
+      - 'bin/gstack-lock.sh'
       - 'bin/gstack-skill-name.sh'
       - 'bin/gstack-install-registry.sh'
       - 'bin/gstack-render-claude.sh'
@@ -194,6 +195,7 @@ jobs:
           bin/gstack-config
           bin/gstack-patch-names
           bin/gstack-state-root.sh
+          bin/gstack-lock.sh
           bin/gstack-skill-name.sh
           bin/gstack-install-registry.sh
           bin/gstack-render-claude.sh
