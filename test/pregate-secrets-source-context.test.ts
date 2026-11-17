@@ -117,6 +117,18 @@ describe('pregate secrets: source context and diff integrity', () => {
     } finally { cleanup(fx); }
   });
 
+  // Value: protects=gbrain's generated loader table, qm's spaced generic annotation and a JS template key pass the never-downgradable secrets check, while a
+  //   secret in the same array or in a trailing comment fails it; fails_when=GBRA-615 or CAPY-1 returns at the pregate level, or the comment read is lost there;
+  //   why_new=GST-3004's cases came from pregate runs, and TS files reach the scanner as added lines under their base name; seam=fixture repo; no_claim=Dart files
+  test('a generated loader table, a spaced generic type and a template key pass; a secret in the same array or a trailing comment still fails (GST-3004)', () => {
+    const secret = ['Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const table = 'export const LOADERS = {\n  "reveal_secret": [load_secrets, "secretsOperations"],\n  "get_token": [load_auth, "authOperations"],\n};\n';
+    const fork = 'export function forkKey(\n  session: Pick<Session, "id" | "forkedFrom"> | null,\n) {\n  return {\n    key: `${session?.id}|${session?.forkedFrom}|over_tough|`,\n  };\n}\n';
+    expect(repo({ 'src/core/operation-loaders.generated.ts': table, 'src/fork.ts': fork }).secrets()).toMatchObject({ status: 'pass', lines: [] });
+    const r = repo({ 'src/core/operation-loaders.generated.ts': table.replace('"authOperations"', `"${secret}"`), 'app.py': `RETRIES = 3  # API_KEY = "${secret}"\n` }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('app.py, line 1)'), expect.stringContaining('operation-loaders.generated.ts, added line 3)')] });
+  });
+
   test('parseAddedLineNumbers numbers each added line from its hunk header', () => {
     const diff = ['diff --git a/a.py b/a.py', '--- a/a.py', '+++ b/a.py', '@@ -3,0 +4,2 @@', '+one', '+two', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     expect([...parseAddedLineNumbers(diff)]).toEqual([['a.py', [4, 5, 11]]]);

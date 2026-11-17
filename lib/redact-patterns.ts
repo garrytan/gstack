@@ -1065,6 +1065,36 @@ function expressionTail(line: string, comment: string): string | null {
   return depth > 0 || /(?:[=+\\]|\?\?|\|\||&&|\b(?:or|and))\s*$/.test(rest) ? null : rest;
 }
 
+/**
+ * CAPY-1: the value capture stops at a type's first space, so an annotation
+ * with spaced or string-literal generic arguments
+ * (`session: Pick<Session, "id" | "forkedFrom"> | null,`) never reached the
+ * name-chain test as a closed type. Read on its line, the type is names, `<>`,
+ * `[]`, `|`, `&`, `,` and `?`, with quoted literal types only inside `<>`,
+ * each of them text that names a key (holdsSecretText); it ends at a `,`
+ * `;`, `)` or `=` outside the brackets, or at the line end, and the rest of
+ * the line carries no secret literal or template.
+ */
+const GENERIC_TYPE_HEAD = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*</;
+function isGenericType(line: string): boolean {
+  let depth = 0;
+  let i = 0;
+  for (; i < line.length; i += 1) {
+    const c = line[i]!;
+    if (c === '"' || c === "'") {
+      const literal = depth > 0 ? quotedAt(line, i) : null;
+      if (!literal || holdsSecretText(literal.text)) return false;
+      i = literal.end - 1;
+    } else if (c === "<") depth += 1;
+    else if (c === ">") {
+      if (--depth < 0) return false;
+    } else if (depth === 0 && /[,;)=]/.test(c)) break;
+    else if (!/[\w$.\s|&[\],?]/.test(c)) return false;
+  }
+  const rest = line.slice(i);
+  return depth === 0 && !carriesSecretLiteral(rest) && !rest.includes("`");
+}
+
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
   const { start, end } = spanBounds(match);
@@ -1078,7 +1108,8 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
   } else {
     const head = match[0].slice(0, match[0].length - span.length).trimEnd();
     const separator = head.slice(-1);
-    if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
+    if (separator !== ":") return false;
+    if (!CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return GENERIC_TYPE_HEAD.test(span) && isGenericType(match.input.slice(start).split("\n", 1)[0]!) && !insideString(match.input, start, sourcePath);
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
     if (!/[,;]$/.test(span)) {
       const tail = expressionTail(rest, /\.pyi?$/i.test(sourcePath) ? "#" : "//");
@@ -1096,20 +1127,177 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
  * the same line inside a `"""`/`'''` block still reports. Every segment must be
  * name-shaped (snake_case, camelCase, PascalCase or CONSTANT_CASE), so a dotted
  * random token still reports, and only a `;` and a comment may follow it on
- * the line: a literal after it (`or "…"`, `, "…"`), a continuation or a
- * keyword argument's comma still reports. A quoted value, a bare name, a
+ * the line: a literal after it (`or "…"`, `, "…"`) or a continuation still
+ * reports. A keyword argument's closing `,` or `)` is allowed only when the
+ * last segment is a CONSTANT_CASE setting
+ * (`aws_secret_access_key=settings.S3_SECRET_KEY,`, #4289), so
+ * `password=request.password,` still reports. A quoted value, a bare name, a
  * config, .env or TS file, and a scan without a path are unchanged.
  */
 const ATTRIBUTE_SEGMENT = /^_*(?:[a-z][a-z0-9]*(?:_+[a-z0-9]+)*|[A-Z][A-Z0-9]*(?:_+[A-Z0-9]+)*|[A-Za-z][a-z0-9]*(?:[A-Z][a-z0-9]+)*)_*$/;
+const CONSTANT_SEGMENT = /^_*[A-Z][A-Z0-9]*(?:_+[A-Z0-9]+)*_*$/;
 function isAttributeReference(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !STRING_SPAN_SOURCE.test(sourcePath)) return false;
-  const chain = span.replace(/;$/, "").split(".");
+  const read = span.replace(/[,;)]+$/, "");
+  const chain = read.split(".");
   if (chain.length < 2 || !chain.every((segment) => ATTRIBUTE_SEGMENT.test(segment))) return false;
+  const closer = span.slice(read.length);
+  if (closer !== "" && closer !== ";" && !CONSTANT_SEGMENT.test(chain.at(-1)!)) return false;
   const { start, end } = spanBounds(match);
   if (!/=[ \t]*$/.test(match.input.slice(match.index, start))) return false;
   const rest = match.input.slice(end).split("\n", 1)[0];
   if (!(/\.dart$/i.test(sourcePath) ? /^[ \t]*(?:\/\/.*)?\r?$/ : /^[ \t]*(?:#.*)?\r?$/).test(rest)) return false;
   return !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * GST-3004: text that names or builds a key rather than holding one. Split on
+ * whitespace, every run must be short (under 8), a placeholder, under 3.0
+ * bits, or letters-only words, lowercase or camelCase with an optional leading
+ * capital, joined by `_ . - | : / #` (`over_tough`, `secretsOperations`,
+ * `|over_tough|`). A generated credential carries digits or adjacent
+ * capitals, so it keeps reporting; a letters-only passphrase in this shape
+ * (`correctHorseBattery`) is the accepted residue.
+ */
+const KEY_TEXT = /^[_.\-|:/#]*[A-Za-z][a-z]+(?:[A-Z][a-z]+)*(?:[_.\-|:/#]+[A-Za-z][a-z]+(?:[A-Z][a-z]+)*)*[_.\-|:/#]*$/;
+function holdsSecretText(text: string): boolean {
+  return text.split(/\s+/).some((run) => run.length >= 8 && !isPlaceholderSpan(run) && shannonEntropy(run) >= 3.0 && !KEY_TEXT.test(run));
+}
+
+/** The text of the `"…"` or `'…'` literal whose quote is at `i` and the index after it, or null when it does not close on the line. */
+function quotedAt(line: string, i: number): { text: string; end: number } | null {
+  for (let j = i + 1; j < line.length; j += line[j] === "\\" ? 2 : 1) if (line[j] === line[i]) return { text: line.slice(i + 1, j), end: j + 1 };
+  return null;
+}
+
+/**
+ * #4289: `KEY = "form.x" + "<secret>"` builds the value from pieces, and the
+ * value capture read only the first. When the value is a `+` chain of quoted
+ * literals and names on its line, the literals' text is joined, so a secret
+ * placed after a short piece or split across pieces is whole again, and checked
+ * with holdsSecretText. Names add no text. A chain that breaks off at a call,
+ * template or other operand is checked as far as it reads.
+ */
+const CHAIN_NAME = /[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*/y;
+const CHAIN_PLUS = /[ \t]*\+[ \t]*/y;
+function concatenationHoldsSecret(match: RegExpExecArray): boolean {
+  const { start } = spanBounds(match);
+  const line = match.input.slice(/["']/.test(match.input[start - 1] ?? "") ? start - 1 : start).split("\n", 1)[0]!;
+  let joined = "";
+  let pieces = 0;
+  for (let i = 0; ; i = CHAIN_PLUS.lastIndex) {
+    const literal = line[i] === '"' || line[i] === "'" ? quotedAt(line, i) : null;
+    CHAIN_NAME.lastIndex = i;
+    if (!literal && !CHAIN_NAME.exec(line)) break;
+    pieces += 1;
+    if (literal) joined += literal.text;
+    CHAIN_PLUS.lastIndex = literal ? literal.end : CHAIN_NAME.lastIndex;
+    if (!CHAIN_PLUS.exec(line)) break;
+  }
+  return pieces > 1 && holdsSecretText(joined);
+}
+
+/**
+ * GBRA-615: in source code, an array value whose elements are names and
+ * quoted text, with at least one name, all of them passing holdsSecretText
+ * (`"get_token": [load_auth, "authOperations"],`), is code: an unquoted name
+ * there is code by #3048's rule. The array must close on the value's line,
+ * followed only by `,` `;` `)` `]` `}` and a comment. A config file's
+ * unquoted element is a string, so YAML's `[<secret>]` is checked as before,
+ * and so are a multi-line array and one holding a call or a nested array.
+ */
+const LIST_NAME = /[ \t]*[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*[ \t]*/y;
+function isNameList(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath) || !span.startsWith("[")) return false;
+  const { start } = spanBounds(match);
+  const line = match.input.slice(start + 1).split("\n", 1)[0]!;
+  let names = 0;
+  let i = 0;
+  for (;;) {
+    const quote = /^[ \t]*["']/.exec(line.slice(i));
+    if (quote) {
+      const literal = quotedAt(line, i + quote[0].length - 1);
+      if (!literal || holdsSecretText(literal.text)) return false;
+      i = literal.end + /^[ \t]*/.exec(line.slice(literal.end))![0].length;
+    } else {
+      LIST_NAME.lastIndex = i;
+      const name = LIST_NAME.exec(line);
+      if (!name || holdsSecretText(name[0].trim())) return false;
+      names += 1;
+      i = LIST_NAME.lastIndex;
+    }
+    if (line[i] === "]") break;
+    if (line[i] !== ",") return false;
+    i += 1 + /^[ \t]*/.exec(line.slice(i + 1))![0].length;
+    if (line[i] === "]") break;
+  }
+  return names > 0 && /^[ \t,;)\]}]*(?:(?:\/\/|#).*)?\r?$/.test(line.slice(i + 1)) && !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * #4287 (#4309): in JS/TS source, a template literal made of `${…}` slots and
+ * fixed text that names a key (`key: \`${over.day}|${over.groomerId}|over_tough|\`,`)
+ * builds a cache or list key; it holds no credential. The backtick must open a
+ * template at the value (jsSpans), close on the same line and hold at least
+ * one slot; every slot is names and operators only (no quote, backtick or
+ * brace). The fixed text, joined across the slots so a secret split by them
+ * is whole again, must pass holdsSecretText, and the rest of the line carries
+ * no secret literal or further template. A template with no slot, a multi-line
+ * one and one in a config file are checked as before.
+ */
+const JS_SOURCE = /\.(?:[cm]?[jt]sx?)$/i;
+const TEMPLATE_SLOT = /^[\w$.?!\s|&+\-*/%()[\],:<>=]*$/;
+function isTemplateKey(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !JS_SOURCE.test(sourcePath) || !span.startsWith("`")) return false;
+  const { start } = spanBounds(match);
+  const spans = jsSpans(match.input);
+  if (!inSpans(spans, start) || inSpans(spans, start - 1)) return false;
+  const line = match.input.slice(start + 1).split("\n", 1)[0]!;
+  let text = "";
+  let slots = 0;
+  let i = 0;
+  for (; i < line.length && line[i] !== "`"; i += 1) {
+    if (line[i] === "\\") {
+      text += line.slice(i, i + 2);
+      i += 1;
+    } else if (line.startsWith("${", i)) {
+      const close = line.indexOf("}", i);
+      if (close < 0 || !TEMPLATE_SLOT.test(line.slice(i + 2, close))) return false;
+      slots += 1;
+      i = close;
+    } else text += line[i];
+  }
+  const rest = line.slice(i + 1);
+  return i < line.length && slots > 0 && !holdsSecretText(text) && !carriesSecretLiteral(rest) && !rest.includes("`");
+}
+
+/**
+ * #4289: the regex also starts a name right after a comment marker, and
+ * comments are prose: `# Auth: authentication, authorization, sessions`. A
+ * match that starts after other text on its line is a comment's, and its value,
+ * less trailing punctuation, reports only when it holds a secret by
+ * holdsSecretText. Code before the comment is matched from the line start and
+ * checked as before.
+ */
+function isCommentText(span: string, match: RegExpExecArray): boolean {
+  const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
+  if (/^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*$/.test(match.input.slice(lineStart, match.index))) return false;
+  return !holdsSecretText(span.replace(/[,;.)]+$/, ""));
+}
+
+/**
+ * #4289: a quoted dotted path of three or more letters-only segments, each
+ * lowercase or camelCase and at least one camelCase
+ * (`KEY = "form.section.fieldName"`), names a form field. A segment with a
+ * digit, a capital first letter or adjacent capitals (`"form.<secret>"`)
+ * reports, and so do a path of one or two segments and an all-lowercase one,
+ * which #4209 keeps reporting as a quoted literal (`session = "self.client.session"`).
+ */
+const DOTTED_FIELD_PATH = /^[a-z]+(?:[A-Z][a-z]+)*(?:\.[a-z]+(?:[A-Z][a-z]+)*){2,}$/;
+function isDottedFieldPath(span: string, match: RegExpExecArray): boolean {
+  const { start, end } = spanBounds(match);
+  const quote = match.input[start - 1];
+  return (quote === '"' || quote === "'") && match.input[end] === quote && DOTTED_FIELD_PATH.test(span) && /[A-Z]/.test(span);
 }
 
 /** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
@@ -1565,7 +1753,14 @@ export const PATTERNS: RedactPattern[] = [
     // and text is a Markdown bullet or YAML list item, not a marker, so those
     // read as they did before. ENV_KV_NAME and SCHEMA_FIELD_NAME take the same
     // marker so the name-shape and schema exemptions hold on a diff line.
-    regex: /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
+    // GST-3004 (#4289): a name may also start right after a comment marker
+    // (`#`, `//`, `/*`, `<!--`) at the line start or after a space, so a
+    // secret in a trailing or whole-line comment reports; that start is a
+    // lookbehind, so the code before the comment is still matched on its own
+    // and match[0] still starts at the name. A short first piece followed by
+    // `+` is captured so concatenationHoldsSecret can read the rest of the
+    // chain.
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*|(?<=(?:^|[ \t])(?:#+|\/\/+|\/\*+|<!--)[ \t]*))(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,
@@ -1578,17 +1773,28 @@ export const PATTERNS: RedactPattern[] = [
     // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
+    // GST-3004: so is an array of names in source (isNameList), a JS/TS
+    // template key (isTemplateKey, #4287) and a dotted field path
+    // (isDottedFieldPath, #4289), and so is key-naming text in a comment
+    // (isCommentText). A secret literal in a `+` chain reports first,
+    // whatever the exemptions say about the chain's first piece
+    // (concatenationHoldsSecret).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
-      !isPlaceholderSpan(span) &&
-      !/^\$\{?[A-Za-z_]/.test(span) &&
-      !isBareEnvRead(span, match) &&
-      !isCallExpression(span, match) &&
-      !isSourceExpression(span, match, opts?.sourcePath) &&
-      !isAttributeReference(span, match, opts?.sourcePath) &&
-      !isSchemaFieldIdentifier(span, match) &&
-      !isTestFixtureLabel(span, opts?.sourcePath) &&
-      shannonEntropy(span) >= 3.0,
+      (concatenationHoldsSecret(match) ||
+        (!isPlaceholderSpan(span) &&
+          !/^\$\{?[A-Za-z_]/.test(span) &&
+          !isBareEnvRead(span, match) &&
+          !isCallExpression(span, match) &&
+          !isSourceExpression(span, match, opts?.sourcePath) &&
+          !isAttributeReference(span, match, opts?.sourcePath) &&
+          !isNameList(span, match, opts?.sourcePath) &&
+          !isTemplateKey(span, match, opts?.sourcePath) &&
+          !isDottedFieldPath(span, match) &&
+          !isCommentText(span, match) &&
+          !isSchemaFieldIdentifier(span, match) &&
+          !isTestFixtureLabel(span, opts?.sourcePath) &&
+          shannonEntropy(span) >= 3.0)),
   },
   {
     id: "auth.bearer",
