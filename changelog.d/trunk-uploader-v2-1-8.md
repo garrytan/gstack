@@ -1,0 +1,1 @@
+- CI now uploads free-suite test results with Trunk's analytics-uploader v2.1.8 and analytics-cli 0.17.0, so flaky-test uploads keep working when analytics-cli 1.0.0 ships.
