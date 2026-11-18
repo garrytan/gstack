@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { REASONS, anchor } from '../autoplan/bin/guard-reasons';
 import { guardFixture, section, denial, codeOf, type GuardFixture } from './helpers/autoplan-guard-fixture';
 
 const fixtures: GuardFixture[] = [];
@@ -43,7 +44,8 @@ describe('a publish message whose report is only in reasoning', () => {
     expect(text).toContain('reasoning');
     expect(text).toContain('starting with the line **Phase 1 complete.**');
     expect(text).toContain('`true autoplan-published ceo`');
-    expect(text).toContain('docs/autoplan-guard-troubleshooting.md#publication-not-visible');
+    expect(REASONS.publication_not_visible.disposition).toBe('corrective');
+    expect(text).toContain(`docs/autoplan-guard-troubleshooting.md#${anchor('publication_not_visible')}`);
     expect(text).not.toMatch(/\bretry\b/i);
   });
 
