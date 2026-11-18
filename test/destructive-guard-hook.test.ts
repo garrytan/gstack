@@ -49,6 +49,23 @@ describe('destructive-guard hook', () => {
     expect(decision(run(SHIM, payload('Remove-Item -Recurse -Force C:\\proj', 'PowerShell')).stdout).permissionDecision).toBe('ask');
   });
 
+  test('an interactive session (the claude CLI) gets the ask', () => {
+    const r = run(SHIM, payload('rm -rf /var/data'), { CLAUDE_CODE_ENTRYPOINT: 'cli' });
+    expect(decision(r.stdout).permissionDecision).toBe('ask');
+  });
+
+  test('claude -p and headless sessions get a warning and no decision, so nothing waits on an answer; a deny stays a deny', () => {
+    const reason = decision(run(CHECK, payload('rm -rf /var/data')).stdout).permissionDecisionReason;
+    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { GSTACK_HEADLESS: '1' }]) {
+      const r = run(SHIM, payload('rm -rf /var/data'), env);
+      expect(r.code).toBe(0);
+      const out = JSON.parse(r.stdout);
+      expect(out.hookSpecificOutput).toBeUndefined();
+      expect(out.systemMessage).toBe(`${reason} ${ASK_NOTE} Allowed without asking: this headless session has nobody to answer.`);
+      expect(decision(run(SHIM, payload('rm -rf /'), env).stdout).permissionDecision).toBe('deny');
+    }
+  });
+
   test('off in env or config prints nothing; env on wins over config off', () => {
     expect(run(SHIM, payload('rm -rf /var/data'), { GSTACK_DESTRUCTIVE_GUARD: 'off' })).toEqual({ code: 0, stdout: '', stderr: '' });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'destructive_guard: off\n');
