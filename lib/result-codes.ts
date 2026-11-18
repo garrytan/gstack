@@ -101,8 +101,8 @@ export const RESULT_CODES = {
   },
   ARTIFACT_GUARD_LINE_MISSING: {
     anchor: 'artifact-guard-line-missing',
-    summary: 'an unattended run’s review-record.md does not state that the publication guard was not enforced',
-    fix: 'start the run through gstack-skill-start so the GUARD_NOT_INSTALLED line is recorded',
+    summary: 'an unattended run’s review-record.md does not state whether the publication guard was enforced',
+    fix: 'start the run through gstack-skill-start so its GUARD_ENFORCED or GUARD_NOT_INSTALLED line is recorded',
   },
   GUARD_NOT_INSTALLED: {
     anchor: 'guard-not-installed',

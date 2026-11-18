@@ -1,5 +1,6 @@
 /**
- * Result codes for the CEO-only driver run (`gstack-autoplan next --ceo-only`,
+ * Result codes for the /autoplan publication guard line (GUARD_ENFORCED, printed by
+ * gstack-skill-start; lib/autoplan-guard-status.ts), the CEO-only driver run (`gstack-autoplan next --ceo-only`,
  * lib/autoplan-ceo-only.ts) and its shadow-mode reader (`gstack-autoplan shadow`,
  * lib/autoplan-shadow-reader.ts). Kept beside lib/result-codes.ts, which spreads
  * this table into RESULT_CODES; the same rules apply: one stable
@@ -9,6 +10,11 @@
 import type { ResultCode } from './result-codes';
 
 export const AUTOPLAN_RESULT_CODES = {
+  GUARD_ENFORCED: {
+    anchor: 'guard-enforced',
+    summary: 'Claude Code runs the autoplan publication hook, so a phase Read or reviewer dispatch is denied until the previous phase report is published',
+    fix: 'publish each phase report as visible message text, not reasoning, in a message whose only tool call is `true autoplan-published <phase>`',
+  },
   CEO_ONLY_CONFLICT: {
     anchor: 'ceo-only-conflict',
     summary: '--ceo-only was combined with a flag that adds a phase (--ui, --developer-tool, --agent-primary), or a plan\'s scope marker names it',

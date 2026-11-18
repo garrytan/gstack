@@ -502,7 +502,7 @@ export interface ValidationResult { valid: boolean; errors: ValidationError[]; m
  * that is missing, stale (hash) or escapes the run directory, malformed JSONL,
  * schema violations, duplicate or unbound ids, dangling references, task
  * dependency cycles, count mismatches, and an unattended run whose
- * review-record.md lacks the GUARD_NOT_INSTALLED line.
+ * review-record.md lacks its GUARD_ENFORCED or GUARD_NOT_INSTALLED line.
  */
 export function validateRun(runJson: string): ValidationResult {
   const runDir = path.dirname(path.resolve(runJson));
@@ -549,7 +549,7 @@ export function validateRun(runJson: string): ValidationResult {
     const record = manifest.artifacts['review-record.md'];
     const abs = record ? resolveInside(runDir, record.path).abs : '';
     const text = abs && fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : '';
-    if (!text.includes('GUARD_NOT_INSTALLED')) errors.push({ code: 'ARTIFACT_GUARD_LINE_MISSING', path: 'review-record.md', message: 'unattended run without the guard line' });
+    if (!/\((?:GUARD_ENFORCED|GUARD_NOT_INSTALLED)\)/.test(text)) errors.push({ code: 'ARTIFACT_GUARD_LINE_MISSING', path: 'review-record.md', message: 'unattended run without the guard line' });
   }
   return { valid: errors.length === 0, errors, manifest, runDir, attested: countAttested(manifest) };
 }
