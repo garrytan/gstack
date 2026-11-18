@@ -690,7 +690,9 @@ by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
   `answer` prints `PLAN_SOURCE_CHANGED` when the source plan moved since the
   snapshot. A plan without both `## Implementation plan` and `## Review record`
   refuses with `PLAN_SECTIONS_INVALID`; `next --scaffold` reviews a copy with
-  the missing heading added. `resume` completes an interrupted revise.
+  the missing heading added, and `revise` does the same (`SCAFFOLDED:`) when
+  the run's first plan was scaffolded or had no headings. A revise from a
+  different file prints `PLAN_INPUT: <old> -> <new>`. `resume` completes an interrupted revise.
 - **Admission and upgrades.** `next`, `submit`, `answer`, `revise`, `export`
   and `run` refuse on a Capy host (`GSTACK_CAPY=1`) without an ok install
   verdict for this checkout, HEAD and workflow at `$GSTACK_INSTALL_VERDICT`
