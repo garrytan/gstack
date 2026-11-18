@@ -136,7 +136,8 @@ sourced_by() {
   _sdir=${1%/*}
   # Keep the same filter, token grammar, order and deduplication in one process.
   awk '
-    /^[[:space:]]*#[[:space:]]*shellcheck[[:space:]].*source=|(^|[;&|({[:space:]])(\.|source)[[:space:]]|^[[:space:]]*(local |export |readonly )?[A-Za-z_][A-Za-z0-9_]*=/ {
+    BEGIN { assignment = "^[[:space:]]*(local |export |readonly )?[A-Za-z_][A-Za-z0-9_]*=" }
+    /^[[:space:]]*#[[:space:]]*shellcheck[[:space:]].*source=/ || /(^|[;&|({[:space:]])(\.|source)[[:space:]]/ || $0 ~ assignment {
       line = $0
       while (match(line, /[A-Za-z0-9._\/-]*\.sh([^A-Za-z0-9_]|$)/)) {
         token = substr(line, RSTART, RLENGTH); finish = RSTART + RLENGTH
