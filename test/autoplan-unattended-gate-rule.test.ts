@@ -41,7 +41,7 @@ describe('unattended /autoplan states one gate rule', () => {
   test('the unattended profile and DRIVER.md carry the rule verbatim, and SKILL.md\'s gate step defers to it', () => {
     for (const rel of ['autoplan/sections/unattended.md', 'autoplan/DRIVER.md']) expect({ rel, has: flat(read(rel)).includes(rule) }).toEqual({ rel, has: true });
     const skill = flat(read('autoplan/SKILL.md'));
-    expect(skill).toContain('Under `SESSION_KIND: unattended`, Read `sections/unattended.md` and settle the gate by its gate rule instead.');
+    expect(skill).toContain('else = A. Under `SESSION_KIND: unattended` Read `sections/unattended.md` and settle the gate by its gate rule instead.');
     expect(skill).not.toContain(GEVA_549_SKILL_SENTENCE);
     expect(flat(read('autoplan/sections/unattended.md'))).not.toContain(GEVA_549_PROFILE_SENTENCE);
   });
