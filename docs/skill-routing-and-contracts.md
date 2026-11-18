@@ -15,7 +15,7 @@ Each switch resolves in this order, and the first one set wins:
 3. Config: `gstack-config set skill_routing on|off`, `gstack-config set skill_contracts on|off` and `gstack-config set destructive_guard on|off`.
 4. The default: `SWITCH_DEFAULT` in `lib/skill-route.ts`, the only place it is written. Setup, the hooks, `gstack-config get|list|defaults` and `gstack-skill-route --default <switch>` all read it.
 
-`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value. A config file that exists but cannot be read turns both hooks off in setup and in the hooks, whatever the default, because it may hold an `off` you set.
+`on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value. A config file that exists but cannot be read turns all three hooks off in setup and in the hooks, whatever the default, because it may hold an `off` you set.
 
 Setup registers a hook only when its switch is on, prints one line the first time it registers it, and removes the registration when the switch is off (or with `--no-team`). The hooks also read the switch every time they run, so this takes effect on the next prompt without re-running setup:
 
@@ -29,10 +29,10 @@ The off switch is for people. The text the Stop hook shows the model never menti
 
 ## Host support
 
-| Host | Routing hook | Contract Stop hook | Notes |
-|---|---|---|---|
-| Claude Code | yes | yes | Registered in `~/.claude/settings.json` by `./setup` |
-| Codex, OpenCode, Cursor and other hosts | no | no | No hook support. `gstack-skill-contract check` still works on a Claude Code transcript |
+| Host | Routing hook | Contract Stop hook | Destructive-command check | Notes |
+|---|---|---|---|---|
+| Claude Code | yes | yes | yes | Registered in `~/.claude/settings.json` by `./setup` |
+| Codex, OpenCode, Cursor and other hosts | no | no | no | No hook support. `gstack-skill-contract check` still works on a Claude Code transcript |
 
 ## Routing
 
