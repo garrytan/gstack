@@ -2991,9 +2991,12 @@ rule. The tool is repo code, so the receipt reruns it only with
 each stamped prefix; without the flag the file stays `changed`. The rerun is
 the Version Gate's: the stamped head (CHANGELOG folded, fragments deleted), a
 bare environment and a 120-second limit, so an output that depends on anything
-else fails closed as `changed`. With `stamp_files` set, a file outside it
-is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
-its diff. Any other byte is a change. A diff git cannot produce between the two
+else fails closed as `changed`. `gstack-pregate clear --receipt
+--allow-repo-commands` applies the same rule to a remote gate receipt from a
+predecessor tree (GST-3067). With `stamp_files` set, a file outside it and
+outside `release_outputs` is `changed (stamp_files: not in the repo's
+stamp_files allowlist)` whatever its diff; a `release_outputs` path is judged
+by the release-output rule above. Any other byte is a change. A diff git cannot produce between the two
 heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never
 reads as no change.
 

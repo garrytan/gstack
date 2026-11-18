@@ -78,6 +78,18 @@ describe('tree receipt: a release output release_tool regenerates (GST-1176)', (
     expect(r.out).toMatch(/^TREE: same-modulo-stamps$/m);
   });
 
+  test('with stamp_files set, a release output outside it is judged by the release-output rule, not refused by the allowlist (GST-3067)', () => {
+    const { repo, merged, stamped } = harn7({ ...POLICY, stamp_files: ['VERSION', 'package.json', 'CHANGELOG.md'] });
+    const plain = JSON.parse(receipt(repo, ['--gated', merged, '--current', stamped, '--json']).out);
+    expect(plain.files.find((f: { path: string }) => f.path === 'TODOS.md')).toMatchObject({ verdict: 'changed', rule: 'release_outputs' });
+    const r = receipt(repo, ['--gated', merged, '--current', stamped, '--allow-repo-commands']);
+    expect(r.out).toMatch(/^  stamp   TODOS\.md \(release_tool\)$/m);
+    expect(r.out).toMatch(/^TREE: same-modulo-stamps$/m);
+    fs.appendFileSync(path.join(repo.work, 'fold.js'), '// an edit outside both lists\n');
+    repo.git('commit', '-qam', 'an edit outside both lists');
+    expect(receipt(repo, ['--gated', merged, '--current', 'HEAD', '--allow-repo-commands']).out).toMatch(/^  changed fold\.js \(stamp_files: not in the repo's stamp_files allowlist\)$/m);
+  });
+
   test('a release_tool that fails leaves the release output changed, with its exit named', () => {
     const { repo, merged, stamped } = harn7({ ...POLICY, release_tool: 'node fold.js && exit 3' });
     const j = JSON.parse(receipt(repo, ['--gated', merged, '--current', stamped, '--allow-repo-commands', '--json']).out);
