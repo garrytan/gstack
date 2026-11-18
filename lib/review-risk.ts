@@ -129,8 +129,11 @@ export const DATA_LINE = [
  * Read on .swift paths only, so this module and TypeScript never match. A privacy permission request is security, as a consent
  * path is; HealthKit and EventKit reads, on-device file writes, deletes, protection classes, app group containers, backup
  * exclusion and a declared retention period are data. UserDefaults, SwiftUI, file reads and EventKit type names are not.
+ * XCTest files (a Tests/ or *Tests/ target directory, a *Tests.swift file) read as code to the classifier but are skipped here:
+ * their temp-file setup and cleanup is not user data (GSTA-604 replay: ghome#17 gained data from test cleanup alone).
  */
 export const SWIFT_PATH = /\.swift$/i;
+export const SWIFT_TEST_PATH = /(^|\/)\w{0,80}Tests\/|Tests?\.swift$/;
 export const SWIFT_SECURITY_LINE = [
   /\brequest\w{0,40}Authorization\b/, /\brequest(?:Full|WriteOnly)?Access(?:To(?:Events|Reminders))?\b/, /\brequestRecordPermission\b/,
 ];
@@ -176,7 +179,7 @@ export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
   SECRET_SCAN,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE, SWIFT_PATH: [SWIFT_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE, SWIFT_PATH: [SWIFT_PATH], SWIFT_TEST_PATH: [SWIFT_TEST_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -208,7 +211,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     const config = !exe && CONFIG_DATA_PATH.test(p);
     const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
-    const swift = SWIFT_PATH.test(p);
+    const swift = SWIFT_PATH.test(p) && !SWIFT_TEST_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (secretPath(p, [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])])) hit('secret', 'secret path: ' + p);
     const money = !(i.dataPaths?.includes(p) && RESULTS_TREE.test(p));

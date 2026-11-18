@@ -337,8 +337,8 @@ describe('GST-3052: Swift user-data access, permission requests and on-device st
       'let expiresAt = token.expiresAt', 'let settled = true', 'let subtitle = "Today"', 'func requestAccessToken() async throws -> String',
     ]) expect(risk(['App/Home/HealthCard.swift'], { 'App/Home/HealthCard.swift': [line] })).toEqual([]);
   });
-  test('the Swift rules read only .swift paths', () => {
-    for (const p of ['lib/review-risk.ts', 'docs/ios.md', 'Sources/Bridge.m'])
+  test('the Swift rules read only .swift paths outside XCTest targets', () => {
+    for (const p of ['lib/review-risk.ts', 'docs/ios.md', 'Sources/Bridge.m', 'Tests/AppTests/StoreTests.swift', 'Packages/Core/Tests/CoreTests/Support.swift', 'App/StoreTests.swift'])
       expect(risk([p], { [p]: ['const r = /\\bHKHealthStore\\b/;', 'SFSpeechRecognizer.requestAuthorization { _ in }', 'try FileManager.default.removeItem(at: url)'] })).toEqual([]);
   });
 });
