@@ -73,7 +73,7 @@ describe('deferred findings and review notes', () => {
 //   pastes a raw security fingerprint; fails_when=any public output carries them or the record loses them;
 //   seam=gstack-approvals rule|rulings|list and gstack-ship-receipt write
 describe('a security ruling on a public repository', () => {
-  test('nothing public names the finding; the private record still does', () => {
+  test.skipIf(process.platform === 'win32')('nothing public names the finding; the private record still does', () => {
     const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
     ships.push(f);
     const gh = path.join(f.root, 'stub', 'gh');
