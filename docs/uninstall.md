@@ -126,7 +126,7 @@ Manual removal leaves gstack's hook entries behind in `~/.claude/settings.json`
 `_gstack_source` tag was stripped). Edit that file and delete every hook whose
 command path points into `.claude/skills/gstack/`: the SessionStart auto-update
 hook, the AskUserQuestion PreToolUse/PostToolUse hooks, the Stop hooks
-(session timeline, plus verify-gate and skill contracts if you opted in), and
+(session timeline, skill contracts, which is on by default, and verify-gate if you opted in), and
 the skill-routing UserPromptSubmit hook and the destructive-command PreToolUse hook (both on by default), and the
 /plan-ceo-review and /autoplan skill-gate hooks if you turned those on. Left in place, they error
 on every matching event once the install directory is gone.

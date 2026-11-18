@@ -52,7 +52,7 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
 `gstack-skill-route --explain` shows what the hook would do, with the switch on or off. It never injects anything.
 
     $ gstack-skill-route --explain "run the checks and verify my change"
-    switch: skill_routing off (default)
+    switch: skill_routing on (default)
     threshold: 0.66
     skills: 63 scanned in /home/you/.claude/skills
     candidates:
@@ -70,7 +70,7 @@ Every decision is one line in `$GSTACK_STATE_ROOT/hooks/skill-route.log`: the se
 <a id="destructive-command-check"></a>
 ## Destructive-command check
 
-`./setup` registers `hosts/claude/hooks/destructive-guard-hook` as a PreToolUse hook on `Bash|PowerShell`. It runs `careful/bin/check-careful.sh`, the same check /careful and /guard load, so it fires even when the model never loads /careful. Its decisions are the check's own: `ask` before the destructive families (`rm -rf`, `DROP TABLE`, `TRUNCATE`, force-push, `git reset --hard`, `kubectl delete` and the rest in /careful's table), which you can always approve, and `deny` for the two catastrophic simple shapes (a recursive delete of `/` or your home directory, and a force-push to the default branch). An ask's reason, which you read, adds `(gstack's destructive-command check, on in every session; off: gstack-config set destructive_guard off)`; a deny's reason, which the model reads, never names the off switch. In a session nobody is watching (`claude -p`, which Claude Code marks `CLAUDE_CODE_ENTRYPOINT=sdk-cli`, or a session `gstack-session-kind` reports as headless), an ask would wait for an answer that never comes, so the hook prints the same reason as a warning and lets the command run, which is what happens when the check is off; a deny stays a deny. It costs about a tenth of a second per Bash call.
+`./setup` registers `hosts/claude/hooks/destructive-guard-hook` as a PreToolUse hook on `Bash|PowerShell`. It runs `careful/bin/check-careful.sh`, the same check /careful and /guard load, so it fires even when the model never loads /careful. Its decisions are the check's own: `ask` before the destructive families (`rm -rf`, `DROP TABLE`, `TRUNCATE`, force-push, `git reset --hard`, `kubectl delete` and the rest in /careful's table), which you can always approve, and `deny` for the two catastrophic simple shapes (a recursive delete of `/` or your home directory, and a force-push to the default branch). An ask's reason, which you read, adds `(gstack's destructive-command check, on in every session; off: gstack-config set destructive_guard off)`; a deny's reason, which the model reads, never names the off switch. In a session nobody is watching (`claude -p` or an Agent SDK run, which Claude Code marks `CLAUDE_CODE_ENTRYPOINT=sdk-cli`, `sdk-ts` or `sdk-py`, or a session `gstack-session-kind` reports as headless), an ask would wait for an answer that never comes, so the hook prints the same reason as a warning and lets the command run, which is what happens when the check is off; a deny stays a deny. It costs about a tenth of a second per Bash call.
 
 The hook reads `destructive_guard` every time it runs, so `gstack-config set destructive_guard off` takes effect on the next command. With it off, /careful and /guard still load their own session hooks.
 

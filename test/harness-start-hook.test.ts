@@ -233,7 +233,7 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     expect(quiet.hook?.state).not.toBe('active');
   }, 120_000);
 
-  test('an off given by flag or env is kept by later runs; an off recorded before the default changed stays off and says once how to turn it on', () => {
+  test('an off given by flag or env is kept by later runs; an off recorded before the default changed, or a record from before the start hook existed, stays off and says once how to turn it on', () => {
     const r = rig('openclaw');
     const off = register(r.o({ startHook: false }));
     expect(off.hook?.state).toBe('off');
@@ -260,6 +260,16 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     const again = register(r.o({ inherit: true }));
     expect(again.status).toBe('unchanged');
     expect(again.hook).toEqual({ state: 'off' });
+    expect(r.calls()).toEqual([]);
+
+    const older = readLedger(off.ledger)!;
+    delete older.meta.start_hook;
+    delete older.meta.start_hook_by;
+    writeLedger(off.ledger, older);
+    const fromBeforeHooks = register(r.o({ inherit: true }));
+    expect(fromBeforeHooks.hook).toEqual({ state: 'off', detail: 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register openclaw --start-hook' });
+    expect(readLedger(fromBeforeHooks.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'before-default' });
+    expect(fs.existsSync(r.root)).toBe(false);
     expect(r.calls()).toEqual([]);
   }, 120_000);
 

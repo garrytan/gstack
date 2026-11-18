@@ -537,7 +537,7 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
     if (opts.startHook) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', t.displayName + ' has no start hook');
     return null;
   }
-  const choice = hookChoice(opts.startHook, opts.env, opts.stateRoot, prev?.meta.start_hook, prev?.meta.start_hook_by);
+  const choice = hookChoice(opts.startHook, opts.env, opts.stateRoot, prev ? prev.meta.start_hook ?? 'off' : undefined, prev?.meta.start_hook_by);
   if ('invalid' in choice) throw new HarnessError('HARNESS_HOOK_CHOICE_INVALID', choice.invalid + ' is not on or off');
   const prevOn = prev?.meta.start_hook === 'on' && !!prev.meta.hook_root && !!prev.meta.hook_profile;
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
