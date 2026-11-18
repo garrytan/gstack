@@ -1,5 +1,14 @@
 import { defineHost, GBRAIN_RESOLVERS } from './define-host';
-import { CODEX_FOREGROUND_DISPATCH_NOTE, CODEX_SUBAGENT_DISPATCH, FOREGROUND_DISPATCH_NOTE } from '../scripts/resolvers/constants';
+
+/**
+ * Codex's own subagent lifecycle (#4476). Codex has no Agent tool, subagent types,
+ * run_in_background or TaskStop: it starts a child with spawn_agent and blocks on
+ * wait_agent. Resolver dispatch sites render these on Codex; the toolRewrites below
+ * carry them into the template sites. Kept here because setup loads hosts/ alone.
+ */
+export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (`fork_turns: \"none\"`), then `wait_agent` until a final status (a timeout is not one); its final message is the result. Without `spawn_agent`, the dispatch failed";
+/** The same call where a step only names it inline. */
+export const CODEX_SUBAGENT_CALL = "Codex's `spawn_agent`, then `wait_agent` for its final message";
 
 const codex = defineHost({
   name: 'codex',
@@ -49,7 +58,7 @@ const codex = defineHost({
   // Agent call, and {{FOREGROUND_DISPATCH_NOTE}}, become Codex's spawn_agent and
   // wait_agent; resolver sites render CODEX_SUBAGENT_DISPATCH themselves. test/host-config.test.ts fails on any left over.
   toolRewrites: {
-    [FOREGROUND_DISPATCH_NOTE]: CODEX_FOREGROUND_DISPATCH_NOTE,
+    '**Foreground required:** pass `run_in_background: false` when available on the Agent call — subagents run in the background by default since Claude Code v2.1.198, so omitting an available flag gives a background run. A launch receipt means it went background: await its completion notice. Dispatch through the Agent tool only:': `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only:`,
     'use the Agent tool with `run_in_background: false`.\nOmitting the flag runs the subagent in the background. The explicit flag waits\nfor a result while keeping a fresh context.': `start each subagent with ${CODEX_SUBAGENT_DISPATCH}.`,
     'Agent with `subagent_type: "general-purpose"` and\n`run_in_background: false`': "Codex's `spawn_agent`, then `wait_agent`",
     'using Agent, `subagent_type: "general-purpose"`\nand `run_in_background: false`': "using Codex's `spawn_agent`, then `wait_agent`",

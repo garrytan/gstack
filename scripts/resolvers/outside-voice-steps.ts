@@ -13,7 +13,8 @@
  * Outside CLI prompts are written to temp files to prevent shell injection.
  */
 import { toShellPath, type TemplateContext } from './types';
-import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY, CODEX_SUBAGENT_DISPATCH } from './constants';
+import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
+import { CODEX_SUBAGENT_DISPATCH } from '../../hosts/codex';
 import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, OUTSIDE_VERDICT_REQUEST } from './outside-voice';
 import { runtimeRootPrelude } from './runtime-root';
 import { DEFENSIVE_REVIEW_FRAMING, fixtureSummaryMode } from './defensive-review';

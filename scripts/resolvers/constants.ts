@@ -238,19 +238,5 @@ export const FOREGROUND_IF_AVAILABLE = '`run_in_background: false` when availabl
 /** The recovery when a requested foreground dispatch still ran in the background. */
 export const BACKGROUND_RECOVERY = 'A launch receipt means it went background: await its completion notice.';
 
-const DISPATCH_ISOLATION = 'invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)';
-
 export const FOREGROUND_DISPATCH_NOTE =
-  `**Foreground required:** pass ${FOREGROUND_IF_AVAILABLE} on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting an available flag gives a background run. ${BACKGROUND_RECOVERY} Dispatch through the Agent tool only: ${DISPATCH_ISOLATION}`;
-
-/**
- * Codex's own subagent lifecycle (#4476). Codex has no Agent tool, subagent types,
- * run_in_background or TaskStop: it starts a child with spawn_agent and blocks on
- * wait_agent. Resolver dispatch sites render this on Codex; hosts/codex.ts rewrites
- * the template sites with it.
- */
-export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (`fork_turns: \"none\"`), then `wait_agent` until a final status (a timeout is not one); its final message is the result. Without `spawn_agent`, the dispatch failed";
-/** The same call where a step only names it inline. */
-export const CODEX_SUBAGENT_CALL = "Codex's `spawn_agent`, then `wait_agent` for its final message";
-
-export const CODEX_FOREGROUND_DISPATCH_NOTE = `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only: ${DISPATCH_ISOLATION}`;
+  `**Foreground required:** pass ${FOREGROUND_IF_AVAILABLE} on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting an available flag gives a background run. ${BACKGROUND_RECOVERY} Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)`;

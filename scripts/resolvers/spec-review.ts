@@ -5,7 +5,8 @@
  */
 import { type TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
-import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY, CODEX_SUBAGENT_DISPATCH } from './constants';
+import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
+import { CODEX_SUBAGENT_DISPATCH } from '../../hosts/codex';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from './design-doc-discovery';
 
 export function generateAntiShortcutClause(_ctx: TemplateContext): string {
