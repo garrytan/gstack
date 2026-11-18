@@ -56,6 +56,10 @@ describe('which findings of the stop a ruling closes (lib/ruled-stop.ts)', () =>
     expect(check({ rows: [row([blocker(ID, { raised_by: 'security' })])], rulings: [ruling(ID)] }).findings).toEqual([{ id: ID, why: 'security' }]);
     expect(check({ traits: [{ key: ID, reader: 'specialist-batched', category: 'security' }], rulings: [ruling(ID)] }).state).toBe('open');
   });
+  test('R5b: a batched-reader blocker whose specialist is security never closes by ruling, whatever its category', () => {
+    expect(check({ traits: [{ key: ID, reader: 'specialist-batched', category: 'injection', specialist: 'security' }], rulings: [ruling(ID)] }).findings).toEqual([{ id: ID, why: 'security' }]);
+    expect(check({ rows: [row([blocker(ID, { category: 'injection', specialist: 'security' })])], rulings: [ruling(ID)] }).findings).toEqual([{ id: ID, why: 'security' }]);
+  });
   test('R9: two of three open findings ruled leaves the stop open on the third', () => {
     const r = check({ rows: [row([blocker(ID), blocker(ID2), blocker(ID3)])], blockers: [], rulings: [ruling(ID), ruling(ID3)] });
     expect(r.state).toBe('open');

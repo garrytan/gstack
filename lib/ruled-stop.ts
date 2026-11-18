@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import { rank, readLedger, type MergedLine } from './review-ledger';
 import type { StopRuling } from './ruled-notes';
 
-export interface LedgerTrait { key: string; reader: string; gate?: string; category?: string }
+export interface LedgerTrait { key: string; reader: string; gate?: string; category?: string; specialist?: string }
 export interface OpenFinding { id: string; why: 'ruled' | 'open' | 'gated' | 'security' | 'unnamed'; ruling?: StopRuling }
 export interface RuledStop {
   state: 'closed' | 'open' | 'none' | 'unbound';
@@ -49,10 +49,10 @@ export function ledgerTraits(ledger: string, keyOf: (id: string) => string): Led
     for (const id of o.ids as string[]) {
       const line = lines.find(l => l.id === id);
       const raw = line?.raw ?? '';
-      let category: string | undefined;
-      try { const j = JSON.parse(raw); category = typeof j?.category === 'string' ? j.category : typeof j?.specialist === 'string' ? j.specialist : undefined; } catch { /* prose */ }
+      let category: string | undefined, specialist: string | undefined;
+      try { const j = JSON.parse(raw); category = typeof j?.category === 'string' ? j.category : undefined; specialist = typeof j?.specialist === 'string' ? j.specialist : undefined; } catch { /* prose */ }
       const gate = gateOf([raw, reasons.get(id) ?? '']);
-      out.set(keyOf(id), { key: keyOf(id), reader: String(o.reader), ...(gate ? { gate } : {}), ...(category ? { category } : {}) });
+      out.set(keyOf(id), { key: keyOf(id), reader: String(o.reader), ...(gate ? { gate } : {}), ...(category ? { category } : {}), ...(specialist ? { specialist } : {}) });
     }
   }
   return [...out.values()];
@@ -79,12 +79,12 @@ export function ruledStop(o: { pr: number; run: string; stop?: { head: string; t
     if (!f || typeof f !== 'object' || !blocks(f) || FIXED.has(f.action)) continue;
     const id = typeof f.ledger_id === 'string' && f.ledger_id ? f.ledger_id : `${String(f.fingerprint ?? '?')} (no ledger id)`;
     const t = traits.get(id);
-    open.set(id, { gate: !!f.gate || !!f.gate_id || !!t?.gate, security: [f.category, f.raised_by, t?.category].some(c => typeof c === 'string' && SECURITY.test(c)), named: typeof f.ledger_id === 'string' && !!f.ledger_id });
+    open.set(id, { gate: !!f.gate || !!f.gate_id || !!t?.gate, security: [f.category, f.specialist, f.raised_by, t?.category, t?.specialist].some(c => typeof c === 'string' && SECURITY.test(c)), named: typeof f.ledger_id === 'string' && !!f.ledger_id });
   }
   for (const key of o.blockers) {
     if (settled.has(key) || open.has(key)) continue;
     const t = traits.get(key);
-    open.set(key, { gate: !!t?.gate, security: [t?.category, t?.reader].some(c => typeof c === 'string' && SECURITY.test(c)), named: true });
+    open.set(key, { gate: !!t?.gate, security: [t?.category, t?.specialist, t?.reader].some(c => typeof c === 'string' && SECURITY.test(c)), named: true });
   }
   const findings: OpenFinding[] = [...open].sort(([a], [b]) => a.localeCompare(b)).map(([id, f]) => {
     const ruling = [...mine].reverse().find(r => r.finding === id && r.head === s.head && r.stop_run === s.run);
