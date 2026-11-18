@@ -77,6 +77,20 @@ describe('gstack-review-plan', () => {
     const client = run(repo({ ...ui, 'App/Client.swift': 'final class Client {\n  func load(_ r: URLRequest) async throws -> Data { try await URLSession.shared.data(for: r).0 }\n}\n' }), []);
     expect(client.stdout).toMatch(/^REVIEW_DEPTH: full .*risk:security/m);
   });
+  // Value: protects=an iOS PR that writes or deletes users' files on the device, or reads their calendars, plans full even when it
+  //   also touches Markdown and tests, while a SwiftUI view that reads a UserDefaults setting stays light; fails_when=the Swift
+  //   user-data rules stop reaching gstack-review-plan; why_new=GST-3052: ghome#10 (spill files written and deleted) and ghome#31
+  //   (calendar choices, read through EventKit) planned light (GSTA-601); seam=gstack-review-plan on a real repo; no_claim=what the readers find
+  test('a Swift diff that writes and deletes spill files, or reads calendars, plans full; a SwiftUI settings view stays light (GST-3052)', () => {
+    const view = 'import SwiftUI\nstruct SettingsView: View {\n  @AppStorage("speaksAnswers") private var speaksAnswers = true\n  var body: some View { Toggle("Speak answers", isOn: $speaksAnswers) }\n}\n';
+    const shared = { 'DESIGN.md': '# Design\n', 'App/Home/SettingsView.swift': view, 'Tests/AppTests/SettingsTests.swift': 'import XCTest\n' };
+    const control = run(repo({ ...shared, 'App/Home/PickerModel.swift': 'final class PickerModel {\n  let defaults: UserDefaults\n  init(defaults: UserDefaults = .standard) { self.defaults = defaults }\n  var chosen: Data? { defaults.data(forKey: "picker.chosen") }\n  func save(_ blob: Data) { defaults.set(blob, forKey: "picker.chosen") }\n}\n' }), []);
+    expect(control.stdout).toMatch(/^REVIEW_DEPTH: light /m);
+    const spill = 'import Foundation\npublic struct DraftSpill {\n  public let file: URL\n  public func reserve(_ size: Int) throws {\n    guard FileManager.default.createFile(atPath: file.path, contents: Data(count: size)) else { throw CocoaError(.fileWriteUnknown) }\n  }\n  public func discard() { try? FileManager.default.removeItem(at: file) }\n}\n';
+    expect(run(repo({ ...shared, 'Packages/Core/Sources/Core/Capture/DraftSpill.swift': spill }), []).stdout).toMatch(/^REVIEW_DEPTH: full .*risk:data/m);
+    const agenda = 'import EventKit\nfinal class AgendaSource {\n  private let events = EKEventStore()\n  func calendarNames() -> [String] { events.calendars(for: .event).map(\\.title) }\n}\n';
+    expect(run(repo({ ...shared, 'App/Meeting/AgendaSource.swift': agenda }), []).stdout).toMatch(/^REVIEW_DEPTH: full .*risk:data/m);
+  });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');

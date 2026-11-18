@@ -125,6 +125,31 @@ export const DATA_LINE = [
 ];
 
 /**
+ * Swift code that reaches private user data (GST-3052: ghome#10, #14 and #31 planned light once .swift stopped failing closed).
+ * Read on .swift paths only, so this module and TypeScript never match. A privacy permission request is security, as a consent
+ * path is; HealthKit and EventKit reads, on-device file writes, deletes, protection classes, app group containers, backup
+ * exclusion and a declared retention period are data. UserDefaults, SwiftUI, file reads and EventKit type names are not.
+ * A call split across lines (`removeItem(` then `at: url)`) is read over the file's changed lines joined, as SECURITY_JOINED is.
+ * XCTest files (a Tests/ or *Tests/ target directory, a *Tests.swift file) read as code to the classifier but are skipped here:
+ * their temp-file setup and cleanup is not user data (GSTA-604 replay: ghome#17 gained data from test cleanup alone).
+ */
+export const SWIFT_PATH = /\.swift$/i;
+export const SWIFT_TEST_PATH = /(^|\/)\w{0,80}Tests\/|Tests\.swift$/;
+export const SWIFT_SECURITY_LINE = [
+  /\brequest\w{0,40}Authorization\b/, /\brequest(?:Full|WriteOnly)?Access(?:To(?:Events|Reminders))?\b/, /\brequestRecordPermission\b/,
+];
+export const SWIFT_DATA_LINE = [
+  /^\s{0,40}import\s{1,20}(?:HealthKit|EventKit|Contacts)\b/, /\b(?:HKHealthStore|EKEventStore|CNContactStore)\b/, /\bHK[A-Z]\w{0,40}Query\b/,
+  /\.(?:events|calendars|calendarItems)\s{0,20}\(\s{0,20}(?:matching|for)\s{0,20}:/, /\bpredicateFor(?:Events|Reminders|IncompleteReminders|CompletedReminders)\w{0,40}\s{0,20}\(/, /\.fetchReminders\s{0,20}\(/,
+  /\.write\s{0,20}\(\s{0,20}(?:to(?:File)?\s{0,20}:\s{0,20}(?![\s&])|contentsOf\s{0,20}:)/, /\.(?:removeItem|trashItem)\s{0,20}\(\s{0,20}at(?:Path)?\s{0,20}:/, /\.createFile\s{0,20}\(\s{0,20}atPath\s{0,20}:/, /\.replaceItem(?:At)?\s{0,20}\(/,
+  /\bFileHandle\s{0,20}\(\s{0,20}for(?:WritingTo|WritingAtPath|Updating|UpdatingAtPath)\s{0,20}:/, /\bOutputStream\s{0,20}\(\s{0,20}(?:url|toFileAtPath)\s{0,20}:/,
+  /\bNSFileProtection\w{0,60}|\bFileProtectionType\b|\.(?:complete|no)FileProtection\w{0,60}|\.protectionKey\b/,
+  /\bforSecurityApplicationGroupIdentifier\b|\bUserDefaults\s{0,20}\(\s{0,20}suiteName\s{0,20}:\s{0,20}"group\./, /\bisExcludedFromBackup\w{0,20}/,
+  /\b(?:let|var)\s{1,20}(?:\w{0,60}(?:Retention|RetainFor|RetainDays|RetainUntil|Purge|MaxAge|KeepFor|KeepDays|KeepUntil|DeleteAfter|TTL|Ttl)|(?:retention|retain(?:For|Days|Until)|purge|maxAge|keep(?:For|Days|Until)|deleteAfter|ttl))\w{0,60}\b/,
+  /\b(?:olderThan|purgeBefore|deleteBefore|deleteAfter)\s{0,20}:/,
+];
+
+/**
  * Data and config files (HARN-1, harness-evals#231): judged by their path only, so a lease_usd value in a VM record never names money.
  * A key in a config file still names a secret.
  */
@@ -155,7 +180,7 @@ export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
   SECRET_SCAN,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE, SWIFT_PATH: [SWIFT_PATH], SWIFT_TEST_PATH: [SWIFT_TEST_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -187,6 +212,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     const config = !exe && CONFIG_DATA_PATH.test(p);
     const pathOnly = config || stats;
     const prose = PROSE_PATH.test(p);
+    const swift = SWIFT_PATH.test(p) && !SWIFT_TEST_PATH.test(p);
     if (i.scopeAuth && t.some(x => AUTH_PATH_TOKENS.includes(x) || AUTH_PATH_PREFIXES.some(a => x.startsWith(a)))) hit('auth', 'auth path: ' + p);
     if (secretPath(p, [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])])) hit('secret', 'secret path: ' + p);
     const money = !(i.dataPaths?.includes(p) && RESULTS_TREE.test(p));
@@ -202,8 +228,12 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
       if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
       if (!why.has('security') && SECURITY_LINE.some(r => r.test(line))) hit('security', 'security line: ' + p);
       if (!why.has('data') && DATA_LINE.some(r => r.test(line))) hit('data', 'data line: ' + p);
+      if (swift && !why.has('security') && SWIFT_SECURITY_LINE.some(r => r.test(line))) hit('security', 'Swift permission request: ' + p);
+      if (swift && !why.has('data') && SWIFT_DATA_LINE.some(r => r.test(line))) hit('data', 'Swift user-data line: ' + p);
     }
     if (!why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SECURITY_JOINED.some(r => r.test(l.join('\n'))))) hit('security', 'security lines: ' + p);
+    if (swift && !why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_SECURITY_LINE.some(r => r.test(l.join('\n'))))) hit('security', 'Swift permission request lines: ' + p);
+    if (swift && !why.has('data') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_DATA_LINE.some(r => r.test(l.join('\n'))))) hit('data', 'Swift user-data lines: ' + p);
   }
   return new Map(RISK_CLASSES.filter(c => why.has(c)).map(c => [c, why.get(c)!]));
 }

@@ -292,6 +292,62 @@ describe('GST-3041: Swift networking is security, SwiftUI is not', () => {
   });
 });
 
+describe('GST-3052: Swift user-data access, permission requests and on-device storage plan full; plain SwiftUI does not', () => {
+  // Value: protects=an iOS diff that reads health or calendar data, asks for a privacy permission, or writes, deletes, protects
+  //   or sets how long user files live on the device reaches the full panel now that .swift no longer fails closed;
+  //   fails_when=any line below reads light, an ordinary SwiftUI or UserDefaults line raises a class, or a non-Swift path
+  //   naming these APIs (this module's own patterns) raises one; why_new=GST-3052: ghome#10, #14 and #31 planned light;
+  //   seam=matchRisk; no_claim=what the full panel finds
+  test.each([
+    'SFSpeechRecognizer.requestAuthorization { status in done(status == .authorized) }',
+    'let granted = await AVAudioApplication.requestRecordPermission()',
+    'AVAudioSession.sharedInstance().requestRecordPermission { ok in done(ok) }',
+    'try await health.requestAuthorization(toShare: [], read: readTypes)',
+    'let ok = try await events.requestFullAccessToEvents()',
+    'events.requestAccess(to: .event) { ok, _ in done(ok) }',
+    'locations.requestWhenInUseAuthorization()',
+    'AVCaptureDevice.requestAccess(for: .audio) { _ in }',
+    'PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in }',
+  ])('%s is security', line => {
+    expect(risk(['App/Talk/Dictation.swift'], { 'App/Talk/Dictation.swift': [line] })).toEqual(['security']);
+  });
+  test.each([
+    'import HealthKit', 'private let health = HKHealthStore()',
+    'let query = HKSampleQuery(sampleType: sleep, predicate: nil, limit: 50, sortDescriptors: nil) { _, _, _ in }',
+    'let stats = HKStatisticsCollectionQuery(quantityType: steps, quantitySamplePredicate: nil, options: .cumulativeSum, anchorDate: start, intervalComponents: day)',
+    'import EventKit', 'private let events = EKEventStore()', 'return events.calendars(for: .event).map(Self.summary)',
+    'let found = events.events(matching: events.predicateForEvents(withStart: from, end: to, calendars: nil))',
+    'try blob.write(to: notesURL, options: [.atomic, .completeFileProtection])', 'try text.write(to: fileURL, atomically: true, encoding: .utf8)',
+    'try? FileManager.default.removeItem(at: draftFile)', 'try files.removeItem(atPath: path)', 'try FileManager.default.trashItem(at: old, resultingItemURL: nil)',
+    'guard FileManager.default.createFile(atPath: spill.path, contents: Data(count: size)) else { throw SpillError.create }',
+    'let handle = try FileHandle(forWritingTo: spill)', 'let handle = try FileHandle(forUpdating: spill)', 'try handle.write(contentsOf: page)',
+    'try files.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: path)', 'let mode = NSFileProtectionCompleteUntilFirstUserAuthentication',
+    'let shared = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.example.app")',
+    'values.isExcludedFromBackup = true',
+    'static let recordingRetentionDays = 7', 'let keepDays: Int = 30', 'try archive.prune(olderThan: cutoff)',
+  ])('%s is data', line => {
+    expect(risk(['Packages/Core/Sources/Core/Notes/Store.swift'], { 'Packages/Core/Sources/Core/Notes/Store.swift': [line] })).toEqual(['data']);
+  });
+  test('ordinary SwiftUI, UserDefaults, reads and type mentions raise no class', () => {
+    for (const line of [
+      'import SwiftUI', 'struct HealthCard: View {', '  var body: some View { Text(event.title) }', '@AppStorage("speaksAnswers") private var speaksAnswers = true',
+      'let on = UserDefaults.standard.bool(forKey: "speaksAnswers")', 'defaults.set(encoded, forKey: Self.key)', 'didSet { defaults?.set(speaksAnswers, forKey: Self.speaksKey) }',
+      'switch SFSpeechRecognizer.authorizationStatus() {', 'func tint(of calendar: EKCalendar) -> Color { Color(cgColor: calendar.cgColor) }',
+      'let bytes = try Data(contentsOf: url)', 'let scratch = FileManager.default.temporaryDirectory', 'print(line, to: &log)', 'stream.write(to: &output)',
+      'let expiresAt = token.expiresAt', 'let settled = true', 'let subtitle = "Today"', 'func requestAccessToken() async throws -> String',
+    ]) expect(risk(['App/Home/HealthCard.swift'], { 'App/Home/HealthCard.swift': [line] })).toEqual([]);
+  });
+  test('a product file named *Test.swift is still read, and a call split across lines still matches', () => {
+    expect(risk(['App/Hearing/HearingTest.swift'], { 'App/Hearing/HearingTest.swift': ['guard await AVAudioApplication.requestRecordPermission() else { return }'] })).toEqual(['security']);
+    for (const lines of [['try FileManager.default.removeItem(', '  at: draftFile', ')'], ['try blob.write(', '  to: notesURL,', '  options: .atomic', ')'], ['let handle = try FileHandle(', '  forWritingTo: spill', ')']])
+      expect(risk(['App/Notes/Store.swift'], { 'App/Notes/Store.swift': lines })).toEqual(['data']);
+  });
+  test('the Swift rules read only .swift paths outside XCTest targets', () => {
+    for (const p of ['lib/review-risk.ts', 'docs/ios.md', 'Sources/Bridge.m', 'Tests/AppTests/StoreTests.swift', 'Packages/Core/Tests/CoreTests/Support.swift', 'App/StoreTests.swift'])
+      expect(risk([p], { [p]: ['const r = /\\bHKHealthStore\\b/;', 'SFSpeechRecognizer.requestAuthorization { _ in }', 'try FileManager.default.removeItem(at: url)'] })).toEqual([]);
+  });
+});
+
 describe('GST-850: money reaches metering, charge and credit code', () => {
   // Value: protects=a billing-client or metering diff gets the money reader; fails_when=gbrain-evals #289 reads required=none again,
   //   or costume, a CLI usage line or a proxy with no billing names money; seam=matchRisk and targetedClasses
