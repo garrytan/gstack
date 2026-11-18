@@ -7251,6 +7251,23 @@ pass the `gstack-review-scope summary` file as `--review-loop`, put the printed
 line in the PR body, and write again
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 
+<a id="ci-carry-rerun-malformed"></a>
+### `CI_CARRY_RERUN_MALFORMED`
+
+**Meaning.** A CI run's `tree.json` names `rerun_files` or `attempts`, the
+fields that say some test files passed only on a re-run attempt, but in a shape
+gstack cannot read: `rerun_files` is not a list of file paths, or `attempts` is
+not a list of attempt numbers of 1 or more. gstack fails closed: that run is not
+evidence, the carry refuses it (`rerun_malformed` in the `CI_CARRY: none` or
+`no_verified_run` detail), and the lane runs here instead. A well-formed record
+is accepted and marked `rerun=<files> attempts=<list>`
+([ship-policy.md](ship-policy.md#ci-carry-rerun)).
+
+**Fix.** Fix the workflow step that writes `tree.json` so it writes
+`"rerun_files": ["test/a.test.ts", …]` and `"attempts": [1, 2]`, or leaves both
+out. Then dispatch a fresh run at the same head and rerun
+`gstack-ci-carry wait`.
+
 <a id="receipt-carry-tree-mismatch"></a>
 ### `RECEIPT_CARRY_TREE_MISMATCH`
 

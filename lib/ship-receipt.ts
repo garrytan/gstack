@@ -16,6 +16,7 @@ import { matchesAny } from './ship-policy';
 import { ruledNoteText } from './ruled-notes';
 import { gateDispositionText } from './gate-dispositions';
 import { laneExceptionBodyLines } from './test-lane-exception';
+import { rerunMarker } from './run-evidence';
 import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
 
@@ -207,7 +208,15 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   if (loop) parts.push(`passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred}`
     + (loop.fix_checks ? ` fix_checks=${loop.fix_checks}` : '') + (loop.rounds !== undefined ? ` rounds=${loop.rounds}` : '') + (loop.dispatches ? ` dispatches=${Object.values(loop.dispatches).reduce((a, c) => a + c, 0)}` : ''));
   if (r.carry && typeof r.carry.from === 'string') parts.push(`carried_from=${r.carry.from.slice(0, 12)}`);
-  if (Array.isArray(r.ci_carried) && r.ci_carried.length) parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}`);
+  if (Array.isArray(r.ci_carried) && r.ci_carried.length) {
+    const runs = new Map<string, { files: number; attempts: number[] }>();
+    for (const c of r.ci_carried) {
+      const key = `${c.run}/${c.attempt}`;
+      const seen = runs.get(key) ?? { files: 0, attempts: [] };
+      runs.set(key, { files: Math.max(seen.files, typeof c.rerun === 'number' ? c.rerun : 0), attempts: [...seen.attempts, ...(Array.isArray(c.attempts) ? c.attempts : [])] });
+    }
+    parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}${rerunMarker([...runs.values()])}`);
+  }
   if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
 }

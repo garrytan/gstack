@@ -51,6 +51,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/ceo-split-collection-3638.json': ['test/ceo-split-collection.test.ts'],
   'test/fixtures/ceo-split-wording-variants.json': ['test/ceo-split-collection.test.ts'],
   'test/fixtures/ceo-stale-fill-decision/**': ['test/ceo-stale-fill-decision.test.ts'],
+  'test/fixtures/ci-carry-rerun/**': ['test/ci-carry-rerun.test.ts'],
   'test/fixtures/ci-gate/**': ['test/gstack-ci-gate.test.ts'],
   'test/fixtures/claude-agent-payload-2.1.292.json': ['test/autoplan-publication-payload.test.ts', 'test/autoplan-schema-canary-compare.test.ts'],
   'test/fixtures/claude-native-journal-roots-2.1.284.json': ['test/autoplan-publication-hook.test.ts', 'test/plan-count-transcript.test.ts'],

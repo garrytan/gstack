@@ -2730,6 +2730,17 @@ body plain: they become main's history.
   A `pull_request` CI run tests GitHub's merge commit rather than your branch,
   so on a branch behind main `gstack-ci-carry` reports `tree_mismatch`:
   dispatch the workflow on the branch (`gh workflow run <workflow> --ref <branch>`).
+- <a id="ci-carry-rerun"></a>**A carried run that passed only after a re-run is marked, not refused.**
+  When only a run's failed jobs were re-run, its `tree.json` may list
+  `rerun_files` (the files whose newest result came from a re-run attempt) and
+  `attempts` (for example `[1, 2]`). The carry still accepts the run, but the
+  `CI_CARRY:` line, the `SHIP_RECEIPT:` line's `ci_carried=` field, and the
+  receipt line `ready` and `land` print all add `rerun=<files> attempts=<list>`,
+  so a pass on a re-run reads as flaky, never as a clean first-attempt pass. A
+  `tree.json` without `rerun_files`, or with an empty list, prints exactly as
+  before. A `rerun_files` that is not a list of paths, or `attempts` that is not
+  a list of attempt numbers, refuses that run
+  ([`CI_CARRY_RERUN_MALFORMED`](troubleshooting.md#ci-carry-rerun-malformed)).
 
 <a id="land-direct-contract"></a>
 #### Every check land makes

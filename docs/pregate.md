@@ -1339,7 +1339,10 @@ each mapped lane from the green run at that exact tree, reuses or runs the rest,
 checks every lane FRESH and reruns the pregate there, whose tests stage carries
 the same run. `gstack-ship-receipt write` records the carried runs as
 `ci_carried: [{ lane, run, attempt, tree }]`, and the `SHIP_RECEIPT:` line names
-them (`ci_carried=<lane>:<run>/<attempt>`). Each `record-ci` gets the base
+them (`ci_carried=<lane>:<run>/<attempt>`). A run whose `tree.json` lists
+`rerun_files` adds `rerun` and `attempts` to its entries and
+`rerun=<files> attempts=<list>` after `ci_carried=`, as its `CI_CARRY:` line does
+([ship-policy.md](ship-policy.md#ci-carry-rerun)). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
 default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
 
