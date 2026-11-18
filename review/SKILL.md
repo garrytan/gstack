@@ -976,9 +976,6 @@ If the review exits early (e.g. no diff against the base), do **not** write this
 
 ## Important Rules
 
-- **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
 - **Fix-first, not read-only.** AUTO-FIX items are applied directly, ASK items only after user approval. Never commit, push, or create PRs — that's /ship's job.
-- **Be terse.** One line problem, one line fix. No preamble.
-- **Only flag real problems.** Skip anything that's fine.
 - **Optional extractions stay advisory.** Shared-code opportunities need verified callers and useful reliability or total savings; similarity alone is not a defect. Keep actual defects independently actionable.
 - **Use the reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.

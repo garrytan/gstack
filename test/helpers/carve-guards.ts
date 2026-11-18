@@ -593,7 +593,7 @@ do not launch the downstream skill or open a browser.`,
       "The user already completed Phases 1-4 of /spec for the request 'add a --json output flag to the CLI status command'. Treat the five Phase 1 answers, the scope lock, and the technical interrogation as settled, and the Phase 4 draft as CONFIRMED by the user. Continue from that point in file-only mode (--no-execute is set): run the Phase 4.5 sequence and Phase 5, simulating every external command (codex, gh, the redaction bin) by stating what you would run and the expected outcome instead of executing it. Do NOT use AskUserQuestion.",
     staticInvariants: {
       mustStayInSkeleton: [
-        'HARD GATE',
+        'Start every run at Phase 1',
         '### Phase 1: Understand the "Why"',
         '### Phase 3: Technical Interrogation',
         '### Phase 4: Draft Review',
@@ -613,7 +613,7 @@ do not launch the downstream skill or open a browser.`,
     maxSkeletonBytes: 36_571, // GSTA-96 hoist (2026-10-26): lowered from 58_400 by the shared preamble that moved to sections/preamble.md, keeping the pre-hoist headroom of 1,606 bytes; measured 34,965. Before: + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 57_356
     minUnionBytes: 64_500, // measured union 67,430
     maxSizeRatio: 1.0860, // GST-2774 (2026-11-14): the Claude catalog description keeps a when-to-use clause (GSTA-558: Opus 5.5 skipped /review and the planning skills when the listing said only what a skill is); measured 88,590 / 81,577 = 1.08597, rounded up (before: 1.0853). Before that: GST-2756 (2026-11-15, Garry's "Do it" to the ask-once and open-every-file habits): two Ground Rules lines (ask each question once and carry it as one waiting line; open every handed-over file and remove placeholders), +276 bytes; measured 1.0853 (before: 1.0819). Before that: GST-2753 (2026-11-15, Garry's "Do it" to moving the never-print-secrets rule into gstack): the shared Ground Rules preamble section (never print a whole environment, git config or process table; wait on CI with one gstack-pr-wait call), +614 bytes; measured 1.0819 (before: 1.0746). Before that: Oct 10 multi-agent wave PR E2: the lazy gate-and-file section renders {{COORDINATOR_CONTRACT}} (the block every spawned lane inherits word for word; `gstack-autoplan contract` prints the same bytes) before the --execute spawn pipe; measured 86,614 / 81,577 = 1.0617 after the contract became a fail-closed `CONTRACT=$(…)` capture (2026-10-10). The skeleton is unchanged (57,107). + GSTA-96 shared-preamble hoist (owner-approved raise, Garry 2026-10-25: "do it"): the union now holds sections/preamble.md, so a fresh invocation reads the pointer plus the shared file; measured 87,656 / 81,577 = 1.0745 (2026-10-25). Before: 1.07.
-    mustContain: ['HARD GATE', 'dedupe', 'quality gate', 'acceptance criteria', 'archive'],
+    mustContain: ['Start every run at Phase 1', 'dedupe', 'quality gate', 'acceptance criteria', 'archive'],
   },
   'setup-gbrain': {
     skill: 'setup-gbrain',

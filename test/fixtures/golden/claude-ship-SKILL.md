@@ -652,7 +652,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 ## Step 16: Verification Gate
 
-**IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
+Claim completion only with fresh verification evidence for the final content.
 
 `finish` runs stages 1–4 in order; act on each `STOP:` by its recovery below, then rerun
 it. Content changes during or after verification restart at
@@ -959,9 +959,8 @@ repost, rerun). A STOP before Step 19 publishes ends with `GSTACK_RESULT: skill=
 
 ## Section self-check (before you finish)
 
-List the applicable Section index entries and confirm each Read. If you worked from
-memory, STOP, Read the section and redo that step. Use `gstack-version-bump`; never
-hand-roll VERSION/package.json writes.
+Confirm each applicable Section index entry was Read before its step; redo any step
+run without it. Use `gstack-version-bump`; never hand-roll VERSION/package.json writes.
 
 ---
 

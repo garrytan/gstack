@@ -5538,3 +5538,14 @@ Garry for each; revisit 2026-10-29 unless a date says otherwise.
 - **P3 — move the /learn eval onto the shared skill eval** (`docs/designs/SKILL_EVAL_CONTRACT.md`) once GSTA-2 ships it,
   and drop the interim upstream `eval.mjs` path from `write-skill/references/diet.md`.
 
+## eval-plan: Tier 3, after P7 (not in this skill yet)
+
+Each of these waits for the adoption number in the multi-agent wave plan (P7); one line each so the shape is known:
+
+- Instrument audit: read every failing transcript of one dev round before freezing the scorer; check generated worlds for duplicate identifiers, word-like codes and generic phrases; mutation tests in both directions. (tier 3, after P7)
+- Steady state: background queues empty at snapshot time, queue depth recorded as a gate. (tier 3, after P7)
+- Sealed paths: declared in the plan; the skill refuses to quote from them, self-checks output for their n-grams and adds a provenance line. (tier 3, after P7)
+- Off-machine persistence: long runs sync through `gstack-detach --sync-cmd <cmd> --sync-every <min>`. (tier 3, after P7)
+- Memory preflight: concurrency times measured per-process memory, refuse above 70% of RAM. (tier 3, after P7)
+- Power tables: power and risk sentences cite the committed power output with a sensitivity table over the obvious rule alternatives. (tier 3, after P7)
+- QA soak: hours of mixed ingest against a long-lived server with a `CPU pinned, no progress` watchdog. (tier 3, after P7)

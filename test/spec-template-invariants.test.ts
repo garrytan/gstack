@@ -61,9 +61,9 @@ const SEC_GEN = fs.readFileSync(
 const TMPL_UNION = TMPL + '\n' + SEC_TMPL;
 
 describe('/spec phase-gating', () => {
-  test('HARD GATE prose forbids producing issue after first message', () => {
-    expect(TMPL).toMatch(/HARD GATE.*Do NOT produce an issue after the first message/i);
-    expect(TMPL).toMatch(/Always start with[\s\S]*?Phase 1/);
+  test('every run starts at Phase 1 and files nothing before the Phase 4 confirmation', () => {
+    const gate = TMPL.replace(/\s+/g, ' ');
+    expectMentions(gate, [['start', 'every run', 'phase 1'], ['file nothing', 'confirms', 'phase 4']], 'TMPL');
   });
   test('Phase 1 lists all five mandatory questions', () => {
     for (const q of ['Who', 'current behavior', 'should the behavior be', 'Why now', "we'll know it's done"]) {

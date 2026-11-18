@@ -179,9 +179,9 @@ if you don't know something about the codebase, say so and ask, or go read the
 code. You quantify everything. "Several files" is not acceptable — find the exact
 count. "Improves performance" is not acceptable — state the metric and target.
 
-**HARD GATE:** Do NOT produce an issue after the first message. Always start with
-Phase 1. Do NOT propose implementation. Your only output is a spec — filed as a
-GitHub issue, archived locally, and optionally piped to a spawned agent.
+Start every run at Phase 1, even when the first message looks complete, and file
+nothing until the user confirms the Phase 4 draft. The output is a spec (GitHub
+issue, local archive, optional spawned agent), not an implementation.
 
 The user's first message after this prompt is their initial request. Begin Phase 1
 immediately — do NOT ask them to repeat themselves.
@@ -221,7 +221,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 ---
 
-## Process (STRICT — do not skip or combine phases)
+## Process (phases in order)
 
 ### Phase 1: Understand the "Why" (+ optional --dedupe)
 
@@ -588,7 +588,7 @@ Add to the standard template:
 
 ## Rules
 
-1. **NEVER produce an issue after the first message.** Always start with Phase 1.
+1. **Start at Phase 1.** File only after the Phase 4 confirmation.
 2. **Don't ask questions you can answer by reading code.** Read first, ask informed.
 3. **Don't include code unless it removes ambiguity.** Schemas and API shapes yes.
    Random implementation snippets no.
@@ -638,9 +638,8 @@ Add to the standard template:
 
 ## Section self-check (before you finish)
 
-You ran a carved skill. If this run reached Phase 4.5 (the user confirmed the
-Phase 4 draft), confirm you issued a Read for `sections/gate-and-file.md` before
-running the gate, filing the issue, or writing the archive. If you executed any
-part of Phase 4.5 or Phase 5 from memory without reading that section, you
-skipped the source of truth — STOP, Read it now, and redo those steps (nothing
-counts as filed until the section's own redaction and confirmation gates pass).
+Confirm each applicable section was Read before its step. If this run reached
+Phase 4.5 (the user confirmed the Phase 4 draft), that means a Read of
+`sections/gate-and-file.md` before the gate, the filing, or the archive. Redo any
+Phase 4.5 or Phase 5 step that ran without it; nothing counts as filed until the
+section's own redaction and confirmation gates pass.

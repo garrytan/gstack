@@ -2,8 +2,8 @@
 name: ship
 description: |
   Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
-  push and create a PR. Use when asked to "ship", "deploy", "deploy this",
-  "push to main", "create a PR", "merge and push", or "get it deployed".
+  push and create a PR. Use when asked to "ship", "ship it",
+  "create a PR" or "open a pull request". Deploying is /land-and-deploy.
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
   is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
 user-invocable: true
@@ -658,7 +658,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 ## Step 16: Verification Gate
 
-**IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
+Claim completion only with fresh verification evidence for the final content.
 
 `finish` runs stages 1–4 in order; act on each `STOP:` by its recovery below, then rerun
 it. Content changes during or after verification restart at
@@ -972,9 +972,8 @@ repost, rerun). A STOP before Step 19 publishes ends with `GSTACK_RESULT: skill=
 
 ## Section self-check (before you finish)
 
-List the applicable Section index entries and confirm each Read. If you worked from
-memory, STOP, Read the section and redo that step. Use `gstack-version-bump`; never
-hand-roll VERSION/package.json writes.
+Confirm each applicable Section index entry was Read before its step; redo any step
+run without it. Use `gstack-version-bump`; never hand-roll VERSION/package.json writes.
 
 ---
 
