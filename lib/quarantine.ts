@@ -23,7 +23,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { spawnSync } from './spawn-sync';
 import { parseTestId, readJunit, type JunitRunner } from './junit';
 import { safeText } from './flaky-run';
 

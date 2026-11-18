@@ -52,7 +52,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { EVAL_POLICY } from '../test/helpers/periodic-exclude-data';
 import { E2E_KINDS, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { getClaudeCliVersion, getProjectEvalDir, isFinalizedEvalResultFile } from '../test/helpers/eval-store';

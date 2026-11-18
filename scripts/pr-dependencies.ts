@@ -26,7 +26,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { matchGlob } from '../test/helpers/test-selection';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
 

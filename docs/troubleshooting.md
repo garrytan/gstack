@@ -5338,6 +5338,22 @@ rename the file and its id, commit, then rerun
 `gstack-pregate regate --against <gated-head> --bundle <file>`. The renamed
 migration is a code change, so the gate reruns.
 
+<a id="spawn-output-incomplete"></a>
+### `SPAWN_OUTPUT_INCOMPLETE`
+
+**Meaning.** gstack ran a command (usually git or gh) and the command's
+result carried an error, so its output could be incomplete. The usual cause
+is ENOBUFS: the output was larger than the read limit (maxBuffer). Bun can
+report that with exit status 0 and the output cut off part way, so gstack
+treats the read as failed whatever the status says. A scanner, gate or git
+read that sees this stops or reports a failure instead of judging part of
+its input. The line names the command and the error.
+
+**Fix.** Rerun once. If it repeats, the output really is that large: narrow
+the commit range or paths the command reads, then rerun. Report a repeat on a
+normal-sized repository to the gstack maintainers with the command the line
+names.
+
 <a id="sealed-output-refused"></a>
 ### `SEALED_OUTPUT_REFUSED`
 

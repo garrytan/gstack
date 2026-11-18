@@ -6,7 +6,7 @@
  * nightly-only test still asserted the old number and went red a week after
  * the merge.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';

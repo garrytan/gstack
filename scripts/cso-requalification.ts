@@ -5,7 +5,7 @@
  * differ from the current source is older than its inputs and must be
  * requalified (or its runtimes withdrawn) before it ships.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

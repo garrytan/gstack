@@ -17,7 +17,7 @@
  * a head whose required classes the pass did not cover (GST-966). Kept beside
  * lib/ship-receipt.ts so that module stays under the size ratchet.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

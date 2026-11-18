@@ -11,7 +11,7 @@
  * Fixing one error and adding an identical-message error in the same file is
  * the one substitution this cannot see.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 

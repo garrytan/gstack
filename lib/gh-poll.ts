@@ -21,7 +21,8 @@
  * on pollDelayMs. GSTACK_GH_POLL_FLOOR_MS is a test seam only (fixtures that
  * drive real binaries with millisecond polls); no shipped file may set it.
  */
-import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'node:child_process';
+import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import type { GhResult, GhRunner } from './ci-gate';
 
 export const MIN_POLL_MS = 60_000;

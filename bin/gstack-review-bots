@@ -10,7 +10,7 @@
  */
 import * as os from "os";
 import * as path from "path";
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { runReviewBots } from "../lib/review-bots";
 
 process.exitCode = runReviewBots(process.argv.slice(2), {

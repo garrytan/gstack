@@ -22,7 +22,7 @@
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
  * characters cannot widen or empty a comparison.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

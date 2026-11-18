@@ -26,7 +26,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { mergeReceiptDirs, writeNegativeReceipt } from '../../scripts/e2e-shard-reuse';
 import { loadSliceArtifacts, panelReports, parseRunManifest, shardFile } from '../../scripts/test-paid-shards';
 

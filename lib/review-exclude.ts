@@ -22,7 +22,7 @@
  * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES and
  * with REVIEW_DIFF_UNREADABLE when git fails, before it writes a manifest or a brief.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

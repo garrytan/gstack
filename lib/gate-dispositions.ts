@@ -13,7 +13,7 @@
  * the store at the pin, never from the receipt or the PR body (docs/ship-policy.md#gate-dispositions).
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';

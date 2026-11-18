@@ -10,7 +10,7 @@
  * base branch's tree is the stamped tree. Every step is journaled under
  * .gstack/tmp/ship-queue/land/<pr>.json, so a rerun resumes.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

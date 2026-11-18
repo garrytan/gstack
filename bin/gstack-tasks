@@ -9,7 +9,7 @@
  * --dir defaults to <state root>/projects/<gstack-slug SLUG>, --branch to the current git branch.
  * Logic: lib/tasks-prior.ts. Codes: lib/result-codes-plan.ts (TASKS_SUPERSEDE_REFUSED).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';

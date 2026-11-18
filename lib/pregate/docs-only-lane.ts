@@ -5,7 +5,7 @@
  * (DOCS_READER_TESTS, those present in this repository) run locally. It owes no remote gate, so no CI carry is needed;
  * pregate's regen (generated-page freshness) and secrets (credential scan) checks run as always.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../bun-isolation';

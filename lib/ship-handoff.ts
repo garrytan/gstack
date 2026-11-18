@@ -20,7 +20,8 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { resolveClaudeCommand } from './claude-bin';
 import { readConfigKey } from './state-root';
 import { wtreeFingerprint } from './script-invocation';

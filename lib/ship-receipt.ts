@@ -6,7 +6,7 @@
  * computes the P7 adoption census over merged PRs (deduplicated by run and
  * thread id against an owner-maintained thread cohort).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { ARTIFACT_SCHEMAS, checkSchema, type ShipReceipt, type ValidationError } from './headless-artifacts';
 import { agentNotesOrBody, splitAgentNotes, withAgentNotes } from './agent-notes';
 import { approvalSummary } from './approval-citations';

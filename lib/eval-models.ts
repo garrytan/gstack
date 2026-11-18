@@ -20,7 +20,7 @@
  * stale map. The reviewed copy is read from origin/<base>; the working tree's
  * copy only with --models-from head. Doc: docs/eval-models.md.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { MODEL_CATALOG } from './model-catalog';

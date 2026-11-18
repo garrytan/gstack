@@ -7,7 +7,7 @@
  * gstack-approvals round-grant, is never an owner ask and never a plan approval (lib/plan-record.ts NOT_PLAN_ROW).
  * --by is recorded, not enforced.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
 import { GSTACK_ACTOR } from './ruled-notes';
 
