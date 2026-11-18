@@ -5349,7 +5349,10 @@ section is refused before anything is written. The error names the problem.
 **Fix.** Add the missing heading, or rerun the first `next` with `--scaffold`:
 it writes `<out>/plan-source.md` with the missing heading added, reviews that
 copy and prints `SCAFFOLDED:`. Your plan file is never edited. Duplicate,
-reversed or empty sections are ambiguous and must be fixed by hand.
+reversed or empty sections are ambiguous and must be fixed by hand. On
+`revise`, a run whose first plan was scaffolded or had no headings at all gets
+the one missing heading added to its own copy (`SCAFFOLDED:`); a run whose first
+plan had both headings refuses a revision that drops one, and says so.
 
 <a id="plan-amend-pending"></a>
 ### `PLAN_AMEND_PENDING`
