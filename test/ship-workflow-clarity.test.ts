@@ -166,7 +166,7 @@ test('late verified outputs are committed before push, without tags', () => {
   expectOrdered(compact(between(entryTemplate, '### 5. Report, then push', '## Step 17:')), [/commit/i, 'continue to Step 17'], 'ship Step 16.5');
   expectMentions(entry, [['not', 'git tag']], 'ship entry');
   expectOrdered(pushFlow, ['**Non-fast-forward push:**', '**Authentication, hook or network failure:**'], 'ship Step 17');
-  expectTokens(pushFlow, ['`ALREADY_PUSHED`'], 'ship Step 17');
+  expectTokens(pushFlow, ['`already_pushed`', '`PUSH: pushed|already_pushed|failed …`'], 'ship Step 17');
 });
 
 test('Step 18 resolves open PR state before preparing the title file Step 19 posts', () => {

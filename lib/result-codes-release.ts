@@ -607,4 +607,20 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined, resuming it starts no later stage and returns no reader output, and verify refuses',
     fix: 'deal with the printed paths, find out why readers keep fetching, then start a fresh pass under a new --pass and --out; a third attempt is never automatic',
   },
+  // GST-3053: gstack-ship-release push's last line, `PUSH: failed reason=<code>` (docs/unattended.md#push-line).
+  PUSH_REFUSED: {
+    anchor: 'push-refused',
+    summary: 'gstack-ship-release push stopped before git push ran (a usage error, the wrong branch, the unanswered pre-push offer, open gate findings on a ready PR, sealed output, the secrets scan, the pre-push guards or a branch name that is not plain words), so nothing was pushed',
+    fix: 'follow the STOP: line above it, then rerun gstack-ship-release push',
+  },
+  PUSH_REJECTED: {
+    anchor: 'push-rejected',
+    summary: 'git push was rejected: the remote branch has commits this branch lacks (non-fast-forward) or the remote refused the update, so nothing was pushed',
+    fix: 'fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16 again, then rerun push; never force-push',
+  },
+  PUSH_GIT_FAILED: {
+    anchor: 'push-git-failed',
+    summary: 'git could not read the remote branch or git push failed for another reason (authentication, a pre-push hook or the network), so nothing was pushed',
+    fix: 'repair the cause git printed in the STOP: line, repeat Step 16, then rerun push; never bypass a guard',
+  },
 } as const satisfies Record<string, ResultCode>;

@@ -109,9 +109,9 @@ One re-audit at most.
 Commit bisectably; `gstack-ship-release finish --base <base> --reviewed-tree <t> --reviewed-base <b>
 --docs-post <post> --lane ... [--build <cmd>] --trailer '<t>' [--plan <line>]`: `PLAN:`, `ROUTE:`, `DOCS:`, `EVIDENCE:` (FRESH;
 STALE or MISSING reruns once), `PREGATE:`; print them, the last `Gate edits:` and each `tests_ran`. Then
-`gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `GUARDS:`, `PUSH:`
-(pushed, ALREADY_PUSHED). `EVIDENCE: DEFERRED`: the `accept` its `NEXT:` names; final-head
-repo gates run beside CI. Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
+`gstack-ship-release push --branch <branch> [--gate-open <n>]`: `REDACT_PREPUSH:`, `SEALED:`, `GUARDS:`, `PUSH:` last:
+pushed|already_pushed|failed. `EVIDENCE: DEFERRED`: the `accept` `NEXT:` names; final-head
+repo gates run with CI. Unattended, push defers the pre-push offer; else its STOP runs Step 17's guard block (`HOOK_STATE:`, `HOOKS_IN_GIT_DIR:`, `PREPUSH_PROMPTED:`). Never force-push.
 
 ## 8. Publish: Steps 18, 19, 19-C, 20, 21, 22
 

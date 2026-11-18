@@ -87,7 +87,7 @@ describe('ship/DRIVER.md covers the skeleton', () => {
       ...[...body.matchAll(/`[A-Z][A-Z0-9_]+: ([A-Z][A-Z0-9_]+)`/g)].map(m => m[1]!),
       ...Object.keys(RESULT_CODES).filter(k => new RegExp(`\\b${k}\\b`).test(body)),
     ]);
-    for (const code of ['STOP:', 'NEXT:', 'CARRY:', 'GSTACK_RESULT:', 'ALREADY_BUMPED', 'NO_VERSION', 'FRESH', 'ZERO-RUN', 'ALREADY_PUSHED', 'QUEUE_RECEIPT_STALE']) expect(codes).toContain(code);
+    for (const code of ['STOP:', 'NEXT:', 'CARRY:', 'GSTACK_RESULT:', 'ALREADY_BUMPED', 'NO_VERSION', 'FRESH', 'ZERO-RUN', 'PUSH:', 'QUEUE_RECEIPT_STALE']) expect(codes).toContain(code);
     expect([...codes].filter(c => !doc.includes(c) && !bins.includes(c))).toEqual([]);
   });
 
