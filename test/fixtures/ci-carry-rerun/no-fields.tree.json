@@ -1,0 +1,14 @@
+{
+  "run_id": 4,
+  "run_attempt": 1,
+  "event": "workflow_dispatch",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "files": [
+    "test/a.test.ts",
+    "test/b.test.ts",
+    "test/c.test.ts"
+  ],
+  "tests": 60,
+  "os": "Linux"
+}

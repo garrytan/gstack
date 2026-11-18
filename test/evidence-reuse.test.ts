@@ -128,6 +128,18 @@ describe('gstack-evidence record-ci and carried (A4)', () => {
     expect(JSON.parse(run(['carried', '--json']).stdout)).toEqual([]);
   });
 
+  // Value: protects=GST-3054, a carried run that passed only on a re-run reaches the receipt's ci_carried entry marked; fails_when=the
+  //   ledger's rerun record is dropped on the way to the receipt, or a forged one with bad attempts is copied into it
+  test('carried copies a CI row\'s re-run record into its ci_carried entry, and drops a malformed one', () => {
+    expect(run(['run', '--label', 'unit', '--', lane(2)]).status).toBe(0);
+    fs.appendFileSync(ledger(), JSON.stringify({ ...ciRow(), rerun: { '41/2': { files: 290, attempts: [1, 2] } } }) + '\n');
+    expect(JSON.parse(run(['carried', '--base', 'main', '--json']).stdout)).toEqual([{ lane: 'free', run: 41, attempt: 2, tree: wtree(), rerun: 290, attempts: [1, 2] }]);
+    expect(run(['carried', '--base', 'main']).stdout).toContain('CI_CARRIED: free run=41/2 tree=');
+    expect(run(['carried', '--base', 'main']).stdout).toContain(' rerun=290 attempts=1,2');
+    fs.appendFileSync(ledger(), JSON.stringify({ ...ciRow(), rerun: { '41/2': { files: 290, attempts: '1,2' } } }) + '\n');
+    expect(JSON.parse(run(['carried', '--base', 'main', '--json']).stdout)).toEqual([{ lane: 'free', run: 41, attempt: 2, tree: wtree() }]);
+  });
+
   // Value: protects=record-ci finds and verifies the CI run itself, so no caller supplies run ids, a test count or a tree (/ship pass 1 red-team#1);
   //   fails_when=the forged call from that finding writes a FRESH carried row; seam=no origin, so the base's ship_lanes_from is unreadable
   test('record-ci takes no run facts from its caller and records nothing without a verified run', () => {

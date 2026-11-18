@@ -83,7 +83,7 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, heads
   for (const run of listed) {
     const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly });
     if (v.ok) return v;
-    refusals.push(`run ${run.id}: ${v.reason}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
+    refusals.push(`run ${run.id}: ${v.reason}${v.reason === 'rerun_malformed' ? ` (${v.detail})` : ''}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
   }
   return no('no_verified_run', `${name}: ${refusals.join('; ')}`);
 }

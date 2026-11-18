@@ -55,7 +55,7 @@ export interface ApiRun {
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
 export interface ApiJob { name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null }
-export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown }
+export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown; rerun_files?: unknown; attempts?: unknown }
 
 /** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
 export interface RunArtifactDeps {
@@ -78,10 +78,11 @@ export interface RunDeps {
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
-  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'api_error';
+  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'rerun_malformed' | 'api_error';
 /** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
 /** `docs_only`: a pull_request run whose gate skipped every skippable job on a change lib/docs-only.ts calls human docs only; it ran and recorded no tests (R81). */
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true }
+/** `rerun`: the files whose newest result came from a re-run attempt (tree.json `rerun_files`, gbrain#9690), with the run's `attempts`; set only when a file passed on a re-run (GST-3054). */
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[] }
 /** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string };
 
@@ -243,12 +244,16 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     if (rec.files !== undefined && (!Array.isArray(rec.files) || rec.files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} files is not a list of paths`);
     if (rec.tests !== undefined && (!Number.isInteger(rec.tests) || (rec.tests as number) < 0)) return fail('artifact_mismatch', `${at}'s ${p.artifact} tests is not a non-negative integer`);
     if (rec.skipped_files !== undefined && (!Array.isArray(rec.skipped_files) || rec.skipped_files.some(f => typeof f !== 'string'))) return fail('artifact_mismatch', `${at}'s ${p.artifact} skipped_files is not a list of paths`);
+    if (rec.rerun_files !== undefined && (!Array.isArray(rec.rerun_files) || rec.rerun_files.some(f => typeof f !== 'string'))) return fail('rerun_malformed', `${at}'s ${p.artifact} rerun_files is not a list of paths (CI_CARRY_RERUN_MALFORMED)`);
+    if (rec.attempts !== undefined && (!Array.isArray(rec.attempts) || rec.attempts.some(n => !Number.isInteger(n) || (n as number) < 1))) return fail('rerun_malformed', `${at}'s ${p.artifact} attempts is not a list of attempt numbers (CI_CARRY_RERUN_MALFORMED)`);
     const files = ((rec.files ?? []) as string[]).map(normalPath);
     const tests = rec.tests === undefined ? null : (rec.tests as number);
     const changed = runChanged(deps, id, run.run_attempt);
     if (changed) return fail('run_changed', changed);
     const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}) } };
+    const rerun = ((rec.rerun_files ?? []) as string[]).map(normalPath);
+    const reran = rerun.length ? { rerun, attempts: [...new Set((rec.attempts ?? []) as number[])].sort((a, b) => a - b) } : {};
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}), ...reran } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
@@ -322,9 +327,20 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
   return refusals.length === 1 ? { ok: false, ...refusals[0]! } : { ok: false, reason: 'no_verified_run', detail: refusals.map(r => `${r.detail} (${r.reason})`).join(' | ') };
 }
 
-/** The receipt suffix a run clear records: runs, profiles and the verification time, read back by `parseRunReceipt`. */
+/**
+ * The receipt suffix a run clear records: runs, profiles and the verification time, read back by `parseRunReceipt`. A run some of
+ * whose files passed only on a re-run adds `rerun=<files> attempts=<list>` (GST-3054): allowed, but never shown as a clean pass.
+ */
 export function runReceiptFields(evidence: RunEvidence[], now: Date): string {
-  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')} verified=${now.toISOString()}`;
+  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker(evidence.map(e => ({ files: e.rerun?.length ?? 0, attempts: e.attempts ?? [] })))} verified=${now.toISOString()}`;
+}
+
+/** ` rerun=<files> attempts=<list>` over the runs with re-run files, each run counted once, or '' when every run passed first time (GST-3054). */
+export function rerunMarker(runs: Array<{ files: number; attempts: number[] }>): string {
+  const reran = runs.filter(r => r.files > 0);
+  if (!reran.length) return '';
+  const attempts = [...new Set(reran.flatMap(r => r.attempts))].sort((a, b) => a - b);
+  return ` rerun=${reran.reduce((n, r) => n + r.files, 0)} attempts=${attempts.length ? attempts.join(',') : 'unrecorded'}`;
 }
 
 export function parseRunReceipt(receipt: string): { runs: string[]; profiles: string[]; tree: string | null } | null {

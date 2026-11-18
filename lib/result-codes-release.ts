@@ -420,6 +420,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
     fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
   },
+  CI_CARRY_RERUN_MALFORMED: {
+    anchor: 'ci-carry-rerun-malformed',
+    summary: 'a CI run\'s tree.json carries rerun_files or attempts in a shape gstack cannot read (rerun_files not a list of paths, attempts not a list of attempt numbers), so the run is not evidence and no lane carries from it',
+    fix: 'fix the workflow step that writes tree.json (rerun_files: ["test/a.test.ts", …], attempts: [1, 2]), dispatch a fresh run at the same head, then rerun gstack-ci-carry wait',
+  },
   RECEIPT_CARRY_TREE_MISMATCH: {
     anchor: 'receipt-carry-tree-mismatch',
     summary: 'the branch was rebased or force-pushed since its /ship receipt, and HEAD\'s tree is not a tree the receipt covers, so no review saw this code',
