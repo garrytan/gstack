@@ -62,8 +62,7 @@ import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
 import { readRuledNotes, ruledNoteText, stopRulings } from '../lib/ruled-notes';
-import { ledgerTraits, ruledStop, ruledStopLines, type RuledStop } from '../lib/ruled-stop';
-import { ledgerBlockers } from '../lib/review-ledger';
+import type { RuledStop } from '../lib/ruled-stop';
 import { locate, readRecord } from '../lib/approval-record';
 import { appliedGateDispositions, gateDispositionText } from '../lib/gate-dispositions';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
@@ -1151,6 +1150,9 @@ function readRuledStop(rest: string[], repoRoot: string, body: string, pr: numbe
   try { files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter(p => path.basename(p) === 'review-ledger.jsonl').sort().map(p => path.join(dir, p)); } catch (e: any) { return `--dir ${dir}: ${e.code ?? e.message}`; }
   if (!files.length) return `--dir ${dir} holds no review-ledger.jsonl: name the run directory this run's passes wrote`;
   const keyOf = (file: string) => (id: string) => `${path.basename(path.dirname(path.resolve(file)))}/${id}`;
+  // Loaded here, not at the top: the ledger reader pulls in the review briefs, and installs that carry only bin/ and lib/ run every other command.
+  const { ledgerTraits, ruledStop } = require('../lib/ruled-stop') as typeof import('../lib/ruled-stop');
+  const { ledgerBlockers } = require('../lib/review-ledger') as typeof import('../lib/review-ledger');
   let blockers: string[], traits: ReturnType<typeof ledgerTraits>;
   try { blockers = files.flatMap(f => ledgerBlockers(f).map(b => keyOf(f)(b.id))); traits = files.flatMap(f => ledgerTraits(f, keyOf(f))); } catch (e: any) { return (e as Error).message.split('\n')[0]!; }
   const loc = locate({ cwd: repoRoot, env: process.env });
@@ -1176,7 +1178,7 @@ function ruledStopException(rest: string[], repoRoot: string, bodyText: string |
   if (!live.ok) return `--ruled-stop: ${live.why}`;
   const r = readRuledStop(rest, repoRoot, live.body, pr);
   if (typeof r === 'string') return `--ruled-stop: ${r}`;
-  if (r.state !== 'closed') return `--ruled-stop: ${ruledStopLines(r, pr).at(-1)!}`;
+  if (r.state !== 'closed') return `--ruled-stop: ${(require('../lib/ruled-stop') as typeof import('../lib/ruled-stop')).ruledStopLines(r, pr).at(-1)!}`;
   if (r.stop!.head !== stopOf.head) return `--ruled-stop: the ruled stop is at ${r.stop!.head.slice(0, 12)}, not the exception head ${stopOf.head.slice(0, 12)}`;
   const ids = r.findings.map(f => f.id);
   if (JSON.stringify([...new Set(stopOf.deferred)].sort()) !== JSON.stringify([...ids].sort()) || stopOf.deferred.length !== ids.length) return `--ruled-stop: deferred must name exactly the ruled stop's findings (${ids.join(', ')}), not ${stopOf.deferred.join(', ')}`;
@@ -1202,7 +1204,7 @@ function cmdRuledStop(rest: string[]): number {
   const head = git(['rev-parse', 'HEAD'], repoRoot) ?? '';
   const dirty = spawnSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: repoRoot, timeout: 30_000 }).status !== 0;
   const moved = !r.stop ? '' : head !== r.stop.head ? `HEAD ${head.slice(0, 12)} is not the stop's head ${r.stop.head.slice(0, 12)}: a head move voids the rulings` : dirty ? 'the worktree has uncommitted changes: the rulings bind the stop\'s committed tree' : '';
-  const lines = ruledStopLines(r, pr);
+  const lines = (require('../lib/ruled-stop') as typeof import('../lib/ruled-stop')).ruledStopLines(r, pr);
   process.stdout.write(lines.slice(0, -1).map(l => l + '\n').join(''));
   if (r.state !== 'closed' || moved) { process.stderr.write(resultLine('gstack-ship-receipt ruled-stop', 'RULED_STOP_OPEN', moved || lines.at(-1)!.replace(/^RULED_STOP: /, '')) + '\n'); return EXIT.refused; }
   for (const f of r.findings) process.stdout.write(`RULED_NOTE: ${ruledNoteText(f.ruling!)}\n`);
