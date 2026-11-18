@@ -7427,15 +7427,62 @@ final head; this stop then means that review found a blocker or a gate-class edi
 `PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes
 listed instead of stopping.
 
-**Fix.** The lane's Captain decides. Ship with the open notes listed, or, when a finding above the floor is
-open in this PR's own change or the design changed, have the lane or Captain
-record one round with the command the `NEXT:` line prints,
-`gstack-approvals round-grant --pr <n> --head <sha> --kind extra-round --reason
-<why> --by <lane or Captain>`, then rerun `gstack-ship-preflight`: its
-`PR_REVIEW_FLAGS:` line adds `--round-grant <id>` for the plan.
-The grant names one head; a new push needs a new grant. This is not an owner
-ask, and gstack cannot grant itself one (`--by gstack` is refused)
+**Fix.** The lane's Captain decides. Ship with the open notes listed, park, or,
+when a finding above the floor is open in this PR's own change, buy the stopped
+review's fix round:
+
+1. Record the stop: `gstack-ship-receipt stop --pr <n> --run <the /ship run>
+   --since <REVIEW_SINCE>` (`/ship` runs it on `NEXT: stop`). It prints
+   `STOP_RECORD:` and the grant command.
+2. The lane or Captain records that grant: `gstack-approvals round-grant --pr
+   <n> --head <the stop's head> --kind fix-check --stop-run <its run> --findings
+   <the open finding ids> --reason <why> --by <lane or Captain>`.
+3. Commit the fix on top of the stop's head. A new run's `gstack-ship-preflight`
+   prints `PR_REVIEW_FLAGS:`; the same run, whose preflight already ran, gets
+   that line from `gstack-ship-receipt history --pr <n> --base <base> --run
+   <the /ship run>`. It adds `--round-grant <id> --stop <head>`, and the plan is one scoped fix-check of the PR's own change
+   since that head, with no new full review. The run claims the grant first
+   (`gstack-ship-receipt claim`).
+
+A head no review has stopped at takes an `--kind extra-round` grant instead:
+one full round with its fix round. Each grant is spent by the one run that
+claims it. When `PR_REVIEW_GRANT: not applied (...)` prints, the reason names
+what doesn't match (another stop or head, a stale stop, a claimed grant). This
+is not an owner ask, and gstack cannot grant itself one (`--by` naming gstack
+is refused) ([review-policy.md](review-policy.md#rounds-per-pull-request)).
+
+<a id="stop-unbound"></a>
+### `STOP_UNBOUND`
+
+**Meaning.** `gstack-ship-receipt stop` found no review of this run that
+gstack can tie to one commit: the newest `via:ship` review row since
+`--since` is missing, didn't finish, read a tree that moved or wasn't
+committed, or its commit isn't HEAD or under it. It recorded no stop record, so
+no fix-check grant can buy that review's fix round.
+
+**Fix.** Nothing for a grant to answer. The lane's Captain ships with the open
+notes listed or parks; a fresh `/ship` run gives the head its review
 ([review-policy.md](review-policy.md#rounds-per-pull-request)).
+
+<a id="grant-spent"></a>
+### `GRANT_SPENT`
+
+**Meaning.** `gstack-ship-receipt claim` found another `/ship` run's grant
+record for this round grant in the PR body's runs block. A grant buys one round,
+and a voided run's claim still spends it.
+
+**Fix.** Record a new grant for the stop the PR is at now; `gstack-ship-receipt
+stop` prints the command ([troubleshooting](#pr-round-cap)).
+
+<a id="grant-unknown"></a>
+### `GRANT_UNKNOWN`
+
+**Meaning.** `gstack-ship-receipt claim --grant <id>` found no approved
+`review_round_grant` row with that id in the branch's approval record or its
+mirror.
+
+**Fix.** Pass the id `gstack-approvals round-grant` printed, from a checkout
+that sees that record ([troubleshooting](#pr-round-cap)).
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

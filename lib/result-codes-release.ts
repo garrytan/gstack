@@ -435,6 +435,21 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
     fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped fix-check, no /ship)',
   },
+  STOP_UNBOUND: {
+    anchor: 'stop-unbound',
+    summary: 'gstack-ship-receipt stop found no review of this run bound to one committed tree, so it recorded no stop record',
+    fix: 'nothing for a grant to answer: the lane or its Captain ships with the open notes listed or parks; a fresh /ship run gives the head its review',
+  },
+  GRANT_SPENT: {
+    anchor: 'grant-spent',
+    summary: 'another /ship run already claimed this round grant, and a grant buys one round',
+    fix: 'the lane or its Captain records a new grant for the stop the PR is at now (gstack-ship-receipt stop prints the command)',
+  },
+  GRANT_UNKNOWN: {
+    anchor: 'grant-unknown',
+    summary: 'the branch approval record holds no approved review_round_grant row with this id',
+    fix: 'pass the id gstack-approvals round-grant printed, from a checkout that sees the record or its mirror',
+  },
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
     summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
