@@ -90,6 +90,7 @@ export const SECURITY_LINE = [
   /['"`](?:node:)?child_process['"`]/,
   /(?:(?<![.\w$])|\b(?:globalThis|window|self)\.)fetch\s{0,20}\(/, /\bhttps?\.(?:request|get)\s{0,20}\(/, /\baxios\b/, /(?<![.\w$])got(?:\.[a-z]{1,10})?\s{0,20}\(/, /\bundici\b/,
   /\b(?:requests|httpx)\.[a-z]{1,10}\s{0,20}\(/, /\burllib(?:3|\.request)?\b|\burlopen\s{0,20}\(/, /\bnew\s{1,20}URL\s{0,20}\(\s{0,20}(?!['"][^'"\\]{0,2000}['"]\s{0,20}\)|import\.meta\.url\s{0,20}\))/, /\b(?:urljoin|url\.resolve)\s{0,20}\(/,
+  /\bURLSession\b|\bURLRequest\s{0,20}\(|\bNWConnection\b|\bAlamofire\b|\bAF\.(?:request|download|upload|streamRequest)\s{0,20}\(/,
   /\bredirect\s*:\s*['"](?:follow|manual)['"]|\b(?:maxRedirects|followRedirects?|follow_redirects|allow_redirects)\s*[:=]/,
   /\b(?:HTTPS?_PROXY|NO_PROXY|ALL_PROXY|https?_proxy|no_proxy)\b|\b(?:Https?)?ProxyAgent\b|\bproxy\s*(?::|=(?![=>]))/, /\b(?:allowed|trusted|blocked|denied)[_-]?(?:hosts?|domains?|origins?|urls?)|\b(?:hosts?|domains?|origins?|urls?)[_-]?(?:allow|deny|block)[_-]?list/i,
   /\btar\.(?:x|extract)\s*\(|\.(?:extractall|extractAllTo|extractEntryTo)\s*\(|\b(?:tar|tf|zf|zip|archive)\.extract\s*\(|\bshutil\.unpack_archive\s*\(|\b(?:adm-zip|AdmZip|yauzl|extract-zip|unzipper|node-stream-zip)\b/,

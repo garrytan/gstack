@@ -74,6 +74,8 @@ describe('gstack-review-plan', () => {
     const plist = run(repo({ ...ui, 'App/Info.plist': '<plist><dict><key>NSAllowsArbitraryLoads</key><true/></dict></plist>\n' }), []);
     expect(plist.stdout).toMatch(/^REVIEW_CLASS: gate .*auth paths/m);
     expect(plist.stdout).toMatch(/^REVIEW_DEPTH: full /m);
+    const client = run(repo({ ...ui, 'App/Client.swift': 'final class Client {\n  func load(_ r: URLRequest) async throws -> Data { try await URLSession.shared.data(for: r).0 }\n}\n' }), []);
+    expect(client.stdout).toMatch(/^REVIEW_DEPTH: full .*risk:security/m);
   });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
