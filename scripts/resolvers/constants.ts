@@ -253,8 +253,4 @@ export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (`fork_turns: \"no
 /** The same call where a step only names it inline. */
 export const CODEX_SUBAGENT_CALL = "Codex's `spawn_agent`, then `wait_agent` for its final message";
 
-export function foregroundDispatchNote(host: string): string {
-  return host === 'codex'
-    ? `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only: ${DISPATCH_ISOLATION}`
-    : FOREGROUND_DISPATCH_NOTE;
-}
+export const CODEX_FOREGROUND_DISPATCH_NOTE = `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only: ${DISPATCH_ISOLATION}`;

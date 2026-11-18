@@ -42,7 +42,7 @@ import { SECTION, SECTION_INDEX } from './sections';
 import { DESIGN_CRAFT_RULE, DESIGN_PERSUADE_CHECKS } from './design-craft';
 import { generateRedactInvocationBlock } from './redact-doc';
 import { generateFreeTextFile } from './free-text-file';
-import { codexSelect, foregroundDispatchNote } from './constants';
+import { FOREGROUND_DISPATCH_NOTE, codexSelect } from './constants';
 import { generateThirdPartyActions } from './third-party-actions';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude, asideResearchSend } from './aside';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, generateBrowseFallback } from './browse';
@@ -178,7 +178,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   // one, else the host's default global root.
   INSTALLED_ROOT: (ctx) => ctx.installRoot ? ctx.installRoot.replace(/\/+$/, '') : `~/${getHostConfig(ctx.host).globalRoot}`,
   INSTALLED_BIN_DIR: (ctx) => ctx.installRoot ? `${ctx.installRoot.replace(/\/+$/, '')}/bin` : `~/${getHostConfig(ctx.host).globalRoot}/bin`,
-  FOREGROUND_DISPATCH_NOTE: (ctx) => foregroundDispatchNote(ctx.host),
+  FOREGROUND_DISPATCH_NOTE: () => FOREGROUND_DISPATCH_NOTE,
   GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,
   GBRAIN_SAVE_RESULTS: generateGBrainSaveResults,
   BRAIN_PREFLIGHT: generateBrainPreflight,

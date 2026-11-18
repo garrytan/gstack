@@ -1,5 +1,5 @@
 import { defineHost, GBRAIN_RESOLVERS } from './define-host';
-import { CODEX_SUBAGENT_DISPATCH } from '../scripts/resolvers/constants';
+import { CODEX_FOREGROUND_DISPATCH_NOTE, CODEX_SUBAGENT_DISPATCH, FOREGROUND_DISPATCH_NOTE } from '../scripts/resolvers/constants';
 
 const codex = defineHost({
   name: 'codex',
@@ -46,9 +46,10 @@ const codex = defineHost({
   suppressedResolvers: ['REVIEW_ARMY', ...GBRAIN_RESOLVERS],
 
   // #4476: Codex has no Agent tool. The template sites that spell out Claude Code's
-  // Agent call become Codex's spawn_agent and wait_agent; resolver sites render
-  // CODEX_SUBAGENT_DISPATCH themselves. test/host-config.test.ts fails on any left over.
+  // Agent call, and {{FOREGROUND_DISPATCH_NOTE}}, become Codex's spawn_agent and
+  // wait_agent; resolver sites render CODEX_SUBAGENT_DISPATCH themselves. test/host-config.test.ts fails on any left over.
   toolRewrites: {
+    [FOREGROUND_DISPATCH_NOTE]: CODEX_FOREGROUND_DISPATCH_NOTE,
     'use the Agent tool with `run_in_background: false`.\nOmitting the flag runs the subagent in the background. The explicit flag waits\nfor a result while keeping a fresh context.': `start each subagent with ${CODEX_SUBAGENT_DISPATCH}.`,
     'Agent with `subagent_type: "general-purpose"` and\n`run_in_background: false`': "Codex's `spawn_agent`, then `wait_agent`",
     'using Agent, `subagent_type: "general-purpose"`\nand `run_in_background: false`': "using Codex's `spawn_agent`, then `wait_agent`",
