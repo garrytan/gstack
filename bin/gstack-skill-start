@@ -302,15 +302,19 @@ fi
 if [ "$_SESSION_KIND" = "unattended" ] && [ "$_DURABLE" = "no" ]; then
   echo "learnings: skipped (state root is ephemeral; set GSTACK_STATE_ROOT)"
 fi
-# Plan B1: the autoplan publication hook executes only inside Claude Code
-# (CLAUDECODE is set there; GSTACK_ACTIVE_HOST names an env-var host). On
-# every other host, and in every unattended session, the hook is rendered but
-# never runs, so publication order rests on the per-phase snapshot hashes.
-# Claude Code's deny-on-absent behavior is untouched: this line is printed,
-# never used to allow anything. B0's validator requires it in an unattended
-# run's review-record.md.
+# The autoplan publication guard is the PreToolUse hook the Claude render of
+# autoplan/SKILL.md declares in its frontmatter. Claude Code (CLAUDECODE is
+# set there; GSTACK_ACTIVE_HOST names an env-var host) runs it whatever the
+# session kind, so an unattended Claude Code run is guarded too (GST-3062).
+# Every other host never runs it, and publication order rests on the per-phase
+# snapshot hashes. The line is printed, never used to allow anything; B0's
+# validator requires one of the two in an unattended run's review-record.md.
+# lib/autoplan-guard-status.ts holds the same rule.
 if [ "$SKILL_NAME" = "autoplan" ]; then
-  if [ "$_SESSION_KIND" = "unattended" ] || [ -z "${CLAUDECODE:-}" ] || { [ -n "${GSTACK_ACTIVE_HOST:-}" ] && [ "${GSTACK_ACTIVE_HOST:-}" != "claude" ]; }; then
+  if [ -n "${CLAUDECODE:-}" ] && { [ -z "${GSTACK_ACTIVE_HOST:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = "claude" ]; } &&
+     awk 'NR == 1 { if ($0 !~ /^---\r?$/) exit 1; next } /^---\r?$/ { exit found ? 0 : 1 } /autoplan\/bin\/phase-publication-hook/ { found = 1 } END { exit found ? 0 : 1 }' "$(dirname "$_BIN")/autoplan/SKILL.md" 2>/dev/null; then
+    echo "autoplan guard: enforced by Claude Code's /autoplan hook at phase Reads and reviewer dispatch; publish each phase report as visible message text, not reasoning, before the next phase (GUARD_ENFORCED)"
+  else
     echo "autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)"
   fi
 fi

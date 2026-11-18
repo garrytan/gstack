@@ -439,6 +439,7 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    GUARD_ENFORCED) printf '%s' 'guard-enforced' ;;
     CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;
     CEO_ONLY_NO_GATE) printf '%s' 'ceo-only-no-gate' ;;

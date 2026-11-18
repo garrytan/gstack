@@ -471,7 +471,15 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
   if (current) verifyCloseEdits(entered, closeOrder, init, cwd);
   const reports = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
     autoplanPhaseCompletions({ status: 'ready', calls: [], assistantMessages: [e] }, 0).some(hit => hit.phase === number[phase]));
-  if (!reports.length) fail('publication_missing', { phase: number[phase] });
+  if (!reports.length) {
+    // A no-op publish whose message carries no visible text published nothing:
+    // its report went into reasoning, which the journal never shows (GST-3062).
+    const noops = entered.filter(e => e.kind === 'use' && e.order > closeOrder && e.name === 'Bash' &&
+      typeof e.input?.command === 'string' && /^\s*true\s+autoplan-published\b/.test(e.input.command));
+    if (noops.length && !noops.some(use => entered.some(e => e.kind === 'message' && sameMessage(e, use))))
+      fail('publication_not_visible', { phase: number[phase] });
+    fail('publication_missing', { phase: number[phase] });
+  }
   if (!flush) return;
   // Text in the same assistant message as a guarded call can be invisible to
   // PreToolUse. A report counts only when it is outside the journaled current

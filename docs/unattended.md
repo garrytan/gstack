@@ -47,12 +47,15 @@ it, so `headless` keeps its BLOCK semantics.
   `timing: analytics skipped (...)` instead of writing to a disk that vanishes.
   Point `GSTACK_STATE_ROOT` at a durable directory when you want cross-run
   history (see [state-root.md](state-root.md)).
-- **The autoplan publication guard is named, not faked.** On hosts that do not
-  execute Claude Code hooks, and in every unattended session, `gstack-skill-start`
-  prints `autoplan guard: not enforced by this host; publication order is
-  unverified (GUARD_NOT_INSTALLED)` once. `gstack-artifact validate` requires
-  that line in an unattended run's `review-record.md`. Claude Code's
-  deny-on-absent behavior is unchanged.
+- **The autoplan publication guard is named, not faked.** `gstack-skill-start`
+  prints one guard line for /autoplan, chosen by host, not by session kind. On
+  Claude Code with the hook declared in `autoplan/SKILL.md` it prints
+  `autoplan guard: enforced by Claude Code's /autoplan hook ... (GUARD_ENFORCED)`,
+  because the hook denies phase entry there in unattended sessions too. On hosts
+  that do not execute Claude Code hooks it prints `autoplan guard: not enforced
+  by this host; publication order is unverified (GUARD_NOT_INSTALLED)`.
+  `gstack-artifact validate` requires one of the two in an unattended run's
+  `review-record.md`. Claude Code's deny-on-absent behavior is unchanged.
 
 An unknown `GSTACK_SESSION_KIND` value coerces to `interactive` and says so:
 `SESSION_KIND: interactive (unknown kind '<x>')`.

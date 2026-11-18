@@ -3495,14 +3495,31 @@ keep the line in the review record.
 ### `autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)`
 
 **Meaning.** The autoplan publication hook only executes inside Claude Code.
-On every other host, and in every `unattended` session, the hook is present
-but never runs, so phase publication order rests on the snapshot hashes
-recorded per phase rather than on the guard.
+On every other host (Capy, Codex and the other env-var hosts), or when the
+installed `autoplan/SKILL.md` does not declare the hook, it never runs, so
+phase publication order rests on the snapshot hashes recorded per phase
+rather than on the guard.
 
 **Fix.** Nothing on this host. The line is printed once per run and belongs
-in the review record; `gstack-artifact validate` requires it for an
-unattended run. On Claude Code a *missing* hook file still denies every
-guarded call (a broken install must not pass as an absent one).
+in the review record; `gstack-artifact validate` requires it (or
+`GUARD_ENFORCED`) for an unattended run. On Claude Code a *missing* hook file
+still denies every guarded call (a broken install must not pass as an absent one).
+
+<a id="guard-enforced"></a>
+### `autoplan guard: enforced by Claude Code's /autoplan hook ... (GUARD_ENFORCED)`
+
+**Meaning.** `gstack-skill-start` runs inside Claude Code (`CLAUDECODE` is set
+and no other host is active) and the installed `autoplan/SKILL.md` declares
+the publication hook. Claude Code runs that hook whenever `/autoplan` was
+started as a skill (the slash command or the Skill tool), in an unattended
+session too: a phase-entry Read or reviewer dispatch is denied until the
+previous phase's report is published. A session that only reads SKILL.md
+with the Read tool does not register skill hooks.
+
+**Fix.** Nothing to change. Publish each phase report as visible message text
+(not reasoning) in a message whose only tool call is
+`true autoplan-published <phase>`; the denial codes are in
+[autoplan-guard-troubleshooting.md](autoplan-guard-troubleshooting.md).
 
 <a id="review-status-mismatch"></a>
 ### `review-log: status mismatch ... (REVIEW_STATUS_MISMATCH)`

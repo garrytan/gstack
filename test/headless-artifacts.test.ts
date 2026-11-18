@@ -14,6 +14,7 @@ import {
   renderUrgentBlock, urgentBlockPrecedes, validateRun, validateFile,
 } from '../lib/headless-artifacts';
 import { RESULT_CODES } from '../lib/result-codes';
+import { GUARD_ENFORCED_LINE } from '../lib/autoplan-guard-status';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-artifact');
@@ -184,6 +185,21 @@ describe('validate fails on', () => {
     expect(r.err).toMatch(/\(ARTIFACT_SCHEMA\)\n/);
     expect(r.err).toContain('; fix: ');
     expect(r.out.trim()).toBe('ARTIFACT_INVALID: 1 error(s)');
+  });
+
+  test('an unattended run whose review-record.md lacks its guard line; GUARD_ENFORCED counts as one (GST-3062)', () => {
+    const enforced = copyRun((m, dir) => {
+      m.session_kind = 'unattended';
+      fs.writeFileSync(path.join(dir, 'review-record.md'), `# Review record\nDeviation: ${GUARD_ENFORCED_LINE}\n`);
+      m.artifacts['review-record.md'] = { path: 'review-record.md', sha256: sha(path.join(dir, 'review-record.md')) };
+    });
+    expect(codes(enforced)).toEqual([]);
+    const bareCode = copyRun((m, dir) => {
+      m.session_kind = 'unattended';
+      fs.writeFileSync(path.join(dir, 'review-record.md'), '# Review record\nThe GUARD_ENFORCED_LINE constant is defined in lib.\n');
+      m.artifacts['review-record.md'] = { path: 'review-record.md', sha256: sha(path.join(dir, 'review-record.md')) };
+    });
+    expect(codes(bareCode)).toEqual(['ARTIFACT_GUARD_LINE_MISSING']);
   });
 
   test('an unattended run whose review-record.md lacks the GUARD_NOT_INSTALLED line', () => {
