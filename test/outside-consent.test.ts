@@ -150,7 +150,7 @@ describe('gstack-claude-code', () => {
 describe('API sends: gstack-outside-voice and the unattended runner', () => {
   let server: ReturnType<typeof Bun.serve>;
   let requests = 0;
-  const REVIEW = '[P2] A finding.\n\nRecommendation: revise because the premise is unmeasured.\n';
+  const REVIEW = `INPUT: ceo ${'a'.repeat(64)}\n\n[P2] A finding.\n\nRecommendation: revise because the premise is unmeasured.\n\n\`\`\`gstack-findings\n\`\`\`\n`;
   beforeAll(() => {
     server = Bun.serve({ port: 0, fetch() { requests++; return Response.json({ model: 'gpt-6-astra', choices: [{ message: { content: REVIEW } }], usage: {} }); } });
   });

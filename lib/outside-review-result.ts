@@ -7,9 +7,11 @@
  * the highest finding severity, and the verdict. validateOutsideReview() is the
  * older text-only shape, kept for direct importers and stale rendered skills.
  */
+import { parseReviewResult } from './autoplan-reconcile';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from './gate-outcomes';
 
-export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal';
+/** autoplan: the INPUT receipt and gstack-findings fence that lib/autoplan-prompts.ts RESULT_FORMAT asks every plan reviewer for. */
+export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal' | 'autoplan';
 export type OutsideVerdict = 'clean' | 'findings' | 'unverified' | 'unavailable';
 export type Severity = 'P0' | 'P1' | 'P2' | 'P3';
 
@@ -132,6 +134,7 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
  * Critical and high block like P0/P1; medium and low are advisory like P2/P3.
  */
 const SEVERITY_WORDS: Record<string, Severity> = { critical: 'P0', high: 'P1', medium: 'P2', low: 'P3' };
+const AUTOPLAN_LEVEL: Record<string, Severity | undefined> = { Critical: 'P0', High: 'P1', Medium: 'P2', Low: 'P3' };
 const WORD = '(critical|high|medium|low)';
 const SEVERITY_LABELS = [
   new RegExp(`\\b(?:severity|priority)\\b[\\t ]*[:=][\\t ]*(?:\\*\\*|__|\\[|\`)*${WORD}\\b`, 'gim'),
@@ -264,6 +267,12 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   const blocking = findings.highest === 'P0' || findings.highest === 'P1';
   const result = (verdict: OutsideVerdict, reason?: GateReason, detail?: string): OutsideReviewClassification =>
     ({ execution: ran, findings, verdict, ...(reason ? { reason } : {}), ...(detail ? { detail } : {}) });
+  if (input.gate === 'autoplan') {
+    const parsed = parseReviewResult(input.text);
+    if (parsed.errors.length) return result('unavailable', 'missing_markers', `autoplan result: ${parsed.errors.join('; ')}`.slice(0, 240));
+    const highest = parsed.findings.map(f => AUTOPLAN_LEVEL[f.severity]).filter((s): s is Severity => !!s).sort()[0] ?? null;
+    return { execution: ran, findings: { highest }, verdict: highest === 'P0' || highest === 'P1' ? 'findings' : 'clean' };
+  }
   if (input.gate === 'spec') {
     const scores = [...input.text.matchAll(/^SCORE:[\t ]*(10|[0-9])[\t ]*\r?$/gm)];
     const ambiguities = [...input.text.matchAll(/^AMBIGUITIES:[\t ]*(\S[^\r\n]*)\r?$/gm)];
@@ -350,7 +359,7 @@ export function validateOutsideReview(text: string, gate: OutsideGate): { comple
 }
 
 const VERDICT_EXIT: Record<OutsideVerdict, number> = { clean: 0, findings: 3, unverified: 4, unavailable: 1 };
-const GATES = ['review', 'structured', 'spec', 'execution', 'proposal'];
+const GATES = ['review', 'structured', 'spec', 'execution', 'proposal', 'autoplan'];
 const USAGE = `Usage: outside-review-result.ts <gate> <response-file>
        outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--provider-error <file>] [--label <name>] <gate> <response-file>
 Gates: ${GATES.join('|')}. Two-argument form exits 0 completed, 1 unavailable, 2 usage.
