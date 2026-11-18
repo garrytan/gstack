@@ -766,7 +766,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
     if (body !== undefined) parts.push(["body", body]);
     const leaked = parts.flatMap(([, text]) => securityFingerprints(text));
     if (leaked.length) {
-      env.err(`gstack-post: refused, the text names security finding ${[...new Set(leaked)].join(", ")}. GitHub text is public: write the security finding as the redacted line gstack prints (security finding, details recorded privately) and keep its location and reason in the private record. Nothing was posted.\n`);
+      env.err(`gstack-post: refused, the text names security finding ${[...new Set(leaked)].join(", ")}. GitHub text is public: write the security finding as the redacted line gstack prints (security finding, details recorded privately) and keep its location and reason in the private record (docs/troubleshooting.md#security-finding-in-body). Nothing was posted.\n`);
       return EXIT.refused;
     }
 

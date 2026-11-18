@@ -310,7 +310,7 @@ function cmdWrite(rest: string[], json: boolean): number {
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
   const leaked = securityFingerprints(bodyText);
-  if (leaked.length) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} names security finding ${leaked.join(', ')}: a PR body is public, so a security finding appears only as the redacted line gstack-approvals rulings, dispositions or gstack-review-scope render prints, and its location and reason stay in the private record; nothing written`) + '\n'); return EXIT.fail; }
+  if (leaked.length) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} names security finding ${leaked.join(', ')}: a PR body is public, so a security finding appears only as the redacted line gstack-approvals rulings, dispositions or gstack-review-scope render prints, and its location and reason stay in the private record (docs/troubleshooting.md#security-finding-in-body); nothing written`) + '\n'); return EXIT.fail; }
   const ruledNotes = readRuledNotes(repoRoot);
   const unlisted = bodyFile ? ruledNotes.map(n => `Ruled note: ${ruledNoteText(n)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
   if (unlisted) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ruled note ${JSON.stringify(unlisted)} (gstack-approvals rulings prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }

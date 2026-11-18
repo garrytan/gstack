@@ -8,11 +8,13 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { renderRecord, type ApprovalRow, type ReadResult, type StoreLocation } from '../lib/approval-record';
 import { EXIT } from '../lib/headless-artifacts';
 import { gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
 import { EXIT as POST_EXIT, runPost, type PostEnv } from '../lib/gstack-post';
 import { deferredRecord, renderDeferredSection } from '../lib/review-scope';
-import { ruledNoteText, type RuledNote } from '../lib/ruled-notes';
+import { ruledNoteRow, ruledNoteText, type RuledNote } from '../lib/ruled-notes';
+import { securityFingerprints } from '../lib/security-findings';
 import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
@@ -131,5 +133,19 @@ describe('gstack-post', () => {
     expect([other.code, other.posted]).toEqual([POST_EXIT.posted, true]);
     expect(post('Left open: `src/x.ts:4:Auth`.\n').posted).toBe(false);
     expect(post('Moves the check into `crate::auth`.\n').posted).toBe(true);
+  });
+});
+
+// Value: protects=a private repository's full Approvals table (the one /ship puts in the PR body) shows a security ruling
+//   without its fingerprint or reason, so receipt write's guard does not refuse that standard body; fails_when=the full table
+//   prints the raw ask or scope of a security ruled_note row, or changes another row; seam=renderRecord full mode
+describe('the full approvals table', () => {
+  test('a security ruling row is redacted in full mode; another row prints as before', () => {
+    const row = (finding: string, reason: string): ApprovalRow => ({ schema_version: 1, id: 'a-0123456789ab', date: '2026-11-18', ...ruledNoteRow(finding, HEAD, reason), words: 'note it', by: 'Fixture Owner', outcome: 'approved', pending: '', source: '', branch: 'feat', recorded_at: '2026-11-18T00:00:00Z' } as ApprovalRow);
+    const read = { rows: [row(SEC, SECRET_REASON), row('src/x.ts:1:naming', 'naming ships as a note')], state: 'ok' } as unknown as ReadResult;
+    const out = renderRecord(read, { branch: 'feat', file: 'f' } as StoreLocation, { mode: 'full' });
+    expect([...leaks(out, 'src/net/retry.ts', SECRET_REASON), securityFingerprints(out)]).toEqual([false, false, []]);
+    expect(out).toContain(`ruled_note redacted at ${HEAD}: security finding, details recorded privately`);
+    expect(out).toContain(`ruled_note src/x.ts:1:naming at ${HEAD}: naming ships as a note`);
   });
 });
