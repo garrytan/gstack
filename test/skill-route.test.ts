@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PROMPT_MAX_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, SWITCH_DEFAULT, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
+import { PROMPT_HEAD_CHARS, PROMPT_TAIL_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, SWITCH_DEFAULT, firstStep, hintLine, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
 import { ROOT, ROUTE_HOOK, SKILLS, hookEnv, runHook, skillsDir, tmpDir } from './helpers/skill-contract-fixture';
 
 let state = '', skills = '';
@@ -46,12 +46,41 @@ describe('scorer', () => {
     expect(['fixes', 'failing', 'debugging', 'passes'].map(stem)).toEqual(['fix', 'fail', 'debug', 'pass']);
   });
 
-  test('threshold, weak single words, slash commands and long prompts', () => {
+  test('threshold, weak single words and slash commands', () => {
     expect(ROUTE_THRESHOLD).toBe(0.66);
     expect(routePrompt('what is the weather', fixtureSkills).route).toBeNull();
     expect(routePrompt('please review my diff', fixtureSkills)).toMatchObject({ route: null, reason: 'below-threshold' });
     expect(routePrompt('/verify fix this bug', fixtureSkills)).toMatchObject({ route: null, reason: 'slash-command' });
-    expect(routePrompt(`fix this bug ${'x'.repeat(PROMPT_MAX_CHARS)}`, fixtureSkills)).toMatchObject({ route: null, reason: 'prompt-too-long' });
+  });
+
+  test('a long prompt is scored on its head and tail windows, never skipped, and a paste between them is not scored', () => {
+    const log = (n: number) => 'log line '.repeat(n);
+    expect(routePrompt(`fix this bug ${log(2000)}`, fixtureSkills).route?.skill).toBe('verify');
+    expect(routePrompt(`${log(2000)} fix this bug`, fixtureSkills).route?.skill).toBe('verify');
+    const middle = `${'x '.repeat(PROMPT_HEAD_CHARS)}fix this bug ${'y '.repeat(PROMPT_TAIL_CHARS)}`;
+    expect(routePrompt(middle, fixtureSkills)).toMatchObject({ route: null, reason: 'below-threshold' });
+  });
+
+  test('a bug report routes on the words it uses for the defect; paths and identifiers never split into words', () => {
+    const bugfix = { name: 'verify', file: '', frontmatter: '', triggers: ['fix this bug'] };
+    for (const report of [
+      'Please fix: parse_one raises ValueError on window functions',
+      'Fix the crash when the config file is empty',
+      'the export is wrong after the upgrade, fix it',
+      'fix the failing upload: it fails with a traceback',
+    ]) expect(routePrompt(report, [bugfix]).route?.trigger).toBe('fix this bug');
+    const qa = { name: 'qa', file: '', frontmatter: '', triggers: ['test the site'] };
+    expect(routePrompt('test failed in /usr/lib/python3/site-packages/foo.py', [qa]).route).toBeNull();
+    expect(routePrompt('please test the site', [qa]).route?.skill).toBe('qa');
+  });
+
+  test('plain prompts that are not bug reports, reviews, QA or checks route nowhere', () => {
+    const bugfix = { name: 'verify', file: '', frontmatter: '', triggers: ['fix this bug', 'reproduce the bug in a test'] };
+    const routed = scanInstalledSkills(ROOT).skills.filter(s => ROUTED_SKILLS.includes(s.name));
+    expect(routed.map(s => s.name).sort()).toEqual(['qa', 'review', 'verify']);
+    const plain = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-plain-prompts.txt'), 'utf8').split('\n').filter(l => l && !l.startsWith('#'));
+    expect(plain.length).toBe(60);
+    expect(plain.filter(p => routePrompt(p, [bugfix, ...fixtureSkills, ...routed]).route)).toEqual([]);
   });
 
   test('only the three discovery targets route; another installed skill with a matching trigger does not', () => {
@@ -129,11 +158,11 @@ describe('skill-route hook', () => {
   test('error cases exit 0 with nothing on stdout or stderr, and count a failure', () => {
     expect(route('{not json')).toEqual(silent);
     expect(route('[1,2]')).toEqual(silent);
-    expect(route(prompt('x'.repeat(PROMPT_MAX_CHARS + 1) + ' fix this bug'))).toEqual(silent);
+    expect(route(prompt(`${'x '.repeat(6000)}fix this bug ${'y '.repeat(1000)}`))).toEqual(silent);
     expect(route(prompt('fix this bug ' + 'y'.repeat(300 * 1024)))).toEqual(silent);
     expect(route(JSON.stringify({ session_id: 'sess-r' }))).toEqual(silent);
     const log = traceLog();
-    for (const event of ['event=bad-json', 'reason=prompt-too-long', 'event=stdin-over-cap', 'event=no-prompt']) expect(log).toContain(event);
+    for (const event of ['event=bad-json', 'event=stdin-over-cap', 'event=no-prompt']) expect(log).toContain(event);
     expect(log).toContain('session=unknown event=stdin-over-cap cap=262144 failures=3');
     expect(log).toContain('session=sess-r event=no-prompt failures=2');
   });

@@ -528,7 +528,7 @@ function shellRegistry(opts: RegisterOptions, fn: string, args: string[]): boole
   return sourcedBash(opts.checkout, 'gstack-install-registry.sh', fn, args, opts.stateRoot, opts.env).status === 0;
 }
 
-interface HookPlan { on: boolean; prevOn: boolean; explicit: boolean; retry: boolean; profile: string; root: string; files: Map<string, Buffer>; note?: string; fix?: string; requested?: boolean }
+interface HookPlan { on: boolean; prevOn: boolean; explicit: boolean; byDefault: boolean; by?: string; retry: boolean; profile: string; root: string; files: Map<string, Buffer>; note?: string; fix?: string; requested?: boolean }
 
 /** The start hook for this run: whether it is on, where it goes, and its files (null for targets without a hook). */
 function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): HookPlan | null {
@@ -537,29 +537,32 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
     if (opts.startHook) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', t.displayName + ' has no start hook');
     return null;
   }
-  const choice = hookChoice(opts.startHook, opts.env, opts.stateRoot, prev?.meta.start_hook);
+  const choice = hookChoice(opts.startHook, opts.env, opts.stateRoot, prev ? prev.meta.start_hook ?? 'off' : undefined, prev?.meta.start_hook_by);
   if ('invalid' in choice) throw new HarnessError('HARNESS_HOOK_CHOICE_INVALID', choice.invalid + ' is not on or off');
   const prevOn = prev?.meta.start_hook === 'on' && !!prev.meta.hook_root && !!prev.meta.hook_profile;
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
   const root = hookRoot(t.name, profile);
-  const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
+  const keptOld = choice.source === 'ledger' && !choice.on && !prev?.meta.start_hook_by;
+  const by = choice.on || choice.source === 'default' ? undefined : choice.source === 'ledger' ? prev?.meta.start_hook_by ?? 'before-default' : choice.source;
+  const note = keptOld ? 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register ' + t.name + ' --start-hook' : undefined;
+  const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', byDefault: choice.source === 'default', by, note, retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
   const saved = prev?.meta.hook_root && prev.meta.hook_profile ? { profile: prev.meta.hook_profile, root: prev.meta.hook_root } : null;
   const name = t.name;
   const off = (p: HookPlan) => { if (saved) assertHookRoot(name, saved.profile, saved.root, saved.root, (code, msg) => { throw new HarnessError(code, msg); }); return p; };
   if (!choice.on) return off(plan);
-  const requested = !opts.inherit;
+  const requested = !opts.inherit && choice.source !== 'default';
   const foreign = t.name === 'openclaw' ? foreignOpenclawConfig(opts.env, profile) : '';
   const [why, fix] = dest !== profileSkills(t.name, profile) ? ['this registration uses another skills folder (' + dest + ')', 'register without --skills-dir to get the hook, or pass --no-start-hook to keep this registration without it']
     : foreign ? ['OPENCLAW_CONFIG_PATH points OpenClaw at ' + foreign + ', outside that profile', 'unset OPENCLAW_CONFIG_PATH or set it to ' + hookConfig('openclaw', profile) + ', then register again'] : ['', ''];
   if (why && (plan.explicit || !prevOn)) {
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
-    return off({ ...plan, on: false, requested, fix, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' });
+    return off({ ...plan, on: false, by: 'refused', requested, fix, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' });
   }
   try {
     assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
   } catch (e) {
     if (plan.explicit || prevOn || !(e instanceof HarnessError)) throw e;
-    return off({ ...plan, on: false, requested, fix: HARNESS_CODES[e.code].fix, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook)' });
+    return off({ ...plan, on: false, by: 'refused', requested, fix: HARNESS_CODES[e.code].fix, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook)' });
   }
   return { ...plan, files: hookFiles(t.name, root) };
 }
@@ -577,7 +580,10 @@ function finishHook(opts: RegisterOptions, hook: HookPlan | null, released: stri
   }
   const failed = activateHook(t, hook.profile, opts.env, opts.home);
   const r = inspectHook(t, hook.profile, opts.env, opts.home);
-  return { ...r, ...(failed && r.state !== 'active' && !r.detail?.startsWith(failed) ? { detail: failed + (r.detail ? '; ' + r.detail : '') } : {}), profile: hook.profile, root: hook.root, required, retried: !required };
+  const fatal = required && !hook.byDefault;
+  const detail = [hook.byDefault && !hook.prevOn ? 'on by default; turn it off: gstack-harness register ' + t + ' --no-start-hook, or gstack-config set harness_start_hook off' : '',
+    failed && r.state !== 'active' && !r.detail?.startsWith(failed) ? failed : '', r.detail ?? ''].filter(Boolean).join('; ');
+  return { ...r, ...(detail ? { detail } : {}), profile: hook.profile, root: hook.root, required: fatal, retried: !fatal };
 }
 
 export function register(opts: RegisterOptions): RegisterResult {
@@ -641,7 +647,7 @@ export function register(opts: RegisterOptions): RegisterResult {
       && (prev.meta.context ?? '') === context && prev.blocks.length === blocks.length
       && blocks.every(b => prev.blocks.some(p => p.path === b.path && p.sha === b.sha && p.pad === b.pad))
       && want.every(w => prevFiles.get(w.path) === w.sha && onDiskSha(w.path) === w.sha)
-      && (!hook || (prev.meta.start_hook ?? 'off') === (hook.on ? 'on' : 'off'));
+      && (!hook || ((prev.meta.start_hook ?? 'off') === (hook.on ? 'on' : 'off') && (prev.meta.start_hook_by ?? '') === (hook.by ?? '')));
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const kept: string[] = [];
     let written = 0;
@@ -651,7 +657,7 @@ export function register(opts: RegisterOptions): RegisterResult {
       for (const p of files.keys()) for (let d = path.dirname(p); !fs.existsSync(d) && path.dirname(d) !== d; d = path.dirname(d)) dirs.add(d);
       const record = (recorded: typeof want, final: boolean) => writeLedger(lfile, {
         meta: { id, target: t.name, dest, mode, checkout: opts.checkout, version: opts.version, names: visible.join(','), ...(router ? { router } : {}), ...(context ? { context } : {}),
-          ...(hook ? { start_hook: hook.on ? 'on' : 'off' } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(!hook.prevOn || hook.explicit ? { hook_active: 'no' } : prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : !final && prev?.meta.hook_root ? { hook_profile: prev.meta.hook_profile, hook_root: prev.meta.hook_root } : {}) },
+          ...(hook ? { start_hook: hook.on ? 'on' : 'off', ...(hook.by ? { start_hook_by: hook.by } : {}) } : {}), ...(hook?.on ? { hook_profile: hook.profile, hook_root: hook.root, ...(!hook.prevOn || hook.explicit ? { hook_active: 'no' } : prev?.meta.hook_active ? { hook_active: prev.meta.hook_active } : {}) } : !final && prev?.meta.hook_root ? { hook_profile: prev.meta.hook_profile, hook_root: prev.meta.hook_root } : {}) },
         files: recorded, dirs: [...dirs].sort((a, b) => b.length - a.length), blocks,
       });
       record([...want, ...(prev?.files ?? []).filter(f => !files.has(f.path))], false);
