@@ -298,6 +298,11 @@ describe('outside-voice dispatch contract', () => {
       {
         expectMentions(output, [['without', 'unavailable', 'launching']], 'output');
         expectMentions(output, [['do not', 'completed', 'reviewer']], 'output');
+        if (host.name === 'codex') {
+          expect(output).toContain('Codex offers no read-only Plan subagent type');
+          expect(output).not.toMatch(/TaskStop|run_in_background|subagent_type/);
+          continue;
+        }
         expect(output, host.name).toContain('Do not set a model\noverride');
         expect(hasBoundedOutsideVoiceWait(output), host.name).toBe(true);
       }

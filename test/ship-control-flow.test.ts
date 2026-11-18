@@ -154,7 +154,7 @@ describe('ship source controller', () => {
   });
 
   test('shared foreground dispatch stays mandatory at all three owned dispatch sites', () => {
-    const coverage = read('ship/sections/test-coverage.md.tmpl');
+    const coverage = read('ship/sections/test-coverage.md');
     const shared = coverage.indexOf('### Shared subagent dispatch');
     expect(shared).toBeGreaterThan(0);
     expect(shared).toBeLessThan(coverage.indexOf('Dispatch the audit through Agent'));
@@ -164,7 +164,7 @@ describe('ship source controller', () => {
     for (const section of ['test-coverage', 'plan-completion', 'greptile']) {
       const text = read(`ship/sections/${section}.md.tmpl`);
       expect(text).toContain('shared foreground-dispatch rule');
-      expect(text).toContain('run_in_background: false');
+      expect(read(`ship/sections/${section}.md`)).toContain('run_in_background: false');
       expect(text).not.toContain('{{FOREGROUND_DISPATCH_NOTE}}');
     }
     expect(entry).not.toContain('### Shared subagent dispatch');

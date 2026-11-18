@@ -29,7 +29,7 @@ slug (Claude Code) or cwd (Codex) and is not listed; the user can name it.
 ### Step T2: Read in subagents, keep only the findings
 
 Transcripts are large and private. Give each `TRANSCRIPT:` file, or a slice of
-them, to a cheap, fast subagent through the Agent tool (a plain Read when
+them, to a cheap, fast subagent through {{SUBAGENT_DISPATCH:tool}} (a plain Read when
 there are only one or two short files), all with the same brief, and let only
 the findings return to this conversation:
 

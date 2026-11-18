@@ -238,5 +238,37 @@ export const FOREGROUND_IF_AVAILABLE = '`run_in_background: false` when availabl
 /** The recovery when a requested foreground dispatch still ran in the background. */
 export const BACKGROUND_RECOVERY = 'A launch receipt means it went background: await its completion notice.';
 
+const DISPATCH_ISOLATION = 'invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)';
+
 export const FOREGROUND_DISPATCH_NOTE =
-  `**Foreground required:** pass ${FOREGROUND_IF_AVAILABLE} on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting an available flag gives a background run. ${BACKGROUND_RECOVERY} Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.)`;
+  `**Foreground required:** pass ${FOREGROUND_IF_AVAILABLE} on the Agent call — subagents run in the background by default since ${CC_BACKGROUND_DEFAULT_SINCE}, so omitting an available flag gives a background run. ${BACKGROUND_RECOVERY} Dispatch through the Agent tool only: ${DISPATCH_ISOLATION}`;
+
+/**
+ * Codex's own subagent lifecycle (#4476). Codex has no Agent tool, subagent types,
+ * run_in_background or TaskStop: it starts a child with spawn_agent and blocks on
+ * wait_agent. Every dispatch site renders this on Codex instead of the Claude Code call.
+ */
+export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (a fresh context: `fork_turns: \"none\"` where offered), then `wait_agent` until that agent reports a final status. Its final message is the result; a `wait_agent` timeout is not a result, so wait again unless the step sets a deadline. A session with no `spawn_agent` has multi-agent off (`multi_agent = true` under `[features]` in `~/.codex/config.toml`), and the dispatch has failed";
+
+export function foregroundDispatchNote(host: string): string {
+  return host === 'codex'
+    ? `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only: ${DISPATCH_ISOLATION}`
+    : FOREGROUND_DISPATCH_NOTE;
+}
+
+/**
+ * {{SUBAGENT_DISPATCH[:variant]}}: a template's subagent call for the rendering host.
+ * Claude Code (and every other host) keeps the Agent tool's fields; Codex gets
+ * spawn_agent and wait_agent. Variants: call (default), rule (/ship Step 7's shared
+ * rule), autoplan (a phase's native voice) and tool (the tool's name alone).
+ */
+export function generateSubagentDispatch(host: string, variant = 'call'): string {
+  const codex = host === 'codex';
+  switch (variant) {
+    case 'call': return codex ? "Codex's `spawn_agent`, then `wait_agent`" : 'Agent with `subagent_type: "general-purpose"` and `run_in_background: false`';
+    case 'rule': return codex ? `start each subagent with ${CODEX_SUBAGENT_DISPATCH}.` : 'use the Agent tool with `run_in_background: false`.\nOmitting the flag runs the subagent in the background. The explicit flag waits\nfor a result while keeping a fresh context.';
+    case 'autoplan': return codex ? `Start it with ${CODEX_SUBAGENT_DISPATCH}. That \`spawn_agent\` and \`wait_agent\` pair is the one dispatch call below, and its message is the Agent prompt.` : 'Claude Code: set Agent `run_in_background: false` if its schema exposes it.\n  A launch receipt means it went background: await its completion notice.\n  Other hosts: foreground; await completion when supported.';
+    case 'tool': return codex ? "Codex's `spawn_agent` and `wait_agent`" : 'the Agent tool';
+    default: throw new Error(`SUBAGENT_DISPATCH: unknown variant ${variant}`);
+  }
+}
