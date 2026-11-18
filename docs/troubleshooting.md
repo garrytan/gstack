@@ -68,6 +68,12 @@ custom endpoint or partner platform. A public API catalog identifier is not
 necessarily a valid deployment identifier there. Malformed native provider
 configuration also prevents gstack from assuming the public endpoint.
 
+A custom Codex provider whose `config.toml` `model` is exactly the selected
+tier's catalog ID is used as is. The refusal prints
+`CODEX_MODEL_POLICY: custom_provider_requires_model` when `config.toml` names
+no model, and `CODEX_MODEL_POLICY: custom_provider_model_not_tier` when it names
+a different one.
+
 **Fix.** Supply a compatible model for that request, set the provider's gstack
 environment override or tier-model setting, or choose
 `gstack-config set plan_review_tier host`. Keep credentials in the provider's

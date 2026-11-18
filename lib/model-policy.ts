@@ -56,6 +56,7 @@ export type ModelPolicyReason =
   | 'invalid_implementation_tier'
   | 'invalid_model_id'
   | 'custom_provider_requires_model'
+  | 'custom_provider_model_not_tier'
   | 'native_provider_unresolved'
   | 'provider_required';
 
@@ -64,6 +65,7 @@ export type SelectionSource =
   | { kind: 'env'; name: (typeof PROVIDER_ENV_OVERRIDES)[ModelProvider]; label: string }
   | { kind: 'config'; key: PolicyConfigKey; path: string; label: string }
   | { kind: 'catalog'; catalogVersion: typeof MODEL_CATALOG_VERSION; verifiedAt: string; sourceUrl: string; label: string }
+  | { kind: 'native'; label: string }
   | { kind: 'host'; reason: 'host-mode'; key: 'plan_review_tier'; label: string };
 
 export interface ModelPolicyErrorJson {
@@ -528,6 +530,8 @@ export function resolvePlanReviewModel(opts: {
   claudeManagedDir?: string;
   codexSystemConfig?: string | null;
   config?: ModelPolicyConfig;
+  /** The model the provider's own settings name (Codex config.toml), read only once custom routing is detected. */
+  nativeModel?: () => { model: string; label: string } | null;
 }): ModelSelection {
   const env = opts.env ?? process.env;
   const platform = opts.platform ?? process.platform;
@@ -562,6 +566,21 @@ export function resolvePlanReviewModel(opts: {
   const entry = catalogEntry(provider, tier);
   const custom = detectCustomProvider(provider, { ...opts, env, platform });
   if (custom.custom) {
+    const native = opts.nativeModel?.() ?? null;
+    if (native?.model === entry.model) {
+      return { ...base, status: 'selected', requestedModel: native.model, source: { kind: 'native', label: native.label } };
+    }
+    if (native) {
+      throw new ModelPolicyError({
+        reason: 'custom_provider_model_not_tier',
+        problem: `your custom ${PROVIDER_LABEL[provider]} endpoint is set to '${sanitize(native.model)}' (${sanitize(native.label)}), which is not gstack's ${tier} plan-review model ${entry.model}`,
+        cause: `custom routing is active (${custom.signals.join(', ')}); gstack takes the endpoint's own model for plan review only when it is the ${tier} catalog ID, because any other name could be any model`,
+        key: native.label,
+        source: 'native',
+        repair: [`gstack-config set ${overrideKey} <model-id-your-endpoint-serves>`, `export ${envName}=<model-id-your-endpoint-serves>`, 'gstack-config set plan_review_tier host'],
+        docs: DOCS_PROVIDER,
+      });
+    }
     throw new ModelPolicyError({
       reason: 'custom_provider_requires_model',
       problem: `no ${tier} plan-review model is set for your custom ${PROVIDER_LABEL[provider]} endpoint`,
@@ -654,6 +673,7 @@ export function selectionRepair(selection: ModelSelection): string[] {
   if (source.kind === 'request') return ['name a different model for this request, or omit it to use the configured policy'];
   if (source.kind === 'env') return [`unset ${source.name}`, `export ${source.name}=<model-id>`];
   if (source.kind === 'config') return [`gstack-config set ${source.key} <model-id>`, `gstack-config unset ${source.key}`];
+  if (source.kind === 'native') return [`change ${source.label}`, `gstack-config set ${MODEL_OVERRIDE_KEYS[provider][selection.tier as ModelTier]} <model-id>`, 'gstack-config set plan_review_tier host'];
   const tierKey = selection.role === 'plan-review' ? 'plan_review_tier' : 'implementation_tier';
   if (source.kind === 'host') {
     const native = provider === 'anthropic' ? 'choose the model in Claude Code settings' : 'set model in ${CODEX_HOME:-~/.codex}/config.toml';

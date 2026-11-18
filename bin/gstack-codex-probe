@@ -5,7 +5,9 @@
 # went before, and sets nothing in the caller's shell.
 #
 # Subcommands (each wraps one function below):
-#   select-model <exec|review> [--model <id>]  CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#   select-model <exec|review> [--model <id>] [--role plan-review]
+#                                              CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#                                              (--role: role-ready's selection, without its checks)
 #   check-effort <default-effort> [--request <level>]
 #                                              CODEX_EFFORT:; exit 0, or 1 on an invalid setting
 #   check-auth                                 exit 0 authed, 1 not
@@ -892,7 +894,9 @@ _gstack_codex_effort_check() {
 _gstack_codex_usage() {
   printf '%s\n' \
     'Usage: gstack-codex-probe <subcommand> [args]' \
-    '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  select-model <exec|review> [--model <id>] [--role plan-review]' \
+    '                                             print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1;' \
+    '                                             --role selects as role-ready does, without its checks' \
     '  check-effort <default-effort> [--request <level>]' \
     '                                             the request level, else GSTACK_CODEX_EFFORT, else codex_effort,' \
     '                                             else the default; print CODEX_EFFORT:; exit 0, 1 on an invalid setting' \
@@ -930,17 +934,22 @@ _gstack_codex_kind_args() {
   fi
 }
 
-# Parses "<exec|review> [--model <id>] [--cwd <dir>]" for role-ready.
+# Parses "<exec|review> [--model <id>] [--cwd <dir>]" for role-ready, and
+# "<exec|review> [--model <id>] [--role plan-review]" for select-model ($1 = select).
 _gstack_codex_role_args() {
+  local _for="$1"
+  shift
   _GSTACK_CODEX_ARG_KIND="${1:-}"
   _GSTACK_CODEX_ARG_MODEL=""
   _GSTACK_CODEX_ARG_CWD=""
+  _GSTACK_CODEX_ARG_ROLE=""
   case "$_GSTACK_CODEX_ARG_KIND" in exec|review) shift ;; *) return 64 ;; esac
   while [ "$#" -gt 0 ]; do
     { [ "$#" -ge 2 ] && [ -n "$2" ]; } || return 64
-    case "$1" in
-      --model) _GSTACK_CODEX_ARG_MODEL="$2" ;;
-      --cwd) _GSTACK_CODEX_ARG_CWD="$2" ;;
+    case "$_for:$1" in
+      *:--model) _GSTACK_CODEX_ARG_MODEL="$2" ;;
+      ready:--cwd) _GSTACK_CODEX_ARG_CWD="$2" ;;
+      select:--role) [ "$2" = plan-review ] || return 64; _GSTACK_CODEX_ARG_ROLE="$2" ;;
       *) return 64 ;;
     esac
     shift 2
@@ -958,8 +967,8 @@ _gstack_codex_main() {
   case "$_cmd" in
     help|-h|--help) _gstack_codex_usage ;;
     select-model)
-      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
-      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" || return 1
+      _gstack_codex_role_args select "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" "$_GSTACK_CODEX_ARG_ROLE" || return 1
       printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
     check-effort)
       { [ "$#" -eq 1 ] || { [ "$#" -eq 3 ] && [ "$2" = "--request" ]; }; } || { _gstack_codex_usage >&2; return 64; }
@@ -992,7 +1001,7 @@ _gstack_codex_main() {
       esac
       return "$_rc" ;;
     role-ready)
-      _gstack_codex_role_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_role_args ready "$@" || { _gstack_codex_usage >&2; return 64; }
       _gstack_codex_role_ready "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_CWD" "$_GSTACK_CODEX_ARG_MODEL" >&2
       _rc=$?
       [ "$_rc" -eq 0 ] || return "$_rc"
