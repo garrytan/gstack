@@ -1733,6 +1733,27 @@ Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
 
+<a id="security-findings-stay-private"></a>
+**Security findings stay private (GST-3076).** A PR body keeps every earlier
+version in its edit history, and a ruled, dispositioned, deferred or noted
+security finding is often a live exposure outside the PR's change. So every line
+gstack renders for a finding whose category is `security`, `auth`, `secret` or
+`red-team` (by its category, its reviewer or its `path:line:category`
+fingerprint) names no location and no reason: a ruling prints
+`Ruled note: redacted at <head12> ruled by <who> at <time>: security finding,
+details recorded privately (approval <id>)`, a gate disposition drops its owner
+words the same way, and `gstack-review-scope render` lists a deferred finding or
+review note as `` `sf-<id>` security finding, details recorded privately ``. The
+receipt's `ruled_notes` and `gate_dispositions` hold the same redacted form. The
+fingerprint and reason stay in the private approval record (`gstack-approvals
+list`, mirrored to Drive on Capy) and in the local deferred and classified
+files. This holds on every repository, whatever its visibility: these lines are
+compared word for word at receipt write and at land, so they cannot depend on a
+visibility lookup that can fail or change, and a private repository can go
+public with its PR history. As a backstop, `gstack-ship-receipt write` refuses a
+`--body` and `gstack-post` refuses any text that names a raw security
+fingerprint such as `src/x.ts:12:security`. Other findings print as before.
+
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened
 gate the review logged with a `gate` tag and the hunk identity `gate_id`). In an

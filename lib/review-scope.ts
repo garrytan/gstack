@@ -17,6 +17,7 @@
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
 import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
+import { isSecurityFinding, opaqueFindingId, REDACTED_REASON } from './security-findings';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -250,25 +251,30 @@ function findingText(f: ScopeFinding): string {
   return oneLine(f.summary ?? f.problem ?? f.category ?? 'review finding');
 }
 
-export interface DeferredRecord { fingerprint: string; path: string; severity: string; stated?: string; summary: string }
+export interface DeferredRecord { fingerprint: string; path: string; severity: string; stated?: string; summary: string; security?: true }
 
 /** The PR's record of a deferred finding: `severity` stays the collected label, `stated` carries what the reviewer wrote beside it. */
 export function deferredRecord(f: ScopedFinding): DeferredRecord {
   const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
-  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), ...(said.length ? { stated: said.join(', ') } : {}), summary: String(f.summary ?? f.problem ?? f.category ?? '') };
+  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), ...(said.length ? { stated: said.join(', ') } : {}), summary: String(f.summary ?? f.problem ?? f.category ?? ''), ...(isSecurityFinding(f) ? { security: true as const } : {}) };
 }
 
-/** The PR-body section for deferred findings, which stay on the PR: no issue is filed and no closing keyword is written. Only `frozen` defers. */
+/**
+ * The PR-body section for deferred findings, which stay on the PR: no issue is filed and no closing keyword is written. Only `frozen` defers.
+ * A security-class finding lists only an opaque id and lib/security-findings.ts's REDACTED_REASON; its path and summary stay in the local
+ * deferred and classified files (GST-3076).
+ */
 export function renderDeferredSection(deferred: readonly DeferredRecord[], noted: readonly ScopeFinding[] = []): string {
   const out: string[] = [];
   if (deferred.length) {
     out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen). They stay on this PR and are not filed as issues.', '');
-    for (const d of deferred) out.push(`- Deferred: ${oneLine(d.severity)}${d.stated ? ` (the reviewer wrote ${oneLine(d.stated)})` : ''} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
+    for (const d of deferred) out.push(d.security || isSecurityFinding(d) ? `- Deferred: ${oneLine(d.severity)} \`${opaqueFindingId(d.fingerprint, d.summary)}\` ${REDACTED_REASON}`
+      : `- Deferred: ${oneLine(d.severity)}${d.stated ? ` (the reviewer wrote ${oneLine(d.stated)})` : ''} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
     out.push('');
   }
   if (noted.length) {
     out.push('## Review notes', '', 'Below the blocking floor (advisory, informational, test-gap or wording items); recorded here and not fixed in this PR.', '');
-    for (const n of noted) out.push(`- ${oneLine(n.severity ?? 'INFORMATIONAL')}${n.advisory ? ' [ADVISORY]' : ''} \`${findingWhere(n)}\` ${findingText(n)}`);
+    for (const n of noted) out.push(`- ${oneLine(n.severity ?? 'INFORMATIONAL')}${n.advisory ? ' [ADVISORY]' : ''} ${isSecurityFinding(n) ? `\`${opaqueFindingId(findingIdentity(n), findingText(n))}\` ${REDACTED_REASON}` : `\`${findingWhere(n)}\` ${findingText(n)}`}`);
     out.push('');
   }
   return out.join('\n');

@@ -1,0 +1,4 @@
+{
+  "bytes": 383,
+  "why": "pr-body: security findings never appear in the PR body by path, line or reason (GST-3076)"
+}

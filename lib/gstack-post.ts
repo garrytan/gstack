@@ -21,7 +21,7 @@
  * plain-title policy (lib/plain-title.ts); a refused title posts nothing.
  * The scan runs on the merged bytes, which are the bytes sent.
  *
- * Exit codes: 0 posted; 1 HIGH finding (or oversize input) refused;
+ * Exit codes: 0 posted; 1 HIGH finding, a raw security finding fingerprint (GST-3076) or oversize input refused;
  * 2 MEDIUM findings need confirmation, printed as `RULE:` lines plus a
  * `TOKEN:` that binds the bytes, destination, operation and findings;
  * 3 `gh`/`glab` failed; 4 the title breaks the plain-title policy, printed as
@@ -41,6 +41,7 @@ import type { ShipReceipt } from "./headless-artifacts";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
+import { securityFingerprints } from "./security-findings";
 
 export const OPS = ["pr-comment", "issue-comment", "reply", "pr-title", "pr-body", "pr-create", "issue-create", "fold"] as const;
 export type Op = (typeof OPS)[number];
@@ -83,7 +84,7 @@ export const USAGE = `usage: gstack-post <op> [<target>] [options]
   pr-title and pr-create check the title against ${PLAIN_TITLE_POLICY_PATH}
   (gstack-plain-title) first; a repository without that file is not checked.
 
-  Exit: 0 posted · 1 HIGH finding refused · 2 MEDIUM findings need
+  Exit: 0 posted · 1 HIGH finding or security fingerprint refused · 2 MEDIUM findings need
   confirmation (RULE:/TOKEN: lines on stdout) · 3 gh/glab failed ·
   4 the title is not plain words (PLAIN_TITLE: lines; rewrite the title file)
   or the body breaks the shape (PLAIN_BODY: lines; rewrite the body file), or
@@ -763,6 +764,11 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
     const parts: Array<[Part, string]> = [];
     if (title !== undefined) parts.push(["title", title]);
     if (body !== undefined) parts.push(["body", body]);
+    const leaked = parts.flatMap(([, text]) => securityFingerprints(text));
+    if (leaked.length) {
+      env.err(`gstack-post: refused, the text names security finding ${[...new Set(leaked)].join(", ")}. GitHub text is public: write the security finding as the redacted line gstack prints (security finding, details recorded privately) and keep its location and reason in the private record (docs/troubleshooting.md#security-finding-in-body). Nothing was posted.\n`);
+      return EXIT.refused;
+    }
 
     const vis = visibility(env, req, remote.kind, configBin);
     const email = env.run("git", ["config", "user.email"]);

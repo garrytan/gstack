@@ -37,6 +37,7 @@ import { firstTitle } from './markdown-sections';
 import { scan, type Finding } from './redact-engine';
 import type { ResultCodeName } from './result-codes';
 import { resolveStateRoot } from './state-root';
+import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
 
 export const OUTCOMES = ['approved', 'rejected', 'pending', 'standing'] as const;
 export type Outcome = typeof OUTCOMES[number];
@@ -325,6 +326,14 @@ export function pathLabels(text: string): string {
   });
 }
 
+/** A ruled_note or gate_disposition row for a security-class finding, as the full table may show it: no fingerprint, reason or owner words (GST-3076). */
+function publicRow(r: ApprovalRow): ApprovalRow {
+  const fp = /^(?:ruled_note|gate_disposition) (\S+) /.exec(r.scope)?.[1];
+  if (!fp || !isSecurityFinding(fp)) return r;
+  const ask = r.ask.indexOf(': ') < 0 ? r.ask : r.ask.slice(0, r.ask.indexOf(': '));
+  return { ...r, ask: `${ask.replace(fp, REDACTED_FINDING)}: ${REDACTED_REASON}`, scope: r.scope.replace(fp, REDACTED_FINDING), words: REDACTED_WORDS };
+}
+
 export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?: boolean; mode?: 'full' | 'redacted' } = {}): string {
   const head = o.heading === false ? [] : ['## Approvals', ''];
   if (o.mode === 'redacted' && read.rows.length) {
@@ -335,7 +344,8 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
   if (read.state === 'unavailable') return [...head, `Record unavailable on this machine: no approval record for branch ${cell(loc.branch)} here, and the state root is ephemeral with no Drive mirror, so this is not proof that nothing was approved.`, ''].join('\n');
   if (!read.rows.length) return [...head, `No approvals recorded for branch ${cell(loc.branch)}.`, ''].join('\n');
   const lines = [APPROVALS_TABLE_HEADER, '|---|---|---|---|---|---|'];
-  for (const r of read.rows) {
+  for (const row of read.rows) {
+    const r = publicRow(row);
     const outcome = r.outcome === 'standing' ? 'standing approval' : r.outcome;
     lines.push(`| ${r.date} | ${cell(pathLabels(r.ask))} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(pathLabels(r.scope))} | ${cell(pathLabels(r.pending))} |`);
   }

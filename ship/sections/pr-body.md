@@ -127,6 +127,7 @@ with its ruler and reason; each `Gate disposition: …` line `gstack-approvals d
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
 kept finding's `gate`, path and `reason`, and each open finding's `gate` and path.
 Identity and reason only; no hunk text.>
+<A security finding (category security, auth, secret or red-team) never appears anywhere in the body by path, line or reason, and on the gate line above a security gate finding shows only its `gate`: use the redacted line gstack prints ("security finding, details recorded privately") and put the details in your private report (docs/ship-policy.md#security-findings-stay-private).>
 <Outside review: its verdict; `unverified` or `unavailable` is listed as missing coverage with its reason, never as passed.>
 
 <Step 9.4's saved `## Deferred findings` and `## Review notes` sections, verbatim, as their own
