@@ -416,7 +416,7 @@ redaction call, an import of a redaction or outside-voice module, a `SECRET` or 
 constant set to a regex, since that code decides what reaches an outside model, GST-1177; `shell: true`, `exec(` and `execSync(`, `eval`, `new Function(`,
 raw HTML sinks, a shell run through argv, recursive deletes), any call to an
 outbound HTTP client (`fetch`, `http(s).get` or `.request`, axios, got, undici,
-`requests`, `httpx`, urllib, with no exemption for a literal URL), `new URL` from
+`requests`, `httpx`, urllib, Swift's `URLSession`, `URLRequest(`, `NWConnection` and Alamofire, with no exemption for a literal URL), `new URL` from
 input, redirect toggles, proxy settings and host allowlists, archive extraction
 and path traversal (`tar.x`, adm-zip, yauzl, extract-zip, `extractall`, `tar -x`,
 `unzip`, `path.join` or `resolve` on request or entry input, a `'..'` check added
