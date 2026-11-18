@@ -132,7 +132,8 @@ class CodexCliRunner implements OutsideRunner {
     if (!avail.ok) return finish({ ...base, status: 'unavailable', exit: 1, reason: 'cli_missing', detail: avail.reason }, started);
     const probe = path.join(req.binDir ?? DEFAULT_BIN, 'gstack-codex-probe');
     if (req.model) env.GSTACK_CODEX_MODEL = req.model;
-    const select = Bun.spawnSync([probe, 'select-model', 'exec', ...(req.model ? ['--model', req.model] : [])], { cwd: req.cwd, env, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
+    const role = req.gate === 'autoplan' || req.gate === 'spec' ? ['--role', 'plan-review'] : [];
+    const select = Bun.spawnSync([probe, 'select-model', 'exec', ...(req.model ? ['--model', req.model] : []), ...role], { cwd: req.cwd, env, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
     const selOut = new TextDecoder().decode(select.stdout);
     const selected = /^CODEX_SEL: (.+)$/m.exec(selOut)?.[1]?.trim();
     const sandbox = /^CODEX_SANDBOX: (.+)$/m.exec(selOut)?.[1]?.trim();
