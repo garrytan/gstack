@@ -5,6 +5,9 @@
  * never authorizes a command. Keys:
  *
  *   runner        the test command with a `{files}` placeholder (default: detected)
+ *   runners       `{ when: [globs], runner, cwd? }`: the selected test files a
+ *                 rule's globs match run through its command (with `{files}`)
+ *                 from `cwd`, ahead of `runner` and detection; first match wins
  *   dependencies  glob → test files for subprocess targets, runtime reads and
  *                 generated inputs the import graph cannot see; `[]` declares
  *                 "no lane needed" for docs and the like
@@ -95,6 +98,7 @@ export const DEFAULT_SERIAL_PATTERNS = ['**/*.serial.test.*'];
 export interface PregateConfig {
   $schema?: string;
   runner: string | null;
+  runners: RunnerRule[];
   dependencies: Record<string, string[]>;
   /** Extra docs/no-tests globs. Built-in Markdown always qualifies when no test depends on it. */
   empty_lanes: string[];
@@ -113,17 +117,20 @@ export interface PregateConfig {
   remote_gate_runs: RemoteGateRuns | null;
   ship_lanes_from: Record<string, ShipLaneMapping>;
 }
+export interface RunnerRule { when: string[]; runner: string; cwd?: string }
 export interface Guard { id: string; when: string[]; command: string; fix?: string; timeout_s?: number }
 export interface AllowlistEntry { finding: string; paths?: string[]; pattern?: string; reason: string }
-export const DEFAULT_CONFIG: PregateConfig = { runner: null, dependencies: {}, empty_lanes: [], selection: {}, warn: [], strays: { allow: [] }, local: [], guards: [], serial_patterns: DEFAULT_SERIAL_PATTERNS, price_file: null, stall_timeout_s: null, timeout_s: null, remote_gate: null, allowlist: [], run_profiles: {}, remote_gate_runs: null, ship_lanes_from: {} };
+export const DEFAULT_CONFIG: PregateConfig = { runner: null, runners: [], dependencies: {}, empty_lanes: [], selection: {}, warn: [], strays: { allow: [] }, local: [], guards: [], serial_patterns: DEFAULT_SERIAL_PATTERNS, price_file: null, stall_timeout_s: null, timeout_s: null, remote_gate: null, allowlist: [], run_profiles: {}, remote_gate_runs: null, ship_lanes_from: {} };
 export interface ConfigError { code: ResultCodeName; path: string; message: string }
 
 export const MAX_LIST = 256;
 const MAX_COMMAND = 512;
-const KEYS = ['runner', 'dependencies', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'sealed', 'stall_timeout_s', 'timeout_s', 'remote_gate', 'allowlist', 'run_profiles', 'remote_gate_runs', 'ship_lanes_from'];
+const KEYS = ['runner', 'runners', 'dependencies', 'empty_lanes', 'selection', 'warn', 'strays', 'local', 'guards', 'serial_patterns', 'price_file', 'sealed', 'stall_timeout_s', 'timeout_s', 'remote_gate', 'allowlist', 'run_profiles', 'remote_gate_runs', 'ship_lanes_from'];
 const LANE_ID = /^[A-Za-z0-9_.-]+\.ya?ml\/[A-Za-z0-9_-]+$/;
 const MAX_GUARDS = 32;
 const GUARD_KEYS = ['id', 'when', 'command', 'fix', 'timeout_s'];
+const MAX_RUNNERS = 32;
+const RUNNER_KEYS = ['when', 'runner', 'cwd'];
 const MAX_ALLOWLIST = 64;
 const MAX_PATTERN = 256;
 const ALLOWLIST_KEYS = ['finding', 'paths', 'pattern', 'reason'];
@@ -160,6 +167,27 @@ function guardErrors(raw: unknown, errors: ConfigError[]): void {
     if (cmd) bad(`${at}.command`, cmd);
     if ('fix' in o && commandError(o.fix)) bad(`${at}.fix`, commandError(o.fix)!);
     if ('timeout_s' in o && (!Number.isInteger(o.timeout_s) || (o.timeout_s as number) < 1 || (o.timeout_s as number) > 3600)) bad(`${at}.timeout_s`, 'must be an integer number of seconds from 1 to 3600');
+  });
+}
+
+function runnersErrors(raw: unknown, errors: ConfigError[]): void {
+  const bad = (p: string, message: string) => errors.push({ code: 'PREGATE_CONFIG_INVALID', path: p, message });
+  if (!Array.isArray(raw)) { bad('runners', 'must be an array of { when, runner, cwd? }'); return; }
+  if (raw.length > MAX_RUNNERS) bad('runners', `more than ${MAX_RUNNERS} rules`);
+  raw.forEach((r, i) => {
+    const at = `runners[${i}]`;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { bad(at, 'must be an object { when, runner, cwd? }'); return; }
+    const o = r as Record<string, unknown>;
+    for (const k of Object.keys(o)) if (!RUNNER_KEYS.includes(k)) bad(`${at}.${k}`, `unknown key; valid keys: ${RUNNER_KEYS.join(', ')}`);
+    if (!Array.isArray(o.when) || o.when.length === 0 || o.when.some(w => typeof w !== 'string')) bad(`${at}.when`, 'must be a non-empty array of globs');
+    else (o.when as string[]).forEach((w, j) => { const why = globError(w); if (why) bad(`${at}.when[${j}]`, `${JSON.stringify(w)} ${why}`); });
+    const cmd = commandError(o.runner);
+    if (cmd) bad(`${at}.runner`, cmd);
+    else if (!(o.runner as string).includes('{files}')) bad(`${at}.runner`, 'must contain the {files} placeholder');
+    if ('cwd' in o) {
+      const why = typeof o.cwd === 'string' && o.cwd ? containedRelative(o.cwd) : 'must be a repo-relative directory';
+      if (why) bad(`${at}.cwd`, why);
+    }
   });
 }
 
@@ -214,6 +242,7 @@ export function validateConfig(raw: unknown, knownChecks: readonly string[] = []
   for (const e of runProfileErrors(obj.run_profiles, obj.remote_gate_runs)) errors.push({ code: 'PREGATE_CONFIG_INVALID', path: e.path, message: e.message });
   const profileNames = obj.run_profiles && typeof obj.run_profiles === 'object' ? Object.keys(obj.run_profiles) : [];
   for (const e of shipLanesErrors(obj.ship_lanes_from, profileNames)) errors.push({ code: 'PREGATE_CONFIG_INVALID', path: e.path, message: e.message });
+  if ('runners' in obj) runnersErrors(obj.runners, errors);
   if ('guards' in obj) guardErrors(obj.guards, errors);
   if ('allowlist' in obj) allowlistErrors(obj.allowlist, errors);
   if ('sealed' in obj) for (const e of sealedErrors(obj.sealed)) errors.push({ code: 'PREGATE_CONFIG_INVALID', path: e.path, message: e.message });
@@ -285,7 +314,7 @@ export function parseConfig(text: string, knownChecks: readonly string[] = []): 
   const errors = validateConfig(raw, knownChecks);
   if (errors.length) return { config: DEFAULT_CONFIG, errors, declaresLanes: false };
   const o = raw as Partial<PregateConfig>;
-  return { declaresLanes: LANE_KEYS.some(k => k in o), config: { $schema: o.$schema, runner: o.runner ?? null, dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, timeout_s: o.timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [], run_profiles: o.run_profiles ?? {}, remote_gate_runs: o.remote_gate_runs ?? null, ship_lanes_from: o.ship_lanes_from ?? {} }, errors: [] };
+  return { declaresLanes: LANE_KEYS.some(k => k in o), config: { $schema: o.$schema, runner: o.runner ?? null, runners: o.runners ?? [], dependencies: o.dependencies ?? {}, empty_lanes: o.empty_lanes ?? [], selection: o.selection ?? {}, warn: o.warn ?? [], strays: { allow: o.strays?.allow ?? [] }, local: o.local ?? [], guards: o.guards ?? [], serial_patterns: o.serial_patterns ?? DEFAULT_SERIAL_PATTERNS, price_file: o.price_file ?? null, stall_timeout_s: o.stall_timeout_s ?? null, timeout_s: o.timeout_s ?? null, remote_gate: o.remote_gate ?? null, allowlist: o.allowlist ?? [], run_profiles: o.run_profiles ?? {}, remote_gate_runs: o.remote_gate_runs ?? null, ship_lanes_from: o.ship_lanes_from ?? {} }, errors: [] };
 }
 
 export type ConfigLoad = { config: PregateConfig; errors: ConfigError[]; present: boolean; label: string; kind: 'base' | 'head' | 'user' | 'none'; /** sha256 of the user file's bytes (kind 'user' only). */ digest?: string; /** The policy has a LANE_KEYS key; absent under kind 'none'. */ declaresLanes?: boolean } | { unavailable: true; base: string; detail: string };
@@ -372,6 +401,7 @@ export function isConfigUnavailable(load: ConfigLoad): load is { unavailable: tr
 export function explainConfig(): string {
   return [
     'runner: the test command with a {files} placeholder; null detects bun test / vitest / jest / pytest from the repo',
+    'runners: [{ when: [globs], runner, cwd? }]: the selected test files a rule\'s globs match run through its command ({files}, relative to cwd; default the repo root) ahead of runner and detection; the first matching rule wins; a matched file outside cwd is incomplete',
     'dependencies: glob → test files the import graph cannot see (subprocess targets, runtime reads, generated inputs); [] declares no lane needed',
     'empty_lanes: extra globs treated as docs/no-tests when nothing else maps them. Built-in, with or without this file: any Markdown file the import graph maps to no test (a quoted path, a join() of path segments, an import, or a dependencies entry), plus README/CHANGELOG/CONTRIBUTING/LICENSE/AGENTS/CLAUDE and licence text under any name; assets (images, fonts, media) and allowlisted tool config take their own empty lane. Source code and files under a test directory never qualify. A test that reads the file still selects that test',
     'selection: <workflow.yml>/<job> → the runner-owned command that lists that lane’s test files when its matrix is planner-computed',

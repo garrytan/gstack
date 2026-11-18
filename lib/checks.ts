@@ -180,9 +180,14 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   return { checks, missing: HEALTH_DIMENSIONS.filter(d => !checks.some(c => c.dimension === d)).map(dimension => ({ dimension, reason: reasons[dimension] })) };
 }
 
-/** Every command a run could execute, read without executing any: the checks, the pregate runner and each selection manifest command. */
-export function commandSet(root: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>): string {
-  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), scripts: packageScripts(root), runner: config.runner ?? detectedRunnerInputs(root), selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
+/** Every command a run could execute, read without executing any: the checks, the pregate runner, each `runners` rule and each selection manifest command. */
+export function commandSet(root: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'runners' | 'selection'>): string {
+  return sha256(JSON.stringify({ checks: checks.map(c => [c.name, c.command, c.body ?? '']), scripts: packageScripts(root), runner: config.runner ?? detectedRunnerInputs(root), runners: (config.runners ?? []).map(r => [r.when, r.runner, r.cwd ?? '']), selection: Object.entries(config.selection ?? {}).sort(([a], [b]) => a.localeCompare(b)) }));
+}
+
+/** One line per `runners` rule for the consent and detect output: its command and the globs it applies to. */
+export function runnerRuleLines(config: Pick<PregateConfig, 'runners'>): string[] {
+  return (config.runners ?? []).map(r => `runners: ${r.runner} on ${r.when.join(', ')}${r.cwd ? ` (from ${r.cwd})` : ''}`);
 }
 
 /** Every package.json script: a check or script can call any of them (npm run a && npm run b, yarn a, nested runs), so trust covers the whole map. */
@@ -212,7 +217,7 @@ export function isTrusted(root: string, set: string, env: NodeJS.ProcessEnv = pr
 }
 
 /** Record root -> command-set hash (0600, atomic, one row per repo) and log the grant beside the verify-gate grants. */
-export function recordTrust(root: string, set: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>, env: NodeJS.ProcessEnv = process.env): void {
+export function recordTrust(root: string, set: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'runners' | 'selection'>, env: NodeJS.ProcessEnv = process.env): void {
   const store = trustStore(env);
   const key = realRoot(root);
   fs.mkdirSync(path.dirname(store), { recursive: true });
@@ -222,7 +227,7 @@ export function recordTrust(root: string, set: string, checks: readonly Check[],
   fs.renameSync(tmp, store);
   const sec = path.join(resolveStateRoot(env), 'security');
   fs.mkdirSync(sec, { recursive: true });
-  const grant = { ts: new Date().toISOString(), root: key, set_sha256: set, checks: checks.map(c => c.command), runner: config.runner ?? 'detected', selection: config.selection ?? {}, tty: !!process.stdin.isTTY };
+  const grant = { ts: new Date().toISOString(), root: key, set_sha256: set, checks: checks.map(c => c.command), runner: config.runner ?? 'detected', runners: config.runners ?? [], selection: config.selection ?? {}, tty: !!process.stdin.isTTY };
   fs.appendFileSync(path.join(sec, 'checks-trust-grants.jsonl'), JSON.stringify(grant) + '\n', { mode: 0o600 });
 }
 

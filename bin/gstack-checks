@@ -4,7 +4,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { cancelActive } from '../lib/pregate/supervise';
-import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
+import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, runnerRuleLines, status, type Loaded } from '../lib/checks';
 
 const USAGE = `Usage: gstack-checks <detect|trust|run|status> [options]
 
@@ -67,6 +67,7 @@ async function main(argv: string[]): Promise<number> {
     if (!l.checks.length) process.stdout.write('CHECKS: tests only (no gstack:verify: line, Health Stack section or manifest check)\n');
     const selection = Object.values(l.ctx.config.selection ?? {});
     process.stdout.write(`TESTS pregate selection against ${l.ctx.baseRef} (policy ${l.ctx.configLabel}; runner ${l.ctx.config.runner ?? 'detected per file'}${selection.length ? `; selection commands: ${selection.join(' | ')}` : ''})\n`);
+    for (const line of runnerRuleLines(l.ctx.config)) process.stdout.write(`TESTS ${line}\n`);
     process.stdout.write(`TRUST ${trusted ? 'trusted' : 'untrusted (run gstack-checks trust after the user agrees, or pass --allow-repo-commands)'}\n`);
     return 0;
   }
@@ -84,6 +85,7 @@ async function main(argv: string[]): Promise<number> {
     process.stderr.write(`gstack-checks: these commands are not trusted for ${root}; nothing was run (CHECKS_CONSENT_REQUIRED)\n`);
     for (const c of l.checks) process.stderr.write(`  ${c.name}: ${c.command}\n`);
     process.stderr.write(`  tests: ${l.ctx.config.runner ?? 'the runner pregate detects'} on the files pregate selects${Object.keys(l.ctx.config.selection ?? {}).length ? ' (and its selection manifest commands)' : ''}\n`);
+    for (const line of runnerRuleLines(l.ctx.config)) process.stderr.write(`  ${line}\n`);
     process.stderr.write('fix: ask the user, then gstack-checks trust; or pass --allow-repo-commands when the session was launched to run them\n');
     return 3;
   }
