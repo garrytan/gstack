@@ -1,1 +1,0 @@
-- **/office-hours keeps its 34 founder videos and essays out of the skill file.** The list now lives in `lib/founder-resources.ts`, and the closing runs the new `gstack-founder-resources` command, which prints the ones a user hasn't been shown yet. The resources, the dedup and the opt-out work as before; the skill's own text is about 8.6 KB smaller.
