@@ -88,10 +88,17 @@ describe('GST-3075: the receipt counts the voices\' blockers and refuses one sti
     expect(s).toMatchObject({ passes: 2, blocking_found: 1, open: [FP] });
   });
 
+  test('a fix trailer from before the Step 11 row that raised the blocker again does not close it', () => {
+    const rows = [review(0, 1, [{ ...blocker, action: 'fixed' }]), voices(20, [blocker])];
+    const s = summarizeReviewLoop(rows, SINCE, [], [], [{ finding: FP, reader: 'outside-voice', commit: 'a'.repeat(40) }]);
+    expect(s).toMatchObject({ blocking_found: 1, fixed: 1, open: [FP] });
+    expect(summarizeReviewLoop([...rows, review(40, 2, [{ ...blocker, action: 'fixed' }])], SINCE).open).toBeUndefined();
+  });
+
   test('a ruling on the fingerprint closes a blocker that carries a ledger id, and a ruling at another head does not', () => {
     const s = summarizeReviewLoop([review(0, 1, []), voices(20, [{ ...blocker, ledger_id: 'p1/outside-voice#1' }])], SINCE);
     expect(s.open).toEqual([{ id: 'p1/outside-voice#1', fingerprint: FP }]);
-    expect(unruledOpenBlockers(s as Record<string, unknown>, [{ finding: FP, head: 'abc' }], h => h === 'abc')).toEqual([]);
-    expect(unruledOpenBlockers(s as Record<string, unknown>, [{ finding: FP, head: 'old' }], h => h === 'abc')).toEqual(['p1/outside-voice#1']);
+    expect(unruledOpenBlockers({ open: s.open }, [{ finding: FP, head: 'abc' }], h => h === 'abc')).toEqual([]);
+    expect(unruledOpenBlockers({ open: s.open }, [{ finding: FP, head: 'old' }], h => h === 'abc')).toEqual(['p1/outside-voice#1']);
   });
 });

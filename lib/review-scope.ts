@@ -291,7 +291,7 @@ export interface ReviewLoopSummary {
   est_input_tokens?: number;
   /** Blocking findings no row gives a disposition (fixed, deferred, noted, skipped or a gate answer): found, outcome unrecorded. */
   unrecorded?: number;
-  /** Blocking findings a row holds whose newest action is `open`, gate findings aside (GST-3075): the loop stopped with them unfixed, so write refuses the receipt (RECEIPT_BLOCKER_OPEN). Each is its ledger id or fingerprint, or both as `{ id, fingerprint }` so a ruling on either closes it. A row's earlier `fixed` never clears a later `open`; a fix trailer or a following fix-check does. */
+  /** Blocking findings a row holds whose newest action is `open`, gate findings aside (GST-3075): the loop stopped with them unfixed, so write refuses the receipt (RECEIPT_BLOCKER_OPEN). Each is its ledger id or fingerprint, or both as `{ id, fingerprint }` so a ruling on either closes it. Only a later row's action clears it: an earlier `fixed`, a fix trailer or a fix-check ledger never does, since none of them shows the finding was fixed after it was raised again. */
   open?: Array<string | { id: string; fingerprint: string }>;
   /** Dispatch ledgers whose collected and judged findings were counted (gstack-review-dispatch). */
   ledgers_read?: number;
@@ -424,7 +424,6 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const deferred = new Set<string>();
   const noted = new Set<string>();
   const fixed = new Set<string>();
-  const fixedLate = new Set<string>();
   let scope: ReviewLoopSummary['scope'] = 'unknown';
   for (const row of loopRows) {
     if (REVIEW_SCOPE_POLICIES.includes(row.review_scope)) scope = row.review_scope;
@@ -480,18 +479,18 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   for (const [id, n] of lastPaired) if (followed(n)) followedIds.add(id);
   for (const t of trailers) {
     const hit = [...seen].find(([k, s]) => k === t.finding || s.ledgerId === t.finding || s.fingerprint === t.finding);
-    if (hit) { hit[1].disposed = true; fixed.add(hit[0]); fixedLate.add(hit[0]); continue; }
+    if (hit) { hit[1].disposed = true; fixed.add(hit[0]); continue; }
     const only = ledgerOnlyKeys.find(l => l.key === t.finding || l.id === t.finding);
     if (only) { only.fixed = true; continue; }
     unbound.push(`trailer ${t.commit.slice(0, 12)} Review-Finding: ${t.finding} reader=${t.reader}: names no finding this run's rows or ledgers hold`);
   }
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
-  for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); fixedLate.add(k); }
+  for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
   const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;
-  const open = blockers.filter(([k, s]) => !s.gate && !fixedLate.has(k) && s.action === 'open')
+  const open = blockers.filter(([, s]) => !s.gate && s.action === 'open')
     .map(([k, s]) => s.ledgerId && s.fingerprint && s.ledgerId !== s.fingerprint ? { id: s.ledgerId, fingerprint: s.fingerprint } : s.ledgerId ?? s.fingerprint ?? k);
   if (open.length) out.open = open;
   if (ledgers.length) out.ledgers_read = ledgers.length;
