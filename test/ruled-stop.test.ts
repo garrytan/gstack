@@ -207,4 +207,26 @@ describe('the ruled-stop check and the receipt that takes it (gstack-ship-receip
     expect(inside.status).toBe(2);
     expect(inside.stderr).toContain('is open on this checkout');
   });
+
+  // Value: protects=GST-2273: the rulings cover the stop commit only, and the run's rows are bounded by a real timestamp;
+  //   fails_when=write takes a deferral at a later code commit, or a garbage --since keeps every earlier run's rows; seam=gstack-ship-receipt
+  test('D5: after the ruled stop, a write refuses a commit outside changelog.d/ and docs/, and an unparsable --since', () => {
+    const r = ruledRepo();
+    expect(r.rule(ID).status).toBe(0);
+    const closed = r.ruled();
+    expect(closed.status, closed.stderr).toBe(0);
+    const e = r.exception('second_pass');
+    withLines(r.body, [notesOf(closed.stdout)[0]!, reviewLoopExceptionLine(e as never)]);
+    const loop = { passes: 2, blocking_found: 1, deferred: 0, scope: 'frozen' };
+    r.f.write({ 'docs/x.md': 'a note\n' }); r.f.commit('docs only');
+    const docs = r.write(e, loop);
+    expect(docs.status, docs.stderr).toBe(0);
+    r.f.write({ 'src/x.ts': 'export const x = 3;\n' }); r.f.commit('a later change');
+    const src = r.write(e, loop);
+    expect(src.status).toBe(1);
+    expect(src.stderr).toContain('src/x.ts changed since the ruled stop');
+    const garbage = r.run('gstack-ship-receipt', ['ruled-stop', '--body', r.body, '--pr', '7', '--run', 'r2', '--since', 'garbage', '--dir', r.dir]);
+    expect(garbage.status).toBe(2);
+    expect(garbage.stderr).toContain('--since garbage is not a timestamp');
+  });
 });

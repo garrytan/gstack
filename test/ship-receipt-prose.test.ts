@@ -140,6 +140,16 @@ describe('the Review-loop exception line (GST-977, gstack-evals #139)', () => {
     expect(checkReceiptProse(excepted, line.replace('GEVA-2', 'GEVA-3')).mismatches).toEqual(twoSkip);
     expect(checkReceiptProse({ ...excepted, review_loop_exception: undefined }, line).mismatches).toEqual(twoSkip);
   });
+
+  // Value: protects=GST-2273: a stop ruling's owner reason may quote a number without failing --check-prose, and only the
+  //   rulings the receipt's exception verified are exempt; fails_when=a ruled note's "2 skip" is read as a counter claim, or
+  //   any line shaped like a ruled note is skipped; seam=lib/ship-receipt-prose.ts checkReceiptProse
+  test('a stop ruling line whose approval the exception lists is not prose; another approval id stays prose', () => {
+    const ruled = { ...excepted, review_loop_exception: { accepted_by: 'Garry', date: '2026-11-18', via: 'GSTA-608', reason: 'ruled', second_pass: { head: 'b'.repeat(40), deferred: ['p2/outside-voice#1'] }, ruled: ['a-00000000beef'] } };
+    const note = (id: string) => `Ruled note: p2/outside-voice#1 at bbbbbbbbbbbb by Captain GStack Minder (GSTA-36): only 2 skip are affected (approval ${id})`;
+    expect(checkReceiptProse(ruled, `${note('a-00000000beef')}\n\nGate: 70 skip.\n`)).toEqual({ checked: 1, mismatches: [] });
+    expect(checkReceiptProse(ruled, note('a-00000000cafe')).mismatches).toEqual([{ field: 'gate.unit.skip', prose: 2, receipt: 70 }]);
+  });
 });
 
 describe('the Documentation exception line (GST-983)', () => {

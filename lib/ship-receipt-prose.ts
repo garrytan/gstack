@@ -107,6 +107,7 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
   const lines = new Set<string>();
   const loop = receipt.review_loop_exception === undefined ? undefined : parseReviewLoopException(receipt.review_loop_exception);
   if (loop?.ok) lines.add(reviewLoopExceptionLine(loop.exception));
+  const ruled = new Set(loop?.ok ? loop.exception.ruled ?? [] : []);
   const docs = receipt.docs === undefined ? undefined : parseReceiptDocs(receipt.docs);
   const docsLine = docs?.ok ? docsExceptionLine(docs.docs) : null;
   if (docsLine) lines.add(docsLine);
@@ -114,8 +115,9 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
   if (Array.isArray(receipt.gate_dispositions)) for (const d of receipt.gate_dispositions) lines.add(`Gate disposition: ${gateDispositionText(d as GateDisposition)}`);
   if (Array.isArray(receipt.mechanical)) for (const l of receipt.mechanical) if (typeof l === 'string') lines.add(l);
   for (const l of laneExceptionBodyLines(receipt.ci_carried)) lines.add(l);
-  if (!lines.size) return body;
-  return body.split(/(?<=\n)/).map(l => (lines.has(l.trim()) ? '(exception line)\n' : l)).join('');
+  const stopRuling = (l: string) => ruled.has(/^Ruled note: .* \(approval (a-[0-9a-f]{12})\)$/.exec(l.trim())?.[1] ?? '');
+  if (!lines.size && !ruled.size) return body;
+  return body.split(/(?<=\n)/).map(l => (lines.has(l.trim()) || stopRuling(l) ? '(exception line)\n' : l)).join('');
 }
 
 /**

@@ -47,10 +47,11 @@ export function reviewRoundGrants(rows: readonly ApprovalRow[]): ReviewRoundGran
  */
 export interface GrantedStopStamp { pr: number; grant: string; head: string; run: string; findings: string[] }
 const stampPath = (cwd: string) => { const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-granted-stop'], { cwd, encoding: 'utf8', timeout: 10_000 }); return p.status === 0 && p.stdout.trim() ? path.resolve(cwd, p.stdout.trim()) : undefined; };
-export function writeGrantedStop(cwd: string, stamp: GrantedStopStamp | null): void {
+/** Returns why the stamp could not be written or cleared, or null; without it the planner and finish take no fix-check grant. */
+export function writeGrantedStop(cwd: string, stamp: GrantedStopStamp | null): string | null {
   const p = stampPath(cwd);
-  if (!p) return;
-  if (stamp) fs.writeFileSync(p, JSON.stringify(stamp) + '\n'); else fs.rmSync(p, { force: true });
+  if (!p) return 'git rev-parse --git-path failed';
+  try { if (stamp) fs.writeFileSync(p, JSON.stringify(stamp) + '\n'); else fs.rmSync(p, { force: true }); return null; } catch (e) { return (e as Error).message.split('\n')[0]!; }
 }
 export function readGrantedStop(cwd: string): GrantedStopStamp | undefined {
   const p = stampPath(cwd);

@@ -1108,7 +1108,8 @@ function cmdHistory(rest: string[], json: boolean): number {
   const claimed = found && !answer?.ok ? receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === found.approval && r.run !== flag(rest, '--run')) : undefined;
   const grant = claimed ? undefined : found;
   const route = answer?.ok ? { route: 'fix-check' as const, reason: `fix-check grant ${answer.grant.approval} answers the stop at ${answer.stop.head.slice(0, 12)} (run ${answer.stop.run}): one scoped fix-check of the PR's own change since it, for ${answer.grant.findings!.join(', ')}, with no new full review` } : reviewRoute(h, { grant: grant?.approval });
-  if (repoRoot && /^\d+$/.test(pr)) writeGrantedStop(repoRoot, answer?.ok ? { pr: Number(pr), grant: answer.grant.approval, head: answer.stop.head, run: answer.stop.run!, findings: answer.grant.findings! } : null);
+  const unstamped = repoRoot && /^\d+$/.test(pr) ? writeGrantedStop(repoRoot, answer?.ok ? { pr: Number(pr), grant: answer.grant.approval, head: answer.stop.head, run: answer.stop.run!, findings: answer.grant.findings! } : null) : null;
+  if (unstamped) process.stderr.write(`gstack-ship-receipt history: the granted-stop stamp in the git dir could not be written (${unstamped}); the plan and finish take no fix-check grant until history writes it\n`);
   const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}${answer?.ok ? ` --stop ${answer.stop.head}` : ''}`;
   if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route }) + '\n'); return EXIT.ok; }
   process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}`);
@@ -1145,6 +1146,7 @@ function readRuledStop(rest: string[], repoRoot: string, body: string, pr: numbe
   const log = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { cwd: repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   if (log.status !== 0) return `gstack-review-read exited ${log.status}`;
   const sinceMs = Date.parse(since);
+  if (!Number.isFinite(sinceMs)) return `--since ${since} is not a timestamp: it bounds this run's review rows, so pass REVIEW_SINCE`;
   const rows = (log.stdout ?? '').split('\n---CONFIG---')[0]!.split('\n').flatMap(l => { try { const v = JSON.parse(l); return v && typeof v === 'object' && v.via === 'ship' && !(Date.parse(v.timestamp) < sinceMs) ? [v] : []; } catch { return []; } });
   let files: string[];
   try { files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter(p => path.basename(p) === 'review-ledger.jsonl').sort().map(p => path.join(dir, p)); } catch (e: any) { return `--dir ${dir}: ${e.code ?? e.message}`; }
@@ -1180,6 +1182,9 @@ function ruledStopException(rest: string[], repoRoot: string, bodyText: string |
   if (typeof r === 'string') return `--ruled-stop: ${r}`;
   if (r.state !== 'closed') return `--ruled-stop: ${(require('../lib/ruled-stop') as typeof import('../lib/ruled-stop')).ruledStopLines(r, pr).at(-1)!}`;
   if (r.stop!.head !== stopOf.head) return `--ruled-stop: the ruled stop is at ${r.stop!.head.slice(0, 12)}, not the exception head ${stopOf.head.slice(0, 12)}`;
+  const since = spawnSync('git', ['diff', '--name-only', r.stop!.head, 'HEAD', '--'], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 });
+  const moved = since.status !== 0 ? ['(git diff failed)'] : since.stdout.split('\n').filter(p => p && !/^(changelog\.d|docs)\//.test(p));
+  if (moved.length) return `--ruled-stop: ${moved.slice(0, 5).join(', ')} changed since the ruled stop at ${r.stop!.head.slice(0, 12)}: the rulings cover that commit, and only changelog.d/ and docs/ may change after it`;
   const ids = r.findings.map(f => f.id);
   if (JSON.stringify([...new Set(stopOf.deferred)].sort()) !== JSON.stringify([...ids].sort()) || stopOf.deferred.length !== ids.length) return `--ruled-stop: deferred must name exactly the ruled stop's findings (${ids.join(', ')}), not ${stopOf.deferred.join(', ')}`;
   if (e.read_only) {
