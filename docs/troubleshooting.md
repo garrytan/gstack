@@ -7437,9 +7437,10 @@ review's fix round:
 2. The lane or Captain records that grant: `gstack-approvals round-grant --pr
    <n> --head <the stop's head> --kind fix-check --stop-run <its run> --findings
    <the open finding ids> --reason <why> --by <lane or Captain>`.
-3. Commit the fix on top of the stop's head and rerun `gstack-ship-preflight`
-   (the same run or a new one): `PR_REVIEW_FLAGS:` adds `--round-grant <id>
-   --stop <head>`, and the plan is one scoped fix-check of the PR's own change
+3. Commit the fix on top of the stop's head. A new run's `gstack-ship-preflight`
+   prints `PR_REVIEW_FLAGS:`; the same run, whose preflight already ran, gets
+   that line from `gstack-ship-receipt history --pr <n> --base <base> --run
+   <the /ship run>`. It adds `--round-grant <id> --stop <head>`, and the plan is one scoped fix-check of the PR's own change
    since that head, with no new full review. The run claims the grant first
    (`gstack-ship-receipt claim`).
 

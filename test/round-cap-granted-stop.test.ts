@@ -213,6 +213,37 @@ describe('the CLI seams', () => {
     expect(out.stderr).toContain('(STOP_UNBOUND)');
     expect(fs.readFileSync(r.body, 'utf8')).not.toContain('"mark":"stop"');
   });
+
+  // Value: protects=a claim names a real grant, an extra-round grant is claimed once, and a fresh run at the same head plans without a
+  //   grant another run spent instead of stopping on GRANT_SPENT; fails_when=claim marks an unknown id or history keeps the claimed
+  //   grant in PR_REVIEW_FLAGS; seam=gstack-ship-receipt claim/history
+  test('claim refuses an unknown grant; history leaves out an extra-round grant another run claimed', () => {
+    const r = stopRepo();
+    const unknown = r.run('gstack-ship-receipt', ['claim', '--body', r.body, '--run', 'fc1', '--grant', 'a-000000000000']);
+    expect(unknown.status).toBe(3);
+    expect(unknown.stderr).toContain('(GRANT_UNKNOWN)');
+    const x = grantId(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', r.head(), '--kind', 'extra-round', '--reason', 'x', '--by', 'Captain GStack Minder']).stdout)!;
+    const history = (run: string) => r.run('gstack-ship-receipt', ['history', '--body', r.body, '--pr', '7', '--base', 'main', '--run', run]).stdout;
+    expect(history('r1')).toContain('--round-grant ' + x);
+    expect(r.run('gstack-ship-receipt', ['claim', '--body', r.body, '--run', 'r1', '--grant', x]).stdout).toContain('GRANT_CLAIMED: grant=' + x + ' kind=extra-round');
+    expect(history('r1')).toContain('--round-grant ' + x);
+    expect(history('r2')).not.toContain('--round-grant');
+    expect(history('r2')).toContain('PR_REVIEW_GRANT: not applied (grant ' + x + ' was claimed by run r1');
+  });
+
+  // Value: protects=the re-plans after a granted fix-check (post-review, targeted) keep PR_REVIEW_FLAGS' --stop with their own
+  //   --range-base after the stop's head; fails_when=any --range-base other than --stop exits 2; seam=gstack-review-plan
+  test('the plan takes a --range-base at or after the --stop head and refuses one before it', () => {
+    const r = stopRepo();
+    const s = r.head();
+    const g = grantId(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'f#1', '--reason', 'x', '--by', 'Captain GStack Minder']).stdout)!;
+    r.f.write({ 'src/x.ts': 'export const x = 3;\n' }); r.f.commit('fix');
+    const fixed = r.head();
+    const plan = (rangeBase: string) => r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '3', '--pr', '7', '--round-grant', g, '--stop', s, '--post-review', '--last', 'fix-check', '--range-base', rangeBase]);
+    const after = plan(fixed);
+    expect(after.status, after.stderr).toBe(0);
+    expect(plan(s + '~1').status).toBe(2);
+  });
 });
 
 describe('finish and the summary count a run whose only round is the granted fix-check (X14)', () => {

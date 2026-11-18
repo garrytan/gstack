@@ -1091,11 +1091,13 @@ function cmdHistory(rest: string[], json: boolean): number {
   const answer = grants.length ? grantedStop(read.body, grants, { pr: Number(pr), head: head!, run: flag(rest, '--run'), isAncestor: ancestorIn(repoRoot!) }) : null;
   const base = (flag(rest, '--base') ?? (repoRoot ? resolveBaseBranch(repoRoot) : 'main')).replace(/^origin\//, '');
   const baseRef = repoRoot ? [`origin/${base}`, base].find(ref => git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoRoot)) : undefined;
-  const grant: ReviewRoundGrant | undefined = answer?.ok ? answer.grant : grants.length ? grantFor(repoRoot!, grants, Number(pr), head!, baseRef) : undefined;
+  const found: ReviewRoundGrant | undefined = answer?.ok ? answer.grant : grants.length ? grantFor(repoRoot!, grants, Number(pr), head!, baseRef) : undefined;
+  const claimed = found && !answer?.ok ? receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === found.approval && r.run !== flag(rest, '--run')) : undefined;
+  const grant = claimed ? undefined : found;
   const route = answer?.ok ? { route: 'fix-check' as const, reason: `fix-check grant ${answer.grant.approval} answers the stop at ${answer.stop.head.slice(0, 12)} (run ${answer.stop.run}): one scoped fix-check of the PR's own change since it, for ${answer.grant.findings!.join(', ')}, with no new full review` } : reviewRoute(h, { grant: grant?.approval });
   const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}${answer?.ok ? ` --stop ${answer.stop.head}` : ''}`;
   if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route }) + '\n'); return EXIT.ok; }
-  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}`);
+  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}`);
   return EXIT.ok;
 }
 
@@ -1118,7 +1120,7 @@ function cmdStop(rest: string[]): number {
   const err = postBody(rest, read.pr, placeRunEntry(read.body, stopMarker({ head: found.head, tree: found.tree, run })));
   if (err) { process.stderr.write(`gstack-ship-receipt stop: ${err}; nothing recorded\n`); return EXIT.fail; }
   const pr = read.pr ?? flag(rest, '--pr') ?? '<n>';
-  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\nNEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then rerun gstack-ship-preflight (docs/troubleshooting.md#pr-round-cap)\n`);
+  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\nNEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then take --round-grant and --stop from the PR_REVIEW_FLAGS: line of gstack-ship-receipt history --pr ${pr} --base <base> --run ${run} in this run, or from a new run's preflight (docs/troubleshooting.md#pr-round-cap)\n`);
   return EXIT.ok;
 }
 
@@ -1136,6 +1138,10 @@ function cmdClaim(rest: string[]): number {
   if (other) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${other.run}: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   const err = postBody(rest, read.pr, placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })));
   if (err) { process.stderr.write(`gstack-ship-receipt claim: ${err}; not claimed, so do not dispatch\n`); return EXIT.fail; }
+  const again = readBody(rest);
+  if (!again.ok) { process.stderr.write(`gstack-ship-receipt claim: ${again.why}; the claim is unconfirmed, so do not dispatch\n`); return EXIT.fail; }
+  const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
+  if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n`);
   return EXIT.ok;
 }
