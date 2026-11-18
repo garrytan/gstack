@@ -496,10 +496,12 @@ export function carryReceipt(receipt: ShipReceipt, head: string, carry: CarryRec
   return orderReceipt({ ...receipt, head, head_tree: at.tree, product_patch_id: at.productPatchId || 'none', carry: { ...merged, ...(trees.length ? { trees } : {}) } });
 }
 
-/** The `open` blockers of a `--review-loop` record (gstack-review-scope summary) that no owner ruling closes: write refuses a receipt while any is left (GST-3075). */
-export function unruledOpenBlockers(loop: Record<string, unknown> | undefined, ruled: ReadonlyArray<{ finding: string }>): string[] {
-  const open = Array.isArray(loop?.open) ? loop.open.filter((id): id is string => typeof id === 'string') : [];
-  return open.filter(id => !ruled.some(n => n.finding === id));
+/** The `open` blockers of a `--review-loop` record (gstack-review-scope summary) that no owner ruling closes: write refuses a receipt while any is left (GST-3075). A ruling names the finding by its ledger id or its fingerprint, and with `onHead` counts only when its head is the receipt head or an ancestor of it. */
+export function unruledOpenBlockers(loop: Record<string, unknown> | undefined, ruled: ReadonlyArray<{ finding: string; head?: string }>, onHead?: (head: string) => boolean): string[] {
+  const open = (Array.isArray(loop?.open) ? loop.open : []).flatMap((o: unknown) => typeof o === 'string' ? [{ id: o, names: [o] }]
+    : o && typeof o === 'object' && typeof (o as any).id === 'string' ? [{ id: (o as any).id as string, names: [(o as any).id, (o as any).fingerprint].filter((n): n is string => typeof n === 'string') }] : []);
+  const live = ruled.filter(n => !onHead || (typeof n.head === 'string' && onHead(n.head)));
+  return open.filter(o => !live.some(n => o.names.includes(n.finding))).map(o => o.id);
 }
 
 /** The loop counters the factory scorecard reads (passes, blocking_found, deferred), as `write --review-loop` records them. */

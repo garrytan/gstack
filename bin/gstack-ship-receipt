@@ -367,7 +367,7 @@ function cmdWrite(rest: string[], json: boolean): number {
     const loopRaw = jsonArg(flag(rest, '--review-loop'));
     const reviewLoop = loopRaw ? parseReviewLoop(loopRaw) : undefined;
     if (loopRaw && !reviewLoop) throw new Error('--review-loop needs integer passes, blocking_found and deferred (gstack-review-scope summary --out <file>, then @<file>)');
-    const open = unruledOpenBlockers(loopRaw, ruledNotes);
+    const open = unruledOpenBlockers(loopRaw, ruledNotes, ruledHead => spawnSync('git', ['merge-base', '--is-ancestor', ruledHead, headSha ?? head], { cwd: repoRoot, timeout: 30_000 }).status === 0);
     if (open.length) { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'RECEIPT_BLOCKER_OPEN', `${open.join(', ')}; nothing written`) + '\n'); return EXIT.refused; }
     input = {
       schema_version: 1, pr: flag(rest, '--pr') !== undefined ? Number(flag(rest, '--pr')) : undefined, head,
