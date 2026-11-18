@@ -129,11 +129,12 @@ export const DATA_LINE = [
  * Read on .swift paths only, so this module and TypeScript never match. A privacy permission request is security, as a consent
  * path is; HealthKit and EventKit reads, on-device file writes, deletes, protection classes, app group containers, backup
  * exclusion and a declared retention period are data. UserDefaults, SwiftUI, file reads and EventKit type names are not.
+ * A call split across lines (`removeItem(` then `at: url)`) is read over the file's changed lines joined, as SECURITY_JOINED is.
  * XCTest files (a Tests/ or *Tests/ target directory, a *Tests.swift file) read as code to the classifier but are skipped here:
  * their temp-file setup and cleanup is not user data (GSTA-604 replay: ghome#17 gained data from test cleanup alone).
  */
 export const SWIFT_PATH = /\.swift$/i;
-export const SWIFT_TEST_PATH = /(^|\/)\w{0,80}Tests\/|Tests?\.swift$/;
+export const SWIFT_TEST_PATH = /(^|\/)\w{0,80}Tests\/|Tests\.swift$/;
 export const SWIFT_SECURITY_LINE = [
   /\brequest\w{0,40}Authorization\b/, /\brequest(?:Full|WriteOnly)?Access(?:To(?:Events|Reminders))?\b/, /\brequestRecordPermission\b/,
 ];
@@ -231,6 +232,8 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
       if (swift && !why.has('data') && SWIFT_DATA_LINE.some(r => r.test(line))) hit('data', 'Swift user-data line: ' + p);
     }
     if (!why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SECURITY_JOINED.some(r => r.test(l.join('\n'))))) hit('security', 'security lines: ' + p);
+    if (swift && !why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_SECURITY_LINE.some(r => r.test(l.join('\n'))))) hit('security', 'Swift permission request lines: ' + p);
+    if (swift && !why.has('data') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_DATA_LINE.some(r => r.test(l.join('\n'))))) hit('data', 'Swift user-data lines: ' + p);
   }
   return new Map(RISK_CLASSES.filter(c => why.has(c)).map(c => [c, why.get(c)!]));
 }

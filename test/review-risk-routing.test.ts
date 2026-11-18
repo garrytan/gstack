@@ -337,6 +337,11 @@ describe('GST-3052: Swift user-data access, permission requests and on-device st
       'let expiresAt = token.expiresAt', 'let settled = true', 'let subtitle = "Today"', 'func requestAccessToken() async throws -> String',
     ]) expect(risk(['App/Home/HealthCard.swift'], { 'App/Home/HealthCard.swift': [line] })).toEqual([]);
   });
+  test('a product file named *Test.swift is still read, and a call split across lines still matches', () => {
+    expect(risk(['App/Hearing/HearingTest.swift'], { 'App/Hearing/HearingTest.swift': ['guard await AVAudioApplication.requestRecordPermission() else { return }'] })).toEqual(['security']);
+    for (const lines of [['try FileManager.default.removeItem(', '  at: draftFile', ')'], ['try blob.write(', '  to: notesURL,', '  options: .atomic', ')'], ['let handle = try FileHandle(', '  forWritingTo: spill', ')']])
+      expect(risk(['App/Notes/Store.swift'], { 'App/Notes/Store.swift': lines })).toEqual(['data']);
+  });
   test('the Swift rules read only .swift paths outside XCTest targets', () => {
     for (const p of ['lib/review-risk.ts', 'docs/ios.md', 'Sources/Bridge.m', 'Tests/AppTests/StoreTests.swift', 'Packages/Core/Tests/CoreTests/Support.swift', 'App/StoreTests.swift'])
       expect(risk([p], { [p]: ['const r = /\\bHKHealthStore\\b/;', 'SFSpeechRecognizer.requestAuthorization { _ in }', 'try FileManager.default.removeItem(at: url)'] })).toEqual([]);
