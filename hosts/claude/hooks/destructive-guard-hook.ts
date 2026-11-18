@@ -13,16 +13,19 @@
  *   - Always exits 0. With the switch off it prints nothing.
  * Docs: docs/skill-routing-and-contracts.md#destructive-command-check.
  */
-import { spawnSync } from 'child_process';
 import * as path from 'path';
+import { resolveWindowsBashCached, runScriptSync } from '../../../lib/script-invocation';
 import { readSkillSwitch } from '../../../lib/skill-route';
+import { resolveStateRoot } from '../../../lib/state-root';
 
 export const ASK_NOTE = "(gstack's destructive-command check, on in every session; off: gstack-config set destructive_guard off)";
 const CHECK = path.join(import.meta.dir, '..', '..', '..', 'careful', 'bin', 'check-careful.sh');
 
 function main(): void {
   if (!readSkillSwitch('destructive_guard').on) return;
-  const r = spawnSync('bash', [CHECK], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8', timeout: 8000 });
+  const r = runScriptSync(CHECK, [], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8', timeout: 8000 }, {
+    resolve: () => resolveWindowsBashCached(path.join(resolveStateRoot(), 'cache', 'windows-bash.json')),
+  });
   const out = (r.stdout ?? '').trim();
   if (!out) return;
   let decision: { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
