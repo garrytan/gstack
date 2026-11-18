@@ -569,14 +569,20 @@ const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.fla
  * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
  * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
  * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
- * pregate and requires_remote[] values. On every line that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
+ * pregate and requires_remote[] values. On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
  * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
- * prose, in a non-receipt code block, on a line without a receipt prefix or under any other key still reports.
+ * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
  */
 function receiptIdSpans(text: string): Span[] {
   const lines = text.split("\n");
   const rows = (v: unknown): number => v !== null && typeof v === "object" && Object.keys(v).length ? 2 + Object.values(v).reduce((n: number, c) => n + rows(c), 0) : 1;
-  const spans: Span[] = lines.flatMap((l, i) => RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : []);
+  let fence = "";
+  const spans: Span[] = lines.flatMap((l, i) => {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
+    if (f && !fence) { fence = f[1]!; return []; }
+    if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) { fence = ""; return []; }
+    return !fence && RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : [];
+  });
   for (let open = 0; open < lines.length; open++) {
     if (lines[open] !== "```" + RECEIPT_FENCE) continue;
     const close = lines.indexOf("```", open + 1);

@@ -396,6 +396,8 @@ describe("gstack-post owns the redaction scan", () => {
       ["heads= on a line without a receipt prefix", body(receipt(), "heads=229446506618 ran"), "heads=229446506618"],
       ["a phone on a receipt line", body(receipt(), "CI_CARRY: none (call +1 415 555 0123)"), "CI_CARRY: none"],
       ["a 10-digit ci_carried run on a receipt line", body(receipt(), "SHIP_RECEIPT: pr=4480 ci_carried=free-tests:4155552671/1"), "SHIP_RECEIPT: pr=4480 ci_carried"],
+      ["a receipt line inside a plain code block", body(receipt(), "```text\nSHIP_RECEIPT: pr=4480 ci_carried=phone:14155552671/1\n```"), "SHIP_RECEIPT: pr=4480 ci_carried=phone"],
+      ["a receipt line inside a tilde code block", body(receipt(), "~~~\nCI_CARRY: accepted heads=229446506618\n~~~"), "CI_CARRY: accepted heads"],
       ["a session id in the thread field", body(receipt({ thread: "1234567-1794900000-0a1b2c3d" })), '"thread": "1234567'],
       ["a phone in the run field", body(receipt({ run: "+14155552671" })), '"run": "+14155552671"'],
       ["a session id without its random suffix", body(receipt({ run: "1234567-1794900000" })), '"run": "1234567-1794900000"'],

@@ -3257,14 +3257,15 @@ exact tokens it finds in these positions:
   `1234567-1794900000-0a1b2c3d`), and the 12-hex shas in the `pregate` value
   (`@<tree> (<n> checks, current for <head>)`) and the `requires_remote`
   values (`heads=`, `tree=`) (#4480);
-- on a line that opens with `SHIP_RECEIPT:`, `CI_CARRY:`, `PREGATE:` or
-  `READY_RECEIPT:` (bare, after `- `, `* ` or `> `, or after a backtick), the
+- on a line outside any fenced code block that opens with `SHIP_RECEIPT:`,
+  `CI_CARRY:`, `PREGATE:` or `READY_RECEIPT:` (bare, after `- `, `* ` or
+  `> `, or after a backtick), the
   12-hex sha list after `heads=`, `head=`, `tree=`, `gated_tree=`,
   `predecessor=`, `carried_from=` or `base_red=`, the run id of each
   `ci_carried=<lane>:<run>/<attempt>` item, and the shas of the pregate
-  shape above (#4480). The same value on a line without that prefix, in a
-  hand-written or non-receipt code block, or a phone number elsewhere on a
-  receipt line still reports.
+  shape above (#4480). The same value on a line without that prefix, on a
+  receipt-prefixed line inside a hand-written or non-receipt code block, or a
+  phone number elsewhere on a receipt line still reports.
 
 A bare 11-digit number with none of that context, a 10-digit national number
 and an E.164 `+14155551234` still report, so the finding means the id stands
