@@ -14,7 +14,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { bunIsolationArgs } from '../../lib/bun-isolation';
 import { git } from './ship-queue-gate';
 import type { TrainPrefix, TrainSlot } from './ship-queue-train-record';

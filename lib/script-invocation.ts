@@ -28,12 +28,13 @@
  * Paths are forward-slashed: Bun's spawnSync on Windows returns ENOENT for a
  * backslash exe path containing spaces, and bash reads backslashes as escapes.
  */
-import { spawnSync, type SpawnSyncOptions, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'node:child_process';
+import type { SpawnSyncOptions, SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bunIsolationArgs } from './bun-isolation';
 import { resultLine } from './result-codes';
+import { spawnSync } from './spawn-sync';
 
 export const BIN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin');
 
