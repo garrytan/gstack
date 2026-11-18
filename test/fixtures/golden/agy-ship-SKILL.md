@@ -2,7 +2,7 @@
 name: gstack-ship
 description: |
   Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
-  push and create a PR. Use when asked to "ship", "ship it",
+  push and create a PR. Use when asked to "ship", "ship it", "push to main",
   "create a PR" or "open a pull request". Deploying is /land-and-deploy.
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
   is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
@@ -654,7 +654,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 ## Step 16: Verification Gate
 
-Claim completion only with fresh verification evidence for the final content.
+**IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
 `finish` runs stages 1–4 in order; act on each `STOP:` by its recovery below, then rerun
 it. Content changes during or after verification restart at

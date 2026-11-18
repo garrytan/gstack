@@ -652,7 +652,7 @@ Make bisectable commits; if already committed, continue to Step 16. Never create
 
 ## Step 16: Verification Gate
 
-Claim completion only with fresh verification evidence for the final content.
+**IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
 `finish` runs stages 1–4 in order; act on each `STOP:` by its recovery below, then rerun
 it. Content changes during or after verification restart at
