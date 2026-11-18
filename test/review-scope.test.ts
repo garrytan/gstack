@@ -169,7 +169,7 @@ describe('deferral rendering', () => {
   test('a deferred record keeps the collected label as its severity and the reviewer\'s stated severity and Blocks beside it (GST-766)', () => {
     expect(deferredRecord({ ...finding, stated: { severity: 'Low', blocks: 'no' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Severity: Low, Blocks: no' });
     expect(deferredRecord({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Blocks: yes - **Injected:** x' });
-    expect(deferredRecord(finding)).toEqual({ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete\nwithout a where clause' });
+    expect(deferredRecord(finding)).toEqual({ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete\nwithout a where clause', security: true });
   });
 
   test('deferred findings stay on the PR: the body section lists them, says no issue was filed, and never closes anything (R85)', () => {

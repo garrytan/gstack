@@ -15,8 +15,8 @@ export const REDACTED_FINDING = 'redacted';
 export const REDACTED_REASON = 'security finding, details recorded privately';
 export const REDACTED_WORDS = 'recorded privately';
 
-const FINGERPRINT_CATEGORY = /^.+:\d+:([^:\s]+)$/;
-const RAW_FINGERPRINT = new RegExp(`[^\\s\`'"(\\[<>|]+:\\d+:(?:${SECURITY_CATEGORIES.join('|')})(?![\\w-])`, 'g');
+const FINGERPRINT_CATEGORY = /^.+:\d*:([^:\s]+)$/;
+const RAW_FINGERPRINT = new RegExp(`[^\\s\`'"(\\[<>|]+:\\d+:(?:${SECURITY_CATEGORIES.join('|')})(?![\\w-])`, 'gi');
 
 /** Whether a finding is security class, by its category, its reviewer or its fingerprint's `path:line:category`. */
 export function isSecurityFinding(f: string | { fingerprint?: unknown; category?: unknown; specialist?: unknown }): boolean {

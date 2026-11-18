@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
 import { EXIT as POST_EXIT, runPost, type PostEnv } from '../lib/gstack-post';
-import { renderDeferredSection } from '../lib/review-scope';
+import { deferredRecord, renderDeferredSection } from '../lib/review-scope';
 import { ruledNoteText, type RuledNote } from '../lib/ruled-notes';
 import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -65,6 +65,13 @@ describe('deferred findings and review notes', () => {
     expect(out.match(/`sf-[0-9a-f]{12}` security finding, details recorded privately/g)?.length).toBe(3);
     expect(out).toContain('- Deferred: CRITICAL `src/a.ts:3` off by one');
     expect(out).toContain('- INFORMATIONAL `src/c.ts:4` rename x');
+  });
+
+  test('a lineless security fingerprint and a security reviewer\'s other category are redacted when deferred', () => {
+    const f = { severity: 'CRITICAL', path: 'src/a.ts', line: 7, category: 'injection', specialist: 'security', summary: SECRET_REASON, scope: 'defer' as const, locus: 'outside' as const, kind: 'defect' as const, blocking: true };
+    const out = renderDeferredSection([JSON.parse(JSON.stringify(deferredRecord(f))), { fingerprint: 'src/x.ts::auth', path: 'src/x.ts', severity: 'CRITICAL', summary: 'cookie lacks SameSite' }]);
+    for (const s of ['src/a.ts', 'src/x.ts', SECRET_REASON, 'SameSite']) expect([s, out.includes(s)]).toEqual([s, false]);
+    expect(ruledNoteText(note('src/x.ts::security', SECRET_REASON))).not.toContain('src/x.ts');
   });
 });
 
@@ -122,5 +129,7 @@ describe('gstack-post', () => {
     expect([sec.code, sec.posted, sec.err]).toEqual([POST_EXIT.refused, false, expect.stringContaining('security finding')]);
     const other = post('Left open: `src/a.ts:3:naming`.\n');
     expect([other.code, other.posted]).toEqual([POST_EXIT.posted, true]);
+    expect(post('Left open: `src/x.ts:4:Auth`.\n').posted).toBe(false);
+    expect(post('Moves the check into `crate::auth`.\n').posted).toBe(true);
   });
 });
