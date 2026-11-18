@@ -24,7 +24,8 @@ async function runReadiness(kind: 'ready' | 'unknown', name: string) {
     expect(fixture.calls()).toEqual([
       'sources list --json',
       'list --source client-fixture --limit 1',
-      'get code/fixture/readme --source client-fixture --json',
+      'get code/fixture/readme --source client-fixture --json --body window --max-bytes 4096',
+      ...(kind === 'unknown' ? ['get code/fixture/readme --source client-fixture --json'] : []),
     ]);
     const content = fixture.content();
     expect(fixture.sourceIntact()).toBe(true);
