@@ -85,3 +85,48 @@ describe('the publication guard on a narration-journaled report', () => {
     ]) expect(codeOf(await nextPhaseEntry(summary)), summary).toBe('publication_missing');
   });
 });
+
+/**
+ * 2026-11-09 (apollo PRD-022): the narration summary of a correct Phase 2 report
+ * dropped the declaration entirely, so the guard refused DX entry twice. A Bash
+ * command is journaled verbatim, so the publication no-op may carry the
+ * declaration: `true autoplan-published <phase> 'Phase N complete.'`.
+ */
+async function entryWithCommand(summary: string, command: string) {
+  const f = guardFixture(); fixtures.push(f);
+  const id = f.nextMessage();
+  f.say(summary, id); f.use(`noop-${id}`, 'Bash', { command }, id);
+  f.result(`noop-${id}`, { content: '' }); f.journal();
+  const rows = fs.readFileSync(f.transcript, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const report = rows.find(r => r.message?.content?.[0]?.text === summary);
+  report.message.content = [{ type: 'thinking', thinking: summary, signature: NARRATION }];
+  fs.writeFileSync(f.transcript, rows.map(r => JSON.stringify(r) + '\n').join(''));
+  return f.hook(f.input('next', 'Read', { file_path: section('design-phase.md') }));
+}
+
+const dropped = "Outside review came back unavailable, and the native subagent found 9 issues. I'm passing to Phase 2 next.";
+
+describe('the publication no-op can carry the declaration', () => {
+  test('a summary that dropped the declaration plus a declaring no-op lets Phase 2 start', async () => {
+    expect(denial(await entryWithCommand(dropped, "true autoplan-published ceo 'Phase 1 complete.'"))).toBeUndefined();
+  });
+
+  test('double quotes work too', async () => {
+    expect(denial(await entryWithCommand(dropped, 'true autoplan-published ceo "Phase 1 complete."'))).toBeUndefined();
+  });
+
+  test('without the declaration the dropped summary is still publication_missing', async () => {
+    expect(codeOf(await entryWithCommand(dropped, 'true autoplan-published ceo'))).toBe('publication_missing');
+  });
+
+  for (const command of [
+    "true autoplan-published ceo 'Phase 2 complete.'",
+    "true autoplan-published design 'Phase 1 complete.'",
+    "true autoplan-published ceo 'Phase 1 is not complete.'",
+    "true autoplan-published ceo 'Phase 1 will be complete after the review.'",
+    "echo true autoplan-published ceo 'Phase 1 complete.'",
+    "true autoplan-published ceo 'Phase 1 complete.' && rm -rf x",
+  ]) test(`${command} does not publish`, async () => {
+    expect(codeOf(await entryWithCommand(dropped, command))).toBe('publication_missing');
+  });
+});

@@ -469,8 +469,21 @@ function requirePublication(phase: Phase, entryOrder: number, entered: Event[], 
     samePath(canonicalRequested(cwd, e.input?.file_path), init.activePlan) && !tools.results(e.toolUseId).length);
   if (pending) fail('mutation_pending');
   if (current) verifyCloseEdits(entered, closeOrder, init, cwd);
-  const reports = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
+  const reports: Event[] = entered.filter((e): e is Event & { kind: 'message' } => e.kind === 'message' && e.order > closeOrder &&
     autoplanPhaseCompletions({ status: 'ready', calls: [], assistantMessages: [e] }, 0).some(hit => hit.phase === number[phase]));
+  // With Claude Code's thinking-display "updates" mode, narration written before
+  // a tool call is journaled only as a paraphrased summary, which can drop the
+  // declaration entirely (2026-11-09: Phase 2 refused twice). A Bash command is
+  // journaled verbatim, so `true autoplan-published <phase> 'Phase N complete.'`
+  // may carry the declaration. It must name this phase and declare this phase.
+  const published = new RegExp(String.raw`^true[ \t]+autoplan-published[ \t]+${phase}[ \t]+(['"])([^'"\n]+)\1[ \t]*$`);
+  for (const e of entered) {
+    if (e.kind !== 'use' || e.name !== 'Bash' || e.order <= closeOrder || typeof e.input?.command !== 'string') continue;
+    const declared = published.exec(e.input.command.trim())?.[2];
+    if (declared && autoplanPhaseCompletions({ status: 'ready', calls: [],
+      assistantMessages: [{ sessionId: 'publication', text: declared, timestamp: new Date(0).toISOString() }] }, 0)
+      .some(hit => hit.phase === number[phase])) reports.push(e);
+  }
   if (!reports.length) fail('publication_missing', { phase: number[phase] });
   if (!flush) return;
   // Text in the same assistant message as a guarded call can be invisible to
@@ -680,7 +693,7 @@ function unverifiedOutput(code: string, detail: Detail, version: string | undefi
   const notice = reasonText(code, detail, version);
   return { systemMessage: `[autoplan] ${notice}`, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext:
     `[autoplan] ${notice} This call proceeds unverified. Publish each completed phase report as your own parent ` +
-    'assistant text, in a message whose only tool call is the Bash no-op `true autoplan-published <phase>`, before entering the next phase.' } };
+    'assistant text, in a message whose only tool call is the Bash no-op `true autoplan-published <phase> \'Phase N complete.\'`, before entering the next phase.' } };
 }
 
 function decided(decision: Decision, via: EvaluationPath, version?: string): object {

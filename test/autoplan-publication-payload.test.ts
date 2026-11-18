@@ -126,7 +126,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     const f = make(); f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_unflushed');
-    expect(denial(output)).toContain('`true autoplan-published <phase>`');
+    expect(denial(output)).toContain("`true autoplan-published <phase> 'Phase 1 complete.'`");
     expect(denial(output)).not.toMatch(/\bretry\b/i);
   });
 
