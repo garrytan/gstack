@@ -55,10 +55,24 @@ test('real PTY waits past old TODO, stale, partial and mismatched panels but acc
     { name: 'complete', initial: gate, expected: 'plan_ready' },
     { name: 'cursorless-timeout', initial: gate.replace('❯ ', ''), expected: 'timeout' },
   ];
-  const results = await Promise.allSettled(scenarios.map(async scenario => {
+  const runScenario = async (scenario: typeof scenarios[number]) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeded-completion-'));
     const working = path.join(dir, 'repo');
     fs.mkdirSync(working);
+    const home = path.join(dir, 'home'), config = path.join(home, '.claude');
+    fs.mkdirSync(config, { recursive: true });
+    // The native replay implements its own protocol; it needs isolated state,
+    // while seeding a complete skill runtime would consume the observation clock.
+    const actorEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: config,
+      COMPLETION_ARGV: path.join(dir, 'argv.json'), COMPLETION_PHASE: path.join(dir, 'phase.txt') };
+    if (process.platform === 'win32') {
+      for (const key of Object.keys(process.env)) {
+        if (['SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT'].includes(key.toUpperCase()) && process.env[key]) actorEnv[key] = process.env[key]!;
+      }
+      const roaming = path.join(home, 'AppData', 'Roaming'), local = path.join(home, 'AppData', 'Local');
+      fs.mkdirSync(roaming, { recursive: true }); fs.mkdirSync(local, { recursive: true });
+      Object.assign(actorEnv, { USERPROFILE: home, APPDATA: roaming, LOCALAPPDATA: local, TMP: dir, TEMP: dir, TMPDIR: dir });
+    }
     const cli = createFakeBunCli(path.join(dir, 'fake-claude'), fakePlanSeedPrelude() + `
 const fs = require('node:fs');
 fs.writeFileSync(process.env.COMPLETION_ARGV, JSON.stringify(process.argv.slice(2)));
@@ -84,14 +98,13 @@ if (resolveClaudeBinary() !== process.env.BROWSE_TERMINAL_BINARY) throw new Erro
 const obs = await runPlanSkillObservation({ skillName: 'plan-eng-review', inPlanMode: true,
   initialPlanContent: '# Plan: Completion regression\\n\\nReview the existing draft.',
   cwd: ${JSON.stringify(working)}, timeoutMs: 12000,
-  env: { COMPLETION_ARGV: process.env.COMPLETION_ARGV, COMPLETION_PHASE: process.env.COMPLETION_PHASE } });
+  env: ${JSON.stringify(actorEnv)} });
 console.log(JSON.stringify(obs));
 `);
       // Only this isolated child receives the executable override; it verifies
       // the resolver before the real PTY launch, so no provider can be invoked.
       const child = Bun.spawn([process.execPath, childFile], { cwd: process.cwd(),
-        env: { ...process.env, BROWSE_TERMINAL_BINARY: cli,
-          COMPLETION_ARGV: path.join(dir, 'argv.json'), COMPLETION_PHASE: path.join(dir, 'phase.txt'),
+        env: { ...process.env, ...actorEnv, BROWSE_TERMINAL_BINARY: cli,
           EVALS_RUN_ID: 'seeded-completion-fake', GSTACK_EVAL_DIR: path.join(dir, 'evidence') },
         stdout: 'pipe', stderr: 'pipe' });
       const [stdout, stderr, exitCode] = await Promise.all([
@@ -109,8 +122,16 @@ console.log(JSON.stringify(obs));
       const saved = JSON.parse(fs.readFileSync(path.join(obs.artifactDir, 'observation.json'), 'utf8'));
       expect(saved.scopeSessionId).toBe(args[args.indexOf('--session-id') + 1]);
       expect(saved.scopeGateAutoSelectObserved).toBe(false);
+      expect(saved.capture.claudeConfigDir).toBe(config);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-  }));
+  };
+  // Native ConPTY startup for six simultaneous terminals can consume the seed
+  // deadline. Keep all scenarios and their budgets while bounding admission.
+  const results: PromiseSettledResult<void>[] = [];
+  const width = process.platform === 'win32' ? 2 : scenarios.length;
+  for (let offset = 0; offset < scenarios.length; offset += width) {
+    results.push(...await Promise.allSettled(scenarios.slice(offset, offset + width).map(runScenario)));
+  }
   for (let i = 0; i < results.length; i++) {
     const result = results[i]!;
     expect(result.status, `${scenarios[i]!.name}: ${result.status === 'rejected' ? String(result.reason) : 'complete'}`).toBe('fulfilled');

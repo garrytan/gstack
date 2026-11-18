@@ -273,15 +273,19 @@ function executablesAmong(perPath: readonly PathLines[], classRoot: string | rea
 }
 
 /**
- * The paths among `paths` whose blob at `rev` holds a line that starts with "#!", a superset of those whose text starts with it:
- * one git grep per CONSUMER_SCAN_PATHSPEC_BYTES of literal pathspecs, so the git calls follow the pathspec bytes and not the file
- * count (a results PR's thousands of trial files cost one blob read each before). Null when git fails or a name does not decode.
+ * The paths among `paths` whose blob at `rev` holds a line that starts with "#!", a superset of those whose text starts with it.
+ * When the literal path list exceeds one command, search its unique parent directories instead. A results PR's long, shared
+ * directory can otherwise cause dozens of process launches (especially costly on Windows). Sibling matches are harmless:
+ * executablesAt still examines only its original changed paths. Null when git fails or a name does not decode.
  */
 function shebangCandidates(root: string, rev: string, paths: readonly string[]): Set<string> | null {
   const found = new Set<string>();
-  for (let i = 0; i < paths.length;) {
+  const specs = paths.reduce((n, p) => n + p.length, 0) > CONSUMER_SCAN_PATHSPEC_BYTES
+    ? [...new Set(paths.map(p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'))]
+    : paths;
+  for (let i = 0; i < specs.length;) {
     const chunk: string[] = [];
-    for (let bytes = 0; i < paths.length && (!chunk.length || bytes + paths[i]!.length <= CONSUMER_SCAN_PATHSPEC_BYTES); i++) { chunk.push(paths[i]!); bytes += paths[i]!.length; }
+    for (let bytes = 0; i < specs.length && (!chunk.length || bytes + specs[i]!.length <= CONSUMER_SCAN_PATHSPEC_BYTES); i++) { chunk.push(specs[i]!); bytes += specs[i]!.length; }
     const r = git(root, ['--literal-pathspecs', 'grep', '-a', '-G', '-l', '-z', '--no-color', '-e', '^#!', rev, '--', ...chunk]);
     if (r.status !== 0 && r.status !== 1) return null;
     for (const f of r.out.split('\0')) {

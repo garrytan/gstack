@@ -5,7 +5,7 @@
  * floor, named patch-id refusal and branch-touched walk; the digit-bounded
  * stamp replacement.
  */
-import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -13,11 +13,23 @@ import { EXIT } from '../lib/headless-artifacts';
 import { CARRY_NAMED_PATHS, extractReceipt, planCarry, stampOnlyText } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { DOCS_CAPS_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
-import { BASE_POLICY, cleanup, makeFixtureRepo, makePr, runBin, type FixtureRepo } from './helpers/restamp-fixture';
+import { BASE_POLICY, cleanup, cloneFixture, fixtureTemplate, makePr, runBin, type FixtureOptions, type FixtureRepo } from './helpers/restamp-fixture';
 import { gitArgvIn } from './helpers/scratch-repo';
 
+// Real multi-command integration cases need a bounded Windows lifecycle budget.
+// Performance assertions and individual child-process deadlines stay unchanged.
+const WINDOWS_LIFECYCLE_TIMEOUT_MS = process.platform === 'win32' ? 60_000 : 30_000;
+
 const repos: FixtureRepo[] = [];
-const fixture = (opts: Parameters<typeof makeFixtureRepo>[0] = {}) => { const r = makeFixtureRepo({ prefix: 'ship-receipt-2-', ...opts }); repos.push(r); return r; };
+const templates = new Map<string, ReturnType<typeof fixtureTemplate>>();
+afterAll(() => { for (const template of templates.values()) template.dispose(); });
+const fixture = (opts: FixtureOptions = {}) => {
+  const key = JSON.stringify({ version: opts.version, policy: opts.policy });
+  if (!templates.has(key)) templates.set(key, fixtureTemplate({ ...opts, prefix: 'ship-receipt-2-' }));
+  const r = cloneFixture(templates.get(key)!, opts.prefix ?? 'ship-receipt-2-');
+  repos.push(r);
+  return r;
+};
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 setDefaultTimeout(30_000);
 
@@ -33,6 +45,11 @@ function bareRepo(): FixtureRepo {
 }
 
 describe('E18: a repository without a version source or CHANGELOG', () => {
+  const version = (repo: FixtureRepo) => {
+    const result = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'x', '--json']);
+    expect(result.status, result.err).toBe(EXIT.ok);
+    return JSON.parse(result.out).version;
+  };
   test('write records version "none"; read --body and result --body accept it', () => {
     const repo = bareRepo();
     const head = repo.git('rev-parse', 'HEAD');
@@ -83,26 +100,34 @@ describe('E18: a repository without a version source or CHANGELOG', () => {
     const only = runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'x', '--json']);
     expect(only.status).toBe(EXIT.ok);
     expect('version' in JSON.parse(only.out)).toBe(false);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
-  test('"none" means absent: a package.json version is used, and a malformed VERSION, a policy stamp file or an unreadable base keep the no-version path', () => {
-    const version = (repo: FixtureRepo, args: string[] = []) => JSON.parse(runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'x', '--json', ...args]).out).version;
+  test('"none" means absent: a package.json version is used', () => {
     const manifest = bareRepo();
     fs.writeFileSync(path.join(manifest.work, 'package.json'), JSON.stringify({ name: 'x', version: '4.5.6' }) + '\n');
     manifest.git('add', '-A');
     manifest.git('commit', '-qm', 'manifest only');
     expect(version(manifest)).toBe('4.5.6');
+  });
+
+  test('a malformed VERSION keeps the no-version path', () => {
     const malformed = bareRepo();
     fs.writeFileSync(path.join(malformed.work, 'VERSION'), 'not-a-version\n');
     malformed.git('add', '-A');
     malformed.git('commit', '-qm', 'malformed VERSION');
     expect(version(malformed)).toBeUndefined();
+  });
+
+  test('a policy stamp file keeps the no-version path', () => {
     const stamped = fixture({ policy: { ...BASE_POLICY, stamp_files: ['RELEASE'] } });
     fs.writeFileSync(path.join(stamped.work, 'RELEASE'), 'build 7\n');
     for (const f of ['VERSION', 'package.json', 'package-lock.json', 'CHANGELOG.md']) fs.rmSync(path.join(stamped.work, f));
     stamped.git('add', '-A');
     stamped.git('commit', '-qm', 'only a policy stamp file');
     expect(version(stamped)).toBeUndefined();
+  });
+
+  test('an unreadable base keeps the no-version path', () => {
     const unreachable = bareRepo();
     unreachable.git('update-ref', '-d', 'refs/remotes/origin/main');
     expect(version(unreachable)).toBeUndefined();
@@ -365,5 +390,5 @@ describe('carry follow-ups: git floor, named refusal, branch-touched walk, digit
     expect(changed.status).toBe(EXIT.refused);
     expect(changed.err).toMatch(/product diff changed between [0-9a-f]{12} and [0-9a-f]{12}: src\.ts/);
     expect(changed.err).not.toContain('lib-base-only.ts');
-  });
+  }, WINDOWS_LIFECYCLE_TIMEOUT_MS);
 });

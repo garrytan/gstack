@@ -10,6 +10,8 @@ useDoctorCleanup();
 // #2595/#2124 and #3071: compiled binaries by launch state, and CSO from the
 // build-result record. A blocked binary is simulated by the application-control
 // message reporters captured (#2595), which works on every OS.
+// These grouped dashboard cases launch several native Bash/Bun children on Windows.
+// Their parent has a scoped 60s ceiling; doctor() keeps its existing 60s child bound.
 describe('gstack-doctor launch and CSO rows', () => {
   const BLOCKED = `#!/bin/sh\necho "Program 'x.exe' failed to run: An Application Control policy has blocked this file" >&2\nexit 1\n`;
   const record = (f: Fixture, text: string) => write(path.join(f.root, 'bin/.gstack-cso-build-result'), text);
@@ -27,7 +29,7 @@ describe('gstack-doctor launch and CSO rows', () => {
     expect(r.row('browse bundle').detail).not.toContain('not built');
     expect(r.row('browse bundle').fix).toContain(process.platform === 'win32' ? 'Smart App Control' : 'the OS refused to execute it');
     expect(r.status).toBe(0);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('blocked, broken and missing binaries are told apart', () => {
     const f = makeFixture();
@@ -39,13 +41,13 @@ describe('gstack-doctor launch and CSO rows', () => {
     write(path.join(f.root, OTHER_BINS[2]), '#!/bin/sh\necho "usage" >&2\nexit 2\n', 0o755);
     r = doctor(f);
     expect(r.row('binaries').detail).toBe('launched but failed: pdf (exit 2: usage)');
-    expect(r.row('binaries').fix).toBe(`cd ${bashPath(f.root)} && bun run build`);
+    expect(r.row('binaries').fix).toBe(`cd ${bashPath(f.root, f.env)} && bun run build`);
     fs.rmSync(path.join(f.root, OTHER_BINS[2]));
     r = doctor(f);
     expect(r.row('binaries').detail).toBe('not built: pdf');
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
-  test('the CSO row reads the build-result record', () => {
+  test('the CSO row distinguishes an unconfigured helper from a failed build', () => {
     const f = makeFixture();
     const none = doctor(f).row('cso');
     expect(none.state).toBe('not configured');
@@ -56,11 +58,20 @@ describe('gstack-doctor launch and CSO rows', () => {
     expect(r.row('cso').state).toBe('warn');
     expect(r.row('cso').detail).toBe('unavailable: the build step failed (exit 42); /cso reports not assessed');
     expect(r.row('cso').fix).toContain('bun run build:cso && ./setup (log: /x/cso.log;');
+  });
+
+  test('the CSO row retains the previous helper after a failed publish', () => {
+    const f = makeFixture();
     cso(f);
     record(f, 'result=failed\nstage=publish\nreason=exit 1\nrevision=1.2 (abc)\ninstalled=1.1 (def)\nlauncher=yes\ndiagnostic=/x/cso.log\n');
     expect(doctor(f).row('cso').detail).toBe('publish step failed (exit 1) for 1.2 (abc); previous CSO kept: 1.1 (def)');
+  });
+
+  test('the CSO row reads the successful build-result revision', () => {
+    const f = makeFixture();
+    cso(f);
     record(f, 'result=ok\nstage=publish\nreason=committed\nrevision=1.2 (abc)\ninstalled=1.2 (abc)\nlauncher=yes\ndiagnostic=x\n');
-    r = doctor(f);
+    const r = doctor(f);
     expect(r.row('cso')).toEqual({ state: 'ok', detail: 'native helper 1.2 (abc)', fix: '' });
     expect(r.status).toBe(0);
   });
@@ -89,7 +100,7 @@ describe('gstack-doctor --check: launch Bun, supported minimum, planning-only pi
     verifiedBun(f);
     const fresh = check(f, [], { STUB_BUN_VERSION: '1.3.14' });
     expect(fresh.rows.runtime.status).toBe('FAIL');
-    const home = bashPath(f.home);
+    const home = bashPath(f.home, f.env);
     expect(fresh.rows.runtime.rest).toContain(`bun 1.4.2 found at ${home}/.bun/bin (not on PATH)`);
     expect(fresh.rows.runtime.rest).toContain(`fix: export PATH="${home}/.bun/bin:$PATH" or prefix commands with the GSTACK_LAUNCH line`);
     expect(fresh.rows.runtime.rest).toContain('(RUNTIME_BELOW_MINIMUM; ');
@@ -105,7 +116,7 @@ describe('gstack-doctor --check: launch Bun, supported minimum, planning-only pi
     expect(below.rows.revision.status).toBe('FAIL');
     expect(below.rows.revision.rest).toContain(`installed ${VERSION}`);
     expect(below.rows.revision.rest).toContain('below the supported minimum 99.0.0.0');
-    expect(below.rows.revision.rest).toContain(`${bashPath(f.root)}/bin/gstack-upgrade`);
+    expect(below.rows.revision.rest).toContain(`${bashPath(f.root, f.env)}/bin/gstack-upgrade`);
     expect(below.rows.revision.rest).toContain('(REVISION_BELOW_MINIMUM; ');
     expect(below.trailer).toBe('gstack: fail revision');
     const wrapped = check(f, ['--min-revision', '99.0.0.0'], { GSTACK_CAPY_WRAPPER_PATH: '/drive/skills/gstack/scripts/install.sh' });
@@ -262,7 +273,7 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
   const git = (f: Fixture, args: string[], extra: Record<string, string> = {}) => {
     const r = spawnSync('git', args, {
       cwd: f.root, encoding: 'utf8', timeout: 20_000,
-      env: { ...process.env, HOME: f.home, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', ...extra },
+      env: { ...f.env, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com', ...extra },
     });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
     return r.stdout.trim();
@@ -274,14 +285,14 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     git(f, ['commit', '-qm', 'release']);
     const index = path.join(f.base, 'rescue.idx');
     return rescues.map(({ date, unmerged }, i) => {
-      const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: f.root, input: `edit ${i}\n`, encoding: 'utf8', timeout: 20_000 }).stdout.trim();
+      const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: f.root, env: f.env, input: `edit ${i}\n`, encoding: 'utf8', timeout: 20_000 }).stdout.trim();
       git(f, ['read-tree', 'HEAD'], { GIT_INDEX_FILE: index });
       git(f, ['update-index', '--add', '--cacheinfo', `100644,${blob},local-edit-${i}.txt`], { GIT_INDEX_FILE: index });
       const tree = git(f, ['write-tree'], { GIT_INDEX_FILE: index });
       const message = `gstack rescue: local edits that conflicted with abc\n${unmerged ? '\nNeeds manual resolution: the install had unmerged files; their captured\ncontent may contain conflict markers.\n' : ''}`;
       const oid = spawnSync('git', ['commit-tree', tree, '-p', 'HEAD'], {
         cwd: f.root, input: message, encoding: 'utf8', timeout: 20_000,
-        env: { ...process.env, HOME: f.home, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'gstack rescue', GIT_AUTHOR_EMAIL: 'gstack@localhost', GIT_COMMITTER_NAME: 'gstack rescue', GIT_COMMITTER_EMAIL: 'gstack@localhost', GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+        env: { ...f.env, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'gstack rescue', GIT_AUTHOR_EMAIL: 'gstack@localhost', GIT_COMMITTER_NAME: 'gstack rescue', GIT_COMMITTER_EMAIL: 'gstack@localhost', GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
       }).stdout.trim();
       git(f, ['update-ref', `refs/gstack/rescue/${oid}`, oid]);
       return `refs/gstack/rescue/${oid}`;
@@ -297,25 +308,32 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     const r = doctor(f);
     const row = r.row('rescue refs');
     expect(row.state, r.out).toBe('warn');
-    expect(row.detail).toContain(`2 in ${bashPath(f.root)}`);
+    expect(row.detail).toContain(`2 in ${bashPath(f.root, f.env)}`);
     expect(row.fix).toContain('#auto-update-rescued-edits');
     const listing = r.out.split('\n').map(l => l.trim());
     expect(listing.findIndex(l => l.startsWith(newer))).toBeLessThan(listing.findIndex(l => l.startsWith(older)));
     expect(listing).toContain(`${older} (2026-10-01)`);
     expect(listing).toContain(`${newer} (2026-10-14, needs manual resolution)`);
-    const q = `'${bashPath(f.root)}'`;
+    const q = `'${bashPath(f.root, f.env)}'`;
     expect(commandFor(r.out, 'inspect', older)).toBe(`git -C ${q} diff '${older}^' '${older}'`);
     expect(commandFor(r.out, 'delete', older)).toBe(`git -C ${q} update-ref -d '${older}'`);
-    const shown = spawnSync('bash', ['-c', commandFor(r.out, 'inspect', older)], { cwd: f.work, encoding: 'utf8', timeout: 20_000 });
+    const shown = spawnSync('bash', ['-c', commandFor(r.out, 'inspect', older)], { cwd: f.work, env: f.env, encoding: 'utf8', timeout: 20_000 });
     expect(shown.status, shown.stderr).toBe(0);
     expect(shown.stdout).toContain('+edit 0');
-    const deleted = spawnSync('bash', ['-c', commandFor(r.out, 'delete', older)], { cwd: f.work, encoding: 'utf8', timeout: 20_000 });
+    const deleted = spawnSync('bash', ['-c', commandFor(r.out, 'delete', older)], { cwd: f.work, env: f.env, encoding: 'utf8', timeout: 20_000 });
     expect(deleted.status, deleted.stderr).toBe(0);
     expect(rescueRefs(f)).toEqual([newer]);
-    expect(doctor(f).row('rescue refs').detail).toContain(`1 in ${bashPath(f.root)}`);
-    spawnSync('bash', ['-c', commandFor(r.out, 'delete', newer)], { cwd: f.work, encoding: 'utf8', timeout: 20_000 });
+    expect(doctor(f).row('rescue refs').detail).toContain(`1 in ${bashPath(f.root, f.env)}`);
+  });
+
+  test('rescue refs: the printed deletion of the last ref reports none', () => {
+    const f = makeFixture();
+    const [newer] = withRescues(f, [{ date: '2026-10-14T08:30:00Z', unmerged: true }]);
+    const r = doctor(f);
+    const deleted = spawnSync('bash', ['-c', commandFor(r.out, 'delete', newer)], { cwd: f.work, env: f.env, encoding: 'utf8', timeout: 20_000 });
+    expect(deleted.status, deleted.stderr).toBe(0);
     const none = doctor(f);
-    expect(none.row('rescue refs')).toEqual({ state: 'ok', detail: `none in ${bashPath(f.root)}`, fix: '' });
+    expect(none.row('rescue refs')).toEqual({ state: 'ok', detail: `none in ${bashPath(f.root, f.env)}`, fix: '' });
     expect(none.status, none.out).toBe(0);
   });
 
@@ -330,7 +348,7 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     const r = doctor(f);
     const row = r.row('CLAUDE.md');
     expect(row.state, r.out).toBe('warn');
-    expect(row.detail).toContain(`${bashPath(f.home)}/.claude/CLAUDE.md lists 13 skills`);
+    expect(row.detail).toContain(`${bashPath(f.home, f.env)}/.claude/CLAUDE.md lists 13 skills`);
     expect(row.fix).toContain('#claude-md-skill-list');
     expect(fs.readFileSync(path.join(REPO, 'docs/troubleshooting.md'), 'utf8')).toContain('<a id="claude-md-skill-list"></a>');
     expect(replacement(r.out)).toEqual(['## gstack', 'Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.']);
@@ -339,7 +357,7 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     write(path.join(f.work, 'CLAUDE.md'), `# Project\n\n## gstack (recommended)\nskills: /office-hours /plan-ceo-review /plan-eng-review /review /ship /qa /browse /retro /investigate\n`);
     const project = doctor(f).row('CLAUDE.md');
     expect(project.state).toBe('warn');
-    expect(project.detail).toContain(`${bashPath(f.work)}/CLAUDE.md lists 9 skills`);
+    expect(project.detail).toContain(`${bashPath(f.work, f.env)}/CLAUDE.md lists 9 skills`);
     expect(project.detail).not.toContain('.claude/CLAUDE.md');
   });
 

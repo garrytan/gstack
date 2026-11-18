@@ -253,7 +253,7 @@ export function computePaidCaseSelection(options: {
   // The changed files are paths in the checkout under review, which can be newer than the tree this selector runs from.
   const readSource = (file: string) => { try { return fs.readFileSync(path.join(rootDir, file), 'utf8'); } catch { return ''; } };
   const coverage = selectPrProfile({ selectedE2E: selection.e2e, selectedJudges: selection.judges, changedFiles: effectiveFiles, sourceAliases,
-    derived: derivedDependencies(PR_PROFILE_MAPS, rootDir), readSource, screenPolicy: env.EVALS_SCREEN_POLICY === 'narrow' ? 'narrow' : 'broad' });
+    derived: () => derivedDependencies(PR_PROFILE_MAPS, rootDir), readSource, screenPolicy: env.EVALS_SCREEN_POLICY === 'narrow' ? 'narrow' : 'broad' });
   if (coverage.needsFullValidation) {
     throw new Error(`PR profile requires full validation: ${coverage.missingCoverage.join(', ')}. Use --profile full and the relevant periodic cases.`);
   }

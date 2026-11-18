@@ -101,7 +101,20 @@ export function makeFixture(): Fixture {
     PATH: [stub, hostPath(base)].join(path.delimiter),
     HOME: home, GSTACK_STATE_ROOT: state, TMPDIR: base, DOCTOR_PROBE_LOG: probeLog,
   };
-  if (process.env.SYSTEMROOT) env.SYSTEMROOT = process.env.SYSTEMROOT;
+  if (process.platform === 'win32') {
+    for (const key of Object.keys(process.env)) {
+      if (['SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT'].includes(key.toUpperCase()) && process.env[key]) env[key] = process.env[key]!;
+    }
+    const roaming = path.join(home, 'AppData', 'Roaming'), local = path.join(home, 'AppData', 'Local');
+    fs.mkdirSync(roaming, { recursive: true }); fs.mkdirSync(local, { recursive: true });
+    Object.assign(env, { USERPROFILE: home, APPDATA: roaming, LOCALAPPDATA: local, TMP: base, TEMP: base });
+    const native = spawnSync(process.execPath, ['--no-env-file', '--config=NUL', '-e',
+      'console.log(JSON.stringify([require("os").homedir(),require("os").tmpdir()]))'], { env, encoding: 'utf8', timeout: 5_000 });
+    if (native.status !== 0) throw new Error(`Native doctor fixture preflight failed: ${native.stderr}`);
+    const [nativeHome, nativeTemp] = JSON.parse(native.stdout);
+    if (fs.realpathSync(nativeHome) !== fs.realpathSync(home) || fs.realpathSync(nativeTemp) !== fs.realpathSync(base))
+      throw new Error('Native doctor fixture escaped its home or temp root');
+  } else if (process.env.SYSTEMROOT) env.SYSTEMROOT = process.env.SYSTEMROOT;
   return { base, root, state, home, work, stub, probeLog, env };
 }
 
@@ -120,8 +133,8 @@ export function rowOf(stdout: string, name: string) {
   return { state: lines[i].slice(0, 16).trim(), detail: lines[i].slice(32), fix };
 }
 
-/** How bash spells a directory (Git Bash on Windows prints /c/...). */
-export const bashPath = (dir: string) => spawnSync('bash', ['-c', 'cd "$1" && pwd', '_', dir], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+/** Use the actor's environment: Git Bash's /tmp mapping depends on TEMP. */
+export const bashPath = (dir: string, env: Record<string, string>) => spawnSync('bash', ['-c', 'cd "$1" && pwd', '_', dir], { env, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
 export const probeCalls = (f: Fixture) => fs.existsSync(f.probeLog) ? fs.readFileSync(f.probeLog, 'utf8') : '';
 export const iso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
 export const syncOn = (f: Fixture, status: Record<string, unknown>) => {

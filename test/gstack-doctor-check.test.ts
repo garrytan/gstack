@@ -112,7 +112,7 @@ describe('gstack-doctor --check', () => {
     expect(r.status).toBe(1);
     expect(r.required).toContain('claude');
     expect(r.rows.claude.status).toBe('FAIL');
-    expect(r.rows.claude.rest).toContain(`fix: cd ${bashPath(f.root)} && ./setup --host claude --no-prefix`);
+    expect(r.rows.claude.rest).toContain(`fix: cd ${bashPath(f.root, f.env)} && ./setup --host claude --no-prefix`);
     expect(r.trailer).toBe('gstack: fail claude');
     expect(JSON.parse(doctor(f, ['--json']).out).for).toBe('installed-hosts:none(claude required)');
   });
@@ -224,7 +224,7 @@ describe('gstack-doctor --check', () => {
     const wrapper = '/drive/skills/gstack/scripts/install.sh';
     const capy = row(f, ['--project', project, '--for', 'health'], { GSTACK_CAPY_WRAPPER_PATH: wrapper });
     expect(capy.rows.pins.status).toBe('WARN');
-    expect(capy.rows.pins.rest).toContain(`node 24.21.0 outside CI 24.18.0 (.github/workflows/native-locks.yml:6); node read from ${bashPath(f.stub)}/node (node pin only; bun pins pass)`);
+    expect(capy.rows.pins.rest).toContain(`node 24.21.0 outside CI 24.18.0 (.github/workflows/native-locks.yml:6); node read from ${bashPath(f.stub, f.env)}/node (node pin only; bun pins pass)`);
     expect(capy.rows.pins.rest).toContain(`fix: bash ${wrapper} --for health (installs the project's pinned Node 24.18.0 into gstack's runtime store and launches it through the GSTACK_LAUNCH PATH), or change the pin in ${project}`);
     expect(capy.rows.pins.rest).toContain('(PROJECT_NODE_PIN_UNMET; ');
     expect(capy.trailer).toBe(`gstack: ok ${VERSION} for=health`);
@@ -240,7 +240,7 @@ describe('gstack-doctor --check', () => {
     expect(row(f, ['--project', project, '--for', 'health']).rows.pins.status).toBe('PASS');
   });
 
-  test('floor: min_gstack_version in the project\'s .gstack/ship-policy.json PASSes at or below the installed version, WARNs above it with the upgrade as the fix, and SKIPs when absent or null', () => {
+  test('floor: absent, null and malformed min_gstack_version SKIP without evaluating its value', () => {
     const f = makeFixture();
     const project = path.join(f.base, 'project');
     fs.mkdirSync(project, { recursive: true });
@@ -253,6 +253,12 @@ describe('gstack-doctor --check', () => {
     write(path.join(project, '.gstack/ship-policy.json'), `{\n  "min_gstack_version": "1.2.3-rc1; $(touch ${marker})"\n}\n`);
     expect(row(f, ['--project', project]).rows.floor).toEqual({ status: 'SKIP', rest: `(${project}/.gstack/ship-policy.json sets min_gstack_version to something other than a plain dotted version)` });
     expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  test('floor: a met version PASSes, multiline JSON is read and a nested value cannot lower the top-level floor', () => {
+    const f = makeFixture();
+    const project = path.join(f.base, 'project');
+    fs.mkdirSync(project, { recursive: true });
     write(path.join(project, '.gstack/ship-policy.json'), `{\n  "min_gstack_version": "${VERSION}"\n}\n`);
     const met = row(f, ['--project', project]);
     expect(met.rows.floor).toEqual({ status: 'PASS', rest: `${VERSION} declared by ${project}/.gstack/ship-policy.json (installed ${VERSION})` });
@@ -262,6 +268,12 @@ describe('gstack-doctor --check', () => {
     // The first occurrence is the top-level field: a later nested one never lowers the floor (found by Codex).
     write(path.join(project, '.gstack/ship-policy.json'), '{\n  "min_gstack_version": "999.0.0.0",\n  "$schema": {"min_gstack_version": "0.0.0"}\n}\n');
     expect(row(f, ['--project', project]).rows.floor.status).toBe('WARN');
+  });
+
+  test('floor: an unmet version WARNs with the host-specific upgrade command and an ok trailer', () => {
+    const f = makeFixture();
+    const project = path.join(f.base, 'project');
+    fs.mkdirSync(project, { recursive: true });
     write(path.join(project, '.gstack/ship-policy.json'), '{\n  "min_gstack_version": "999.0.0.0"\n}\n');
     const wrapper = '/drive/skills/gstack/scripts/install.sh';
     const unmet = row(f, ['--project', project, '--for', 'health'], { GSTACK_CAPY_WRAPPER_PATH: wrapper });
@@ -299,7 +311,7 @@ describe('gstack-doctor --check', () => {
     expect(broken.rows['browse-bundle'].status).toBe('PASS');
     expect(broken.rows.browser.status).toBe('FAIL');
     expect(broken.rows.browser.rest).toContain("Executable doesn't exist");
-    expect(broken.rows.browser.rest).toContain(`fix: ${bashPath(f.root)}/bin/gstack-browser-ensure (BROWSER_UNAVAILABLE; `);
+    expect(broken.rows.browser.rest).toContain(`fix: ${bashPath(f.root, f.env)}/bin/gstack-browser-ensure (BROWSER_UNAVAILABLE; `);
     expect(broken.trailer).toBe('gstack: fail browser');
     installPlaywrightStub(f, true);
     const ok = row(f, ['--for', 'qa']);

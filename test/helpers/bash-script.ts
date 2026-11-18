@@ -22,6 +22,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { resolveWindowsBash } from '../../lib/script-invocation';
 
 export interface BashScriptResult {
   status: number;
@@ -42,7 +43,9 @@ export function runBashScript(script: string, opts: BashScriptOptions = {}): Bas
   // LF only: a stray CR would reach bash as part of a token.
   fs.writeFileSync(file, script.replace(/\r\n/g, '\n'));
   try {
-    const r = spawnSync('bash', [file], {
+    const shell = process.platform === 'win32' ? resolveWindowsBash({ env: opts.env }) : { ok: true as const, bash: 'bash' };
+    if (!shell.ok) return { status: -1, stdout: '', stderr: shell.message, signal: null };
+    const r = spawnSync(shell.bash, [file.replaceAll('\\', '/')], {
       encoding: 'utf-8',
       timeout: opts.timeout ?? 60_000,
       ...(opts.env ? { env: opts.env } : {}),

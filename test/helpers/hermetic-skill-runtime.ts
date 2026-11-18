@@ -30,14 +30,14 @@ export function hermeticSkillRuntime(): { home: string; root: string; stateRoot:
     // of GSTACK_HOME. This is owned by the same disposable HOME and cleanup.
     fs.mkdirSync(stateRoot);
     fs.mkdirSync(path.dirname(root), { recursive: true });
-    fs.symlinkSync(path.resolve(import.meta.dir, '..', '..'), root, 'dir');
+    fs.symlinkSync(path.resolve(import.meta.dir, '..', '..'), root, process.platform === 'win32' ? 'junction' : 'dir');
     // Setup exposes both the gstack runtime checkout and flattened skill
     // entries. Keep HOME discovery consistent with CLAUDE_CONFIG_DIR: native
     // tools may resolve ~/paths even though slash commands use the latter.
     const registry = path.join(hermeticSkillsConfigDir(), 'skills');
     for (const name of fs.readdirSync(registry)) {
       if (name === 'gstack') continue; // canonical checkout already linked above
-      fs.symlinkSync(path.join(registry, name), path.join(path.dirname(root), name), 'dir');
+      fs.symlinkSync(path.join(registry, name), path.join(path.dirname(root), name), process.platform === 'win32' ? 'junction' : 'dir');
     }
   } catch (error) {
     fs.rmSync(home, { recursive: true, force: true });

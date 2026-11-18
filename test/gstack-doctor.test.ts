@@ -16,6 +16,8 @@ import { useDoctorCleanup, REPO, BROWSE_BIN, write, bashPath, probeCalls, iso, s
 
 useDoctorCleanup();
 
+// These grouped dashboard cases launch several native Bash/Bun children on Windows.
+// Their parent has a scoped 60s ceiling; doctor() keeps its existing 60s child bound.
 describe('gstack-doctor', () => {
   test('a healthy fixture: every core row ok, exit 0, and no paid probe', () => {
     const f = makeFixture();
@@ -29,7 +31,7 @@ describe('gstack-doctor', () => {
     expect(r.row('codex').detail).toContain('gpt-stub-5 (source: codex config.toml)');
     expect(r.row('codex probe').state).toBe('warn');
     expect(r.row('codex probe').detail).toContain('not probed');
-    expect(r.row('codex probe').fix).toBe(`${bashPath(f.root)}/bin/gstack-doctor --live (one short paid Codex call)`);
+    expect(r.row('codex probe').fix).toBe(`${bashPath(f.root, f.env)}/bin/gstack-doctor --live (one short paid Codex call)`);
     expect(r.row('artifacts sync').state).toBe('not configured');
     expect(r.row('claude code').detail).toContain('2.1.292');
     expect(r.row('guard log').detail).toBe('no guard decisions logged');
@@ -49,7 +51,7 @@ describe('gstack-doctor', () => {
     const off = doctor(f);
     expect(off.row('codex').state).toBe('not configured');
     expect(off.row('codex').detail).toContain('outside reviews in /review, /ship, /autoplan and /codex');
-    expect(off.row('codex').fix).toBe(`${bashPath(f.root)}/bin/gstack-config set codex_reviews enabled`);
+    expect(off.row('codex').fix).toBe(`${bashPath(f.root, f.env)}/bin/gstack-config set codex_reviews enabled`);
     expect(off.status, off.out).toBe(0);
     expect(probeCalls(f)).not.toContain('probe-model');
 
@@ -58,7 +60,7 @@ describe('gstack-doctor', () => {
     expect(fail.row('bun').fix).toContain('bun upgrade');
     expect(fail.status, fail.out).toBe(1);
     expect(fail.out).toMatch(/, 1 fail/);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('Codex: absent CLI is not configured, unauthenticated warns, a failed self-locate fails', () => {
     const f = makeFixture();
@@ -79,9 +81,9 @@ describe('gstack-doctor', () => {
     const broken = doctor(g, [], { STUB_SELECT_FAIL: '1' });
     expect(broken.row('codex').state).toBe('fail');
     expect(broken.row('codex').detail).toContain('helper_unavailable');
-    expect(broken.row('codex').fix).toContain(`${bashPath(g.root)}/bin/gstack-codex-probe select-model exec`);
+    expect(broken.row('codex').fix).toContain(`${bashPath(g.root, g.env)}/bin/gstack-codex-probe select-model exec`);
     expect(broken.status).toBe(1);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('the cached probe is reported with its age and is never re-run without --live', () => {
     const f = makeFixture();
@@ -98,7 +100,7 @@ describe('gstack-doctor', () => {
     write(path.join(f.state, '.codex-model-probe'), `$(rm -rf ~) ${now} x\n`);
     expect(doctor(f).row('codex probe').detail).toContain('unrecognized');
     expect(probeCalls(f)).not.toContain('probe-model');
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('--live runs probe-model once and maps its exit to the codex probe row', () => {
     const f = makeFixture();
@@ -112,7 +114,7 @@ describe('gstack-doctor', () => {
     const brokenInstall = doctor(f, ['--live'], { STUB_PROBE_EXIT: '2', STUB_PROBE_STATE: 'broken_install' });
     expect(brokenInstall.row('codex probe').state).toBe('fail');
     expect(brokenInstall.status).toBe(1);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('a hook shim that does not parse fails the hooks row', () => {
     const f = makeFixture();
@@ -130,7 +132,7 @@ describe('gstack-doctor', () => {
     const r = doctor(f);
     expect(r.row('artifacts sync').state).toBe('warn');
     expect(r.row('artifacts sync').detail).toBe('status unknown');
-    expect(r.row('artifacts sync').fix).toBe(`${bashPath(f.root)}/bin/gstack-brain-sync --status`);
+    expect(r.row('artifacts sync').fix).toBe(`${bashPath(f.root, f.env)}/bin/gstack-brain-sync --status`);
     expect(r.out).not.toContain('AKIA');
     expect(r.out).not.toContain('/secret/path.md');
     expect(r.out).not.toContain('.brain-sync-status.json');
@@ -167,26 +169,36 @@ describe('gstack-doctor', () => {
     expect(doctor(f).row('artifacts sync').state).toBe('ok');
   });
 
-  test('artifacts sync: case-colliding paths warn with the clamped names, held or not', () => {
+  test('artifacts sync: case-colliding held paths warn with clamped names', () => {
     const f = makeFixture();
     syncOn(f, { status: 'collision', message: 'held projects/myapp/x.md', case_held: 1, case_names: 'MyApp,myapp', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     const held = doctor(f);
     expect(held.row('artifacts sync').state).toBe('warn');
     expect(held.row('artifacts sync').detail).toBe('status collision; artifact paths differ only by letter case (MyApp,myapp), see docs/troubleshooting.md#artifact-case-collision');
     expect(held.out).not.toContain('projects/myapp');
+  });
 
+  test('artifacts sync: case-colliding names warn without holds, then clear when the names clear', () => {
+    const f = makeFixture();
     syncOn(f, { status: 'ok', message: 'pushed 1 file(s)', case_held: 0, case_names: 'OLD,old', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     expect(doctor(f).row('artifacts sync').state).toBe('warn');
     syncOn(f, { status: 'ok', message: 'pushed 1 file(s)', case_held: 0, case_names: '', drainable: 0, last_drain_at: iso(60), last_push_at: iso(60) });
     expect(doctor(f).row('artifacts sync').state).toBe('ok');
   });
 
-  test('artifacts sync: stale push and stale drain warn, a fresh push clears them', () => {
+  test('artifacts sync: a stale push warns and a fresh push clears it', () => {
     const f = makeFixture();
     syncOn(f, { status: 'ok', message: 'x', drainable: 4, last_drain_at: iso(60), last_push_at: iso(90_000) });
     const stalePush = doctor(f).row('artifacts sync');
     expect(stalePush.state).toBe('warn');
     expect(stalePush.detail).toContain('no push for 24h while 4 record(s) wait');
+
+    syncOn(f, { status: 'ok', message: 'pushed' });
+    expect(doctor(f).row('artifacts sync').state).toBe('ok');
+  });
+
+  test('artifacts sync: a stale drain warns and a fresh push clears it', () => {
+    const f = makeFixture();
 
     write(path.join(f.state, '.brain-queue.d/1-1-a.json'), '{}\n');
     syncOn(f, { status: 'idle', message: 'x', drainable: 0, last_drain_at: iso(200_000), last_push_at: iso(60) });
@@ -198,11 +210,15 @@ describe('gstack-doctor', () => {
     expect(doctor(f).row('artifacts sync').state).toBe('ok');
   });
 
-  test('triage rows: Claude Code absent, largest journal, last five schema-1 guard codes', () => {
+  test('triage rows: absent Claude Code and no session journals are reported', () => {
     const f = makeFixture();
     fs.rmSync(path.join(f.stub, 'claude'));
     expect(doctor(f).row('claude code').state).toBe('not configured');
     expect(doctor(f).row('session journal').detail).toBe('no session journals for this project');
+  });
+
+  test('triage rows: the largest journal is reported', () => {
+    const f = makeFixture();
 
     const cwd = process.platform === 'win32'
       ? spawnSync('bash', ['-c', 'pwd -W'], { cwd: f.work, encoding: 'utf8', timeout: 10_000 }).stdout.trim()
@@ -213,6 +229,10 @@ describe('gstack-doctor', () => {
     const journal = doctor(f).row('session journal');
     expect(journal.state).toBe('ok');
     expect(journal.detail).toBe('largest of 2: 3.0 MiB');
+  });
+
+  test('triage rows: the last five schema-1 guard codes are reported', () => {
+    const f = makeFixture();
 
     const line = (schema: unknown, code: string | null, decision = 'deny') =>
       JSON.stringify({ schema, ts: '2026-10-07T00:00:00Z', decision, ...(code ? { reason_code: code } : {}), path: 'journal', cc_version: '2.1.292', disposition: 'hard' });
@@ -235,9 +255,9 @@ describe('gstack-doctor', () => {
     const fixes = r.out.split('\n').filter(l => l.trimStart().startsWith('fix: '));
     expect(fixes.length).toBeGreaterThanOrEqual(5);
     expect(r.row('install root').fix).toContain(`${other}/bin/gstack-doctor`);
-    const bin = `${bashPath(f.root)}/bin/`;
+    const bin = `${bashPath(f.root, f.env)}/bin/`;
     for (const fix of fixes) {
-      const scrubbed = fix.split(bin).join('<BIN>/').split(`${other}/bin/`).join('<OTHER>/').split(bashPath(f.base)).join('<BASE>');
+      const scrubbed = fix.split(bin).join('<BIN>/').split(`${other}/bin/`).join('<OTHER>/').split(bashPath(f.base, f.env)).join('<BASE>');
       for (const m of scrubbed.matchAll(/gstack-[a-z]/g)) expect(/<(BIN|OTHER)>\/$/.test(scrubbed.slice(0, m.index)), fix).toBe(true);
     }
     expect(r.row('browse bundle').state).toBe('warn');
@@ -262,7 +282,7 @@ describe('./setup --status Codex row', () => {
     const r = status(f);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain('Codex: installed (codex-cli 0.130.0); codex_reviews=enabled; model probe: MODEL_UNUSABLE 10m ago');
-    expect(r.stdout.trimEnd().split('\n').at(-1)).toBe(`Readiness check: ${bashPath(f.root)}/bin/gstack-doctor`);
+    expect(r.stdout.trimEnd().split('\n').at(-1)).toBe(`Readiness check: ${bashPath(f.root, f.env)}/bin/gstack-doctor`);
     expect(probeCalls(f)).toBe('');
   });
 

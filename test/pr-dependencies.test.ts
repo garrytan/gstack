@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { deriveDependencies, derivedDependencies, referenceText } from '../scripts/pr-dependencies';
+import { checkoutExercisedConsumers, deriveDependencies, derivedDependencies, referenceText } from '../scripts/pr-dependencies';
 import {
   DERIVABLE_PREFIXES, PERIODIC_ONLY_PR_FILES, PR_FULL_GATE_FILES, PR_PROFILE_MAPS, formatPrCoverageSummary, selectPrProfile, unknownFileLabel,
 } from '../scripts/test-pr-profile';
@@ -21,6 +21,23 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const real = derivedDependencies(PR_PROFILE_MAPS, ROOT);
 const gate = Object.keys(E2E_TIERS).filter(id => E2E_TIERS[id] === 'gate');
 const FIX = 'docs/TESTING_INTERNALS.md#pr-paid-lane-fallback';
+
+test('a known full-gate workflow edit preserves the eager coverage and shadow without walking either graph', () => {
+  const options = { selectedE2E: null, selectedJudges: null, changedFiles: ['.github/workflows/evals.yml'] };
+  const expected = selectPrProfile({ ...options, derived: real,
+    exercised: checkoutExercisedConsumers(PR_PROFILE_MAPS, ROOT, PR_FULL_GATE_FILES) });
+  const lazy = selectPrProfile({ ...options, derived: () => { throw new Error('unnecessary graph walk'); } });
+  expect(lazy).toEqual(expected);
+  expect(lazy.mode).toBe('full-fallback');
+  let walks = 0;
+  const mixed = selectPrProfile({ ...options, changedFiles: [...options.changedFiles, 'lib/new-unmapped.ts'],
+    derived: () => { walks++; return real; }, exercised: null });
+  expect(walks).toBe(1);
+  expect(mixed).toEqual(selectPrProfile({ ...options, changedFiles: [...options.changedFiles, 'lib/new-unmapped.ts'], derived: real, exercised: null }));
+  walks = 0;
+  selectPrProfile({ ...options, readSource: () => '', derived: () => { walks++; return real; }, exercised: null });
+  expect(walks).toBe(1); // A deleted/unreadable workflow must retain reference diagnostics.
+});
 
 function fixtureRepo(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-deps-'));

@@ -125,18 +125,26 @@ function inventory(opts: Options): string {
     const names = directory(dir, true);
     if (!names) return;
     for (const name of names) {
-      if (directory(path.join(dir, name)) === null) fail('missing skill directory');
-      let file = path.join(dir, name, 'SKILL.md');
+      const entry = path.join(dir, name), owner = path.dirname(path.dirname(dir));
+      const allowedTarget = (target: string) => privateRegistry
+        ? target.startsWith(path.join(owner, 'runtime') + path.sep) || target === liveSkill(name)
+        : target === path.join(owner, name, 'SKILL.md');
+      let file = path.join(entry, 'SKILL.md');
+      // Native Windows installs use directory junctions instead of privileged
+      // file symlinks. Apply the same exact document boundary before reading.
+      if (process.platform === 'win32' && stat(entry)?.isSymbolicLink()) {
+        const target = fs.realpathSync(file);
+        if (!allowedTarget(target)) fail('external skill document');
+        rows.push([entry, `link:${fs.readlinkSync(entry)}:${target}`]);
+        if (directory(path.dirname(target)) === null) fail('missing skill directory');
+        file = target;
+      } else if (directory(entry) === null) fail('missing skill directory');
       if (stat(file)?.isSymbolicLink()) {
         const target = fs.realpathSync(file);
-        const owner = path.dirname(path.dirname(dir));
         // The installed project registry links each name to its same-name
         // checkout document. Private registries can also use the seeder's
         // exact live-source entry; neither rule admits a different skill.
-        const allowed = privateRegistry ? target.startsWith(path.join(owner, 'runtime') + path.sep)
-          || target === liveSkill(name)
-          : target === path.join(owner, name, 'SKILL.md');
-        if (!allowed) fail('external skill document');
+        if (!allowedTarget(target)) fail('external skill document');
         rows.push([file, `link:${fs.readlinkSync(file)}:${target}`]);
         file = target;
       }

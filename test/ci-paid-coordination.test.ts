@@ -29,37 +29,63 @@ const workflows = ['evals.yml', 'evals-periodic.yml'].map(name => ({
 }));
 
 describe('paid CI coordination stays off the eval image', () => {
-  test('the actual planner and reporter load from a checkout without installed packages', () => {
+  test('the actual planner and reporter load from a checkout without installed packages', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'paid-offline-'));
-    const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 5_000 });
+    // Include newly authored, unignored source modules in the current candidate
+    // without staging the developer's working tree merely to run this check.
+    const listed = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 5_000 });
     expect(listed.status, listed.stderr).toBe(0);
+    let primaryError: unknown;
+    const realFixtureRoot = fs.realpathSync(directory);
+    const createdDirectories = new Set<string>();
     try {
-      for (const relative of listed.stdout.split('\0').filter(Boolean)) {
-        const source = path.join(ROOT, relative);
-        const destination = path.join(directory, relative);
-        fs.mkdirSync(path.dirname(destination), { recursive: true });
-        expect(fs.realpathSync(path.dirname(destination)).startsWith(fs.realpathSync(directory) + path.sep)
-          || fs.realpathSync(path.dirname(destination)) === fs.realpathSync(directory)).toBe(true);
-        if (fs.lstatSync(source).isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(source), destination);
-        else fs.copyFileSync(source, destination);
-      }
+      const filesToCopy = listed.stdout.split('\0').filter(Boolean);
+      let nextFile = 0;
+      const copies = await Promise.allSettled(Array.from({ length: process.platform === 'win32' ? 16 : 1 }, async () => {
+        while (nextFile < filesToCopy.length) {
+          const relative = filesToCopy[nextFile++]!;
+          const source = path.join(ROOT, relative);
+          const destination = path.join(directory, relative);
+          const parent = path.dirname(destination);
+          if (!createdDirectories.has(parent)) { fs.mkdirSync(parent, { recursive: true }); createdDirectories.add(parent); }
+          // Resolve every destination parent again before writing, even when its
+          // directory was created earlier. Never trust a cached link target.
+          const realParent = fs.realpathSync(parent);
+          expect(realParent.startsWith(realFixtureRoot + path.sep) || realParent === realFixtureRoot).toBe(true);
+          if (fs.lstatSync(source).isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(source), destination);
+          else await fs.promises.copyFile(source, destination);
+        }
+      }));
+      for (const result of copies) if (result.status === 'rejected') throw result.reason;
       const env = { ...process.env, ANTHROPIC_API_KEY: undefined, EVALS: undefined, EVALS_ALL: undefined,
         EVALS_PROFILE: 'pr', EVALS_TIER: 'gate' };
-      for (const args of [['init', '-b', 'main'], ['add', '-A'], ['commit', '-m', 'Seed offline planner fixture'], ['checkout', '-b', 'fixture-head']]) {
-        const git = spawnSync('git', args, { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
-        expect(git.status, git.stderr).toBe(0);
-      }
+      const fixtureGit = (args: string[], input?: string) => {
+        const git = spawnSync('git', args, { cwd: directory, env, input, encoding: 'utf8', timeout: 15_000 });
+        expect(git.status, `git ${args.join(' ')}: ${git.error?.message ?? git.signal ?? ''}\n${git.stderr}`).toBe(0);
+        return git.stdout;
+      };
+      for (const args of [['init', '-b', 'main'], ['config', 'gc.auto', '0'], ['config', 'maintenance.auto', 'false']]) fixtureGit(args);
+      if (process.platform === 'win32') {
+        // Staging 5,000 files in one native Git child exceeds its 15s bound.
+        // Feed literal NUL-delimited paths on stdin. A bounded batch preserves
+        // the child deadline without dozens of Windows process startups.
+        const files = fixtureGit(['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
+        for (let offset = 0; offset < files.length; offset += 512)
+          fixtureGit(['--literal-pathspecs', 'add', '--pathspec-from-file=-', '--pathspec-file-nul'], files.slice(offset, offset + 512).join('\0') + '\0');
+      } else fixtureGit(['add', '-A']);
+      fixtureGit(['commit', '-m', 'Seed offline planner fixture']);
+      fixtureGit(['checkout', '-b', 'fixture-head']);
       fs.appendFileSync(path.join(directory, '.github/workflows/evals.yml'), '\n');
       const report = path.join(directory, 'report');
       const plan = spawnSync(process.execPath, ['--no-install', 'run', 'scripts/test-paid-shards.ts', '--tier', 'gate',
         '--emit-plan', path.join(report, 'manifest.json'), '--slices', '6'], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
-      expect(plan.status, plan.stdout + plan.stderr).toBe(0);
+      expect(plan.status, `planner selection: ${plan.error?.message ?? plan.signal ?? ''}\n${plan.stdout}${plan.stderr}`).toBe(0);
       const manifest = JSON.parse(fs.readFileSync(path.join(report, 'manifest.json'), 'utf8'));
       expect(manifest.sliceCount).toBe(6);
       expect(manifest.entries.some((entry: any) => entry.status === 'planned')).toBe(true);
       const reconcile = spawnSync(process.execPath, ['--no-install', 'run', 'scripts/test-paid-shards.ts', '--tier', 'gate',
         '--report', report], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
-      expect(reconcile.status, reconcile.stdout + reconcile.stderr).toBe(1);
+      expect(reconcile.status, `report reconciliation: ${reconcile.error?.message ?? reconcile.signal ?? ''}\n${reconcile.stdout}${reconcile.stderr}`).toBe(1);
       expect(reconcile.stdout).toContain('report: 0/6 slices');
       expect(reconcile.stderr.match(/slice \d\/6 reported NO result/g)).toHaveLength(6);
       expect(reconcile.stderr).not.toContain('Cannot find module');
@@ -68,7 +94,16 @@ describe('paid CI coordination stays off the eval image', () => {
         { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
       expect(provider.status).toBe(1);
       expect(provider.stderr).toContain("Cannot find module '@anthropic-ai/sdk'");
-    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+    } catch (error) {
+      primaryError = error;
+      throw error;
+    } finally {
+      try { fs.rmSync(directory, { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 10 : 0, retryDelay: 100 }); }
+      catch (cleanupError) {
+        if (!primaryError) throw cleanupError;
+        console.error('Offline fixture cleanup also failed:', cleanupError);
+      }
+    }
   }, 60_000);
 
   for (const { name, jobs } of workflows) {

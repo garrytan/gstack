@@ -1,8 +1,9 @@
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 
 const helper = path.join(import.meta.dir, 'helpers/plan-skill-question-hook-scope.ts');
 const sourceRoot = path.dirname(import.meta.dir);
@@ -14,6 +15,21 @@ const child = String.raw`
   const [helper, sourceRoot, root, scenario] = process.argv.slice(-4);
   const fs = { ...require('node:fs') }, path = require('node:path');
   const assert = require('node:assert/strict');
+  if (process.platform === 'win32') {
+    const nativeLink = fs.symlinkSync, nativeUnlink = fs.unlinkSync;
+    fs.symlinkSync = (source, target, type) => {
+      if (type === 'dir' || fs.statSync(source).isDirectory()) return nativeLink(source, target, 'junction');
+      // Same-name documents use readable parent junctions; other leaf links
+      // stay nonregular artifacts which the scope guard must refuse.
+      if (path.basename(source) === path.basename(target) && path.basename(target) === 'SKILL.md') {
+        fs.rmdirSync(path.dirname(target));
+        nativeLink(path.dirname(source), path.dirname(target), 'junction');
+        assert.equal(fs.realpathSync(target), fs.realpathSync(source));
+      } else nativeLink(path.dirname(source), target, 'junction');
+    };
+    fs.unlinkSync = target => fs.lstatSync(target).isSymbolicLink() && fs.statSync(target).isDirectory()
+      ? fs.rmdirSync(target) : nativeUnlink(target);
+  }
   const managedFixture = path.join(root, 'managed');
   const original = fs.readFileSync(helper, 'utf8');
   const matches = [...original.matchAll(/^const managedRoot = [\s\S]*?;$/gm)];
@@ -79,11 +95,9 @@ const child = String.raw`
       assert(fs.readdirSync(registry).length > 50); passes(); break;
     }
     case 'actual-hermetic-registry': {
-      delete process.env.ANTHROPIC_API_KEY; delete process.env.GSTACK_ANTHROPIC_API_KEY;
-      process.env.EVALS_HERMETIC = '1'; process.env.TMPDIR = root;
-      const { hermeticSkillsConfigDir, getHermeticDirs } = require(path.join(sourceRoot, 'test/helpers/hermetic-env.ts'));
-      const seeded = fs.realpathSync(hermeticSkillsConfigDir());
-      const sessionRoot = fs.mkdtempSync(path.join(getHermeticDirs().runRoot, 'pty-'));
+      const seededRoot = path.join(root, 'seeded');
+      const seeded = fs.realpathSync(path.join(seededRoot, 'with-skills', '.claude'));
+      const sessionRoot = fs.mkdtempSync(path.join(seededRoot, 'pty-'));
       const actualConfig = path.join(sessionRoot, '.claude'); fs.mkdirSync(actualConfig);
       fs.symlinkSync(path.join(seeded, 'skills'), path.join(actualConfig, 'skills'), 'dir');
       const scope = setup({configDir: fs.realpathSync(actualConfig), cwd}); check(scope);
@@ -112,7 +126,8 @@ const child = String.raw`
       }
       if (scenario === 'live-frontmatter-mutation') write(source,
         '---\nname: review\nhooks:\n  PreToolUse:\n    - matcher: AskUserQuestion\n      hooks: []\n---\n');
-      fs.unlinkSync(path.join(registry, 'review', 'SKILL.md'));
+      if (process.platform === 'win32') { fs.rmdirSync(path.join(registry, 'review')); fs.mkdirSync(path.join(registry, 'review')); }
+      else fs.unlinkSync(path.join(registry, 'review', 'SKILL.md'));
       fs.symlinkSync(target, path.join(registry, 'review', 'SKILL.md'));
       if (scenario === 'live-census-alias') {
         for (const name of ['_gstack-command', 'gstack']) {
@@ -182,7 +197,7 @@ const child = String.raw`
     case 'new-skill': { const scope = passes(); skill('new'); refuses(() => check(scope)); break; }
     case 'changed-skill': { const scope = passes(); fs.appendFileSync(skillFile, '\nchanged'); refuses(() => check(scope)); break; }
     case 'external-registry': { fs.unlinkSync(path.join(configDir, 'skills')); fs.symlinkSync(runtime, path.join(configDir, 'skills'), 'dir'); refuses(() => setup({configDir,cwd})); break; }
-    case 'external-skill': { const file = path.join(root, 'outside.md'); write(file, '---\nname: review\n---\n'); fs.unlinkSync(path.join(registry, 'review', 'SKILL.md')); fs.symlinkSync(file, path.join(registry, 'review', 'SKILL.md')); refuses(() => setup({configDir,cwd})); break; }
+    case 'external-skill': { const file = path.join(root, 'outside.md'); write(file, '---\nname: review\n---\n'); if (process.platform === 'win32') { fs.rmdirSync(path.join(registry, 'review')); fs.mkdirSync(path.join(registry, 'review')); } else fs.unlinkSync(path.join(registry, 'review', 'SKILL.md')); fs.symlinkSync(file, path.join(registry, 'review', 'SKILL.md')); refuses(() => setup({configDir,cwd})); break; }
     case 'settings-symlink': { const file = path.join(root, 'outside.json'); json(file, {}); fs.symlinkSync(file, settings); refuses(() => setup({configDir,cwd})); break; }
     case 'oversized-settings': write(settings, ' '.repeat(1024 * 1024 + 1)); refuses(() => setup({configDir,cwd})); break;
     case 'invalid-utf8': write(settings, Buffer.from([0xff])); refuses(() => setup({configDir,cwd})); break;
@@ -235,15 +250,57 @@ for (const event of ['PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostTool
     for (const location of ['settings', 'frontmatter', 'managed', 'drift']) scenarios.push(`file-tool-${event}-${tool}-${location}`);
 if (process.platform !== 'win32') scenarios.push('fifo');
 
-for (const scenario of scenarios) test(`controlled question hook scope: ${scenario}`, () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'question-hook-scope-')));
-  try {
-    const result = spawnSync(process.execPath, ['-e', child, helper, sourceRoot, root, scenario], {
-      encoding: 'utf8', timeout: 5000,
-    });
-    expect(result.error).toBeUndefined();
-    expect(result.stderr).toBe('');
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ scenario });
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-}, 7000);
+function prepareRegistry(root: string, timeout: number = 5000): void {
+  const prepare = String.raw`
+    const [sourceRoot, root] = process.argv.slice(-2);
+    const fs = require('node:fs'), path = require('node:path');
+    delete process.env.ANTHROPIC_API_KEY; delete process.env.GSTACK_ANTHROPIC_API_KEY;
+    process.env.EVALS_HERMETIC = '1'; process.env.TMPDIR = root;
+    const { hermeticSkillsConfigDir, getHermeticDirs } = require(path.join(sourceRoot, 'test/helpers/hermetic-env.ts'));
+    hermeticSkillsConfigDir();
+    // Transfer this disposable tree to the caller's cleanup boundary before
+    // the seeder's exit hook removes its original, process-owned pathname.
+    fs.renameSync(getHermeticDirs().runRoot, path.join(root, 'seeded'));
+  `;
+  const prepared = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', prepare, sourceRoot, root], {
+    encoding: 'utf8', timeout,
+  });
+  expect(prepared.error).toBeUndefined();
+  expect(prepared.status, prepared.stderr).toBe(0);
+}
+
+function probeScope(root: string, scenario: string): void {
+  const result = spawnSync(process.execPath, ['-e', child, helper, sourceRoot, root, scenario], {
+    encoding: 'utf8', timeout: 5000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.stderr).toBe('');
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ scenario });
+}
+
+// A full native runtime copy is preparation, not the controlled hook probe.
+// Keep the behavior child at five seconds and its case at seven seconds.
+if (process.platform === 'win32') describe('actual registry fixture', () => {
+  let root = '';
+  beforeAll(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'question-hook-scope-')));
+    prepareRegistry(root, 30_000);
+  }, 35_000);
+  afterAll(() => { if (root) fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
+  test('controlled question hook scope: actual-hermetic-registry', () => {
+    if (!root) throw new Error('Actual registry fixture was not prepared');
+    probeScope(root, 'actual-hermetic-registry');
+  }, 7000);
+});
+
+for (const scenario of scenarios) {
+  if (process.platform === 'win32' && scenario === 'actual-hermetic-registry') continue;
+  test(`controlled question hook scope: ${scenario}`, () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'question-hook-scope-')));
+    try {
+      if (scenario === 'actual-hermetic-registry') prepareRegistry(root);
+      probeScope(root, scenario);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }, 7000);
+}

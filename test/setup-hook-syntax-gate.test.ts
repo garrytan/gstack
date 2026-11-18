@@ -328,6 +328,9 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
       `SETTINGS_HOOK='${posix(ROOT)}/bin/gstack-settings-hook'`,
       `GSTACK_CONFIG='${posix(ROOT)}/bin/gstack-config'`,
       'TEAM_MODE=1 NO_TEAM_MODE=0 IS_WINDOWS=0 QUIET=1 PLAN_TUNE_HOOKS_MODE="" TIMELINE_STOP_HOOK_MODE=""',
+      ...(process.platform === 'win32' ? [
+        `"$BUN_CMD" --no-env-file --config=NUL -e 'const fs=require("fs"),os=require("os"); if(fs.realpathSync(os.homedir())!==fs.realpathSync(process.env.GSTACK_TEST_FIXTURE_HOME)||fs.realpathSync(os.tmpdir())!==fs.realpathSync(process.env.GSTACK_TEST_FIXTURE_TMP))throw new Error("Native hook fixture escaped its home or temp root");'`,
+      ] : []),
       '. "$SOURCE_GSTACK_DIR/bin/gstack-claude-root.sh"',
       HOOK_SECTIONS,
       'echo SETUP_HOOKS_DONE',
@@ -342,6 +345,15 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
       GSTACK_SKILL_CONTRACTS: 'off',
       TMPDIR: fx.base,
     };
+    if (process.platform === 'win32') {
+      for (const key of Object.keys(process.env)) {
+        if (['SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT'].includes(key.toUpperCase()) && process.env[key]) env[key] = process.env[key]!;
+      }
+      const roaming = path.join(fx.home, 'AppData', 'Roaming'), local = path.join(fx.home, 'AppData', 'Local');
+      fs.mkdirSync(roaming, { recursive: true }); fs.mkdirSync(local, { recursive: true });
+      Object.assign(env, { USERPROFILE: fx.home, APPDATA: roaming, LOCALAPPDATA: local, TMP: fx.base, TEMP: fx.base,
+        GSTACK_TEST_FIXTURE_HOME: fx.home, GSTACK_TEST_FIXTURE_TMP: fx.base });
+    }
     // A file, not `bash -c`: the script is longer than Windows' 32,767-character command line.
     const file = path.join(fx.base, 'setup-hooks.sh');
     fs.writeFileSync(file, script);
@@ -409,5 +421,5 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
     expect(r.out).toContain('keeps running the broken file until it is fixed');
     expect(r.out).not.toContain('previous install is still active');
     expect(registeredCommands(fx)).toEqual(before);
-  }, 30_000); // Two setup hook passes, each resolving every gate switch.
+  }, process.platform === 'win32' ? 60_000 : 30_000); // Two real setup passes, each resolving every gate switch.
 });

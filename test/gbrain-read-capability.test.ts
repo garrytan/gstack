@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function fixture(opts: { state?: unknown; pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; fail?: string; gitExecutable?: string } = {}) {
+function fixture(opts: { state?: unknown | ((repo: string) => unknown); pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; getText?: string; rawGet?: unknown; fail?: string; gitExecutable?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'gbrain-read-'));
   roots.push(root);
   const repo = join(root, 'repo');
@@ -20,7 +20,7 @@ function fixture(opts: { state?: unknown; pin?: string; registration?: unknown |
   const slug = opts.slug ?? 'code/repo/readme';
   writeFileSync(join(repo, '.gbrain-source'), `${opts.pin ?? source}\n`);
   mkdirSync(join(home, '.gstack'));
-  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify(opts.state ?? {
+  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify((typeof opts.state === 'function' ? opts.state(repo) : opts.state) ?? {
     schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: [
       { name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id: source, source_path: repo } },
     ],
@@ -34,14 +34,17 @@ const args = process.argv.slice(2).join(' ');
 if (args === ${JSON.stringify(opts.fail)}) process.exit(2);
 if (args === 'sources list --json') console.log(${JSON.stringify(JSON.stringify(registration ?? { sources: [{ id: source, local_path: repo }] }))});
 else if (args === 'list --source client-repo --limit 1') console.log(${JSON.stringify(opts.list ?? `${slug}\tcode\t2026-09-24\tReadme`)});
-else if (args === ${JSON.stringify(`get ${slug} --source client-repo --json`)}) console.log(${JSON.stringify(JSON.stringify(opts.get ?? { source_id: source, slug }))});
+else if (args === ${JSON.stringify(`get ${slug} --source client-repo --json`)}) console.log(${JSON.stringify(opts.getText ?? JSON.stringify(opts.get ?? { source_id: source, slug }))});
+else if (args === ${JSON.stringify(`call --source client-repo get_page ${JSON.stringify({ slug })}`)}) console.log(${JSON.stringify(JSON.stringify(opts.rawGet ?? { source_id: source, slug }))});
 else process.exit(3);
 `);
   chmodSync(join(bin, 'gbrain'), 0o755);
+  if (process.platform === 'win32') writeFileSync(join(bin, 'gbrain.cmd'), `@echo off\r\n"${process.execPath}" --no-env-file --config=NUL "%~dp0gbrain" %*\r\n`);
+  const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
   const run = (cwd = repo, args: string[] = []) => {
-    const result = spawnSync('bun', [join(import.meta.dir, '..', 'bin', 'gstack-gbrain-read-capability.ts'), ...args], {
+    const result = spawnSync(process.execPath, ['--no-env-file', `--config=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`, join(import.meta.dir, '..', 'bin', 'gstack-gbrain-read-capability.ts'), ...args], {
       cwd, encoding: 'utf8', timeout: 10_000,
-      env: { ...process.env, HOME: home, GSTACK_HOME: join(home, '.gstack'), PATH: `${bin}:${process.env.PATH}` },
+      env: { ...process.env, HOME: home, GSTACK_HOME: join(home, '.gstack'), [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}` },
     });
     return { result, value: JSON.parse(result.stdout), calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [] };
   };
@@ -58,7 +61,7 @@ test('source-scoped read validates a pretty sync state, registration, and matchi
 
 test('symlink-equivalent registered worktree passes but another source path fails closed', () => {
   const f = fixture();
-  symlinkSync(f.repo, join(f.root, 'alias'));
+  symlinkSync(f.repo, join(f.root, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
   const statePath = join(f.root, 'home', '.gstack', '.gbrain-sync-state.json');
   const state = JSON.parse(readFileSync(statePath, 'utf8'));
   state.last_stages[0].detail.source_path = join(f.root, 'alias');
@@ -91,6 +94,71 @@ test('accepts native JSON metadata without requiring a content field', () => {
   expect(result.calls).toHaveLength(3);
 });
 
+test('native Markdown get falls back to a matching source-scoped structured read', () => {
+  const result = fixture({ getText: '---\ntitle: Readme\n---\n# Readme' }).run();
+  expect(result.value.status).toBe('ready');
+  expect(result.calls).toEqual([
+    'sources list --json', 'list --source client-repo --limit 1',
+    'get code/repo/readme --source client-repo --json',
+    'call --source client-repo get_page {"slug":"code/repo/readme"}',
+  ]);
+});
+
+test.each([
+  { source_id: 'other', slug: 'code/repo/readme' },
+  { source_id: 'client-repo', slug: 'wrong' },
+  { source_id: 'client-repo', slug: 'code/repo/readme', error: 'not_found' },
+  [{ source_id: 'client-repo', slug: 'code/repo/readme' }],
+].map(rawGet => ({ rawGet })))('raw fallback rejects unverified identity or error envelopes: %#', ({ rawGet }) => {
+  const result = fixture({ getText: '# Markdown', rawGet }).run();
+  expect(result.value.status).toBe('unknown');
+});
+
+test('raw fallback failure stays unknown without mutations', () => {
+  const result = fixture({ getText: '# Markdown', fail: 'call --source client-repo get_page {"slug":"code/repo/readme"}' }).run();
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toHaveLength(4);
+});
+
+test('a sibling latest sync preserves readiness through the successful source record', () => {
+  const result = fixture({ state: (repo: string) => ({
+    schema_version: 1, last_writer: 'gstack-gbrain-sync',
+    last_stages: [{ name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id: 'sibling', source_path: join(repo, '..') } }],
+    code_sources: { 'client-repo': { path: repo } },
+  }) }).run();
+  expect(result.value.status).toBe('ready');
+  expect(result.calls).toHaveLength(3);
+});
+
+test('a retained source record cannot hide this source latest failed sync', () => {
+  const result = fixture({ state: (repo: string) => ({
+    schema_version: 1, last_writer: 'gstack-gbrain-sync',
+    last_stages: [{ name: 'code', ran: true, ok: false, detail: { status: 'failed', source_id: 'client-repo', source_path: repo } }],
+    code_sources: { 'client-repo': { path: repo } },
+  }) }).run();
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toEqual([]);
+});
+
+test('an unidentified latest failure cannot fall back to a successful source record', () => {
+  const result = fixture({ state: (repo: string) => ({
+    schema_version: 1, last_writer: 'gstack-gbrain-sync',
+    last_stages: [{ name: 'code', ran: true, ok: false }],
+    code_sources: { 'client-repo': { path: repo } },
+  }) }).run();
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toEqual([]);
+});
+
+test('a retained record must match the real worktree before any brain read', () => {
+  const result = fixture({ state: (repo: string) => ({
+    schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: [],
+    code_sources: { 'client-repo': { path: join(repo, '..') } },
+  }) }).run();
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toEqual([]);
+});
+
 test('accepts a bounded literal-Unicode code slug', () => {
   const slug = 'code/路径/mañana🌳.ts';
   const result = fixture({ slug }).run();
@@ -98,7 +166,7 @@ test('accepts a bounded literal-Unicode code slug', () => {
   expect(result.calls.at(-1)).toBe(`get ${slug} --source client-repo --json`);
 });
 
-test.each(['--help', 'code/a/../b', 'code/./b', 'code/\u0007bad', 'a'.repeat(513)])('rejects unsafe slug %j before get', slug => {
+test.each(['--help', 'code/a/../b', 'code/./b', 'code/\u0007bad', 'code/a&b', 'code/"quoted"', 'code/%PATH%', 'a'.repeat(513)])('rejects unsafe slug %j before get', slug => {
   const result = fixture({ slug }).run();
   expect(result.value.status).toBe('unknown');
   expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1']);
@@ -115,7 +183,7 @@ test('rejects a JSON array response', () => {
 });
 
 test('rejects a source-list error envelope before any page operation', () => {
-  const result = fixture({ registration: repo => ({
+  const result = fixture({ registration: (repo: string) => ({
     error: { code: 'partial_read' },
     sources: [{ id: 'client-repo', local_path: repo }],
   }) }).run();
@@ -124,14 +192,14 @@ test('rejects a source-list error envelope before any page operation', () => {
 });
 
 test('source-only returns registration-bound count without reading a page', () => {
-  const f = fixture({ registration: repo => ({ sources: [{ id: 'client-repo', local_path: repo, page_count: 7 }] }) });
+  const f = fixture({ registration: (repo: string) => ({ sources: [{ id: 'client-repo', local_path: repo, page_count: 7 }] }) });
   const result = f.run(undefined, ['--source-only']);
   expect(result.value).toMatchObject({ status: 'source', source_id: 'client-repo', page_count: 7 });
   expect(result.calls).toEqual(['sources list --json']);
 });
 
 test('source-only rejects a sibling registration even when its count is zero', () => {
-  const f = fixture({ registration: repo => ({ sources: [{ id: 'client-repo', local_path: join(repo, '..'), page_count: 0 }] }) });
+  const f = fixture({ registration: (repo: string) => ({ sources: [{ id: 'client-repo', local_path: join(repo, '..'), page_count: 0 }] }) });
   const result = f.run(undefined, ['--source-only']);
   expect(result.value.status).toBe('unknown');
   expect(result.value.page_count).toBeUndefined();
@@ -139,7 +207,7 @@ test('source-only rejects a sibling registration even when its count is zero', (
 });
 
 test.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '0'])('source-only rejects an unsafe page count %j', count => {
-  const result = fixture({ registration: repo => ({ sources: [{ id: 'client-repo', local_path: repo, page_count: count }] }) })
+  const result = fixture({ registration: (repo: string) => ({ sources: [{ id: 'client-repo', local_path: repo, page_count: count }] }) })
     .run(undefined, ['--source-only']);
   expect(result.value.status).toBe('unknown');
   expect(result.value.page_count).toBeUndefined();

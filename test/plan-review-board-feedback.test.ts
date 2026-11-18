@@ -298,6 +298,20 @@ test('submitted words, mixed actions and competing alternate claims cannot autho
   await expectUnsubmitted(published);
 });
 
+test('the board actor ignores the owned fixture Bun preload', async () => {
+  const marker = path.join(cwd, 'preload-ran');
+  fs.writeFileSync(path.join(cwd, 'bunfig.toml'), 'preload = ["./poison.ts"]\n');
+  fs.writeFileSync(path.join(cwd, 'poison.ts'), `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'unexpected preload'); process.exit(91);\n`);
+  const published = await board();
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(cwd);
+    expect(picker()(question(published.url))).toBe(1);
+  } finally { process.chdir(previousCwd); }
+  expect(fs.existsSync(feedbackPath(published))).toBe(true);
+  expect(fs.existsSync(marker)).toBe(false);
+});
+
 test('a repeated owned board question does not POST a second time', async () => {
   const published = await board();
   const menu = question(published.url);
