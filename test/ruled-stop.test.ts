@@ -114,8 +114,8 @@ describe('the stop ruling row (lib/ruled-notes.ts)', () => {
 });
 
 /** A fixture at the stop head S: run r2's round-2 review row with one open blocker, its ledger, and a body with the stop record. */
-function ruledRepo(o: { priorFull?: number; passes?: number } = {}) {
-  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+function ruledRepo(o: { priorFull?: number; passes?: number; base?: Record<string, string> } = {}) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', ...o.base }, { 'src/x.ts': 'export const x = 2;\n' });
   fxs.push(f);
   const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
   const s = f.git('rev-parse', 'HEAD').stdout.trim();
@@ -231,5 +231,22 @@ describe('the ruled-stop check and the receipt that takes it (gstack-ship-receip
     const garbage = r.run('gstack-ship-receipt', ['ruled-stop', '--body', r.body, '--pr', '7', '--run', 'r2', '--since', 'garbage', '--dir', r.dir]);
     expect(garbage.status).toBe(2);
     expect(garbage.stderr).toContain('--since garbage is not a timestamp');
+  });
+
+  // Value: protects=GST-2273: a file the base policy stamps with the version is gate code, so a logic change to it after the
+  //   ruled stop is refused like any code; fails_when=the release allow-list takes the policy's stamp_paths as whole files;
+  //   seam=gstack-ship-receipt write --ruled-stop
+  test('D5b: a logic change to a stamp_paths file after the ruled stop is refused', () => {
+    const policy = { stamp_paths: ['lib/policy.ts'], stamp_patterns: ["_KEY_VERSION = '{version}'"] };
+    const r = ruledRepo({ base: { '.gstack/ship-policy.json': JSON.stringify(policy) + '\n', 'lib/policy.ts': "export const P_KEY_VERSION = '1.0.0.0';\nexport const gate = true;\n" } });
+    expect(r.rule(ID).status).toBe(0);
+    const closed = r.ruled();
+    expect(closed.status, closed.stderr).toBe(0);
+    const e = r.exception('second_pass');
+    withLines(r.body, [notesOf(closed.stdout)[0]!, reviewLoopExceptionLine(e as never)]);
+    r.f.write({ 'lib/policy.ts': "export const P_KEY_VERSION = '1.0.0.0';\nexport const gate = false;\n" }); r.f.commit('turn the gate off');
+    const out = r.write(e, { passes: 2, blocking_found: 1, deferred: 0, scope: 'frozen' });
+    expect(out.status, out.stderr).toBe(1);
+    expect(out.stderr).toContain('lib/policy.ts changed since the ruled stop');
   });
 });

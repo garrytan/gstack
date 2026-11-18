@@ -1185,7 +1185,7 @@ function ruledStopException(rest: string[], repoRoot: string, bodyText: string |
   const since = spawnSync('git', ['diff', '--name-only', r.stop!.head, 'HEAD', '--'], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 });
   const base = flag(rest, '--base') ?? resolveBaseBranch(repoRoot);
   const load = loadPolicyFromBase(repoRoot, base);
-  const release = new Set((require('../lib/ship-bin-common') as typeof import('../lib/ship-bin-common')).releasePaths(isUnavailable(load) ? null : load.policy, repoRoot, r.stop!.head, base));
+  const release = new Set((require('../lib/ship-bin-common') as typeof import('../lib/ship-bin-common')).releasePaths(isUnavailable(load) ? null : load.policy, repoRoot, r.stop!.head, base, true));
   const { classifyPath } = require('../lib/review-depth') as typeof import('../lib/review-depth');
   const moved = since.status !== 0 ? ['(git diff failed)'] : since.stdout.split('\n').filter(p => p && !/^(changelog\.d|docs)\//.test(p) && !release.has(p) && classifyPath(p, repoRoot) !== 'docs');
   if (moved.length) return `--ruled-stop: ${moved.slice(0, 5).join(', ')} changed since the ruled stop at ${r.stop!.head.slice(0, 12)}: the rulings cover that commit, and only release metadata and docs may change after it`;
