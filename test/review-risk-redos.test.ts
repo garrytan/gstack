@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { SVG_REFUSED, svgDrawing } from '../lib/review-depth';
-import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECRET_PATH, SECURITY_JOINED, SECURITY_LINE, USD_COMPARE, matchRisk, usdMoney } from '../lib/review-risk';
+import { DATA_LINE, MONEY_LINE, SECRET_LINE, SECRET_PATH, SECURITY_JOINED, SECURITY_LINE, SWIFT_DATA_LINE, SWIFT_SECURITY_LINE, USD_COMPARE, matchRisk, usdMoney } from '../lib/review-risk';
 
 const L = 100_000;
 const ms = (f: () => unknown) => { const t = performance.now(); f(); return performance.now() - t; };
@@ -15,7 +15,7 @@ const security = (line: string) => matchRisk({ codePaths: ['x.sh'], added: { 'x.
 describe('linear time on hostile input', () => {
   // Value: protects=gstack-review-plan, the targeted pass and the queue depth check never stall on one added line;
   //   fails_when=any risk pattern backtracks quadratically on its anchor followed by a long run of the class it repeats,
-  //   or on a line of repeated anchors; seam=every pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE, MONEY_LINE and SECRET_PATH
+  //   or on a line of repeated anchors; seam=every pattern in SECURITY_LINE, DATA_LINE, SECRET_LINE, MONEY_LINE, SECRET_PATH, SWIFT_SECURITY_LINE and SWIFT_DATA_LINE
   const hostile = [
     run('rm -', 'r'), run('rm -', 'f'), run('rm -r', 'r'), run('rm -f', 'a'), run('rm\t-', 'r'), run('rm ', ' '), run('rm -', 'r', '1'), run('rm -', 'rf', '_'), run('', 'rm -r '),
     run('', 'rmSync('), run('rmSync(', ' '), run('rmSync(', 'recursive '), run('rmSync(', 'recursive: '), run('', '.rm('), run('.rm(', ' '), run('.rm(', 'recursive: '), run('', 'rm('), run('rm(', ' '), run('rmSync(', ' \n'),
@@ -26,8 +26,9 @@ describe('linear time on hostile input', () => {
     run('DELETE', ' '), run('drop', ' '), run('truncate', ' '), run('delete from', ' '), run('delete from ', 'a.'), run('', 'delete from a '), run('.deleteMany', ' '),
     run('', 'a_'), run('', 'aU'), run('a', 'A'), run('spend', '_'), run('new Anthropic', ' '), run('.messages.create', ' '),
     run('$', 'A_'), run('${', 'A_'), run('', '$A_'), run('process.env.', 'A_'), run('process.env[', ' '), run('os.environ[', ' '), run('os.getenv(', ' '), run('ENV[', ' '),
+    run('request', 'a'), run('', 'requestA'), run('HK', 'A'), run('', 'HKAQuery '), run('.write(', ' '), run('.write(to:', ' '), run('let ', 'a'), run('let ', 'Purge'), run('', 'let x'), run('import', ' '), run('NSFileProtection', 'a'),
   ];
-  test.each(Object.entries({ SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SECRET_LINE, MONEY_LINE, USD_COMPARE, SECRET_PATH: [SECRET_PATH] }))('every %s pattern finishes under 100 ms on each 100k-character hostile line', (_n, patterns) => {
+  test.each(Object.entries({ SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SECRET_LINE, MONEY_LINE, USD_COMPARE, SECRET_PATH: [SECRET_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }))('every %s pattern finishes under 100 ms on each 100k-character hostile line', (_n, patterns) => {
     const slow = patterns.flatMap(r => hostile.map(([label, s]) => [r.source.slice(0, 50), label, Math.round(ms(() => r.test(s)))] as const)).filter(([, , t]) => t >= 100);
     expect(slow).toEqual([]);
   }, 120_000);
