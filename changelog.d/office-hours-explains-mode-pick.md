@@ -1,1 +1,0 @@
-- **/office-hours explains why it recommends a mode.** The first question (what's your goal?) now recommends a mode by quoting your own words and saying what another mode would skip, instead of restating the mode's name.
