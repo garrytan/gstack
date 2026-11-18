@@ -332,7 +332,21 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
  * whose files passed only on a re-run adds `rerun=<files> attempts=<list>` (GST-3054): allowed, but never shown as a clean pass.
  */
 export function runReceiptFields(evidence: RunEvidence[], now: Date): string {
-  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker(evidence.map(e => ({ files: e.rerun?.length ?? 0, attempts: e.attempts ?? [] })))} verified=${now.toISOString()}`;
+  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker([...rerunByRun(evidence).values()])} verified=${now.toISOString()}`;
+}
+
+/** The re-run record per carried run (`<id>/<attempt>`): the distinct re-run files and attempts across every profile that read that run, so two profiles on one run count each file once. */
+export function rerunByRun(evidence: Array<Pick<RunEvidence, 'run_id' | 'run_attempt' | 'rerun' | 'attempts'>>): Map<string, { files: number; attempts: number[] }> {
+  const runs = new Map<string, { files: Set<string>; attempts: Set<number> }>();
+  for (const e of evidence) {
+    if (!e.rerun?.length) continue;
+    const key = `${e.run_id}/${e.run_attempt}`;
+    const run = runs.get(key) ?? { files: new Set<string>(), attempts: new Set<number>() };
+    for (const f of e.rerun) run.files.add(f);
+    for (const n of e.attempts ?? []) run.attempts.add(n);
+    runs.set(key, run);
+  }
+  return new Map([...runs].map(([key, r]) => [key, { files: r.files.size, attempts: [...r.attempts].sort((a, b) => a - b) }]));
 }
 
 /** ` rerun=<files> attempts=<list>` over the runs with re-run files, each run counted once, or '' when every run passed first time (GST-3054). */

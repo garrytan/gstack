@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { findCarry } from '../lib/ci-carry';
 import { RESULT_CODES } from '../lib/result-codes';
 import { receiptSummaryLine, validateReceipt } from '../lib/ship-receipt';
-import type { ApiRun, RunDeps, RunProfile, RunSource, TreeRecord } from '../lib/run-evidence';
+import { rerunByRun, runReceiptFields, type ApiRun, type RunDeps, type RunProfile, type RunSource, type TreeRecord } from '../lib/run-evidence';
 
 const REPO = 'garrytan/gstack';
 const HEAD = 'a'.repeat(40);
@@ -72,6 +72,14 @@ describe('a carried run that passed only after a re-run (GST-3054)', () => {
     expect(validateReceipt(r)).toEqual([]);
     expect(receiptSummaryLine(r)).toContain('ci_carried=free:5/2,lint:5/2 rerun=2 attempts=1,2');
     expect(validateReceipt(receipt([{ lane: 'free', run: 5, attempt: 2, tree: TREE, rerun: '2', attempts: 'x' }])).length).toBeGreaterThan(0);
+  });
+
+  // Value: protects=an unmarked lane on the same run never hides the marker, and two profiles on one run count each file once; fails_when=the last entry or profile overwrites or double-counts
+  test('lanes and profiles that share a run keep the marker and count each re-run file once', () => {
+    expect(receiptSummaryLine(receipt([{ lane: 'free', run: 5, attempt: 2, tree: TREE, rerun: 1, attempts: [1, 2] }, { lane: 'lint', run: 5, attempt: 2, tree: TREE }]))).toContain('ci_carried=free:5/2,lint:5/2 rerun=1 attempts=1,2');
+    const run = { run_id: 5, run_attempt: 2, head_sha: HEAD, tree: TREE, event: 'workflow_dispatch', finished_at: '2026-11-02T11:30:00Z', files: INVENTORY, tests: 3, rerun: ['test/b.test.ts'], attempts: [2, 1, 2] };
+    expect(runReceiptFields([{ ...run, profile: 'one' }, { ...run, profile: 'two' }], NOW)).toContain(' rerun=1 attempts=1,2 ');
+    expect([...rerunByRun([{ ...run, profile: 'one' }, { ...run, profile: 'two', rerun: ['test/c.test.ts'] }])]).toEqual([['5/2', { files: 2, attempts: [1, 2] }]]);
   });
 
   // Value: protects=fail closed on a malformed re-run record; fails_when=a non-array or non-string rerun_files, or bad attempts, carries

@@ -101,7 +101,7 @@ import { isUnavailable, loadPolicyFromBase, resolveBaseBranch } from "../lib/shi
 import { versionAtRef } from "../lib/restamp";
 import { bashCommandInvocation, runScriptSync, wtreeFingerprint } from "../lib/script-invocation";
 import { carriedFromLine, findCarry, laneMapping, mappingCoverage, perFileCommand } from "../lib/ci-carry";
-import { DEFAULT_MAX_AGE_HOURS, rerunMarker, runChanged } from "../lib/run-evidence";
+import { DEFAULT_MAX_AGE_HOURS, rerunByRun, rerunMarker, runChanged } from "../lib/run-evidence";
 import { isConfigUnavailable, loadConfigFromBase } from "../lib/pregate/config";
 import { buildRunCheck } from "../lib/pregate/run-check";
 import { readTestLaneExceptions, testLaneExceptionText, type BoundLaneException } from "../lib/test-lane-exception";
@@ -804,8 +804,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   }
   if (!v.ok) return none(v.reason, `${v.detail}${v.reason === "inventory_uncovered" && !atHead.length && elsewhere.length ? `; test-lane exception ${elsewhere.join(", ")} binds another head, not HEAD ${head.slice(0, 12)}` : ""}`, v.diagnosis);
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
-  const reran = v.runs.filter((r) => r.rerun?.length);
-  const rerun = reran.length ? Object.fromEntries(reran.map((r) => [`${r.run_id}/${r.run_attempt}`, { files: r.rerun!.length, attempts: r.attempts ?? [] }])) : undefined;
+  const reran = rerunByRun(v.runs);
+  const rerun = reran.size ? Object.fromEntries(reran) : undefined;
   const prior = v.excepted?.length ? null : reusableCiRow(label, { commit: head, wtree: tree, cmd_sha256: sha256(command), runs, profiles: m.profiles, policy: loaded.label, jobs: m.jobs, tests_ran: v.tests, tests_unit: v.unit, not_owed: v.notOwed, rerun }, v.remainder ?? [], m.per_file);
   if (prior) {
     console.error(recordedCiLine(prior));
