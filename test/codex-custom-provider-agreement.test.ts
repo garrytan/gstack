@@ -39,11 +39,7 @@ const CUSTOM = (model: string | null) => [
   ...(model ? [`model = "${model}"`] : []),
   'model_provider = "proxy"',
   '',
-  '[model_providers.proxy]',
-  'name = "Team proxy"',
-  'base_url = "https://proxy.example.invalid/v1"',
-  'env_key = "PROXY_API_KEY"',
-  '',
+  '[model_providers.proxy]\nname = "Team proxy"\nbase_url = "https://proxy.example.invalid/v1"\nenv_key = "PROXY_API_KEY"\n',
 ].join('\n');
 
 let counter = 0;
