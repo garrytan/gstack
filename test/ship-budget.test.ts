@@ -322,8 +322,8 @@ describe('Claude Code child launch', () => {
     return { options, prompts };
   }
 
-  test('launch runs the child in the background with explicit permission flags and the return file named', async () => {
-    const h = fresh();
+  /** Launches a child through a fake claude that records its argv. */
+  async function launchChild(h: Harness) {
     const s = started(h, ['--token-cap', '80M', '--meter', 'estimate']);
     const ho = h.sb(['handoff', '--run', s.run, '--from', '12', '--to', '22', '--base', 'origin/main']);
     const file = ho.out.match(/^HANDOFF: (\S+)/m)![1]!;
@@ -332,15 +332,31 @@ describe('Claude Code child launch', () => {
     fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}.tmp" && mv "${argsFile}.tmp" "${argsFile}"\n`, { mode: 0o755 });
     const r = h.sb(['launch', '--in', file], { GSTACK_CLAUDE_BIN: fake });
     expect(r.code).toBe(0);
-    const session = h.field(r.out, 'CHILD', 'session');
-    expect(h.field(r.out, 'CHILD', 'return')).toBe(ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!);
     for (let i = 0; i < 50 && !fs.existsSync(argsFile); i++) await Bun.sleep(100);
     const args = fs.readFileSync(argsFile, 'utf8').split('\n').slice(0, -1);
+    return { ho, file, r, session: h.field(r.out, 'CHILD', 'session'), args, parsed: parseLikeClaudeCli(args) };
+  }
+
+  test('launch runs the child in the background with explicit permission flags and the return file named', async () => {
+    const h = fresh();
+    const { ho, file, r, session, args, parsed } = await launchChild(h);
+    expect(h.field(r.out, 'CHILD', 'return')).toBe(ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!);
     expect(args.slice(0, 7)).toEqual(['-p', '--session-id', session, '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash,Read,Edit,Write,Grep,Glob']);
-    const parsed = parseLikeClaudeCli(args);
     expect(parsed.options['--allowedTools']).toEqual(['Bash,Read,Edit,Write,Grep,Glob']);
     expect(parsed.prompts).toHaveLength(1);
     expect(parsed.prompts[0]).toContain(`verify-handoff --in ${file} --session ${session}`);
+  });
+
+  // Value: protects=the Claude Code child loads /ship: Claude Code expands a skill only when the prompt starts with the typed command, and unattended Opus found a skill from its description 0 of 60 times (gstack-evals#366); fails_when=the prompt opens with prose ("Load gstack. … Run /ship") or types /ship under a gstack- prefixed install;
+  //   why_new=the test above checks only that verify-handoff appears somewhere in the prompt; seam=GSTACK_CLAUDE_BIN fake; no_claim=that a real claude expands it
+  test('the child prompt opens with the typed /ship --continue <brief>, under the installed skill name', async () => {
+    const plain = await launchChild(fresh());
+    expect(plain.parsed.prompts[0]).toStartWith(`/ship --continue ${plain.file} `);
+    const h = fresh();
+    fs.mkdirSync(h.state, { recursive: true });
+    fs.writeFileSync(path.join(h.state, 'config.yaml'), 'skill_prefix: true\n');
+    const prefixed = await launchChild(h);
+    expect(prefixed.parsed.prompts[0]).toStartWith(`/gstack-ship --continue ${prefixed.file} `);
   });
 });
 

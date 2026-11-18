@@ -390,6 +390,29 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
   `gstack-artifact validate --public <pub> --private <dir>/run.json` runs the
   same scan, renderings included, on an existing copy.
 
+## Starting a child agent: type the skill first
+
+When a parent starts another agent to run a gstack skill, the child's prompt
+opens with the skill command typed the way a person types it, for example
+`/ship --continue <brief>`, and everything else comes after it. Claude Code
+expands a skill only when the prompt starts with `/<skill>`. A prompt such as
+"Load gstack. … Run /ship …" reaches the model as plain text, and the model
+then has to decide on its own to load the skill. In gstack-evals#366, Opus 5.5
+found a skill from its description in 0 of 60 unattended sessions, while a
+typed command put the skill's text in front of it in 60 of 60.
+
+- **Use the installed name.** With `skill_prefix: true` the command is
+  `/gstack-<skill>`; a typed name that isn't installed expands to nothing.
+- **No Skill tool needed.** Claude Code expands a typed command itself, without
+  a Skill tool call, so the child's `--allowedTools` doesn't have to list
+  `Skill` for this.
+- **Hosts that don't expand a typed skill**, such as a Capy subagent, get the
+  skill's SKILL.md path to read instead.
+
+`gstack-ship-budget launch` (`lib/ship-handoff.ts`), the token-capped /ship
+child on Claude Code, follows this rule, and `test/ship-budget.test.ts`
+checks its prompt.
+
 ## How a parent consumes a run
 
 1. **Decide whether the run finished.** For an `/autoplan` run directory,
