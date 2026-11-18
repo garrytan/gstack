@@ -3529,8 +3529,8 @@ the journal has no `init` row for this run, a reviewer attempt in `run.json`
 was never journaled as dispatched, a completed voice's output or hash differs
 from its journaled `submitted` row, a bound review output changed after
 submit, or the run's checkpoint (when `GSTACK_AUTOPLAN_CHECKPOINT_DIR` or the
-Drive opt-in names one) is ahead of `run.json`, disagrees on status at the
-same revision, or holds a journal the live one no longer begins with.
+Drive opt-in names one) is ahead of `run.json`, disagrees on status or gate
+revision at the same revision, or holds a journal the live one no longer begins with.
 
 **Fix.** Treat the run as edited after the fact. Restore it from its
 checkpoint (`gstack-autoplan resume --out <new dir> --from <checkpoint>`) or
