@@ -79,7 +79,7 @@ describe('a carried run that passed only after a re-run (GST-3054)', () => {
     expect(receiptSummaryLine(receipt([{ lane: 'free', run: 5, attempt: 2, tree: TREE, rerun: 1, attempts: [1, 2] }, { lane: 'lint', run: 5, attempt: 2, tree: TREE }]))).toContain('ci_carried=free:5/2,lint:5/2 rerun=1 attempts=1,2');
     const run = { run_id: 5, run_attempt: 2, head_sha: HEAD, tree: TREE, event: 'workflow_dispatch', finished_at: '2026-11-02T11:30:00Z', files: INVENTORY, tests: 3, rerun: ['test/b.test.ts'], attempts: [2, 1, 2] };
     expect(runReceiptFields([{ ...run, profile: 'one' }, { ...run, profile: 'two' }], NOW)).toContain(' rerun=1 attempts=1,2 ');
-    expect([...rerunByRun([{ ...run, profile: 'one' }, { ...run, profile: 'two', rerun: ['test/c.test.ts'] }])]).toEqual([['5/2', { files: 2, attempts: [1, 2] }]]);
+    expect([...rerunByRun([run, { ...run, rerun: ['test/c.test.ts'] }])]).toEqual([['5/2', { files: 2, attempts: [1, 2] }]]);
   });
 
   // Value: protects=fail closed on a malformed re-run record; fails_when=a non-array or non-string rerun_files, or bad attempts, carries
