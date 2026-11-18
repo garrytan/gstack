@@ -10,8 +10,7 @@
  *   - The decision is check-careful.sh's: "ask" for the destructive families, "deny" for the two catastrophic shapes,
  *     nothing for the rest. An "ask" reason, which the person reads, also names this hook and its off switch; a
  *     "deny" reason, which the model reads, does not.
- *   - With nobody to answer an ask (claude -p or an Agent SDK run, which Claude Code marks CLAUDE_CODE_ENTRYPOINT=sdk-cli,
- *     sdk-ts or sdk-py, or a session
+ *   - With nobody to answer an ask (claude -p, which Claude Code marks CLAUDE_CODE_ENTRYPOINT=sdk-cli, or a session
  *     gstack-session-kind calls headless, unattended or spawned), an "ask" becomes a warning (systemMessage) and no
  *     decision, so the command runs as it would with no guard loaded. A "deny" stays a deny.
  *   - Always exits 0. With the switch off it prints nothing.
@@ -38,7 +37,7 @@ function main(): void {
   const o = decision.hookSpecificOutput;
   if (o?.permissionDecision === 'ask') {
     const reason = `${o.permissionDecisionReason ?? ''} ${ASK_NOTE}`.trim();
-    const kind = process.env.CLAUDE_CODE_ENTRYPOINT?.startsWith('sdk-') ? 'headless' : sessionKind(2000);
+    const kind = process.env.CLAUDE_CODE_ENTRYPOINT === 'sdk-cli' ? 'headless' : sessionKind(2000);
     if (kind && kind !== 'interactive') {
       process.stdout.write(JSON.stringify({ systemMessage: `${reason} Allowed without asking: this ${kind} session has nobody to answer.` }) + '\n');
       return;
