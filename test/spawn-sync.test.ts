@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { spawnSync } from '../lib/spawn-sync';
 import { gitEnv } from './helpers/git-env';
 
-const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(200000)); setTimeout(() => process.exit(0), 300);";
+const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(200000)); setTimeout(() => {}, 300);";
 const overflowArgs = ['-e', OVERFLOW];
 
 describe('spawnSync (lib/spawn-sync.ts)', () => {
