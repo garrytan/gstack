@@ -12,7 +12,7 @@
  * the approval record and prints GRANT: <id> for `gstack-review-plan --grant`. Anything that does not
  * qualify prints `NO_STOP: refused` and exits 3: that stop still goes to the owner.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as path from 'node:path';
 import { appendRows, buildRow, locate, readRecord } from '../lib/approval-record';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';

@@ -18,7 +18,7 @@
  * base_red is not used: it proves a failure by reproducing it on the base, and a timing flake passes there.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as path from 'node:path';
 import { locate, readRecord } from '../approval-record';
 import type { PregateException, PregateFile } from '../headless-artifacts';

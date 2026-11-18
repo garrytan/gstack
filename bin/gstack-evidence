@@ -91,7 +91,7 @@
 import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync } from "fs";
 import { mkdirpSync } from "../lib/fs-utils";
 import { join, dirname } from "path";
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { appendJsonl, readJsonl } from "../lib/jsonl-store";
 import { resolveStateRoot } from "../lib/state-root";
 import { scan, applyRedactions } from "../lib/redact-engine";

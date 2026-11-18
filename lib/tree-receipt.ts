@@ -10,7 +10,7 @@
  * the receipt also compares the execution identity the gate ran under (from
  * a `gstack-evidence bundle`) with the current one.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { normalizeChangelog } from './changelog-check';

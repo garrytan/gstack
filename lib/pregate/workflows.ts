@@ -8,7 +8,7 @@
  * runner-owned selection manifest `.gstack/pregate.json` declares for it, or
  * it is reported as an unsupported expression and treated conservatively.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { laneOf, type Lane as Platform } from '../runtime-pins';

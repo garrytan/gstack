@@ -10,7 +10,7 @@
  * `unsupported` files, not zero hunks. Every git call runs with
  * GIT_OPTIONAL_LOCKS=0, no pager, no prompt, a timeout, and `--` before paths.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defaultBaseBranch, type DefaultBase } from '../default-base';

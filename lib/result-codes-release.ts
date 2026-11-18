@@ -643,4 +643,9 @@ export const RELEASE_RESULT_CODES = {
     summary: 'git could not read the remote branch or git push failed for another reason (authentication, a pre-push hook or the network), so nothing was pushed',
     fix: 'repair the cause git printed in the STOP: line, repeat Step 16, then rerun push; never bypass a guard',
   },
+  SPAWN_OUTPUT_INCOMPLETE: {
+    anchor: 'spawn-output-incomplete',
+    summary: 'a child process reported an error (ENOBUFS when its output passed maxBuffer) even though its exit status may be 0, so its output may be cut off and was not used',
+    fix: 'rerun once; if the output really is that large (a huge diff or file list), narrow the range or paths, and report a repeat to the gstack maintainers with the command named here',
+  },
 } as const satisfies Record<string, ResultCode>;

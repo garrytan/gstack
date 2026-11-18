@@ -17,7 +17,7 @@
  * loosened check), not GATE_PATH: over the last 100 non-release commits on main, GATE_PATH
  * alone hit 43 (the precision gate allows 25), and those paths already get full depth.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

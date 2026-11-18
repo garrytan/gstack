@@ -9,7 +9,7 @@
  * can import this directly.
  */
 
-import { spawnSync } from 'child_process';
+import { spawnSync } from './spawn-sync';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';

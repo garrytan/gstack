@@ -36,7 +36,8 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 import { homedir, tmpdir } from "os";
-import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
+import { spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
+import { spawnSync } from "./spawn-sync";
 import { resolveWindowsBash, type BashProbe } from "./script-invocation";
 
 interface GbrainConfig {

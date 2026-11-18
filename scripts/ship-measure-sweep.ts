@@ -25,7 +25,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { CASE_QUARANTINE } from '../test/helpers/periodic-exclude-data';
 import { E2E_KINDS, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { parseCliFlags } from './lib/shard-engine';

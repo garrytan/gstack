@@ -25,7 +25,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import {
   SCREEN_LABEL, TODAY_WEEKLY_USD, AFTER_GSTA48_WEEKLY_USD, caseCostTable, changedLinesByFile, fullGateUsd, isSkillMd,
   parseEvalReport, parseTrialOutcomes, prSelectionCost, screenSelection, simulateTrains, summarizeGates, summarizeSelector, todaySelection,

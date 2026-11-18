@@ -11,7 +11,7 @@
  *   bun run slop:diff origin/release  # diff against another base
  */
 
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";

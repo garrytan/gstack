@@ -11,7 +11,7 @@
  *   - a golden: a base .gstack/generated.json entry the constant names regenerates it byte-identically (lib/regen.ts).
  * A declared path that fails its proof is refused with the reason and stays behavior; nothing is inferred.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

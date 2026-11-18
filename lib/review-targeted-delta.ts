@@ -12,7 +12,7 @@
  * (`granted`, checked by the plan before it gets here), a code change since the read takes the same one reader (GST-1607, harness-evals #271: the
  * granted fix round moved the product patch the record names). Anything else keeps `done` with the reason.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { comparePath, touchedPaths } from './ship-patch';
 import { docsChangeSince } from './ship-receipt-depth';
 

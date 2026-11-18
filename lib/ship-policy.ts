@@ -12,7 +12,7 @@
  * resolved against a tree. Docs: docs/ship-policy.md. Callers: bin/gstack-
  * ship-policy, lib/restamp.ts, lib/tree-receipt.ts, lib/ship-receipt.ts.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defaultBaseBranch, noDefaultBaseLine } from './default-base';

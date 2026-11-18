@@ -10,7 +10,7 @@
  * land: `guards` (field wave CD1); ratchets, lint, links, hermetic, patches
  * and integrator later.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

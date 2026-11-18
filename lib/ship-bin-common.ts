@@ -5,7 +5,8 @@
  * does next). The bins chain existing commands and never make a decision the /ship prose
  * assigns to the agent.
  */
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

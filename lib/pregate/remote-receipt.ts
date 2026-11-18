@@ -29,7 +29,7 @@
  * working-tree fingerprint `bin/gstack-wtree` wrote). A tree that is not
  * here cannot be diffed and is refused, never trusted.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import type { PregateReceiptSubstitution } from '../headless-artifacts';
 import { parseUnifiedDiff, versionAtRef } from '../restamp';
 import { isUnavailable, loadPolicyFromBase, SHIP_POLICY_PATH } from '../ship-policy';

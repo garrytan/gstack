@@ -61,7 +61,7 @@
  * checks the reply, refusing a second repair of the same audit and any change to a value the
  * first line gave correctly; after trailing text only a blocked status and its blockers carry over.
  */
-import { spawnSync } from 'child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'fs';
 import * as path from 'path';
 import { baseContainsHead } from '../lib/default-base';

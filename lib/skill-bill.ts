@@ -9,7 +9,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./spawn-sync";
 import { estimateTokens } from "./context-bill";
 import { skillEvidence } from "./inventory";
 

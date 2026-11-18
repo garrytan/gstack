@@ -7,7 +7,7 @@
  * (mode 100644) directly under `dir` count, so a symlink, gitlink or nested path cannot pull bytes
  * from outside the repository into a stamp.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { headingVersion, parseChangelog } from './changelog-check';
 import { readHistoryFile } from './history-read';
 import type { Bump } from './version-source';

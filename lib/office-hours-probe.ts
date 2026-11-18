@@ -19,7 +19,7 @@
  *             `-h` for a listed CLI whose output has no usage line, as with a
  *             missing man page; never for a gstack bin), 10 s timeout, output capped
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

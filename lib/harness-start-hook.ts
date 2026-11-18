@@ -11,7 +11,7 @@
  * from off to on, so a plugin the user disabled in the harness is never turned back on. Turning it off and
  * unregistering run gstack_harness_hook_release in bin/gstack-harness-ledger.sh, the same code gstack-uninstall runs.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readConfigKey } from './state-root';

@@ -21,7 +21,7 @@
  * scripts/test-impact.ts loads this module from the base ref, so a branch cannot change the
  * rules that decide what it skips.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

@@ -19,7 +19,7 @@
  * issue number is validated before use.
  */
 
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { wrapUntrustedTrackerContent } from "../lib/tracker-guard";
 import { flagValue } from "../lib/bin-context";
 

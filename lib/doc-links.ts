@@ -4,7 +4,7 @@
  * blocks and inline code are ignored. An anchor into a Markdown file must match a heading slug (GitHub style, with -1,
  * -2 suffixes for repeats) or an explicit <a id="..."> / <a name="..."> in that file.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 

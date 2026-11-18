@@ -8,7 +8,7 @@
  * whole message passes the shared redaction scan before gh sees it. Every gstack merge (land --pin, the stamping
  * land --pr, train land) builds its message here and picks its method with landMethod.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import type { ShipPolicy } from './ship-policy';
 import { AGENT_NOTES_MARKER } from './agent-notes';
 import { foldSections, unfoldSections, visibleOpening, VISIBLE_CHARS, VISIBLE_LINES } from './pr-body-shape';
