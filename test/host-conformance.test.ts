@@ -224,7 +224,7 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
     expect(runSetup(f, join(src, 'setup'), ['--host', 'claude']).status).toBe(0);
     const sections = join(f.home, '.claude/skills/autoplan/sections');
     expect(lstatSync(sections).isSymbolicLink(), sections).toBe(true);
-    expect(readFileSync(join(f.home, '.claude/skills/autoplan/SKILL.md'), 'utf8')).toContain('Read `sections/unattended.md`, end here');
+    expect(readFileSync(join(f.home, '.claude/skills/autoplan/SKILL.md'), 'utf8')).toContain('Read `sections/unattended.md` and settle the gate');
     rmSync(join(src, 'autoplan/sections/unattended.md'));
     const status = runSetup(f, join(src, 'setup'), ['--status']);
     expect(status.status, status.stdout + status.stderr).toBe(1);

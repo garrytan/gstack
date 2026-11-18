@@ -70,8 +70,11 @@ GSTACK_RESULT: skill=<name> status=<status> run=<dir>
 
 `status` is one of `complete`, `reviewed`, `gate_pending`, `incomplete`,
 `interrupted` or `refused`; `run` is where the run's record is. `/autoplan`
-always ends `gate_pending` when it reaches the final gate, because the gate is
-written and never approved. `/autoplan --ceo-only` ends `reviewed`: it runs the
+ends `gate_pending` when it reaches the final gate with no owner reply, because
+the session never approves the gate on its own judgment; when the owner's own
+reply is relayed to it, the session records it with `gstack-autoplan answer
+--by agent:<id> --owner-reply-file <file>` (see the driver steps below).
+`/autoplan --ceo-only` ends `reviewed`: it runs the
 CEO phase alone, asks nothing, writes no gate and approves nothing (see
 [CEO-only runs](#ceo-only-runs)). Pure queries (`gstack-artifact schema`,
 `gstack-gate render`) print no result line.
