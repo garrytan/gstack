@@ -62,7 +62,7 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 
-  **Claude CEO subagent** (via the Agent tool):
+  **Claude CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.

@@ -246,29 +246,15 @@ export const FOREGROUND_DISPATCH_NOTE =
 /**
  * Codex's own subagent lifecycle (#4476). Codex has no Agent tool, subagent types,
  * run_in_background or TaskStop: it starts a child with spawn_agent and blocks on
- * wait_agent. Every dispatch site renders this on Codex instead of the Claude Code call.
+ * wait_agent. Resolver dispatch sites render this on Codex; hosts/codex.ts rewrites
+ * the template sites with it.
  */
-export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (a fresh context: `fork_turns: \"none\"` where offered), then `wait_agent` until that agent reports a final status. Its final message is the result; a `wait_agent` timeout is not a result, so wait again unless the step sets a deadline. A session with no `spawn_agent` has multi-agent off (`multi_agent = true` under `[features]` in `~/.codex/config.toml`), and the dispatch has failed";
+export const CODEX_SUBAGENT_DISPATCH = "Codex's `spawn_agent` (`fork_turns: \"none\"`), then `wait_agent` until a final status (a timeout is not one); its final message is the result. Without `spawn_agent`, the dispatch failed";
+/** The same call where a step only names it inline. */
+export const CODEX_SUBAGENT_CALL = "Codex's `spawn_agent`, then `wait_agent` for its final message";
 
 export function foregroundDispatchNote(host: string): string {
   return host === 'codex'
     ? `**Wait for the result:** start the subagent with ${CODEX_SUBAGENT_DISPATCH}. Dispatch through \`spawn_agent\` only: ${DISPATCH_ISOLATION}`
     : FOREGROUND_DISPATCH_NOTE;
-}
-
-/**
- * {{SUBAGENT_DISPATCH[:variant]}}: a template's subagent call for the rendering host.
- * Claude Code (and every other host) keeps the Agent tool's fields; Codex gets
- * spawn_agent and wait_agent. Variants: call (default), rule (/ship Step 7's shared
- * rule), autoplan (a phase's native voice) and tool (the tool's name alone).
- */
-export function generateSubagentDispatch(host: string, variant = 'call'): string {
-  const codex = host === 'codex';
-  switch (variant) {
-    case 'call': return codex ? "Codex's `spawn_agent`, then `wait_agent`" : 'Agent with `subagent_type: "general-purpose"` and `run_in_background: false`';
-    case 'rule': return codex ? `start each subagent with ${CODEX_SUBAGENT_DISPATCH}.` : 'use the Agent tool with `run_in_background: false`.\nOmitting the flag runs the subagent in the background. The explicit flag waits\nfor a result while keeping a fresh context.';
-    case 'autoplan': return codex ? `Start it with ${CODEX_SUBAGENT_DISPATCH}. That \`spawn_agent\` and \`wait_agent\` pair is the one dispatch call below, and its message is the Agent prompt.` : 'Claude Code: set Agent `run_in_background: false` if its schema exposes it.\n  A launch receipt means it went background: await its completion notice.\n  Other hosts: foreground; await completion when supported.';
-    case 'tool': return codex ? "Codex's `spawn_agent` and `wait_agent`" : 'the Agent tool';
-    default: throw new Error(`SUBAGENT_DISPATCH: unknown variant ${variant}`);
-  }
 }

@@ -18,7 +18,6 @@ import * as path from 'path';
 import { tmpdir } from 'node:os';
 import { prepareMethodology, createSnapshot, preparePhaseClose } from '../bin/gstack-autoplan-snapshot';
 import { SECTION } from '../scripts/resolvers/sections';
-import { generateSubagentDispatch } from '../scripts/resolvers/constants';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { expectMentions } from './helpers/prompt-structure';
@@ -188,8 +187,7 @@ describe('autoplan phase execution checkpoints', () => {
       expect(native).toBeLessThan(outside);
       const dispatch = section.slice(native, outside);
       const words = flat(dispatch);
-      expect(dispatch).toContain('{{SUBAGENT_DISPATCH:autoplan}}');
-      expect(generateSubagentDispatch('claude', 'autoplan')).toContain('run_in_background: false');
+      expect(dispatch).toContain('run_in_background: false');
       expect(dispatch).toContain('isAsync: true');
       expect(words).toMatch(/final tool call/i);
       expect(words).toMatch(/end response immediately/i);

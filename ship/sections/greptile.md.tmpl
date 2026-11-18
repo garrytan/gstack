@@ -28,8 +28,8 @@ the Unavailable triage route with that line as the reason, never a claim of zero
 comments. Comments on the early head are triaged against the current diff
 (`already_fixed` when the code has moved on).
 
-Dispatch a subagent through {{SUBAGENT_DISPATCH}},
-using Step 7's shared foreground-dispatch rule.
+Dispatch a subagent through Agent with `subagent_type: "general-purpose"` and
+`run_in_background: false`, using Step 7's shared foreground-dispatch rule.
 It fetches and classifies every configured bot's comments,
 including escalation tiers; the parent handles decisions and queues approved fixes.
 

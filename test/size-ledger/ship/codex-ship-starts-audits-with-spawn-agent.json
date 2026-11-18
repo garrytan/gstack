@@ -1,4 +1,0 @@
-{
-  "bytes": 58,
-  "why": "#4476: Step 7/8/10 subagent calls render through the SUBAGENT_DISPATCH resolver (Claude wording keeps run_in_background: false; small rewording)"
-}

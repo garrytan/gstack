@@ -1,4 +1,5 @@
 import { defineHost, GBRAIN_RESOLVERS } from './define-host';
+import { CODEX_SUBAGENT_DISPATCH } from '../scripts/resolvers/constants';
 
 const codex = defineHost({
   name: 'codex',
@@ -43,6 +44,20 @@ const codex = defineHost({
 
   // Outside-review resolvers route to Claude Code; Review Army has its own restriction.
   suppressedResolvers: ['REVIEW_ARMY', ...GBRAIN_RESOLVERS],
+
+  // #4476: Codex has no Agent tool. The template sites that spell out Claude Code's
+  // Agent call become Codex's spawn_agent and wait_agent; resolver sites render
+  // CODEX_SUBAGENT_DISPATCH themselves. test/host-config.test.ts fails on any left over.
+  toolRewrites: {
+    'use the Agent tool with `run_in_background: false`.\nOmitting the flag runs the subagent in the background. The explicit flag waits\nfor a result while keeping a fresh context.': `start each subagent with ${CODEX_SUBAGENT_DISPATCH}.`,
+    'Agent with `subagent_type: "general-purpose"` and\n`run_in_background: false`': "Codex's `spawn_agent`, then `wait_agent`",
+    'using Agent, `subagent_type: "general-purpose"`\nand `run_in_background: false`': "using Codex's `spawn_agent`, then `wait_agent`",
+    'one read-only Agent (`subagent_type: "general-purpose"`,\n   `run_in_background: false`)': "one read-only subagent (Codex's `spawn_agent`, then `wait_agent`)",
+    'with the Agent tool (never Skill),\n`subagent_type: "general-purpose"`.': "with Codex's `spawn_agent` (never Skill).",
+    'Claude Code: set Agent `run_in_background: false` if its schema exposes it.\n  A launch receipt means it went background: await its completion notice.\n  Other hosts: foreground; await completion when supported.': 'Codex: `spawn_agent` sends the Agent prompt below; then `wait_agent` until its final status.',
+    '(via Agent tool):': "(via Codex's `spawn_agent`):",
+    'through the Agent tool (a plain Read': "through Codex's `spawn_agent` and `wait_agent` (a plain Read",
+  },
 
   transcripts: {
     root: '~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl',

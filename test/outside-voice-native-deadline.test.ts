@@ -25,6 +25,7 @@ function renders(): Array<[string, string]> {
   for (const skill of SKILLS) {
     out.push([`${skill}/sections/review-sections.md`, fs.readFileSync(path.join(ROOT, skill, 'sections/review-sections.md'), 'utf8')]);
     for (const host of ALL_HOST_CONFIGS) {
+      if (host.name === 'codex') continue;
       const ctx: TemplateContext = { host: host.name, skillName: skill, tmplPath: `${skill}/sections/review-sections.md.tmpl`, paths: HOST_PATHS[host.name] };
       out.push([`${host.name}:${skill}`, generateCodexPlanReview(ctx)]);
     }
@@ -80,5 +81,20 @@ describe('native outside-voice fallback without TaskOutput (#3182)', () => {
       if (name.startsWith('claude:')) expect(unavailable, name).toContain('Claude Code 2.1.277+, background tasks on');
     }
     expect(RESULT_CODES.OUTSIDE_VOICE_UNAVAILABLE.anchor).toBe('outside-voice-unavailable');
+  });
+
+  test('Codex, with no Plan subagent type or TaskStop, takes the unavailable path without launching (#4476)', () => {
+    for (const skill of SKILLS) {
+      const content = generateCodexPlanReview({ host: 'codex', skillName: skill, tmplPath: `${skill}/sections/review-sections.md.tmpl`, paths: HOST_PATHS.codex });
+      const section = flat(bounded(content));
+      expect(section, skill).toContain('take the unavailable path without launching a native subagent');
+      expect(section, skill).toContain('A native result never supplies outside coverage.');
+      expect(section, skill).not.toMatch(/TaskStop|run_in_background|subagent_type|task-notification/);
+      const unavailable = flat(content.slice(content.indexOf('**Unavailable path:**')));
+      expect(unavailable, skill).toContain('Outside voice unavailable: <cause>. Fix: <fix>.');
+      expect(unavailable, skill).toContain('Codex has no read-only native subagent');
+      expect(unavailable, skill).toContain('`"unavailable_reason":"<cause>"`');
+      expect(unavailable, skill).toContain('Do not record a clean review when no reviewer completed.');
+    }
   });
 });

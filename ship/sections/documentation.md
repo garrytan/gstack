@@ -37,8 +37,8 @@ Reentry never resets the count or authorizes a launch.
 
 ## Launch the audit
 
-**Dispatch /document-release as a subagent** through Agent with `subagent_type: "general-purpose"` and `run_in_background: false`
-(never Skill).
+**Dispatch /document-release as a subagent** with the Agent tool (never Skill),
+`subagent_type: "general-purpose"`.
 
 **Foreground required:** pass `run_in_background: false` when available on the Agent call — subagents run in the background by default since Claude Code v2.1.198, so omitting an available flag gives a background run. A launch receipt means it went background: await its completion notice. Dispatch through the Agent tool only: invoking the target as a Skill, or executing its workflow inline in your own context, forfeits the fresh-context isolation this dispatch exists for, even though the skill may appear in your available-skills list. (Where a step defines an inline fallback, it applies only after a dispatched subagent has failed.) Retain the child id.
 
