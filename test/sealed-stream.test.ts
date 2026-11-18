@@ -56,11 +56,13 @@ function repo() {
   return { dir, git, run, write };
 }
 
-// ---- The pre-fix buffered path (lib/sealed-guard.ts at 0ead11c), verbatim but for the injectable maxBuffer. ----
+// ---- The pre-fix buffered path (lib/sealed-guard.ts at 0ead11c), verbatim but for the injectable maxBuffer and one
+// change in oldGit: a spawn error counts as a failure. When git exits before the overflow kill lands, Bun reports
+// status 0 with error ENOBUFS and a truncated stdout, so a status-only check let a loaded runner read part of the diff. ----
 const HEX = /^[0-9a-f]{40,64}$/;
 function oldGit(repoRoot: string, args: string[], maxBuffer: number, input?: string, encoding: BufferEncoding = 'utf8') {
   const r = spawnSync('git', args, { cwd: repoRoot, encoding, input, timeout: 120_000, maxBuffer });
-  return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
+  return { ok: r.status === 0 && !r.error, out: r.stdout ?? '', err: (r.stderr ?? '').trim() };
 }
 function oldTextFindings(repoRoot: string, commits: string[], p: SealedPolicy, maxBuffer: number): SealedFinding[] {
   const rules: Array<[SealedFinding['rule'], RegExp]> = [

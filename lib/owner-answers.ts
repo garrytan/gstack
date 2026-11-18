@@ -177,9 +177,9 @@ export function storeEscape(store: Store): AnswerError | undefined {
   let realRoot: string;
   try { realRoot = fs.realpathSync(root); } catch { return undefined; }
   for (const d of [store.dir, ...['rows', 'verifications', 'log'].map(s => path.join(store.dir, s))]) {
+    try { fs.lstatSync(d); } catch { continue; }
     let real: string;
     try { real = fs.realpathSync(d); } catch {
-      try { fs.lstatSync(d); } catch { continue; }
       return { code: 'OWNER_ANSWERS_INVALID', message: `${path.relative(root, d) || '.'} is a link that cannot be resolved` };
     }
     if (real !== realRoot && !contained(realRoot, real)) return { code: 'OWNER_ANSWERS_INVALID', message: `${path.relative(root, d) || '.'} resolves outside the record's folder` };
@@ -268,6 +268,9 @@ export function writeExclusive(store: Store, file: string, value: unknown): 'wri
   }
 }
 
+/** How long an add that finds its row already created waits for a concurrent add to finish writing it. */
+const TWIN_WAIT_MS = 2_000;
+
 export function addAnswer(store: Store, row: OwnerAnswer): 'written' | 'present' | AnswerError {
   if (row.supersedes) {
     const read = readStore(store);
@@ -279,7 +282,11 @@ export function addAnswer(store: Store, row: OwnerAnswer): 'written' | 'present'
   const res = writeExclusive(store, file, row);
   if (res !== 'present') return res;
   let have: Partial<OwnerAnswer> = {};
-  try { have = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* an unreadable twin is a conflict too */ }
+  for (const until = Date.now() + TWIN_WAIT_MS; ;) {
+    try { have = JSON.parse(fs.readFileSync(file, 'utf8')); break; } catch { /* an unreadable twin is a conflict too */ }
+    if (Date.now() >= until) break;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
   return have.words === row.words && have.words_by === row.words_by && have.limits === row.limits
     ? 'present'
     : { code: 'OWNER_ANSWERS_CONFLICT', message: `${row.id} already records different words, author or limits for this source and action; supersede it instead` };
