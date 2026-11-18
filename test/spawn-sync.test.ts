@@ -61,11 +61,17 @@ describe('the pre-push credential scan with a cut-off diff', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spawn-sync-prepush-'));
     const repo = path.join(root, 'repo');
     const stubDir = path.join(root, 'stub');
-    const git = (args: string[]) => rawSpawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 30_000, env: gitEnv() }).stdout.trim();
+    const git = (args: string[]) => {
+      const r = rawSpawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 30_000, env: gitEnv() });
+      if (r.status !== 0 || r.error) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
     try {
       fs.mkdirSync(repo);
       fs.mkdirSync(stubDir);
       git(['init', '-q', '-b', 'main']);
+      git(['config', 'user.email', 't@example.com']);
+      git(['config', 'user.name', 'T']);
       fs.writeFileSync(path.join(repo, 'README.md'), 'base\n');
       git(['add', 'README.md']);
       git(['commit', '-q', '-m', 'base']);

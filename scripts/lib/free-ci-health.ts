@@ -6,7 +6,7 @@
  * Every message names the problem, the offending entry, the fix command and
  * the docs anchor.
  */
-import { spawnSync } from '../../lib/spawn-sync';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import type { FreeCiPlan, FreeCiResult } from '../test-free-shards';
 import type { CurationResult } from './windows-curation';
