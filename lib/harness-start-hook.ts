@@ -4,8 +4,8 @@
  * written. Skill listings were followed on 1 of 29 chances (HARN-18); a per-turn note 97-100% (HARN-15).
  *
  * On by default (START_HOOK_DEFAULT); off with `--no-start-hook`, GSTACK_HARNESS_START_HOOK=0 or `gstack-config set harness_start_hook off`.
- * A registration keeps an off it was given by flag (ledger start_hook_by=flag); an off recorded before the default
- * changed carries no start_hook_by and turns on at the next run.
+ * A registration keeps an off it was given by flag, env var or config (ledger start_hook_by=flag|env|config); an off
+ * recorded before the default changed carries no start_hook_by and turns on at the next run.
  * Turning it on writes a fixed plugin into the harness profile (never under a custom --skills-dir) and changes the
  * harness's settings only through its own commands: OpenClaw needs plugins.entries.gstack-start.hooks.
  * allowConversationAccess before a non-bundled plugin's before_prompt_build runs (2026.10.6 hook-policy-decisions:6);
@@ -150,7 +150,7 @@ export const START_HOOK_DEFAULT: 'on' | 'off' = 'on';
 
 /**
  * The user's choice and where it came from: --start-hook/--no-start-hook, then the env var, then gstack-config, then
- * the ledger's on or flag-given off (recordedBy 'flag'), then START_HOOK_DEFAULT.
+ * the ledger's on or an off the user gave (recordedBy set), then START_HOOK_DEFAULT.
  */
 export function hookChoice(flag: boolean | undefined, env: Env, stateRoot: string, recorded: string | undefined, recordedBy?: string): { on: boolean; source: 'flag' | 'env' | 'config' | 'ledger' | 'default' } | { invalid: string } {
   if (flag !== undefined) return { on: flag, source: 'flag' };
@@ -162,7 +162,7 @@ export function hookChoice(flag: boolean | undefined, env: Env, stateRoot: strin
   const fromConfig = parse(stored);
   if (fromConfig === undefined) return { invalid: 'gstack-config harness_start_hook=' + JSON.stringify(stored) };
   if (fromConfig !== null) return { on: fromConfig, source: 'config' };
-  if (recorded === 'on' || (recorded === 'off' && recordedBy === 'flag')) return { on: recorded === 'on', source: 'ledger' };
+  if (recorded === 'on' || (recorded === 'off' && !!recordedBy)) return { on: recorded === 'on', source: 'ledger' };
   return { on: START_HOOK_DEFAULT === 'on', source: 'default' };
 }
 

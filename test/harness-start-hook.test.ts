@@ -141,6 +141,7 @@ describe('start hook: who decides', () => {
     expect(hookChoice(undefined, {}, state, undefined)).toEqual({ on: true, source: 'default' });
     expect(hookChoice(undefined, {}, state, 'off')).toEqual({ on: true, source: 'default' });
     expect(hookChoice(undefined, {}, state, 'off', 'flag')).toEqual({ on: false, source: 'ledger' });
+    expect(hookChoice(undefined, {}, state, 'off', 'env')).toEqual({ on: false, source: 'ledger' });
     expect(hookChoice(undefined, {}, state, 'on')).toEqual({ on: true, source: 'ledger' });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'harness_start_hook: off\n');
     expect(hookChoice(undefined, {}, state, 'on')).toEqual({ on: false, source: 'config' });
@@ -240,6 +241,12 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     expect(refreshed.hook?.state).toBe('off');
     expect(r.calls()).toEqual([]);
     expect(fs.existsSync(r.root)).toBe(false);
+
+    const viaEnv = rig('openclaw');
+    const envOff = register({ ...viaEnv.o(), env: { ...viaEnv.env, GSTACK_HARNESS_START_HOOK: '0' } });
+    expect(readLedger(envOff.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'env' });
+    expect(register(viaEnv.o({ inherit: true })).hook?.state).toBe('off');
+    expect(viaEnv.calls()).toEqual([]);
 
     const old = readLedger(off.ledger)!;
     delete old.meta.start_hook_by;

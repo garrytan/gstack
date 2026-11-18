@@ -542,7 +542,7 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const prevOn = prev?.meta.start_hook === 'on' && !!prev.meta.hook_root && !!prev.meta.hook_profile;
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
   const root = hookRoot(t.name, profile);
-  const by = choice.source === 'flag' ? 'flag' : choice.source === 'ledger' ? prev?.meta.start_hook_by : undefined;
+  const by = choice.source === 'ledger' ? prev?.meta.start_hook_by : choice.source === 'default' ? undefined : choice.source;
   const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', byDefault: choice.source === 'default', by, retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
   const saved = prev?.meta.hook_root && prev.meta.hook_profile ? { profile: prev.meta.hook_profile, root: prev.meta.hook_root } : null;
   const name = t.name;
