@@ -56,7 +56,7 @@ describe('destructive-guard hook', () => {
 
   test('claude -p and headless sessions get a warning and no decision, so nothing waits on an answer; a deny stays a deny', () => {
     const reason = decision(run(CHECK, payload('rm -rf /var/data')).stdout).permissionDecisionReason;
-    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { GSTACK_HEADLESS: '1' }]) {
+    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { GSTACK_HEADLESS: '1' }] as Record<string, string>[]) {
       const r = run(SHIM, payload('rm -rf /var/data'), env);
       expect(r.code).toBe(0);
       const out = JSON.parse(r.stdout);
