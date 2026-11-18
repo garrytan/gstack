@@ -210,7 +210,7 @@ describe('the ruled-stop check and the receipt that takes it (gstack-ship-receip
 
   // Value: protects=GST-2273: the rulings cover the stop commit only, and the run's rows are bounded by a real timestamp;
   //   fails_when=write takes a deferral at a later code commit, or a garbage --since keeps every earlier run's rows; seam=gstack-ship-receipt
-  test('D5: after the ruled stop, a write refuses a commit outside changelog.d/ and docs/, and an unparsable --since', () => {
+  test('D5: after the ruled stop, a write takes release metadata and docs but refuses a code commit, and an unparsable --since', () => {
     const r = ruledRepo();
     expect(r.rule(ID).status).toBe(0);
     const closed = r.ruled();
@@ -221,6 +221,9 @@ describe('the ruled-stop check and the receipt that takes it (gstack-ship-receip
     r.f.write({ 'docs/x.md': 'a note\n' }); r.f.commit('docs only');
     const docs = r.write(e, loop);
     expect(docs.status, docs.stderr).toBe(0);
+    r.f.write({ 'VERSION': '9.9.9\n', 'CHANGELOG.md': '# Changelog\n\n## [Unreleased]\n- a note\n', 'TODOS.md': '# TODOs\n', 'README.md': '# readme\n' }); r.f.commit('release metadata and root docs');
+    const release = r.write(e, loop);
+    expect(release.status, release.stderr).toBe(0);
     r.f.write({ 'src/x.ts': 'export const x = 3;\n' }); r.f.commit('a later change');
     const src = r.write(e, loop);
     expect(src.status).toBe(1);
