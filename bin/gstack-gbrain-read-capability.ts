@@ -76,7 +76,8 @@ function readCapability(): Verdict {
     || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(slug)
     || slug.split('/').some(segment => !segment || segment === '.' || segment === '..'))
     return unknown('listed page has an invalid slug');
-  const fetched = run(['get', slug, '--source', pin, '--json']);
+  const fetched = run(['get', slug, '--source', pin, '--json', '--body', 'window', '--max-bytes', '4096'])
+    ?? run(['get', slug, '--source', pin, '--json']);
   if (!fetched) return unknown('source-scoped get unavailable; retry later');
   try {
     const page = JSON.parse(fetched);
