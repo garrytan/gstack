@@ -260,7 +260,7 @@ its original token. If it never started because it was unavailable, disabled or
 size-gated, omit `--finish PASS_START` and set completed/converged false.
 Do not create or borrow a token just to save a result.
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","via":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED,"findings":FINDINGS}' --finish PASS_START
 ```
 PASS_START belongs to that attempt, not the parent's REVIEW_START. Each token is consumed once.
 Fill fields from this attempt, not the parent's Step 9.4 result:
@@ -275,6 +275,12 @@ Fill fields from this attempt, not the parent's Step 9.4 result:
 - GATE is "informational" for adversarial passes. For structured review, use
   "pass" or "fail" from its completed result, "skipped" when size-gated, or
   "informational" with completed:false when coverage is missing.
+- FINDINGS is a JSON array, one record per finding this attempt raised, in Step 9.4's
+  shape (`fingerprint`, `severity`, `blocking`, `raised_by`, `ledger_id`) with ACTION
+  `"open"` for a blocker (CRITICAL, High or `Blocks: yes`) and `"noted"` below the floor;
+  `[]` when it raised none. The receipt counts these rows' blockers, and one still
+  `open` when the run stops (no later Step 9 row fixed or deferred it) makes
+  `gstack-ship-receipt write` refuse (`RECEIPT_BLOCKER_OPEN`).
 
 ---
 

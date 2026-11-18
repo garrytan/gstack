@@ -257,7 +257,8 @@ files under `review_exclude_paths` changed it, which `--docs-post` binds (`REVIE
 
 The summary reads this branch's review log for the invocation's passes (its
 `REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). Here every
-finding reaches a row through Step 9.4; a run whose readers were collected by
+finding reaches a row through Step 9.4 or Step 11's own row; a blocker still `open` there
+makes write refuse (`RECEIPT_BLOCKER_OPEN`). A run whose readers were collected by
 `gstack-review-dispatch` (ship/DRIVER.md) passes `--run <run dir>` instead. The `&&`
 matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `write`
 record a stale or empty loop file.
