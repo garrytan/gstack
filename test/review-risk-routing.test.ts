@@ -277,6 +277,21 @@ describe('GST-850: security reaches outbound URLs, archives, path traversal and 
   });
 });
 
+describe('GST-3041: Swift networking is security, SwiftUI is not', () => {
+  // Value: protects=a Swift diff that adds an outbound HTTP client still reaches the full panel now that .swift no longer fails closed;
+  //   fails_when=URLSession, URLRequest, NWConnection or Alamofire reads light, or an ordinary SwiftUI view raises a class; seam=matchRisk
+  test.each([
+    'let (data, _) = try await URLSession.shared.data(for: request)', 'let session = URLSession(configuration: .ephemeral)',
+    'var request = URLRequest(url: endpoint)', 'let conn = NWConnection(host: host, port: 443, using: .tls)', 'import Alamofire', 'AF.request(url).responseDecodable(of: Item.self) { _ in }',
+  ])('%s is security', line => {
+    expect(risk(['App/Client.swift'], { 'App/Client.swift': [line] })).toEqual(['security']);
+  });
+  test('an ordinary SwiftUI view is not security', () => {
+    for (const line of ['struct ReviewView: View {', '  var body: some View { Text("Saved") }', 'let url = URL(string: "https://example.com")!', '@State private var request = ""'])
+      expect(risk(['App/ReviewView.swift'], { 'App/ReviewView.swift': [line] })).toEqual([]);
+  });
+});
+
 describe('GST-850: money reaches metering, charge and credit code', () => {
   // Value: protects=a billing-client or metering diff gets the money reader; fails_when=gbrain-evals #289 reads required=none again,
   //   or costume, a CLI usage line or a proxy with no billing names money; seam=matchRisk and targetedClasses

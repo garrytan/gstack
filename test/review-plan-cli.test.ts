@@ -60,6 +60,23 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).toContain('REVIEW_PLAN: class=tests pass=1 next=full dispatches=1 numbers=no');
     expect(r.stdout.split('\n').filter(l => l.startsWith('DISPATCH: '))).toEqual(['DISPATCH: specialist batched effort=medium checklists=testing']);
   });
+  // Value: protects=an iOS UI change plans by risk instead of failing closed to the full panel, while Apple permissions still plan
+  //   full; fails_when=gstack-diff-scope prints SCOPE_ERROR=unmatched for .swift, or Info.plist reads as plain UI; why_new=GST-3041:
+  //   ghome#32, a 55-line SwiftUI copy change, got 5 readers and a coverage audit; seam=gstack-review-plan on a real repo;
+  //   no_claim=what the readers find
+  test('a SwiftUI change plans light, not the fail-closed panel; an Info.plist edit plans gate (GST-3041)', () => {
+    const view = 'import SwiftUI\nstruct ReviewView: View {\n  var body: some View { Text("Saved") }\n}\n';
+    const ui = { 'App/Review/ReviewView.swift': view, 'App/Home/SettingsView.swift': view, 'App/AppModel.swift': 'final class AppModel {}\n', 'Tests/GHomeTests/HealthSyncTests.swift': 'import XCTest\n' };
+    const light = run(repo(ui), []);
+    expect(light.stdout).not.toContain('DEPTH_ERROR');
+    expect(light.stdout).toMatch(/^REVIEW_DEPTH: light /m);
+    expect(light.stdout).toMatch(/^REVIEW_PLAN: class=code /m);
+    const plist = run(repo({ ...ui, 'App/Info.plist': '<plist><dict><key>NSAllowsArbitraryLoads</key><true/></dict></plist>\n' }), []);
+    expect(plist.stdout).toMatch(/^REVIEW_CLASS: gate .*auth paths/m);
+    expect(plist.stdout).toMatch(/^REVIEW_DEPTH: full /m);
+    const client = run(repo({ ...ui, 'App/Client.swift': 'final class Client {\n  func load(_ r: URLRequest) async throws -> Data { try await URLSession.shared.data(for: r).0 }\n}\n' }), []);
+    expect(client.stdout).toMatch(/^REVIEW_DEPTH: full .*risk:security/m);
+  });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');

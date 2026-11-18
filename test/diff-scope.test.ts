@@ -161,6 +161,19 @@ describe('gstack-diff-scope', () => {
     expect(runScope(createRepo(['packages/cache/pubspec.lock'])).SCOPE_CONFIG).toBe('true');
   });
 
+  // Value: protects=an iOS UI change plans its review instead of failing closed; fails_when=.swift matches no arm and the
+  //   diff prints SCOPE_ERROR=unmatched (review-depth then forces the full panel); why_new=GST-3041: ghome#32, a 55-line
+  //   SwiftUI copy change, got 5 readers and a coverage audit; seam=none; no_claim=which readers that plan dispatches
+  test('a ghome#32-like SwiftUI change is frontend and backend, not unmatched (GST-3041)', () => {
+    const { vars, status, stdout } = runScopeFull(createRepo([
+      'App/AppModel.swift', 'App/Watch/PhoneWatchLink.swift', 'App/Review/ReviewView.swift', 'App/Health/HealthSync.swift',
+      'App/Home/SettingsView.swift', 'App/Meeting/InSessionView.swift', 'App/Meeting/MeetingRecorder.swift', 'App/Brief/YourDayViews.swift',
+    ]));
+    expect(stdout).not.toContain('SCOPE_ERROR');
+    expect(status).toBe(0);
+    expect(vars).toMatchObject({ SCOPE_FRONTEND: 'true', SCOPE_BACKEND: 'true', SCOPE_AUTH: 'false', SCOPE_CONFIG: 'false', SCOPE_API: 'false' });
+  });
+
   test('detects test files', () => {
     const dir = createRepo(['test/app.test.ts']);
     const scope = runScope(dir);
@@ -342,6 +355,32 @@ describe('glob classes (table-driven, #2526 + #2455)', () => {
     { name: 'contest_rules.py is not a test', file: 'pkg/contest_rules.py', expects: ['SCOPE_BACKEND'], alsoFalse: ['SCOPE_TESTS'] },
     { name: 'testing/ dir is not a test dir', file: 'pkg/testing/fixtures_loader.py', expects: ['SCOPE_BACKEND'], alsoFalse: ['SCOPE_TESTS'] },
     { name: 'attest_*.py is not a test', file: 'pkg/attest_signer.py', expects: ['SCOPE_BACKEND'], alsoFalse: ['SCOPE_TESTS'] },
+    // Swift and Xcode (GST-3041). Source, Interface Builder files, string catalogs and asset catalogs read as UI and app
+    // code, the way .dart and .tsx do. Files that carry real risk never read as UI: permissions (Info.plist, entitlements,
+    // the privacy manifest) are AUTH like any *permission* path; dependency manifests and locks, the project file and build
+    // settings are CONFIG like package.json and Gemfile.lock; Swift under an auth or api path keeps AUTH or API.
+    { name: 'SwiftUI view', file: 'App/Review/ReviewView.swift', expects: ['SCOPE_FRONTEND', 'SCOPE_BACKEND'], alsoFalse: ['SCOPE_AUTH', 'SCOPE_CONFIG'] },
+    { name: 'storyboard', file: 'App/Base.lproj/Main.storyboard', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND', 'SCOPE_AUTH'] },
+    { name: 'xib', file: 'App/Cells/ItemCell.xib', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND'] },
+    { name: 'legacy .strings', file: 'App/en.lproj/Localizable.strings', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND'] },
+    { name: '.stringsdict plurals', file: 'App/en.lproj/Localizable.stringsdict', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND'] },
+    { name: 'string catalog', file: 'App/Localizable.xcstrings', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND'] },
+    { name: 'asset catalog', file: 'App/Assets.xcassets/AccentColor.colorset/Contents.json', expects: ['SCOPE_FRONTEND'], alsoFalse: ['SCOPE_BACKEND'] },
+    { name: 'Info.plist is permissions (URL schemes, ATS, usage strings)', file: 'App/Info.plist', expects: ['SCOPE_AUTH', 'SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'GoogleService-Info.plist reads as Info.plist', file: 'App/GoogleService-Info.plist', expects: ['SCOPE_AUTH', 'SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'entitlements are permissions', file: 'App/GHome.entitlements', expects: ['SCOPE_AUTH', 'SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'privacy manifest is permissions', file: 'App/PrivacyInfo.xcprivacy', expects: ['SCOPE_AUTH', 'SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'other plist is config', file: 'App/Defaults.plist', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND', 'SCOPE_AUTH'] },
+    { name: 'Package.swift is a dependency manifest, never UI', file: 'Package.swift', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND', 'SCOPE_BACKEND'] },
+    { name: 'nested Package.swift', file: 'Packages/GHomeCore/Package.swift', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND', 'SCOPE_BACKEND'] },
+    { name: 'Package.resolved in the project', file: 'GHome.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'Podfile', file: 'Podfile', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'Podfile.lock', file: 'ios/Podfile.lock', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'project.pbxproj is build settings and signing', file: 'GHome.xcodeproj/project.pbxproj', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND', 'SCOPE_BACKEND'] },
+    { name: 'xcconfig is build settings', file: 'Config/Release.xcconfig', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'shared scheme', file: 'GHome.xcodeproj/xcshareddata/xcschemes/GHome.xcscheme', expects: ['SCOPE_CONFIG'], alsoFalse: ['SCOPE_FRONTEND'] },
+    { name: 'Swift under an auth path keeps AUTH', file: 'App/Auth/SignInView.swift', expects: ['SCOPE_AUTH', 'SCOPE_FRONTEND', 'SCOPE_BACKEND'] },
+    { name: 'Swift under an api path keeps API', file: 'Sources/GHomeCore/api/GatewayClient.swift', expects: ['SCOPE_API', 'SCOPE_BACKEND'] },
   ];
 
   for (const row of TABLE) {
@@ -389,6 +428,15 @@ describe('exit-code contract (#2526)', () => {
     // Still prints all nine flags so `source <(...)` consumers get vars.
     expect(vars.SCOPE_FRONTEND).toBe('false');
     expect(vars.SCOPE_API).toBe('false');
+  });
+
+  // Value: protects=an Apple file type no arm knows still fails closed after Swift and Xcode got arms; fails_when=a broad
+  //   *.swift-style or catch-all arm swallows unknown extensions; why_new=GST-3041 added Apple arms; seam=none; no_claim=none
+  test('an unknown Apple file type (a Metal shader) still fails closed (GST-3041)', () => {
+    const { vars, status, stdout } = runScopeFull(createRepo(['App/Shaders/Glow.metal']));
+    expect(status).toBe(2);
+    expect(vars.SCOPE_ERROR).toBe('unmatched');
+    expect(stdout).toContain('# unmatched: App/Shaders/Glow.metal');
   });
 
   test('unresolvable base → SCOPE_ERROR=no_base + exit 2 (a green would mean "could not look")', () => {

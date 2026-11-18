@@ -47,6 +47,21 @@ const SAMPLES: Array<[string, boolean]> = [
   ['lib/widgets/bbtm_drawer/view/bbtm_drawer.dart', true],
   ['packages/cache/lib/cache.dart', true],
   ['test/ui/drawer_widget_test.dart', true],
+  ['App/Review/ReviewView.swift', true],
+  ['App/Base.lproj/Main.storyboard', true],
+  ['App/Cells/ItemCell.xib', true],
+  ['App/en.lproj/Localizable.strings', true],
+  ['App/en.lproj/Localizable.stringsdict', true],
+  ['App/Localizable.xcstrings', true],
+  ['App/Assets.xcassets/AppIcon.appiconset/Contents.json', true],
+  ['Package.swift', false],
+  ['Packages/GHomeCore/Package.swift', false],
+  ['Packages/components/Package.swift', false], // the manifest arm wins over */components/*, as it does in the script
+  ['App/Info.plist', false],
+  ['App/GHome.entitlements', false],
+  ['GHome.xcodeproj/project.pbxproj', false],
+  ['Config/Release.xcconfig', false],
+  ['App/Shaders/Glow.metal', false],
 ];
 
 describe('isFrontendPath', () => {
