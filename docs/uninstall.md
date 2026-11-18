@@ -131,7 +131,7 @@ the skill-routing UserPromptSubmit hook and the destructive-command PreToolUse h
 /plan-ceo-review and /autoplan skill-gate hooks if you turned those on. Left in place, they error
 on every matching event once the install directory is gone.
 
-If the OpenClaw or Hermes [start hook](hosts.md#start-hook) is on (the default),
+If the OpenClaw or Hermes [start hook](hosts.md#start-hook) is on (the default for a new registration),
 manual removal also leaves its `gstack-start` plugin turned on. Turn it off
 with `openclaw config unset plugins.entries.gstack-start` or `hermes plugins
 disable gstack-start`, then delete

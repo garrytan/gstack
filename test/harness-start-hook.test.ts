@@ -139,7 +139,8 @@ describe('start hook: who decides', () => {
     fs.mkdirSync(state);
     expect(START_HOOK_DEFAULT).toBe('on');
     expect(hookChoice(undefined, {}, state, undefined)).toEqual({ on: true, source: 'default' });
-    expect(hookChoice(undefined, {}, state, 'off')).toEqual({ on: true, source: 'default' });
+    expect(hookChoice(undefined, {}, state, 'off')).toEqual({ on: false, source: 'ledger' });
+    expect(hookChoice(undefined, {}, state, 'off', 'refused')).toEqual({ on: true, source: 'default' });
     expect(hookChoice(undefined, {}, state, 'off', 'flag')).toEqual({ on: false, source: 'ledger' });
     expect(hookChoice(undefined, {}, state, 'off', 'env')).toEqual({ on: false, source: 'ledger' });
     expect(hookChoice(undefined, {}, state, 'on')).toEqual({ on: true, source: 'ledger' });
@@ -232,7 +233,7 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     expect(quiet.hook?.state).not.toBe('active');
   }, 120_000);
 
-  test('an off given by flag is kept by later runs; an off recorded before the default changed turns on once', () => {
+  test('an off given by flag or env is kept by later runs; an off recorded before the default changed stays off and says once how to turn it on', () => {
     const r = rig('openclaw');
     const off = register(r.o({ startHook: false }));
     expect(off.hook?.state).toBe('off');
@@ -252,11 +253,14 @@ describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
     delete old.meta.start_hook_by;
     writeLedger(off.ledger, old);
     const upgraded = register(r.o({ inherit: true }));
-    expect(upgraded.hook).toMatchObject({ state: 'active', required: false });
-    expect(readLedger(upgraded.ledger)!.meta.start_hook).toBe('on');
-    const calls = r.calls().length;
-    expect(register(r.o({ inherit: true })).hook?.state).toBe('unchecked');
-    expect(r.calls()).toHaveLength(calls);
+    expect(upgraded.status).toBe('updated');
+    expect(upgraded.hook).toEqual({ state: 'off', detail: 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register openclaw --start-hook' });
+    expect(readLedger(upgraded.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'before-default' });
+    expect(fs.existsSync(r.root)).toBe(false);
+    const again = register(r.o({ inherit: true }));
+    expect(again.status).toBe('unchanged');
+    expect(again.hook).toEqual({ state: 'off' });
+    expect(r.calls()).toEqual([]);
   }, 120_000);
 
   test('on, refreshed, disabled by the user, then off: activation runs once, a user disable sticks, opt-out cleans up', () => {
@@ -570,7 +574,7 @@ describe('start hook: HARN-18 smoke defects (GST-778)', () => {
     expect(custom.hook).toMatchObject({ state: 'off', required: true });
     expect(custom.hook?.fix).toContain('--no-start-hook');
     expect(register({ ...r.o({ skillsDir: path.join(r.d, 'custom', 'skills'), startHook: false }), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } }).hook).toEqual({ state: 'off' });
-    expect(readLedger(res.ledger)!.meta.start_hook_by).toBeUndefined();
+    expect(readLedger(res.ledger)!.meta.start_hook_by).toBe('refused');
     expect(register(r.o({ inherit: true })).hook?.state).toBe('active');
   }, 120_000);
 

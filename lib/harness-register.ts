@@ -542,8 +542,10 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
   const prevOn = prev?.meta.start_hook === 'on' && !!prev.meta.hook_root && !!prev.meta.hook_profile;
   const profile = prevOn ? prev!.meta.hook_profile : hookProfile(t.name, opts.env, opts.home);
   const root = hookRoot(t.name, profile);
-  const by = choice.source === 'ledger' ? prev?.meta.start_hook_by : choice.on || choice.source === 'default' ? undefined : choice.source;
-  const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', byDefault: choice.source === 'default', by, retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
+  const keptOld = choice.source === 'ledger' && !choice.on && !prev?.meta.start_hook_by;
+  const by = choice.on || choice.source === 'default' ? undefined : choice.source === 'ledger' ? prev?.meta.start_hook_by ?? 'before-default' : choice.source;
+  const note = keptOld ? 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register ' + t.name + ' --start-hook' : undefined;
+  const plan = { on: choice.on, prevOn, explicit: choice.source === 'flag', byDefault: choice.source === 'default', by, note, retry: prevOn && prev!.meta.hook_active === 'no', profile, root, files: new Map<string, Buffer>() };
   const saved = prev?.meta.hook_root && prev.meta.hook_profile ? { profile: prev.meta.hook_profile, root: prev.meta.hook_root } : null;
   const name = t.name;
   const off = (p: HookPlan) => { if (saved) assertHookRoot(name, saved.profile, saved.root, saved.root, (code, msg) => { throw new HarnessError(code, msg); }); return p; };
@@ -554,13 +556,13 @@ function hookPlan(opts: RegisterOptions, dest: string, prev: Ledger | null): Hoo
     : foreign ? ['OPENCLAW_CONFIG_PATH points OpenClaw at ' + foreign + ', outside that profile', 'unset OPENCLAW_CONFIG_PATH or set it to ' + hookConfig('openclaw', profile) + ', then register again'] : ['', ''];
   if (why && (plan.explicit || !prevOn)) {
     if (plan.explicit) throw new HarnessError('HARNESS_HOOK_UNSUPPORTED', 'the start hook goes into the ' + t.displayName + ' profile ' + profile + ', and ' + why);
-    return off({ ...plan, on: false, requested, fix, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' });
+    return off({ ...plan, on: false, by: 'refused', requested, fix, note: 'off: ' + why + ' (' + choice.source + ' asked for the hook)' });
   }
   try {
     assertHookRoot(t.name, profile, root, prevOn ? prev!.meta.hook_root : undefined, (code, msg) => { throw new HarnessError(code, msg); });
   } catch (e) {
     if (plan.explicit || prevOn || !(e instanceof HarnessError)) throw e;
-    return off({ ...plan, on: false, requested, fix: HARNESS_CODES[e.code].fix, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook)' });
+    return off({ ...plan, on: false, by: 'refused', requested, fix: HARNESS_CODES[e.code].fix, note: 'off: ' + e.message + ' (' + choice.source + ' asked for the hook)' });
   }
   return { ...plan, files: hookFiles(t.name, root) };
 }
