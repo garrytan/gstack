@@ -546,19 +546,43 @@ function receiptDigitTokens(texts: string[]): string[] {
   return [...tokens];
 }
 
+/** A gstack-skill-start session id (bin/gstack-skill-start _SESSION_ID): parent pid, epoch seconds, then 8 random hex or the pid fallback. */
+const SESSION_ID = /^\d{1,10}-\d{10}-(?:[0-9a-f]{8}|\d{1,10})$/;
+/** A line one of /ship's own tools prints (lib/ship-receipt.ts receiptSummaryLine, lib/pregate, lib/ship-queue), as pasted bare, in a list or a quote. */
+const RECEIPT_LINE = /^\s*(?:[-*>]\s+)?`?(?:SHIP_RECEIPT|CI_CARRY|PREGATE|READY_RECEIPT):/;
 /**
- * Where a ship receipt's run-id fields hold GitHub Actions run ids, which pii.phone.e164 reads as phone numbers
- * (GST-2047): the 1-based line and column span of each ci_carried[].run, flaky_exception[].runs[] and
- * issues.flakes[].run value that is a run id (11 to 20 digits, with an optional /attempt), bounded to that value, in
- * every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
- * renderReceiptBlock's rendering of it. Only the receipt writer's own output qualifies, so a
- * hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in prose, beside the
- * block or under any other key still reports.
+ * The writer fields of a receipt line that hold 12-hex sha prefixes or GitHub Actions run ids, each capture group one value: a sha list after
+ * heads=, head=, tree=, gated_tree=, predecessor=, carried_from= or base_red= (lib/run-evidence.ts runReceiptFields, receiptSummaryLine), the run id of
+ * each ci_carried=<lane>:<run>/<attempt> item, and the two shas of the receipt's pregate field (bin/gstack-ship-receipt: `@<tree> (<n> checks,
+ * current for <head>)`).
  */
-function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to: number }> {
+const RECEIPT_LINE_IDS = [
+  /(?<![\w-])(?:heads?|tree|gated_tree|predecessor|carried_from|base_red)=((?:[0-9a-f]{12},)*[0-9a-f]{12})(?![\w,])/dg,
+  /(?<=(?<![\w-])ci_carried=(?:[\w.\/-]+:\d{11,20}\/\d{1,4},)*[\w.\/-]+:)(\d{11,20})(?=\/\d{1,4}(?![\w\/]))/dg,
+  /@([0-9a-f]{12}) \(\d+ checks, current for ([0-9a-f]{12})\)/dg,
+];
+type Span = { line: number; from: number; to: number };
+const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.flatMap(re => [...text.matchAll(re)].flatMap(m => m.indices!.slice(1).flatMap(ix => ix ? [{ line, from: ix[0] + 1, to: ix[1] }] : [])));
+
+/**
+ * Where /ship's own receipt holds identifiers that pii.phone.e164 reads as phone numbers (GST-2047, gstack#4480): the 1-based line and column
+ * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
+ * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
+ * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
+ * pregate and requires_remote[] values. On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
+ * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
+ * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
+ */
+function receiptIdSpans(text: string): Span[] {
   const lines = text.split("\n");
   const rows = (v: unknown): number => v !== null && typeof v === "object" && Object.keys(v).length ? 2 + Object.values(v).reduce((n: number, c) => n + rows(c), 0) : 1;
-  const spans: Array<{ line: number; from: number; to: number }> = [];
+  let fence = "";
+  const spans: Span[] = lines.flatMap((l, i) => {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
+    if (f && !fence) { fence = f[1]!; return []; }
+    if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) { fence = ""; return []; }
+    return !fence && RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : [];
+  });
   for (let open = 0; open < lines.length; open++) {
     if (lines[open] !== "```" + RECEIPT_FENCE) continue;
     const close = lines.indexOf("```", open + 1);
@@ -567,20 +591,28 @@ function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to
     let receipt: ShipReceipt;
     try { receipt = JSON.parse(raw); } catch { continue; }
     if (validateReceipt(receipt).length || renderReceiptBlock(receipt) !== "```" + RECEIPT_FENCE + "\n" + raw + "\n```\n") continue;
-    const span = (path: Array<string | number>) => {
-      let at = open + 1;
+    const at = (path: Array<string | number>) => {
+      let line = open + 1;
       let v: any = receipt;
       for (const key of path) {
-        at++;
-        for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; at += rows(c); }
+        line++;
+        for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; line += rows(c); }
         v = v[key];
       }
-      if (!/^\d{11,20}(?:\/\d{1,4})?$/.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
-      const t = lines[at]!;
+      return { line, v };
+    };
+    const span = (path: Array<string | number>, shape = /^\d{11,20}(?:\/\d{1,4})?$/) => {
+      const { line, v } = at(path);
+      if (!shape.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
+      const t = lines[line]!;
       const key = path.at(-1);
       const from = t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1;
-      spans.push({ line: at + 1, from, to: from + JSON.stringify(v).length - 1 });
+      spans.push({ line: line + 1, from, to: from + JSON.stringify(v).length - 1 });
     };
+    const ids = (path: Array<string | number>) => { const { line } = at(path); spans.push(...lineIdSpans(lines[line]!, line + 1)); };
+    span(["run"], SESSION_ID);
+    if (typeof receipt.pregate === "string") ids(["pregate"]);
+    receipt.requires_remote?.forEach((_, i) => ids(["requires_remote", i]));
     receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
     receipt.flaky_exception?.forEach((e, i) => e.runs.forEach((_, j) => span(["flaky_exception", i, "runs", j])));
     receipt.issues?.flakes?.forEach((_, i) => span(["issues", "flakes", i, "run"]));
@@ -596,7 +628,7 @@ function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail:
   for (const [part, text] of parts) {
     const result = scan(text, { repoVisibility: vis, allowlist, ...(selfEmail ? { selfEmail } : {}) });
     oversize ||= result.oversize;
-    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptRunIdSpans(text) : [];
+    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptIdSpans(text) : [];
     for (const finding of result.findings) {
       if (finding.id === "pii.phone.e164" && runIds.some(s => s.line === finding.line && s.from <= finding.col && finding.col <= s.to)) continue;
       found.push({ part, finding });
