@@ -167,6 +167,33 @@ generated tests), the parent pushes those commits itself, then reruns the
 receipt write, the body post and `result` at the pushed head: a receipt for an
 unpushed head is `QUEUE_RECEIPT_STALE` to the queue.
 
+<a id="push-line"></a>
+### The push line: `PUSH:`
+
+Step 17's `gstack-ship-release push` (early or final) always ends with exactly
+one line saying whether the branch reached the remote, so a parent, a report or
+an outside probe can tell that `/ship` pushed without looking for a
+`git push` call:
+
+```
+PUSH: pushed remote=origin ref=<branch> head=<full sha>
+PUSH: already_pushed remote=origin ref=<branch> head=<full sha>
+PUSH: failed reason=<code>
+```
+
+`pushed` means this run's `git push` updated the branch; `already_pushed`
+means the remote branch already pointed at HEAD, so nothing was sent. `failed`
+means nothing was pushed, with one of three codes:
+[`PUSH_REFUSED`](troubleshooting.md#push-refused) (a check stopped it before
+`git push` ran), [`PUSH_REJECTED`](troubleshooting.md#push-rejected)
+(non-fast-forward, or the remote refused the update) and
+[`PUSH_GIT_FAILED`](troubleshooting.md#push-git-failed) (git could not read
+the remote, or `git push` failed on authentication, a hook or the network).
+The line is the last one printed, after any `STOP:` or `NEXT:` line, on
+stdout (stderr for a usage error), and the exit status keeps its meaning: 0
+for `pushed` and `already_pushed`, 3 for a stop, 2 for a usage error. Match
+`^PUSH: (pushed|already_pushed) ` for "this run's branch is on the remote".
+
 ### The review loop's counters
 
 The receipt's `review_loop` object, written from `gstack-review-scope summary

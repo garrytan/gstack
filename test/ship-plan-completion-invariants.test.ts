@@ -239,15 +239,16 @@ test('push idempotency requires the live remote SHA and fails closed on transpor
     expect(step17).toContain('gstack-ship-release push');
     expect(step17).toContain('a failed lookup STOPs');
     const push = () => spawnSync(path.join(SHIP_DIR, '..', 'bin', 'gstack-ship-release'), ['push', '--branch', 'feature'], { cwd, env, encoding: 'utf8', timeout: 60_000 });
-    expect(push().stdout).toMatch(/PUSH: pushed [0-9a-f]{12} to origin\/feature/);
-    expect(push().stdout).toContain('PUSH: ALREADY_PUSHED');
+    expect(push().stdout).toMatch(/PUSH: pushed remote=origin ref=feature head=[0-9a-f]{40}/);
+    expect(push().stdout).toContain('PUSH: already_pushed remote=origin ref=feature head=');
     fs.appendFileSync(path.join(cwd, 'app'), 'new\n'); git('commit', '-am', 'new');
     expect(push().stdout).toMatch(/PUSH: pushed /);
     fs.renameSync(remote, remote + '-offline');
     const unavailable = push();
     expect(unavailable.status).toBe(3);
-    expect(unavailable.stdout).not.toContain('ALREADY_PUSHED');
+    expect(unavailable.stdout).not.toContain('already_pushed');
     expect(unavailable.stdout).toContain('STOP: cannot verify the remote branch');
+    expect(unavailable.stdout.trimEnd().split('\n').pop()).toBe('PUSH: failed reason=PUSH_GIT_FAILED');
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); fs.rmSync(state, { recursive: true, force: true }); }
 }, 120_000);
 

@@ -737,7 +737,7 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
  * final, so a stale golden, a size ratchet or a type error fails here instead of a CI round. A pass recorded at HEAD's
  * exact tree by this step or by finish's preflight (both under .git, which no commit can carry) is reused, never rerun.
  */
-function prepushGuards(cwd: string, branch: string, base: string | undefined): { line: string; stop?: string } {
+function prepushGuards(cwd: string, branch: string, base: string | undefined): { line: string; stop?: string; code?: PushFailure } {
   const gitPath = (name: string) => path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/${name}`]).stdout.trim() || `.git/gstack/${name}`);
   const tree = git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim();
   const out = gitPath('pregate-guards.json');
@@ -752,7 +752,7 @@ function prepushGuards(cwd: string, branch: string, base: string | undefined): {
   let res: { status?: string; verdict?: string; tree?: string; code?: string; detail?: string; fix?: string; checks?: { id: string; status: string; detail?: string; fix?: string }[] } = {};
   try { res = JSON.parse(pg.stdout.trim().split('\n').pop() ?? ''); } catch { /* unreadable: stops below */ }
   const heads = res.status === 'refused' && res.code === 'POLICY_SOURCE_UNAVAILABLE' ? git(cwd, ['ls-remote', '--heads', 'origin'], 120_000) : null;
-  if (heads && heads.status !== 0) return { line: 'GUARDS: not run (origin unreachable)', stop: `cannot verify the remote branch (${firstLine(heads.stderr)}): restore access before pushing` };
+  if (heads && heads.status !== 0) return { line: 'GUARDS: not run (origin unreachable)', stop: `cannot verify the remote branch (${firstLine(heads.stderr)}): restore access before pushing`, code: 'PUSH_GIT_FAILED' };
   if (heads && heads.stdout.split('\n').every(l => !l.trim() || l.trim().endsWith(`\trefs/heads/${branch}`))) return { line: `GUARDS: not run (origin has no branch but ${branch}, so no base to read guards from)` };
   if (res.status === 'refused') return { line: `GUARDS: refused ${res.code}`, stop: `the pre-push guards could not run (${res.detail}; fix: ${res.fix}): repair it, then rerun push` };
   const bad = (res.checks ?? []).filter(c => c.status !== 'pass' && c.status !== 'warn').map(c => `${c.id}: ${c.fix ?? c.detail ?? c.status}`).join('; ');
@@ -764,60 +764,70 @@ function prepushGuards(cwd: string, branch: string, base: string | undefined): {
   return { line, stop: `the pre-push guards did not pass (${bad || firstLine(pg.stderr || pg.stdout)}): fix it, commit, then rerun push` };
 }
 
+/** Every push run's last line (docs/unattended.md#push-line): outside observers match it instead of a git push call. */
+export type PushFailure = 'PUSH_REFUSED' | 'PUSH_REJECTED' | 'PUSH_GIT_FAILED';
+export const pushFailedLine = (code: PushFailure) => `PUSH: failed reason=${code}`;
+
 export function push(argv: readonly string[], cwd: string): Report {
-  const { flag, has } = flagReader(argv);
   const r = new Report();
+  return r.add(pushOnce(argv, cwd, r));
+}
+
+function pushOnce(argv: readonly string[], cwd: string, r: Report): string {
+  const { flag, has } = flagReader(argv);
+  const refuse = (what: string, code: PushFailure = 'PUSH_REFUSED') => { r.stop(what); return pushFailedLine(code); };
   const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
-  if (!branch) return r.stop('detached HEAD: push needs the feature branch');
-  if (branch !== flag('--branch')) return r.stop(`HEAD is on ${branch}, not the branch Step 1 saved (${flag('--branch')}): check out the saved branch, then rerun push`);
+  if (!branch) return refuse('detached HEAD: push needs the feature branch');
+  if (branch !== flag('--branch')) return refuse(`HEAD is on ${branch}, not the branch Step 1 saved (${flag('--branch')}): check out the saved branch, then rerun push`);
   const guard = bin(cwd, 'gstack-config', ['get', 'redact_prepush_hook'], 30_000).stdout.trim() || 'false';
   const prompted = fs.existsSync(path.join(resolveStateRoot(process.env), '.redact-prepush-prompted'));
   const deferred = guard !== 'true' && !prompted && process.env.GSTACK_SESSION_KIND === 'unattended';
   r.add(`REDACT_PREPUSH: ${guard} prompted=${prompted ? 'yes' : 'no'}${deferred ? ' deferred=unattended' : ''}`);
-  if (guard !== 'true' && !prompted && !deferred) return r.stop('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
+  if (guard !== 'true' && !prompted && !deferred) return refuse('Step 17\'s one-time pre-push guard offer is unanswered: run the guard block and ask it, then rerun push');
   const gateOpen = Number(flag('--gate-open') ?? '0');
   if (gateOpen > 0) {
-    if (!hostedOrigin(cwd)) return r.stop('open-PR lookup unavailable: origin is a local path, not a hosted remote gh can map; it must succeed before pushing open gate findings');
+    if (!hostedOrigin(cwd)) return refuse('open-PR lookup unavailable: origin is a local path, not a hosted remote gh can map; it must succeed before pushing open gate findings');
     const pr = gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,isDraft', '--jq', '[.[] | select(.isDraft | not) | .number] | first // empty']);
-    if (pr.status !== 0) return r.stop(`open-PR lookup failed (${firstLine(pr.stderr)}): it must succeed before pushing open gate findings`);
-    if (pr.stdout.trim() && !has('--gate-open-approved')) return r.stop(`${gateOpen} open gate finding(s) and ready PR #${pr.stdout.trim()}: spawned/headless sessions stop here; otherwise ask (resolve now, or publish with the banner and rerun with --gate-open-approved)`);
+    if (pr.status !== 0) return refuse(`open-PR lookup failed (${firstLine(pr.stderr)}): it must succeed before pushing open gate findings`);
+    if (pr.stdout.trim() && !has('--gate-open-approved')) return refuse(`${gateOpen} open gate finding(s) and ready PR #${pr.stdout.trim()}: spawned/headless sessions stop here; otherwise ask (resolve now, or publish with the banner and rerun with --gate-open-approved)`);
   }
   const sealed = bin(cwd, 'gstack-pregate', ['sealed'], 120_000);
   r.add(`SEALED: ${sealed.status === 0 ? 'clear' : sealed.status === 1 ? 'refused' : `not checked (exit ${sealed.status})`}`);
-  if (sealed.status === 1) return r.stop(`sealed output would be published: ${firstLine(sealed.stderr)}; remove it from the commits, then repeat Step 16`);
-  if (sealed.status !== 0) return r.stop(`the sealed-output guard did not run (exit ${sealed.status}: ${firstLine(sealed.stderr || sealed.stdout)}); repair it, then rerun push`);
+  if (sealed.status === 1) return refuse(`sealed output would be published: ${firstLine(sealed.stderr)}; remove it from the commits, then repeat Step 16`);
+  if (sealed.status !== 0) return refuse(`the sealed-output guard did not run (exit ${sealed.status}: ${firstLine(sealed.stderr || sealed.stdout)}); repair it, then rerun push`);
   if (has('--early')) {
     const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-early-push.json']).stdout.trim() || '.git/gstack/pregate-early-push.json');
     const scan = bin(cwd, 'gstack-pregate', ['--stage', 'preflight', '--only', 'secrets', '--out', out, ...(flag('--base') ? ['--base', flag('--base')!] : [])], 600_000);
     const verdict = /^PREGATE: (.+?) tree=/m.exec(scan.stdout + scan.stderr)?.[1] ?? `unreadable (exit ${scan.status})`;
     r.add(`SECRETS: ${verdict} (early push)`);
-    if (scan.status !== 0 || !/^(pass|warn)/.test(verdict)) return r.stop(`the secrets scan did not pass before the early push (${firstLine(scan.stderr) || verdict}): remove the finding from the commits, then rerun push --early`);
+    if (scan.status !== 0 || !/^(pass|warn)/.test(verdict)) return refuse(`the secrets scan did not pass before the early push (${firstLine(scan.stderr) || verdict}): remove the finding from the commits, then rerun push --early`);
   }
   const guards = prepushGuards(cwd, branch, flag('--base'));
   r.add(guards.line);
-  if (guards.stop) return r.stop(guards.stop);
+  if (guards.stop) return refuse(guards.stop, guards.code);
   const local = git(cwd, ['rev-parse', 'HEAD']).stdout.trim();
   const remote = git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], 120_000);
-  if (remote.status !== 0) return r.stop(`cannot verify the remote branch (${firstLine(remote.stderr)}): restore access before pushing`);
-  if (remote.stdout.split(/\s/)[0] === local) return r.add(`PUSH: ALREADY_PUSHED ${local.slice(0, 12)}`).next('Step 18');
+  if (remote.status !== 0) return refuse(`cannot verify the remote branch (${firstLine(remote.stderr)}): restore access before pushing`, 'PUSH_GIT_FAILED');
+  if (remote.stdout.split(/\s/)[0] === local) { r.next('Step 18'); return `PUSH: already_pushed remote=origin ref=${branch} head=${local}`; }
   let plain: PlainFinding[] = [];
   try { if (!remote.stdout.trim()) plain = checkBranch(branch, loadPlainTitlePolicy(git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim())); }
-  catch (e: any) { return r.stop(`.gstack/plain-titles.json is invalid (${e.message}): fix it, then rerun push`); }
-  if (plain.length) return r.add(`BRANCH: refused ${plain.map(f => `"${f.match}"`).join(', ')}`).stop(`the branch name ${branch} is not plain words (docs/ship-policy.md#plain-titles): rename it with git branch -m <plain words>[-<issue code>], then rerun push --branch <new name>`);
+  catch (e: any) { return refuse(`.gstack/plain-titles.json is invalid (${e.message}): fix it, then rerun push`); }
+  if (plain.length) { r.add(`BRANCH: refused ${plain.map(f => `"${f.match}"`).join(', ')}`); return refuse(`the branch name ${branch} is not plain words (docs/ship-policy.md#plain-titles): rename it with git branch -m <plain words>[-<issue code>], then rerun push --branch <new name>`); }
   const p = git(cwd, ['push', '-u', 'origin', branch], 600_000);
   if (p.status !== 0) {
     const nff = /non-fast-forward|fetch first|rejected/.test(p.stderr);
-    return r.stop(nff ? 'non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push'
-      : `push failed (${firstLine(p.stderr)}): repair the auth, hook or network cause, repeat Step 16, then push; never bypass a guard`);
+    return nff ? refuse('non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push', 'PUSH_REJECTED')
+      : refuse(`push failed (${firstLine(p.stderr)}): repair the auth, hook or network cause, repeat Step 16, then push; never bypass a guard`, 'PUSH_GIT_FAILED');
   }
-  return r.add(`PUSH: pushed ${local.slice(0, 12)} to origin/${branch}`).next('Step 18');
+  r.next('Step 18');
+  return `PUSH: pushed remote=origin ref=${branch} head=${local}`;
 }
 
 export async function release(argv: readonly string[], cwd: string): Promise<{ text: string; exit: number }> {
   const [cmd, ...rest] = argv;
   const { flag, has } = flagReader(rest);
   if (!cmd || cmd === '--help' || cmd === '-h' || has('--help')) return { text: RELEASE_HELP + '\n', exit: cmd ? 0 : 2 };
-  const usage = (m: string) => ({ text: `gstack-ship-release: ${m}\n`, exit: 2 });
+  const usage = (m: string) => ({ text: `gstack-ship-release: ${m}\n${cmd === 'push' ? `${pushFailedLine('PUSH_REFUSED')}\n` : ''}`, exit: 2 });
   if (cmd !== 'push' && !flag('--base')) return usage(`${cmd} needs --base <base>`);
   if (cmd === 'push' && !flag('--branch')) return usage('push needs --branch <the branch Step 1 saved>');
   if (cmd === 'accept' && !(lanes(rest) as unknown[]).length) return usage('accept needs at least one --lane <label>=<command> (the Step 5 lanes)');

@@ -372,6 +372,9 @@ gstack_result_anchor() {
     FETCH_VIOLATION) printf '%s' 'fetch-violation' ;;
     FETCH_RERUN_BLOCKED) printf '%s' 'fetch-rerun-blocked' ;;
     FETCH_RERUN_SPENT) printf '%s' 'fetch-rerun-spent' ;;
+    PUSH_REFUSED) printf '%s' 'push-refused' ;;
+    PUSH_REJECTED) printf '%s' 'push-rejected' ;;
+    PUSH_GIT_FAILED) printf '%s' 'push-git-failed' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
