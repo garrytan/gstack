@@ -10,6 +10,7 @@ import { spawnSync as rawSpawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { RESULT_CODES } from '../lib/result-codes';
 import { spawnSync } from '../lib/spawn-sync';
 import { gitEnv } from './helpers/git-env';
 
@@ -28,7 +29,9 @@ describe('spawnSync (lib/spawn-sync.ts)', () => {
     expect(r.status).toBeNull();
     expect((r.error as NodeJS.ErrnoException | undefined)?.code).toBe('ENOBUFS');
     expect(r.error?.message).toEndWith('(SPAWN_OUTPUT_INCOMPLETE)');
-    expect(r.stderr.trimEnd().split('\n').pop()).toEndWith('(SPAWN_OUTPUT_INCOMPLETE)');
+    const line = r.stderr.trimEnd().split('\n').pop() ?? '';
+    expect(line).toEndWith('(SPAWN_OUTPUT_INCOMPLETE)');
+    expect(line).toContain(`docs/troubleshooting.md#${RESULT_CODES.SPAWN_OUTPUT_INCOMPLETE.anchor} `);
   });
 
   test('a Buffer-mode read gets the same line on its stderr Buffer', () => {

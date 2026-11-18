@@ -13,15 +13,16 @@
  * not null, or the error is ENOBUFS, it returns `status: null` (so a
  * `status === 0` check fails closed), keeps `error.code`, and names
  * SPAWN_OUTPUT_INCOMPLETE in `error.message` and on the end of a captured stderr.
+ * The code's row lives in lib/result-codes-release.ts; this file imports nothing
+ * from lib/ because the paid test runner's global import closure includes it.
  */
 import { spawnSync as nodeSpawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { resultLine } from './result-codes';
 
 export const spawnSync = ((...args: unknown[]) => {
   const r = (nodeSpawnSync as (...a: unknown[]) => SpawnSyncReturns<string | Buffer>)(...args);
   const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
   if (!r.error || (r.status === null && code !== 'ENOBUFS')) return r;
-  const line = resultLine(String(args[0]), 'SPAWN_OUTPUT_INCOMPLETE', `${code ?? r.error.message}, exit ${r.status ?? r.signal ?? 'unknown'}`);
+  const line = `${String(args[0])}: the output may be cut off (${code ?? r.error.message}, exit ${r.status ?? r.signal ?? 'unknown'}), so it was not used; see docs/troubleshooting.md#spawn-output-incomplete (SPAWN_OUTPUT_INCOMPLETE)`;
   r.error.message = `${r.error.message} (SPAWN_OUTPUT_INCOMPLETE)`;
   const stderr = typeof r.stderr === 'string' ? `${r.stderr}${r.stderr && !r.stderr.endsWith('\n') ? '\n' : ''}${line}\n`
     : Buffer.isBuffer(r.stderr) ? Buffer.concat([r.stderr, Buffer.from(`${r.stderr.length && r.stderr[r.stderr.length - 1] !== 10 ? '\n' : ''}${line}\n`)])
