@@ -6,8 +6,8 @@
  * in the installed skills' SKILL.md frontmatter. No model call, no network:
  * the same prompt and the same installed skills always give the same route.
  *
- * Also home to what both skill hooks share: the on/off switches
- * (skill_routing, skill_contracts), the installed-skills directory, the
+ * Also home to what the skill hooks share: the on/off switches
+ * (skill_routing, skill_contracts, destructive_guard and the gates), the installed-skills directory, the
  * bounded stdin reader and the trace log under $GSTACK_STATE_ROOT/hooks/.
  * Docs: docs/skill-routing-and-contracts.md.
  */
@@ -20,26 +20,33 @@ import { readConfigKey, resolveStateRoot } from './state-root';
 
 /** A route needs at least this share of a trigger's content words (2 of 3, 3 of 4; both of 2). */
 export const ROUTE_THRESHOLD = 0.66;
-/** Longer prompts (pasted logs, files) are never routed: their words match everything. */
-export const PROMPT_MAX_CHARS = 8000;
+/**
+ * A prompt longer than the two windows is scored on its first PROMPT_HEAD_CHARS and last PROMPT_TAIL_CHARS
+ * characters, where the request usually sits; a log or file pasted between them is not scored, so its words
+ * cannot match everything.
+ */
+export const PROMPT_HEAD_CHARS = 4000;
+export const PROMPT_TAIL_CHARS = 1000;
 const FRONTMATTER_MAX_BYTES = 16 * 1024;
 const MAX_SKILLS = 256;
 const MAX_TRIGGER_CHARS = 200;
 const TRACE_MAX_BYTES = 1024 * 1024;
 const FAILURE_SESSIONS_KEPT = 64;
 
-export type SwitchName = 'skill_routing' | 'skill_contracts' | 'ceo_review_gate' | 'autoplan_gate';
+export type SwitchName = 'skill_routing' | 'skill_contracts' | 'destructive_guard' | 'ceo_review_gate' | 'autoplan_gate';
 export const SWITCH_ENV: Record<SwitchName, string> = {
   skill_routing: 'GSTACK_SKILL_ROUTING',
   skill_contracts: 'GSTACK_SKILL_CONTRACTS',
+  destructive_guard: 'GSTACK_DESTRUCTIVE_GUARD',
   ceo_review_gate: 'GSTACK_CEO_REVIEW_GATE',
   autoplan_gate: 'GSTACK_AUTOPLAN_GATE',
 };
 
 /** Each switch's one default. setup, gstack-config and gstack-skill-route read it through `gstack-skill-route --default <switch>`; the hooks read it here. */
 export const SWITCH_DEFAULT: Record<SwitchName, 'on' | 'off'> = {
-  skill_routing: 'off',
-  skill_contracts: 'off',
+  skill_routing: 'on',
+  skill_contracts: 'on',
+  destructive_guard: 'on',
   ceo_review_gate: 'off',
   autoplan_gate: 'off',
 };
@@ -158,14 +165,29 @@ export function stem(word: string): string {
   return w;
 }
 
-const words = (text: string) => text.toLowerCase().match(/[a-z0-9]+(?:'[a-z]+)?/g) ?? [];
+/** Words, with paths and identifiers (site-packages, src/review.ts, max_retries) kept whole so their parts never match a trigger. */
+const words = (text: string) => text.toLowerCase().match(/[a-z0-9]+(?:[-_./\\][a-z0-9]+)*(?:'[a-z]+)?/g) ?? [];
+
+/**
+ * Words a bug report uses for the defect itself, scored as "bug": a report says "raises TypeError" or "fails"
+ * far more often than "bug". Exception names (ValueError, RuntimeException) count too.
+ */
+const DEFECT_WORDS = new Set(['bug', 'error', 'exception', 'traceback', 'crash', 'fail', 'failure', 'broken', 'regression',
+  'incorrect', 'incorrectly', 'wrong', 'defect']);
+const concept = (stemmed: string) => DEFECT_WORDS.has(stemmed) || /^[a-z]{3,}(?:error|exception)$/.test(stemmed) ? 'bug' : stemmed;
 
 export function tokens(text: string): string[] {
-  return words(text).map(stem);
+  return words(text).map(w => concept(stem(w)));
 }
 
 export function contentTokens(text: string): string[] {
-  return [...new Set(words(text).filter(w => !STOPWORDS.has(w)).map(stem))];
+  return [...new Set(words(text).filter(w => !STOPWORDS.has(w)).map(w => concept(stem(w))))];
+}
+
+/** The text a prompt is scored on: all of it, or its head and tail windows when it is longer than both. */
+export function promptWindow(prompt: string): string {
+  if (prompt.length <= PROMPT_HEAD_CHARS + PROMPT_TAIL_CHARS) return prompt;
+  return `${prompt.slice(0, PROMPT_HEAD_CHARS)}\n${prompt.slice(-PROMPT_TAIL_CHARS)}`;
 }
 
 export interface RouteCandidate { skill: string; score: number; matched: number; trigger: string; file: string }
@@ -174,17 +196,20 @@ export interface RouteCandidate { skill: string; score: number; matched: number;
 const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
 
 /**
- * Every skill whose best trigger shares a content word with the prompt, best first (score, matched words,
- * name). A trigger's score is 1 when its whole phrase appears in the prompt, else the share of its content
- * words (stopwords dropped, lightly stemmed) that the prompt contains. A trigger with one content word scores
- * only on its whole phrase unless that word is specific (SPECIFIC_WORD).
+ * Every skill whose best trigger shares a content word with the prompt's window (promptWindow), best first
+ * (score, matched words, name). A trigger's score is 1 when its whole phrase appears in the prompt, else the
+ * share of its content words (stopwords dropped, lightly stemmed, defect words read as "bug") that the prompt
+ * contains. A trigger with one content word scores only on its whole phrase unless that word is specific
+ * (SPECIFIC_WORD).
  */
 export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCandidate[] {
-  const promptSeq = ` ${tokens(prompt).join(' ')} `;
-  const promptSet = new Set(contentTokens(prompt));
+  const scored = promptWindow(prompt);
+  const promptSeq = ` ${tokens(scored).join(' ')} `;
+  const promptSet = new Set(contentTokens(scored));
   const out: RouteCandidate[] = [];
   for (const skill of skills) {
     let best: RouteCandidate | null = null;
+    let bestPhrase = false;
     for (const trigger of skill.triggers) {
       const content = contentTokens(trigger);
       if (!content.length) continue;
@@ -192,8 +217,10 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
       const phrase = promptSeq.includes(` ${tokens(trigger).join(' ')} `);
       const weakSingle = content.length === 1 && !SPECIFIC_WORD.test(content[0]);
       const score = phrase ? 1 : weakSingle ? 0 : Math.round((matched / content.length) * 100) / 100;
-      if (score > 0 && (!best || score > best.score || (score === best.score && matched > best.matched))) {
+      const tie = !!best && score === best.score && (matched > best.matched || (matched === best.matched && phrase && !bestPhrase));
+      if (score > 0 && (!best || score > best.score || tie)) {
         best = { skill: skill.name, score, matched, trigger, file: skill.file };
+        bestPhrase = phrase;
       }
     }
     if (best) out.push(best);
@@ -210,13 +237,12 @@ const isRouted = (name: string) => ROUTED_SKILLS.includes(name.toLowerCase().rep
 
 export type RouteDecision =
   | { route: RouteCandidate; candidates: RouteCandidate[] }
-  | { route: null; reason: 'slash-command' | 'prompt-too-long' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
+  | { route: null; reason: 'slash-command' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD): RouteDecision {
   const trimmed = prompt.trim();
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
-  if (prompt.length > PROMPT_MAX_CHARS) return { route: null, reason: 'prompt-too-long', candidates: [] };
   const candidates = scorePrompt(prompt, skills.filter(s => isRouted(s.name)));
   const top = candidates[0];
   return top && top.score >= threshold ? { route: top, candidates } : { route: null, reason: 'below-threshold', candidates };

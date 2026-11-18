@@ -1,11 +1,11 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
  * skill-route-hook — UserPromptSubmit hook that names the gstack skill a prompt
- * fits (GST-1088, lane A). Off unless skill_routing is on (env
+ * fits (GST-1088, lane A). On unless skill_routing is off (env
  * GSTACK_SKILL_ROUTING, then config skill_routing, then SWITCH_DEFAULT).
  *
  *   stdin (<= 256 KiB, 500 ms) -> switch on? -> JSON object with a prompt?
- *     -> not a /command, not over 8000 chars -> score against installed triggers
+ *     -> not a /command -> score its head and tail windows against installed triggers
  *     -> at or above ROUTE_THRESHOLD: one additionalContext line -> exit 0
  *
  * CONTRACT

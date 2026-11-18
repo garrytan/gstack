@@ -132,6 +132,7 @@ var KNOWN_HOOKS = {
   "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" },
   "skill-route-hook":         { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/skill-route-hook" },
   "skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" },
+  "destructive-guard-hook":   { source: "gstack-destructive-guard", event: "PreToolUse", matcher: "Bash|PowerShell", relpath: "hosts/claude/hooks/destructive-guard-hook" },
   "investigate-gate-pre":     { source: "gstack-investigate-gate", event: "PreToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash", relpath: "hosts/claude/hooks/investigate-gate-pre" },
   "investigate-gate-post":    { source: "gstack-investigate-gate", event: "PostToolUse", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post" },
   "investigate-gate-post-failure": { source: "gstack-investigate-gate", event: "PostToolUseFailure", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post-failure" },

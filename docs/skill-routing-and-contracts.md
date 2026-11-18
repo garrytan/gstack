@@ -1,17 +1,18 @@
 # Skill routing and skill contracts
 
-Two Claude Code hooks that help a model actually run gstack's skills (GST-1088). Each has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts`; `gstack-config defaults` prints it. With both off nothing changes. The opt-in gates that hold one skill rule mid-run (the /plan-ceo-review and /autoplan gates) are in [skill-gates.md](skill-gates.md).
+Three Claude Code hooks that help a model actually run gstack's skills (GST-1088, GST-3110). All three are on by default. On Opus 5.5, unattended, a hook line naming a skill got it loaded in 58 of 60 bug-fix sessions, where the same skill relying on its description loaded in 0 of 60 (gstack-evals#369, and B1 before it on the same 60 tasks). With the contract hook, all 66 /review sessions ran its specialist reviewers, 42 of them after the hook's one block; in an earlier run without it, 0 of 66 did (gstack-evals board posts GEVA-271 and GEVA-105). Each has one default, `SWITCH_DEFAULT` in `lib/skill-route.ts`; `gstack-config defaults` prints it. With all three off nothing changes. The opt-in gates that hold one skill rule mid-run (the /plan-ceo-review and /autoplan gates) are in [skill-gates.md](skill-gates.md).
 
 - **Skill routing** (`skill_routing`, a UserPromptSubmit hook). When a prompt matches an installed skill's `triggers:`, the hook adds one line of context naming that skill, for example "this request fits /verify. Run /verify with the Skill tool before you start".
 - **Skill contracts** (`skill_contracts`, a Stop hook). A skill can declare the outputs that must exist before it is done. When the model tries to stop without them, the hook blocks once and names what is missing.
+- **Destructive-command check** (`destructive_guard`, a PreToolUse hook on Bash and PowerShell). /careful's check, run in every session without the model loading /careful: see [below](#destructive-command-check).
 
 ## Turn them on or off
 
 Each switch resolves in this order, and the first one set wins:
 
-1. The `./setup` flag: `--skill-routing` / `--no-skill-routing` and `--skill-contracts` / `--no-skill-contracts` (also `--skill-routing=on|off`). A flag is saved to config, so it survives upgrades.
-2. The environment: `GSTACK_SKILL_ROUTING` and `GSTACK_SKILL_CONTRACTS` (`on` or `off`). Not saved.
-3. Config: `gstack-config set skill_routing on|off` and `gstack-config set skill_contracts on|off`.
+1. The `./setup` flag: `--skill-routing` / `--no-skill-routing`, `--skill-contracts` / `--no-skill-contracts` and `--destructive-guard` / `--no-destructive-guard` (also `--skill-routing=on|off`). A flag is saved to config, so it survives upgrades.
+2. The environment: `GSTACK_SKILL_ROUTING`, `GSTACK_SKILL_CONTRACTS` and `GSTACK_DESTRUCTIVE_GUARD` (`on` or `off`). Not saved.
+3. Config: `gstack-config set skill_routing on|off`, `gstack-config set skill_contracts on|off` and `gstack-config set destructive_guard on|off`.
 4. The default: `SWITCH_DEFAULT` in `lib/skill-route.ts`, the only place it is written. Setup, the hooks, `gstack-config get|list|defaults` and `gstack-skill-route --default <switch>` all read it.
 
 `on` also accepts yes, true and 1; `off` accepts no, false and 0. Setup warns about any other value, uses the default for that run, and does not save it; the hooks also use the default for such a value. A config file that exists but cannot be read turns both hooks off in setup and in the hooks, whatever the default, because it may hold an `off` you set.
@@ -20,6 +21,9 @@ Setup registers a hook only when its switch is on, prints one line the first tim
 
     gstack-config set skill_contracts off
     gstack-config set skill_routing off
+    gstack-config set destructive_guard off
+
+**Upgrading from an install where they were off.** The default used to be off, and nothing was saved unless you chose. So the first `./setup` (or `/gstack-upgrade`) after this change registers each hook you never turned off, prints one line per hook with its off switch, and once prints a short notice listing what it turned on. An off you set earlier, by flag, `gstack-config` or the environment, is read before the default and kept.
 
 The off switch is for people. The text the Stop hook shows the model never mentions it.
 
@@ -37,7 +41,10 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
 - A trigger scores 1 when its whole phrase appears in the prompt. Otherwise it scores the share of its content words (common words dropped, light stemming, so "failing" matches "fails") that the prompt contains. A trigger with one content word counts only on its whole phrase, unless that word has five or more letters and is not a question word.
 - Only /review, /qa and /verify route (/investigate did too until it was cut, GST-1717). In the d7 check (PR #3912), scoring every installed skill's triggers sent 17 of 32 non-fit Terminal-Bench prompts to some skill at 0.66; routing only the four routed skills of that time sent 4. The other skills wait for their own trigger review.
 - The skill with the best score routes when it reaches the threshold, 0.66: both words of a two-word trigger, or two of three.
-- Prompts that start with `/` (you already picked a skill) and prompts over 8,000 characters (pasted logs) are never routed.
+- Words a bug report uses for the defect (error, exception, traceback, crash, fails, failure, broken, regression, incorrect, wrong, defect, and exception names such as `ValueError`) score as "bug", so "parse_one raises ValueError, please fix" matches a "fix this bug" trigger. Paths and identifiers stay whole (`site-packages`, `src/review.ts`, `max_retries`), so a traceback's paths never match a trigger's words.
+- When a trigger ties with another of the same skill on score and words, a whole-phrase match wins.
+- A prompt longer than 5,000 characters is scored on its first 4,000 and last 1,000 characters, where the request usually sits; a log pasted between them is not scored, so its words cannot match everything. Until GST-3110 such prompts (over 8,000 characters) were never routed.
+- Prompts that start with `/` (you already picked a skill) are never routed.
 - The injected line names its source and its off switch, and asks the model to tell you in one sentence that gstack routed the request.
 
 ### Dry run
@@ -59,6 +66,13 @@ Add `--json` for a machine-readable answer, or `--threshold <n>` to see another 
 ### Routing log
 
 Every decision is one line in `$GSTACK_STATE_ROOT/hooks/skill-route.log`: the session, the event (`routed`, `no-route` with its reason, or an error) and, for errors, `failures=<n>` for that session. The log never holds prompt text. On any error the hook prints nothing and exits 0; it never blocks a prompt.
+
+<a id="destructive-command-check"></a>
+## Destructive-command check
+
+`./setup` registers `hosts/claude/hooks/destructive-guard-hook` as a PreToolUse hook on `Bash|PowerShell`. It runs `careful/bin/check-careful.sh`, the same check /careful and /guard load, so it fires even when the model never loads /careful. Its decisions are the check's own: `ask` before the destructive families (`rm -rf`, `DROP TABLE`, `TRUNCATE`, force-push, `git reset --hard`, `kubectl delete` and the rest in /careful's table), which you can always approve, and `deny` for the two catastrophic simple shapes (a recursive delete of `/` or your home directory, and a force-push to the default branch). An ask's reason, which you read, adds `(gstack's destructive-command check, on in every session; off: gstack-config set destructive_guard off)`; a deny's reason, which the model reads, never names the off switch. It costs about a tenth of a second per Bash call.
+
+The hook reads `destructive_guard` every time it runs, so `gstack-config set destructive_guard off` takes effect on the next command. With it off, /careful and /guard still load their own session hooks.
 
 ## Contracts
 

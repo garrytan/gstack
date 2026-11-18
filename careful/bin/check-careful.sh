@@ -132,7 +132,7 @@ if [ "$_IS_SIMPLE" -eq 1 ]; then
     set +f
     if [ "$_ROOT_TARGETS" -eq 1 ] && [ "$_SAFE_TARGETS" -eq 0 ]; then
       _careful_log_fire "high_rm_root"
-      gstack_hook_decision deny "[careful][HIGH] Recursive delete of / or the home directory is blocked while /careful is active. If you truly mean it, end the /careful session first."
+      gstack_hook_decision deny "[careful][HIGH] Recursive delete of / or the home directory is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
       exit 0
     fi
   fi
@@ -185,7 +185,7 @@ if [ "$_IS_SIMPLE" -eq 1 ]; then
         fi
         if [ "$_TARGETS_DEFAULT" -eq 1 ]; then
           _careful_log_fire "high_force_push_default"
-          gstack_hook_decision deny "[careful][HIGH] Force-push to the default branch ($_DEFAULT_BRANCH) is blocked while /careful is active. Use --force-with-lease on a feature branch, or end the /careful session if you truly mean it."
+          gstack_hook_decision deny "[careful][HIGH] Force-push to the default branch ($_DEFAULT_BRANCH) is blocked by gstack's destructive-command check. Use --force-with-lease on a feature branch; if the user truly means it, they run it themselves."
           exit 0
         fi
       fi
