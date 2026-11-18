@@ -18,7 +18,11 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on every plan run (the PR's
-earlier rounds and a round grant; past two the plan is one read-only full review, and `PR_ROUND_CAP` stops for the lane, never the owner); add `--declare-risk <classes>` when the diff touches a risk
+earlier rounds and a round grant; past two the plan is one read-only full review, and `PR_ROUND_CAP` stops for the lane, never the owner).
+When they name `--round-grant <id>`, run `gstack-ship-receipt claim --pr <n> --run <SESSION_ID> --grant <id>` before the first
+dispatch (`GRANT_SPENT` stops the run). With `--stop <head>` too, the grant buys that stop's fix round: Step 9 is only decision
+3.5's fix-check of the PR's own change since `<head>`, for the grant's findings, Step 11.5 saves `<head>`'s tree, and the receipt's
+`review_loop_exception` names the grant. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
@@ -824,7 +828,8 @@ finding makes that PR a draft.
 
 After persistence, record missing output, CYCLES and fixes in the invocation record. With a PR open, run
 `gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json && gstack-ship-receipt stub --pr <n> --run <SESSION_ID> --review-loop @.gstack/tmp/review-loop.json`
-so a run that stops still counts its rounds (Step 19's write, same `--run`, replaces it).
+so a run that stops still counts its rounds (Step 19's write, same `--run`, replaces it). On `NEXT: stop` with a PR open, also
+run `gstack-ship-receipt stop --pr <n> --run <SESSION_ID> --since "$REVIEW_SINCE"` and report its `NEXT:` line with the stop.
 Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan --base <base> --pass $PASS --last full`
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass

@@ -104,7 +104,7 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
     r.add(`PR: #${n}`).add(line);
     // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and the review this
     // head gets: a product change runs Steps 2-16, whose plan is the merge head's full review; a re-check never carries.
-    const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n], 120_000);
+    const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n, '--base', base, ...(run ? ['--run', run] : [])], 120_000);
     const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE): /.test(l));
     histLines.forEach(l => r.add(l));
     if (hist.status !== 0 || !histLines.some(l => l.startsWith('PR_REVIEW_FLAGS: '))) r.add('PR_REVIEW_FLAGS: --prior-rounds 0').add(`PR_REVIEW_ROUTE: first (history unavailable: ${firstLine(hist.stderr) || `gstack-ship-receipt history exit ${hist.status}`}; the plan counts this run's rounds only)`);

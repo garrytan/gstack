@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **A round grant at /ship's review round cap now buys the fix round it names, in the same run or the next (GST-2968).** When a review stops at the cap, /ship records the stop in the PR body (`gstack-ship-receipt stop`), and a `gstack-approvals round-grant --kind fix-check` naming that stop's head, run and findings buys one scoped fix-check of the fix instead of another read-only full review. Before, the read-only review had already counted as the extra round, so the grant bought nothing, and a grant recorded between /ship runs was ignored, so the next run paid for another full review. A grant is spent by the one run that claims it (`gstack-ship-receipt claim`), and an extra-round grant recorded before review keeps its fix round, also across preflight's base merge.

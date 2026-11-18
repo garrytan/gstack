@@ -187,26 +187,55 @@ caught on another crew's PRs.
    full passes only, by design (`lib/review-depth.ts` `prCapped`): earlier runs'
    fix-checks and scoped passes show in `pr_rounds=` but don't count against it,
    because each run's own fix round is the in-run table's call. A full pass past two
-   stops with `PR_ROUND_CAP` and prints the exact `gstack-approvals
-   round-grant` command; a below-floor fix at the cap finishes with its notes
-   listed. The stop is the lane's or Captain's call, never an owner ask
+   stops with `PR_ROUND_CAP` and says how to record the stop and its grant
+   (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
    ([troubleshooting](troubleshooting.md#pr-round-cap)).
 5. **Read-only final review.** A PR that already had two full rounds and whose
    own code changed since still gets one full review of its final head. It has
    no fix round: below-floor findings ship as notes, and a blocker (open or
    fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
-   to decide: ship with the note, or park. A round grant recorded after the
-   read-only review doesn't buy a fix round, because that review already spent
-   the round the grant would add. The count does not reopen.
-6. **Round grant.** `gstack-approvals round-grant --pr <n> --head <sha> --kind
-   extra-round --reason <why> --by <lane or Captain>` records one grant for one
-   head: one round past the cap, with its fix round, instead of the read-only
-   review. Step 1's `PR_REVIEW_FLAGS:` then adds `--round-grant <id>`, which
-   raises that run's cap by one round, and the plan refuses a grant for another
-   head or PR. The plan keeps the grant after the fix round's commits move HEAD
-   past it. gstack never grants itself a round: `--by gstack` and a grant
-   from inside an open `/ship` run are refused, and `add` refuses the scope.
-   The receipt lists grants under `review_round_grants`.
+   to decide: ship with the note, park, or buy that review's fix round with a
+   fix-check grant (item 6). The count does not reopen.
+6. **Round grants.** Two kinds, each recorded with `gstack-approvals round-grant
+   --pr <n> --head <sha> --reason <why> --by <lane or Captain>`, and each spent
+   by the one run that claims it.
+   - **`--kind fix-check`, after a stop** (GST-2968). When a review stops,
+     `/ship` runs `gstack-ship-receipt stop`, which writes a stop record into
+     the PR body's runs block: the run, and the commit and tree the stopped review
+     read. It writes one only when that review finished, read one committed tree
+     from start to end on a clean checkout, and that commit is HEAD or under it
+     (`STOP_UNBOUND` otherwise). The grant names that stop's head, its run
+     (`--stop-run`) and the findings its fix round is for (`--findings`). It
+     buys the stopped review's fix round: one scoped fix-check of the PR's own
+     change since the stop's head (a base merge in between is not part of it), in
+     the same run or a new one on another machine, never a new full review.
+     Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id> --stop <head>` and the
+     route is `fix-check`. It answers only the newest stop record, and nothing
+     once another run reviewed after that stop, HEAD no longer contains the stop's
+     head, or another run claimed it (`PR_REVIEW_GRANT: not applied (why)`).
+     A fix-check found nothing to read (an empty, reverted or base-only change)
+     plans no fix-check. The fix-check never earns another: a blocker there
+     stops with `PR_ROUND_CAP` again.
+   - **`--kind extra-round`, before review.** One round past the cap, with its fix
+     round, at a head no review has stopped at: instead of the read-only review.
+     Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names
+     HEAD, or a head HEAD only merges the base into with the PR's own added and
+     removed lines byte-identical and in the same places (preflight merges the base
+     first); the plan raises that run's cap by one round, keeps the round's fix
+     round, and keeps the grant after the fix round's commits move HEAD past it.
+     An extra-round grant never answers a stop.
+   A run whose flags name a grant runs `gstack-ship-receipt claim` before its
+   first dispatch, which writes a grant record into the runs block; a grant
+   another run claimed is refused (`GRANT_SPENT`), a voided run's claim still
+   spends it, and stop and grant records are never trimmed from the block.
+   gstack never grants itself a round: `--by` naming gstack (any name starting
+   with "gstack", so a Captain called GStack Minder writes "Captain GStack
+   Minder") and a grant from inside an open `/ship` run are refused, and `add`
+   refuses the scope. `--by` is otherwise the caller's own text, recorded and
+   not checked: a lane that records a grant (or a ruling) from another checkout
+   under its Captain's name can't be told apart from the Captain doing it, so the
+   Captain's check of the receipt's `review_round_grants` and the PR body's lines
+   is the control. The receipt lists grants under `review_round_grants`.
 
 <a id="transitions"></a>
 ### Transitions

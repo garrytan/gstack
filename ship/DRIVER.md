@@ -92,7 +92,7 @@ pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done` or `voices`: tha
 
 Judge the voices; missing outside coverage is `unavailable`, never clean; queued fixes rerun Phases
 3-4. Then `gstack-review-dispatch verify` (`VERIFY: clean`) and `gstack-review-read`: the final Step 9 and Step 11 native rows (or `CURRENT` freshness
-after a planned skip) agree on their trees; save that tree and base `<b>`. Then
+after a planned skip) agree on their trees; save that tree (after a granted stop's fix-check, the stop head's) and base `<b>`. Then
 `gstack-ship-release version --base <base> [--bump micro|patch] --why '<line>'`; MINOR, MAJOR, `BUMP_ANSWER_REQUIRED`:
 approvals; `VERSION: skipped|kept`: no write.
 

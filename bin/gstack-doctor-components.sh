@@ -340,6 +340,9 @@ gstack_result_anchor() {
     CI_CARRY_RERUN_MALFORMED) printf '%s' 'ci-carry-rerun-malformed' ;;
     RECEIPT_CARRY_TREE_MISMATCH) printf '%s' 'receipt-carry-tree-mismatch' ;;
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
+    STOP_UNBOUND) printf '%s' 'stop-unbound' ;;
+    GRANT_SPENT) printf '%s' 'grant-spent' ;;
+    GRANT_UNKNOWN) printf '%s' 'grant-unknown' ;;
     RECEIPT_CARRY_SCOPED_REVIEW) printf '%s' 'receipt-carry-scoped-review' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;
     DOCS_RESULT_INVALID) printf '%s' 'docs-result-invalid' ;;
