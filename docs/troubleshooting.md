@@ -7284,6 +7284,26 @@ outside the range is listed as `not applied`, and a path edited after the
 fix-check still routes by the post-review rules. When the owner wants the
 findings fixed instead, fix them and ask for a grant for one more fix-check.
 
+<a id="receipt-blocker-open"></a>
+### `RECEIPT_BLOCKER_OPEN`
+
+**Meaning.** `gstack-ship-receipt write` wrote nothing because the
+`--review-loop` record (`gstack-review-scope summary`) lists a blocking
+finding that is still `open`: a review-log row holds it, its newest action is
+`open`, and no owner ruled note closes it. That happens when /ship
+stops with a blocker unfixed, for example a second-model review finding marked
+`Blocks: yes` in Step 11 that no later Step 9 pass fixed. A receipt there would
+claim a review that never cleared the blocker (GST-3075). Gate findings keep
+their own path (an `open` gate finding makes the PR a draft) and are not
+counted here.
+
+**Fix.** Fix the finding, commit, and run /ship again on the new head; that
+run's Step 9 row records it `fixed`. If it should ship unfixed, take the stop
+to the owner: their ruled note (`gstack-approvals rule`) closes it, or their
+grant buys one fix-check. Never edit the review-log row or the loop file to
+drop the finding, and never write the receipt by hand
+([ship-policy.md](ship-policy.md#ship-receipt)).
+
 <a id="review-loop-exception-invalid"></a>
 ### `REVIEW_LOOP_EXCEPTION_INVALID`
 

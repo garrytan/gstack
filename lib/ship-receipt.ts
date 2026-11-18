@@ -496,6 +496,12 @@ export function carryReceipt(receipt: ShipReceipt, head: string, carry: CarryRec
   return orderReceipt({ ...receipt, head, head_tree: at.tree, product_patch_id: at.productPatchId || 'none', carry: { ...merged, ...(trees.length ? { trees } : {}) } });
 }
 
+/** The `open` blockers of a `--review-loop` record (gstack-review-scope summary) that no owner ruling closes: write refuses a receipt while any is left (GST-3075). */
+export function unruledOpenBlockers(loop: Record<string, unknown> | undefined, ruled: ReadonlyArray<{ finding: string }>): string[] {
+  const open = Array.isArray(loop?.open) ? loop.open.filter((id): id is string => typeof id === 'string') : [];
+  return open.filter(id => !ruled.some(n => n.finding === id));
+}
+
 /** The loop counters the factory scorecard reads (passes, blocking_found, deferred), as `write --review-loop` records them. */
 export type ReviewLoopReceipt = NonNullable<ShipReceipt['review_loop']>;
 export function parseReviewLoop(value: unknown): ReviewLoopReceipt | undefined {

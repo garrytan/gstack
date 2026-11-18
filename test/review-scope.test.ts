@@ -381,16 +381,16 @@ describe('gstack-review-scope (bin)', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true, action: 'fixed' }] },
     ];
     fs.writeFileSync(path.join(logDir, `${branch}-reviews.jsonl`), rows.map(r => JSON.stringify(r)).join('\n') + '\n{not json\n');
-    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 };
+    const expected = { passes: 2, blocking_found: 3, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', unrecorded: 1, rounds: 2 };
     const out = path.join(repo.root, 'review-loop.json');
     const r = runBin(repo, 'gstack-review-scope', ['summary', '--no-ledger', '--since', '2026-10-26T09:30:00Z', '--out', out, '--json']);
     expect(r.status).toBe(EXIT.ok);
-    expect(r.err).toContain('REVIEW_LOOP: passes=2 blocking_found=2 deferred=1 noted=1 fixed=1 scope=frozen');
+    expect(r.err).toContain('REVIEW_LOOP: passes=2 blocking_found=3 deferred=1 noted=1 fixed=1 scope=frozen unrecorded=1');
     expect(JSON.parse(r.out)).toEqual(expected);
     expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(expected);
     const plain = runBin(repo, 'gstack-review-scope', ['summary', '--no-ledger', '--since', '2026-10-26T08:00:00Z']);
     expect(plain.status).toBe(EXIT.ok);
-    expect(plain.out.trim()).toBe('REVIEW_LOOP: passes=3 blocking_found=3 deferred=1 noted=1 fixed=2 scope=frozen');
+    expect(plain.out.trim()).toBe('REVIEW_LOOP: passes=3 blocking_found=4 deferred=1 noted=1 fixed=2 scope=frozen unrecorded=1');
     const noSince = runBin(repo, 'gstack-review-scope', ['summary', '--json']);
     expect(noSince.status).toBe(EXIT.fail);
     expect(noSince.err).toContain('(REVIEW_SCOPE_INPUT;');
