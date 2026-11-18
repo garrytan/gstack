@@ -175,7 +175,7 @@ describe('deferral rendering', () => {
   test('deferred findings stay on the PR: the body section lists them, says no issue was filed, and never closes anything (R85)', () => {
     const section = renderDeferredSection(
       [{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete' },
-        { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts:1', severity: 'CRITICAL', stated: 'Blocks: no', summary: 'Missing owner\ncheck' }],
+        { fingerprint: 'lib/old.ts:1:correctness', path: 'lib/old.ts:1', severity: 'CRITICAL', stated: 'Blocks: no', summary: 'Missing owner\ncheck' }],
       [{ path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', summary: 'rename b', advisory: true }]);
     expect(section).toContain('## Deferred findings');
     expect(section).toContain('not filed as issues');

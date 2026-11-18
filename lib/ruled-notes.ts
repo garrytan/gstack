@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
+import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
 
 export interface RuledNote { finding: string; head: string; by: string; reason: string; at: string; approval: string }
 
@@ -39,8 +40,11 @@ export function readRuledNotes(cwd: string, env: Env = process.env): RuledNote[]
   return 'code' in loc ? [] : ruledNotes(readRecord(loc).rows);
 }
 
-/** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `. */
-export const ruledNoteText = (n: RuledNote) => `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by} at ${n.at}: ${n.reason} (approval ${n.approval})`;
+/** The ruling as public text may carry it: a security-class finding's fingerprint and reason stay in the approval record (GST-3076). */
+export const publicRuledNote = (n: RuledNote): RuledNote => isSecurityFinding(n.finding) ? { ...n, finding: REDACTED_FINDING, reason: REDACTED_REASON } : n;
+
+/** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `, from publicRuledNote. */
+export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(note); return `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by} at ${n.at}: ${n.reason} (approval ${n.approval})`; };
 
 /** The /ship run open on this checkout (its marker in the git dir, which finish removes), if any. */
 export function openShipRun(cwd: string): string | undefined {

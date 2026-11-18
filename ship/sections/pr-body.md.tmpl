@@ -111,6 +111,7 @@ ZERO-RUN lane never reaches this body unresolved.>
 
 ## Pre-Landing Review
 <findings from Step 9 code review in plain words, or "No issues found."; link long review output instead of pasting it.>
+<A security finding (category security, auth, secret or red-team) never appears anywhere in the body by path, line or reason, and a kept security gate finding on the `Gate edits:` line shows only its `gate`: use the redacted line gstack prints ("security finding, details recorded privately") and put the details in your private report (docs/ship-policy.md#security-findings-stay-private).>
 <In the Agent notes section, never here: Step 9.4's `REVIEW_LOOP:` line, each `Ruled note: …` line `gstack-approvals rulings` prints, verbatim: a finding the owner ruled a disclosed note,
 with its ruler and reason; each `Gate disposition: …` line `gstack-approvals dispositions` prints, verbatim; finish's `MECHANICAL: x` as `Mechanical retake: x` and its `UID_SIDECAR: x (beside y)` as `Godot UID sidecar: x (beside y)`. `gstack-ship-receipt write --body` refuses a body missing one.>
 <Gate edits: in the Agent notes section, Step 9's latest `Gate edits:` line verbatim — `none detected (...)`,
