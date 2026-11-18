@@ -386,7 +386,12 @@ it; `gstack-outside-voice run` sends that default to Anthropic only.
 **Meaning.** The answer did not contain what the gate checks: a
 `Recommendation: ... because ...` line (or a `## Recommendation` heading whose
 next non-blank line is a plain sentence with a `because` reason), a
-`SCORE:`/`AMBIGUITIES:` pair, or severity tags.
+`SCORE:`/`AMBIGUITIES:` pair, autoplan's `INPUT: <phase> <sha256>` line and
+`gstack-findings` fence, or severity tags. `gstack-outside-voice run` judges a
+prompt that carries autoplan's RESULT FORMAT by that format (`--gate autoplan`),
+so an autoplan second-model review that reports `missing review completion
+recommendation` came from a gstack older than that fix: read its result file
+before re-running it.
 
 **Fix.** Re-run the review.
 
