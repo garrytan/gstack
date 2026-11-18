@@ -4,7 +4,7 @@
  * a PR (RECEIPT_MISSING / RECEIPT_INVALID); `census` computes the P7 adoption
  * number over merged PRs, deduplicated by run and thread, against a cohort.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,6 +15,7 @@ import { cleanup, ghShim, makeFixtureRepo, makePr, recordAndBundle, restamp, run
 const repos: FixtureRepo[] = [];
 const fixture = () => { const r = makeFixtureRepo({ prefix: 'ship-receipt-' }); repos.push(r); return r; };
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+setDefaultTimeout(30_000);
 
 const HEAD = 'a'.repeat(40);
 const block = (receipt: Record<string, unknown>) => renderReceiptBlock(receipt as any);

@@ -237,6 +237,27 @@ describe('fail closed', () => {
     expect((addAnswer(s, twin) as any).code).toBe('OWNER_ANSWERS_CONFLICT');
     expect(readStore(s).rows.map(r => r.words)).toEqual(['yes merge when green']);
   });
+  test('an add that finds its row created but not yet written waits for the other add, then reports it present', async () => {
+    const s = store();
+    const row = buildAnswer(s, MERGE) as OwnerAnswer;
+    const file = path.join(s.dir, 'rows', `${row.id}.json`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
+    const writer = spawn('bun', [...bunIsolationArgs(), '-e', 'console.log("ready"); setTimeout(() => require("fs").writeFileSync(process.env.F, process.env.J), 200)'], { env: { ...process.env, F: file, J: JSON.stringify(row) }, timeout: 60_000 });
+    const closed = new Promise(resolve => writer.on('close', resolve));
+    await new Promise(resolve => writer.stdout.once('data', resolve));
+    expect(addAnswer(s, row)).toBe('present');
+    await closed;
+    expect(readStore(s).rows.map(r => r.id)).toEqual([row.id]);
+  }, 120_000);
+  test('a row file that stays empty is still a conflict once the wait runs out', () => {
+    const s = store();
+    const row = buildAnswer(s, MERGE) as OwnerAnswer;
+    const file = path.join(s.dir, 'rows', `${row.id}.json`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
+    expect((addAnswer(s, row) as any).code).toBe('OWNER_ANSWERS_CONFLICT');
+  });
   test('supersede through the API refuses a missing row', () => {
     const s = store();
     const row = buildAnswer(s, { ...MERGE, supersedes: 'oa-ffffffffffffffff' }) as OwnerAnswer;

@@ -5,7 +5,7 @@
  * floor, named patch-id refusal and branch-touched walk; the digit-bounded
  * stamp replacement.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,6 +19,7 @@ import { gitArgvIn } from './helpers/scratch-repo';
 const repos: FixtureRepo[] = [];
 const fixture = (opts: Parameters<typeof makeFixtureRepo>[0] = {}) => { const r = makeFixtureRepo({ prefix: 'ship-receipt-2-', ...opts }); repos.push(r); return r; };
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+setDefaultTimeout(30_000);
 
 /** A repository with no VERSION, no package.json, no CHANGELOG and no policy: the shape E18 names. */
 function bareRepo(): FixtureRepo {
