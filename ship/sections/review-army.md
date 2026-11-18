@@ -830,6 +830,10 @@ After persistence, record missing output, CYCLES and fixes in the invocation rec
 `gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json && gstack-ship-receipt stub --pr <n> --run <SESSION_ID> --review-loop @.gstack/tmp/review-loop.json`
 so a run that stops still counts its rounds (Step 19's write, same `--run`, replaces it). On `NEXT: stop` with a PR open, also
 run `gstack-ship-receipt stop --pr <n> --run <SESSION_ID> --since "$REVIEW_SINCE"` and report its `NEXT:` line with the stop.
+When the owner rules that stop's open findings below the floor instead (docs/review-policy.md#rounds-per-pull-request item 7), this run
+runs `gstack-ship-receipt ruled-stop --pr <n> --run <SESSION_ID> --since "$REVIEW_SINCE" --dir <run dir>`; on `RULED_STOP: closed` it
+continues at Step 11.5 with the stop's tree, its body carries each `RULED_NOTE:` line as `Ruled note: …`, and Step 19's write adds
+`--review-loop-exception` (`second_pass`, or `read_only` after a read-only final review) with `--ruled-stop --since "$REVIEW_SINCE" --dir <run dir>`.
 Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan --base <base> --pass $PASS --last full`
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass

@@ -7484,6 +7484,31 @@ mirror.
 **Fix.** Pass the id `gstack-approvals round-grant` printed, from a checkout
 that sees that record ([troubleshooting](#pr-round-cap)).
 
+<a id="ruled-stop-open"></a>
+### `RULED_STOP_OPEN`
+
+**Meaning.** `gstack-ship-receipt ruled-stop` found this run's stop not closed
+by owner rulings ([review policy](review-policy.md#rounds-per-pull-request) item 7). Each
+`RULED_STOP_FINDING:` line names one open finding of the stop and why it is
+still open: no stop ruling names it, it is a gate finding (`RULING_GATED`), it
+is a security-class blocker (`RULING_SECURITY_CLASS`), or its row names no
+ledger id. It is also printed when the PR body's newest stop record is another
+run's or missing, when a read at the stop's head is not bound to its tree on a
+clean checkout, or when HEAD moved off the stop's head. A
+`RULED_STOP_RULING:` line names a ruling that matches no open finding (another
+id, head, run or PR).
+
+**Fix.**
+
+1. For each finding the owner rules below the floor, the owner records, outside
+   this run: `gstack-approvals rule --pr <n> --stop-run <run> --head <the stop's
+   head> --finding <the id the line names> --reason '<why>' --words '<owner's
+   words>' --by '<owner>'`. Then rerun `ruled-stop`.
+2. A gate finding takes `gstack-approvals gate`; a security-class blocker is
+   fixed (a grant buys its fix round, item 6) or the PR parks with its owner.
+3. After a head move, the rulings bind the old head: the head gets its review
+   the usual way.
+
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`
 

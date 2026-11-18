@@ -33,6 +33,32 @@ export function ruledNotes(rows: readonly ApprovalRow[]): RuledNote[] {
   return [...byFinding.values()];
 }
 
+/**
+ * A stop ruling (GST-2273, GST-3005): the owner's ruling that one open finding of one recorded stop ships as a disclosed note. It
+ * names the finding by its run-unique ledger id, the stop's head, the PR and the run that stopped (the stop record
+ * gstack-ship-receipt stop wrote), so it closes that finding of that stop and nothing else. lib/ruled-stop.ts applies it;
+ * review-read, the loop summary and the dispatch judge never read it.
+ */
+export interface StopRuling extends RuledNote { pr: number; stop_run: string }
+
+const STOP_SCOPE = /^ruled_note (\S+) ([0-9a-f]{40}) pr=([1-9]\d*) stop=([\w.:-]{1,120})$/;
+
+export const stopRulingRow = (finding: string, head: string, pr: number, run: string, reason: string) =>
+  ({ scope: `ruled_note ${finding} ${head} pr=${pr} stop=${run}`, ask: `ruled_note ${finding} at ${head}: ${reason}` });
+
+/** The approved stop rulings, one per finding, head, PR and stop run (the newest wins). */
+export function stopRulings(rows: readonly ApprovalRow[]): StopRuling[] {
+  const byKey = new Map<string, StopRuling>();
+  for (const r of rows) {
+    const scope = STOP_SCOPE.exec(r.scope), ask = ASK.exec(r.ask);
+    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || GSTACK_ACTOR.test(r.by)) continue;
+    const key = scope.slice(1, 5).join(' ');
+    byKey.delete(key);
+    byKey.set(key, { finding: scope[1]!, head: scope[2]!, pr: Number(scope[3]), stop_run: scope[4]!, by: r.by, reason: ask[3]!, at: r.recorded_at, approval: r.id });
+  }
+  return [...byKey.values()];
+}
+
 /** The rulings in the checked-out branch's approval record (and its mirror). */
 export function readRuledNotes(cwd: string, env: Env = process.env): RuledNote[] {
   const loc = locate({ cwd, env });

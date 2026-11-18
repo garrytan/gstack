@@ -39,8 +39,9 @@ function entries(body: string): ReceiptRun[] {
   return [...receiptRuns(body), ...(current && typeof current.head === 'string' ? [receiptRun(current)] : [])];
 }
 
-export function prReviewHistory(body: string): PrReviewHistory {
-  const all = entries(body).filter(e => !e.mark);
+/** except: leave one run out (a read_only exception counts the PR's rounds before the run that writes it). */
+export function prReviewHistory(body: string, o: { except?: string } = {}): PrReviewHistory {
+  const all = entries(body).filter(e => !e.mark && (o.except === undefined || e.run !== o.except));
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {

@@ -341,6 +341,7 @@ gstack_result_anchor() {
     RECEIPT_CARRY_TREE_MISMATCH) printf '%s' 'receipt-carry-tree-mismatch' ;;
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
     STOP_UNBOUND) printf '%s' 'stop-unbound' ;;
+    RULED_STOP_OPEN) printf '%s' 'ruled-stop-open' ;;
     GRANT_SPENT) printf '%s' 'grant-spent' ;;
     GRANT_UNKNOWN) printf '%s' 'grant-unknown' ;;
     RECEIPT_CARRY_SCOPED_REVIEW) printf '%s' 'receipt-carry-scoped-review' ;;

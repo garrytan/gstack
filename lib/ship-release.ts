@@ -26,7 +26,7 @@ import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
 import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
-import { reviewRoundGrants } from './review-round-grant';
+import { readGrantedStop, reviewRoundGrants } from './review-round-grant';
 import { dispositionedOn, gateDispositionText, gateKey, readGateDispositions } from './gate-dispositions';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
@@ -319,10 +319,11 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const grants = chain.length ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })).filter(g => g.outcome === 'approved' && (`${g.ask} ${g.scope}`.includes('review_loop_grant') || reviewRoundGrants([g]).some(x => x.kind === 'fix-check'))) : [];
   const granted: (typeof grants[number] | undefined)[] = [];
   const used = new Set<string>();
+  const stamp = readGrantedStop(cwd);
   for (let k = chain.length - 1; k >= 0; k--) {
     const l = chain[k]!;
     const g = grants.filter(g => !used.has(g.id))
-      .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check'); return (fc ? (commitOf(fc.head) === l.from ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
+      .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check'); return (fc ? (commitOf(fc.head) === l.from && stamp?.grant === fc.approval && stamp.head === fc.head ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
       .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
     if (g) used.add(g.id);
     granted[k] = g;

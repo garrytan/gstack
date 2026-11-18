@@ -93,7 +93,8 @@ incomplete coverage, which blocks until the reviewer is rerun.
 3. **Two rounds is the cap** (R51): a full pass, a scoped pass
    ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
-   note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
+   blocker ships as a listed note through the receipt, [ruled stops](#rounds-per-pull-request)
+   item 7; review-read and the loop summary still show it open), or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
    unverified, or a round-2 fix edited a gate-class path, naming it (path,
    severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
@@ -215,7 +216,10 @@ caught on another crew's PRs.
      head, or another run claimed it (`PR_REVIEW_GRANT: not applied (why)`).
      A fix-check found nothing to read (an empty, reverted or base-only change)
      plans no fix-check. The fix-check never earns another: a blocker there
-     stops with `PR_ROUND_CAP` again.
+     stops with `PR_ROUND_CAP` again. `gstack-ship-receipt history` keeps the
+     grant it matched to the stop record in the git dir, and the plan's
+     `--stop` and finish's fix-check take a fix-check grant only when it is that
+     one, so a grant passed by hand without that check buys nothing.
    - **`--kind extra-round`, before review.** One round past the cap, with its fix
      round, at a head no review has stopped at: instead of the read-only review.
      Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names
@@ -228,14 +232,39 @@ caught on another crew's PRs.
    first dispatch, which writes a grant record into the runs block; a grant
    another run claimed is refused (`GRANT_SPENT`), a voided run's claim still
    spends it, and stop and grant records are never trimmed from the block.
-   gstack never grants itself a round: `--by` naming gstack (any name starting
-   with "gstack", so a Captain called GStack Minder writes "Captain GStack
-   Minder") and a grant from inside an open `/ship` run are refused, and `add`
-   refuses the scope. `--by` is otherwise the caller's own text, recorded and
-   not checked: a lane that records a grant (or a ruling) from another checkout
-   under its Captain's name can't be told apart from the Captain doing it, so the
-   Captain's check of the receipt's `review_round_grants` and the PR body's lines
-   is the control. The receipt lists grants under `review_round_grants`.
+   gstack never grants itself a round: a `--by` whose first word is gstack
+   ("gstack", "gstack-bot", "GStack Minder"; "gstackbot" is not refused, so a
+   Captain called GStack Minder writes "Captain GStack Minder") and a grant from
+   inside an open `/ship` run are refused, and `add` refuses the scope. `--by`
+   is otherwise the caller's own text, recorded and not checked: a lane that
+   records a grant (or a ruling) from another checkout under its Captain's name
+   can't be told apart from the Captain doing it, so the Captain's check of the
+   receipt's `review_round_grants` and the PR body's lines is the control. The
+   receipt lists grants under `review_round_grants`.
+7. **Ruled stops** (GST-2273, GST-3005). The owner can rule an open blocker of
+   a stop below the floor, so it ships as a listed note instead of a fix. The
+   ruling names one finding of the stop record item 6 describes:
+   `gstack-approvals rule --pr <n> --stop-run <run> --head <the stop's head>
+   --finding <its ledger id> --reason <why> --words <owner's words> --by <owner>`,
+   recorded outside the run, with the same `--by` rules and risk as item 6. It
+   applies only in the run that stopped, at the stop's head: after the rulings,
+   `gstack-ship-receipt ruled-stop` lists every open finding of that stop (the
+   blocking findings of this run's rows at the stop's head, by ledger id, and
+   every blocker this run's ledgers hold that no row fixed or classified below
+   the floor) and prints `RULED_STOP: closed` when each one has a ruling naming
+   its id, that head, the PR and the run. A gate finding (a gate on its row or in
+   its ledger line) takes a gate disposition and never a ruling, a security-class
+   blocker is fixed or the PR parks, and a finding without a ledger id can't be
+   named; each keeps the stop open (`RULED_STOP_OPEN`), as does a head move or a
+   stop record of another run. On `closed`, Step 11.5 saves the stop's tree and
+   the receipt takes the deferral: `second_pass` after a run's second full pass,
+   or `read_only` after the read-only final review of a PR whose history shows
+   two full rounds before this run. `gstack-ship-receipt write --ruled-stop`
+   reruns the check, takes exactly the ruled ids as `deferred`, records the
+   rulings under `ruled`, and needs each `Ruled note: …` line in the body.
+   Rulings act only there: review-read, the loop summary and the dispatch judge
+   never read them, so a ruled finding stays open in the raw evidence and shows as
+   owner-deferred only in the receipt and the PR body.
 
 <a id="transitions"></a>
 ### Transitions

@@ -29,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
-import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { GSTACK_ACTOR, openShipRun, RULED_NOTE_SCOPE, ruledNoteRow, ruledNotes, ruledNoteText, stopRulingRow } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
@@ -43,10 +43,12 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
   import  --autoplan <run dir> [--by <whose words, e.g. Garry>] [--stack <b1,b2,...>]
           --stack writes the same rows to every branch of a stack; each branch is checked first, and one unknown branch writes none
   rule    --finding <fingerprint> --head <the stop head the owner ruled at> --reason <why it ships as a note, one line>
-          --words <the owner's exact words> --by <who ruled>
+          --words <the owner's exact words> --by <who ruled> [--pr <n> --stop-run <run>]
           the owner's ruling that a review finding ships as a disclosed note (docs/ship-policy.md#ruled-notes); finish
           counts that finding closed on a fix-check whose range_base..commit holds the head, and the receipt and PR body
-          list it; refused inside this checkout's open /ship run
+          list it; refused inside this checkout's open /ship run. With --pr and --stop-run, --finding is the ledger id
+          of one open finding of the stop record that run left at --head (gstack-ship-receipt ruled-stop lists them),
+          and only that stop's ruled-stop check applies it
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
   gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>
           --reason <the gate change, one line> --words <the owner's exact words, one line> --by <who recorded them>
@@ -208,7 +210,11 @@ function main(argv: string[]): number {
       if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a ruling is the owner\'s, so --by names who ruled');
       const open = openShipRun(process.cwd());
       if (open) return invalid(`/ship run ${open} is open on this checkout: a ruling is the owner's, never the lane's own runner's; record it from the owner's session`);
-      const built = buildRow({ ...ruledNoteRow(finding, head.stdout.trim(), reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
+      const stopRun = flags['--stop-run']?.trim(), pr = flags['--pr']?.trim();
+      if ((stopRun === undefined) !== (pr === undefined)) return invalid('a stop ruling names both --pr <n> and --stop-run <the run gstack-ship-receipt stop named>; omit both for a fix-check ruling by fingerprint');
+      if (stopRun !== undefined && (!STOP_RUN.test(stopRun) || !/^[1-9]\d*$/.test(pr!) || !FINDING_ID.test(finding))) return invalid('a stop ruling needs --pr <n>, --stop-run <run> and --finding <the open finding\'s ledger id, as gstack-ship-receipt ruled-stop lists it>');
+      const ruling = stopRun !== undefined ? stopRulingRow(finding, head.stdout.trim(), Number(pr), stopRun, reason) : ruledNoteRow(finding, head.stdout.trim(), reason);
+      const built = buildRow({ ...ruling, words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
     } else if (cmd === 'gate') {

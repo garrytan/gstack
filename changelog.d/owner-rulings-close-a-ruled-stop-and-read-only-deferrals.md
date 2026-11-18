@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **An owner can now rule a blocker found by /ship's final review below the floor, and the PR ships with it listed as a note (GST-2273, GST-3005).** Before, a ruling after a round-2 full review changed nothing, though the docs said it closed the finding, and a PR past its two review rounds had no way to record an owner-accepted deferral from its read-only final review. A ruling now names one open finding of the stop /ship recorded, by its review id (`gstack-approvals rule --pr --stop-run --head --finding`). `gstack-ship-receipt ruled-stop` then shows whether every open finding of that stop is ruled, and the receipt records the deferral only after running that check again. Gate findings and security-class blockers can't be ruled, and a later commit voids the rulings. The review log and its summary still show a ruled finding as open.

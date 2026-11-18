@@ -1699,6 +1699,10 @@ gstack-approvals rule --finding '<the finding's fingerprint>' --head <stop head>
   --reason '<why it ships as a note, one line>' --words '<the owner's exact words>' --by '<who ruled>'
 ```
 
+A blocker of a recorded stop (a round-2 full pass or the read-only final review) is
+ruled by its ledger id with `--pr <n> --stop-run <run>` instead, and only the
+ruled-stop check and the receipt apply it ([review policy](review-policy.md#rounds-per-pull-request) item 7).
+
 The row is an approved `gstack-approvals` row with scope `ruled_note <fingerprint> <head>`
 and ask `ruled_note <fingerprint> at <head>: <reason>`, with the head's full sha, so
 two findings ruled with the same reason in one reply get two rows, and a ruling at

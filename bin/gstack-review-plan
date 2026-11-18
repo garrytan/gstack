@@ -25,7 +25,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { baseContainsHead } from '../lib/default-base';
 import { locate, readRecord } from '../lib/approval-record';
-import { reviewRoundGrants } from '../lib/review-round-grant';
+import { readGrantedStop, reviewRoundGrants } from '../lib/review-round-grant';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
@@ -197,6 +197,8 @@ function main(): number {
     const stop = has('--stop') ? git(['rev-parse', '--verify', '--quiet', `${flag('--stop')}^{commit}`])?.trim() : undefined;
     if (g && (g.kind === 'fix-check') !== has('--stop')) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: ${g.kind === 'fix-check' ? 'a fix-check grant answers a stop record: pass the --stop <head> PR_REVIEW_FLAGS: prints with it' : 'an extra-round grant names no stop: --stop takes a fix-check grant'} (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
     if (g && g.kind === 'fix-check' && (stop !== g.head || (pr !== undefined && String(g.pr) !== pr))) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: the fix-check grant names the stop at ${g.head.slice(0, 12)} for PR #${g.pr}, not --stop ${(flag('--stop') ?? '').slice(0, 12)}${pr ? ` and PR #${pr}` : ''}; a grant buys the fix round of the one stop it names (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
+    const stamp = g?.kind === 'fix-check' && root ? readGrantedStop(root) : undefined;
+    if (g?.kind === 'fix-check' && (stamp?.grant !== g.approval || stamp.head !== g.head || stamp.pr !== g.pr)) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: gstack-ship-receipt history on this checkout has not matched this fix-check grant to the PR's newest stop record (its run, head and findings)${stamp ? `; it last matched grant ${stamp.grant}` : ''}: run gstack-ship-receipt history --pr ${g.pr} --base <base> --run <this /ship run> here and pass the --round-grant and --stop its PR_REVIEW_FLAGS: line prints (docs/troubleshooting.md#stop-unbound)\n`); return EXIT.refused; }
     if (g?.kind === 'fix-check') grantedStop = g.approval;
     const atOrBefore = !!g && !!at && (g.head === at || git(['merge-base', '--is-ancestor', g.head, at]) !== null);
     if (!roundGrant || !g || !atOrBefore || (pr !== undefined && String(g.pr) !== pr)) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant ?? ''}: no approved review_round_grant row ${roundGrant ?? ''} naming HEAD ${(at ?? 'unknown').slice(0, 12)} or a commit before it${pr ? ` and PR #${pr}` : ''} in this branch's approval record; record one with gstack-approvals round-grant (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }

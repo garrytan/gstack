@@ -453,6 +453,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-plan, gstack-review-log, gstack-review-scope and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-fixed-links.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
+    file: 'test/ruled-stop.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals and gstack-review-log (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
+  },
+  {
     file: 'test/ship-uid-sidecar.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-ship-receipt, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-mechanical-retake.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42205201312)',
   },

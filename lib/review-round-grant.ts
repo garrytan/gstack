@@ -8,6 +8,8 @@
  * --by is recorded, not enforced.
  */
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
 import { GSTACK_ACTOR } from './ruled-notes';
 
@@ -36,6 +38,23 @@ export function reviewRoundGrants(rows: readonly ApprovalRow[]): ReviewRoundGran
     out.push({ kind: s[3] as RoundGrantKind, head: s[1]!, pr: Number(s[2]), by: r.by, reason: a[4]!, at: r.recorded_at, approval: r.id, ...(s[4] ? { stop_run: s[4], findings } : {}) });
   }
   return out;
+}
+
+/**
+ * The stop a fix-check grant answered when gstack-ship-receipt history last checked it against the PR body's stop record, kept in
+ * the git dir: the planner's --stop and finish's fix-check link take a fix-check grant only when it is this one, so a grant passed
+ * by hand without history's check (another stop run, other findings) buys nothing.
+ */
+export interface GrantedStopStamp { pr: number; grant: string; head: string; run: string; findings: string[] }
+const stampPath = (cwd: string) => { const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-granted-stop'], { cwd, encoding: 'utf8', timeout: 10_000 }); return p.status === 0 && p.stdout.trim() ? path.resolve(cwd, p.stdout.trim()) : undefined; };
+export function writeGrantedStop(cwd: string, stamp: GrantedStopStamp | null): void {
+  const p = stampPath(cwd);
+  if (!p) return;
+  if (stamp) fs.writeFileSync(p, JSON.stringify(stamp) + '\n'); else fs.rmSync(p, { force: true });
+}
+export function readGrantedStop(cwd: string): GrantedStopStamp | undefined {
+  const p = stampPath(cwd);
+  try { const v = JSON.parse(fs.readFileSync(p!, 'utf8')); return v && typeof v.grant === 'string' && typeof v.head === 'string' ? v : undefined; } catch { return undefined; }
 }
 
 export function readReviewRoundGrants(cwd: string, env: Env = process.env): ReviewRoundGrant[] {

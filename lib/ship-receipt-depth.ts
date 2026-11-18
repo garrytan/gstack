@@ -154,25 +154,28 @@ export const deeper = <D extends Depth | 'platform'>(a: D, b: D): D => (RANK[a] 
 
 /**
  * `write --review-loop-exception` input and the queue's check: who accepted the stop, when, where, why, and the stop it accepts:
- * the fix-check it followed (`fix_check`), or the second full pass that left a finding open (`second_pass`, the deferred
- * finding ids; TRUT-7).
+ * the fix-check it followed (`fix_check`), the second full pass that left a finding open (`second_pass`, the deferred
+ * finding ids; TRUT-7), or the read-only final review of a PR past its two rounds whose open findings the owner ruled
+ * (`read_only`, GST-3005). `ruled` lists the stop rulings write --ruled-stop verified for the deferred ids (GST-2273).
  */
 export function parseReviewLoopException(value: unknown): { ok: true; exception: ReviewLoopException } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } | second_pass: { head, deferred: [<finding id>] } }');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_loop_exception must be { accepted_by, date, via, reason, fix_check: { head, findings[, files] } | second_pass: { head, deferred: [<finding id>] } | read_only: { head, deferred: [<finding id>] } }');
   const v = value as Record<string, unknown>;
-  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check', 'second_pass'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
+  for (const key of Object.keys(v)) if (!['accepted_by', 'date', 'via', 'reason', 'fix_check', 'second_pass', 'read_only', 'ruled'].includes(key)) return bad(`review_loop_exception: unknown key ${JSON.stringify(key)}`);
   for (const key of ['accepted_by', 'date', 'via', 'reason']) if (!text(v[key])) return bad(`review_loop_exception.${key} must be a non-empty one-line string`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date as string)) return bad('review_loop_exception.date must be YYYY-MM-DD');
-  if ((v.fix_check === undefined) === (v.second_pass === undefined)) return bad('review_loop_exception names exactly one of fix_check or second_pass: the stop it accepts');
-  const accepted = { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim() };
-  if (v.second_pass !== undefined) {
-    const s = v.second_pass as Record<string, unknown> | null;
-    if (!s || typeof s !== 'object' || Array.isArray(s)) return bad('review_loop_exception.second_pass must be { head, deferred: [<finding id>] }');
-    for (const key of Object.keys(s)) if (!['head', 'deferred'].includes(key)) return bad(`review_loop_exception.second_pass: unknown key ${JSON.stringify(key)}`);
-    if (!sha(s.head)) return bad('review_loop_exception.second_pass.head must be the full commit the second full pass reviewed');
-    if (!Array.isArray(s.deferred) || !s.deferred.length || !s.deferred.every(text)) return bad('review_loop_exception.second_pass.deferred must name the open finding the owner accepted by id');
-    return { ok: true, exception: { ...accepted, second_pass: { head: s.head, deferred: (s.deferred as string[]).slice(0, 20).map(d => d.trim()) } } };
+  if ([v.fix_check, v.second_pass, v.read_only].filter(x => x !== undefined).length !== 1) return bad('review_loop_exception names exactly one of fix_check or second_pass (or read_only): the stop it accepts');
+  if (v.ruled !== undefined && (!Array.isArray(v.ruled) || !v.ruled.length || !v.ruled.every(text) || v.fix_check !== undefined)) return bad('review_loop_exception.ruled lists the stop rulings (approval ids) of a second_pass or read_only stop');
+  const accepted = { accepted_by: (v.accepted_by as string).trim(), date: v.date as string, via: (v.via as string).trim(), reason: (v.reason as string).trim(), ...(v.ruled ? { ruled: (v.ruled as string[]).slice(0, 20).map(d => d.trim()) } : {}) };
+  const stopKey = v.second_pass !== undefined ? 'second_pass' : v.read_only !== undefined ? 'read_only' : undefined;
+  if (stopKey) {
+    const s = v[stopKey] as Record<string, unknown> | null;
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return bad(`review_loop_exception.${stopKey} must be { head, deferred: [<finding id>] }`);
+    for (const key of Object.keys(s)) if (!['head', 'deferred'].includes(key)) return bad(`review_loop_exception.${stopKey}: unknown key ${JSON.stringify(key)}`);
+    if (!sha(s.head)) return bad(`review_loop_exception.${stopKey}.head must be the full commit the ${stopKey === 'read_only' ? 'read-only final review' : 'second full pass'} reviewed`);
+    if (!Array.isArray(s.deferred) || !s.deferred.length || !s.deferred.every(text)) return bad(`review_loop_exception.${stopKey}.deferred must name the open finding the owner accepted by id`);
+    return { ok: true, exception: { ...accepted, [stopKey]: { head: s.head, deferred: (s.deferred as string[]).slice(0, 20).map(d => d.trim()) } } };
   }
   const f = v.fix_check as Record<string, unknown> | null;
   if (!f || typeof f !== 'object' || Array.isArray(f)) return bad('review_loop_exception.fix_check must be { head, findings[, files] }');
@@ -185,17 +188,18 @@ export function parseReviewLoopException(value: unknown): { ok: true; exception:
 }
 
 /** The commit the accepted stop reviewed: the fix-check's head or the second full pass's. */
-export const exceptionHead = (e: ReviewLoopException) => (e.fix_check ?? e.second_pass)!.head;
+export const exceptionHead = (e: ReviewLoopException) => (e.fix_check ?? e.second_pass ?? e.read_only)!.head;
 
 /** Whether the review loop shows the stop the exception accepts: a fix-check ran, or two full passes left a finding deferred. */
 export function exceptionLoopProblem(e: ReviewLoopException, loop: ShipReceipt['review_loop']): string | null {
   if (e.fix_check) return loop?.fix_checks ? null : 'needs --review-loop with fix_checks >= 1: the stop it accepts follows a fix-check';
-  return (loop?.passes ?? 0) >= 2 && (loop?.deferred ?? 0) >= 1 ? null : 'second_pass needs --review-loop with passes >= 2 and deferred >= 1: the stop it accepts follows the second full pass with a finding left open';
+  if (e.read_only) return !e.ruled ? 'read_only needs ruled: the owner rules each open finding of the read-only final review, and write --ruled-stop records the rulings' : (loop?.passes ?? 0) >= 1 ? null : 'read_only needs --review-loop with passes >= 1: the stop it accepts follows the read-only final review';
+  return (loop?.passes ?? 0) >= 2 && (e.ruled || (loop?.deferred ?? 0) >= 1) ? null : 'second_pass needs --review-loop with passes >= 2 and deferred >= 1: the stop it accepts follows the second full pass with a finding left open';
 }
 
 /** The line the PR body must carry, word for word, while the exception stands. */
 export function reviewLoopExceptionLine(e: ReviewLoopException): string {
-  const stop = e.fix_check ? `fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'}` : `second full pass at ${e.second_pass!.head.slice(0, 12)}, deferred ${e.second_pass!.deferred.join(', ')}`;
+  const stop = e.fix_check ? `fix-check at ${e.fix_check.head.slice(0, 12)}, ${e.fix_check.findings} finding${e.fix_check.findings === 1 ? '' : 's'}` : e.read_only ? `read-only final review at ${e.read_only.head.slice(0, 12)}, deferred ${e.read_only.deferred.join(', ')}` : `second full pass at ${e.second_pass!.head.slice(0, 12)}, deferred ${e.second_pass!.deferred.join(', ')}`;
   return `Review-loop exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason} (${stop})`;
 }
 

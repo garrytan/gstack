@@ -418,7 +418,7 @@ export const RELEASE_RESULT_CODES = {
   REVIEW_LOOP_EXCEPTION_INVALID: {
     anchor: 'review-loop-exception-invalid',
     summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
-    fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
+    fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings }, second_pass: { head, deferred: [<finding id>] } or, with --ruled-stop, read_only: { head, deferred } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
   },
   CI_CARRY_RERUN_MALFORMED: {
     anchor: 'ci-carry-rerun-malformed',
@@ -439,6 +439,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'stop-unbound',
     summary: 'gstack-ship-receipt stop found no review of this run bound to one committed tree, so it recorded no stop record',
     fix: 'nothing for a grant to answer: the lane or its Captain ships with the open notes listed or parks; a fresh /ship run gives the head its review',
+  },
+  RULED_STOP_OPEN: {
+    anchor: 'ruled-stop-open',
+    summary: 'gstack-ship-receipt ruled-stop found this run\'s stop not closed by owner rulings: a finding has no stop ruling, is a gate or security-class finding, the stop is unbound or another run\'s, or HEAD moved off the stop\'s head',
+    fix: 'the owner rules each open finding it lists with gstack-approvals rule --pr --stop-run --head --finding, outside this run; a gate finding takes gstack-approvals gate and a security-class blocker is fixed or parks; otherwise ship the stop the usual way',
   },
   GRANT_SPENT: {
     anchor: 'grant-spent',

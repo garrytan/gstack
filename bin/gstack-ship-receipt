@@ -56,16 +56,19 @@ import {
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { planRecheck, recheckPacket } from '../crew/lib/ship-recheck';
-import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
+import { type ReviewLoopException, carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
-import { readRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { readRuledNotes, ruledNoteText, stopRulings } from '../lib/ruled-notes';
+import { ledgerTraits, ruledStop, ruledStopLines, type RuledStop } from '../lib/ruled-stop';
+import { ledgerBlockers } from '../lib/review-ledger';
+import { locate, readRecord } from '../lib/approval-record';
 import { appliedGateDispositions, gateDispositionText } from '../lib/gate-dispositions';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
-import { grantFor, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
+import { grantFor, readReviewRoundGrants, writeGrantedStop, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { isRegistryUnavailable, loadRegistryFromBase } from '../lib/regen';
 import { runCalls } from '../lib/ship-clock';
@@ -114,6 +117,11 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       via:ship review row bound to one committed tree) as a stop record in the runs block, and print the
                                       round-grant command that buys its fix round (STOP_RECORD:, NEXT:); an unbound read prints
                                       STOP_UNBOUND (exit 3) and records nothing (docs/troubleshooting.md#stop-unbound)
+  ruled-stop --pr <n> | --body <file> --run <id> --since <REVIEW_SINCE> --dir <run dir>
+                                      after a stop the owner ruled (Step 11.5): whether every open finding of this run's stop record has
+                                      a stop ruling (gstack-approvals rule --pr --stop-run) at HEAD, the stop's head: one
+                                      RULED_STOP_FINDING: line per finding, then RULED_STOP: closed (exit 0) or open, none or unbound
+                                      (RULED_STOP_OPEN, exit 3; docs/troubleshooting.md#ruled-stop-open)
   claim --pr <n> | --body <file> --run <id> --grant <approval id>
                                       before the first dispatch of a run whose PR_REVIEW_FLAGS: name --round-grant: record that this run
                                       spends the grant (GRANT_CLAIMED:); a grant another run claimed is refused (GRANT_SPENT, exit 3)
@@ -134,7 +142,10 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --review-loop-exception <json|@file> ({accepted_by, date, via, reason, fix_check: {head, findings[, files]}}: the owner accepted a
   stop after a fix-check edit; needs --review-loop with fix_checks >= 1, fix_check.head an ancestor of the head, and with --body the
   "Review-loop exception: …" line verbatim; or second_pass: {head, deferred: [<finding id>]} in place of fix_check for a stop after
-  the second full pass with a finding left open, needing passes >= 2 and deferred >= 1; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
+  the second full pass with a finding left open, needing passes >= 2 and deferred >= 1; or read_only: {head, deferred} for a ruled stop
+  of the read-only final review; --ruled-stop (with --run, --since and --dir) reruns the ruled-stop check, which must read closed with
+  exactly the deferred ids, and is required for read_only (history before this run shows two full rounds) and lets second_pass take
+  its ruled ids without deferred >= 1; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
@@ -300,11 +311,14 @@ function cmdWrite(rest: string[], json: boolean): number {
     const refuse = (why: string) => { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'REVIEW_LOOP_EXCEPTION_INVALID', `${why}; nothing written`) + '\n'); return EXIT.fail; };
     try { loopException = parseReviewLoopException(jsonArg(flag(rest, '--review-loop-exception'))); } catch (e: any) { return refuse(`--review-loop-exception: ${e.message}`); }
     if (!loopException.ok) return refuse(loopException.message);
+    const ruledProblem = ruledStopException(rest, repoRoot, bodyFile ? bodyText : undefined, loopException.exception);
+    if (typeof ruledProblem === 'string') return refuse(ruledProblem);
+    if (ruledProblem) loopException.exception.ruled = ruledProblem.ruled;
     let loop: unknown; try { loop = jsonArg(flag(rest, '--review-loop')); } catch {}
     const loopProblem = exceptionLoopProblem(loopException.exception, parseReviewLoop(loop));
     if (loopProblem) return refuse(`--review-loop-exception ${loopProblem}`);
     const fc = exceptionHead(loopException.exception);
-    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`${loopException.exception.fix_check ? 'fix_check' : 'second_pass'}.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
+    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`${loopException.exception.fix_check ? 'fix_check' : loopException.exception.read_only ? 'read_only' : 'second_pass'}.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
     const line = reviewLoopExceptionLine(loopException.exception);
     if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
   }
@@ -1095,6 +1109,7 @@ function cmdHistory(rest: string[], json: boolean): number {
   const claimed = found && !answer?.ok ? receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === found.approval && r.run !== flag(rest, '--run')) : undefined;
   const grant = claimed ? undefined : found;
   const route = answer?.ok ? { route: 'fix-check' as const, reason: `fix-check grant ${answer.grant.approval} answers the stop at ${answer.stop.head.slice(0, 12)} (run ${answer.stop.run}): one scoped fix-check of the PR's own change since it, for ${answer.grant.findings!.join(', ')}, with no new full review` } : reviewRoute(h, { grant: grant?.approval });
+  if (repoRoot && /^\d+$/.test(pr)) writeGrantedStop(repoRoot, answer?.ok ? { pr: Number(pr), grant: answer.grant.approval, head: answer.stop.head, run: answer.stop.run!, findings: answer.grant.findings! } : null);
   const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}${answer?.ok ? ` --stop ${answer.stop.head}` : ''}`;
   if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route }) + '\n'); return EXIT.ok; }
   process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}`);
@@ -1121,6 +1136,77 @@ function cmdStop(rest: string[]): number {
   if (err) { process.stderr.write(`gstack-ship-receipt stop: ${err}; nothing recorded\n`); return EXIT.fail; }
   const pr = read.pr ?? flag(rest, '--pr') ?? '<n>';
   process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\nNEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then take --round-grant and --stop from the PR_REVIEW_FLAGS: line of gstack-ship-receipt history --pr ${pr} --base <base> --run ${run} in this run, or from a new run's preflight (docs/troubleshooting.md#pr-round-cap)\n`);
+  return EXIT.ok;
+}
+
+/** The ruled-stop check's inputs, read from the PR body, the review log, this run's ledgers under --dir and the approval record. */
+function readRuledStop(rest: string[], repoRoot: string, body: string, pr: number): RuledStop | string {
+  const run = flag(rest, '--run'), since = flag(rest, '--since'), dir = flag(rest, '--dir');
+  if (!run || !/^[\w.:-]{1,120}$/.test(run) || !since || !dir) return '--run <the /ship run id>, --since <REVIEW_SINCE> and --dir <the run directory its passes wrote> are required';
+  const log = runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { cwd: repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  if (log.status !== 0) return `gstack-review-read exited ${log.status}`;
+  const sinceMs = Date.parse(since);
+  const rows = (log.stdout ?? '').split('\n---CONFIG---')[0]!.split('\n').flatMap(l => { try { const v = JSON.parse(l); return v && typeof v === 'object' && v.via === 'ship' && !(Date.parse(v.timestamp) < sinceMs) ? [v] : []; } catch { return []; } });
+  let files: string[];
+  try { files = (fs.readdirSync(dir, { recursive: true }) as string[]).filter(p => path.basename(p) === 'review-ledger.jsonl').sort().map(p => path.join(dir, p)); } catch (e: any) { return `--dir ${dir}: ${e.code ?? e.message}`; }
+  if (!files.length) return `--dir ${dir} holds no review-ledger.jsonl: name the run directory this run's passes wrote`;
+  const keyOf = (file: string) => (id: string) => `${path.basename(path.dirname(path.resolve(file)))}/${id}`;
+  let blockers: string[], traits: ReturnType<typeof ledgerTraits>;
+  try { blockers = files.flatMap(f => ledgerBlockers(f).map(b => keyOf(f)(b.id))); traits = files.flatMap(f => ledgerTraits(f, keyOf(f))); } catch (e: any) { return (e as Error).message.split('\n')[0]!; }
+  const loc = locate({ cwd: repoRoot, env: process.env });
+  if ('code' in loc) return `the approval record is unreadable: ${loc.message}`;
+  const stop = receiptRuns(body).filter(r => r.mark === 'stop').at(-1);
+  return ruledStop({ pr, run, stop: stop && { head: stop.head, tree: stop.tree, run: stop.run! }, rows, blockers, traits, rulings: stopRulings(readRecord(loc).rows) });
+}
+
+/**
+ * write --review-loop-exception with --ruled-stop (GST-2273, GST-3005): rerun the ruled-stop check; it must read closed with exactly
+ * the exception's deferred ids at its head, and a read_only exception also needs two full rounds in the PR's history before this run.
+ * The body carries one "Ruled note: …" line per ruling. Returns the verified approval ids, null without --ruled-stop, or the refusal.
+ */
+function ruledStopException(rest: string[], repoRoot: string, bodyText: string | undefined, e: ReviewLoopException): { ruled: string[] } | null | string {
+  if (e.ruled) return 'ruled is written by --ruled-stop from the verified stop rulings: leave it out of the exception';
+  if (!rest.includes('--ruled-stop')) return e.read_only ? 'read_only needs --ruled-stop: the owner rules each open finding of the read-only final review' : null;
+  const stopOf = e.second_pass ?? e.read_only;
+  if (!stopOf) return '--ruled-stop takes a second_pass or read_only exception: a fix-check stop is ruled by fingerprint at finish';
+  const pr = Number(flag(rest, '--pr') ?? NaN);
+  if (!Number.isInteger(pr) || pr < 1) return '--ruled-stop needs --pr <n>: the rulings name the PR';
+  const hasStop = (b: string | undefined) => !!b && receiptRuns(b).some(r => r.mark === 'stop');
+  const live = hasStop(bodyText) ? { ok: true as const, body: bodyText! } : readBody(['--pr', String(pr), ...(flag(rest, '--repo') ? ['--repo', flag(rest, '--repo')!] : [])]);
+  if (!live.ok) return `--ruled-stop: ${live.why}`;
+  const r = readRuledStop(rest, repoRoot, live.body, pr);
+  if (typeof r === 'string') return `--ruled-stop: ${r}`;
+  if (r.state !== 'closed') return `--ruled-stop: ${ruledStopLines(r, pr).at(-1)!}`;
+  if (r.stop!.head !== stopOf.head) return `--ruled-stop: the ruled stop is at ${r.stop!.head.slice(0, 12)}, not the exception head ${stopOf.head.slice(0, 12)}`;
+  const ids = r.findings.map(f => f.id);
+  if (JSON.stringify([...new Set(stopOf.deferred)].sort()) !== JSON.stringify([...ids].sort()) || stopOf.deferred.length !== ids.length) return `--ruled-stop: deferred must name exactly the ruled stop's findings (${ids.join(', ')}), not ${stopOf.deferred.join(', ')}`;
+  if (e.read_only) {
+    const before = prReviewHistory(live.body, { except: flag(rest, '--run') });
+    if (before.full < 2) return `--ruled-stop: read_only needs two full review rounds before this run, and the PR body shows ${before.full}: a read-only final review follows the PR's two rounds`;
+  }
+  const missing = bodyText !== undefined ? r.findings.map(f => `Ruled note: ${ruledNoteText(f.ruling!)}`).find(l => !bodyText.split(/\r?\n/).some(b => b.trim() === l)) : undefined;
+  if (missing) return `the body does not list ${JSON.stringify(missing)}`;
+  return { ruled: r.findings.map(f => f.ruling!.approval) };
+}
+
+/** Step 11.5 after a ruled stop (GST-2273, GST-3005): whether the owner ruled every open finding of this run's stop at HEAD. */
+function cmdRuledStop(rest: string[]): number {
+  const repoRoot = git(['rev-parse', '--show-toplevel']);
+  if (!repoRoot) { process.stderr.write('gstack-ship-receipt ruled-stop: run it inside the git checkout\n'); return EXIT.usage; }
+  const read = readBody(rest);
+  if (!read.ok) { process.stderr.write(`gstack-ship-receipt ruled-stop: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
+  const pr = Number(flag(rest, '--pr') ?? NaN);
+  if (!Number.isInteger(pr) || pr < 1) { process.stderr.write('gstack-ship-receipt ruled-stop: --pr <n> is required (the PR the rulings name)\n'); return EXIT.usage; }
+  const r = readRuledStop(rest, repoRoot, read.body, pr);
+  if (typeof r === 'string') { process.stderr.write(`gstack-ship-receipt ruled-stop: ${r}\n`); return EXIT.usage; }
+  const head = git(['rev-parse', 'HEAD'], repoRoot) ?? '';
+  const dirty = spawnSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: repoRoot, timeout: 30_000 }).status !== 0;
+  const moved = !r.stop ? '' : head !== r.stop.head ? `HEAD ${head.slice(0, 12)} is not the stop's head ${r.stop.head.slice(0, 12)}: a head move voids the rulings` : dirty ? 'the worktree has uncommitted changes: the rulings bind the stop\'s committed tree' : '';
+  const lines = ruledStopLines(r, pr);
+  process.stdout.write(lines.slice(0, -1).map(l => l + '\n').join(''));
+  if (r.state !== 'closed' || moved) { process.stderr.write(resultLine('gstack-ship-receipt ruled-stop', 'RULED_STOP_OPEN', moved || lines.at(-1)!.replace(/^RULED_STOP: /, '')) + '\n'); return EXIT.refused; }
+  for (const f of r.findings) process.stdout.write(`RULED_NOTE: ${ruledNoteText(f.ruling!)}\n`);
+  process.stdout.write(lines.at(-1)! + '\n');
   return EXIT.ok;
 }
 
@@ -1178,6 +1264,7 @@ function main(argv: string[]): number {
   if (cmd === 'stub') return cmdStub(rest);
   if (cmd === 'stop') return cmdStop(rest);
   if (cmd === 'claim') return cmdClaim(rest);
+  if (cmd === 'ruled-stop') return cmdRuledStop(rest);
   process.stderr.write(`gstack-ship-receipt: unknown command ${cmd}\n${HELP}\n`);
   return EXIT.usage;
 }
