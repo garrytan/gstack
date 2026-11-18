@@ -224,6 +224,18 @@ or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#testing--evals)
 for capture, judge, and benchmark model selection.
 
+**Subagents on Codex.** Codex has no Agent tool, so the Codex skills start every
+audit and reviewer subagent (/ship's coverage, plan and docs audits, the native
+review voices) with Codex's `spawn_agent` and wait on `wait_agent` until it reports
+a final status. Turn multi-agent on first: `multi_agent = true` under `[features]`
+in `~/.codex/config.toml`. Without it the dispatch fails and the step takes its
+documented failure path. Codex has no read-only Plan subagent type, so when the
+plan reviews' outside voice is unavailable they report it unavailable instead of
+starting a native fallback. /ship's review record still only counts a reviewer
+whose brief gstack itself sent: a reviewer started some other way has no recorded
+send, so `gstack-review-dispatch verify` reports its brief `NOT_SENT` and prints
+`VERIFY: dirty` (exit 1) rather than trusting it.
+
 ## The design binary's models
 
 The design binary (`$D`) uses OpenAI's `gpt-5.5` by default, with image

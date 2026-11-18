@@ -501,6 +501,31 @@ describe('golden-file regression', () => {
     expect(current).toBe(golden);
   });
 
+  test('Codex render names no Claude-only subagent call, and /ship starts its audits with spawn_agent and wait_agent (#4476)', () => {
+    const root = path.join(GOLDEN_OUT, '.agents', 'skills');
+    const claudeOnly = /subagent_type|run_in_background|TaskStop|task-notification|\bAgent tool\b/;
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else if (entry.name.endsWith('.md')) {
+          fs.readFileSync(file, 'utf-8').split('\n').forEach((line, i) => {
+            if (claudeOnly.test(line)) offenders.push(`${path.relative(root, file)}:${i + 1}: ${line.trim().slice(0, 120)}`);
+          });
+        }
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+
+    const coverage = fs.readFileSync(path.join(root, 'gstack-ship', 'sections', 'test-coverage.md'), 'utf-8');
+    expect(coverage).toContain('`spawn_agent`');
+    expect(coverage).toContain('`wait_agent`');
+    expect(coverage).toContain('Wait for its LAST-line JSON before applying the coverage gate.');
+    expect(fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'test-coverage.md'), 'utf-8')).toContain('`run_in_background: false`');
+  });
+
   test('Factory ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'factory-ship-SKILL.md'), 'utf-8');
     const current = fs.readFileSync(path.join(GOLDEN_OUT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');

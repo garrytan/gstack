@@ -6,6 +6,7 @@
 import { type TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
+import { CODEX_SUBAGENT_DISPATCH } from '../../hosts/codex';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from './design-doc-discovery';
 
 export function generateAntiShortcutClause(_ctx: TemplateContext): string {
@@ -23,7 +24,7 @@ Never skip sections or the terminal report. Do not invent a question merely beca
   return `**Anti-shortcut clause:** The plan file records the interactive review; it cannot replace it. Take each non-trivial finding through AskUserQuestion, wait for the answer, and apply only the accepted choice before writing it into the plan. Only a review with zero findings in every section reaches ExitPlanMode without asking. Never skip sections or the terminal report.`;
 }
 
-function generateOfficeHoursSpecReviewLoop(): string {
+function generateOfficeHoursSpecReviewLoop(host: string): string {
   return `## Spec Review Loop
 
 Run an adversarial review before presenting the final document to the user.
@@ -57,8 +58,9 @@ rounds 2 and 3 are delta re-reviews of the exact design diff since the last roun
 so prepare every round in the same review directory and do not edit the design
 between prepare and its review.
 
-Use the Agent tool with ${FOREGROUND_IF_AVAILABLE} and its returned \`dispatch\`
-string unchanged as the prompt. ${BACKGROUND_RECOVERY} The reviewer must Read the entire prepared prompt
+${host === 'codex' ? `Start the reviewer with ${CODEX_SUBAGENT_DISPATCH}. Give it the returned \`dispatch\`
+string unchanged as the prompt.` : `Use the Agent tool with ${FOREGROUND_IF_AVAILABLE} and its returned \`dispatch\`
+string unchanged as the prompt. ${BACKGROUND_RECOVERY}`} The reviewer must Read the entire prepared prompt
 file before reviewing the design. Do not recreate the prompt, copy selected fields,
 or summarize prior findings. A parent Read does not deliver the file to the reviewer.
 The reviewer has fresh context and cannot see the brainstorming conversation.
@@ -147,7 +149,7 @@ reviewer-confirmed resolutions. An unavailable score is null, never invented.`;
 }
 
 export function generateSpecReviewLoop(_ctx: TemplateContext): string {
-  if (_ctx.skillName === 'office-hours') return generateOfficeHoursSpecReviewLoop();
+  if (_ctx.skillName === 'office-hours') return generateOfficeHoursSpecReviewLoop(_ctx.host);
   const ceo = _ctx.skillName === 'plan-ceo-review';
   return `${ceo ? '####' : '##'} Spec Review Loop
 
@@ -156,7 +158,7 @@ ${ceo ? 'Use 0D for any new or reopened amendment discovered by the reviewer. Th
 
 **Step 1: Dispatch reviewer subagent**
 
-${ceo ? `Read Agent's tool definition. Set \`run_in_background: false\` if that field is available; omit it otherwise. Launch one reviewer with both inputs below.
+${_ctx.host === 'codex' ? `Launch one reviewer with both inputs below through ${CODEX_SUBAGENT_DISPATCH}. While waiting, do not advance, edit ${ceo ? 'either input' : 'the document'} or launch another reviewer.${ceo ? '' : '\nThe reviewer has fresh context: only the document, not the conversation.'}` : ceo ? `Read Agent's tool definition. Set \`run_in_background: false\` if that field is available; omit it otherwise. Launch one reviewer with both inputs below.
 
 If the result contains a completed review, consume it. If it returns a pending task, use the host's wait tool. With no wait tool, end this response and resume on its completion notification. While waiting, do not advance, edit either input or launch another reviewer.` : `Use Agent with JSON boolean \`run_in_background: false\`, never string \`"false"\`.
 Subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}. Async launch metadata
