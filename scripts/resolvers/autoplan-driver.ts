@@ -83,3 +83,8 @@ export const generateAutoplanUnattendedVoice: ResolverFn = ctx => [
   "Run the voice in the foreground, inside this turn: `gstack-outside-voice run ... --timeout-ms 540000` with the tool's own timeout above it (Claude Code Bash `timeout: 600000`), or a subagent you await. Never `run_in_background`, never a monitor, never end the turn to wait for it: an unattended session ends with its turn. When the voice fails, `submit --voice outside --unavailable \"<line>\"` with the matching line and carry on in the same turn, the native voice still counting:",
   ...outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-coverage', stderrOnEmpty: true, fallback: 'none', escape: 0 }).split('\n').map(l => l.replace(/^- /, '')),
 ].join(' ');
+
+/** GST-3068 (GEVA-549): the one gate rule for unattended /autoplan, rendered into the unattended profile and DRIVER.md so the two can't contradict. An agent never approves on its own judgment; a relayed owner reply is recorded with the owner's words bound. */
+export const AUTOPLAN_UNATTENDED_GATE_RULE = '**The gate, unattended.** Never approve it on your own judgment: with no owner reply, the run stops at `status=gate_pending`. Record an owner\'s reply relayed to you yourself, never handing them the command: `gstack-autoplan answer --out <dir> --gate-rev <n> --reply "<reply>" --by agent:<id> --owner-reply-file <file of their words>`.';
+
+export const generateAutoplanUnattendedGate: ResolverFn = () => AUTOPLAN_UNATTENDED_GATE_RULE;

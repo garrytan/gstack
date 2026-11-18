@@ -425,6 +425,9 @@ describe('gstack-skill-start behavior', () => {
     expect(autoplan).toContain('gate list (gstack-gate render)');
     expect(autoplan).toMatch(/decisions\.jsonl with kind "auto"/);
     expect(autoplan).toContain('gate.json');
+    // GST-3068 (GEVA-549): the general "never approve a gate" rule defers to the record rule's exception; autoplan's names the relayed owner reply.
+    expect(autoplan).toContain("The one exception: when the owner's own reply to that gate is relayed to you, record it with `gstack-autoplan answer --by agent:<id> --owner-reply-file <file>` as sections/unattended.md says, never on your own judgment and never handed back to the owner to run.");
+    for (const [skill, text] of Object.entries(blocks)) if (skill !== 'autoplan') expect({ skill, relays: text.includes('--owner-reply') }).toEqual({ skill, relays: false });
     const evalPlan = blocks['eval-plan'];
     expect(evalPlan).toContain('`GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>`');
     expect(evalPlan).toContain('No helper writes a gate.json');

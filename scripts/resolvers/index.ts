@@ -53,7 +53,7 @@ import { generateImplementerDispatchRules } from './dispatch-rules';
 import { generatePlanRealityRows } from './plan-reality';
 import { generateSidewaysSweep, generateFlakeFixNumber } from './sideways';
 import { generateCoordinatorContract } from './coordinator-contract';
-import { generateAutoplanDriverCodes, generateAutoplanDriverCommands, generateAutoplanDriverFiles, generateAutoplanDriverGate, generateAutoplanDriverPhases, generateAutoplanDriverResultFormat, generateAutoplanUnattendedVoice } from './autoplan-driver';
+import { generateAutoplanDriverCodes, generateAutoplanDriverCommands, generateAutoplanDriverFiles, generateAutoplanDriverGate, generateAutoplanDriverPhases, generateAutoplanDriverResultFormat, generateAutoplanUnattendedGate, generateAutoplanUnattendedVoice } from './autoplan-driver';
 import { generateShipDriverStops } from './ship-driver';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
 import { generateVoiceTriggerRouting } from './voice-triggers';
@@ -194,6 +194,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   AUTOPLAN_DRIVER_FILES: generateAutoplanDriverFiles,
   AUTOPLAN_DRIVER_CODES: generateAutoplanDriverCodes,
   AUTOPLAN_UNATTENDED_VOICE: generateAutoplanUnattendedVoice,
+  AUTOPLAN_UNATTENDED_GATE: generateAutoplanUnattendedGate,
   SHIP_DRIVER_STOPS: generateShipDriverStops,
   SECTION,
   SECTION_INDEX,
