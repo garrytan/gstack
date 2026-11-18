@@ -268,7 +268,8 @@ Two stages with separate clocks, both printed:
   above. A `$2` in a shell stub, a comment, or `export default 2` in a fixture
   elsewhere in the file is not a consumer. A call-site name such as `attempts`
   or `limit` is an ordinary word, so for it the file must also name the changed
-  module.
+  module, whatever the old value's length: a test that only uses the word is not
+  a consumer, and a test that imports the module still is.
   A test that keeps the old value on purpose, such as the refused input after a
   minimum version goes up, marks that one line with a comment on it or on the
   comment line directly above it:

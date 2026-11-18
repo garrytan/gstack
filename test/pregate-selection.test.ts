@@ -310,6 +310,26 @@ describe('literals (pure)', () => {
     expect(consumersOf(root, Object.keys(files), { name: 'attempts', old: '1', new: '3', file: 'lanes/review-noloss/judge-run.ts' })).toEqual(['tests/judge-run.test.ts:3']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  // Value: protects=a call-site literal of any length (`limit: 120`) counts only in a file that also names the changed module, while a
+  //   test that imports the module still fails on the old value; fails_when=a file that only uses the word and holds the old number is
+  //   reported again (#4478: a rate limit lowered from 120 to 30 flagged 30 unrelated test files), or the importer stops being reported;
+  //   why_new=the module gate covered one-character values only; seam=none; no_claim=a wrapper or barrel that never names the module
+  test('consumersOf: a longer call-site literal also needs the changed module in the file; an importer of it still counts (#4478)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-call-long-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'tests/pagination.test.ts': ['const page = await list({ limit: 50 });', 'expect(page.rows.length).toBeLessThanOrEqual(120);', ''].join(nl),
+      'tests/upload.test.ts': ['// the size limit is checked before the upload starts', 'expect(chunk(120)).toHaveLength(3);', ''].join(nl),
+      'tests/sibling.test.ts': ["import { quota } from '../src/rate-limits-v2';", 'expect(quota().limit).toBe(120);', ''].join(nl),
+      'tests/rate-limits.test.ts': ["import { SEND_RATE } from '../src/rate-limits';", 'expect(SEND_RATE.limit).toBe(120);', ''].join(nl),
+      'tests/send.test.ts': ["import { send } from '../src/rate-limits.ts';", 'const burst = 120;', 'expect(send(burst).ok).toBe(true);', ''].join(nl),
+      'tests/send-limit.test.ts': ['expect(SEND_LIMIT).toBe(120);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'limit', old: '120', new: '30', file: 'src/rate-limits.ts' })).toEqual(['tests/rate-limits.test.ts:2', 'tests/send.test.ts:2']);
+    expect(consumersOf(root, Object.keys(files), { name: 'SEND_LIMIT', old: '120', new: '30', file: 'src/other.ts' })).toEqual(['tests/send-limit.test.ts:1']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   // Value: protects=a test that keeps an old value on purpose (the refused input after a minimum-version bump) can waive that one line
   //   with a `pregate-literal: NAME=value reason` comment, while every other old-value line, a marker for another constant or value,
   //   a marker with no reason (a bare `*/`, `**/` or `* */` closer is not a reason) and marker text inside a string still count, and a line marked
