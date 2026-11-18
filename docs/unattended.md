@@ -424,8 +424,14 @@ checks its prompt.
    terminal outcome, every listed artifact exists inside the run directory with
    the recorded hash, every JSONL file parses row by row against its schema with
    run-bound unique ids, task dependencies and finding references resolve
-   without cycles, `counts` agree with the files, and (unattended) the guard
-   line is present. Otherwise it exits `1` with one error line per problem and
+   without cycles, `counts` agree with the files, (unattended) the guard
+   line is present, and gstack-autoplan wrote the run: `run.json` carries
+   the fields it writes on every run (`host: gstack-autoplan`, `plan_input`
+   and the rest, `ARTIFACT_NOT_AUTOPLAN_RUN`) and agrees with its
+   `attempts.jsonl` journal, its bound review outputs and its checkpoint
+   (`ARTIFACT_JOURNAL_MISMATCH`). `gstack-artifact ack` runs the same
+   check. A public copy (`validate --public`) carries no journal and is
+   checked against its private run's digests instead. Otherwise it exits `1` with one error line per problem and
    `ARTIFACT_INVALID: <n> error(s)`; `--json` returns the same as
    `{ valid, run, status, run_dir, errors[] }`. A run that was interrupted shows up here as
    `ARTIFACT_RUN_INTERRUPTED`, never as a partial success.
@@ -1015,8 +1021,13 @@ line, on an ephemeral state root.
 
 ## Reference run
 
-`test/fixtures/multi-agent-wave/reference-run/` is a complete unattended
-`/autoplan` run (the one that produced this wave's plan) and validates clean.
+`test/fixtures/multi-agent-wave/reference-run/` is the hand-written run
+that produced this wave's plan, from before `gstack-autoplan` existed. It
+pins the structural contract (`validateRun` passes it), but
+`gstack-artifact validate` refuses it with `ARTIFACT_NOT_AUTOPLAN_RUN`: it
+has no `plan_input` and no journal, because no gstack-autoplan wrote it. Copy
+a run gstack-autoplan wrote, never this one, when you need a run that
+validates.
 `test/fixtures/multi-agent-wave/INCIDENTS.md` records what went wrong while it
 was produced by hand and which validator rule now catches each incident.
 

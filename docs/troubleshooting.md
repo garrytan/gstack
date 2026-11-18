@@ -3511,6 +3511,38 @@ record does not state that publication order was unverified.
 **Fix.** Start the run through `gstack-skill-start` (it prints the line) and
 keep the line in the review record.
 
+<a id="artifact-not-autoplan-run"></a>
+### `ARTIFACT_NOT_AUTOPLAN_RUN`
+
+**Meaning.** `run.json` parses and matches its schema, but gstack-autoplan did
+not write it: `host` is not `gstack-autoplan`, a field gstack-autoplan writes
+on every run is missing (`plan_input`, `plan_source`, `active_plan`,
+`restore`, `out`, `created_at`, `revision`, `attempt_counter`,
+`outside_enabled`, `phase_order`, `history`, `scope`), or the run directory
+has no `attempts.jsonl` journal. A run.json written by hand or by a script,
+for example one copied from `test/fixtures/multi-agent-wave/reference-run`,
+is refused here even when every structural check passes.
+
+**Fix.** Drive the run with `gstack-autoplan next`, `submit`, `answer` and
+`export`, then validate the directory it wrote. A run written by a gstack
+older than these fields is refused too; rerun it with this gstack.
+
+<a id="artifact-journal-mismatch"></a>
+### `ARTIFACT_JOURNAL_MISMATCH`
+
+**Meaning.** The run directory disagrees with its own record of what happened:
+the journal has no `init` row for this run, a reviewer attempt in `run.json`
+was never journaled as dispatched, a completed voice's output or hash differs
+from its journaled `submitted` row, a bound review output changed after
+submit, or the run's checkpoint (when `GSTACK_AUTOPLAN_CHECKPOINT_DIR` or the
+Drive opt-in names one) is ahead of `run.json`, disagrees on status or gate
+revision at the same revision, or holds a journal the live one no longer begins with.
+
+**Fix.** Treat the run as edited after the fact. Restore it from its
+checkpoint (`gstack-autoplan resume --out <new dir> --from <checkpoint>`) or
+rerun it with gstack-autoplan; never edit `run.json` or `attempts.jsonl` by
+hand.
+
 <a id="guard-not-installed"></a>
 ### `autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)`
 

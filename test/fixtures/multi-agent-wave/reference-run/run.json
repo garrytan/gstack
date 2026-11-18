@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "run": "maw-20261010",
-  "generator": "hand-written by the autoplan run; `gstack-artifact validate` (B0) does not exist yet",
+  "generator": "hand-written by the autoplan run before gstack-autoplan existed; a structural fixture that `gstack-artifact validate` refuses (ARTIFACT_NOT_AUTOPLAN_RUN)",
   "status": "complete",
   "base": "91bbd9e",
   "host": "capy",
