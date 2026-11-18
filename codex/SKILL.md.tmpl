@@ -258,9 +258,8 @@ uses ~23x more tokens than `high` and causes 50+ minute hangs on large context t
 
 **Web search:** All codex commands pass `{{CODEX_WEB_SEARCH_FLAG}}` so `codex exec`
 invocations can look up docs and APIs during review. This is OpenAI's cached index —
-fast, no extra cost. Unlike the legacy `--enable`-based spelling (deprecated by
-codex >=0.144), the `-c` form explicitly overrides any top-level
-`web_search` setting in `~/.codex/config.toml`.
+fast, no extra cost. The `-c` form overrides any top-level `web_search` setting in
+`~/.codex/config.toml`.
 
 If the user specifies a model (e.g., `/codex review -m gpt-6.1-sol` or
 `/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same config
@@ -280,7 +279,7 @@ If token count is not available, display: `Tokens: unknown`
 
 ## Error Handling
 
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
+- **Binary not found:** Detected in Step 0.4. Stop with install instructions.
 - **Auth error:** Codex prints an auth error to stderr. Surface the error:
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
 - **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (360s gate

@@ -38,7 +38,7 @@ describe('Fable 5 overlay — family nudges', () => {
 
   test('resolved overlay inherits from claude base (INHERIT:claude)', () => {
     const out = generateModelOverlay(makeCtx('fable-5'));
-    expect(out).toContain('Todo-list discipline');
+    expect(out).toContain('Dedicated tools over Bash');
     expect(out).toContain('subordinate');
   });
 
@@ -217,8 +217,8 @@ describe('Opus 4.7 overlay — pacing directive', () => {
 
   test('resolved overlay inherits from claude base (INHERIT:claude)', () => {
     const out = generateModelOverlay(makeCtx('opus-4-7'));
-    // The claude base contributes the subordination wrapper + Todo discipline
-    expect(out).toContain('Todo-list discipline');
+    // The claude base contributes the subordination wrapper + its dedicated-tools nudge
+    expect(out).toContain('Dedicated tools over Bash');
     expect(out).toContain('subordinate');
   });
 
@@ -292,8 +292,8 @@ describe('Opus 4.8 overlay — pacing directive', () => {
 
   test('resolved overlay inherits from claude base (INHERIT:claude)', () => {
     const out = generateModelOverlay(makeCtx('opus-4-8'));
-    // The claude base contributes the subordination wrapper + Todo discipline
-    expect(out).toContain('Todo-list discipline');
+    // The claude base contributes the subordination wrapper + its dedicated-tools nudge
+    expect(out).toContain('Dedicated tools over Bash');
     expect(out).toContain('subordinate');
   });
 
@@ -351,7 +351,7 @@ describe('Sonnet 5 overlay — family nudges', () => {
 
   test('resolved overlay inherits from claude base (INHERIT:claude)', () => {
     const out = generateModelOverlay(makeCtx('sonnet-5'));
-    expect(out).toContain('Todo-list discipline');
+    expect(out).toContain('Dedicated tools over Bash');
     expect(out).toContain('subordinate');
   });
 

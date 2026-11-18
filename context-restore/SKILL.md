@@ -21,7 +21,7 @@ triggers:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/context-restore/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `bfb4b38054d9` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/context-restore/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -106,19 +106,10 @@ context and present it clearly so the user can resume work without losing a beat
 **HARD GATE:** Do NOT implement code changes. This skill only reads saved
 context files and presents the summary.
 
-**Default: prefer the most recent checkpoint saved on the CURRENT branch; if
-this branch has none, fall back to the most recent across ALL branches.** The
-fallback is for Conductor workspace handoff — a context saved on one branch can
-be resumed from another. The current-branch preference exists because every
-worktree of a repo shares one checkpoints directory (same origin-derived slug),
-so without it `/context-restore` in one worktree could silently load a sibling
-worktree's newer checkpoint.
-
-**Do NOT hard-filter the candidate set to the current branch** — other-branch
-checkpoints stay in the set as a fallback. They are just ordered *after* the
-current branch's own, so a current-branch save is never shadowed by a newer
-sibling-worktree save. (`/context-save list` is the flow that hard-scopes to one
-branch.)
+All worktrees of a repo share one checkpoints directory, so Step 1 orders the
+current branch's checkpoints first and keeps other branches after them as the
+fallback for a cross-branch handoff. (`/context-save list` is the flow that
+scopes to one branch.)
 
 ---
 
@@ -230,10 +221,7 @@ fi
 ~/.claude/skills/gstack/bin/gstack-slug --checkpoints-below 2>/dev/null || true
 ```
 
-**Candidates include every `.md` file in the directory**, but they are ordered
-**current-branch-first** (the branch is read from each file's `branch:`
-frontmatter). Other-branch files stay in the set as a fallback, which preserves
-Conductor workspace handoff when the current branch has no checkpoint of its own.
+The branch of each candidate is read from its `branch:` frontmatter.
 
 **Project identity.** Plain path lines are this project's checkpoints (verified by
 the `remote:`/`project_root:` stamp, or unstamped in a directory no other project
@@ -426,5 +414,3 @@ in the old bucket until the user copies them with `gstack-slug --adopt-legacy`.
 - **"Most recent" means the filename `YYYYMMDD-HHMMSS` prefix**, not
   `ls -1t` (filesystem mtime). Filenames are stable across file-system
   operations; mtime is not.
-- **This is a gstack skill, not a Claude Code built-in.** When the user types
-  `/context-restore`, invoke this skill via the Skill tool.

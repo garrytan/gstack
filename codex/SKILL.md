@@ -20,7 +20,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/codex/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `bfb4b38054d9` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/codex/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
 
 ## Preamble (run first)
 
@@ -537,9 +537,8 @@ uses ~23x more tokens than `high` and causes 50+ minute hangs on large context t
 
 **Web search:** All codex commands pass `-c 'web_search="cached"'` so `codex exec`
 invocations can look up docs and APIs during review. This is OpenAI's cached index —
-fast, no extra cost. Unlike the legacy `--enable`-based spelling (deprecated by
-codex >=0.144), the `-c` form explicitly overrides any top-level
-`web_search` setting in `~/.codex/config.toml`.
+fast, no extra cost. The `-c` form overrides any top-level `web_search` setting in
+`~/.codex/config.toml`.
 
 If the user specifies a model (e.g., `/codex review -m gpt-6.1-sol` or
 `/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same config
@@ -559,7 +558,7 @@ If token count is not available, display: `Tokens: unknown`
 
 ## Error Handling
 
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
+- **Binary not found:** Detected in Step 0.4. Stop with install instructions.
 - **Auth error:** Codex prints an auth error to stderr. Surface the error:
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
 - **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (360s gate

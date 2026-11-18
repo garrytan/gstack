@@ -72,14 +72,6 @@ The following nudges are tuned for the claude model family. They are
 safety, and /ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
-**Todo-list discipline.** When working through a multi-step plan, mark each task
-complete individually as you finish it. Do not batch-complete at the end. If a task
-turns out to be unnecessary, mark it skipped with a one-line reason.
-
-**Think before heavy actions.** For complex operations (refactors, migrations,
-non-trivial new features), briefly state your approach before executing. This lets
-the user course-correct cheaply instead of mid-flight.
-
 **Dedicated tools over Bash.** Prefer the host's dedicated file tools (Read, Edit,
 Write, and its search tools when it has them) over shell equivalents (cat, sed,
 find, grep). The dedicated tools are cheaper and clearer.
@@ -191,10 +183,8 @@ invoking it. A skill the user names is always invoked, whatever this setting say
 and a step inside a skill that is already running (a handoff, a review gate, a subagent it
 dispatches) is part of that skill, not a suggestion.
 
-If `PROACTIVE` is `all` (or `true`): **invoke the Skill tool** when the user's request
-matches any skill's purpose. Do NOT answer directly when a skill exists for the task.
-Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
-quality gates that produce better results than answering inline.
+If `PROACTIVE` is `all` (or `true`): **invoke the Skill tool** for the matching skill
+whenever a routing rule below matches, subject to "When to invoke, and when not to".
 
 **Routing rules — when you see these patterns, INVOKE the skill via the Skill tool** (under
 `core`, only the four core rules auto-invoke):
@@ -215,7 +205,7 @@ quality gates that produce better results than answering inline.
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
 - User asks to run the checks, make the tests pass, "verify my change", "check my work" while building → invoke `/verify`
-- User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
+- User asks to ship, push, create a PR, "let's land this", "send it" → invoke `/ship` (deploying is `/land-and-deploy`, below)
 - User asks to merge + deploy + verify as one flow → tell them to type `/land-and-deploy`; never merge or deploy by hand
 - User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → tell them to type `/modernize`
 - User asks to configure deployment for the project → invoke `/setup-deploy`
@@ -249,19 +239,19 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - Voice trigger "compare models", "model shootout", "which model is best" → invoke `/benchmark-models`
 - Voice trigger "open the browser", "look at this page" → invoke `/browse`
 - Voice trigger "code x", "code ex", "get another opinion" → invoke `/codex`
-- Voice trigger "see-so", "see so", "security review", "security check", "vulnerability scan", "run security" → invoke `/cso`
+- Voice trigger "see-so", "see so", "security review", "vulnerability scan" → invoke `/cso`
 - Voice trigger "build the design", "code the mockup", "make it real" → invoke `/design-html`
-- Voice trigger "dx audit", "test the developer experience", "try the onboarding", "developer experience test" → invoke `/devex-review`
+- Voice trigger "dx audit", "test the developer experience", "try the onboarding" → invoke `/devex-review`
 - Voice trigger "upgrade the tools", "update the tools", "gee stack upgrade", "g stack upgrade" → invoke `/gstack-upgrade`
 - Voice trigger "clean the iOS debug bridge", "remove DebugBridge", "strip the gstack iOS instrumentation" → invoke `/ios-clean`
 - Voice trigger "review the iOS design", "audit the iPhone app's visuals", "design QA the iPhone app" → invoke `/ios-design-review`
 - Voice trigger "fix the iOS bug", "patch the iPhone app", "auto-fix the iOS issue" → invoke `/ios-fix`
 - Voice trigger "iOS quality check", "test the iPhone app", "test the iPad app", "run iOS QA" → invoke `/ios-qa`
 - Voice trigger "resync the iOS debug bridge", "regenerate iOS accessors", "update the gstack iOS instrumentation" → invoke `/ios-sync`
-- Voice trigger "make this a pdf", "make it a pdf", "export to pdf", "turn this into a pdf", "turn this markdown into a pdf", "generate a pdf", "make a pdf from", "pdf this markdown" → invoke `/make-pdf`
+- Voice trigger "make this a pdf", "export to pdf", "turn this markdown into a pdf" → invoke `/make-pdf`
 - Voice trigger "show me the browser" → invoke `/open-gstack-browser`
 - Voice trigger "pair agent", "connect agent", "share my browser", "remote browser access" → invoke `/pair-agent`
-- Voice trigger "dx review", "developer experience review", "devex review", "devex audit", "API design review", "onboarding review" → invoke `/plan-devex-review`
+- Voice trigger "dx review", "devex review", "API design review", "onboarding review" → invoke `/plan-devex-review`
 - Voice trigger "tech review", "technical review", "plan engineering review" → invoke `/plan-eng-review`
 - Voice trigger "quality check", "test the app", "run QA" → invoke `/qa`
 - Voice trigger "bug report", "just check for bugs" → invoke `/qa-only`
