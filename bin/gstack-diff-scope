@@ -246,6 +246,8 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
 
   # Frontend: CSS, views, components, templates
   case "$f" in
+    # SwiftPM's manifest is a dependency file (CONFIG below), never UI.
+    Package.swift|*/Package.swift) ;;
     *.css|*.scss|*.less|*.sass|*.pcss) m_frontend=true ;;
     *.tsx|*.jsx|*.vue|*.svelte|*.astro) m_frontend=true ;;
     *.erb|*.haml|*.slim|*.hbs|*.ejs) m_frontend=true ;;
@@ -255,6 +257,11 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     # A skipped reviewer is invisible; an extra one (design-lite included) is a
     # visible pass that costs a review.
     *.dart) m_frontend=true ;;
+    # Swift, the same way (GST-3041): a SwiftUI view and a network client share
+    # the extension. Interface Builder files, string catalogs and asset catalogs
+    # are UI only.
+    *.swift) m_frontend=true ;;
+    *.storyboard|*.xib|*.strings|*.stringsdict|*.xcstrings|*.xcassets/*) m_frontend=true ;;
     tailwind.config.*|postcss.config.*) m_frontend=true ;;
     app/views/*|*/components/*|styles/*|css/*|app/assets/stylesheets/*) m_frontend=true ;;
   esac
@@ -290,6 +297,12 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
     .gstack/*) m_config=true ;;
     requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) m_config=true ;;
     pubspec.lock|*/pubspec.lock) m_config=true ;;
+    # Apple dependencies, project file and build settings (signing included);
+    # Info.plist and entitlements also read as AUTH below.
+    Package.swift|*/Package.swift|Package.resolved|*/Package.resolved) m_config=true ;;
+    Podfile|*/Podfile|Podfile.lock|*/Podfile.lock|Cartfile|*/Cartfile|Cartfile.resolved|*/Cartfile.resolved) m_config=true ;;
+    *.pbxproj|*.xcconfig|*.xcscheme|*.xcworkspacedata|*.xctestplan) m_config=true ;;
+    *.plist|*.entitlements|*.xcprivacy) m_config=true ;;
   esac
 
   # Migrations: database migration files. Bare migrations/* covers a
@@ -316,6 +329,10 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   case "$f" in
     *jwt*|*permission*|*role*) m_auth=true ;;
     *session*) _session_data "$f" || m_auth=true ;;
+    # Apple permissions (GST-3041): Info.plist holds URL schemes, App Transport
+    # Security exceptions and usage strings; entitlements grant capabilities
+    # (keychain groups, push, HealthKit); the privacy manifest declares data use.
+    Info.plist|*/Info.plist|*-Info.plist|*.entitlements|*.xcprivacy) m_auth=true ;;
   esac
   _auth_path "$f" && m_auth=true
 
@@ -330,6 +347,8 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   fi
   case "$f" in
     *.dart) m_backend=true ;;
+    Package.swift|*/Package.swift) ;;
+    *.swift) m_backend=true ;;
   esac
 
   [ "$m_frontend" = true ] && FRONTEND=true

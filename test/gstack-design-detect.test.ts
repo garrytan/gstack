@@ -911,6 +911,9 @@ describe('scan', () => {
     //   fails_when=the .dart exclusion in resolveTargets is dropped; why_new=no --changed case had a Dart file; seam=none;
     //   no_claim=the real impeccable engine (fake engine logs argv)
     fs.writeFileSync(path.join(REPO, 'drawer.dart'), 'class Drawer {}\n'); // untracked Dart: frontend scope, not a scan target
+    // Value: protects=a SwiftUI file (frontend scope since GST-3041) never reaches the web-source engine either; fails_when=the
+    //   native-UI exclusion covers .dart only; why_new=GST-3041 made .swift frontend; seam=none; no_claim=the real engine
+    fs.writeFileSync(path.join(REPO, 'ReviewView.swift'), 'struct ReviewView {}\n');
     const log = path.join(SANDBOX, 'argv4.log');
     fs.rmSync(log, { force: true });
     try {
@@ -923,6 +926,7 @@ describe('scan', () => {
       fs.rmSync(path.join(REPO, 'styles'), { recursive: true, force: true });
       fs.rmSync(path.join(REPO, 'notes.md'), { force: true });
       fs.rmSync(path.join(REPO, 'drawer.dart'), { force: true });
+      fs.rmSync(path.join(REPO, 'ReviewView.swift'), { force: true });
       git(REPO, 'checkout', '-q', 'main');
       git(REPO, 'branch', '-q', '-D', 'feature');
     }
