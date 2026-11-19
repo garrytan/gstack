@@ -106,6 +106,21 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-end next fields', ()
     } finally { harness.kill('SIGKILL'); }
   });
 
+  test('a recycled pid with a stale marker gets a new session id, never the old one', async () => {
+    fs.appendFileSync(path.join(tmp, 'config.yaml'), 'update_check: false\n');
+    fs.mkdirSync(path.join(tmp, 'sessions'));
+    const marker = path.join(tmp, 'sessions', '4343');
+    fs.writeFileSync(marker, 'aaaaaaaaaaaaaaaa');
+    const threeHoursAgo = new Date(Date.now() - 3 * 3600_000);
+    fs.utimesSync(marker, threeHoursAgo, threeHoursAgo);
+    run('gstack-skill-start', ['--skill', 'qa', '--parent-pid', '4343']);
+    expect(fs.readFileSync(marker, 'utf-8')).toBe('');
+    run('gstack-skill-end', ['--skill', 'qa', '--outcome', 'success', '--session-id', '4343-1700000000-1', '--tel-start', '1700000000'], { CLAUDECODE: '1' });
+    const [e] = await eventually(1);
+    expect(e.harness_session_id).toMatch(/^[0-9a-f]{16}$/);
+    expect(e.harness_session_id).not.toBe('aaaaaaaaaaaaaaaa');
+  }, 30_000);
+
   test('an unknown start time sends a null duration, not 0', async () => {
     const out = run('gstack-skill-end', ['--skill', 'qa', '--outcome', 'success', '--session-id', '99-1']);
     expect(out).toContain('duration_s=unknown');
@@ -127,6 +142,21 @@ describe.skipIf(process.platform === 'win32')('gstack-telemetry-sync batch size'
     fs.writeFileSync(path.join(tmp, 'analytics', 'skill-usage.jsonl'), `${event}\n`.repeat(120));
     const sizes = path.join(tmp, 'sizes');
     run('gstack-telemetry-sync', [], { SIZES: sizes });
+    const sent = fs.readFileSync(sizes, 'utf-8').trim().split('\n').map(Number);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBeGreaterThan(40_000);
+    expect(sent[0]).toBeLessThanOrEqual(45_000);
+  });
+
+  test('multi-byte events are measured in bytes, so the body stays under the limit', () => {
+    fs.writeFileSync(path.join(tmp, 'bin', 'curl'),
+      '#!/bin/sh\nfor a in "$@"; do case "$a" in @*) wc -c < "${a#@}" >> "$SIZES" ;; esac; done\nprintf 500\n', { mode: 0o755 });
+    const event = JSON.stringify({ v: 1, ts: '2026-11-19T21:00:00Z', event_type: 'skill_run', skill: 'qa', session_id: '12345-1763600000-abc',
+      outcome: 'error', error_message: '\u20ac'.repeat(300), source: 'live', host: 'claude_code' });
+    fs.mkdirSync(path.join(tmp, 'analytics'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'analytics', 'skill-usage.jsonl'), `${event}\n`.repeat(100));
+    const sizes = path.join(tmp, 'sizes');
+    run('gstack-telemetry-sync', [], { SIZES: sizes, LC_ALL: process.platform === 'darwin' ? 'en_US.UTF-8' : 'C.UTF-8' });
     const sent = fs.readFileSync(sizes, 'utf-8').trim().split('\n').map(Number);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toBeGreaterThan(40_000);

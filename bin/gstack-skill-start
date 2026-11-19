@@ -125,8 +125,8 @@ fi
 # Session markers: local functional state (live-session count), never sent and
 # not gated on telemetry (#1150). README "Privacy & Telemetry" describes them.
 mkdir -p "$_GH/sessions" 2>/dev/null || true
-touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 find "$_GH/sessions" -mmin +120 -type f -exec rm {} + 2>/dev/null || true
+touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 _SESSIONS=$(find "$_GH/sessions" -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 
 _PROACTIVE=$("$_BIN/gstack-config" get proactive 2>/dev/null || echo "core")
