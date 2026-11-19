@@ -32,7 +32,8 @@ no, and `gstack-config set telemetry off` turns it off at any time.
     is created on first use, kept in that session's marker file below, and
     ends when the marker does (120 idle minutes). It is never your device ID
     and never reused, so it links the skills of one session and nothing
-    across sessions or machines. It is sent on both tiers.
+    across sessions or machines. It is sent on both tiers, except under a
+    harness that runs every session in one process (Capy's capy-server).
   - Upgrades send one `upgrade_completed` event: success or the failure
     reason (`refused_dirty`, `busy`, `fetch_failed`, `setup_failed`,
     `other`) and the version you came from. `--check` and unattended

@@ -103,6 +103,8 @@ if [ "$_TEL" != "off" ] && [ -x "$_BIN/gstack-telemetry-log" ]; then
   # process's sessions/<pid> marker (skill-start's touch keeps the contents,
   # its 120-minute idle reaper ends the id). Never the device id.
   _HSESS=""; _HPID="${SESSION_ID%%-*}"
+  # A shared harness (capy-server) runs every session under one pid: no id there.
+  . "$_BIN/gstack-harness-pid.sh" 2>/dev/null && gstack_shared_harness "$_HPID" && _HPID=""
   case "$_HPID" in ''|*[!0-9]*) ;; *)
     if [ -f "$_GH/sessions/$_HPID" ]; then
       _HSESS=$(head -c 16 "$_GH/sessions/$_HPID" 2>/dev/null | tr -cd '0-9a-f')

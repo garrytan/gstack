@@ -2,7 +2,7 @@
  * writes them: fixed lists, a random per-agent-session id, and a source label
  * an explicit setting always wins. Network is stubbed; nothing leaves the box. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -92,10 +92,44 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-end next fields', ()
     expect([a.host, a.exit_reason, a.invoked, a.model_family, a.checks, a.routing]).toEqual(['claude_code', 'completed', 'user', 'claude_opus', 'none', 'none']);
   });
 
+  test('under a shared harness (capy-server) every session has one pid, so no session id is sent', async () => {
+    fs.copyFileSync('/bin/sleep', path.join(tmp, 'capy-server'));
+    fs.chmodSync(path.join(tmp, 'capy-server'), 0o755);
+    const harness = spawn(path.join(tmp, 'capy-server'), ['30'], { stdio: 'ignore' });
+    try {
+      fs.mkdirSync(path.join(tmp, 'sessions'));
+      fs.writeFileSync(path.join(tmp, 'sessions', String(harness.pid)), '');
+      run('gstack-skill-end', ['--skill', 'qa', '--outcome', 'success', '--session-id', `${harness.pid}-1700000000-1`, '--tel-start', '1700000000']);
+      const [e] = await eventually(1);
+      expect(e.harness_session_id).toBeNull();
+      expect(fs.readFileSync(path.join(tmp, 'sessions', String(harness.pid)), 'utf-8')).toBe('');
+    } finally { harness.kill('SIGKILL'); }
+  });
+
   test('an unknown start time sends a null duration, not 0', async () => {
     const out = run('gstack-skill-end', ['--skill', 'qa', '--outcome', 'success', '--session-id', '99-1']);
     expect(out).toContain('duration_s=unknown');
     const [e] = await eventually(1);
     expect(e.duration_s).toBeNull();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('gstack-telemetry-sync batch size', () => {
+  test('a backlog of full-size events is sent in bodies under ingest\'s 50,000-byte limit', () => {
+    fs.writeFileSync(path.join(tmp, 'bin', 'curl'),
+      '#!/bin/sh\nfor a in "$@"; do case "$a" in @*) wc -c < "${a#@}" >> "$SIZES" ;; esac; done\nprintf 500\n', { mode: 0o755 });
+    const event = JSON.stringify({ v: 1, ts: '2026-11-19T21:00:00Z', event_type: 'skill_run', skill: 'plan-design-review', session_id: '12345-1763600000-abc',
+      gstack_version: '1.102.0.0', os: 'darwin', arch: 'arm64', duration_s: 1234, outcome: 'success', error_class: null, error_message: null, failed_step: null,
+      used_browse: false, sessions: 1, installation_id: null, source: 'live', security_url_domain: null, security_payload_hash: null, security_confidence: null,
+      security_layer: null, security_verdict: null, host: 'claude_code', model_family: 'claude_opus', invoked: 'user', exit_reason: 'completed', checks: 'passed',
+      routing: 'both', harness_session_id: '0123456789abcdef', from_version: null, upgrade_error: null, _repo_slug: 'owner/repo', _branch: 'main' });
+    fs.mkdirSync(path.join(tmp, 'analytics'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'analytics', 'skill-usage.jsonl'), `${event}\n`.repeat(120));
+    const sizes = path.join(tmp, 'sizes');
+    run('gstack-telemetry-sync', [], { SIZES: sizes });
+    const sent = fs.readFileSync(sizes, 'utf-8').trim().split('\n').map(Number);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBeGreaterThan(40_000);
+    expect(sent[0]).toBeLessThanOrEqual(45_000);
   });
 });
