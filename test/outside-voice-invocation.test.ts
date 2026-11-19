@@ -478,3 +478,49 @@ echo 'Recommendation: approve because the late answer arrived.'
     }
   });
 });
+
+describe('a 402 budget stop reads as a budget stop on both outside voices; 401 and 403 do not', () => {
+  const stderrFile = (name: string, text: string) => { const p = path.join(TMP, name); fs.writeFileSync(p, `${text}\n`); return p; };
+  const BUDGET = 'outside review unavailable: the provider refused the review with HTTP 402';
+
+  test('Codex voice: a metering proxy\'s 402 is unavailable with the budget line and no login advice', () => {
+    const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_STDERR_FILE: stderrFile('codex-402.stderr', 'ERROR: unexpected status 402 Payment Required: {"error":{"message":"API key allowance exhausted"}}') });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`Codex ${BUDGET}`);
+    expect(result.stderr).toContain('#outside-review-budget-exhausted');
+    expect(result.stderr).not.toContain('codex login');
+    expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+  });
+
+  test('Codex voice: a 402 that appears only in Codex\'s JSON failure events (its stderr names no cause) is the budget line', () => {
+    const message = 'unexpected status 402 Payment Required: {"title":"E_ALLOWANCE","status":402,"code":"E_ALLOWANCE","detail":"E_ALLOWANCE: metering proxy: the slot\'s allowance of $15 cannot hold this call\'s worst case"}';
+    const events = stderrFile('codex-402.events.jsonl', [JSON.stringify({ type: 'turn.started' }), JSON.stringify({ type: 'error', message }), JSON.stringify({ type: 'turn.failed', error: { message } })].join('\n'));
+    const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_EVENTS_FILE: events, FAKE_STDERR_FILE: stderrFile('codex-402-plain.stderr', 'Reading additional input from stdin...') });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`Codex ${BUDGET}`);
+    expect(result.stderr).toContain('E_ALLOWANCE');
+  });
+
+  for (const [status, line] of [
+    ['401', 'ERROR: unexpected status 401 Unauthorized: {"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}'],
+    ['403', 'ERROR: unexpected status 403 Forbidden: {"error":{"message":"This API key is not allowed to use this project"}}'],
+  ] as const) {
+    test(`Codex voice: a ${status} is missing coverage with its status shown, never a budget stop`, () => {
+      const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_STDERR_FILE: stderrFile(`codex-${status}.stderr`, line) });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(`Codex outside review unavailable: the reviewer process failed (exit 4: ${line.slice(0, 60)}`);
+      expect(result.stderr).not.toContain('HTTP 402');
+    });
+  }
+
+  test('Claude Code voice: a 402 is unavailable with the budget line; a 401 stays an authentication failure', () => {
+    const budget = invoke('codex', {}, { FAKE_MODE: 'nonzero', FAKE_RESPONSE: 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}' });
+    expect(budget.status).not.toBe(0);
+    expect(budget.stderr).toContain(`Claude Code ${BUDGET}`);
+    expect(budget.stdout).toContain('"code":"budget"');
+    const auth = invoke('codex', {}, { FAKE_MODE: 'nonzero', FAKE_RESPONSE: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}' });
+    expect(auth.status).not.toBe(0);
+    expect(auth.stdout).toContain('"code":"authentication"');
+    expect(auth.stderr).not.toContain('HTTP 402');
+  });
+});

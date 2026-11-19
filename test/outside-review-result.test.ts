@@ -599,3 +599,81 @@ describe('a mid-run Codex usage limit is unavailable (quota_exhausted); a mid-ru
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 });
+
+describe('an HTTP 402 or payment-required refusal is unavailable (budget_exhausted), never an auth failure', () => {
+  const PAYMENT_402 = 'ERROR: unexpected status 402 Payment Required: {"error":{"message":"API key allowance exhausted for this billing period","type":"payment_required"}}';
+  const STREAM_402 = 'stream error: exceeded retry limit, last status: 402 Payment Required';
+  const BODY_ONLY = 'ERROR: {"type":"error","error":{"type":"payment_required","message":"Proxy allowance used up for this API key"}}';
+  const AUTH_401 = 'ERROR: unexpected status 401 Unauthorized: {"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}';
+  const AUTH_403 = 'ERROR: unexpected status 403 Forbidden: {"error":{"message":"This API key is not allowed to use this project","type":"permission_error"}}';
+  const ECHOED = 'user\nHandle the 402 Payment Required answer from the billing proxy in this diff\n';
+
+  test('a failed call with a 402 line -> unavailable, reason budget_exhausted, detail is the line', () => {
+    for (const line of [PAYMENT_402, STREAM_402, BODY_ONLY]) {
+      const result = classifyOutsideReview({ text: '', stderr: `Reading prompt from stdin...\n${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, verdict: result.verdict, reason: result.reason, detail: result.detail }).toEqual({ line, verdict: 'unavailable', reason: 'budget_exhausted', detail: line });
+    }
+  });
+
+  test('the printed line names the budget, says what to check and never says to log in', () => {
+    const line = gateOutcomeLine('Codex outside review', 'budget_exhausted', PAYMENT_402);
+    expect(line).toContain('HTTP 402');
+    expect(line).toContain('allowance');
+    expect(line).toContain('quota');
+    expect(line).toContain('https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-budget-exhausted');
+    expect(line).not.toMatch(/codex login|claude auth login|authentication failed/i);
+  });
+
+  test('401 and 403 controls are not a budget stop: they stay execution_failed with the status in the detail', () => {
+    for (const [line, status] of [[AUTH_401, '401'], [AUTH_403, '403']] as const) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ status, reason: result.reason }).toEqual({ status, reason: 'execution_failed' });
+      expect(result.detail).toContain(status);
+    }
+  });
+
+  test('an echoed prompt that names a 402 stays execution_failed, and a timeout keeps its reason', () => {
+    expect(classifyOutsideReview({ text: '', stderr: `${ECHOED}ERROR: unexpected status 500 Internal Server Error\n`, exit: 1, gate: 'review' }).reason).toBe('execution_failed');
+    expect(classifyOutsideReview({ text: '', stderr: `${PAYMENT_402}\n`, exit: 124, gate: 'review' }).reason).toBe('timeout');
+  });
+
+  test('a host error for a dispatched reviewer (a Capy subagent) that names a 402 or a quota is the budget or quota stop', () => {
+    const budget = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: 402 Payment Required: allowance exhausted' });
+    expect([budget.verdict, budget.reason]).toEqual(['unavailable', 'budget_exhausted']);
+    const quota = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: insufficient_quota: You exceeded your current quota' });
+    expect(quota.reason).toBe('quota_exhausted');
+    const auth = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: 401 Unauthorized: invalid_api_key' });
+    expect(auth.reason).toBe('execution_failed');
+  });
+
+  test('the readiness probe does not stop on a 402: the review still runs once and its own result names the cause', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-budget-probe-'));
+    try {
+      const stubDir = path.join(home, 'bin');
+      const codexHome = path.join(home, '.codex');
+      fs.mkdirSync(stubDir);
+      fs.mkdirSync(codexHome);
+      fs.writeFileSync(path.join(codexHome, 'auth.json'), '{}');
+      fs.writeFileSync(path.join(stubDir, 'codex'), '#!/usr/bin/env bash\nprintf \'%s\\n\' "$STUB_STDERR" >&2\nexit 1\n', { mode: 0o755 });
+      const probe = spawnSync('bash', ['-c', `source "${path.join(ROOT, 'bin', 'gstack-codex-probe')}" && _gstack_codex_model_probe`], {
+        encoding: 'utf8', timeout: 20_000,
+        env: { PATH: `${stubDir}:${process.env.PATH ?? ''}`, HOME: home, CODEX_HOME: codexHome, GSTACK_HOME: path.join(home, '.gstack'), STUB_STDERR: PAYMENT_402, _TEL: 'off' },
+      });
+      expect(probe.status).toBe(0);
+      expect(probe.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe('the execution_failed detail names the terminal Codex failure', () => {
+  test('a transient reconnect error before turn.failed does not become the detail', () => {
+    const fatal = 'unexpected status 500 Internal Server Error, url: http://127.0.0.1:41000/v1/responses';
+    const events = [
+      JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5 (stream disconnected before completion)' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: fatal } }),
+    ].join('\n');
+    const result = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: 'Reading additional input from stdin...', events });
+    expect([result.verdict, result.reason]).toEqual(['unavailable', 'execution_failed']);
+    expect(result.detail).toBe(`exit 1: ${fatal}`);
+  });
+});

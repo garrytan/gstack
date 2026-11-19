@@ -545,6 +545,24 @@ for the account or API key on the provider's dashboard.
 
 **Expected result.** `CODEX_MODE: ready`, and the review completes.
 
+<a id="outside-review-budget-exhausted"></a>
+### `unavailable: the provider refused the review with HTTP 402 (payment required)`
+
+**Meaning.** The second-model review (Codex, or Claude Code from a Codex
+session) reached its provider, and the provider refused the call with HTTP 402
+Payment Required. The money behind the key is used up: a metering proxy or
+gateway in front of the provider hit its allowance, or the account ran out of
+credits or quota. The login worked, so this is not an authentication failure,
+even when the provider's message mentions the API key. gstack reports outside
+coverage as unavailable, never as a pass.
+
+**Fix.** Check the allowance on the proxy or gateway that sits in front of the
+provider (its dashboard or its admin), or the account's quota and credits on
+the provider's billing page. Raise it or wait for it to reset, then re-run the
+review. Signing in again (`codex login`, `claude auth login`) does not help.
+
+**Expected result.** The review completes with `OUTSIDE_STATUS: completed`.
+
 <a id="codex-mode-unverified"></a>
 ### `CODEX_MODE: unverified` / `MODEL_PROBE_INCONCLUSIVE`
 

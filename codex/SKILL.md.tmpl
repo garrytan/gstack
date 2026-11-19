@@ -281,7 +281,13 @@ If token count is not available, display: `Tokens: unknown`
 ## Error Handling
 
 - **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
+- **Budget or quota stop (HTTP 402, payment required, quota):** the validator prints
+  `unavailable: the provider refused the review with HTTP 402` or names the quota. This is
+  not an auth error, even when the provider's message mentions the API key. Relay Codex's line
+  and tell the user: "Codex refused the call because its budget or quota is used up. Check the
+  allowance on the proxy or gateway in front of the provider, or the account's quota and
+  credits; logging in again will not fix it."
+- **Auth error:** Codex prints an auth error to stderr (401 or 403). Surface the error:
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
 - **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (360s gate
   over the 330s review wrapper; 600s gate, the tool maximum, over the 540s challenge/consult
