@@ -137,8 +137,8 @@ describe('the stop record binds only a review gstack can tie to one commit (stop
 });
 
 /** A fixture repository at the stop head with a PR body file, and the bins run against it. */
-function stopRepo() {
-  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+function stopRepo(base: Record<string, string> = {}, branch: Record<string, string> = {}) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', ...base }, { 'src/x.ts': 'export const x = 2;\n', ...branch });
   fxs.push(f);
   const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
   const head = () => f.git('rev-parse', 'HEAD').stdout.trim();
@@ -191,6 +191,23 @@ describe('the CLI seams', () => {
     expect(twice.status).toBe(3);
     expect(twice.stderr).toContain('(GRANT_SPENT)');
     expect(r.run('gstack-ship-receipt', ['history', '--body', r.body, '--pr', '7', '--base', 'main', '--run', 'fc2']).stdout).toContain('PR_REVIEW_GRANT: not applied (grant ' + g + ' was claimed by run fc1');
+  });
+
+  // Value: protects=FOUN-505, a granted stop whose fix is one string in a data .json (named by code or not) reads its fix range and plans
+  //   the fix-check; fails_when=gstack-diff-scope calls the range unmatched, FIX_RANGE prints unread and the plan stops with no fix to
+  //   read; seam=gstack-diff-scope, gstack-review-plan's fix range, classifyDiff's data rows
+  test('a data-only fix after a granted stop is read (runtime 0) and plans the fix-check (FOUN-505)', () => {
+    for (const named of [false, true]) {
+      const labels = '{"label": "pass"}\n';
+      const r = stopRepo({ 'data/labels.json': labels }, named ? { 'src/x.ts': "export const x = 2; // reads labels.json\n" } : {});
+      const s = r.head();
+      const g = grantId(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'f#1', '--reason', 'x', '--by', 'Captain GStack Minder']).stdout)!;
+      r.f.write({ 'data/labels.json': '{"label": "fail"}\n' }); r.f.commit('fix the label');
+      const plan = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '3', '--pr', '7', '--round-grant', g, '--stop', s]);
+      expect(plan.status, plan.stderr).toBe(0);
+      expect(plan.stdout).not.toContain('unread');
+      expect(plan.stdout).toContain('next=fix-check');
+    }
   });
 
   test('X15/G7: the plan refuses a fix-check grant for another stop head and an extra-round grant with --stop, and plans no fix-check without a fix', () => {

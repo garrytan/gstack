@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
-import { decodeCharRefs, DOC_SECRET_LINE, matchRisk, RISK_CLASSES, RISK_RULES, SECRET_PATH, secretPath, SVG_PATH, svgActive, TOKEN_PATH, type RiskClass } from './review-risk';
+import { decodeCharRefs, DOC_SECRET_LINE, matchRisk, RESULTS_TREE, RISK_CLASSES, RISK_RULES, SECRET_PATH, secretPath, SVG_PATH, svgActive, TOKEN_PATH, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
@@ -69,6 +69,10 @@ export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|pdf|mp3|mp4|mov|wav|webm|log|out)$|(^|\/)logs\/[^/.]+$/i;
 /** Data files: JSON, CSV, TSV and raster images. YAML and TOML are never data here: deploy configs and API specs stay code. An SVG is data only as a drawing (svgDrawing); executable SVG stays code. */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+/** Row data, never runtime lines whether code names it or not (harness-evals#432 counted its results rows as code); JSON counts too in a docs, results or preregistration tree. */
+export const DATA_ROWS = /\.(jsonl|ndjson|csv|tsv)$/i;
+/** A preregistration's own directory or file (R114): a path segment named prereg or preregistration (wiki/plans/<id>-prereg/, prereg-harbor.json, lanes/<x>/prereg2.md). */
+export const PREREG_PATH = /(^|\/|[-_.])(prereg|preregistration)s?\d*([-_./]|$)/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
 const DATA_CONFIG = [
   /(^|\/)\.github\//, /(^|\/)config\//, /(^|\/)\.[^/]+$/, /(^|\/)[^/]+\.config\.[^/]+$/, HARNESS_PINS,
@@ -168,7 +172,7 @@ export function svgDrawing(text: string): boolean {
 /** A hash of the constants and patterns that decide a depth, not of this file's bytes: a comment edit keeps it, a threshold edit changes it. */
 export const DEPTH_RULES = createHash('sha256').update(JSON.stringify({
   RISK_RULES, SMALL_DIFF_LINES, RED_TEAM_LINES, LARGE_DIFF_LINES, FULL_PASS_CAP, LIGHT_FIXED, BATCH_SCOPED, SCOPED_RANGE_LINES, ROLE_EFFORT, SVG_ELEMENTS: [...SVG_ELEMENTS],
-  patterns: Object.entries({ BINARY_DATA_PATH: [BINARY_DATA_PATH], GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_TAG_NAME: [SVG_TAG_NAME], SVG_ATTR: [SVG_ATTR], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
+  patterns: Object.entries({ BINARY_DATA_PATH: [BINARY_DATA_PATH], DATA_ROWS: [DATA_ROWS], PREREG_PATH: [PREREG_PATH], GATE_PATH, AGENT_PROSE, TEST_PATH, RELEASE_METADATA, DOC_PATH: [DOC_PATH], DATA_PATH: [DATA_PATH], DATA_CONFIG, SVG_MARKUP: [SVG_MARKUP], SVG_REFUSED, SVG_HREF: [SVG_HREF], SVG_STYLE_OPEN: [SVG_STYLE_OPEN], SVG_STYLE_CLOSE: [SVG_STYLE_CLOSE], SVG_STYLE_TAG: [SVG_STYLE_TAG], SVG_TAG_NAME: [SVG_TAG_NAME], SVG_ATTR: [SVG_ATTR], SVG_CSS_REF: [SVG_CSS_REF], SVG_CSS_REFUSED: [SVG_CSS_REFUSED] }).map(([k, v]) => [k, v.map(r => `/${r.source}/${r.flags}`)]),
 })).digest('hex').slice(0, 16);
 
 /**
@@ -258,7 +262,11 @@ const sanitize = (s: string) => s.replace(/[\0-\x1f]+/g, ' ').slice(0, 200);
 const isOutput = (i: ClassInput, p: string) => !!i.registry?.outputs.length && matchesAny(i.registry.outputs, p);
 export const unconsumedData = (i: Pick<ClassInput, 'consumed' | 'drawings' | 'root' | 'executables'>, p: string) => !i.executables?.includes(p) && Array.isArray(i.consumed) && !i.consumed.includes(p) && (dataCandidate(p, i.root) || (!!i.drawings?.includes(p) && svgCandidate(p, i.root)));
 const binaryData = (i: ClassInput, p: string) => !i.executables?.includes(p) && BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, TOKEN_PATH, ...DATA_CONFIG].some(r => r.test(p));
-const pathClass = (i: ClassInput, p: string): PathClass => i.executables?.includes(p) && !i.excluded?.has(p) ? 'code' : (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) ? 'docs' : classifyPath(p, i.root));
+/** A preregistration's plain data (R114): a data candidate under PREREG_PATH, docs even when code names it; its guard and risk checks still run (classifyDiff). */
+const preregData = (i: ClassInput, p: string) => !i.executables?.includes(p) && PREREG_PATH.test(p) && dataCandidate(p, i.root);
+/** A data file whose lines are rows, not runtime lines (DATA_ROWS): a JSON elsewhere, such as a guard's allowlist, can be config and keeps counting. */
+const dataRows = (i: ClassInput, e: PathLines) => !e.binary && !i.executables?.includes(e.path) && dataCandidate(e.path, i.root) && (DATA_ROWS.test(e.path) || (/\.json$/i.test(e.path) && (RESULTS_TREE.test(e.path) || PREREG_PATH.test(e.path))));
+const pathClass = (i: ClassInput, p: string): PathClass => i.executables?.includes(p) && !i.excluded?.has(p) ? 'code' : (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) || preregData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
 export function classifyDiff(i: ClassInput): ClassResult {
@@ -270,12 +278,14 @@ export function classifyDiff(i: ClassInput): ClassResult {
   for (const p of i.paths) { const c = pathClass(i, p); if (CLASS_RANK[c] > CLASS_RANK[cls]) raise(c, `${c}: ${p}`); }
   const data = i.paths.filter(p => unconsumedData(i, p));
   if (data.length) reasons.push(`docs: ${data.length} data path(s) no code names`);
+  const prereg = i.paths.filter(p => !i.excluded?.has(p) && preregData(i, p) && !unconsumedData(i, p));
+  if (prereg.length) reasons.push(`docs: ${prereg.length} preregistration data path(s) (R114)`);
   const s = i.scope ?? {};
   if (s.SCOPE_ERROR) {
     raise('code', `scope error: ${s.SCOPE_ERROR}`);
     errors.push({ code: 'scope_error', detail: sanitize(s.SCOPE_ERROR), input: 'gstack-diff-scope <base>', repair: 'run gstack-diff-scope <base> by hand and fix what it reports' });
   }
-  if (CLASS_RANK[cls] >= CLASS_RANK.tests) {
+  if (CLASS_RANK[cls] >= CLASS_RANK.tests || prereg.length) {
     if (i.gateTagged === null) {
       raise('gate', 'gate scan unavailable');
       errors.push({ code: 'gate_scan_unavailable', detail: 'gstack-gate-diff reported no GATE_SUMMARY', input: 'gstack-gate-diff <base>', repair: 'run gstack-gate-diff <base> and read its GATE_ERROR line, or pass the recorded scan as --gate-tagged <n>' });
@@ -289,7 +299,7 @@ export function classifyDiff(i: ClassInput): ClassResult {
     for (const p of i.paths) if (GATE_PATH.some(r => r.test(p)) || secretPath(p, [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])])) { raise('gate', `gate path: ${p}`); break; }
     if (i.registry?.error) errors.push(i.registry.error);
   }
-  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code'), executables: i.executables, added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
+  const riskHits = CLASS_RANK[cls] >= CLASS_RANK.code || prereg.length ? matchRisk({ codePaths: i.paths.filter(p => pathClass(i, p) === 'code' || prereg.includes(p)), executables: i.executables, added: i.added, removed: i.removed, scopeAuth: s.SCOPE_AUTH === 'true', ...(i.riskPaths?.length ? { isRiskPath: (p: string) => matchesAny(i.riskPaths!, p) && !DATA_PATH.test(p) } : {}) }) : new Map<RiskClass, string>();
   const docSecret = i.paths.find(p => DOC_PATH.test(p) && (i.added?.[p] ?? []).some(l => DOC_SECRET_LINE.some(r => r.test(l))));
   if (docSecret && !riskHits.has('security')) riskHits.set('security', `docs that can print a credential: ${docSecret}`);
   const byRank = (a: RiskClass, b: RiskClass) => RISK_CLASSES.indexOf(a) - RISK_CLASSES.indexOf(b);
@@ -301,7 +311,7 @@ export function classifyDiff(i: ClassInput): ClassResult {
   if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk, detected, declared };
   let runtimeLines = 0;
   for (const e of i.perPath) {
-    if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path)) continue;
+    if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path) || dataRows(i, e)) continue;
     if (e.binary) errors.push({ code: 'binary_code_path', detail: 'git reports a binary change, so its lines cannot be counted', input: e.path, repair: "register it as an output of an entry with a command in the base branch's .gstack/generated.json, or accept the full review" });
     else runtimeLines += e.lines;
   }
@@ -701,7 +711,7 @@ export function planReview(i: PlanInput): ReviewPlan {
 /** Risk class read from the paths and lines (gate class, an R51 or review.risk_paths class, a classifier error), or a floor above light (FOUN-64 item 7: never the recorded review_depth). */
 const riskClass = (c: ClassResult, depth: DepthResult) => c.class === 'gate' || c.risk.length > 0 || c.errors.length > 0 || depth.depth !== 'light';
 /** Whether a light diff may take the platform depth (FOUN-64 item 2): docs or tests only, no numeric claims, no results, prereg, eval or checker path. The receipt and the queue ask the same. */
-export const platformFits = (cls: DiffClass, paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => (cls === 'docs' || cls === 'tests') && runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p));
+export const platformFits = (cls: DiffClass, paths: readonly string[], runtimeLines: number, numbers: NumbersResult) => (cls === 'docs' || cls === 'tests') && runtimeLines === 0 && !numbers.publishes && !paths.some(p => CLAIM_PATH.test(p) || PREREG_PATH.test(p));
 /** Paths that carry results or preregistration claims: never the platform depth (FOUN-64 item 2). */
 const CLAIM_PATH = /(^|\/|[-_.])(results?|prereg|preregistration|benchmarks?|evals?|scorers?|checkers?)([-_./]|$)/i;
 

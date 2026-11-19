@@ -424,9 +424,41 @@ function); every path-only caller (the receipt's gate-scan decision, the Step 16
 post-review route, /autoplan's docs-only scope) keeps data files code. A numeric claim
 in a data file still schedules the outside voice.
 
+<a id="data-rows"></a>
+**Data rows are never runtime lines.** A JSONL, NDJSON, CSV or TSV file that code
+names keeps its class (code), so its readers still read it, but its lines never count
+as runtime lines, and neither do a JSON file's under a docs, wiki, results or reports
+directory or a [preregistration](#preregistrations) path: a results PR's trial rows
+are not code (harness-evals#432 counted 17,773 runtime lines at its head, 147 of them
+code). A JSON file code names anywhere else keeps counting, because it can be config
+a guard reads (harness-evals' `scripts/public-safety/allow.json`), and so do config
+files (the list above), agent prose, gate paths, executables and binary files.
+
+<a id="preregistrations"></a>
+**Preregistrations are write-ups (R114).** A preregistration that adds no scoring
+or guard code gets the write-up review: one reviewer, one round. Detection is by
+path, because that is how gstack-evals and harness-evals lay preregistrations out
+(`wiki/plans/<date>-<code>-<slug>-prereg/README.md` with its `.txt`, `.tsv` and
+`.json` beside it, `docs/benchmarks/<id>/prereg-harbor.json`, `lanes/<lane>/prereg.md`)
+and their front matter has no preregistration marker (`kind: plan` also covers
+non-preregistration plans). `PREREG_PATH` matches a directory or file name with a
+`prereg` or `preregistration` segment (`-prereg/`, `prereg2.md`, `-prereg-addendum-2/`);
+a data file under it counts as docs even when code names it, so a diff of a
+preregistration's markdown, text and data plans as docs. Anything else keeps its
+current depth: code inside or beside the preregistration (a scorer, judge, grader or
+rubric is the eval risk class and plans full; a `draw.py` or `power.py` stays code at
+light), a gate path or guard edit (gate class), and data a preregistration names
+outside its own path. The exemption sits on top of the existing catches: the gate
+scan still reads the preregistration's data (a tagged hunk or a missing scan is gate
+class) and so do the risk classes, as they read any data file code names (a secret
+in it is full).
+An amendment directory named without `prereg` (gstack-evals' `-pre-run-change-<n>/`)
+keeps its current depth; name it `-prereg-amendment-<n>` to get the write-up review.
+R81 is unchanged: a preregistration still runs full CI.
+
 | Depth | When | Pass 1 dispatches |
 |---|---|---|
-| **light**, runtime 0 | docs, tests, eval write-ups, or only registered outputs | docs: the core checklist only (R81). Tests: one **batched** reader on the Testing checklist, which leaves docs and registered outputs out of its diff (R51: tests get one reviewer). Only registered outputs: one batched reader on the code checklists over the whole diff. The outside voice also reads a diff that publishes numbers |
+| **light**, runtime 0 | docs, tests, eval write-ups, [preregistrations](#preregistrations) with only their plain data, or only registered outputs | docs: the core checklist only (R81). Tests: one **batched** reader on the Testing checklist, which leaves docs and registered outputs out of its diff (R51: tests get one reviewer). Only registered outputs: one batched reader on the code checklists over the whole diff. The outside voice also reads a diff that publishes numbers |
 | **light**, runtime above 0 | code with no risk class, at any size (R51: size never raises the depth) | core, one **batched** specialist (the batched checklists below plus the Red Team prompt in one context), the native adversarial pass (kept: backtest inconclusive, GSTA-147 D5) and the outside voice on numbers |
 | **standard** | `--depth-floor standard`, or a light diff raised by a fixed blocker or a CRITICAL | one batched specialist at `medium` and the Red Team at 200 runtime lines (or on a CRITICAL or a raise); the batched reader leaves docs and registered outputs out of its diff; adversarial and outside voice read everything |
 | **full** | gate class, a [risk class](#risk-classes), or any classifier error | one batched specialist on the whole diff, the Red Team always, no hit-rate gating |
