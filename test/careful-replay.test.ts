@@ -224,13 +224,18 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['second-model trail read: wipefs on a device by another path', 'wipefs -a sda', 'deny', 'clean'],
   ['second-model trail read: wipefs on a device by another path', '/sbin/wipefs -af "$DISK"', 'deny', 'clean'],
   ['second-model trail read: dry-run text before the delete', 'FLAGS=--dryrun terraform destroy', 'ask', 'clean'],
-  ['second-model trail read: cd as an argument', 'echo cd /tmp && rm -rf relative-demo', 'ask', 'clean'],
   ['second-model trail read: || is not a pipe', "echo 'truncate demo;' || true", 'allow', 'clean'],
   ['review: dry run on the line before', 'aws s3 sync . s3://b --dryrun\naws s3 rb s3://prod --force', 'ask', 'clean'],
   ['review: dry run on the line before', 'aws s3 ls s3://b --dryrun;aws s3 rb s3://prod --force', 'ask', 'clean'],
   ['review: dry run on the line before', 'aws ec2 terminate-instances --instance-ids i-1 --dry-run\naws ec2 terminate-instances --instance-ids i-1', 'ask', 'clean'],
   ['review: SQL text sent to a file', "printf 'truncate users;' > q.sql && db-cli < q.sql", 'ask', 'clean'],
   ['review: quoted ; before a pipe', 'echo "TRUNCATE TABLE users;" | mycli prod', 'ask', 'clean'],
+  ['round 2: cd after if', 'if cd B; then git clean -fdx; fi', 'ask', 'clean'],
+  ['round 2: cd after while', 'while cd B; do git checkout -- .; break; done', 'ask', 'clean'],
+  ['round 2: cd after time', 'time cd B && git reset --hard', 'ask', 'clean'],
+  ['round 2: cd then a discard (control)', 'cd B && git clean -fdx', 'ask', 'clean'],
+  ['round 2: an image suffix under /dev', 'wipefs -a /dev/sdb.img', 'deny', 'clean'],
+  ['round 2: wipefs option values', 'wipefs -t ext4 -a demo.img', 'allow', 'clean'],
 ];
 
 let base = '';

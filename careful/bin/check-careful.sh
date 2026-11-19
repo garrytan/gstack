@@ -361,18 +361,28 @@ _careful_del() {
   return 0
 }
 
-# wipefs -a erases every signature on its targets: HIGH unless each target is
-# a disk-image file (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg).
+# wipefs -a erases every signature on its targets: HIGH unless each target
+# has a disk-image suffix (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg)
+# outside /dev. The values of -o, -t and -O are not targets.
 _careful_wipefs() {
-  local k="$1" t all=0 hit=0
+  local k="$1" t all=0 hit=0 val=0
   while [ "$k" -lt "$n" ]; do
     t="${T[$k]}"; k=$((k + 1))
+    if [ "$val" -eq 1 ]; then val=0; continue; fi
     case "$t" in
       '') ;;
       --all) all=1 ;;
+      --offset|--types|--output) val=1 ;;
       --*) ;;
-      -*) case "${t#-}" in *[!a-zA-Z]*) ;; *a*) all=1 ;; esac ;;
+      -*)
+        case "${t#-}" in
+          *[!a-zA-Z]*) ;;
+          *)
+            case "${t#-}" in *a*) all=1 ;; esac
+            case "${t#-}" in *[toO]) val=1 ;; esac ;;
+        esac ;;
       [0-9]'>'*|'>'*|'<'*) ;;
+      /dev/*) hit=1 ;;
       *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg) ;;
       *) hit=1 ;;
     esac
@@ -687,11 +697,8 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd|pushd|popd)
-          # Only in command position: cd as an argument (echo cd /tmp) moves nothing.
-          if [ "$i" -gt 0 ]; then case "${T[$((i - 1))]}" in then|do|else|'{'|'!'|builtin|command) ;; *) i=$((i + 1)); continue ;; esac; fi
-          if [ "${T[$i]}" != cd ]; then _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""
-          elif [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR="" ;;
         wipefs|*/wipefs) _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
