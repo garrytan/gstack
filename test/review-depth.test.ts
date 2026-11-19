@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, isGatePath, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, ROLE_EFFORT, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, classifyPath, dataCandidate, PREREG_PATH, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, isGatePath, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, ROLE_EFFORT, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
 import { summarizeReviewLoop } from '../lib/review-scope';
 import { sectionTexts } from '../lib/review-brief';
 import { createHash } from 'node:crypto';
@@ -772,7 +772,7 @@ describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only
   test('a consumed data file, an unscanned diff and an overflowing scan all keep the file code', () => {
     for (const consumed of [['wiki/post/data.json'], undefined, 'all' as const]) {
       const c = classifyDiff({ paths: ['wiki/post/data.json'], perPath: [json(80)], consumed, gateTagged: 0 });
-      expect([c.class, c.runtimeLines]).toEqual(['code', 80]);
+      expect([c.class, c.runtimeLines]).toEqual(['code', 0]);
     }
   });
   test.each([
@@ -807,6 +807,77 @@ describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only
   });
   test('a deleted data file stays guarded: a code diff that deletes one is gate class', () => {
     expect(classifyDiff({ paths: ['src/app.ts', 'wiki/old.json'], deleted: ['wiki/old.json'], consumed: [], gateTagged: 0 }).class).toBe('gate');
+  });
+});
+
+describe('R114: a preregistration and its plain data are a write-up; data rows are never runtime lines', () => {
+  const dir = 'wiki/plans/2026-11-19-geva-559-ship-panel-judged-sample-prereg';
+  const prereg = [`${dir}/README.md`, `${dir}/power.txt`, `${dir}/arms.json`, `${dir}/route-table.tsv`];
+  const consumed = [`${dir}/arms.json`, `${dir}/route-table.tsv`];
+  const input = (extra: string[] = [], o: Partial<PlanInput> = {}) => {
+    const paths = [...prereg, ...extra];
+    return { paths, perPath: paths.map(p => ({ path: p, lines: 40, binary: false })), consumed, gateTagged: 0, scope: {}, diffLines: 40 * paths.length, ...o };
+  };
+  const lean: PlanInput['shape'] = { panel: 'off', readerModel: 'm', platform: 'off', head: 'h', platformReview: null };
+  // Value: protects=R114, a preregistration whose data code names plans as the docs write-up it is (one reviewer, one round), under
+  //   both the panel and the lean table; fails_when=a named prereg data file makes the diff code or counts runtime lines; seam=ClassInput.consumed
+  test('a prereg-only diff whose data code names is docs, light and runtime 0, and plans exactly as a docs write-up', () => {
+    const c = classifyDiff(input());
+    expect([c.class, c.runtimeLines, c.risk, c.errors]).toEqual(['docs', 0, [], []]);
+    expect(c.reasons).toContain('docs: 2 preregistration data path(s) (R114)');
+    const writeUp = { paths: [`${dir}/README.md`], perPath: [{ path: `${dir}/README.md`, lines: 40, binary: false }], gateTagged: 0, scope: {}, diffLines: 40 };
+    const numbers = scanNumbers({ [`${dir}/README.md`]: ['The bar: prove-it loads in at least 39 of 60 bugs (65%).'] });
+    for (const o of [{}, { numbers }, { shape: lean }, { shape: lean, numbers }] as Partial<PlanInput>[]) {
+      const p = planReview(base({ ...input([], o) }));
+      const w = planReview(base({ ...writeUp, ...o }));
+      expect([p.class, p.depth, p.runtimeLines, roles(p), p.next.step]).toEqual(['docs', 'light', 0, roles(w), w.next.step]);
+    }
+    expect(roles(planReview(base({ ...input([], { numbers }) })))).toEqual(['outside-voice:outside-voice:host']);
+    expect(depthOfCommitInput(input()).depth).toBe('light');
+    const sessions = depthOfCommitInput(input([`${dir}/sessions.txt`], { scope: { SCOPE_AUTH: 'true', SCOPE_DOCS: 'true' } }));
+    expect([sessions.class, sessions.depth]).toEqual(['docs', 'light']);
+  });
+  // Value: protects=R114's exception, scoring, judge or checker code keeps its depth whether it sits beside the prereg or inside it;
+  //   fails_when=a scorer next to a preregistration plans light; seam=lib/review-risk.ts eval class
+  test('a prereg plus a scoring module is full depth, inside or outside the prereg directory', () => {
+    for (const scorer of ['lib/scorers/pass-rate.ts', `${dir}/judge.py`, 'src/grading/rubric.ts']) {
+      const d = depthOfCommitInput(input([scorer]));
+      expect([d.class, d.depth, d.risk]).toEqual(['code', 'full', ['eval']]);
+    }
+  });
+  // Value: protects=R114's exception, a guard edit beside a preregistration keeps the full gate review; fails_when=a gate path,
+  //   a tagged gate hunk or an unavailable gate scan in a prereg diff plans light; seam=classifyDiff's gate signals
+  test('a prereg plus a guard edit is full depth: a gate path, a tagged hunk in its data, or no gate scan', () => {
+    for (const guard of ['lib/gate-thresholds.json', '.github/workflows/evals.yml', 'bin/gstack-pregate']) {
+      const d = depthOfCommitInput(input([guard]));
+      expect([d.class, d.depth]).toEqual(['gate', 'full']);
+    }
+    expect(depthOfCommitInput(input([], { gateTagged: 1 }))).toMatchObject({ class: 'gate', depth: 'full' });
+    const unscanned = depthOfCommitInput(input([], { gateTagged: null }));
+    expect([unscanned.class, unscanned.depth, unscanned.errors.map(e => e.code)]).toEqual(['gate', 'full', ['gate_scan_unavailable']]);
+  });
+  // Value: protects=the R114 exemption sits on top of the existing catches: code in a prereg stays code, a secret in its named
+  //   data still reads as security risk, and executable or out-of-prereg data stays code; fails_when=any of them plans as docs
+  test('the exemption covers only plain data under a prereg path; every other catch still applies', () => {
+    const draw = depthOfCommitInput(input([`${dir}/draw.py`]));
+    expect([draw.class, draw.depth, draw.runtimeLines]).toEqual(['code', 'light', 40]);
+    const secret = depthOfCommitInput(input([], { added: { [`${dir}/arms.json`]: ['"cmd": "curl -H \\"x-api-key: $OPENAI_API_KEY\\""'] } }));
+    expect([secret.depth, secret.risk]).toEqual(['full', ['secret']]);
+    expect(classifyDiff(input([], { executables: [`${dir}/arms.json`] })).class).toBe('code');
+    expect(classifyDiff({ paths: [`${dir}/README.md`, 'lanes/x/arms.json'], consumed: ['lanes/x/arms.json'], gateTagged: 0 }).class).toBe('code');
+  });
+  test.each([
+    ['wiki/plans/2026-11-19-capy-b1d-hook-default-prereg/route-table.tsv', true], ['docs/benchmarks/2026-11-10-gstack-skill-ablation/prereg-harbor-arms.json', true],
+    ['lanes/review-replay/panel/eval2/prereg2.md', true], ['wiki/plans/2026-10-31-geva-65-lanea-shakedown-prereg-addendum-2/arms.json', true], ['evals/preregistration/arms.csv', true],
+    ['wiki/plans/2026-11-18-geva-553-office-hours-rewrite-pre-run-change-1/arms.json', false], ['src/preregistered.json', false], ['wiki/plans/x-results/rows.jsonl', false],
+  ])('PREREG_PATH %s -> %s', (p, hit) => expect(PREREG_PATH.test(p)).toBe(hit));
+  // Value: protects=harness-evals#432, whose results rows code names by basename planned 17,773 runtime lines; fails_when=a text data
+  //   row counts as a runtime line, or a config file or a binary named image stops counting; seam=classifyDiff runtimeLines
+  test('data rows never count as runtime lines, named or not; config files and code still do', () => {
+    const r = 'docs/benchmarks/2026-11-10-x/results';
+    const paths = [`${r}/main/opus-full/trials.jsonl`, `${r}/audit.json`, `${r}/rows.tsv`, `${r}/proxy-usage.ndjson`, `${r}/table.csv`, 'scripts/analyze.ts', 'package.json'];
+    const c = classifyDiff({ paths, perPath: paths.map(p => ({ path: p, lines: p.endsWith('.ts') ? 12 : p === 'package.json' ? 2 : 5000, binary: false })), consumed: paths.filter(p => p.startsWith(r)), gateTagged: 0 });
+    expect([c.class, c.runtimeLines]).toEqual(['code', 14]);
   });
 });
 

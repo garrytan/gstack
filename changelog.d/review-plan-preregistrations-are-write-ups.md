@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **A preregistration with only its write-up and plain data now gets the write-up review: one reviewer, one round (R114).** A diff of a preregistration's markdown, text and data files (a directory or file named `prereg` or `preregistration`, such as gstack-evals' `wiki/plans/<id>-prereg/`) plans as docs even when code reads its data; a scorer, judge, grader, guard or gate edit beside it keeps its full review, and CI is unchanged. Data rows (JSON, JSONL, NDJSON, CSV and TSV) no longer count as runtime lines: harness-evals#432's results planned 17,773 runtime lines, of which 147 were code. A fix after a granted review stop that changes only a data file is now read and gets its fix-check, where before `gstack-diff-scope` called the range unmatched and the plan stopped with "no fix to read".
