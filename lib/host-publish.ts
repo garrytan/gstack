@@ -26,16 +26,17 @@ const HOST_TOOL: Record<string, string> = {
 };
 
 /**
- * Write each part to <state root>/publish/<op>-<target>.<part>.md (mode 0600, replacing an earlier hand-off of the same
- * op and target) and return the HOST_PUBLISH: line naming them and the destination the gh write would have used
+ * Write each part to a new private directory <state root>/publish/<op>-<target>-<random>/<part>.md (mode 0600), so no
+ * hand-off ever overwrites another one still waiting to be published (another repo's PR #7, a second pr-create), and return the HOST_PUBLISH: line naming them and the destination the gh write would have used
  * (repo=, reply's to=, pr-create's base=, head= and draft), with a newline.
  */
 export function handOff(o: { op: string; target?: string; repo?: string; to?: string; base?: string; head?: string; draft?: boolean; parts: Array<[string, string]>; env?: StateRootEnv }): string {
   const dir = path.join(resolveStateRoot(o.env ?? process.env), 'publish');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const stem = `${o.op}-${(o.target ?? 'new').replace(/[^\w.-]/g, '_')}`;
+  const own = fs.mkdtempSync(path.join(dir, `${o.op}-${(o.target ?? 'new').replace(/[^\w.-]/g, '_')}-`));
+  fs.chmodSync(own, 0o700);
   const files = o.parts.map(([part, text]) => {
-    const file = path.join(dir, `${stem}.${part}.md`);
+    const file = path.join(own, `${part}.md`);
     fs.writeFileSync(file, text, { mode: 0o600 });
     fs.chmodSync(file, 0o600);
     return `${part}-file=${file}`;
