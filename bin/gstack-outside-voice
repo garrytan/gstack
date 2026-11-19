@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { RESULT_FORMAT_HEADER } from '../lib/autoplan-reconcile';
 import { findingsLabel, type OutsideGate } from '../lib/outside-review-result';
-import { RUNNER_IDS, createRunner, familyConflict, modelFamily, outsideStatusLine, runnerTable, selectRunner, type RunnerId } from '../lib/outside-voice-runner';
+import { RUNNER_IDS, createRunner, familyConflict, modelFamily, outsideStatusLine, promptOutputClash, runnerTable, selectRunner, type RunnerId } from '../lib/outside-voice-runner';
 import { outsideConsent } from '../lib/outside-consent';
 import { apiTimeoutMs } from '../lib/outside-voice-api';
 import { resultLine } from '../lib/result-codes';
@@ -81,6 +81,8 @@ async function main(argv: string[]): Promise<number> {
   if (!isRunner(requested)) return usage(`--runner must be one of ${RUNNER_IDS.join(', ')}`);
   if (!promptFile || !outFile) return usage('run needs --prompt <file> --out <file>');
   if (!fs.existsSync(promptFile)) return usage(`prompt file not found: ${promptFile}`);
+  const clash = promptOutputClash(promptFile, outFile);
+  if (clash) return usage(clash);
   const gate = (flag(rest, '--gate') ?? (fs.readFileSync(promptFile, 'utf8').includes(RESULT_FORMAT_HEADER) ? 'autoplan' : 'review')) as OutsideGate;
   if (!['review', 'structured', 'spec', 'proposal', 'autoplan'].includes(gate)) return usage('--gate must be review, structured, spec, proposal or autoplan');
   const maxTokensText = flag(rest, '--max-tokens');

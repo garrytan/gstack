@@ -95,7 +95,7 @@ export const GATE_OUTCOMES = {
   },
   budget_exhausted: {
     state: 'unavailable', anchor: 'outside-review-budget-exhausted',
-    summary: 'the provider refused the review with HTTP 402 (payment required): the budget, allowance or quota behind this key is used up',
+    summary: 'the provider refused the review with HTTP 402 (payment required) or a Claude Code usage limit: the budget, allowance or quota behind this key is used up',
     fix: "check the allowance on the proxy or gateway in front of the provider, or the account's quota and credits, then re-run the review; signing in again will not help (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-budget-exhausted)",
   },
   rate_limited: {

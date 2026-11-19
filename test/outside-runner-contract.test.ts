@@ -195,6 +195,79 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":340}
     expect(result.status).toBe('completed');
   });
 
+  test('a reviewer file with no final verdict loses to a closing message that has one (GST-3188)', async () => {
+    const draft = path.join(TMP, 'own-draft.md');
+    fs.writeFileSync(draft, 'No issues found.\nRecommendation: ship because the change is small.\n');
+    const out = path.join(TMP, 'own-draft', 'review.md');
+    const prompt = path.join(TMP, 'own-draft-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: draft, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: REVIEW.trimEnd() }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(REVIEW);
+    expect(result.status).toBe('completed');
+  });
+
+  test('a reviewer file whose receipt names another snapshot loses to a closing message that names this one (GST-3188)', async () => {
+    const stale = path.join(TMP, 'own-stale.md');
+    fs.writeFileSync(stale, AUTOPLAN_REVIEW.replace(SHA, 'b'.repeat(64)));
+    const out = path.join(TMP, 'own-stale', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-stale-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: stale, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: AUTOPLAN_REVIEW.trimEnd() }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(AUTOPLAN_REVIEW);
+    expect(result.status).toBe('completed');
+  });
+
+  test('a reviewer file whose own verdict says it is not ready is kept over a clean closing message (GST-3188 review)', async () => {
+    const own = path.join(TMP, 'own-unready.md');
+    const ownText = 'Verdict: ready, but I could not run the test suite.\nRecommendation: run the suite because nothing was executed.\n';
+    fs.writeFileSync(own, ownText);
+    const out = path.join(TMP, 'own-unready', 'review.md');
+    const prompt = path.join(TMP, 'own-unready-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    const clean = 'No issues found.\nRecommendation: ship because the change is small.\nVERDICT: CLEAN';
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: own, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: clean }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(ownText);
+    expect(result.verdict!.verdict).not.toBe('clean');
+  });
+
+  test('a reviewer draft with a finding and no verdict is not replaced by a closing message with no verdict (GST-3188 review)', async () => {
+    const own = path.join(TMP, 'own-finding.md');
+    const ownText = '[P2] The rollback docs are missing.\nRecommendation: add them because operators need them.\n';
+    fs.writeFileSync(own, ownText);
+    const out = path.join(TMP, 'own-finding', 'review.md');
+    const prompt = path.join(TMP, 'own-finding-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: own, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: 'Recommendation: ship because everything looks fine.' }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(ownText);
+  });
+
+  test('a reviewer file for another snapshot is never reported clean when the closing message is not a result (GST-3188 review)', async () => {
+    const stale = path.join(TMP, 'own-stale-only.md');
+    fs.writeFileSync(stale, AUTOPLAN_REVIEW.replace(SHA, 'b'.repeat(64)).replace(/\{"id":"F1".*\}\n/, ''));
+    const out = path.join(TMP, 'own-stale-only', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-stale-only-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: stale, FAKE_CODEX_OWN: '1' }, binDir: gstackBin });
+    expect(result.status).toBe('unavailable');
+  });
+
+  test('a prompt file that is one of the run\'s own output files is refused and left as it was (GST-3188)', async () => {
+    const review = path.join(TMP, 'clash-review.md');
+    fs.writeFileSync(review, REVIEW);
+    const out = path.join(TMP, 'clash', 'review.md');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    const prompt = `${out}.last-message`;
+    const original = 'You are the outside reviewer.\n';
+    fs.writeFileSync(prompt, original);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review }, binDir: gstackBin });
+    expect(fs.readFileSync(prompt, 'utf8')).toBe(original);
+    expect([result.status, result.reason]).toEqual(['failed', 'prompt_is_output']);
+    const cli = run(['run', '--runner', 'codex-cli', '--prompt', prompt, '--out', out], { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review });
+    expect(cli.status).toBe(2);
+    expect(cli.stderr).toContain(`--prompt ${prompt}`);
+    expect(fs.readFileSync(prompt, 'utf8')).toBe(original);
+  });
+
   // Captured from codex-cli 0.170.0 against a local stub answering 402 (application/problem+json, a metering proxy's allowance) and 401.
   const REFUSAL_EVENTS = (status: string) => [
     '{"type":"thread.started","thread_id":"01a1f2ae-a04c-7583-8012-638cc20a388d"}',
