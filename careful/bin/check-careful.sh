@@ -239,8 +239,10 @@ _careful_find_loopvars() {
   local hb='^[[:space:]]*[;'"$_NL"'][[:space:]'"$_NL"']*do([[:space:]'"$_NL"']|$)'
   local kw='(^|[[:space:];&|('"$_NL"'])(do|done)([[:space:];&|)'"$_NL"']|$)'
   local re='(^|[[:space:];&|(])for[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+in[[:space:]]+([^;&|()'"$_NL"']*)'
-  local no='(^|[[:space:];&|(])(read|local|declare|typeset|unset|mapfile|readarray|getopts|select|eval)([[:space:]]|$)'
+  local no='(^|[[:space:];&|(])(read|local|declare|typeset|unset|mapfile|readarray|getopts|select|eval|source|printf[[:space:]]+-v)([[:space:]]|$)'
+  local dot='(^|[;&|('"$_NL"']|[[:space:]](do|then|else))[[:space:]]*[.][[:space:]]'
   [[ $s =~ $no ]] && return 0
+  [[ $s =~ $dot ]] && return 0
   while [[ $s =~ $re ]]; do
     m0="${BASH_REMATCH[0]}"; name="${BASH_REMATCH[2]}"; ws="${BASH_REMATCH[3]}"
     pre="$pre${s%%"$m0"*}$m0"
@@ -484,9 +486,9 @@ _careful_rm() {
       set +f
     fi
     if [ "$rec" -eq 1 ]; then
-      _careful_rm_safe "${t// /_}" || _RM_UNSAFE=1
+      _careful_rm_safe "${t// /$'\037'}" || _RM_UNSAFE=1
     fi
-    if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "${t// /_}"; then _OUTSIDE=1; fi
+    if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "${t// /$'\037'}"; then _OUTSIDE=1; fi
   done
   return 0
 }
@@ -903,7 +905,11 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        cd)
+          # A quoted ~ is not expanded, so its folder is unknown.
+          if [ $((i + 1)) -lt "$n" ]; then
+            case "${RW[$((i + 1))]}" in \"'~'*|\''~'*) _careful_cd - ;; *) _careful_cd "${T[$((i + 1))]}" ;; esac
+          else _careful_cd ""; fi ;;
         pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""; _careful_gcd ;;
         wipefs|*/wipefs|'\wipefs') _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
@@ -1284,8 +1290,7 @@ _AWK_STMTS='BEGIN { RS = "\001" }
       while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
       t = ""
       while (j <= n && index(" \t\n;&|<>()", substr(s, j, 1)) == 0) { t = t substr(s, j, 1); j++ }
-      gsub(/["\047]/, "", t)
-      if (t != "/dev/null") r = 1
+      if (t != "/dev/null" && t != "\"/dev/null\"" && t != "\047/dev/null\047") r = 1
       continue
     }
     if (c == "&" && d == ">") continue

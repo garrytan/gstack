@@ -345,6 +345,11 @@ const FOLLOWUP_CASES: Array<[string, string, Decision, Tree]> = [
   ['SQL text (control: copied to another descriptor)', 'echo "TRUNCATE users;" >&3', 'ask', 'clean'],
   ['SQL text (control: copied to another descriptor)', 'echo "TRUNCATE users;" 1>&2', 'ask', 'clean'],
   ['SQL text (control: thrown away)', 'echo "truncate demo;" >/dev/null', 'allow', 'clean'],
+  ['reset after a cd to a known folder (control: a quoted ~ is not expanded)', 'cd \'~\' && git reset -q --hard', 'ask', 'clean'],
+  ['loop variable target (control: printf -v sets it)', 'for f in /tmp/a; do printf -v f %s ~; rm -rf $f; done', 'ask', 'clean'],
+  ['loop variable target (control: a sourced file may set it)', 'for f in /tmp/a; do . ./e.sh; rm -rf $f; done', 'ask', 'clean'],
+  ['loop variable target (control: a sourced file may set it)', 'for f in /tmp/a; do source e.sh; rm -rf $f; done', 'ask', 'clean'],
+  ['SQL text (control: a file next to /dev/null)', 'echo "TRUNCATE users;" > "/dev/null x"', 'ask', 'clean'],
 ];
 
 let base = '';
