@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { declaredVerify, healthStack, manifestChecks, testVerdict } from '../lib/checks';
+import { declaredVerify, healthStack, manifestChecks, quickLine, testVerdict, type Outcome } from '../lib/checks';
 import type { CheckResult } from '../lib/pregate/types';
 import { BASE_PREGATE, ROOT, cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -98,6 +98,21 @@ describe('testVerdict', () => {
     expect(testVerdict(r({ status: 'incomplete', cause: 'environment', detail: 'not on PATH' } as Partial<CheckResult>)).verdict).toBe('ENV');
     const owed = testVerdict(r({ status: 'requires-remote', remote: [{ lane: 'windows.yml/windows-shard', receipt: null } as any] }));
     expect([owed.verdict, owed.notCovered]).toEqual(['PASS', ['windows.yml/windows-shard']]);
+  });
+});
+
+describe('quickLine', () => {
+  // Value: protects=the pre-commit line is red on a zero-run or incomplete selection and never green when nothing reached a result;
+  //   fails_when=ZERO_RUN/INCOMPLETE leave the red set, or an all-ENV/TIMEOUT run reads VERIFY PASS; why_new=the fixture test only
+  //   reaches PASS, FAIL and UNMAPPED; seam=none; no_claim=the wording after the VERIFY token
+  test('classifies red, not-run and passed outcomes', () => {
+    const o = (name: string, verdict: Outcome['verdict']): Outcome => ({ name, verdict, ms: 100, detail: 'exit 1', lines: [] });
+    expect(quickLine([o('typecheck', 'ENV'), o('tests', 'TIMEOUT')])).toEqual({ red: [], line: 'VERIFY skipped: nothing ran to a result (typecheck ENV, tests TIMEOUT)' });
+    expect(quickLine([]).line).toBe('VERIFY skipped: nothing ran to a result (no checks)');
+    expect(quickLine([o('typecheck', 'PASS'), o('tests', 'ZERO_RUN')]).line).toMatch(/^VERIFY FAIL: tests ZERO_RUN/);
+    expect(quickLine([o('tests', 'INCOMPLETE')]).red.map(r => r.name)).toEqual(['tests']);
+    expect(quickLine([o('typecheck', 'FAIL')]).line).toBe('VERIFY FAIL: typecheck exit 1');
+    expect(quickLine([o('typecheck', 'PASS'), o('tests', 'TOO_BROAD')]).line).toBe('VERIFY PASS: typecheck in 0.2s (not run: tests TOO_BROAD)');
   });
 });
 

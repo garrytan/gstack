@@ -981,6 +981,12 @@ $_gstack_legacy_root"
       echo "Error: design_detector '$VALUE' not recognized. Valid values: auto, off. Existing value left unchanged." >&2
       exit 1
     fi
+    # verify_before_commit: gstack-checks quick skips only on the literal "off",
+    # so a typo such as "of" would silently leave the pre-commit pass on.
+    if [ "$KEY" = "verify_before_commit" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: verify_before_commit '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
     # cross_project_learnings: empty get is the first-run prompt sentinel.
     # Skills enable only on the literal "true". A typo must not persist — that
     # keeps the feature off and suppresses the prompt. Reject, like
@@ -1161,7 +1167,7 @@ $_gstack_legacy_root"
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
@@ -1187,7 +1193,7 @@ $_gstack_legacy_root"
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
