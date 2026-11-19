@@ -30,10 +30,16 @@ function readCapability(): Verdict {
     || state?.schema_version !== 1 || state.last_writer !== 'gstack-gbrain-sync'
     || !Array.isArray(state.last_stages)) return unknown('unverified sync state or source pin; run /sync-gbrain');
   const code = state.last_stages.find((stage: any) => stage?.name === 'code');
-  if (!code?.ran || !code.ok || code.detail?.status !== 'ok' || code.detail.source_id !== pin
-    || typeof code.detail.source_path !== 'string') return unknown('code sync did not verify this pinned source; run /sync-gbrain');
+  if (code?.ran && !code.ok && typeof code.detail?.source_id !== 'string')
+    return unknown('latest code sync failed without naming its source; run /sync-gbrain');
+  const records = state.code_sources;
+  const syncedPath = code?.detail?.source_id === pin
+    ? code.ran && code.ok && code.detail.status === 'ok' ? code.detail.source_path : undefined
+    : records && typeof records === 'object' && !Array.isArray(records) && Object.hasOwn(records, pin)
+      ? records[pin]?.path : undefined;
+  if (typeof syncedPath !== 'string') return unknown('code sync did not verify this pinned source; run /sync-gbrain');
   try {
-    if (realpathSync(code.detail.source_path) !== root) return unknown('code sync belongs to another worktree');
+    if (realpathSync(syncedPath) !== root) return unknown('code sync belongs to another worktree');
   } catch { return unknown('code sync worktree is unavailable'); }
   const run = (args: string[]) => {
     const invocation = gbrainInvocation(args);

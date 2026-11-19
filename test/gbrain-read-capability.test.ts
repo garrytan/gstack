@@ -9,7 +9,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const WINDOW = '--body window --max-bytes 4096';
 
-function fixture(opts: { state?: unknown; pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; window?: unknown; pageBytes?: number; legacy?: boolean; fail?: string; gitExecutable?: string } = {}) {
+function fixture(opts: { state?: unknown | ((repo: string, sibling: string) => unknown); pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; window?: unknown; pageBytes?: number; legacy?: boolean; fail?: string; gitExecutable?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'gbrain-read-'));
   roots.push(root);
   const repo = join(root, 'repo');
@@ -22,7 +22,9 @@ function fixture(opts: { state?: unknown; pin?: string; registration?: unknown |
   const slug = opts.slug ?? 'code/repo/readme';
   writeFileSync(join(repo, '.gbrain-source'), `${opts.pin ?? source}\n`);
   mkdirSync(join(home, '.gstack'));
-  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify(opts.state ?? {
+  const sibling = join(root, 'sibling');
+  mkdirSync(sibling);
+  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify((typeof opts.state === 'function' ? opts.state(repo, sibling) : opts.state) ?? {
     schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: [
       { name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id: source, source_path: repo } },
     ],
@@ -50,6 +52,47 @@ else process.exit(3);
   };
   return { repo, root, run, log };
 }
+
+const syncState = (last: unknown, codeSources?: unknown) => ({
+  schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: last ? [last] : [],
+  ...(codeSources === undefined ? {} : { code_sources: codeSources }),
+});
+const okCode = (source_id: string, source_path: string) => ({ name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id, source_path } });
+const record = (path: unknown) => ({ path, remote: '', git_common_dir: null });
+
+test.each(['this repo', 'the other repo'])('two synced repos both read ready whichever synced last (%s last)', last => {
+  const result = fixture({ state: (repo: string, sibling: string) => syncState(
+    last === 'this repo' ? okCode('client-repo', repo) : okCode('sibling-repo', sibling),
+    { 'client-repo': record(repo), 'sibling-repo': record(sibling) },
+  ) }).run();
+  expect(result.value.status).toBe('ready');
+  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', `get code/repo/readme --source client-repo --json ${WINDOW}`]);
+});
+
+test.each([
+  ['a repo that never synced', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'sibling-repo': record(sibling) })],
+  ['an older state with no per-repo records', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling))],
+  ['a record pointing at another worktree', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(sibling) })],
+  ['a record whose worktree is gone', (repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(join(repo, 'gone')) })],
+  ['a record with no path', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': { remote: '' } })],
+  ['a record with a non-string path', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(7) })],
+  ['a null record', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': null })],
+  ['a records list instead of a map', (repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), [{ ...record(repo), id: 'client-repo' }])],
+  ['a records string', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), 'client-repo')],
+  ['a record beside this source\'s latest failed sync', (repo: string) => syncState({ name: 'code', ran: true, ok: false, detail: { status: 'failed', source_id: 'client-repo', source_path: repo } }, { 'client-repo': record(repo) })],
+  ['a record beside this source\'s latest unverified sync', (repo: string) => syncState({ name: 'code', ran: true, ok: true, detail: { status: 'partial', source_id: 'client-repo', source_path: repo } }, { 'client-repo': record(repo) })],
+  ['a record beside a latest failed sync that names no source', (repo: string) => syncState({ name: 'code', ran: true, ok: false }, { 'client-repo': record(repo) })],
+])('%s still asks for a sync before any brain read', (_name, state) => {
+  const result = fixture({ state }).run();
+  expect(result.result.status).toBe(0);
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toEqual([]);
+});
+
+test('a skipped code stage keeps the earlier per-repo record', () => {
+  const result = fixture({ state: (repo: string) => syncState({ name: 'code', ran: false, ok: true }, { 'client-repo': record(repo) }) }).run();
+  expect(result.value.status).toBe('ready');
+});
 
 test('source-scoped read validates a pretty sync state, registration, and matching page', () => {
   const f = fixture();
