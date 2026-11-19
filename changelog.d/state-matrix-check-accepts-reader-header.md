@@ -1,4 +1,0 @@
----
-important: blocker
----
-- **/ship no longer stops a review because the state-machine reader started its reply the way its instructions say.** Every /ship reader is told to open its reply with a `REVIEWED_TREE: <tree> <path>` line and, for readers that can block, a `REVIEW_VERDICT: blocking=<n>` line under it. The state-machine check read those two lines as unexplained text and reported the review as incomplete (`STATE_MATRIX_CHECK: incomplete gaps=2`), which stopped /ship before the adversarial review step on any change that touches a proposal, hold or approval flow. The check now skips exactly those two lines at the top of the reply, using the same parsers /ship's collector uses, so the two can't drift apart. Any other line that isn't a matrix record or a finding, including a misplaced or malformed header line, is still reported as a gap.
