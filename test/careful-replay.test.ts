@@ -246,6 +246,11 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['wipefs in the regex again: image names from xargs', 'ls *.img | xargs wipefs -a', 'deny', 'clean'],
   ['wipefs in the regex again: attached value on an image (control)', 'wipefs -a -tvfat demo.img', 'allow', 'clean'],
   ['wipefs in the regex again: several images (control)', 'wipefs --all disk.qcow2 build/b.iso', 'allow', 'clean'],
+  ['wipefs round 2: an image name that is a symlink', 'wipefs -a alias.img', 'deny', 'clean'],
+  ['wipefs round 2: a symlink made in the same command', 'ln -sf /dev/sdb d.img; wipefs -a d.img', 'deny', 'clean'],
+  ['wipefs round 2: output redirected into a disk', 'wipefs -a demo.img > /dev/mmcblk0', 'deny', 'clean'],
+  ['wipefs round 2: a quoted spelling beside a proven wipe', "wipefs -a demo.img; wi''pefs -a /dev/sdb", 'deny', 'clean'],
+  ['wipefs round 2: errors sent to /dev/null (control)', 'wipefs -a demo.img 2>/dev/null', 'allow', 'clean'],
 ];
 
 let base = '';
@@ -263,6 +268,11 @@ function makeTree(kind: Tree): string {
   fs.writeFileSync(path.join(dir, 'README.md'), 'hi\n');
   fs.writeFileSync(path.join(dir, 'experiment-single.sh'), 'echo 1\n');
   fs.writeFileSync(path.join(dir, '.gitignore'), 'config/local/\n');
+  for (const image of ['demo.img', 'disk.qcow2', path.join('build', 'b.iso')]) {
+    fs.mkdirSync(path.dirname(path.join(dir, image)), { recursive: true });
+    fs.writeFileSync(path.join(dir, image), '');
+  }
+  fs.symlinkSync('/dev/null', path.join(dir, 'alias.img'));
   git(['add', '.']);
   git(['commit', '-q', '-m', 'init']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);

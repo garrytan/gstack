@@ -163,6 +163,7 @@ _HI_RM_ROOT=0
 _HI_DISK=0
 _WIPEFS_SEEN=0
 _WIPEFS_SAFE=0
+_STMT_N=0
 _RM_UNSAFE=0
 _OUTSIDE=0
 _PUSH_DENY=""
@@ -366,12 +367,14 @@ _careful_del() {
 # wipefs -a erases every signature on its targets. _RX_WIPEFS denies any
 # wipefs with -a, --a, --al or --all; this scan only proves the one exemption
 # on top of it. An invocation is proven when wipefs leads its statement (after
-# sudo or NAME=value words), and every target, with options read the way
-# getopt reads them, is a plain literal path outside /dev with a disk-image
-# suffix (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg). An unproven
+# sudo or NAME=value words); every target, with options read the way getopt
+# reads them, is a plain literal path outside /dev with a disk-image suffix
+# (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg) that already exists as
+# a regular file, not a symlink, in a known folder; and no redirect goes into
+# /dev other than /dev/null, /dev/stdout or /dev/stderr. An unproven
 # invocation with -a in any spelling is HIGH here too.
 _careful_wipefs() {
-  local k="$1" t g j=0 all=0 hit=0 tgt=0 val=0 opts=1
+  local k="$1" t g j=0 all=0 hit=0 tgt=0 val=0 red=0 opts=1
   _WIPEFS_SEEN=$((_WIPEFS_SEEN + 1))
   while [ "$j" -lt $((k - 1)) ]; do
     case "${T[$j]}" in sudo|[A-Za-z_]*=*) ;; *) hit=1 ;; esac
@@ -382,9 +385,20 @@ _careful_wipefs() {
     if [ "$val" -eq 1 ]; then val=0; continue; fi
     case "$t" in
       '') continue ;;
-      '<'|'>'|'>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') val=1; continue ;;
-      [0-9]'>'*|'>'*|[0-9]'<'*|'<'*) continue ;;
+      '<'|'>'|'>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') red=1; continue ;;
     esac
+    if [ "$red" -eq 0 ]; then
+      case "$t" in [0-9]'>'*|'>'*|[0-9]'<'*|'<'*) red=1; t="${t##*[<>]}" ;; esac
+    fi
+    if [ "$red" -eq 1 ]; then
+      red=0
+      _careful_join_dir "$_CUR_DIR" "$t"
+      case "$_D" in
+        /dev/null|/dev/stdout|/dev/stderr) ;;
+        ''|/dev|/dev/*|*/dev/*) hit=1 ;;
+      esac
+      continue
+    fi
     if [ "$opts" -eq 1 ]; then
       case "$t" in
         --) opts=0; continue ;;
@@ -406,7 +420,12 @@ _careful_wipefs() {
     fi
     case "$t" in
       *[!A-Za-z0-9._/+@%,:~-]*|*/dev/*|dev/*) hit=1 ;;
-      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg) tgt=1 ;;
+      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg)
+        _careful_join_dir "$_CUR_DIR" "$t"
+        case "$_D" in
+          ''|/dev/*) hit=1 ;;
+          *) if [ -f "$_D" ] && [ ! -L "$_D" ]; then tgt=1; else hit=1; fi ;;
+        esac ;;
       *) hit=1 ;;
     esac
   done
@@ -709,6 +728,9 @@ _careful_scan() {
         _CH_D="$_CUR_DIR"; _PL_S=0; _PL_D="$_CUR_DIR"
         continue ;;
       $'\006') _PIPE=1; _SCRATCH="$_PL_S"; _CUR_DIR="$_PL_D"; continue ;;
+    esac
+    case "$seg" in *[![:space:]]*) _STMT_N=$((_STMT_N + 1)) ;; esac
+    case "$seg" in
       *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*|*wipefs*) ;;
       *) continue ;;
     esac
@@ -801,8 +823,8 @@ if [ -n "$_PUSH_DENY" ]; then
 fi
 # wipefs with -a in any spelling (-a, a short group holding a, --a, --al,
 # --all), however its targets arrive: on the line, from xargs or from stdin.
-# The one exemption: every wipefs word in the command is an invocation the
-# statement scan proved (literal image-suffix targets outside /dev).
+# The one exemption: every statement in the command is a wipefs invocation
+# the statement scan proved, and the command holds no other wipefs word.
 _RX_WIPEFS="(^|[[:space:];&|(/'\"${_BT}])wipefs['\"]?([[:space:]]${_NS})?(-a|[[:space:]'\"]-[[:alnum:]]*a)"
 _WIPEFS_HI=0
 case "$CMD_MEDIUM" in
@@ -810,7 +832,7 @@ case "$CMD_MEDIUM" in
     if [[ $CMD_MEDIUM =~ $_RX_WIPEFS ]]; then
       _WIPEFS_HI=1
       _W_REST="${CMD_MEDIUM//wipefs/}"
-      if [ "$_WIPEFS_SAFE" -gt 0 ] && [ "$_WIPEFS_SAFE" -eq "$_WIPEFS_SEEN" ] && [ $(( (${#CMD_MEDIUM} - ${#_W_REST}) / 6 )) -eq "$_WIPEFS_SEEN" ]; then _WIPEFS_HI=0; fi
+      if [ "$_WIPEFS_SAFE" -gt 0 ] && [ "$_WIPEFS_SAFE" -eq "$_WIPEFS_SEEN" ] && [ "$_WIPEFS_SAFE" -eq "$_STMT_N" ] && [ $(( (${#CMD_MEDIUM} - ${#_W_REST}) / 6 )) -eq "$_WIPEFS_SEEN" ]; then _WIPEFS_HI=0; fi
     fi ;;
 esac
 if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
