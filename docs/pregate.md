@@ -843,6 +843,43 @@ its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 run executed), `tests` (the count) and, with `os`, the runner OS or a list of
 every OS the run's test jobs ran on (the profile's `os` must be one of them).
 
+<a id="tree-log-step"></a>**When artifact storage is full: `tree_log_step` (HARN-118).** A
+private repository whose GitHub Actions storage quota is spent still runs its
+jobs green, but `upload-artifact` fails with "Artifact storage quota has been
+hit", so the run holds no `tree.json` and every carry refuses it as
+`artifact_missing`. A profile that sets `tree_log_step` to the name of one step
+in its job lets gstack read `tree.json` from that job's log instead, only when
+the run holds no unexpired artifact by the profile's name at all (an artifact
+always wins). The step prints one line, after the test step and a second after
+it ends:
+
+```yaml
+- name: Print tree.json
+  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)"
+```
+
+gstack reads the log with `gh api --allow-escape-sequences
+repos/<repo>/actions/jobs/<job id>/logs` for every profile job at the attempt
+that ran, and counts lines matching
+`^\S+Z GSTACK_TREE_JSON (\S+) ([A-Za-z0-9+/]+={0,2})\r?$` that name the profile's
+artifact. Exactly one must exist across those jobs; zero, two or more refuse as
+`artifact_missing` with the count. The first field of every log line is the
+timestamp the runner stamps on output as it arrives, which nothing a step
+prints can set, so the line binds to the named step by that timestamp: inside
+the step's start and finish (as the jobs API reports them, to the second), at
+least one second after every earlier step that ran ended, in a job and step
+that succeeded. A line a test prints, even a well-formed one with a real
+`tree.json`, is either a second line or a line outside the step, and refuses
+([`CI_CARRY_TREE_LOG_UNBOUND`](troubleshooting.md#ci-carry-tree-log-unbound)).
+The decoded `tree.json` is capped at 8 MiB like an artifact, and every check
+below runs on it unchanged. The carry then says where `tree.json` came from:
+`tree_source=job-log` on the `CI_CARRY:`, `LANE:` and `CI_CARRIED:` lines, and
+`tree_source: "job-log"` in the receipt's `ci_carried` entry with
+`tree_source=job-log` after `ci_carried=` on the `SHIP_RECEIPT:` line. A profile
+without the key never reads a log. An older gstack refuses the key as unknown,
+so a repository that sets it raises `min_gstack_version` to the release that
+ships it. A release asset is no substitute: nothing binds it to the run.
+
 **What `clear --run` checks** (`lib/run-evidence.ts`), for every run, online,
 once:
 
@@ -1356,7 +1393,9 @@ the same run. `gstack-ship-receipt write` records the carried runs as
 them (`ci_carried=<lane>:<run>/<attempt>`). A run whose `tree.json` lists
 `rerun_files` adds `rerun` and `attempts` to its entries and
 `rerun=<files> attempts=<list>` after `ci_carried=`, as its `CI_CARRY:` line does
-([ship-policy.md](ship-policy.md#ci-carry-rerun)). Each `record-ci` gets the base
+([ship-policy.md](ship-policy.md#ci-carry-rerun)). A run whose `tree.json` came
+from its job log adds `tree_source: "job-log"` to its entries and
+`tree_source=job-log` after them ([tree_log_step](#tree-log-step)). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
 default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
 

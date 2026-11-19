@@ -185,7 +185,7 @@ export function laneConcurrency(mode: string | undefined, cpus = os.availablePar
   return cpus <= 4 ? 1 : Infinity;
 }
 
-export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; from?: string; held?: true; reused?: string; carryNone?: string; diagnosis?: string[]; notOwed?: string; here?: string; exception?: string; remoteGate?: string; standIn?: string }
+export interface LaneResult { label: string; exit: number | null; testsRan: string; log: string; carried?: string; treeSource?: string; from?: string; held?: true; reused?: string; carryNone?: string; diagnosis?: string[]; notOwed?: string; here?: string; exception?: string; remoteGate?: string; standIn?: string }
 
 /** The base branch's `ship_lanes_from` entry for each lane whose command is a key or a declared alias, byte for byte (the ledger binds its sha256). */
 export function mappedLanes(cwd: string, base: string, list: { label: string; command: string }[]): Map<string, ShipLaneMapping> {
@@ -206,7 +206,7 @@ export function carryLane(cwd: string, base: string, l: { label: string; command
   const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--remote-gate-stands-in', '--', l.command], timeoutS * 1000);
   const got = recordCiResult(rec.stderr);
   if (rec.status === 0 && got.remoteGate) return { label: l.label, exit: 0, testsRan: got.tests!, log: '-', remoteGate: got.remoteGate, standIn: got.standIn ?? 'not carried' };
-  if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}), ...(got.reused ? { reused: got.reused } : {}), ...(got.from ? { from: got.from } : {}) };
+  if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.treeSource ? { treeSource: got.treeSource } : {}), ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}), ...(got.reused ? { reused: got.reused } : {}), ...(got.from ? { from: got.from } : {}) };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}`, ...(got.diagnosis ? { diagnosis: got.diagnosis } : {}) };
 }
 
@@ -257,7 +257,7 @@ export async function runLanes(cwd: string, list: { label: string; command: stri
 /** Step 5's lane verdict: a lane passes on its runner count, never exit 0 alone; a carried lane names its CI runs. */
 export function laneLine(l: LaneResult): { line: string; ok: boolean } {
   if (l.notOwed) return { line: `LANE: ${l.label} not owed: ${l.notOwed} run=${l.carried}`, ok: true };
-  if (l.carried) return { line: `LANE: ${l.label} carried run=${l.carried} tests_ran=${l.testsRan}${l.here ? ` ${l.here}` : ''}${l.from ? ` from=${l.from} (same tree as HEAD)` : ''}${l.reused ? ` (reused the CI record at tree ${l.reused})` : ''}`, ok: true };
+  if (l.carried) return { line: `LANE: ${l.label} carried run=${l.carried} tests_ran=${l.testsRan}${l.treeSource ? ` tree_source=${l.treeSource}` : ''}${l.here ? ` ${l.here}` : ''}${l.from ? ` from=${l.from} (same tree as HEAD)` : ''}${l.reused ? ` (reused the CI record at tree ${l.reused})` : ''}`, ok: true };
   if (l.remoteGate) return { line: `LANE: ${l.label} satisfied by remote_gate receipt=${l.remoteGate}`, ok: true };
   if (l.held) return { line: `LANE: ${l.label} held: not run`, ok: false };
   const zero = l.exit === 0 && l.testsRan === '0';

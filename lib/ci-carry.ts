@@ -83,7 +83,7 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, heads
   for (const run of listed) {
     const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly });
     if (v.ok) return v;
-    refusals.push(`run ${run.id}: ${v.reason}${v.reason === 'rerun_malformed' ? ` (${v.detail})` : ''}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
+    refusals.push(`run ${run.id}: ${v.reason}${v.reason === 'rerun_malformed' || v.reason === 'tree_log_unbound' || (v.reason === 'artifact_missing' && profile.tree_log_step) ? ` (${v.detail})` : ''}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
   }
   return no('no_verified_run', `${name}: ${refusals.join('; ')}`);
 }
@@ -237,7 +237,7 @@ export function importedTestLines(cwd: string, missing: string[], candidates: st
  * not-owed reason, or the last CARRY_NONE reason. A lane the cleared remote gate stood in for (--remote-gate-stands-in, GST-1688)
  * reads as its receipt, its count and why the CI carry refused.
  */
-export function recordCiResult(stderr: string): { runs?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; reused?: string; from?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
+export function recordCiResult(stderr: string): { runs?: string; treeSource?: string; tests?: string; files?: boolean; notOwed?: string; here?: string; exception?: string; reused?: string; from?: string; none?: string; diagnosis?: string[]; remoteGate?: string; standIn?: string } {
   const lines = stderr.split('\n');
   const last = lines.findLast(x => x.startsWith('gstack-evidence: recorded label='));
   const gateRow = last && / tests_ran=(\d+) log=- source=remote_gate receipt=(.+)$/.exec(last);
@@ -249,12 +249,13 @@ export function recordCiResult(stderr: string): { runs?: string; tests?: string;
   if (at < 0) return none ? { none, ...(diagnosis.length ? { diagnosis } : {}) } : {};
   const exception = lines.slice(at + 1).find(x => x.startsWith('TEST_LANE_EXCEPTION: '))?.slice('TEST_LANE_EXCEPTION: '.length);
   const got = / tests_ran=(\d+|n\/a)( unit=files)? log=- source=ci runs=(\S+)/.exec(lines[at]!);
+  const treeSource = / tree_source=(job-log)(?= |$)/.exec(lines[at]!)?.[1];
   const here = / skipped_here=(\d+) tests_ran_here=(\S+)( not_owed_here=\d+)?$/.exec(lines[at]!);
   const notOwed = lines.slice(at + 1).find(x => x.startsWith('gstack-evidence: not owed: '))?.slice('gstack-evidence: not owed: '.length);
   const reused = lines.slice(at + 1).map(x => /^CI_RECORD_REUSED: .* tree=([0-9a-f]+) /.exec(x)?.[1]).find(Boolean);
   const fromLine = lines.slice(at + 1).find(x => x.startsWith('CI_CARRY_FROM: '));
   const from = fromLine ? [...new Set([...fromLine.matchAll(/ at commit ([0-9a-f]{12})/g)].map(m => m[1]!))].join(',') : '';
-  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}${here[3] ?? ''}` } : {}), ...(exception ? { exception } : {}), ...(reused ? { reused } : {}), ...(from ? { from } : {}) };
+  return { runs: got?.[3], tests: got?.[1], files: !!got?.[2], ...(treeSource ? { treeSource } : {}), ...(notOwed ? { notOwed } : {}), ...(here ? { here: `skipped_here=${here[1]} file(s) tests_ran_here=${here[2]}${here[3] ?? ''}` } : {}), ...(exception ? { exception } : {}), ...(reused ? { reused } : {}), ...(from ? { from } : {}) };
 }
 
 /** The per_file runner command for `files`: `{files}` replaced by the paths, each anchored with ./ (Bun reads a bare relative path as a substring filter) and single-quoted for bash. */

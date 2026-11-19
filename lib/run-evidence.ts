@@ -11,7 +11,9 @@
  *   the run belongs to this repository and ran for a same-repository head;
  *   its workflow file and event are the profile's; it is the newest attempt,
  *   completed with success; every job the profile names appears exactly once
- *   in that attempt and succeeded; its artifact names this run, attempt,
+ *   in that attempt and succeeded; its artifact (or, for a profile with
+ *   tree_log_step and a run with no artifact at all, the one tree.json line
+ *   the runner logged inside that step; treeFromLog) names this run, attempt,
  *   event and head (the API always answers with the newest attempt, so an
  *   older green attempt under a newer red one is refused), is not a reuse
  *   record, records the tree git computes for the head, and holds well-formed
@@ -47,14 +49,19 @@ import { runBashSync } from './script-invocation';
  * `skippable` (GST-1190): named jobs the workflow may skip by path; a skip counts only in a pull_request run whose `gate` job
  * succeeded, with the workflow, the declared `scripts` and any path the gate's steps name matching origin/<base> byte for byte.
  */
-export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts: string[] } }
+/**
+ * `tree_log_step` (HARN-118): the opt-in for a run with no unexpired artifact named `artifact` (artifact storage full): its
+ * tree.json is read from the one `GSTACK_TREE_JSON <artifact> <base64>` line the runner logged inside this step of a profile job.
+ */
+export interface RunProfile { workflow: string; events: string[]; jobs: string[]; artifact: string; max_age_hours?: number; os?: string; skippable?: { jobs: string[]; gate: string; scripts: string[] }; tree_log_step?: string }
 export interface RemoteGateRuns { profiles: string[]; inventory: string; skipped?: string }
 export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
 }
-export interface ApiJob { name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null }
+export interface ApiStep { number: number; name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null }
+export interface ApiJob { id?: number; name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null; steps?: ApiStep[] }
 export interface TreeRecord { run_id?: unknown; run_attempt?: unknown; event?: unknown; sha?: unknown; head_sha?: unknown; tree?: unknown; reused?: unknown; reuse?: unknown; sizing_experiment?: unknown; os?: unknown; files?: unknown; tests?: unknown; skipped_files?: unknown; rerun_files?: unknown; attempts?: unknown }
 
 /** What a red run's reader needs beyond RunDeps (lib/pregate/flaky-exception.ts): every file of one artifact, and a pull request's head. */
@@ -64,6 +71,9 @@ export interface RunArtifactDeps {
   pull(n: number): { head_sha: string; state: string; head_repo: string | null };
 }
 
+/** What `RunDeps.artifact` throws when the run holds no unexpired artifact by that name at all: the only case a job log may stand in. */
+export class NoArtifactError extends Error {}
+
 /** Everything verifyRun reads, injectable so every refusal has a fixture. */
 export interface RunDeps {
   run(id: number): ApiRun;
@@ -71,6 +81,8 @@ export interface RunDeps {
   jobs(id: number, attempt: number): ApiJob[];
   /** The tree.json of the run's unexpired artifact `name`: the only one, or with one per rerun attempt of its job, the one that records run_attempt `attempt`. */
   artifact(id: number, name: string, attempt: number): TreeRecord;
+  /** One job's whole log as the runner wrote it, each line led by the runner's own timestamp (HARN-118's fallback only). */
+  jobLog?(jobId: number): string;
   commitTree(sha: string): string | null;
   /** `sha` and its ancestors, newest first, at most `max` (git rev-list): where a commit with `sha`'s exact tree is looked for (GST-3019). */
   ancestors?(sha: string, max: number): string[];
@@ -78,17 +90,18 @@ export interface RunDeps {
 
 export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | 'workflow_mismatch' | 'event_mismatch' | 'run_in_progress'
   | 'run_not_success' | 'job_missing' | 'job_ambiguous' | 'job_skipped' | 'job_not_success' | 'artifact_missing' | 'artifact_mismatch'
-  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'rerun_malformed' | 'api_error';
+  | 'artifact_reused' | 'sizing_experiment' | 'tree_mismatch' | 'newer_run_vetoes' | 'run_changed' | 'run_stale' | 'os_mismatch' | 'rerun_malformed' | 'tree_log_unbound' | 'api_error';
 /** `skipped`: the files whose every test skipped on the runner (tree.json `skipped_files`, GST-1190); undefined when an older tree.json does not say. */
 /** `docs_only`: a pull_request run whose gate skipped every skippable job on a change lib/docs-only.ts calls human docs only; it ran and recorded no tests (R81). */
+/** `tree_source`: `job-log` when tree.json came from the job log because the run held no artifact (HARN-118); absent for an artifact. */
 /** `rerun`: the files whose newest result came from a re-run attempt (tree.json `rerun_files`, gbrain#9690), with the run's `attempts`; set only when a file passed on a re-run (GST-3054). */
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[] }
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[]; tree_source?: 'job-log' }
 /** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string };
 
 const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
-const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os', 'skippable'];
+const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours', 'os', 'skippable', 'tree_log_step'];
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
@@ -97,6 +110,9 @@ const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const MAX_ARTIFACT_ATTEMPTS = 10;
 /** Shard logs are the whole test stream, so a red run's reader allows more than a tree.json. */
 const MAX_LOG_ARTIFACT_BYTES = 64 * 1024 * 1024;
+/** The one log line that carries a tree.json when a run holds no artifact (HARN-118): the runner's timestamp, the marker, the artifact name, base64. */
+const TREE_LOG_LINE = /^\S+Z GSTACK_TREE_JSON (\S+) ([A-Za-z0-9+/]+={0,2})\r?$/;
+const LOG_STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?Z$/;
 
 /** A numeric run id, or a run URL on this repository (`…/actions/runs/<id>[/attempts/<n>][/job/<j>]`). */
 export function parseRunRef(ref: string, repo: string): number | null {
@@ -127,6 +143,7 @@ export function runProfileErrors(profiles: unknown, gateRuns: unknown): Array<{ 
       if (typeof p.artifact !== 'string' || !NAME.test(p.artifact)) errors.push({ path: `${at}.artifact`, message: 'must be the artifact name holding tree.json' });
       if ('max_age_hours' in p && (!Number.isInteger(p.max_age_hours) || (p.max_age_hours as number) < 1 || (p.max_age_hours as number) > 168)) errors.push({ path: `${at}.max_age_hours`, message: 'must be an integer from 1 to 168' });
       if ('os' in p && (typeof p.os !== 'string' || !/^(Linux|macOS|Windows)$/.test(p.os))) errors.push({ path: `${at}.os`, message: 'must be Linux, macOS or Windows' });
+      if ('tree_log_step' in p && (typeof p.tree_log_step !== 'string' || !p.tree_log_step.trim() || p.tree_log_step.length > 200 || /[\0\r\n]/.test(p.tree_log_step))) errors.push({ path: `${at}.tree_log_step`, message: 'must be the name of the step in a profile job that prints GSTACK_TREE_JSON <artifact> <base64 of tree.json>, one line of at most 200 characters' });
       if ('skippable' in p) {
         const s = p.skippable as Record<string, unknown> | null;
         const names = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 32 && v.every(x => typeof x === 'string' && !!x.trim() && x.length <= 128);
@@ -216,8 +233,15 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     }
     const ranIn = ownAttempt(deps, id, run.run_attempt, jobs, p.jobs.filter(n => !skippedJobs.includes(n)));
     let rec: TreeRecord;
+    let fromLog = false;
     try { rec = deps.artifact(id, p.artifact, ranIn); }
-    catch (e: any) { return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`); }
+    catch (e: any) {
+      if (!(e instanceof NoArtifactError) || !p.tree_log_step || !deps.jobLog) return fail('artifact_missing', `${at} has no readable ${p.artifact} tree.json: ${String(e?.message ?? e).slice(0, 200)}`);
+      const logged = treeFromLog(deps, id, ranIn, p, p.jobs.filter(n => !skippedJobs.includes(n)), at);
+      if (!logged.ok) return logged;
+      rec = logged.rec;
+      fromLog = true;
+    }
     if (!rec || typeof rec !== 'object') return fail('artifact_mismatch', `${at}'s ${p.artifact} tree.json is not a JSON object`);
     if (rec.reused === true || rec.reuse === true) return fail('artifact_reused', `${at} reused another run; a reuse is never evidence`);
     if (rec.sizing_experiment !== undefined) return fail('sizing_experiment', `${at} was a runner-sizing experiment (a dispatch that overrode the runner, shards or sub-shards); it is never a Free Tests result`);
@@ -253,10 +277,55 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
     const rerun = ((rec.rerun_files ?? []) as string[]).map(normalPath);
     const reran = rerun.length ? { rerun, attempts: [...new Set((rec.attempts ?? []) as number[])].sort((a, b) => a - b) } : {};
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}), ...reran } };
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}), ...reran, ...(fromLog ? { tree_source: 'job-log' as const } : {}) } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
+}
+
+/**
+ * The tree.json run `id` logged at `attempt` for a profile that opted in with `tree_log_step`, read only when the run holds no
+ * artifact (HARN-118). Exactly one TREE_LOG_LINE naming the profile's artifact across the profile's `names` jobs counts, and it
+ * binds only by the runner's own timestamp, which a step's output cannot set: inside the named step (one step of that name,
+ * a success) and at least a second after every earlier step that ran ended, since the API times steps to the second. A test
+ * that prints a well-formed line therefore adds a second line, or stands alone outside the step, and refuses either way.
+ * The decoded tree.json is capped at MAX_ARTIFACT_BYTES; verifyRun then checks it exactly as it checks an artifact.
+ */
+function treeFromLog(deps: RunDeps, id: number, attempt: number, p: RunProfile, names: string[], at: string): { ok: true; rec: TreeRecord } | { ok: false; reason: RunRefusal; detail: string } {
+  const missing = (detail: string) => ({ ok: false as const, reason: 'artifact_missing' as const, detail: `${at} has no unexpired ${p.artifact} artifact and ${detail}` });
+  const hits: Array<{ job: ApiJob; stamp: string; data: string }> = [];
+  for (const job of deps.jobs(id, attempt).filter(j => names.includes(j.name))) {
+    if (!Number.isSafeInteger(job.id)) return missing(`its ${job.name} job has no numeric id, so its log cannot be read`);
+    let text: string;
+    try { text = deps.jobLog!(job.id!); } catch (e: any) { return missing(`its ${job.name} job's log cannot be read: ${String(e?.message ?? e).slice(0, 200)}`); }
+    for (const raw of text.replace(/^\uFEFF/, '').split('\n')) {
+      const m = TREE_LOG_LINE.exec(raw);
+      if (m && m[1] === p.artifact) hits.push({ job, stamp: raw.slice(0, raw.indexOf(' ')), data: m[2]! });
+    }
+  }
+  if (hits.length !== 1) return missing(`${hits.length} GSTACK_TREE_JSON lines name it in the logs of ${names.join(', ')} at attempt ${attempt}; exactly one counts`);
+  const { job, stamp, data } = hits[0]!;
+  const step = p.tree_log_step!;
+  const unbound = (why: string) => ({ ok: false as const, reason: 'tree_log_unbound' as const, detail: `${at}'s ${p.artifact} line in the ${job.name} job ${why} (CI_CARRY_TREE_LOG_UNBOUND)` });
+  if (job.conclusion !== 'success') return unbound(`is from a job that concluded ${job.conclusion}`);
+  const named = (job.steps ?? []).filter(s => s.name === step);
+  if (named.length !== 1) return unbound(named.length ? `cannot be bound: the job has ${named.length} steps named "${step}"` : `cannot be bound: the job has no step named "${step}"`);
+  const s = named[0]!;
+  if (s.conclusion !== 'success') return unbound(`cannot be bound: step "${step}" concluded ${s.conclusion}`);
+  const ran = (job.steps ?? []).filter(x => x.number < s.number && x.conclusion !== 'skipped');
+  const untimed = [s, ...ran].find(x => !Number.isFinite(Date.parse(x.started_at ?? '')) || !Number.isFinite(Date.parse(x.completed_at ?? '')));
+  if (untimed) return unbound(`cannot be bound: step "${untimed.name}" has no start and finish time`);
+  const t = LOG_STAMP.exec(stamp);
+  const when = t ? Date.parse(`${t[1]}.${(t[2] ?? '').padEnd(3, '0').slice(0, 3)}Z`) : NaN;
+  const from = Math.max(Date.parse(s.started_at!), ...ran.map(x => Date.parse(x.completed_at!) + 1000));
+  if (!(when >= from && when < Date.parse(s.completed_at!) + 1000)) return unbound(`was stamped ${stamp.slice(0, 40)}, not inside step "${step}" (${s.started_at} to ${s.completed_at}) at least a second after every earlier step ended`);
+  if (data.length > Math.ceil(MAX_ARTIFACT_BYTES / 3) * 4) return missing(`its line holds a tree.json over ${MAX_ARTIFACT_BYTES} bytes`);
+  const bytes = Buffer.from(data, 'base64');
+  if (bytes.length > MAX_ARTIFACT_BYTES) return missing(`its line holds a tree.json over ${MAX_ARTIFACT_BYTES} bytes`);
+  const bad = { ok: false as const, reason: 'artifact_mismatch' as const };
+  if (bytes.toString('base64') !== data) return { ...bad, detail: `${at}'s ${p.artifact} line is not canonical base64` };
+  try { return { ok: true, rec: JSON.parse(bytes.toString('utf8')) as TreeRecord }; }
+  catch { return { ...bad, detail: `${at}'s ${p.artifact} line does not decode to JSON` }; }
 }
 
 /**
@@ -332,7 +401,7 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
  * whose files passed only on a re-run adds `rerun=<files> attempts=<list>` (GST-3054): allowed, but never shown as a clean pass.
  */
 export function runReceiptFields(evidence: RunEvidence[], now: Date): string {
-  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker([...rerunByRun(evidence).values()])} verified=${now.toISOString()}`;
+  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker([...rerunByRun(evidence).values()])}${evidence.some(e => e.tree_source === 'job-log') ? ' tree_source=job-log' : ''} verified=${now.toISOString()}`;
 }
 
 /** The re-run record per carried run (`<id>/<attempt>`): the distinct re-run files and attempts across every profile that read that run, so two profiles on one run count each file once. */
@@ -394,7 +463,8 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
     // A rerun of the uploading job leaves one artifact per attempt (GST-2284): read each by id and keep the one from `attempt`.
     artifact: (id, name, attempt) => {
       const listed = all<{ id: number; name: string; size_in_bytes: number; expired: boolean }>(`repos/${repo}/actions/runs/${id}/artifacts?name=${encodeURIComponent(name)}&per_page=100`, 'artifacts').filter(a => a.name === name && !a.expired);
-      if (listed.length === 0 || listed.length > MAX_ARTIFACT_ATTEMPTS) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
+      if (listed.length === 0) throw new NoArtifactError(`run ${id} has 0 unexpired artifacts named ${name}`);
+      if (listed.length > MAX_ARTIFACT_ATTEMPTS) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name}`);
       for (const a of listed) if (!(a.size_in_bytes <= MAX_ARTIFACT_BYTES)) throw new Error(`artifact ${name} is ${a.size_in_bytes} bytes, over ${MAX_ARTIFACT_BYTES}`);
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-run-evidence-'));
       try {
@@ -416,6 +486,11 @@ export function ghRunDeps(repo: string, repoRoot: string): RunDeps {
         if (hits.length !== 1) throw new Error(`run ${id} has ${listed.length} unexpired artifacts named ${name} and ${hits.length} of them record run_attempt ${attempt}`);
         return hits[0]!;
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    },
+    // A job log holds the runner's escape sequences, which gh refuses to print without --allow-escape-sequences.
+    jobLog: jobId => {
+      if (!Number.isSafeInteger(jobId)) throw new Error(`job id ${jobId} is not a number`);
+      return gh(['api', '--allow-escape-sequences', `repos/${repo}/actions/jobs/${jobId}/logs`], 120_000);
     },
     commitTree: sha => {
       const read = () => spawnSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{tree}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 });
