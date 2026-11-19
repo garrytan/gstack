@@ -128,6 +128,14 @@ function writeManifestFile(m: Manifest): string {
 }
 
 /** A repository on a feature branch with enough runtime lines for a full plan. */
+/** A checkout whose history shares no commit with repo()'s, standing in for a project's default checkout of another repository. */
+function unrelated(env: NodeJS.ProcessEnv): string {
+  const dir = fs.realpathSync(tmp('rp-other-'));
+  const r = spawnSync('bash', ['-c', 'git init -q -b main && echo other > o.txt && git add -A && git commit -qm other'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+  if (r.status !== 0) throw new Error(r.stderr);
+  return dir;
+}
+
 function repo(): { dir: string; env: NodeJS.ProcessEnv } {
   const dir = tmp('rp-repo-');
   const env = { ...process.env, PATH: BIN + path.delimiter + process.env.PATH, GSTACK_STATE_ROOT: path.join(dir, '.state'), GSTACK_SWEEP_ROOTS: dir, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -1338,11 +1346,11 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     sh('for i in $(seq 1 20); do echo "export const w$i = $i;" >> src/a.ts; done && git commit -qam allow', wt);
     return { dir, env, wt: fs.realpathSync(wt) };
   }
-  // Value: protects=/ship can ship a checkout other than the one shared readers start in (HARN-105/HARN-107: a project whose default checkout is another repository), each brief opening with the cd into the shipped checkout and each reply still proving its tree; fails_when=the program refuses readers because their start checkout differs from the shipped one, a brief does not open with the cd, a reply from the start checkout or with a foreign tree is merged, or readers are dispatched from another worktree of the shipped repository (where a command without its cd reads the wrong diff with no error) or to a shipped checkout they cannot reach;
+  // Value: protects=/ship can ship a checkout other than the one shared readers start in (HARN-105/HARN-107: a project whose default checkout is a repository of another history), each brief opening with the cd into the shipped checkout and each reply still proving its tree; fails_when=the program refuses readers because their start checkout differs from the shipped one, a brief does not open with the cd, a reply from the start checkout or with a foreign tree is merged, or readers are dispatched from a worktree or clone that holds the diff base (where a command without its cd reads the wrong diff with no error) or to a shipped checkout they cannot reach;
   //   why_new=GST-3145 on gstack 1.101.0.0 (the GST-482 start-checkout refusal contradicted the workspace step); seam=lib/capy-review-pass.js before any log start or create, and gstack-review-dispatch collect; no_claim=model compliance with the cd
-  test('readers that start in another repository are dispatched with the cd into the shipped checkout first, a reply naming another tree is refused, and another worktree of the same repository or an unreachable checkout stops', async () => {
+  test('readers that start in a repository of another history are dispatched with the cd into the shipped checkout first, a reply naming another tree is refused, and another worktree of the same repository or an unreachable checkout stops', async () => {
     const { dir, env, wt } = worktree();
-    const other = fs.realpathSync(repo().dir);
+    const other = unrelated(env);
     const out = path.join(wt, '.state/run/p1');
     const h = host(other, env);
     const res = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
@@ -1376,12 +1384,13 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
     const sibling = host(dir, env);
     const same = await runPass(sibling, { base: 'main', out: path.join(wt, '.state/run/p7'), pass: 'w0p7', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
-    expect(same).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, another worktree of the repository this pass ships (${wt})`);
+    expect(same).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, not in ${wt}, the checkout this pass ships, and ${fs.realpathSync(dir)} also holds its diff base `);
+    expect(same).toContain(`Start /ship in the shipped checkout: run it from a thread whose working directory is ${wt}`);
     expect(same).not.toContain('REVIEW_LOG_START:');
     expect(sibling.creates.length).toBe(0);
     const walled = host(other, env);
     const bashW = walled.tools.capy.bash;
-    walled.tools.capy.bash = async (a: { command: string; description?: string }) => (a.description?.endsWith('reader reach check') ? { exit_code: 1, output: `${other}/.git\n${other}\nbash: line 1: cd: ${wt}: Permission denied\n` } : bashW(a));
+    walled.tools.capy.bash = async (a: { command: string; description?: string }) => (a.description?.endsWith('reader reach check') ? { exit_code: 1, output: `none\n${other}\nbash: line 1: cd: ${wt}: Permission denied\n` } : bashW(a));
     const unreachable = await runPass(walled, { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(unreachable).toContain(`STOP: readers on the shared machine cannot reach ${wt}, the checkout this pass ships: bash: line 1: cd: ${wt}: Permission denied`);
     expect(unreachable).not.toContain('REVIEW_LOG_START:');
@@ -1395,6 +1404,24 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(await runPass(slow, input)).toContain('NEXT: poll');
     expect(probes).toBe(1);
     expect(await runPass(host(wt, env), { ...input, logStart: [7] })).toStartWith('STOP: input.logStart must be a list');
+  }, 240_000);
+
+  // Value: protects=a separate clone of the shipped history, which holds the diff base, cannot be the start checkout of a pass; fails_when=readers are dispatched from such a clone (a reader that skips the cd diffs the clone with no error and still prints the shipped REVIEWED_TREE), or a start directory with a broken .git is refused although every brief cds out of it;
+  //   why_new=GST-3145 second-model trail read on 6b90158 (the common-dir check let a clone through); seam=lib/capy-review-pass.js reader reach check; no_claim=a start checkout that fetched the base after the check
+  test('a separate clone that holds the diff base is refused before any start token or reader; a start directory with a broken .git dispatches', async () => {
+    const { dir, env, wt } = worktree();
+    const clone = path.join(tmp('rp-clone-'), 'clone');
+    expect(spawnSync('git', ['clone', '-q', dir, clone], { env, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const cloned = host(clone, env);
+    const res = await runPass(cloned, { base: 'main', out: path.join(wt, '.state/run/c1'), pass: 'c1p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(res).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(clone)}, not in ${wt}, the checkout this pass ships, and ${fs.realpathSync(clone)} also holds its diff base `);
+    expect(res).not.toContain('REVIEW_LOG_START:');
+    expect(cloned.creates.length).toBe(0);
+    const broken = tmp('rp-broken-');
+    fs.writeFileSync(path.join(broken, '.git'), 'garbage\n');
+    const unreadable = host(broken, env);
+    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/c2'), pass: 'c2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    expect(unreadable.creates.length).toBeGreaterThan(0);
   }, 240_000);
 
   // Value: protects=a reader that never left the machine's default checkout cannot hand /ship a review of another tree; fails_when=collect merges a reply whose REVIEWED_TREE names the primary checkout while the pass ships a worktree, or a reply with no such line;
@@ -1423,7 +1450,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
-  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (readers that start in another repository are covered by the GST-3145 test above); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
+  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (readers that start in a repository of another history are covered by the GST-3145 tests above); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
   //   why_new=GBRA-218 (no brief named a directory); seam=lib/review-pass.ts renderStage and the Capy pass program; no_claim=model compliance with the paragraph
   test('a reader that works in the checkout its brief names passes, and every brief names the worktree', async () => {
     const { dir, env, wt } = worktree();

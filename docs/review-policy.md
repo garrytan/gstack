@@ -1193,8 +1193,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    allowed: the workspace step's `cd` and the `REVIEWED_TREE` check above cover it (GST-3145). Before a stage takes a
    start token or sends its first reader, the Capy pass program checks that the shipped checkout can be reached from
    the directory readers start in, and stops, with nothing taken or dispatched, when it cannot or when readers start in
-   another worktree of the same repository: there a command run without its `cd` reads that worktree's diff with no
-   error, while another repository fails loudly on the diff base. Step 11's voices take the `adversarial-review` start
+   any other checkout that holds the pass's diff base commit, such as another worktree or a clone of the same history:
+   there a command run without its `cd` reads that checkout's diff with no error. A checkout without the diff base
+   fails on that command instead, so it dispatches. Step 11's voices take the `adversarial-review` start
    token by default, and a `logStart` list without it stops before anything runs. Decision 3.5's fix-check pass turns a
    `review` start into `review-fix-check`, so its row is never a pass (GST-1031).
 
