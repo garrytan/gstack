@@ -6,7 +6,7 @@
  * than silently changing what the check freezes. Runs under a temporary HOME, drive and
  * record root, serves its links from a local server, and proves the real drive is untouched.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -151,6 +151,18 @@ describe('where records live', () => {
     fs.mkdirSync(path.join(home, '.capy', 'drive', 'user-bo-example'), { recursive: true });
     expect(recordRoot({ HOME: home, GSTACK_CAPY: '1' })).toMatchObject({ error: { code: 'FIRST_USE_NO_PRIVATE_DRIVE', detail: '2 user-level drive folders (user-ada-example, user-bo-example)' } });
     expect(recordRoot({ HOME: home, GSTACK_STATE_ROOT: path.join(home, 'state') })).toEqual({ root: path.join(home, 'state', 'first-use') });
+  });
+
+  test('several user drives are named in sorted order whatever order the filesystem lists them', () => {
+    const home = fresh('home');
+    for (const d of ['user-ada-example', 'user-bo-example']) fs.mkdirSync(path.join(home, '.capy', 'drive', d), { recursive: true });
+    const readdir = fs.readdirSync;
+    const spy = spyOn(fs, 'readdirSync').mockImplementation(((p: fs.PathLike, o?: unknown) => (readdir(p, o as undefined) as string[]).slice().sort().reverse()) as typeof fs.readdirSync);
+    try {
+      expect(recordRoot({ HOME: home, GSTACK_CAPY: '1' })).toMatchObject({ error: { code: 'FIRST_USE_NO_PRIVATE_DRIVE', detail: '2 user-level drive folders (user-ada-example, user-bo-example)' } });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

@@ -64,7 +64,7 @@ const ACCEPTED = [
   'tail -n +2 docs/guide.md', 'cat -n docs/guide.md', 'cat guide-link.md', 'stat docs/guide.md', 'stat -c %s docs/guide.md',
   'file docs/guide.md', 'du -sh qa', 'du -d 1 .', 'find . -name "*.md" -type f', "find qa -maxdepth 2 -name '*.md' -print",
   'find . -path ./private -prune -o -type f -print', 'grep -n step qa-only/SKILL.md', 'rg -n step qa-only', 'grep -rn template qa',
-  'grep -n -i "step\\|report" qa-only/SKILL.md', 'grep -c -e step -e report qa-only/SKILL.md', 'sort docs/guide.md',
+  'grep -n -i "step\\|report" qa-only/SKILL.md', 'grep -n "step\\|report\\"" qa-only/SKILL.md', 'grep -c -e step -e report qa-only/SKILL.md', 'sort docs/guide.md',
   'sort -u docs/guide.md', 'uniq -c docs/guide.md', 'cut -c1-3 docs/guide.md', 'nl -ba docs/guide.md', 'sha256sum docs/guide.md',
   'md5sum docs/guide.md qa-only/SKILL.md', 'sha1sum docs/guide.md', 'sha512sum --tag docs/guide.md', 'ls qa | sha256sum', 'readlink -f guide-link.md', 'realpath docs/guide.md',
   'cat docs/guide.md | sort | uniq -c', 'ls qa | wc -l', 'grep -rn step qa-only | head -5', 'find qa -type f | sort',
@@ -200,6 +200,12 @@ const REJECTED: Array<[string, string, RegExp]> = [
   ['shell syntax', 'ls\nrm docs/guide.md', /multi-line/],
   ['shell syntax', 'cat docs/{guide,other}.md', /brace expansion/],
   ['shell syntax', '(ls)', /subshell/],
+  ['escape', 'grep -n "a\\$X" docs/guide.md', /escape inside double quotes/],
+  ['escape', 'grep -n "a\\\\" docs/guide.md', /escape inside double quotes/],
+  ['escape', 'grep -n "a\\' + '\x60' + 'id' + '\x60' + '" docs/guide.md', /escape inside double quotes/],
+  ['escape', 'grep -n "a\\" docs/guide.md', /unterminated quote/],
+  ['redirect', 'grep -n "a\\"" docs/guide.md > copy.md', /redirect/],
+  ['write', 'grep -n "a\\"" docs/guide.md; rm docs/guide.md', /unlisted tool: rm/],
   ['shell syntax', 'tail -f docs/guide.md', /unsupported tail option: -f/],
 ];
 

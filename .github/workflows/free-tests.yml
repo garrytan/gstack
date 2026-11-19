@@ -472,6 +472,32 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: linux-playwright-chromium-${{ steps.playwright.outputs.version }}
+      # --with-deps fetches about 38 MB of system packages from archive.ubuntu.com
+      # on every run. On 2026-11-19 that mirror served some runners at 85 to
+      # 280 kB/s: 17 of 456 first attempts hit the 5-minute limit, and each
+      # retry then died in seconds on the dpkg lock that the killed attempt's
+      # apt-get still held (run 44485949701). apt now waits for that lock, and
+      # the packages one run downloads are cached under a key made from the
+      # runner's installed package list and the Playwright version, so a later
+      # run on the same image installs them with dpkg and never touches the mirror.
+      - name: Make apt wait for its lock and keep the packages it downloads
+        run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
+      - name: Fingerprint the runner's installed system packages
+        id: apt_base
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Restore the system packages an earlier run downloaded
+        id: apt_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_base.outputs.cache_key }}
+      - name: Install the cached system packages without the network
+        id: apt_offline
+        if: steps.apt_cache.outputs.cache-hit == 'true'
+        continue-on-error: true
+        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
@@ -482,11 +508,17 @@ jobs:
         id: playwright_install
         timeout-minutes: 5
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
       - name: Configure the bundled Chromium sandbox helper
         run: |
           set -euo pipefail
@@ -516,6 +548,21 @@ jobs:
           sudo apparmor_parser -r "$profile"
       - name: Install Xvfb + X11 utilities + gate tools
         run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
+      - name: Keep the system packages this run downloaded
+        id: apt_keep
+        if: steps.apt_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/gstack-apt-debs
+          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
+            cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the system packages for the next run on this image
+        if: steps.apt_keep.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_cache.outputs.cache-primary-key }}
       - name: Configure git identity (tests init temp repos)
         run: |
           git config --global user.email "free-tests-ci@gstack.test"
@@ -595,6 +642,32 @@ jobs:
           path: ~/.cache/ms-playwright
           key: linux-playwright-chromium-${{ steps.playwright.outputs.version }}
 
+      # --with-deps fetches about 38 MB of system packages from archive.ubuntu.com
+      # on every run. On 2026-11-19 that mirror served some runners at 85 to
+      # 280 kB/s: 17 of 456 first attempts hit the 5-minute limit, and each
+      # retry then died in seconds on the dpkg lock that the killed attempt's
+      # apt-get still held (run 44485949701). apt now waits for that lock, and
+      # the packages one run downloads are cached under a key made from the
+      # runner's installed package list and the Playwright version, so a later
+      # run on the same image installs them with dpkg and never touches the mirror.
+      - name: Make apt wait for its lock and keep the packages it downloads
+        run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
+      - name: Fingerprint the runner's installed system packages
+        id: apt_base
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Restore the system packages an earlier run downloaded
+        id: apt_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_base.outputs.cache_key }}
+      - name: Install the cached system packages without the network
+        id: apt_offline
+        if: steps.apt_cache.outputs.cache-hit == 'true'
+        continue-on-error: true
+        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
@@ -605,12 +678,18 @@ jobs:
         id: playwright_install
         timeout-minutes: 5
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
 
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
 
       - name: Configure the bundled Chromium sandbox helper
         run: |
@@ -655,6 +734,21 @@ jobs:
       # skip instead of running.
       - name: Install Xvfb + X11 utilities + gate tools
         run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
+      - name: Keep the system packages this run downloaded
+        id: apt_keep
+        if: steps.apt_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/gstack-apt-debs
+          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
+            cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the system packages for the next run on this image
+        if: steps.apt_keep.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_cache.outputs.cache-primary-key }}
 
       - name: Configure git identity (tests init temp repos)
         run: |
