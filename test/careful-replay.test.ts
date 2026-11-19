@@ -220,6 +220,17 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['force-push after a cd', 'cd . && git push -f origin', 'deny', 'main'],
   ['force-push of every branch', 'git push --force --all origin', 'deny', 'clean'],
   ['force-push of every branch (control: no repository)', 'git push --force --all origin', 'ask', 'norepo'],
+  ['second-model trail read: push option value', 'git push -onote --force origin main', 'deny', 'clean'],
+  ['second-model trail read: wipefs on a device by another path', 'wipefs -a sda', 'deny', 'clean'],
+  ['second-model trail read: wipefs on a device by another path', '/sbin/wipefs -af "$DISK"', 'deny', 'clean'],
+  ['second-model trail read: dry-run text before the delete', 'FLAGS=--dryrun terraform destroy', 'ask', 'clean'],
+  ['second-model trail read: cd as an argument', 'echo cd /tmp && rm -rf relative-demo', 'ask', 'clean'],
+  ['second-model trail read: || is not a pipe', "echo 'truncate demo;' || true", 'allow', 'clean'],
+  ['review: dry run on the line before', 'aws s3 sync . s3://b --dryrun\naws s3 rb s3://prod --force', 'ask', 'clean'],
+  ['review: dry run on the line before', 'aws s3 ls s3://b --dryrun;aws s3 rb s3://prod --force', 'ask', 'clean'],
+  ['review: dry run on the line before', 'aws ec2 terminate-instances --instance-ids i-1 --dry-run\naws ec2 terminate-instances --instance-ids i-1', 'ask', 'clean'],
+  ['review: SQL text sent to a file', "printf 'truncate users;' > q.sql && db-cli < q.sql", 'ask', 'clean'],
+  ['review: quoted ; before a pipe', 'echo "TRUNCATE TABLE users;" | mycli prod', 'ask', 'clean'],
 ];
 
 let base = '';

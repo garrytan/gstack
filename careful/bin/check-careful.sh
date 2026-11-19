@@ -160,6 +160,7 @@ _STK=""
 _STASH_POP=0
 _GIT_SUB=-1
 _HI_RM_ROOT=0
+_HI_DISK=0
 _RM_UNSAFE=0
 _OUTSIDE=0
 _PUSH_DENY=""
@@ -360,6 +361,26 @@ _careful_del() {
   return 0
 }
 
+# wipefs -a erases every signature on its targets: HIGH unless each target is
+# a disk-image file (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg).
+_careful_wipefs() {
+  local k="$1" t all=0 hit=0
+  while [ "$k" -lt "$n" ]; do
+    t="${T[$k]}"; k=$((k + 1))
+    case "$t" in
+      '') ;;
+      --all) all=1 ;;
+      --*) ;;
+      -*) case "${t#-}" in *[!a-zA-Z]*) ;; *a*) all=1 ;; esac ;;
+      [0-9]'>'*|'>'*|'<'*) ;;
+      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg) ;;
+      *) hit=1 ;;
+    esac
+  done
+  if [ "$all" -eq 1 ] && [ "$hit" -eq 1 ]; then _HI_DISK=1; fi
+  return 0
+}
+
 _careful_join_dir() {
   case "$2" in
     *'$'*|*'`'*) _D="" ;;
@@ -412,7 +433,7 @@ _careful_push_default() {
 }
 
 _careful_push() {
-  local j=0 t r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0
+  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0
   local refs=()
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
@@ -428,11 +449,14 @@ _careful_push() {
       --repo) repo=1; val=1 ;;
       --*) ;;
       -*)
-        case "${t#-}" in
+        # In a short-option group, letters after o are its push-option value.
+        c="${t#-}"
+        case "$c" in
           *[!a-zA-Z]*) ;;
           *)
-            case "${t#-}" in *f*) force=1 ;; esac
-            case "${t#-}" in *n*) dry=1 ;; esac ;;
+            c="${c%%o*}"
+            case "$c" in *f*) force=1 ;; esac
+            case "$c" in *n*) dry=1 ;; esac ;;
         esac ;;
       [0-9]'>'*|'>'*|'<'*) ;;
       *)
@@ -648,7 +672,7 @@ _careful_scan() {
         _CH_D="$_CUR_DIR"; _PL_S=0; _PL_D="$_CUR_DIR"
         continue ;;
       $'\006') _PIPE=1; _SCRATCH="$_PL_S"; _CUR_DIR="$_PL_D"; continue ;;
-      *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*) ;;
+      *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*|*wipefs*) ;;
       *) continue ;;
     esac
     n=0
@@ -663,8 +687,12 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
-        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR="" ;;
+        cd|pushd|popd)
+          # Only in command position: cd as an argument (echo cd /tmp) moves nothing.
+          if [ "$i" -gt 0 ]; then case "${T[$((i - 1))]}" in then|do|else|'{'|'!'|builtin|command) ;; *) i=$((i + 1)); continue ;; esac; fi
+          if [ "${T[$i]}" != cd ]; then _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""
+          elif [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        wipefs|*/wipefs) _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
         find|rsync|shred|unlink) _careful_del "${T[$i]}" $((i + 1)) ;;
@@ -730,14 +758,14 @@ _careful_deny() {
   gstack_hook_decision deny "[careful][HIGH] $2"
   exit 0
 }
-_RX_DISK="(^|[[:space:];&|(])dd[[:space:]]+(${_NS}[[:space:]])?of=/dev/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)|(^|[[:space:];&|(])mkfs(\.[[:alnum:]_]+)?[[:space:]]+${_NS}/dev/(sd|nvme|disk|hd|vd|xvd|mmcblk)|(^|[[:space:];&|(])wipefs[[:space:]](${_NS}[[:space:]])?(-[[:alpha:]]*a[[:alpha:]]*|--all)[[:space:]](${_NS}[[:space:]])?[\"']?(/dev/|[$])|(^|[[:space:];&|(])wipefs[[:space:]](${_NS}[[:space:]])?[\"']?(/dev/|[$])${_NS}[[:space:]](-[[:alpha:]]*a[[:alpha:]]*|--all)([[:space:];&|]|\$)|>[[:space:]]*/dev/(sd|nvme|disk|hd|vd|xvd)[a-z0-9]*|diskutil[[:space:]]+(erase|zeroDisk|secureErase)"
+_RX_DISK="(^|[[:space:];&|(])dd[[:space:]]+(${_NS}[[:space:]])?of=/dev/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)|(^|[[:space:];&|(])mkfs(\.[[:alnum:]_]+)?[[:space:]]+${_NS}/dev/(sd|nvme|disk|hd|vd|xvd|mmcblk)|>[[:space:]]*/dev/(sd|nvme|disk|hd|vd|xvd)[a-z0-9]*|diskutil[[:space:]]+(erase|zeroDisk|secureErase)"
 if [ "$_HI_RM_ROOT" -eq 1 ]; then
   _careful_deny high_rm_root "Recursive delete of /, the home directory, or a top-level system or personal folder is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
 fi
 if [ -n "$_PUSH_DENY" ]; then
   _careful_deny high_force_push_default "Force-push to the default branch ($_PUSH_DENY) is blocked by gstack's destructive-command check. Use --force-with-lease on a feature branch; if the user truly means it, they run it themselves."
 fi
-if [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
+if [ "$_HI_DISK" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
   _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
 fi
 
@@ -872,8 +900,9 @@ _careful_stmt_at() {
   local pre="${2%%"$1"*}" post="${2#*"$1"}" tail
   _S="${pre##*[;&|$_NL]}"
   tail="${post%%[;&|$_NL]*}"
-  _R="${post:${#tail}:1}"
+  _R="${post:${#tail}:2}"
   _D="$post"
+  _TL="$tail"
 }
 _careful_text_only() {
   local w sep="$2"
@@ -885,7 +914,10 @@ _careful_text_only() {
   case "$w" in
     grep|egrep|fgrep|zgrep|rg|ag|ack) return 0 ;;
     git) [ "${2:-}" = grep ] && return 0 ;;
-    echo|printf) [ "$sep" = "|" ] || return 0 ;;
+    echo|printf)
+      # Printed text that goes on to a pipe or a file may be run later.
+      sep="${_D//||/}"
+      case "$_S$_TL$sep" in *'|'*|*'>'*) ;; *) return 0 ;; esac ;;
   esac
   return 1
 }
@@ -956,7 +988,7 @@ while [ -z "$WARN" ] && [[ $_rest =~ $_RX_CLOUD ]]; do
   _m="${BASH_REMATCH[0]}"
   _careful_stmt_at "$_m" "$_rest"
   _tail="${_D%%[;&|$_NL]*}"
-  _stmt="$_S$_m$_tail"
+  _stmt="$_m$_tail"
   if ! [[ $_stmt =~ $_RX_CLOUD_DRY ]]; then
     WARN="Destructive: deletes cloud or cluster resources (terraform/pulumi destroy, aws/gcloud/az delete, helm uninstall, docker volume rm)."
     PATTERN="cloud_destructive"
