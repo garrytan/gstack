@@ -845,9 +845,7 @@ _careful_git() {
     push) _careful_push ;;
     reset|checkout|switch|restore|clean|stash|worktree)
       [ "$_HDOC" -eq 0 ] || return 0
-      # After a cd, the tree is probed only where the cd chain leads to a
-      # folder that is already there.
-      if [ "$_CD_SEEN" -eq 1 ] && { [ "$_OPAQUE" -eq 1 ] || [ -z "$dir" ] || [ ! -d "$dir" ]; }; then dir=""; fi
+      [ "$_CD_SEEN" -eq 0 ] || dir=""
       _careful_git_lose ;;
     filter-branch|filter-repo|reflog|gc) _careful_git_hist ;;
   esac
