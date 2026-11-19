@@ -138,6 +138,22 @@ describe('gstack-uninstall and gstack-doctor with Codex hooks', () => {
     expect(JSON.parse(fs.readFileSync(path.join(home, '.codex', 'hooks.json'), 'utf8'))).toEqual({ hooks: { PreToolUse: [user] } });
   });
 
+  test("uninstall run from a global install removes gstack's Codex groups before deleting its own helper", () => {
+    const { user } = seed();
+    const home = path.join(dir, 'home');
+    const bin = path.join(home, '.claude', 'skills', 'gstack', 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    for (const f of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-skill-name.sh']) fs.copyFileSync(path.join(ROOT, 'bin', f), path.join(bin, f));
+    fs.mkdirSync(path.join(dir, 'repo'));
+    const r = spawnSync('bash', [path.join(bin, 'gstack-uninstall'), '--force', '--keep-state'], {
+      env: { PATH: process.env.PATH ?? '', HOME: home, CODEX_HOME: path.join(home, '.codex'), GSTACK_STATE_DIR: path.join(home, '.gstack') },
+      cwd: path.join(dir, 'repo'), encoding: 'utf8', timeout: 60_000,
+    });
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(bin)).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(home, '.codex', 'hooks.json'), 'utf8'))).toEqual({ hooks: { PreToolUse: [user] } });
+  });
+
   test('the doctor row says whether each hook has a trust entry, and prints nothing without gstack hooks', () => {
     seed();
     const doctor = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-doctor'), 'utf8');
