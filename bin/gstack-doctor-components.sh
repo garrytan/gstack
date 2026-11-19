@@ -383,6 +383,7 @@ gstack_result_anchor() {
     PUSH_GIT_FAILED) printf '%s' 'push-git-failed' ;;
     SPAWN_OUTPUT_INCOMPLETE) printf '%s' 'spawn-output-incomplete' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
+    APPROVAL_RULING_RUN_OPEN) printf '%s' 'approval-ruling-run-open' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
     APPROVAL_RECORD_UNAVAILABLE) printf '%s' 'approval-record-unavailable' ;;
