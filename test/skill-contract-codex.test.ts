@@ -94,12 +94,35 @@ describe('loads: Codex reading or injecting a gstack-* SKILL.md', () => {
     const loads = (cmd: string, output?: string) => skillLoads(parseTranscript([meta, user, call(cmd), ...(output === undefined ? [] : [result(output)])].join('\n'))).map(l => l.skill);
     expect(loads("sed -n '1,200p' \"$CODEX_HOME/skills/gstack-review/SKILL.md\"")).toEqual(['gstack-review']);
     expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md', 'Process exited with code 0\nOutput:\n---')).toEqual(['gstack-review']);
-    expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md', 'Process exited with code 1\nOutput:\ncat: No such file')).toEqual([]);
+    expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md', 'Process exited with code 1\nOutput:\ncat: /home/u/.codex/skills/gstack-review/SKILL.md: No such file or directory')).toEqual([]);
+    expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md && git diff missing-ref', "Process exited with code 128\nOutput:\n---\nname: gstack-review\nfatal: bad revision 'missing-ref'")).toEqual(['gstack-review']);
     expect(loads('cd ~/.codex && cat skills/gstack-review/SKILL.md')).toEqual(['gstack-review']);
     expect(loads('cat README.md && ls ~/.codex/skills/gstack-review/SKILL.md')).toEqual([]);
     expect(loads('ls ~/.codex/skills/gstack-review/SKILL.md')).toEqual([]);
     expect(loads('cat ~/src/gstack/review/SKILL.md')).toEqual([]);
     expect(loads('cat ~/.codex/skills/review/SKILL.md')).toEqual([]);
+  });
+});
+
+describe('chunked reads: reading the same SKILL.md again continues the run', () => {
+  const met = lines('exec-read-met.jsonl');
+  const spawnAt = met.findIndex(l => l.includes('"function_call"') && l.includes('spawn_agent') && met.some(o => o.includes('function_call_output') && o.includes(JSON.parse(l).payload.call_id) && o.includes('agent_id')));
+  const record = (payload: Record<string, unknown>) => JSON.stringify({ type: 'response_item', payload });
+  const reread = [
+    record({ type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: "sed -n '400,800p' ~/.codex/skills/gstack-review/SKILL.md" }), call_id: 'reread' }),
+    record({ type: 'function_call_output', call_id: 'reread', output: 'Process exited with code 0\nOutput:\n## Step 5' }),
+  ];
+  const withAfterSpawn = (extra: string[]) => parseTranscript([...met.slice(0, spawnAt + 2), ...extra, ...met.slice(spawnAt + 2)].join('\n'));
+
+  test('a second chunk read after the adversarial spawn is not a new load, so the run stays met', () => {
+    const t = withAfterSpawn(reread);
+    expect(skillLoads(t)).toHaveLength(1);
+    expect(checkContract(t, 'gstack-review', realReview(t)).items.every(i => i.status !== 'missing')).toBe(true);
+  });
+
+  test('a user prompt between the reads makes the second read a new load', () => {
+    const prompt = record({ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review it again' }] });
+    expect(skillLoads(withAfterSpawn([prompt, ...reread]))).toHaveLength(2);
   });
 });
 
