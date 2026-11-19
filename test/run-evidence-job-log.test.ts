@@ -43,17 +43,17 @@ function steps(over: Record<string, Partial<ApiStep> | null> = {}, extra: ApiSte
 }
 const job = (over: Partial<ApiJob> = {}): ApiJob => ({ id: JOB_ID, name: 'checks', conclusion: 'success', started_at: '2026-11-19T11:00:00Z', completed_at: '2026-11-19T11:20:04Z', steps: steps(), ...over });
 
-interface World { artifact?: TreeRecord; logs: Record<number, string>; jobs?: ApiJob[] }
+interface World { artifact?: TreeRecord | Error; logs: Record<number, string>; jobs?: ApiJob[]; jobsByAttempt?: Record<number, ApiJob[]>; attempt?: number }
 function deps(w: World): RunDeps & { logReads: number[] } {
-  const run: ApiRun = { id: RUN_ID, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'push', head_sha: HEAD, path: '.github/workflows/ci.yml',
+  const run: ApiRun = { id: RUN_ID, run_attempt: w.attempt ?? 1, status: 'completed', conclusion: 'success', event: 'push', head_sha: HEAD, path: '.github/workflows/ci.yml',
     created_at: '2026-11-19T11:00:00Z', updated_at: '2026-11-19T11:20:10Z', repository: { full_name: REPO }, head_repository: { full_name: REPO } };
   const logReads: number[] = [];
   return {
     logReads,
     run: () => run,
     runsForHead: (_wf, sha) => (sha === HEAD ? [run] : []),
-    jobs: () => w.jobs ?? [job()],
-    artifact: (_id, name) => { if (!w.artifact) throw new NoArtifactError(`run ${RUN_ID} has 0 unexpired artifacts named ${name}`); return w.artifact; },
+    jobs: (_id, attempt) => w.jobsByAttempt?.[attempt] ?? w.jobs ?? [job()],
+    artifact: (_id, name) => { if (!w.artifact) throw new NoArtifactError(`run ${RUN_ID} has 0 unexpired artifacts named ${name}`); if (w.artifact instanceof Error) throw w.artifact; return w.artifact; },
     jobLog: id => { logReads.push(id); const text = w.logs[id]; if (text === undefined) throw new Error('HTTP 404'); return text; },
     commitTree: sha => (sha === HEAD ? TREE : null),
   };
@@ -87,6 +87,26 @@ describe('tree.json from the job log when the run has no artifact (HARN-118)', (
     expect(v.ok && v.evidence.tree_source).toBeUndefined();
     expect(d.logReads).toEqual([]);
     expect(v.ok ? runReceiptFields([v.evidence], NOW) : '').not.toContain('tree_source');
+  });
+
+  // Value: protects=rule 3: only "no artifact at all" opens the log; fails_when=an unreadable, oversized or ambiguous artifact falls back to a log line
+  test('an artifact that exists but cannot be read refuses as artifact_missing and never reads the log', () => {
+    for (const e of [new Error('run 1 has 2 unexpired artifacts named checks-tree and 0 of them record run_attempt 1'), new Error('artifact checks-tree is 9000000 bytes, over 8388608')]) {
+      const d = deps({ artifact: e, logs: { [JOB_ID]: log(treeLine(GOOD_AT)) } });
+      const v = verifyRun(d, { repo: REPO, runRef: String(RUN_ID), profileName: 'ci/checks', profile: PROFILE, now: NOW });
+      expect(v.ok ? 'ok' : v.reason).toBe('artifact_missing');
+      expect(d.logReads).toEqual([]);
+    }
+  });
+
+  // Value: protects=the log of the attempt that ran (ranIn), not the newest attempt's relisted job; fails_when=a rerun of another job makes gstack read the new attempt's job id
+  test('after a rerun of another job, the log read is the profile job\'s own attempt', () => {
+    const first = job({ id: 501 });
+    const relisted = job({ id: 502 });
+    const d = deps({ attempt: 2, jobsByAttempt: { 1: [first], 2: [relisted, { name: 'lint', conclusion: 'success', started_at: '2026-11-19T11:30:00Z', completed_at: '2026-11-19T11:31:00Z' }] }, logs: { 501: log(treeLine(GOOD_AT)), 502: log(treeLine(GOOD_AT, { ...REC, run_attempt: 2 })) } });
+    const v = verifyRun(d, { repo: REPO, runRef: String(RUN_ID), profileName: 'ci/checks', profile: PROFILE, now: NOW });
+    expect(v.ok ? [v.evidence.run_attempt, v.evidence.tree_source] : v.detail).toEqual([2, 'job-log']);
+    expect(d.logReads).toEqual([501]);
   });
 
   // Value: protects=rule 1 fails closed on ambiguity, across every profile job; fails_when=the first or last of several lines is taken
@@ -133,8 +153,11 @@ describe('a forged line never stands in for the named step (HARN-118 design call
     const at = (t: string) => refusal({ logs: { [JOB_ID]: log(treeLine(t)) } })[0];
     expect(at('2026-11-19T11:20:00.4000000Z')).toBe('tree_log_unbound');
     expect(at('2026-11-19T11:20:01.0000000Z')).toBe('ok');
-    expect(at('2026-11-19T11:20:03.9000000Z')).toBe('ok');
-    expect(at('2026-11-19T11:20:04.0000000Z')).toBe('tree_log_unbound');
+    expect(at('2026-11-19T11:20:01.9990000Z')).toBe('ok');
+    expect(at('2026-11-19T11:20:02.0000000Z')).toBe('tree_log_unbound');
+    expect(at('2026-11-19T11:20:03.9000000Z')).toBe('tree_log_unbound');
+    expect(at('2026-11-19T11:20:04.5000000Z')).toBe('tree_log_unbound');
+    expect(refusal({ jobs: [job({ steps: steps({ 'Complete job': { started_at: '2026-11-19T11:20:05Z', completed_at: '2026-11-19T11:20:06Z' } }) })], logs: { [JOB_ID]: log(treeLine('2026-11-19T11:20:03.9000000Z')) } })[0]).toBe('ok');
     expect(at('not-a-timeZ')).toBe('tree_log_unbound');
     const withSteps = (s: ApiStep[]) => refusal({ jobs: [job({ steps: s })], logs: { [JOB_ID]: log(treeLine(GOOD_AT)) } });
     expect(withSteps(steps({ [STEP]: { conclusion: 'failure' } }))).toEqual(['tree_log_unbound', expect.stringContaining('concluded failure')]);
@@ -142,6 +165,8 @@ describe('a forged line never stands in for the named step (HARN-118 design call
     expect(withSteps(steps({}, [{ number: 5, name: STEP, conclusion: 'success', started_at: '2026-11-19T11:20:04Z', completed_at: '2026-11-19T11:20:05Z' }]))).toEqual(['tree_log_unbound', expect.stringContaining('2 steps named')]);
     expect(withSteps(steps({ 'Run tests': { completed_at: null } }))).toEqual(['tree_log_unbound', expect.stringContaining('no start and finish time')]);
     expect(withSteps(steps({ [STEP]: { started_at: null } }))[0]).toBe('tree_log_unbound');
+    expect(withSteps(steps({ 'Complete job': { started_at: null } }))).toEqual(['tree_log_unbound', expect.stringContaining('"Complete job" has no start and finish time')]);
+    expect(withSteps(steps({}, [{ number: 5, name: 'Run more tests', conclusion: 'success', started_at: '2026-11-19T11:20:02Z', completed_at: '2026-11-19T11:25:00Z' }]))).toEqual(['tree_log_unbound', expect.stringContaining('before every later step started')]);
     expect(refusal({ jobs: [job({ conclusion: 'failure' })], logs: { [JOB_ID]: log(treeLine(GOOD_AT)) } })[0]).toBe('job_not_success');
     expect(refusal({ jobs: [job({ id: undefined })], logs: { [JOB_ID]: log(treeLine(GOOD_AT)) } })[0]).toBe('artifact_missing');
   });

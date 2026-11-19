@@ -850,12 +850,12 @@ hit", so the run holds no `tree.json` and every carry refuses it as
 `artifact_missing`. A profile that sets `tree_log_step` to the name of one step
 in its job lets gstack read `tree.json` from that job's log instead, only when
 the run holds no unexpired artifact by the profile's name at all (an artifact
-always wins). The step prints one line, after the test step and a second after
-it ends:
+always wins). The step prints one line, after the test step, a second after
+that step ends and a second before the next step starts:
 
 ```yaml
 - name: Print tree.json
-  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)"
+  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)" && sleep 2
 ```
 
 gstack reads the log with `gh api --allow-escape-sequences
@@ -867,12 +867,16 @@ artifact. Exactly one must exist across those jobs; zero, two or more refuse as
 timestamp the runner stamps on output as it arrives, which nothing a step
 prints can set, so the line binds to the named step by that timestamp: inside
 the step's start and finish (as the jobs API reports them, to the second), at
-least one second after every earlier step that ran ended, in a job and step
-that succeeded. A line a test prints, even a well-formed one with a real
-`tree.json`, is either a second line or a line outside the step, and refuses
+least one second after every earlier step that ran ended and one second before
+every later step started, in a job and step that succeeded. A step's output,
+background processes included, stays in that step: GitHub holds the step open
+until its output closes. A line a test prints, even a well-formed one with a
+real `tree.json`, is either a second line or a line outside the step, and
+refuses
 ([`CI_CARRY_TREE_LOG_UNBOUND`](troubleshooting.md#ci-carry-tree-log-unbound)).
 The decoded `tree.json` is capped at 8 MiB like an artifact, and every check
-below runs on it unchanged. The carry then says where `tree.json` came from:
+below runs on it unchanged. The step prints the `tree.json` the job wrote, so
+it trusts that file exactly as much as the upload step does. The carry then says where `tree.json` came from:
 `tree_source=job-log` on the `CI_CARRY:`, `LANE:` and `CI_CARRIED:` lines, and
 `tree_source: "job-log"` in the receipt's `ci_carried` entry with
 `tree_source=job-log` after `ci_carried=` on the `SHIP_RECEIPT:` line. A profile

@@ -427,8 +427,8 @@ export const RELEASE_RESULT_CODES = {
   },
   CI_CARRY_TREE_LOG_UNBOUND: {
     anchor: 'ci-carry-tree-log-unbound',
-    summary: 'a CI run with no tree.json artifact (artifact storage full) has one GSTACK_TREE_JSON line in its job log, but the runner did not stamp it inside the step the run profile names in tree_log_step, at least a second after every earlier step ended, or that step is missing, repeated or did not succeed; a line printed anywhere else (a test, for one) is never evidence',
-    fix: 'print the line only from the step tree_log_step names, after the test step, with sleep 1 before it (docs/pregate.md#tree-log-step); then dispatch a fresh run at the same head and rerun gstack-ci-carry wait',
+    summary: 'a CI run with no tree.json artifact (artifact storage full) has one GSTACK_TREE_JSON line in its job log, but the runner did not stamp it inside the step the run profile names in tree_log_step, at least a second after every earlier step ended and a second before every later one started, or that step is missing, repeated or did not succeed; a line printed anywhere else (a test, for one) is never evidence',
+    fix: 'print the line only from the step tree_log_step names, after the test step, with sleep 1 before it and sleep 2 after it (docs/pregate.md#tree-log-step); then dispatch a fresh run at the same head and rerun gstack-ci-carry wait',
   },
   CI_CARRY_RERUN_MALFORMED: {
     anchor: 'ci-carry-rerun-malformed',

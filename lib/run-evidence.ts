@@ -287,7 +287,8 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
  * The tree.json run `id` logged at `attempt` for a profile that opted in with `tree_log_step`, read only when the run holds no
  * artifact (HARN-118). Exactly one TREE_LOG_LINE naming the profile's artifact across the profile's `names` jobs counts, and it
  * binds only by the runner's own timestamp, which a step's output cannot set: inside the named step (one step of that name,
- * a success) and at least a second after every earlier step that ran ended, since the API times steps to the second. A test
+ * a success), at least a second after every earlier step that ran ended and a second before every later one started,
+ * since the API times steps only to the second. A test
  * that prints a well-formed line therefore adds a second line, or stands alone outside the step, and refuses either way.
  * The decoded tree.json is capped at MAX_ARTIFACT_BYTES; verifyRun then checks it exactly as it checks an artifact.
  */
@@ -313,12 +314,14 @@ function treeFromLog(deps: RunDeps, id: number, attempt: number, p: RunProfile, 
   const s = named[0]!;
   if (s.conclusion !== 'success') return unbound(`cannot be bound: step "${step}" concluded ${s.conclusion}`);
   const ran = (job.steps ?? []).filter(x => x.number < s.number && x.conclusion !== 'skipped');
-  const untimed = [s, ...ran].find(x => !Number.isFinite(Date.parse(x.started_at ?? '')) || !Number.isFinite(Date.parse(x.completed_at ?? '')));
+  const later = (job.steps ?? []).filter(x => x.number > s.number && x.conclusion !== 'skipped');
+  const untimed = [s, ...ran, ...later].find(x => !Number.isFinite(Date.parse(x.started_at ?? '')) || !Number.isFinite(Date.parse(x.completed_at ?? '')));
   if (untimed) return unbound(`cannot be bound: step "${untimed.name}" has no start and finish time`);
   const t = LOG_STAMP.exec(stamp);
   const when = t ? Date.parse(`${t[1]}.${(t[2] ?? '').padEnd(3, '0').slice(0, 3)}Z`) : NaN;
   const from = Math.max(Date.parse(s.started_at!), ...ran.map(x => Date.parse(x.completed_at!) + 1000));
-  if (!(when >= from && when < Date.parse(s.completed_at!) + 1000)) return unbound(`was stamped ${stamp.slice(0, 40)}, not inside step "${step}" (${s.started_at} to ${s.completed_at}) at least a second after every earlier step ended`);
+  const until = Math.min(Date.parse(s.completed_at!) + 1000, ...later.map(x => Date.parse(x.started_at!) - 1000));
+  if (!(when >= from && when < until)) return unbound(`was stamped ${stamp.slice(0, 40)}, not inside step "${step}" (${s.started_at} to ${s.completed_at}) at least a second after every earlier step ended and before every later step started`);
   if (data.length > Math.ceil(MAX_ARTIFACT_BYTES / 3) * 4) return missing(`its line holds a tree.json over ${MAX_ARTIFACT_BYTES} bytes`);
   const bytes = Buffer.from(data, 'base64');
   if (bytes.length > MAX_ARTIFACT_BYTES) return missing(`its line holds a tree.json over ${MAX_ARTIFACT_BYTES} bytes`);
