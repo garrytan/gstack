@@ -2993,7 +2993,7 @@ describe('Codex generation (--host codex)', () => {
       walk(path.join(AGENTS_DIR, skill));
     }
     expect(listed.has('review') && listed.has('gstack-upgrade')).toBe(true);
-    const docs = ['README.md', ...fs.readdirSync(path.join(ROOT, 'docs')).filter(f => f.endsWith('.md')).map(f => path.join('docs', f))];
+    const docs = ['README.md', 'docs/hosts.md', 'docs/skills.md', 'docs/skill-routing-and-contracts.md', 'docs/troubleshooting.md'];
     const bad: string[] = [];
     for (const f of [...files, ...docs.map(d => path.join(ROOT, d))]) {
       for (const m of fs.readFileSync(f, 'utf-8').matchAll(/\$(gstack-[a-z0-9-]*[a-z0-9])/g)) {

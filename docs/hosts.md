@@ -167,7 +167,7 @@ after you approve); ask for `gstack-office-hours`, or list them with
 Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
 load only in trusted folders (`/trust`).
 
-Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
+Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex` (Codex lists its one as `claude-code`: mention it as `$claude-code`); each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
 

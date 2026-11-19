@@ -1470,7 +1470,7 @@ Claude: Running independent Codex review...
 
 ## `/claude-code`
 
-Claude Code provides the outside reviewer when gstack runs in Codex. Other non-Claude harnesses also expose this skill for explicit requests; Claude Code itself omits it. External harnesses install it as `/gstack-claude-code`.
+Claude Code provides the outside reviewer when gstack runs in Codex. Other non-Claude harnesses also expose this skill for explicit requests; Claude Code itself omits it. External harnesses install it as `/gstack-claude-code`; Codex lists it as `claude-code`, so mention it as `$claude-code`.
 
 **Review** supplies the branch diff for a read-only pass/fail review. **Challenge** asks Claude Code to find concrete failure cases in the same diff. **Consult** supports read-only repository exploration and resumes the session saved in `.context/claude-session-id`. Review and challenge receive context from the parent workflow and run without tools; consultation can read and search files.
 
