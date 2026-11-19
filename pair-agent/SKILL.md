@@ -75,7 +75,7 @@ Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<
 
 ## Telemetry (run last)
 
-When done, log telemetry in ONE command; it also drains the artifacts-sync
+When done, log telemetry in ONE call — it also drains the artifacts-sync
 queue (do not also run gstack-brain-sync).
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** writes only to `$GSTACK_STATE_ROOT/analytics/`.
@@ -92,7 +92,7 @@ skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
 completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
 INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
 claude_haiku/gpt/gemini/other. CHECKS: passed/failed/not_run/none. No command
-(stale install)? Skip it.
+(stale install) — skip.
 
 # /pair-agent — Share Your Browser With Another AI Agent
 
