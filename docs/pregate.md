@@ -105,7 +105,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `stall_timeout_s` | seconds a test command may print nothing while using under a tenth of one CPU before its process group is killed and the check is `incomplete` (`PREGATE_STALLED`); default 300, `0` disables; `--stall-timeout` overrides; the `--remote` gate is exempt (see [supervision](#supervision)) |
 | `timeout_s` | seconds each runner process may take (the unit-file group, each serial file, each guard without its own `timeout_s`, and the remote gate's deadline) when `--timeout` is not passed; 1 to 3600, default 600. `gstack-ship-preflight` forwards its own `--timeout`; without it, and in the `finish` fallback, this is how a repo with long lanes sets theirs. The whole pregate under `gstack-ship-preflight` has a separate budget, `--step-timeout <s>` (1 to 86400, default 3600): a pregate stopped there prints `PREGATE: time limit hit` and a STOP naming the way out, push and let CI's full run at the tree carry the tests ([CI carry](#ci-carry)), or a larger `--step-timeout` |
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
-| `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
+| `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable?, tree_log_step? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
 | `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
@@ -843,6 +843,47 @@ its own job: `run_id`, `run_attempt`, `event`, `sha` (or `head_sha`),
 run executed), `tests` (the count) and, with `os`, the runner OS or a list of
 every OS the run's test jobs ran on (the profile's `os` must be one of them).
 
+<a id="tree-log-step"></a>**When artifact storage is full: `tree_log_step` (HARN-118).** A
+private repository whose GitHub Actions storage quota is spent still runs its
+jobs green, but `upload-artifact` fails with "Artifact storage quota has been
+hit", so the run holds no `tree.json` and every carry refuses it as
+`artifact_missing`. A profile that sets `tree_log_step` to the name of one step
+in its job lets gstack read `tree.json` from that job's log instead, only when
+the run holds no unexpired artifact by the profile's name at all (an artifact
+always wins). The step prints one line, after the test step, a second after
+that step ends and a second before the next step starts:
+
+```yaml
+- name: Print tree.json
+  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)" && sleep 2
+```
+
+gstack reads the log with `gh api --allow-escape-sequences
+repos/<repo>/actions/jobs/<job id>/logs` for every profile job at the attempt
+that ran, and counts lines matching
+`^\S+Z GSTACK_TREE_JSON (\S+) ([A-Za-z0-9+/]+={0,2})\r?$` that name the profile's
+artifact. Exactly one must exist across those jobs; zero, two or more refuse as
+`artifact_missing` with the count. The first field of every log line is the
+timestamp the runner stamps on output as it arrives, which nothing a step
+prints can set, so the line binds to the named step by that timestamp: inside
+the step's start and finish (as the jobs API reports them, to the second), at
+least one second after every earlier step that ran ended and one second before
+every later step started, in a job and step that succeeded. A step's output,
+background processes included, stays in that step: GitHub holds the step open
+until its output closes. A line a test prints, even a well-formed one with a
+real `tree.json`, is either a second line or a line outside the step, and
+refuses
+([`CI_CARRY_TREE_LOG_UNBOUND`](troubleshooting.md#ci-carry-tree-log-unbound)).
+The decoded `tree.json` is capped at 8 MiB like an artifact, and every check
+below runs on it unchanged. The step prints the `tree.json` the job wrote, so
+it trusts that file exactly as much as the upload step does. The carry then says where `tree.json` came from:
+`tree_source=job-log` on the `CI_CARRY:`, `LANE:` and `CI_CARRIED:` lines, and
+`tree_source: "job-log"` in the receipt's `ci_carried` entry with
+`tree_source=job-log` after `ci_carried=` on the `SHIP_RECEIPT:` line. A profile
+without the key never reads a log. An older gstack refuses the key as unknown,
+so a repository that sets it raises `min_gstack_version` to the release that
+ships it. A release asset is no substitute: nothing binds it to the run.
+
 **What `clear --run` checks** (`lib/run-evidence.ts`), for every run, online,
 once:
 
@@ -1356,7 +1397,9 @@ the same run. `gstack-ship-receipt write` records the carried runs as
 them (`ci_carried=<lane>:<run>/<attempt>`). A run whose `tree.json` lists
 `rerun_files` adds `rerun` and `attempts` to its entries and
 `rerun=<files> attempts=<list>` after `ci_carried=`, as its `CI_CARRY:` line does
-([ship-policy.md](ship-policy.md#ci-carry-rerun)). Each `record-ci` gets the base
+([ship-policy.md](ship-policy.md#ci-carry-rerun)). A run whose `tree.json` came
+from its job log adds `tree_source: "job-log"` to its entries and
+`tree_source=job-log` after them ([tree_log_step](#tree-log-step)). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
 default, 3600 s at most), and accept prints it as `CI_RECORD_TIMEOUT:`.
 

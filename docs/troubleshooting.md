@@ -7506,6 +7506,26 @@ pass the `gstack-review-scope summary` file as `--review-loop`, put the printed
 line in the PR body, and write again
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 
+<a id="ci-carry-tree-log-unbound"></a>
+### `CI_CARRY_TREE_LOG_UNBOUND`
+
+**Meaning.** A CI run holds no `tree.json` artifact (its repository's artifact
+storage is full), its run profile sets `tree_log_step`, and its job log has
+exactly one `GSTACK_TREE_JSON` line for the profile's artifact, but gstack
+cannot prove that line came from the step `tree_log_step` names. The runner's
+timestamp on the line falls outside that step, less than a second after an
+earlier step (the test step) ended, or less than a second before a later step
+started; or the job has no step by that name, has
+two, or the step or job did not succeed; or a step before or after it has no start
+and finish time. A line printed anywhere else, by a test for one, is never
+evidence, so the run is refused (`tree_log_unbound` in the `CI_CARRY: none`
+or `no_verified_run` detail) and the lane runs here instead
+([pregate.md](pregate.md#tree-log-step)).
+
+**Fix.** Print the line only from the named step, after the test step, with
+`sleep 1` before it and `sleep 2` after it, and make sure no test prints `GSTACK_TREE_JSON`. Then
+dispatch a fresh run at the same head and rerun `gstack-ci-carry wait`.
+
 <a id="ci-carry-rerun-malformed"></a>
 ### `CI_CARRY_RERUN_MALFORMED`
 

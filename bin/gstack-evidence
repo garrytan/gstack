@@ -151,6 +151,8 @@ interface EvidenceRecord {
   exception?: BoundLaneException;
   /** Per carried run (`<id>/<attempt>`) whose tree.json lists files that passed only on a re-run: how many, and the run's attempts (record-ci, GST-3054). */
   rerun?: Record<string, { files: number; attempts: number[] }>;
+  /** Per carried run (`<id>/<attempt>`) whose tree.json came from its job log because it held no artifact (HARN-118). */
+  tree_source?: Record<string, "job-log">;
 }
 
 /** Bytes of streamed output kept for the tests_ran parse (the 2MB log would truncate the summary). */
@@ -716,7 +718,7 @@ function reused(file: string, label: string, cmdSha: string, maxAgeHours: number
 
 /** record-ci's record line, the one lib/ci-carry.ts recordCiResult reads. */
 const recordedCiLine = (r: EvidenceRecord): string =>
-  `gstack-evidence: recorded label=${r.label} exit=0 tests_ran=${r.tests_ran}${r.tests_unit ? ` unit=${r.tests_unit}` : ""} log=- source=ci runs=${r.runs!.join(",")}${rerunMarker(Object.values(r.rerun ?? {}))} policy=${r.policy}${r.skipped_here ? ` skipped_here=${r.skipped_here.files.length} tests_ran_here=${r.skipped_here.tests_ran}${r.skipped_here.not_owed ? ` not_owed_here=${r.skipped_here.not_owed.length}` : ""}` : ""}`;
+  `gstack-evidence: recorded label=${r.label} exit=0 tests_ran=${r.tests_ran}${r.tests_unit ? ` unit=${r.tests_unit}` : ""} log=- source=ci runs=${r.runs!.join(",")}${rerunMarker(Object.values(r.rerun ?? {}))}${Object.keys(r.tree_source ?? {}).length ? " tree_source=job-log" : ""} policy=${r.policy}${r.skipped_here ? ` skipped_here=${r.skipped_here.files.length} tests_ran_here=${r.skipped_here.tests_ran}${r.skipped_here.not_owed ? ` not_owed_here=${r.skipped_here.not_owed.length}` : ""}` : ""}`;
 
 /**
  * record-ci's reuse (GST-1795): the label's newest ledger row stands only when it is the CI row this record-ci would write again
@@ -806,7 +808,9 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const runs = v.runs.map((r) => `${r.run_id}/${r.run_attempt}`);
   const reran = rerunByRun(v.runs);
   const rerun = reran.size ? Object.fromEntries(reran) : undefined;
-  const prior = v.excepted?.length ? null : reusableCiRow(label, { commit: head, wtree: tree, cmd_sha256: sha256(command), runs, profiles: m.profiles, policy: loaded.label, jobs: m.jobs, tests_ran: v.tests, tests_unit: v.unit, not_owed: v.notOwed, rerun }, v.remainder ?? [], m.per_file);
+  const logged = v.runs.filter((r) => r.tree_source === "job-log");
+  const tree_source = logged.length ? Object.fromEntries(logged.map((r) => [`${r.run_id}/${r.run_attempt}`, "job-log" as const])) : undefined;
+  const prior = v.excepted?.length ? null : reusableCiRow(label, { commit: head, wtree: tree, cmd_sha256: sha256(command), runs, profiles: m.profiles, policy: loaded.label, jobs: m.jobs, tests_ran: v.tests, tests_unit: v.unit, not_owed: v.notOwed, rerun, tree_source }, v.remainder ?? [], m.per_file);
   if (prior) {
     console.error(recordedCiLine(prior));
     if (prior.not_owed) console.error(`gstack-evidence: not owed: ${prior.not_owed}`);
@@ -871,7 +875,7 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   }
   const rec: EvidenceRecord = {
     ts: new Date(v.runs.map((r) => r.finished_at).sort()[0]!).toISOString(), label, command, cmd_sha256: sha256(command), exit: 0, duration_s: 0,
-    commit: head, tree, dirty: false, wtree: tree, tests_ran: testsRan, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}), ...(rerun ? { rerun } : {}),
+    commit: head, tree, dirty: false, wtree: tree, tests_ran: testsRan, source: "ci", runs, profiles: m.profiles, policy: loaded.label, ...(m.jobs ? { jobs: m.jobs } : {}), ...(v.unit ? { tests_unit: v.unit } : {}), ...(v.notOwed ? { not_owed: v.notOwed } : {}), ...(here ? { skipped_here: here } : {}), ...(exception ? { exception } : {}), ...(rerun ? { rerun } : {}), ...(tree_source ? { tree_source } : {}),
   };
   appendJsonl(paths.file, rec, { mode: 0o600 });
   console.error(recordedCiLine(rec));
@@ -905,10 +909,10 @@ function cmdCarried(argv: string[]): number {
       const [run, attempt] = ref.split("/").map(Number);
       const re = r.rerun?.[ref];
       const reran = re && Number.isInteger(re.files) && re.files > 0 && Array.isArray(re.attempts) && re.attempts.every((n) => Number.isInteger(n) && n > 0) ? { rerun: re.files, attempts: re.attempts } : {};
-      return { lane: r.label, run, attempt, tree: r.wtree!, ...reran, ...(r.exception ? { exception: r.exception } : {}) };
+      return { lane: r.label, run, attempt, tree: r.wtree!, ...reran, ...(r.tree_source?.[ref] === "job-log" ? { tree_source: "job-log" as const } : {}), ...(r.exception ? { exception: r.exception } : {}) };
     }));
   if (argv.includes("--json")) console.log(JSON.stringify(carried));
-  else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}${"rerun" in c ? rerunMarker([{ files: c.rerun!, attempts: c.attempts! }]) : ""}`);
+  else for (const c of carried) console.log(`CI_CARRIED: ${c.lane} run=${c.run}/${c.attempt} tree=${c.tree.slice(0, 12)}${"rerun" in c ? rerunMarker([{ files: c.rerun!, attempts: c.attempts! }]) : ""}${"tree_source" in c ? " tree_source=job-log" : ""}`);
   return 0;
 }
 

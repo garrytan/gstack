@@ -267,7 +267,7 @@ function simulate(cwd: string, base: string, list: { label: string; command: str
     const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd) });
     if (!v.ok) { say(`CI_CARRY: none label=${l.label} (${v.reason}: ${v.detail})`); continue; }
     carried++;
-    say(`LANE: ${l.label} would carry run=${v.runs.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ''}${v.remainder ? ` and would run ${v.remainder.length} skipped file(s) here with per_file` : ''}`);
+    say(`LANE: ${l.label} would carry run=${v.runs.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} tests_ran=${v.tests}${v.unit ? ` unit=${v.unit}` : ''}${v.runs.some(e => e.tree_source === 'job-log') ? ' tree_source=job-log' : ''}${v.remainder ? ` and would run ${v.remainder.length} skipped file(s) here with per_file` : ''}`);
   }
   say(`${carried} of ${mapped} mapped lane(s) would carry once origin/${base} holds this map`);
   return done(mapped > 0 && carried === mapped ? 0 : 1);

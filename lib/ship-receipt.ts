@@ -220,7 +220,7 @@ export function receiptSummaryLine(r: ShipReceipt): string {
       const seen = runs.get(key) ?? { files: 0, attempts: [] };
       runs.set(key, { files: Math.max(seen.files, typeof c.rerun === 'number' ? c.rerun : 0), attempts: [...seen.attempts, ...(Array.isArray(c.attempts) ? c.attempts : [])] });
     }
-    parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}${rerunMarker([...runs.values()])}`);
+    parts.push(`ci_carried=${r.ci_carried.map(c => `${c.lane}:${c.run}/${c.attempt}`).join(',')}${rerunMarker([...runs.values()])}${r.ci_carried.some(c => c.tree_source === 'job-log') ? ' tree_source=job-log' : ''}`);
   }
   if (r.base_red && typeof r.base_red.base === 'string') parts.push(`base_red=${r.base_red.base.slice(0, 12)}`);
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;

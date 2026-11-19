@@ -425,6 +425,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
     fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
   },
+  CI_CARRY_TREE_LOG_UNBOUND: {
+    anchor: 'ci-carry-tree-log-unbound',
+    summary: 'a CI run with no tree.json artifact (artifact storage full) has one GSTACK_TREE_JSON line in its job log, but the runner did not stamp it inside the step the run profile names in tree_log_step, at least a second after every earlier step ended and a second before every later one started, or that step is missing, repeated or did not succeed; a line printed anywhere else (a test, for one) is never evidence',
+    fix: 'print the line only from the step tree_log_step names, after the test step, with sleep 1 before it and sleep 2 after it (docs/pregate.md#tree-log-step); then dispatch a fresh run at the same head and rerun gstack-ci-carry wait',
+  },
   CI_CARRY_RERUN_MALFORMED: {
     anchor: 'ci-carry-rerun-malformed',
     summary: 'a CI run\'s tree.json carries rerun_files or attempts in a shape gstack cannot read (rerun_files not a list of paths, attempts not a list of attempt numbers), so the run is not evidence and no lane carries from it',

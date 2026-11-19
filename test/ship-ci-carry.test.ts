@@ -786,3 +786,55 @@ describe('GST-3019: --tests-only never starts a lane on its own when its carry r
     expect(f.run(PREFLIGHT, ['--base', 'main', '--run-uncarried-here', '--lane', `free=${FREE}`]).status).toBe(2);
   });
 });
+
+describe('HARN-118: a run with no artifact carries from the one tree.json line its named step logged', () => {
+  const STEP = 'Print tree.json';
+  const LOGGED = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': { ...PROFILE, tree_log_step: STEP } }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'" } } }, null, 2) + '\n' };
+  /** Run 7 green with no artifact; job 70's named step logs `printed` (the real line unless overridden) 1.5 s after the test step ended. */
+  function logWorld(f: ShipFx, printed?: (rec: string) => string[]) {
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    const t0 = Math.floor(Date.now() / 1000) * 1000 - 10 * 60_000;
+    const s = (sec: number) => new Date(t0 + sec * 1000).toISOString().replace('.000Z', 'Z');
+    const stamp = (sec: number) => new Date(t0 + sec * 1000).toISOString().replace('Z', '0000Z');
+    const rec = Buffer.from(JSON.stringify({ run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree, files: ['test/a.test.ts', 'test/b.test.ts'], tests: 12, os: 'Linux' })).toString('base64');
+    const steps = [
+      { number: 1, name: 'Run tests', conclusion: 'success', started_at: s(0), completed_at: s(60) },
+      { number: 2, name: STEP, conclusion: 'success', started_at: s(60), completed_at: s(63) },
+    ];
+    const run = { id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: head, path: '.github/workflows/free.yml', created_at: s(-5), run_started_at: s(-5), updated_at: s(64), repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
+    const lines = printed ? printed(rec) : [`${stamp(61.5)} GSTACK_TREE_JSON tested-tree ${rec}`];
+    const w: FakeWorld = { runs: [run] as FakeWorld['runs'], jobs: { 7: [{ id: 70, name: 'suite', conclusion: 'success', started_at: s(0), completed_at: s(63), steps }] }, trees: {},
+      logs: { 70: [`${stamp(0)} ##[group]Run bun test`, ...lines, `${stamp(63.5)} Cleaning up orphan processes`].join('\n') } };
+    const file = path.join(f.root, 'world.json');
+    fs.writeFileSync(file, JSON.stringify(w));
+    f.gh(fakeGhScript(file));
+  }
+
+  // Value: protects=HARN-118: a green run whose artifact upload hit the storage quota carries end to end and says so on LANE, CI_CARRIED and the receipt's entry;
+  //   fails_when=the lane runs here beside a green run, or the carried entry hides where tree.json came from; why_new=harness-evals #501 run 44577938128 (0 artifacts); seam=fake gh, gstack-evidence ledger
+  test('the lane carries with tree_source=job-log, and carried --json records it per run', () => {
+    const f = shipFixture(LOGGED);
+    fixtures.push(f);
+    logWorld(f);
+    const out = preflight(f, [`free=${FREE}`]);
+    expect(out.status).toBe(0);
+    expect(lane(out.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=2 (files) tree_source=job-log');
+    expect(runs(f, 'free-runs')).toBe(0);
+    const carried = f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main', '--json']);
+    expect(JSON.parse(carried.stdout)).toEqual([expect.objectContaining({ lane: 'free', run: 7, attempt: 1, tree_source: 'job-log' })]);
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main']).stdout).toMatch(/^CI_CARRIED: free run=7\/1 tree=[0-9a-f]{12} tree_source=job-log$/m);
+  });
+
+  // Value: protects=the forged-line control through the real gh-backed reader; fails_when=a line a test printed during the test step carries
+  test('a line a test printed during the test step runs the lane here', () => {
+    const f = shipFixture(LOGGED);
+    fixtures.push(f);
+    logWorld(f, rec => [`${new Date(Math.floor(Date.now() / 1000) * 1000 - 10 * 60_000 + 30_000).toISOString().replace('Z', '0000Z')} GSTACK_TREE_JSON tested-tree ${rec}`]);
+    const out = preflight(f, [`free=${FREE}`], UNCARRIED_HERE);
+    expect(out.stdout).toContain('tree_log_unbound');
+    expect(lane(out.stdout, 'free')).toMatch(/^LANE: free pass exit=0 tests_ran=3 /);
+    expect(runs(f, 'free-runs')).toBe(1);
+  });
+});
+

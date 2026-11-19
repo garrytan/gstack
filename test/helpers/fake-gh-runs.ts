@@ -8,8 +8,10 @@ import * as path from 'node:path';
 export interface FakeWorld {
   runs: Array<Record<string, unknown> & { id: number; run_attempt: number; head_sha: string; path: string }>;
   /** Keyed `<run id>/<attempt>` for one attempt's jobs, else `<run id>` for every attempt. */
-  jobs: Record<string, Array<{ name: string; conclusion: string | null; completed_at?: string }>>;
+  jobs: Record<string, Array<{ name: string; conclusion: string | null; completed_at?: string } & Record<string, unknown>>>;
   trees: Record<string, Record<string, unknown>>;
+  /** Job id → that job's raw log (HARN-118's tree.json line); a run with no `trees` entry holds no artifact. */
+  logs?: Record<string, string>;
   /** Once `marker` exists, the next run read writes `content` to `file` (a working-tree edit inside a run recheck). */
   editWhenArmed?: { marker: string; file: string; content: string };
 }
@@ -23,7 +25,7 @@ if (import.meta.main) {
   const lines = (list: unknown[]) => process.stdout.write(list.map(x => JSON.stringify(x)).join('\n') + (list.length ? '\n' : ''));
   if (a[0] === 'api') {
     const jq = a.indexOf('--jq');
-    const p = a.filter((x, i) => i > 0 && x !== '--paginate' && i !== jq && i !== jq + 1)[0] ?? '';
+    const p = a.filter((x, i) => i > 0 && x !== '--paginate' && x !== '--allow-escape-sequences' && i !== jq && i !== jq + 1)[0] ?? '';
     const [route, query = ''] = p.split('?');
     const q = new URLSearchParams(query);
     let m: RegExpExecArray | null;
@@ -37,6 +39,10 @@ if (import.meta.main) {
       lines(world.runs.filter(r => r.head_sha === q.get('head_sha') && r.path === `.github/workflows/${m![1]}`));
     } else if ((m = /\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs$/.exec(route!))) {
       lines(world.jobs[`${m[1]}/${m[2]}`] ?? world.jobs[m[1]!] ?? []);
+    } else if ((m = /\/actions\/jobs\/(\d+)\/logs$/.exec(route!))) {
+      const text = world.logs?.[m[1]!];
+      if (text === undefined || !a.includes('--allow-escape-sequences')) { process.stderr.write('HTTP 404'); process.exit(1); }
+      process.stdout.write(text);
     } else if ((m = /\/actions\/runs\/(\d+)\/artifacts$/.exec(route!))) {
       lines(world.trees[m[1]!] ? [{ name: q.get('name'), size_in_bytes: 200, expired: false }] : []);
     } else { process.stderr.write(`fake gh: no route for ${p}`); process.exit(1); }
