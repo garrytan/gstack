@@ -34,6 +34,8 @@ export interface PlanCountTranscript {
   assistantMessages: Array<{ sessionId: string; text: string; timestamp: string }>;
   /** Actual native plan-mode approval requests; pending is the UI gate, never an AUQ. */
   planReadyRequests?: Array<{ sessionId: string; toolUseId: string; timestamp: string; failed: boolean; source?: 'pre_tool_use' }>;
+  /** Skill text Claude Code loaded for a slash command or the Skill tool, after its load-time commands ran. */
+  skillLoads?: Array<{ sessionId: string; skill: string; text: string; timestamp: string }>;
   error?: string;
   /** Owned reads only: why the exact parent journal supplied no owned lines. */
   reason?: OwnedTranscriptReason;
@@ -80,6 +82,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
   const calls = new Map<string, NativePlanQuestionCall>();
   const assistantMessages: PlanCountTranscript['assistantMessages'] = [];
   const planReadyRequests = new Map<string, NonNullable<PlanCountTranscript['planReadyRequests']>[number]>();
+  const skillLoads: NonNullable<PlanCountTranscript['skillLoads']> = [];
   let matched = false;
   let bytes = 0;
   let files = 0;
@@ -164,6 +167,9 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           }
           for (const block of record.message.content) {
             if (!object(block)) continue;
+            const loadedFrom = record.message.role === 'user' && record.isMeta === true && block.type === 'text' &&
+              typeof block.text === 'string' && validTimestamp(record.timestamp) ? /^Base directory for this skill: ([^\n]+)\n/.exec(block.text)?.[1] : undefined;
+            if (loadedFrom) skillLoads.push({ sessionId: record.sessionId, skill: path.basename(loadedFrom.trim()), text: block.text, timestamp: record.timestamp });
             if (record.message.role === 'assistant' && block.type === 'tool_use' && block.name === 'ExitPlanMode' &&
                 typeof block.id === 'string' && validTimestamp(record.timestamp)) {
               const key = `${record.sessionId}:${block.id}`;
@@ -208,7 +214,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
       }
     }
     return { status: matched ? 'ready' : 'missing', calls: [...calls.values()], assistantMessages,
-      ...(planReadyRequests.size ? { planReadyRequests: [...planReadyRequests.values()] } : {}) };
+      ...(planReadyRequests.size ? { planReadyRequests: [...planReadyRequests.values()] } : {}),
+      ...(skillLoads.length ? { skillLoads } : {}) };
   } catch (error) {
     // A failed read cannot silently turn an incomplete transcript into a
     // complete review. Keep the diagnostic explicit and return no coverage.
