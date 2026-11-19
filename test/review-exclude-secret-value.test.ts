@@ -64,7 +64,7 @@ describe('secret-like lines under review_exclude_paths', () => {
     const p = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--json']).out);
     expect(p.review_exclude.kept_files).toEqual(Object.keys(VALUE_LINES).sort().map(n => ({ path: `receipts/value/${n}.json`, reason: 'secret-line' })));
     expect(p.review_exclude.excluded).toBe(1 + Object.keys(NAME_LINES).length);
-    expect(p.review_exclude.skipped).toEqual([]);
+    expect(p.review_exclude.applied).toEqual(['receipts/**']);
   }, 120_000);
 });
 
@@ -82,7 +82,6 @@ describe('the argument-byte bound', () => {
     const baseSha = repo.git('rev-parse', 'origin/main');
     const c = collectCommit(repo.work, baseSha, head);
     const x = reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: new Set(), context: 'test' });
-    if (x.state !== 'active') throw new Error(`exclusion is ${x.state}`);
     return { repo, x, paths, mergeBase: c.mergeBase! };
   }
 
@@ -93,7 +92,7 @@ describe('the argument-byte bound', () => {
   //   GIT_TRACE; no_claim=what an agent's shell does with a brief's keep command (those files still count)
   test('excerpt-only kept files past the bound still apply the pattern, and their read is chunked under it', () => {
     const { repo, x, paths, mergeBase } = excerptOnly(false);
-    expect(x.record.skipped).toEqual([]);
+    if (x.state !== 'active') throw new Error(`exclusion is ${x.state}`);
     expect(x.record.applied).toEqual(['receipts/**']);
     expect(x.excerpt.length).toBe(COUNT);
     expect(paths.reduce((n, p) => n + Buffer.byteLength(`':(top,literal)${p}' `), 0)).toBeGreaterThan(KEEP_ARG_MAX_BYTES);
@@ -116,8 +115,8 @@ describe('the argument-byte bound', () => {
   //   bound; fails_when=the bound stops counting kept files that are not excerpted; why_new=GST-1967; seam=reviewExclude
   test('kept files a reader runs as a command still count toward the bound', () => {
     const { x } = excerptOnly(true);
-    expect(x.record.applied).toEqual([]);
-    expect(x.record.skipped).toMatchObject([{ pattern: 'receipts/**', kept: COUNT }]);
+    expect(x).toMatchObject({ state: 'refused', code: 'REVIEW_EXCLUDE_KEEP_TOO_LARGE' });
+    if (x.state === 'refused') expect(x.lines[0]).toContain(`keeps ${COUNT} matched files in review (secret-line:${COUNT})`);
   }, 120_000);
 });
 

@@ -57,6 +57,7 @@ export const LAND_DOCS_ONLY_SKIP_KEY_VERSION = '1.99.0.0';
 /** `history: no-rewrite` and `land.merge_commit_paths` are a value and a field of older keys, checked by value like bump: never. */
 export const HISTORY_NO_REWRITE_KEY_VERSION = '1.100.0.0';
 export const LAND_MERGE_COMMIT_PATHS_KEY_VERSION = '1.100.0.0';
+export const REVIEW_CONTENT_KEY_VERSION = '1.102.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
@@ -64,7 +65,7 @@ export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   migrations: '1.91.98.0', gate_command: SHIP_QUEUE_KEYS_VERSION, full_e2e: SHIP_QUEUE_KEYS_VERSION, min_gstack_version: SHIP_QUEUE_KEYS_VERSION,
   train: TRAIN_KEYS_VERSION, review_scope: REVIEW_SCOPE_KEY_VERSION, docs: DOCS_CAPS_KEY_VERSION,
   changelog_fragments: CHANGELOG_FRAGMENTS_KEY_VERSION,
-  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
+  base_red: BASE_RED_KEY_VERSION, review_exclude_paths: REVIEW_EXCLUDE_KEY_VERSION, review_content_patterns: REVIEW_CONTENT_KEY_VERSION, review: REVIEW_POLICY_KEY_VERSION, release_gate: RELEASE_GATE_KEY_VERSION,
   stamp_placeholders: STAMP_PLACEHOLDERS_KEY_VERSION, merge: MERGE_KEY_VERSION, land: LAND_KEY_VERSION, readers: READERS_KEY_VERSION,
   bookkeeping: BOOKKEEPING_KEY_VERSION, mechanical_retake: MECHANICAL_RETAKE_KEY_VERSION, test_code: TEST_CODE_KEY_VERSION, ci_record_timeout_s: CI_RECORD_TIMEOUT_KEY_VERSION,
   plan_record: PLAN_RECORD_KEY_VERSION, docs_only: DOCS_ONLY_KEY_VERSION,

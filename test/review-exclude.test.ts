@@ -225,9 +225,9 @@ describe('the base policy read', () => {
 
 describe('the kept-file command is bounded by argument bytes', () => {
   // Value: protects=the DIFF_KEEP command stays under the Windows command line however many kept files a pattern has, and a
-  //   disjoint small pattern still applies; fails_when=a pattern whose kept files pass KEEP_ARG_MAX_BYTES is applied, or the plan
-  //   does not say why it was not; why_new=task 10; seam=bin/gstack-review-plan; no_claim=a real Windows launch
-  test('a pattern whose kept files pass the bound is not applied and the plan says why; a disjoint small pattern applies', () => {
+  //   pattern past the bound is never dropped quietly; fails_when=a pattern whose kept files pass KEEP_ARG_MAX_BYTES is applied,
+  //   or skipped while the plan goes on; why_new=task 10, GST-3158; seam=bin/gstack-review-plan; no_claim=a real Windows launch
+  test('a pattern whose kept files pass the bound stops the plan with REVIEW_EXCLUDE_KEEP_TOO_LARGE; without it the small pattern applies', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['big/**', 'small/**']) } }); repos.push(repo);
     const long = 'x'.repeat(180);
     for (let k = 0; k < 140; k++) {
@@ -235,8 +235,13 @@ describe('the kept-file command is bounded by argument bytes', () => {
       fs.chmodSync(path.join(repo.work, `big/${long}-${k}.sh`), 0o755);
     }
     commit(repo, { 'big/data.json': '{}\n', 'small/data.json': '{}\n', 'lib/a.js': 'exports.a = 1;\n' });
+    const refused = plan(repo);
+    expect(refused.status).toBe(EXIT.refused);
+    expect(refused.out).not.toContain('REVIEW_EXCLUDE:');
+    expect(refused.err).toMatch(new RegExp(`pattern big/\\*\\* on origin/main@[0-9a-f]{12} keeps 140 matched files in review \\(executable:140\\).*\\(more than ${KEEP_ARG_MAX_BYTES}\\).*\\(REVIEW_EXCLUDE_KEEP_TOO_LARGE\\)`));
+    onBase(repo, { '.gstack/ship-policy.json': policyText(['small/**']) });
     const text = plan(repo).out;
-    expect(text).toMatch(new RegExp(`REVIEW_EXCLUDE: patterns=1/2 .* skipped=big/\\*\\*:kept=140:bytes=\\d+ \\(kept files over ${KEEP_ARG_MAX_BYTES} argument bytes: pattern not applied\\)`));
+    expect(text).toMatch(/REVIEW_EXCLUDE: patterns=1\/1 /);
     const cmd = text.split('\n').find(l => l.startsWith('DIFF_CMD: '))!;
     expect(cmd).toContain("':(top,exclude,glob)small/**'");
     expect(cmd).not.toContain('big/**');
@@ -248,16 +253,14 @@ describe('the review ceiling lines', () => {
   const d = { bytes: 3_500_000, byDir: [['results', 3_000_000], ['src', 500_000]] as Array<[string, number]> };
   // Value: protects=a REVIEW_DIFF_TOO_LARGE stop names the one fix that applies, with JSON a person can paste; fails_when=the
   //   fix ignores where the policy stands or prints a placeholder version; why_new=task 4; seam=tooLargeLine; no_claim=the bytes git reports
-  test('the fix branches on no key, head-only, a skipped pattern and still over, with pasteable JSON at the key version', () => {
+  test('the fix branches on no key, head-only and still over, with pasteable JSON at the key version', () => {
     const json = (line: string) => JSON.parse(line.match(/land (\{.*?\}) in /)![1]!);
     const none = tooLargeLine('ctx', 'batched', d, { state: 'none', base: 'main', source: 'origin/main@abc' }).line;
     expect(json(none)).toEqual({ review_exclude_paths: ['results/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION });
     expect(none).toContain('then bring main into this branch and rerun once; if it is still over, split the PR');
     const head = tooLargeLine('ctx', 'batched', d, { state: 'head-only', base: 'main', source: 'origin/main@abc', headPatterns: ['results/**'] }).line;
     expect(head).toContain('this branch declares review_exclude_paths, but only the copy on main applies');
-    const skipped = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', record: { patterns: ['results/**'], skipped: [{ pattern: 'results/**', kept: 900, bytes: 40_000 }], excluded: 0 } }).line;
-    expect(skipped).toContain('pattern results/** was not applied: its 900 kept files need 40000 argument bytes');
-    const over = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', floor: '1.300.0.0', record: { patterns: ['receipts/**'], skipped: [], excluded: 12 } }).line;
+    const over = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', floor: '1.300.0.0', record: { patterns: ['receipts/**'], excluded: 12 } }).line;
     expect(over).toContain('still over after excluding 12 files');
     expect(json(over)).toEqual({ review_exclude_paths: ['receipts/**', 'results/**'], min_gstack_version: '1.300.0.0' });
     expect(over).toEndWith('nothing was written (REVIEW_DIFF_TOO_LARGE)');
