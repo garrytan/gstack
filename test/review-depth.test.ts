@@ -207,6 +207,20 @@ function asMainBeforeR51(p: ReturnType<typeof planReview>): { dispatches: typeof
   expect(p.skipped.slice(at, at + 2)).toEqual(['specialists except testing (tests class)', R51_SKIP]);
   return { dispatches: p.dispatches.slice(1), skipped: [...p.skipped.slice(0, at), 'specialists, red-team and adversarial-native (light depth, runtime 0)', ...p.skipped.slice(at + 2)], added: true };
 }
+/**
+ * GST-3187 adds review and drops none: after a full pass, a fix that touched a gate-class path with no other fix flag plans its
+ * review (a full pass on the range, or the owner stop at the cap, with Step 11's voices first on gate class) where main planned
+ * done "the step applied no edits". asMainBeforeGst3187 checks each such case and reads it back as main's plan, which is the
+ * same input with touchedGate unset.
+ */
+function asMainBeforeGst3187(input: PlanInput, p: ReturnType<typeof planReview>): { plan: ReturnType<typeof planReview>; changed?: string } {
+  const h = input.history;
+  if (!(h.last === 'full' && h.touchedGate && !h.fixedBlocking && !h.fixedBelow && !h.blockingOpen)) return { plan: p };
+  expect(['full', 'stop', 'voices']).toContain(p.next.step);
+  const main = planReview({ ...input, history: { ...h, touchedGate: false } });
+  expect(main.next).toEqual({ step: 'done', reason: 'the step applied no edits' });
+  return { plan: main, changed: p.next.step };
+}
 const MAIN_PLANS = '9d13d6bae86bfc9207ce7e0cec8da5b33db2518c1653e8e009160a98b0f04c89';
 const R51_CASES = 28;
 const MAIN_SECTIONS = '7eb6b4c2dd31edbd7c69f02bd31f8884407187fac8ace4e796632d60957b6bbb';
@@ -225,9 +239,12 @@ describe('GST-967 dispatch-superset no-loss check', () => {
     const rows: unknown[] = [];
     let voices = 0;
     let r51 = 0;
+    const gst3187: Record<string, number> = {};
     for (const [name, f] of Object.entries(fixtures)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
       const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
-      const p = planReview({ ...f, numbers: none, history, adversarialRan } as PlanInput);
+      const input = { ...f, numbers: none, history, adversarialRan } as PlanInput;
+      const { plan: p, changed } = asMainBeforeGst3187(input, planReview(input));
+      if (changed) gst3187[`${name}:${changed}`] = (gst3187[`${name}:${changed}`] ?? 0) + 1;
       let { step, reason } = p.next;
       const back = asMainBeforeR51(p);
       if (back.added) r51++;
@@ -240,6 +257,9 @@ describe('GST-967 dispatch-superset no-loss check', () => {
       rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, step, reason, dispatches, skipped: back.skipped });
     }
     expect([rows.length, voices, r51, sha(rows)]).toEqual([1440, 71, R51_CASES, MAIN_PLANS]);
+    expect(gst3187).toEqual({
+      'docs:full': 4, 'docs:stop': 2, 'gate:full': 4, 'gate:stop': 1, 'gate:voices': 1, 'light:full': 4, 'light:stop': 2, 'standard:full': 4, 'standard:stop': 2, 'tests:full': 4, 'tests:stop': 2,
+    });
     expect(sha(sectionTexts(ROOT))).toBe(MAIN_SECTIONS);
   });
 });
@@ -289,7 +309,8 @@ describe('GST-972 follow-up no-loss check', () => {
       const rows: { name: string; fullPasses: number; last: string; bits: number; adversarialRan: boolean; class: string; depth: string; step: string; dispatches: { role: string; name: string; effort: string; checklists: string[] }[] }[] = [];
       for (const [name, c] of Object.entries(cases)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
         const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
-        const p = planReview({ paths: c[pick], scope: c[2], gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan });
+        const input = { paths: c[pick], scope: c[2], gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan } as PlanInput;
+        const p = pick ? asMainBeforeGst3187(input, planReview(input)).plan : planReview(input);
         rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, depth: p.depth, step: p.next.step, dispatches: (pick ? asMainBeforeR51(p).dispatches : p.dispatches).map(d => ({ role: d.role, name: d.name, effort: d.effort, checklists: d.checklists ?? [] })) });
       }
       return rows;
