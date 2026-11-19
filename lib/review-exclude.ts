@@ -274,7 +274,7 @@ function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentK
   if (binary.has(p)) return 'binary';
   if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
-  if (classifyPath(p, i.classRoot) === 'docs') return 'docs';
+  if (classifyPath(p, i.classRoot) === 'docs' && !SOURCE.test(p)) return 'docs';
   return declaredData(i, p) ? 'declared' : null;
 }
 

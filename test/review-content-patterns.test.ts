@@ -139,11 +139,11 @@ describe('a declared folder cannot hide code (GST-3158 trail read)', () => {
   //   encoding or mode; fails_when=a source language outside a short list, a NUL-bearing agent file, or a data file named by a
   //   kept declared executable leaves review; why_new=GST-3158 second-family trail read of #4511 (3 defects at f13dbb0d);
   //   seam=bin/gstack-review-plan; no_claim=every language's extension
-  test('a .java, a .PHP and a .ps1 file in a declared folder stay in review as code', () => {
-    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/Parser.java`]: 'class Parser {}\n', [`${DIR}/index.PHP`]: '<?php echo 1;\n', [`${DIR}/setup.ps1`]: 'Write-Host hi\n' });
+  test('a .java, a .PHP, a .ps1, a CMakeLists.txt and an .mdx file in a declared folder stay in review as code', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/Parser.java`]: 'class Parser {}\n', [`${DIR}/index.PHP`]: '<?php echo 1;\n', [`${DIR}/setup.ps1`]: 'Write-Host hi\n', [`${DIR}/CMakeLists.txt`]: 'add_executable(app main.c)\n', [`${DIR}/page.mdx`]: 'export const x = 1;\n' });
     const r = plan(repo);
     expect(r.status).toBe(EXIT.ok);
-    for (const p of ['Parser.java', 'index.PHP', 'setup.ps1']) expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/${p}`);
+    for (const p of ['Parser.java', 'index.PHP', 'setup.ps1', 'CMakeLists.txt', 'page.mdx']) expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/${p}`);
   }, 120_000);
 
   test('a NUL-bearing AGENTS.md in a declared folder stays in review as agent prose', () => {
@@ -167,6 +167,29 @@ describe('a declared folder cannot hide code (GST-3158 trail read)', () => {
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: executable ${DIR}/run`);
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: named-by-code ${DIR}/input.json`);
   }, 120_000);
+
+  for (const executable of [true, false]) {
+    test.skipIf(process.platform === 'win32')(`a data file an unchanged declared ${executable ? 'executable' : 'non-executable file'} on the base names ${executable ? 'stays in' : 'leaves'} review`, () => {
+      const repo = makeFixtureRepo({ prefix: 'gstack-content-', baseFiles: { '.gstack/ship-policy.json': policy([`${DIR}/**`], [`${DIR}/**`]) } });
+      repos.push(repo);
+      repo.git('checkout', '-q', 'main');
+      fs.mkdirSync(path.join(repo.work, DIR), { recursive: true });
+      fs.writeFileSync(path.join(repo.work, DIR, 'run'), `#!/bin/sh\ncat ${DIR}/input.json\n`);
+      repo.git('add', `${DIR}/run`);
+      if (executable) repo.git('update-index', '--chmod=+x', `${DIR}/run`);
+      repo.git('commit', '-q', '-m', 'runner');
+      repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', '-B', 'feature');
+      commit(repo, { 'lib/report.js': 'exports.total = 1;\n', [`${DIR}/input.json`]: '{"rows": 3}\n' });
+      const r = plan(repo);
+      expect(r.status).toBe(EXIT.ok);
+      if (executable) expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: named-by-code ${DIR}/input.json`);
+      else {
+        expect(r.out).toMatch(/^REVIEW_EXCLUDE: patterns=1\/1 excluded=1 /m);
+        expect(r.out).not.toMatch(new RegExp(`^REVIEW_EXCLUDE_KEPT: \\S+ ${DIR}/input\\.json$`, 'm'));
+      }
+    }, 120_000);
+  }
 });
 
 describe('excluded from review is not excluded from the guards', () => {
