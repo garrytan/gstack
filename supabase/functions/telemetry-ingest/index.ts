@@ -21,6 +21,48 @@ interface TelemetryEvent {
   used_browse?: boolean;
   sessions?: number;
   installation_id?: string;
+  source?: string;
+  security_url_domain?: string;
+  security_payload_hash?: string;
+  security_confidence?: number;
+  security_layer?: string;
+  security_verdict?: string;
+}
+
+// bin/gstack-telemetry-log writes source from --source or
+// GSTACK_TELEMETRY_SOURCE (default "live"). Keep it so test and eval traffic
+// can be told apart from real use; anything unexpected is "other", never "live".
+const SOURCES = ["live", "test", "eval", "ci"];
+function normalizeSource(source: unknown): string {
+  if (source === undefined || source === null || source === "") return "live";
+  return SOURCES.includes(String(source)) ? String(source) : "other";
+}
+
+// Prompt-injection detections (browse/src/security.ts via gstack-telemetry-log
+// --event-type attack_attempt; columns from migration 004). Domain only, a
+// salted hash, a 0..1 score and two enums; anything else is dropped.
+const SECURITY_LAYERS = [
+  "stackone_content", "testsavant_content", "transcript_classifier",
+  "aria_regex", "canary", "deberta_content",
+];
+const SECURITY_VERDICTS = ["block", "warn", "log_only"];
+function securityFields(event: TelemetryEvent) {
+  const domain = typeof event.security_url_domain === "string" &&
+      /^[A-Za-z0-9.-]{1,253}$/.test(event.security_url_domain)
+    ? event.security_url_domain.toLowerCase() : null;
+  const hash = typeof event.security_payload_hash === "string" &&
+      /^[0-9a-f]{16,128}$/.test(event.security_payload_hash)
+    ? event.security_payload_hash : null;
+  const confidence = typeof event.security_confidence === "number" &&
+      event.security_confidence >= 0 && event.security_confidence <= 1
+    ? event.security_confidence : null;
+  return {
+    security_url_domain: domain,
+    security_payload_hash: hash,
+    security_confidence: confidence,
+    security_layer: SECURITY_LAYERS.includes(String(event.security_layer)) ? event.security_layer : null,
+    security_verdict: SECURITY_VERDICTS.includes(String(event.security_verdict)) ? event.security_verdict : null,
+  };
 }
 
 const MAX_BATCH_SIZE = 100;
@@ -45,15 +87,14 @@ Deno.serve(async (req) => {
       return new Response(`Batch too large (max ${MAX_BATCH_SIZE})`, { status: 400 });
     }
 
-    // Use the anon key, not the service role key.
-    // The service role key bypasses Row Level Security (RLS) and grants full
-    // unrestricted database access — wildly over-privileged for a public
-    // telemetry endpoint that only needs INSERT on two tables.
-    // The anon key + properly configured RLS INSERT policies is correct.
-    // See: https://supabase.com/docs/guides/database/postgres/row-level-security
+    // Service role key, as update-check and community-pulse use. The public
+    // anon key can no longer write to these tables (migration 008): the RLS
+    // insert policies it relied on also let anyone write arbitrary rows
+    // straight through PostgREST. This function is now the only write path,
+    // and it validates every field before the insert below.
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
     // Validate and transform events
@@ -72,6 +113,7 @@ Deno.serve(async (req) => {
       // Validate event_type. Activation-funnel events (v1.x) join the originals:
       // onboarding (P0 setup nudge), first_task_scaffold_shown (P4 first-run
       // scaffold), handoff (P1 office-hours → next skill), route (gstack router).
+      // attack_attempt carries the prompt-injection fields (migration 004).
       const validTypes = [
         "skill_run",
         "upgrade_prompted",
@@ -80,6 +122,7 @@ Deno.serve(async (req) => {
         "first_task_scaffold_shown",
         "handoff",
         "route",
+        "attack_attempt",
       ];
       if (!validTypes.includes(event.event_type)) continue;
 
@@ -100,6 +143,8 @@ Deno.serve(async (req) => {
         used_browse: event.used_browse === true,
         concurrent_sessions: typeof event.sessions === "number" ? event.sessions : 1,
         installation_id: event.installation_id ? String(event.installation_id).slice(0, 64) : null,
+        source: normalizeSource(event.source),
+        ...(event.event_type === "attack_attempt" ? securityFields(event) : {}),
       });
 
       // Track installations for upsert

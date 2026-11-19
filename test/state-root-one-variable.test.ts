@@ -28,6 +28,7 @@ for (const variable of ['GSTACK_HOME', 'GSTACK_STATE_ROOT', 'GSTACK_STATE_DIR'] 
           ...(process.env as Record<string, string>),
           HOME: home, GSTACK_HOME: '', GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '', CLAUDE_PLUGIN_DATA: '',
           GSTACK_TEST_LEGACY_ROOT: '', [variable]: root,
+          GSTACK_SUPABASE_URL: 'https://telemetry.fixture.invalid', GSTACK_SUPABASE_ANON_KEY: 'fixture-anon-key',
         };
         expect(resolveStateRoot(env)).toBe(root);
         const run = (cmd: string, args: string[], input?: string) =>
