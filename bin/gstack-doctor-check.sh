@@ -62,7 +62,16 @@ _dc_fail_or_skip() {
 
 # _dc_json_str TEXT — TEXT as a JSON string literal.
 _dc_json_str() {
-  printf '"%s"' "$(printf '%s' "$1" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g' | tr -d '\000-\010\013-\037' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')"
+  # Avoid three native process starts per field (dozens of fields per report).
+  local text="$1" LC_ALL=C
+  text=${text//\\/\\\\}
+  text=${text//\"/\\\"}
+  text=${text//$'\t'/\\t}
+  text=${text//[$'\001'-$'\010'$'\013'-$'\037']/}
+  # The previous awk record loop consumed one terminal newline.
+  text=${text%$'\n'}
+  text=${text//$'\n'/\\n}
+  printf '"%s"' "$text"
 }
 
 # _dc_resolve_required — fills _dc_required, _dc_optional and _dc_label from

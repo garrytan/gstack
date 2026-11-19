@@ -6,7 +6,7 @@ import { matchGlob, TOUCHFILES_DATA_PATH } from '../test/helpers/test-selection'
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
 import { FREE_FIXTURES } from '../test/helpers/free-fixtures-data';
 import {
-  checkoutExercisedConsumers, derivedDependencies, EXERCISED_MAP_PATH, type DerivedDependencies, type ExercisedConsumers,
+  checkoutExercisedConsumers, derivedDependencies, EXERCISED_MAP_PATH, parseExercisedMap, type DerivedDependencies, type ExercisedConsumers,
 } from './pr-dependencies';
 
 /** Existing short behavioral probes; intersect with changed-input selection. */
@@ -409,8 +409,8 @@ export function selectPrProfile(options: {
   sourceAliases?: Readonly<Record<string, string>>;
   /** Test-file source reader for the DX-11 addressability check (defaults to the checkout). */
   readSource?: (file: string) => string;
-  /** Derived references; default: derived from the checkout for the real maps, none for fixture maps. */
-  derived?: DerivedDependencies | null;
+  /** Derived references, or a deferred factory; default: this checkout for the real maps, none for fixtures. */
+  derived?: DerivedDependencies | null | (() => DerivedDependencies);
   /** Exercised-path consumers for the shadow block; default: the checkout's committed map for the real maps, none for fixture maps. */
   exercised?: ExercisedConsumers | null;
   /**
@@ -433,8 +433,18 @@ export function selectPrProfile(options: {
   ])];
   const unmapped = files.filter(file => file !== TOUCHFILES_DATA_PATH && file !== EXERCISED_MAP_PATH
     && !depends(file, dependencyPatterns) && !knownNonBehaviorFile(file));
+  const fullGateFiles = options.screenPolicy === 'narrow'
+    ? PR_FULL_GATE_FILES.filter(file => !(NARROW_DERIVED_FULL_GATE_FILES as readonly string[]).includes(file)) : PR_FULL_GATE_FILES;
+  const sharedInputs = files.filter(file => depends(file, fullGateFiles));
   // Unmapped files are placed by derived references where the derivation covers them; the rest restore the full gate.
-  const derived = options.derived !== undefined ? options.derived : maps === PR_PROFILE_MAPS ? derivedDependencies(maps, ROOT) : null;
+  // Mapped full-gate inputs and existing paid workflows already require the full
+  // census. Keep that walk lazy; runtime edits and deleted workflows still need it.
+  const graphUnneeded = unmapped.every(file => (PAID_WORKFLOW_FILES as readonly string[]).includes(file)
+    && (options.readSource ?? readRepoSource)(file).length > 0)
+    && files.length > 0 && sharedInputs.length === files.length
+    && !files.some(isPromptFile);
+  const derived = typeof options.derived === 'function' ? graphUnneeded ? null : options.derived()
+    : options.derived !== undefined ? options.derived : maps === PR_PROFILE_MAPS ? derivedDependencies(maps, ROOT) : null;
   // A path absent from the head tree was deleted by the diff: its consumers are the live files that still reference it.
   const consumers = new Map<string, { e2e: Set<string>; judges: Set<string> }>();
   const derivedGlobal: string[] = [];
@@ -471,9 +481,6 @@ export function selectPrProfile(options: {
     ? [...consumers.keys()].filter(file => derived?.tracked.has(file) && gateIds.every(id => consumers.get(file)!.e2e.has(id))) : [];
   const derivedFiles = [...consumers.keys()].filter(file => !hubFiles.includes(file));
   const unknownFiles = unmapped.filter(file => !derivedGlobal.includes(file) && !consumers.has(file) && !noConsumerFiles.includes(file));
-  const fullGateFiles = options.screenPolicy === 'narrow'
-    ? PR_FULL_GATE_FILES.filter(file => !(NARROW_DERIVED_FULL_GATE_FILES as readonly string[]).includes(file)) : PR_FULL_GATE_FILES;
-  const sharedInputs = files.filter(file => depends(file, fullGateFiles));
   const fallback = unknownFiles.length > 0 || sharedInputs.length > 0;
   const dependentsMode = !fallback && derivedFiles.length > 0;
   const derivedE2E = derivedFiles.flatMap(file => [...consumers.get(file)!.e2e]);
@@ -521,9 +528,17 @@ export function selectPrProfile(options: {
   if (deferred.length) reasons.push(`${deferred.length} selected behaviors remain scheduled/release coverage, not PR passes`);
   if (deferredPromptFiles.length) reasons.push(`No quick live coverage; known broad prompt checks deferred: ${deferredPromptFiles.join(', ')}`);
   if (missingCoverage.length) reasons.push(`Full validation required for prompts without a relevant PR check: ${missingCoverage.join(', ')}`);
-  const exercised = options.exercised !== undefined ? options.exercised : maps === PR_PROFILE_MAPS ? checkoutExercised() : null;
-  const shadow = exercised instanceof Error ? emptyShadow(e2e, exercised.message)
-    : exercised ? shadowSelection({ ...options, maps, profile }, { e2e, fallback, derived, exercised, files }) : undefined;
+  let shadow: ShadowSelection | undefined;
+  if (fallback && options.exercised === undefined && maps === PR_PROFILE_MAPS) {
+    // A full fallback keeps every case in shadow mode too. Only its cost-data
+    // completeness is needed; the exercised graph cannot change that result.
+    try { shadow = fullGateShadow(e2e, parseExercisedMap(fs.readFileSync(path.join(ROOT, EXERCISED_MAP_PATH), 'utf8'))); }
+    catch (error) { shadow = emptyShadow(e2e, error instanceof Error ? error.message : String(error)); }
+  } else {
+    const exercised = options.exercised !== undefined ? options.exercised : maps === PR_PROFILE_MAPS ? checkoutExercised() : null;
+    shadow = exercised instanceof Error ? emptyShadow(e2e, exercised.message)
+      : exercised ? shadowSelection({ ...options, maps, profile }, { e2e, fallback, derived, exercised, files }) : undefined;
+  }
   return {
     mode: fallback ? 'full-fallback' : dependentsMode ? 'dependents' : 'pr', e2e, judges, deferred,
     unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...(deletedLabels.get(file) ?? unknownFileLabel(file)) })), directCases,
@@ -541,6 +556,13 @@ function emptyShadow(e2e: string[], error: string): ShadowSelection {
   return { e2e, wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0, unknownCostShare: 0, error };
 }
 
+function fullGateShadow(e2e: string[], map: ExercisedConsumers['map']): ShadowSelection {
+  const cases = Object.values(map?.cases ?? {});
+  const observations = cases.reduce((sum, entry) => sum + entry.observations, 0);
+  const unknownCostShare = observations ? Math.round(1000 * (1 - cases.reduce((sum, entry) => sum + (entry.costRuns ?? 0), 0) / observations)) / 1000 : 0;
+  return { e2e, wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0, unknownCostShare };
+}
+
 /**
  * Shadow selection (variant cu of the measured prototype): the same policy
  * with the exercised map in place of the derived closure, unioned with the
@@ -554,7 +576,7 @@ function shadowSelection(options: Parameters<typeof selectPrProfile>[0] & { maps
   const observedCases = Object.values(exercised.map?.cases ?? {});
   const observations = observedCases.reduce((sum, entry) => sum + entry.observations, 0);
   const unknownCostShare = observations ? Math.round(1000 * (1 - observedCases.reduce((sum, entry) => sum + (entry.costRuns ?? 0), 0) / observations)) / 1000 : 0;
-  if (today.fallback) return { e2e: today.e2e, wouldDrop: [], wouldAdd: [], provenance: [], predictedSavingUsd: 0, unpricedCases: 0, unknownCostShare };
+  if (today.fallback) return fullGateShadow(today.e2e, exercised.map);
   const gate = (ids: Iterable<string>) => [...ids].filter(id => maps.tiers[id] === 'gate');
   const reach = new Map<string, string[]>();
   const inner = selectPrProfile({ ...options, derived: today.derived ? { ...today.derived, e2e: exercised.e2e } : null, exercised: null });

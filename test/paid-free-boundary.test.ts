@@ -27,7 +27,9 @@ function runnerDependencies(root: string, entries: string[]): string[] {
     const source = fs.readFileSync(file, 'utf8').replace(/^#![^\n]*(?:\n|$)/, '\n');
     let audited = source;
     if (relative === 'test/helpers/test-selection.ts') {
-      if (createHash('sha256').update(source).digest('hex') !== 'd618192ed8d354df55ebe8df0c52d3437ef51b4517ef04513efced4ae097c6a6') {
+      // Re-audited: the bounded stateless glob cache is the only change; undoing
+      // it recovers the prior audited bytes, including this historical loader.
+      if (createHash('sha256').update(source).digest('hex') !== '433c7a5c8e4506c4cf2bc21978392bb31905170f50ef3fb98190a783ef3a18d3') {
         throw new Error('Re-audit the historical touchfile map loader before excluding its computed import');
       }
       audited = source.replace('`const m = await import(${JSON.stringify(dataPath)});`,', "'',");

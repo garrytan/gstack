@@ -156,12 +156,14 @@ function placeholderModules(root: string, read: (file: string) => string): Map<s
   return byModule;
 }
 
-function resolveSpecifier(root: string, specifier: string, from: string): string | null {
+function resolveSpecifier(root: string, specifier: string, from: string, resolutions?: Map<string, string | null>): string | null {
   if (!specifier.startsWith('.')) return null;
   const base = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+  if (resolutions?.has(base)) return resolutions.get(base) ?? null;
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.mjs`, `${base}/index.ts`, `${base}/index.js`]) {
-    try { if (fs.statSync(path.join(root, candidate)).isFile()) return candidate; } catch { /* next */ }
+    try { if (fs.statSync(path.join(root, candidate)).isFile()) { resolutions?.set(base, candidate); return candidate; } } catch { /* next */ }
   }
+  resolutions?.set(base, null);
   return null;
 }
 
@@ -174,6 +176,9 @@ function compiledBinaries(read: (file: string) => string): Array<{ outfile: stri
 export function deriveDependencies(maps: DependencyMaps, root: string): DerivedDependencies {
   const tracked = trackedFiles(root);
   const trackedSet = new Set(tracked);
+  // The graph already snapshots file text. Resolve each import target once in
+  // that same snapshot instead of repeating native stat probes for every owner.
+  const resolutions = new Map<string, string | null>();
   const sources = new Map<string, string>();
   const read = (file: string): string => {
     if (!sources.has(file)) {
@@ -204,10 +209,13 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
   const edges = new Map<string, string[]>();
   const refs = (file: string): string[] => {
     if (edges.has(file)) return edges.get(file)!;
+    // referenceText ignores JSON, and JSON is never code. Package scripts and
+    // other structured inputs are read explicitly by their owners above.
+    if (file.endsWith('.json')) { edges.set(file, []); return []; }
     const raw = read(file);
     const text = (SELECTION_DATA_MODULES as readonly string[]).includes(file) ? '' : referenceText(file, raw);
     const out = new Set<string>();
-    if (isCodeFile(file, raw)) for (const specifier of importsOf(file)) { const hit = resolveSpecifier(root, specifier, file); if (hit) out.add(hit); }
+    if (isCodeFile(file, raw)) for (const specifier of importsOf(file)) { const hit = resolveSpecifier(root, specifier, file, resolutions); if (hit) out.add(hit); }
     for (const match of text.matchAll(REPO_PATH)) {
       const ref = match[1]!.replace(/[.]+$/, '');
       if (trackedSet.has(ref)) out.add(ref);

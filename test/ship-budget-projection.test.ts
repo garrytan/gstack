@@ -180,7 +180,7 @@ describe('dispatch reservations settle when the reviewer returns (GST-101)', () 
     expect(h.field(next.out, 'BUDGET', 'reserved')).toBe('0');
     expect(dispatches().map((r: any) => [r.actual, r.unmeasured])).toEqual([[undefined, true], [undefined, true], [undefined, true]]);
     expect(next.out.split('\n').filter(l => l.startsWith('UNMEASURED:') && l.includes('kind=dispatch'))).toHaveLength(3);
-  });
+  }, process.platform === 'win32' ? 60_000 : undefined);
 
   test('moving to the next step settles dispatch reservations a reviewer consumed in the step before', () => {
     const h = fresh();

@@ -523,7 +523,8 @@ REFS
 # to on Windows, and what chose it (lib/script-invocation.ts, through
 # bin/gstack-windows-bash.ts run by the bun on PATH).
 check_windows_bash() {
-  local out rc bash source warning refused
+  local out rc line bash="" source="" warning="" refused=""
+  local saw_bash=0 saw_source=0 saw_warning=0 saw_refused=0
   if [ ! -f "$BIN/gstack-windows-bash.ts" ]; then
     row warn "windows bash" "not checked: $BIN/gstack-windows-bash.ts is missing" "cd $SRC && ./setup"
     return
@@ -535,10 +536,14 @@ check_windows_bash() {
   out=$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$BIN/gstack-windows-bash.ts" ${GSTACK_DOCTOR_BASH_PROBE:+--probe "$GSTACK_DOCTOR_BASH_PROBE"} </dev/null 2>&1)
   rc=$?
   out=$(printf '%s\n' "$out" | tr -d '\000-\010\013-\037')
-  bash=$(printf '%s\n' "$out" | sed -n 's/^WINDOWS_BASH: //p' | head -1)
-  source=$(printf '%s\n' "$out" | sed -n 's/^WINDOWS_BASH_SOURCE: //p' | head -1)
-  warning=$(printf '%s\n' "$out" | sed -n 's/^WINDOWS_BASH_WARNING: //p' | head -1)
-  refused=$(printf '%s\n' "$out" | sed -n 's/^WINDOWS_BASH_REFUSED: //p' | head -1)
+  while IFS= read -r line; do
+    case "$line" in
+      'WINDOWS_BASH: '*) [ "$saw_bash" -eq 0 ] && { bash=${line#'WINDOWS_BASH: '}; saw_bash=1; } ;;
+      'WINDOWS_BASH_SOURCE: '*) [ "$saw_source" -eq 0 ] && { source=${line#'WINDOWS_BASH_SOURCE: '}; saw_source=1; } ;;
+      'WINDOWS_BASH_WARNING: '*) [ "$saw_warning" -eq 0 ] && { warning=${line#'WINDOWS_BASH_WARNING: '}; saw_warning=1; } ;;
+      'WINDOWS_BASH_REFUSED: '*) [ "$saw_refused" -eq 0 ] && { refused=${line#'WINDOWS_BASH_REFUSED: '}; saw_refused=1; } ;;
+    esac
+  done <<< "$out"
   if [ -n "$refused" ]; then
     row fail "windows bash" "$refused" "set GSTACK_GIT_BASH to Git Bash's bash.exe for good (PowerShell user variable or the env block of ~/.claude/settings.json), then restart Claude Code ($DOCS#bash-unavailable)"
   elif [ -z "$bash" ]; then

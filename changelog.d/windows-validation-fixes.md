@@ -1,0 +1,1 @@
+- **GBrain reads work more reliably on Windows.** GStack can verify the right page when the native GBrain command returns Markdown. Large Git changes take fewer repeated checks, and Windows validation uses native paths and launchers.

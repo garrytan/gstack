@@ -42,6 +42,8 @@ import { carriedAudits, docsExceptionLine, parseReceiptDocs, type CarriedAudit }
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 export type ReviewLoopException = NonNullable<ShipReceipt['review_loop_exception']>;
+/** Committed inputs reusable within one write/carry; root, base commit and head must still match. */
+export interface ReceiptRange { root: string; base: string; head: string; c: ReturnType<typeof collectCommit>; scope: Record<string, string> }
 const RANK: Record<Depth | 'platform', number> = { platform: -1, light: 0, standard: 1, full: 2 };
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(v);
 const sha = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
@@ -104,7 +106,7 @@ export function receiptDepthAtHead(repoRoot: string, base: string, binDir: strin
  * receiptDepthAtHead plus the exclusion the head's review read under: the depth classifies excluded paths as docs (GST-508).
  * `declared` (write --declare-risk, GST-1129) joins the detected risk classes and only raises; the record then keeps both lists.
  */
-export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string, declared: readonly RiskClass[] = []): { depth: ReceiptDepth; exclude: Exclusion; tagged: ReadonlySet<string> | null; frontend: boolean } {
+export function receiptReviewAtHead(repoRoot: string, base: string, binDir: string, head: string, declared: readonly RiskClass[] = []): { depth: ReceiptDepth; exclude: Exclusion; tagged: ReadonlySet<string> | null; frontend: boolean; range: ReceiptRange } {
   const branch = base.replace(/^origin\//, '');
   const baseSha = baseCommit(repoRoot, `origin/${branch}`);
   const baseRev = baseSha.ok ? baseSha.out : branch;
@@ -124,7 +126,7 @@ export function receiptReviewAtHead(repoRoot: string, base: string, binDir: stri
   }
   const exclude = exclusionAt(repoRoot, ref, sha, head, c, paths, 'gstack-ship-receipt');
   const d = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), declared, ...(exclude.state === 'active' ? { excluded: exclude.excluded } : {}) });
-  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review), ...(d.declared.length ? { declared: d.declared, detected: d.detected } : {}) }, exclude, tagged: paths, frontend: scope.SCOPE_FRONTEND === 'true' };
+  return { depth: { depth: d.depth, class: d.class, runtime_lines: d.runtimeLines, rules: d.rules, base: baseRev, registry: c.registry.sha, gate_scan: { tagged, head }, reasons: d.reasons.slice(0, 12), risk: d.risk, mode: modeFor(d.depth, review), ...(d.declared.length ? { declared: d.declared, detected: d.detected } : {}) }, exclude, tagged: paths, frontend: scope.SCOPE_FRONTEND === 'true', range: { root: repoRoot, base: baseRev, head, c, scope } };
 }
 
 /**
@@ -275,12 +277,13 @@ export function receiptTargetedVerdict(required: readonly TargetedClass[], r: Sh
 
 /** The head's committed range against the base, read once for the depth verdict and the targeted line. */
 interface HeadInputs { baseSha: { ok: boolean; out: string }; c: ReturnType<typeof collectCommit>; scope: Record<string, string>; x: Exclusion }
-function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt, merged = false): HeadInputs {
+function headInputs(root: string, baseRef: string, head: string, r?: ShipReceipt, merged = false, range?: ReceiptRange): HeadInputs {
   const baseSha = baseCommit(root, baseRef);
   const baseRev = baseSha.ok ? baseSha.out : baseRef;
-  const c = collectCommit(root, baseRev, head);
+  const same = !merged && baseSha.ok && range?.root === root && range.base === baseSha.out && range.head === head;
+  const c = same ? range.c : collectCommit(root, baseRev, head);
   const tagged = r && boundScan(r, head) !== null ? new Set(r.review_exclude?.gate_tagged ?? []) : null;
-  return { baseSha, c, scope: scopeOfRange(root, BIN_DIR, baseRev, head, merged), x: exclusionAt(root, baseRef, baseSha.ok ? baseSha.out : null, head, c, tagged, 'gstack-ship-queue') };
+  return { baseSha, c, scope: same ? range.scope : scopeOfRange(root, BIN_DIR, baseRev, head, merged), x: exclusionAt(root, baseRef, baseSha.ok ? baseSha.out : null, head, c, tagged, 'gstack-ship-queue') };
 }
 
 /** The targeted classes of the head's range under the exclusion its review read: excluded paths name no class, as gstack-review-plan reads them (GST-1900). */
@@ -711,8 +714,8 @@ const DOCS_CLAIM_WORDS = new Set([...MONEY_PATH_TOKENS, ...AUTH_PATH_TOKENS, 'ca
  * publish (#3854). Classes that failed closed on an input this checkout cannot read (no origin base, no gate scan) are reported,
  * never refused on here: the queue reads its own inputs at ready and refuses there if the head needs the reader.
  */
-export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string): DepthVerdict {
-  const at = headInputs(root, baseRef, head, r);
+export function receiptTargetedAtHead(root: string, baseRef: string, r: ShipReceipt, head: string, range?: ReceiptRange): DepthVerdict {
+  const at = headInputs(root, baseRef, head, r, false, range);
   const gateTagged = boundScan(r, head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
   const t = targetedAt(at, gateTagged);
   const v = receiptTargetedVerdict(t.classes, r);

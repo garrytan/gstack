@@ -34,6 +34,9 @@ function extractFn(name: string): string {
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-alias-'));
 const sourceDir = path.join(fixtureRoot, 'gstack');
 const installDir = path.join(fixtureRoot, 'skills');
+const sourceBash = sourceDir.replaceAll('\\', '/');
+const installBash = installDir.replaceAll('\\', '/');
+const fixtureBash = fixtureRoot.replaceAll('\\', '/');
 const skillSources = fs.readdirSync(ROOT)
   .filter((name) => !name.startsWith('.') && name !== 'node_modules')
   .filter((name) => fs.existsSync(path.join(ROOT, name, 'SKILL.md')))
@@ -54,20 +57,20 @@ beforeAll(() => {
     fs.writeFileSync(path.join(sourceDir, name, 'SKILL.md'), content);
   }
   const installOnce = [
-    `link_claude_skill_dirs "${sourceDir}" "${installDir}"`,
-    `link_claude_root_skill_alias "${sourceDir}" "${installDir}"`,
+    `link_claude_skill_dirs "${sourceBash}" "${installBash}"`,
+    `link_claude_root_skill_alias "${sourceBash}" "${installBash}"`,
     // The connect-chrome back-compat alias, exactly as the install section does it.
-    `_install_alias_skill_md "${sourceDir}/open-gstack-browser/SKILL.md" "${installDir}/connect-chrome" "connect-chrome"`,
+    `_install_alias_skill_md "${sourceBash}/open-gstack-browser/SKILL.md" "${installBash}/connect-chrome" "connect-chrome"`,
   ].join('\n');
   const script = [
     'set -e',
-    'IS_WINDOWS=0',
+    `IS_WINDOWS=${process.platform === 'win32' ? 1 : 0}`,
     'SKILL_PREFIX=0',
     'QUIET=1',
     '_WINDOWS_COPY_NOTE_PRINTED=1',
     '_FOREIGN_SKIPPED_ENTRIES=()',
-    `SOURCE_GSTACK_DIR="${sourceDir}"`,
-    `GSTACK_USER_RENDER_DIR="${fixtureRoot}/render"`,
+    `SOURCE_GSTACK_DIR="${sourceBash}"`,
+    `GSTACK_USER_RENDER_DIR="${fixtureBash}/render"`,
     extractFn('_link_or_copy'),
     extractFn('_gstack_link_target_abs'),
     extractFn('_gstack_target_is_ours'),
@@ -76,11 +79,11 @@ beforeAll(() => {
     extractFn('_claude_entry_owned_strongly'),
     extractFn('_backup_skill_md'),
     '_BACKED_UP_SKILL_MDS=()',
-    `_SKILL_BACKUP_ROOT="${fixtureRoot}/backups"`,
+    `_SKILL_BACKUP_ROOT="${fixtureBash}/backups"`,
     extractFn('_write_owned_marker'),
     extractFn('_print_windows_copy_note_once'),
     extractFn('_link_skill_runtime_assets'),
-    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh')}"`,
+    `. "${path.join(ROOT, 'bin/gstack-skill-name.sh').replaceAll('\\', '/')}"`,
     extractFn('link_claude_skill_dirs'),
     extractFn('_install_alias_skill_md'),
     extractFn('link_claude_root_skill_alias'),
@@ -93,7 +96,7 @@ beforeAll(() => {
   if (result.status !== 0) {
     throw new Error(`alias install failed: ${result.stderr}\n${result.stdout}`);
   }
-}, 30_000);
+}, process.platform === 'win32' ? 75_000 : 30_000);
 
 afterAll(() => {
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -178,15 +181,32 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
     try {
       const aliasDir = path.join(legacyDir, '_gstack-command');
       fs.mkdirSync(aliasDir);
-      fs.symlinkSync(path.join(sourceDir, 'SKILL.md'), path.join(aliasDir, 'SKILL.md'));
-      expect(fs.realpathSync(path.join(aliasDir, 'SKILL.md'))).toBe(fs.realpathSync(path.join(sourceDir, 'SKILL.md')));
-      expect(path.relative(fs.realpathSync(fixtureRoot), fs.realpathSync(path.join(aliasDir, 'SKILL.md')))).toBe(path.join('gstack', 'SKILL.md'));
+      if (process.platform === 'win32') {
+        // Git Bash is the actor: create its genuine unprivileged file link,
+        // then validate resolution and readable bytes with that interpreter.
+        const aliasFile = path.join(aliasDir, 'SKILL.md').replaceAll('\\', '/');
+        const sourceFile = path.join(sourceDir, 'SKILL.md').replaceAll('\\', '/');
+        const relative = path.relative(aliasDir, path.join(sourceDir, 'SKILL.md')).replaceAll('\\', '/');
+        const linked = runBashScript([
+          'set -e',
+          `ln -s -- "${relative}" "${aliasFile}"`,
+          `test -L "${aliasFile}"`,
+          `test "$(readlink -f "${aliasFile}")" = "$(readlink -f "${sourceFile}")"`,
+          `cmp -- "${aliasFile}" "${sourceFile}"`,
+        ].join('\n'), { timeout: 10_000, env: { ...process.env, MSYS: `${process.env.MSYS ?? ''} winsymlinks:sys` } });
+        expect(linked.status, linked.stderr).toBe(0);
+        expect(path.relative(fs.realpathSync(fixtureRoot), fs.realpathSync(path.join(sourceDir, 'SKILL.md')))).toBe(path.join('gstack', 'SKILL.md'));
+      } else {
+        fs.symlinkSync(path.join(sourceDir, 'SKILL.md'), path.join(aliasDir, 'SKILL.md'));
+        expect(fs.realpathSync(path.join(aliasDir, 'SKILL.md'))).toBe(fs.realpathSync(path.join(sourceDir, 'SKILL.md')));
+        expect(path.relative(fs.realpathSync(fixtureRoot), fs.realpathSync(path.join(aliasDir, 'SKILL.md')))).toBe(path.join('gstack', 'SKILL.md'));
+      }
 
       const script = [
         'set -e',
-        'IS_WINDOWS=0',
+        `IS_WINDOWS=${process.platform === 'win32' ? 1 : 0}`,
         '_FOREIGN_SKIPPED_ENTRIES=()',
-        `SOURCE_GSTACK_DIR="${sourceDir}"`,
+        `SOURCE_GSTACK_DIR="${sourceBash}"`,
         extractFn('_link_or_copy'),
         extractFn('_gstack_link_target_abs'),
         extractFn('_gstack_target_is_ours'),
@@ -196,7 +216,7 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
         extractFn('_write_owned_marker'),
         extractFn('_install_alias_skill_md'),
         extractFn('link_claude_root_skill_alias'),
-        `link_claude_root_skill_alias "${sourceDir}" "${legacyDir}"`,
+        `link_claude_root_skill_alias "${sourceBash}" "${legacyDir.replaceAll('\\', '/')}"`,
       ].join('\n');
       const result = runBashScript(script, { timeout: 30_000 });
       expect(result.status).toBe(0);

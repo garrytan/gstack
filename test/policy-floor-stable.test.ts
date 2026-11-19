@@ -228,5 +228,5 @@ describe('gstack-doctor --check floor row', () => {
     const vendored = floorRow(f, dir, { GSTACK_CAPY_WRAPPER_PATH: wrapper, GSTACK_STABLE_REPO: vendoredRoot() });
     expect(vendored.line).toContain(`fix: bash ${wrapper} --for health (fast-forwards a clean checkout to origin and reinstalls)`);
     expect(vendored.line).not.toContain('no release meets this floor yet');
-  });
+  }, process.platform === 'win32' ? 90_000 : undefined);
 });

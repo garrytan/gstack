@@ -7,7 +7,7 @@
  * only once a marker the stubbed `bunx playwright install` writes exists.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashSync, runScriptSync } from '../lib/script-invocation';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -18,6 +18,26 @@ const ctxFor = (host: 'claude' | 'codex', skillName: string) => ({ skillName, tm
 
 const REPO = path.resolve(import.meta.dir, '..');
 const bases: string[] = [];
+function shellPath(file: string): string {
+  if (process.platform !== 'win32') return file;
+  return file.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_, drive: string) => `/${drive.toLowerCase()}`);
+}
+const shellQuote = (file: string) => `'${shellPath(file).replaceAll("'", "'\\''")}'`;
+
+// MSYS links exercise Bash's actual -L/read behavior without Windows symlink
+// privileges. All targets and parents belong to this fixture, never a live root.
+function shellLink(target: string, link: string, base: string) {
+  for (const file of [fs.realpathSync(target), fs.realpathSync(path.dirname(link))]) {
+    const rel = path.relative(fs.realpathSync(base), file);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Link escapes fixture');
+  }
+  if (process.platform !== 'win32') { fs.symlinkSync(target, link); return; }
+  const r = runBashSync('ln -s -- "$LINK_TARGET" "$LINK_PATH" && test -L "$LINK_PATH"', {
+    env: { ...process.env, MSYS: 'winsymlinks:sys', LINK_TARGET: shellPath(target), LINK_PATH: shellPath(link) },
+    encoding: 'utf8', timeout: 10_000,
+  });
+  expect(r.status, r.stderr).toBe(0);
+}
 afterEach(() => { for (const b of bases.splice(0)) fs.rmSync(b, { recursive: true, force: true }); });
 
 const write = (file: string, text: string, mode = 0o644) => {
@@ -48,11 +68,29 @@ function fixture(opts: { playwright?: boolean } = {}) {
   }
   // A winget-shaped Bun (#3131): `bun` and no `bunx` anywhere on PATH. `bun x playwright install chromium`
   // "installs" by writing the marker and logging its argv.
-  write(path.join(stub, 'bun'), `#!/usr/bin/env bash\n[ "$1" = --version ] && { echo 1.4.2; exit 0; }\n[ "$1" = x ] || exit 0\nshift\necho "$*" >> "${base}/bunx-calls"\ncase "$*" in *"playwright install"*) touch "${marker}" ;; *) exit 9 ;; esac\n`, 0o755);
+  write(path.join(stub, 'bun'), `#!/usr/bin/env bash\n[ "$1" = --version ] && { echo 1.4.2; exit 0; }\n[ "$1" = x ] || exit 0\nshift\necho "$*" >> ${shellQuote(path.join(base, 'bunx-calls'))}\ncase "$*" in *"playwright install"*) touch ${shellQuote(marker)} ;; *) exit 9 ;; esac\n`, 0o755);
   const rest = (process.env.PATH ?? '').split(path.delimiter).filter((d) => d && !fs.existsSync(path.join(d, 'bunx')));
-  const env: Record<string, string> = { PATH: [stub, ...rest].join(path.delimiter), HOME: base, TMPDIR: base, GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT: '20' };
-  const run = (args: string[] = [], extra: Record<string, string> = {}) =>
-    spawnSync('bash', [path.join(root, 'bin/gstack-browser-ensure'), ...args], { encoding: 'utf8', env: { ...env, ...extra }, timeout: 60_000 });
+  const env = { ...process.env, PATH: [stub, ...rest].join(path.delimiter), HOME: base, TMPDIR: shellPath(base), GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT: '20', MSYS: 'winsymlinks:sys' };
+  const run = (args: string[] = [], extra: Record<string, string> = {}) => {
+    const childEnv = { ...env, ...extra };
+    const r = runScriptSync(path.join(root, 'bin/gstack-browser-ensure'), args, { encoding: 'utf8', env: childEnv, timeout: 60_000 });
+    if (process.platform !== 'win32') return r;
+    // MSYS may render this uniquely owned fixture under its /tmp alias. Match
+    // only a leading path token for this fixture, never a physical path's tail
+    // or another fixture's mount. The remaining diagnostic bytes stay exact.
+    // /tmp is mounted from the native child's TEMP, not from TMPDIR. Derive
+    // the actual alias under this exact environment and bind it to our base.
+    const canonical = runBashSync('cd "$FIXTURE_BASE" && pwd -P && cygpath -w "$PWD"', {
+      env: { ...childEnv, FIXTURE_BASE: base.replaceAll('\\', '/') }, encoding: 'utf8', timeout: 10_000,
+    });
+    expect(canonical.status, canonical.stderr).toBe(0);
+    const [alias, native] = canonical.stdout.trim().split(/\r?\n/);
+    if (!alias || !native || alias === '/') throw new Error('Missing owned fixture path binding');
+    expect(fs.realpathSync(native)).toBe(base);
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const normalize = (text: string) => text.replace(new RegExp('(^|[\\s"\\x27])' + escaped + '(?=/|$)', 'g'), (_, prefix) => prefix + shellPath(base));
+    return { ...r, stdout: normalize(r.stdout), stderr: normalize(r.stderr) };
+  };
   return { base, root, marker, run, calls: () => fs.existsSync(path.join(base, 'bunx-calls')) ? fs.readFileSync(path.join(base, 'bunx-calls'), 'utf8') : '' };
 }
 
@@ -74,13 +112,13 @@ describe('gstack-browser-ensure in a runtime root without package.json', () => {
     write(path.join(checkout, 'package.json'), '{\n  "name": "gstack",\n  "version": "0.0.0"\n}\n');
     write(path.join(checkout, 'bin/gstack-browser-ensure'), '#!/usr/bin/env bash\n', 0o755);
     write(path.join(checkout, 'node_modules/playwright/index.js'), playwrightStub('141.1.0'));
-    const point = (text: string) => write(path.join(f.root, '.source-path'), text);
+    const point = (text: string) => write(path.join(f.root, '.source-path'), text.replaceAll('\\', '/'));
     const tree = () => walkFiles(f.base).filter(p => !p.startsWith(path.join(f.base, 'stub'))).sort();
     return { ...f, checkout, point, tree };
   }
   const walkFiles = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
     .flatMap(e => e.isDirectory() ? walkFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]);
-  const unavailable = (root: string) => `BROWSER_UNAVAILABLE playwright is not installed under ${root}/node_modules`;
+  const unavailable = (root: string) => `BROWSER_UNAVAILABLE playwright is not installed under ${shellPath(root)}/node_modules`;
 
   for (const [label, name, eol] of [
     ['the recorded checkout', 'checkout', '\n'],
@@ -102,7 +140,7 @@ describe('gstack-browser-ensure in a runtime root without package.json', () => {
   test('without --check a valid pointer is a probe only, and a link to the checkout resolves to it', () => {
     const f = runtime();
     const link = path.join(f.base, 'checkout-link');
-    fs.symlinkSync(f.checkout, link);
+    shellLink(f.checkout, link, f.base);
     f.point(link + '\n');
     const r = f.run();
     expect(r.status, r.stdout + r.stderr).toBe(0);
@@ -115,12 +153,12 @@ describe('gstack-browser-ensure in a runtime root without package.json', () => {
     ['an empty pointer', f => f.point('\n')],
     ['a stale pointer', f => f.point(path.join(f.base, 'gone') + '\n')],
     ['a relative pointer', f => f.point(path.relative(process.cwd(), f.checkout) + '\n')],
-    ['a pointer file that is a link', f => { write(path.join(f.base, 'elsewhere'), f.checkout + '\n'); fs.symlinkSync(path.join(f.base, 'elsewhere'), path.join(f.root, '.source-path')); }],
+    ['a pointer file that is a link', f => { write(path.join(f.base, 'elsewhere'), f.checkout + '\n'); shellLink(path.join(f.base, 'elsewhere'), path.join(f.root, '.source-path'), f.base); }],
     ['a directory whose package.json is not gstack\'s', f => { write(path.join(f.checkout, 'package.json'), '{\n  "name": "left-pad"\n}\n'); f.point(f.checkout + '\n'); }],
     ['a directory whose package.json is a link', f => {
       write(path.join(f.base, 'real-package.json'), fs.readFileSync(path.join(f.checkout, 'package.json'), 'utf8'));
       fs.rmSync(path.join(f.checkout, 'package.json'));
-      fs.symlinkSync(path.join(f.base, 'real-package.json'), path.join(f.checkout, 'package.json'));
+      shellLink(path.join(f.base, 'real-package.json'), path.join(f.checkout, 'package.json'), f.base);
       f.point(f.checkout + '\n');
     }],
     ['a directory without gstack-browser-ensure', f => { fs.rmSync(path.join(f.checkout, 'bin'), { recursive: true }); f.point(f.checkout + '\n'); }],
@@ -156,7 +194,7 @@ describe('gstack-browser-ensure', () => {
     expect(r.status).toBe(1);
     expect(lastLine(r.stdout)).toMatch(/^BROWSER_UNAVAILABLE Chromium did not launch via node \(browserType\.launch: Executable doesn't exist/);
     expect(r.stderr).toContain('(BROWSER_UNAVAILABLE; https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#browser-ensure-failed)');
-    expect(r.stderr).toContain(`fix: ${f.root}/bin/gstack-browser-ensure`);
+    expect(r.stderr).toContain(`fix: ${shellPath(f.root)}/bin/gstack-browser-ensure`);
     expect(f.calls()).toBe('');
     expect(fs.existsSync(f.marker)).toBe(false);
   });
@@ -165,8 +203,8 @@ describe('gstack-browser-ensure', () => {
     const f = fixture({ playwright: false });
     const r = f.run(['--check']);
     expect(r.status).toBe(1);
-    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE playwright is not installed under ${f.root}/node_modules`);
-    expect(r.stderr).toContain(`fix: cd ${f.root} && ./setup`);
+    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE playwright is not installed under ${shellPath(f.root)}/node_modules`);
+    expect(r.stderr).toContain(`fix: cd ${shellPath(f.root)} && ./setup`);
   });
 
   test('first use installs Chromium under setup\'s lock, re-probes and prints BROWSER_OK; the second run is a probe only', () => {
@@ -200,7 +238,7 @@ describe('gstack-browser-ensure', () => {
     fs.writeFileSync(path.join(f.base, 'stub/bun'), '#!/usr/bin/env bash\nexit 7\n');
     const r = f.run();
     expect(r.status).toBe(1);
-    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE ${path.join(f.base, 'stub/bun')} x playwright install chromium exited 7 (offline, proxy, or blocked download?)`);
+    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE ${shellPath(path.join(f.base, 'stub/bun'))} x playwright install chromium exited 7 (offline, proxy, or blocked download?)`);
     expect(f.run(['--bogus']).status).toBe(2);
     const help = f.run(['--help']);
     expect(help.status).toBe(0);
@@ -222,7 +260,7 @@ describe('gstack-browser-ensure with a winget-shaped Bun (#3131)', () => {
     fs.writeFileSync(path.join(f.base, 'stub/bun'), '#!/usr/bin/env bash\nexit 127\n');
     const r = f.run();
     expect(r.status).toBe(1);
-    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE ${path.join(f.base, 'stub/bun')} x playwright install chromium exited 127 (command not found)`);
+    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE ${shellPath(path.join(f.base, 'stub/bun'))} x playwright install chromium exited 127 (command not found)`);
     expect(r.stderr).toContain('fix: install Bun from bun.sh (winget Bun ships no bunx), then re-run');
     expect(r.stderr).not.toContain('Playwright CDN');
   });
@@ -241,10 +279,10 @@ describe('gstack-browser-ensure installs a missing node_modules production-only 
     fs.writeFileSync(path.join(f.base, 'stub/bun'), [
       '#!/usr/bin/env bash',
       '[ "$1" = install ] || exit 9',
-      `echo "$*" >> ${JSON.stringify(path.join(f.base, 'install-calls'))}`,
-      `refreshed=${JSON.stringify(path.join(f.base, 'lockfile-refreshed'))}`,
+      `echo "$*" >> ${shellQuote(path.join(f.base, 'install-calls'))}`,
+      `refreshed=${shellQuote(path.join(f.base, 'lockfile-refreshed'))}`,
       `case "$*" in\n  *--lockfile-only*) rc=${fallbackRc}; [ "$rc" -eq 0 ] && : > "$refreshed"; exit "$rc" ;;\n  *--frozen-lockfile*) rc=${frozenRc}; [ -f "$refreshed" ] && rc=0 ;;\n  *) exit 9 ;;\nesac`,
-      `[ "$rc" -eq 0 ] && mkdir -p node_modules && cp -R ${JSON.stringify(path.join(f.base, 'playwright-stub'))} node_modules/playwright`,
+      `[ "$rc" -eq 0 ] && mkdir -p node_modules && cp -R ${shellQuote(path.join(f.base, 'playwright-stub'))} node_modules/playwright`,
       'exit "$rc"',
     ].join('\n') + '\n', { mode: 0o755 });
     const r = f.run();
@@ -270,8 +308,8 @@ describe('gstack-browser-ensure installs a missing node_modules production-only 
     const { f, r, calls } = installing(1, 1);
     expect(r.status).toBe(1);
     expect(calls).toEqual(['install --production --frozen-lockfile', 'install --lockfile-only']);
-    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE bun install failed under ${f.root}`);
-    expect(r.stderr).toContain(`fix: cd ${f.root} && bun install --production --frozen-lockfile, then re-run`);
+    expect(lastLine(r.stdout)).toBe(`BROWSER_UNAVAILABLE bun install failed under ${shellPath(f.root)}`);
+    expect(r.stderr).toContain(`fix: cd ${shellPath(f.root)} && bun install --production --frozen-lockfile, then re-run`);
   });
 });
 
@@ -287,7 +325,7 @@ describe('browse preflight wiring (scripts/resolvers/browse.ts)', () => {
   });
 
   test('the suffix strip resolves the install root for every $B shape', () => {
-    const r = spawnSync('bash', ['-c', 'for B in /home/u/.claude/skills/gstack/browse/dist/browse /r/.agents/skills/gstack/browse/dist/browse.exe /home/browse/.claude/skills/gstack/browse/dist/browse; do echo "${B%/browse/*}"; done'], { encoding: 'utf8', timeout: 10_000 });
+    const r = runBashSync('for B in /home/u/.claude/skills/gstack/browse/dist/browse /r/.agents/skills/gstack/browse/dist/browse.exe /home/browse/.claude/skills/gstack/browse/dist/browse; do echo "${B%/browse/*}"; done', { encoding: 'utf8', timeout: 10_000 });
     expect(r.stdout.trim().split('\n')).toEqual(['/home/u/.claude/skills/gstack', '/r/.agents/skills/gstack', '/home/browse/.claude/skills/gstack']);
   });
 });

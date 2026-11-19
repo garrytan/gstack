@@ -30,10 +30,22 @@ function readCapability(): Verdict {
     || state?.schema_version !== 1 || state.last_writer !== 'gstack-gbrain-sync'
     || !Array.isArray(state.last_stages)) return unknown('unverified sync state or source pin; run /sync-gbrain');
   const code = state.last_stages.find((stage: any) => stage?.name === 'code');
-  if (!code?.ran || !code.ok || code.detail?.status !== 'ok' || code.detail.source_id !== pin
-    || typeof code.detail.source_path !== 'string') return unknown('code sync did not verify this pinned source; run /sync-gbrain');
+  if (code?.ran && !code.ok && typeof code.detail?.source_id !== 'string')
+    return unknown('latest failed code sync has no verified source; run /sync-gbrain');
+  // The machine-wide latest stage can belong to a sibling project. The sync
+  // writer retains code_sources only after a successful source/path match.
+  // Never use that older record to conceal this source's latest failed stage.
+  const latestIsPinned = code?.detail?.source_id === pin;
+  const previous = state.code_sources && typeof state.code_sources === 'object'
+    && !Array.isArray(state.code_sources) && Object.hasOwn(state.code_sources, pin)
+    ? state.code_sources[pin] : undefined;
+  const verifiedPath = latestIsPinned
+    ? code?.ran && code.ok && code.detail?.status === 'ok' ? code.detail.source_path : undefined
+    : previous?.path;
+  if (typeof verifiedPath !== 'string')
+    return unknown('code sync did not verify this pinned source; run /sync-gbrain');
   try {
-    if (realpathSync(code.detail.source_path) !== root) return unknown('code sync belongs to another worktree');
+    if (realpathSync(verifiedPath) !== root) return unknown('code sync belongs to another worktree');
   } catch { return unknown('code sync worktree is unavailable'); }
   const run = (args: string[]) => {
     const invocation = gbrainInvocation(args);
@@ -73,18 +85,26 @@ function readCapability(): Verdict {
   const slug = columns[0];
   if (!slug || Buffer.byteLength(slug, 'utf8') > 512 || slug !== slug.trim()
     || slug.startsWith('-') || slug.includes('\\')
+    || /["&|<>^%!]/u.test(slug)
     || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(slug)
     || slug.split('/').some(segment => !segment || segment === '.' || segment === '..'))
     return unknown('listed page has an invalid slug');
   const fetched = run(['get', slug, '--source', pin, '--json', '--body', 'window', '--max-bytes', '4096'])
     ?? run(['get', slug, '--source', pin, '--json']);
   if (!fetched) return unknown('source-scoped get unavailable; retry later');
-  try {
-    const page = JSON.parse(fetched);
-    if (!page || typeof page !== 'object' || Array.isArray(page) || Object.hasOwn(page, 'error')
-      || page.source_id !== pin || page.slug !== slug)
-      return unknown('retrieved page source or slug is unverified');
-  } catch { return unknown('retrieved page response is unknown'); }
+  let page: unknown;
+  try { page = JSON.parse(fetched); }
+  catch {
+    // Some native versions ignore --json on `get` and serialize Markdown.
+    // `call` bypasses the presentation formatter while retaining source scope.
+    const raw = run(['call', '--source', pin, 'get_page', JSON.stringify({ slug })]);
+    if (!raw) return unknown('source-scoped raw get unavailable; retry later');
+    try { page = JSON.parse(raw); }
+    catch { return unknown('retrieved page response is unknown'); }
+  }
+  if (!page || typeof page !== 'object' || Array.isArray(page) || Object.hasOwn(page, 'error')
+    || !('source_id' in page) || !('slug' in page) || page.source_id !== pin || page.slug !== slug)
+    return unknown('retrieved page source or slug is unverified');
   return { status: 'ready', reason: 'source-scoped page read verified', source_id: pin };
 }
 

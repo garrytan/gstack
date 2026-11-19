@@ -193,7 +193,10 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s\n' "$FILES" | tr -d '\r' | tr ' ' '\n' | sed '/^$/d' > "$RUNNER_TEMP/windows-scoped-files.txt"
-          bun run scripts/test-free-shards.ts --files-from "$RUNNER_TEMP/windows-scoped-files.txt"
+          # Git, Bash, and PowerShell fixtures keep making progress after the
+          # default six-minute shard deadline. Keep individual test deadlines
+          # and the 20-minute job cap while allowing these shards to finish.
+          bun run scripts/test-free-shards.ts --files-from "$RUNNER_TEMP/windows-scoped-files.txt" --wall-timeout 720
         shell: bash
 
       - name: Upload full test logs

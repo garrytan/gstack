@@ -136,6 +136,9 @@ _session_data() {
 # noauthrequired.ts, unauthenticated.ts and HTTPAuthorization.ts do.
 _auth_path() {
   local s="$1" t r=1
+  # Tokenization cannot create "auth" if the path has no such substring.
+  # Avoid splitting every component of large results-only path lists.
+  case "$s" in *[aA][uU][tT][hH]*) ;; *) return 1 ;; esac
   while [[ "$s" =~ ^(.*[a-z0-9])([A-Z].*)$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
   shopt -s nocasematch
   for t in ${s//[^a-zA-Z0-9]/ }; do

@@ -359,7 +359,8 @@ let cachedSkillsConfigDir: string | null = null;
  * Canonical paths without exposing the checkout to Claude's recursive markdown
  * file index. Directory links would also expose .context, dependencies, and
  * generated host registries. Expand owned runtime directories and link files
- * individually, preserving their source realpaths and executable bits.
+ * individually on POSIX; Windows uses owned copies, like setup, without
+ * requiring file-symlink privileges.
  */
 export function seedHermeticRuntimeView(root: string, destination: string): void {
   const sourceRoot = fs.realpathSync(root);
@@ -395,7 +396,8 @@ export function seedHermeticRuntimeView(root: string, destination: string): void
         link(path.join(source, name), path.join(target, name), next);
       }
     } else if (stat.isFile()) {
-      fs.symlinkSync(source, target, 'file');
+      if (process.platform === 'win32') fs.copyFileSync(source, target);
+      else fs.symlinkSync(source, target, 'file');
     }
   }
   fs.mkdirSync(destination);
@@ -418,8 +420,8 @@ export function seedHermeticRuntimeView(root: string, destination: string): void
  * A hermetic CLAUDE_CONFIG_DIR with the repo's shipped skills REGISTERED in
  * user scope, mirroring ./setup's registration exactly: each discovered skill
  * gets a REAL directory `<configDir>/skills/<registryName>/` containing a
- * SYMLINK to that skill's SKILL.md (absolute path), plus symlinks to its
- * runtime assets using setup's exclusions. An owned runtime view also
+ * link to that skill's SKILL.md (absolute path), plus runtime assets using
+ * setup's exclusions. Windows copies the files and asset trees. An owned runtime view also
  * lives at `<configDir>/skills/gstack`, so canonical
  * lazy-section paths work alongside flattened discovery. registryName is the frontmatter `name:`
  * (dir-name fallback), NO gstack- prefix; the root SKILL.md router registers
@@ -480,7 +482,8 @@ export function hermeticSkillsConfigDir(): string {
       // so the two walk entries collapse to one registry dir.
       fs.mkdirSync(target, { recursive: true });
       safeUnlink(path.join(target, 'SKILL.md'));
-      fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
+      if (process.platform === 'win32') fs.copyFileSync(skillMd, path.join(target, 'SKILL.md'));
+      else fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
       if (rel !== 'SKILL.md') {
         // Mirror setup's _link_skill_runtime_assets, including references and
         // helpers beside sections. Missing assets can send a live agent looking
@@ -492,7 +495,8 @@ export function hermeticSkillsConfigDir(): string {
           if (!fs.existsSync(asset)) continue;
           const destination = path.join(target, name);
           safeUnlink(destination);
-          fs.symlinkSync(asset, destination, fs.statSync(asset).isDirectory() ? 'dir' : 'file');
+          if (process.platform === 'win32') fs.cpSync(asset, destination, { recursive: true, dereference: true });
+          else fs.symlinkSync(asset, destination, fs.statSync(asset).isDirectory() ? 'dir' : 'file');
         }
       }
     }

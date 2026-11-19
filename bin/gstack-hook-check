@@ -117,6 +117,16 @@ IFS=$NL
 FAILED=0
 fail() { echo "fail $1 $2: $3"; FAILED=1; }
 
+# The scanners require a literal token. Test that before starting subprocesses;
+# an unreadable file keeps the full scan and its existing error handling.
+file_may_name() {
+  local _scan_text
+  if _scan_text=$(< "$1"); then
+    case "$_scan_text" in *"$2"*) return 0 ;; *) return 1 ;; esac
+  fi
+  return 0
+}
+
 # sourced_by <file> — the gstack files <file> sources: each `*.sh` path on a
 # `.`/`source` line, in a variable assignment, or in a `# shellcheck source=`
 # directive. A path resolves from <root>, then beside <file>, then beside
@@ -124,8 +134,18 @@ fail() { echo "fail $1 $2: $3"; FAILED=1; }
 # <root> count.
 sourced_by() {
   _sdir=${1%/*}
-  grep -E '^[[:space:]]*#[[:space:]]*shellcheck[[:space:]].*source=|(^|[;&|({[:space:]])(\.|source)[[:space:]]|^[[:space:]]*(local |export |readonly )?[A-Za-z_][A-Za-z0-9_]*=' "$1" \
-    | grep -oE '[A-Za-z0-9._/-]*\.sh([^A-Za-z0-9_]|$)' | sed -E 's/\.sh.*$/.sh/' | awk '!seen[$0]++' | while IFS= read -r _tok; do
+  # Keep the same filter, token grammar, order and deduplication in one process.
+  awk '
+    BEGIN { assignment = "^[[:space:]]*(local |export |readonly )?[A-Za-z_][A-Za-z0-9_]*=" }
+    /^[[:space:]]*#[[:space:]]*shellcheck[[:space:]].*source=/ || /(^|[;&|({[:space:]])(\.|source)[[:space:]]/ || $0 ~ assignment {
+      line = $0
+      while (match(line, /[A-Za-z0-9._\/-]*\.sh([^A-Za-z0-9_]|$)/)) {
+        token = substr(line, RSTART, RLENGTH); finish = RSTART + RLENGTH
+        sub(/\.sh.*$/, ".sh", token)
+        if (!seen[token]++) print token
+        line = substr(line, finish)
+      }
+    }' "$1" | while IFS= read -r _tok; do
     for _cand in "$ROOT/$_tok" "$_sdir/$_tok" "$_sdir/${_tok#*/}"; do
       [ -f "$_cand" ] || continue
       _cand="$(cd "${_cand%/*}" && pwd)/${_cand##*/}"
@@ -140,6 +160,7 @@ helpers_of() {
   while [ -n "$_queue" ]; do
     _next=""
     for _f in $_queue; do
+      file_may_name "$_f" '.sh' || continue
       for _c in $(sourced_by "$_f"); do
         case "$_seen" in *"$NL$_c$NL"*) continue ;; esac
         _seen="$_seen$_c$NL"
@@ -153,20 +174,30 @@ helpers_of() {
 
 # ts_entries <shim> — the TypeScript files a shim runs, beside it.
 ts_entries() {
-  grep -v '^[[:space:]]*#' "$1" | grep -oE '[A-Za-z0-9._-]+\.ts([^A-Za-z0-9_]|$)' | sed -E 's/\.ts.*$/.ts/' | awk '!seen[$0]++'
+  awk '
+    /^[[:space:]]*#/ { next }
+    {
+      line = $0
+      while (match(line, /[A-Za-z0-9._-]+\.ts([^A-Za-z0-9_]|$)/)) {
+        token = substr(line, RSTART, RLENGTH); finish = RSTART + RLENGTH
+        sub(/\.ts.*$/, ".ts", token)
+        if (!seen[token]++) print token
+        line = substr(line, finish)
+      }
+    }' "$1"
 }
 
 # One bun process bundles every hook's TypeScript entries (a bun start costs
 # seconds on Windows). Each line is "<entry>\tok\t<input>" per bundled input,
 # or "<entry>\tfail\t<file:line>\t<message>".
 # TS_OF[i] keeps hook i's entries for the check loop below, so each shim is
-# scanned once (four process starts, ~80 ms on Windows).
+# scanned once, with one awk process instead of a four-process pipeline.
 ENTRIES=""
 i=0
 for hook in $HOOKS; do
   shim="$ROOT/$hook"
   TS_OF[i]=""
-  [ -f "$shim" ] && TS_OF[i]=$(ts_entries "$shim")
+  [ -f "$shim" ] && file_may_name "$shim" '.ts' && TS_OF[i]=$(ts_entries "$shim")
   i=$((i + 1))
   [ -f "$shim" ] || continue
   for entry in ${TS_OF[i - 1]}; do
@@ -227,7 +258,9 @@ for hook in $HOOKS; do
     hook_ok=0
   fi
   scan="$shim"
-  for helper in $(helpers_of "$shim"); do
+  hook_helpers=""
+  if file_may_name "$shim" '.sh'; then hook_helpers=$(helpers_of "$shim"); fi
+  for helper in $hook_helpers; do
     if ! err=$("$interp" -n "$helper" 2>&1); then
       fail "$hook" "$(first_location "$helper" "$err")" "$(first_message "$err")"
       hook_ok=0

@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { runBashScript } from './helpers/bash-script';
 
 const ROOT = resolve(import.meta.dir, '..');
 const skill = readFileSync(join(ROOT, 'sync-gbrain/SKILL.md'), 'utf8');
@@ -11,7 +12,10 @@ function shellStep(title: string): string {
   if (start < 0) throw new Error(`${title} missing from generated skill`);
   const block = /```bash\n([\s\S]*?)\n```/.exec(skill.slice(start));
   if (!block) throw new Error(`${title} has no bash fence`);
-  return block[1].replaceAll('~/.claude/skills/gstack/bin/gstack-gbrain-read-capability.ts', join(ROOT, 'bin/gstack-gbrain-read-capability.ts'));
+  const script = block[1].replaceAll('~/.claude/skills/gstack/bin/gstack-gbrain-read-capability.ts', '"$GSTACK_ROOT/bin/gstack-gbrain-read-capability.ts"');
+  // Native Bun needs NUL; /dev/null is the POSIX rendering of the same
+  // config isolation flag (also required by the Windows operating guidance).
+  return process.platform === 'win32' ? script.replaceAll('--config=/dev/null', '--config=NUL') : script;
 }
 
 function fixture(pin = 'client-fixture', opts: { pageCount?: number; cycleStatus?: string; cycleMessage?: string; sourceError?: boolean; wrongRegistration?: boolean } = {}) {
@@ -44,9 +48,13 @@ else if (args === 'doctor --json --scope=brain') console.log(${JSON.stringify(JS
 else process.exit(2);
 `);
   chmodSync(join(bin, 'gbrain'), 0o755);
-  const run = (title: string) => spawnSync('bash', ['-c', shellStep(title)], {
-    cwd: repo, encoding: 'utf8', timeout: 10_000,
-    env: { ...process.env, HOME: home, GSTACK_HOME: join(home, '.gstack'), PATH: `${bin}:${process.env.PATH}` },
+  if (process.platform === 'win32') {
+    writeFileSync(join(bin, 'gbrain.cmd'), `@echo off\r\n"${process.execPath}" --no-env-file --config=NUL "%~dp0gbrain" %*\r\n`);
+  }
+  const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
+  const run = (title: string) => runBashScript(shellStep(title), {
+    cwd: repo, timeout: 10_000,
+    env: { ...process.env, HOME: home, GSTACK_HOME: join(home, '.gstack'), GSTACK_ROOT: ROOT.replaceAll('\\', '/'), [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}` },
   });
   return { run, calls: () => { try { return readFileSync(log, 'utf8').trim().split('\n'); } catch { return []; } }, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }

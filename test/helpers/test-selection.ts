@@ -43,6 +43,9 @@ export const TOUCHFILES_DATA_PATH = 'test/helpers/touchfiles-data.ts';
 
 // --- Glob matching ---
 
+// A dependency walk tests the same pattern against thousands of paths. Keep
+// compiled expressions bounded; no stateful RegExp flags are used here.
+const globRegexCache = new Map<string, RegExp>();
 /**
  * Match a file path against a glob pattern.
  * Supports:
@@ -50,12 +53,17 @@ export const TOUCHFILES_DATA_PATH = 'test/helpers/touchfiles-data.ts';
  *   *  — match within a single segment (no /)
  */
 export function matchGlob(file: string, pattern: string): boolean {
+  const cached = globRegexCache.get(pattern);
+  if (cached) return cached.test(file);
   const regexStr = pattern
     .replace(/\./g, '\\.')
     .replace(/\*\*/g, '{{GLOBSTAR}}')
     .replace(/\*/g, '[^/]*')
     .replace(/\{\{GLOBSTAR\}\}/g, '.*');
-  return new RegExp(`^${regexStr}$`).test(file);
+  const regex = new RegExp(`^${regexStr}$`);
+  if (globRegexCache.size >= 512) globRegexCache.delete(globRegexCache.keys().next().value!);
+  globRegexCache.set(pattern, regex);
+  return regex.test(file);
 }
 
 // --- Base branch detection ---

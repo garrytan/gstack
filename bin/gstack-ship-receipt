@@ -399,7 +399,7 @@ function cmdWrite(rest: string[], json: boolean): number {
     process.stderr.write('gstack-ship-receipt write: nothing written\n');
     return EXIT.fail;
   }
-  const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head);
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head, review.range);
   if (targetedVerdict.line.includes('(unchecked: ')) process.stderr.write(targetedVerdict.line + '\n');
   if (!targetedVerdict.ok) {
     process.stderr.write(`${targetedVerdict.line}\n${resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${targetedVerdict.message}; run the targeted reader on HEAD and pass its record (--review-targeted @<gstack-review-dispatch verify --targeted-out file>); nothing written`)}\n`);
@@ -938,6 +938,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     return refused('RECEIPT_CARRY_PREGATE_STALE', `the receipt records a pregate for ${receipt.head.slice(0, 12)}; run gstack-pregate at HEAD ${head.slice(0, 12)} and pass --pregate <pregate.json>`);
   }
   let depthField: Partial<ShipReceipt> = {};
+  let reviewedRange: ReturnType<typeof receiptReviewAtHead>['range'] | undefined;
   const isAncestor = (commit: string) => !ancestor || spawnSync('git', ['merge-base', '--is-ancestor', commit, head], { cwd: repoRoot, timeout: 30_000 }).status === 0;
   const problems = exceptionProblems(body, receipt, isAncestor);
   if (problems.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's owner exception does not stand: ${problems.join('; ')}; run /ship on ${head.slice(0, 12)}`);
@@ -946,6 +947,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     const checkedOut = git(['rev-parse', 'HEAD'], repoRoot)?.toLowerCase();
     if (checkedOut !== head) return refused('RECEIPT_CARRY_REFUSED', `--head ${head.slice(0, 12)} is not the checked-out HEAD ${(checkedOut ?? 'none').slice(0, 12)}; the gate scan reads the checkout, so check out ${head.slice(0, 12)} and carry there`);
     const review = receiptReviewAtHead(repoRoot, base, path.dirname(Bun.fileURLToPath(import.meta.url)), head);
+    reviewedRange = review.range;
     const now = review.depth;
     if (review.exclude.state === 'refused') return refused('RECEIPT_CARRY_REFUSED', `${review.exclude.lines.join('; ')}; run /ship on ${head.slice(0, 12)} once the base policy reads`);
     const digest = review.exclude.state === 'active' ? review.exclude.record.digest : 'none';
@@ -961,7 +963,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
-  const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head);
+  const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head, reviewedRange);
   if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue refuses it too (#3859); run /ship on ${head.slice(0, 12)}`);
   const newBody = placeReceipt(body, carried);
   const line = receiptSummaryLine(carried);

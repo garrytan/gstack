@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../../lib/bun-isolation';
 import type { NativeQuestion } from './plan-skill-questions';
 import { pickPlanReviewQuestion } from './plan-review-cases';
 
@@ -154,9 +155,11 @@ export function createDesignReviewPicker({ cwd, deadlineAt }: { cwd: string; dea
     const url = urls[0]!;
     const childDeadline = Math.min(deadlineAt, Date.now() + 2_000);
     if (childDeadline <= Date.now()) throw new Error('Design feedback deadline exhausted');
-    const child = spawnSync(process.execPath, ['-e', SUBMIT], {
+    // Keep the actor in its owned fixture and out of repository Bun preloads.
+    const child = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', SUBMIT], {
       input: JSON.stringify({ stateFile, url, deadlineAt: childDeadline, alreadySubmitted: submitted.has(url) }),
       encoding: 'utf8', timeout: Math.max(1, childDeadline - Date.now()), killSignal: 'SIGKILL', maxBuffer: 16 * 1024,
+      cwd, windowsHide: true,
       env: { PATH: process.env.PATH ?? '', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
     });
     if (child.error || child.signal || child.status !== 0) {
