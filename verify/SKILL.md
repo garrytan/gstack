@@ -21,6 +21,26 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+## Right before a commit: the quick pass
+
+Use only this section when you started /verify yourself because you are about
+to run `git commit` (Claude Code asks for /verify before every commit), and the
+user has not typed /verify or asked you to verify or run the checks in this
+conversation. The arguments `quick` or `pre-commit` mean the same. When the
+user typed /verify, skip this section and run the full skill below.
+
+Skip the preamble and everything after this section: edit nothing, add no
+tests, ask nothing. Run one command with a Bash timeout of 10 minutes:
+
+```bash
+"$HOME/.claude/skills/gstack/bin/gstack-checks" quick
+```
+
+It ends with one line. `VERIFY PASS: …` or `VERIFY skipped: <reason>`: go on
+with the commit, and mention /verify only by quoting that line. `VERIFY FAIL:
+…` (exit 1): don't commit over it; quote the line and the failing output to
+the user and ask whether to fix it first or commit anyway.
+
 ## Preamble (run first)
 
 ```bash

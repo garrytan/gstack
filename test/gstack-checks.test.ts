@@ -187,6 +187,45 @@ describe('gstack-checks on a fixture repo', () => {
     expect(moved.status).toBe(1);
   }, 60_000);
 
+  // Value: protects=the pass Claude Code triggers before a commit never asks for consent, never stops on a missing remote and ends
+  //   with one VERIFY line, red only on a real failure; fails_when=an untrusted command runs, a no-remote repo exits non-zero, an
+  //   unmapped file blocks a commit, or the off switch still runs checks; why_new=quick is new (GST-3150); seam=pregate's real
+  //   selection and the fixture's selection marker; no_claim=the wording after the VERIFY token
+  test('quick: the pre-commit pass skips instead of stopping and ends with one line', () => {
+    const s = setup();
+    const quick = (env: Record<string, string> = {}) => s.checks(['quick'], env);
+    const last = (out: string) => out.trim().split('\n').at(-1) ?? '';
+    commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    const untrusted = quick();
+    expect(untrusted.status).toBe(0);
+    expect(untrusted.out).toMatch(/^VERIFY skipped: .*not trusted/);
+    expect(fs.existsSync(s.mark)).toBe(false);
+    expect(s.checks(['trust']).status).toBe(0);
+    const green = quick();
+    expect(green.status).toBe(0);
+    expect(last(green.out)).toMatch(/^VERIFY PASS: typecheck, tests in [\d.]+s$/);
+    write(s.repo.work, 'lib/util.js', 'exports.add = (a, b) => a - b;\n');
+    const red = quick();
+    expect(red.status).toBe(1);
+    expect(last(red.out)).toMatch(/^VERIFY FAIL: tests /);
+    write(s.repo.work, 'lib/util.js', 'exports.add = (a, b) => b + a;\n');
+    write(s.repo.work, 'lib/orphan.js', 'exports.lonely = () => 2;\n');
+    const unmapped = quick();
+    expect(unmapped.status).toBe(0);
+    expect(last(unmapped.out)).toMatch(/^VERIFY PASS: typecheck in [\d.]+s \(not run: tests UNMAPPED\)$/);
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-noremote-'));
+    dirs.push(bare);
+    expect(spawnSync('git', ['init', '-q'], { cwd: bare, timeout: 30_000 }).status).toBe(0);
+    write(bare, 'calc.py', 'def add(a, b):\n    return a + b\n');
+    const noRemote = runBin(s.repo, 'gstack-checks', ['quick'], {}, bare);
+    expect(noRemote.status).toBe(0);
+    expect(noRemote.out).toMatch(/^VERIFY skipped: no origin\/\S+ to compare against .*\(POLICY_SOURCE_UNAVAILABLE\)\n$/);
+    expect(spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), 'set', 'verify_before_commit', 'off'], { env: { ...process.env, ...s.repo.env }, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const off = quick();
+    expect(off.status).toBe(0);
+    expect(off.out).toStartWith('VERIFY skipped: verify_before_commit is off');
+  }, 60_000);
+
   // Value: protects=a selection that runs zero tests is not green; fails_when=exit 0 with no test counted reads PASS; why_new=the
   //   verdict is new; seam=pregate's runner summary (a bats stub printing an empty TAP plan); no_claim=node --test, which counts
   //   each file as a test, so an empty file there is not a zero run
