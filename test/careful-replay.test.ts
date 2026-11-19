@@ -380,6 +380,14 @@ describe('each new rule, with negative controls', () => {
     expect(Date.now() - started).toBeLessThan(6000);
   });
 
+  test('a redirect into a disk is still found behind many other redirects', () => {
+    const decoys = (n: number, dir: (i: number) => string) => Array.from({ length: n }, (_, i) => `echo > ${dir(i)}/sdb${i};`).join(' ');
+    expect(decide(`${decoys(70, () => 'x')} echo hi >'/dev'/sdb`, 'clean').decision).toBe('deny');
+    expect(decide(Array.from({ length: 20000 }, (_, i) => `>'/dev'/sd${i}`).join(' '), 'clean').decision).toBe('deny');
+    expect(decide(`${decoys(70, (i) => `d${i}`)} echo hi > devlink/sdb`, 'clean').decision).toBe('ask');
+    expect(decide(`${decoys(60, (i) => `d${i}`)} echo hi > build/sdb`, 'clean').decision).toBe('allow');
+  });
+
   test('a 200 KB command is still checked well inside the guard hook\'s 8 s timeout', () => {
     const body = Array.from({ length: 4000 }, (_, i) => `const x${i} = f(a, b) && (c || d); // ${i}`).join('\n');
     const started = Date.now();

@@ -795,15 +795,20 @@ esac
 # folder is resolved on disk, not read as text.
 _RX_DISK_REDIR=">[|]?[[:space:]]*(/dev/|([^[:space:];&|<>()\$${_BT}]*/)?)(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)[a-z0-9]*([^[:alnum:]_.-]|\$)"
 _HI_REDIR=0
+_REDIR_OVER=0
 _RX_DISK_REDIR_ANY=">[|]?[[:space:]]*[^[:space:];&|<>()]*(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)"
 case "$CMD_MEDIUM" in
   *'>'*)
     _rest=""
-    # grep lists each distinct redirect once, so repeated text costs one probe;
-    # past 64 distinct ones the scan stops, which only skips this extra deny.
+    # grep lists each distinct redirect once, so repeated text costs one probe.
+    # Every redirect written into /dev/ is read with no limit; past 64 folders
+    # to look up on disk the scan stops and the command asks.
     if [[ $CMD_MEDIUM =~ $_RX_DISK_REDIR_ANY ]]; then
-      _rest=$(printf '%s\n' "$CMD_MEDIUM" | tr -d "\"'" | LC_ALL=C grep -oE "$_RX_DISK_REDIR" | LC_ALL=C sort -u | head -n 64) || _rest=""
+      _rest=$(printf '%s\n' "$CMD_MEDIUM" | tr -d "\"'" | LC_ALL=C grep -oE "$_RX_DISK_REDIR" | LC_ALL=C sort -u) || _rest=""
     fi
+    _RX_DEV_LINE=$'(^|\n)>[|]?[[:space:]]*/dev/'
+    if [[ $_rest =~ $_RX_DEV_LINE ]]; then _HI_REDIR=1; fi
+    _probes=0
     while IFS= read -r _m; do
       [ "$_HI_REDIR" -eq 0 ] || break
       [[ $_m =~ $_RX_DISK_REDIR ]] || continue
@@ -811,6 +816,8 @@ case "$CMD_MEDIUM" in
       case "$_d" in
         /dev/) _HI_REDIR=1 ;;
         *)
+          if [ "$_probes" -ge 64 ]; then _REDIR_OVER=1; break; fi
+          _probes=$((_probes + 1))
           _d="${_d%/}"
           case "$_d" in /*) ;; '') _d="$_CAREFUL_CWD" ;; *) _d="$_CAREFUL_CWD/$_d" ;; esac
           if [[ "$(cd -P -- "$_d" 2>/dev/null && pwd -P)" =~ ^/+dev/*$ ]]; then _HI_REDIR=1; fi ;;
@@ -822,6 +829,11 @@ EOF_REDIR
 esac
 if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [ "$_HI_REDIR" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
   _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
+fi
+if [ "$_REDIR_OVER" -eq 1 ]; then
+  _careful_log_fire disk_redirect_scan_cap
+  gstack_hook_decision ask "[careful] This command writes to more than 64 folders under disk-like names, more than the destructive-command check looks up, so it could not be fully checked. Approve only if you know what it does."
+  exit 0
 fi
 
 # --- Check for safe exceptions (one standalone rm of build artifacts) ---
