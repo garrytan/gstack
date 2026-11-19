@@ -1,0 +1,4 @@
+{
+  "bytes": 378,
+  "why": "GST-3157 (2026-11-19, Garry \"Do it\" on I1): Claude Code skills load the shared preamble and the start output at load time: two injected lines, the plain start command as the fallback, and one allowed-tools grant"
+}

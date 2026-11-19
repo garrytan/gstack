@@ -10,6 +10,7 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
+  - Bash(~/.claude/skills/gstack/bin/gstack-skill-load:*)
 triggers:
   - design plan review
   - review ux plan
@@ -51,7 +52,9 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below.
+
+!`~/.claude/skills/gstack/bin/gstack-skill-load preamble ~/.claude/skills/gstack/plan-design-review/sections/preamble.md`
 
 ## Preamble (after scope gate)
 
