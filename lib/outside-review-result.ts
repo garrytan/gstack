@@ -70,7 +70,7 @@ export const QUOTA_FAILURE = /usage limit|insufficient_quota|exceeded your curre
  * HTTP 402 Payment Required: a metering proxy's allowance or the account's budget, never an auth failure. The 402 counts only
  * as a status (`status 402`, `HTTP 402`, `"code":402`, `Error: 402`, `402 Payment Required`), never inside a request id or a duration.
  */
-export const BUDGET_FAILURE = /\b(?:http(?:\/\d(?:\.\d)?)?|status|code|error)\b[\s:="']{0,4}402\b|\b402[\s:-]+payment|payment[\s_-]?required/i;
+export const BUDGET_FAILURE = /(?:http(?:\/\d(?:\.\d)?)?|status|code|error)\b[\s:="']{0,4}402\b|\b402\s+payment|payment[\s_-]?required/i;
 /** How lib/claude-code.ts opens its budget stop (a 402 or a usage limit): read as budget_exhausted, never as Codex's quota stop. */
 export const CLAUDE_CODE_BUDGET_STOP = "Claude Code's provider refused the call because";
 /** OpenAI's cyber-security refusal (R95): Capy relays it as `OpenAI key declined the request: cyber_policy: ...`; read from error lines only. */

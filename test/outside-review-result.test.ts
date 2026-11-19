@@ -690,14 +690,14 @@ describe('the final Codex failure decides the cause, and only a 402 status is a 
   });
 
   test('a 402 inside a request id or a duration is not a budget stop', () => {
-    for (const line of ['ERROR: unexpected status 500 Internal Server Error (request id req_9c3f402ab)', 'ERROR: unexpected status 401 Unauthorized after 402 ms']) {
+    for (const line of ['ERROR: unexpected status 500 Internal Server Error (request id req_9c3f402ab)', 'ERROR: unexpected status 401 Unauthorized after 402 ms', 'ERROR: unexpected status 500 Internal Server Error (request id: req-402-payment-abc)']) {
       const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
       expect({ line, reason: result.reason }).toEqual({ line, reason: 'execution_failed' });
     }
   });
 
   test('a 402 written as an HTTP status, a status or code field, or an API error still is', () => {
-    for (const line of ['ERROR: HTTP 402', 'ERROR: HTTP/1.1 402', 'ERROR: {"status":402,"title":"E_ALLOWANCE"}', 'ERROR: API Error: 402 {"type":"error"}']) {
+    for (const line of ['ERROR: HTTP 402', 'ERROR: HTTP/1.1 402', 'ERROR: {"status_code": 402}', 'ERROR: statusCode: 402', 'ERROR: http_status=402', 'ERROR: {"status":402,"title":"E_ALLOWANCE"}', 'ERROR: API Error: 402 {"type":"error"}']) {
       const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
       expect({ line, reason: result.reason }).toEqual({ line, reason: 'budget_exhausted' });
     }

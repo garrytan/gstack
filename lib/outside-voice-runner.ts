@@ -174,11 +174,16 @@ class CodexCliRunner implements OutsideRunner {
     const timedOut = Date.now() - started >= req.timeoutMs && exit !== 0;
     const own = fs.existsSync(req.outFile) ? fs.readFileSync(req.outFile, 'utf8') : '';
     const last = fs.existsSync(lastMessageFile) ? fs.readFileSync(lastMessageFile, 'utf8') : '';
-    const marked = (candidate: string) => candidate.trim() !== '' && !['missing_markers', 'empty_response'].includes(classifyOutsideReview({ text: candidate, gate: req.gate }).reason ?? '');
-    const receipt = req.gate === 'autoplan' ? /INPUT: (\S+) ([0-9a-f]{64})/.exec(prompt.toString('utf8').split(RESULT_FORMAT_HEADER)[1] ?? '') : null;
-    const complete = (candidate: string) => candidate.trim() !== '' && ['clean', 'findings'].includes(classifyOutsideReview({ text: candidate, gate: req.gate }).verdict)
-      && (!receipt || parseReceipt(candidate, { phase: receipt[1]!, sha256: receipt[2]! }).ok);
-    const text = complete(own) ? own : marked(last) || !own.trim() ? last : own;
+    const receipt = req.gate === 'autoplan' ? /INPUT: (\S+) ([0-9a-f]{64})/.exec(prompt.toString('utf8').split(RESULT_FORMAT_HEADER).at(-1) ?? '') : null;
+    const forThisInput = (candidate: string) => candidate.trim() !== '' && (!receipt || parseReceipt(candidate, { phase: receipt[1]!, sha256: receipt[2]! }).ok);
+    const ownRead = classifyOutsideReview({ text: own, gate: req.gate });
+    const lastRead = classifyOutsideReview({ text: last, gate: req.gate });
+    const ownMarked = forThisInput(own) && !['missing_markers', 'empty_response'].includes(ownRead.reason ?? '');
+    const ownUndecided = !ownMarked || ownRead.reason === 'missing_verdict';
+    const lastComplete = forThisInput(last) && ['clean', 'findings'].includes(lastRead.verdict);
+    const ownBlocks = ownRead.findings.highest === 'P0' || ownRead.findings.highest === 'P1';
+    const lastMarked = forThisInput(last) && !['missing_markers', 'empty_response'].includes(lastRead.reason ?? '');
+    const text = ownUndecided && lastComplete && (lastRead.verdict === 'findings' || !ownBlocks) ? last : !ownMarked && (lastMarked || !forThisInput(own)) ? last : own;
     if (text !== own) fs.writeFileSync(req.outFile, text);
     const events = fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '';
     const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, 'utf8') : '';
