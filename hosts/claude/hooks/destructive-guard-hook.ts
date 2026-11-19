@@ -27,15 +27,27 @@ import { sessionKind } from './spawn-bin';
 export const ASK_NOTE = "(gstack's destructive-command check, on in every session; off: gstack-config set destructive_guard off)";
 const CHECK = path.join(import.meta.dir, '..', '..', '..', 'careful', 'bin', 'check-careful.sh');
 
-function main(): void {
-  if (!readSkillSwitch('destructive_guard').on) return;
-  const r = runScriptSync(CHECK, [], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8', timeout: 8000 }, {
+export type CarefulDecision = { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+
+/**
+ * check-careful.sh's answer to the hook payload (input, else this process's stdin): its JSON, its raw text when that is
+ * not JSON, or null when the switch is off or it printed nothing. Shared with the Codex wrapper (hosts/codex/hooks).
+ */
+export function carefulDecision(input?: string): { decision: CarefulDecision } | { raw: string } | null {
+  if (!readSkillSwitch('destructive_guard').on) return null;
+  const r = runScriptSync(CHECK, [], { stdio: [input === undefined ? 'inherit' : 'pipe', 'pipe', 'inherit'], input, encoding: 'utf8', timeout: 8000 }, {
     resolve: () => resolveWindowsBashCached(path.join(resolveStateRoot(), 'cache', 'windows-bash.json')),
   });
   const out = (r.stdout ?? '').trim();
-  if (!out) return;
-  let decision: { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
-  try { decision = JSON.parse(out); } catch { process.stdout.write(out + '\n'); return; }
+  if (!out) return null;
+  try { return { decision: JSON.parse(out) }; } catch { return { raw: out }; }
+}
+
+function main(): void {
+  const careful = carefulDecision();
+  if (!careful) return;
+  if ('raw' in careful) { process.stdout.write(careful.raw + '\n'); return; }
+  const decision = careful.decision;
   const o = decision.hookSpecificOutput;
   if (o?.permissionDecision === 'ask') {
     const reason = `${o.permissionDecisionReason ?? ''} ${ASK_NOTE}`.trim();

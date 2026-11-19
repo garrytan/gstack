@@ -196,6 +196,14 @@ override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
 
+**Reasoning effort and hooks.** gstack's workflows do best at high reasoning
+effort; setup never changes it, so start Codex with
+`codex -c model_reasoning_effort=high` when you run them. With Codex 0.170 or
+newer, setup also adds gstack's routing hook and destructive-command check to
+`${CODEX_HOME:-~/.codex}/hooks.json`, and Codex runs them once you trust them at
+its startup prompt or in `/hooks`: see
+[Codex hooks](skill-routing-and-contracts.md#codex).
+
 **Plan-review and implementation tiers.** Plan workflows use an independent
 `frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
 Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.

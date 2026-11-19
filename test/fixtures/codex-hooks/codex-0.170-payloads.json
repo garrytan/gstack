@@ -1,0 +1,41 @@
+{
+  "_source": "UserPromptSubmit and PreToolUse: captured from codex-cli 0.170.0 under codex exec on 2026-11-19 by a hook that wrote its stdin, with paths shortened to /home/you. PreToolUseTui: the interactive TUI probe logged the same keys with permission_mode \"default\" and only the key list was kept, so it is the exec payload with that field and the TUI probe's command.",
+  "UserPromptSubmit": {
+    "session_id": "01a1f28a-7419-7eb3-934b-cd3b11888e17",
+    "turn_id": "01a1f28a-7536-70c3-ac51-cd5e3c3f5fe6",
+    "transcript_path": "/home/you/.codex/sessions/2026/11/19/rollout-2026-11-19T06-42-02-01a1f28a-7419-7eb3-934b-cd3b11888e17.jsonl",
+    "cwd": "/home/you/repo",
+    "hook_event_name": "UserPromptSubmit",
+    "model": "gpt-5.4-mini",
+    "permission_mode": "bypassPermissions",
+    "prompt": "Please review my changes. Start by running the shell command: git reset --hard --dry-run-not-real-flag"
+  },
+  "PreToolUse": {
+    "session_id": "01a1f28a-7419-7eb3-934b-cd3b11888e17",
+    "turn_id": "01a1f28a-7536-70c3-ac51-cd5e3c3f5fe6",
+    "transcript_path": "/home/you/.codex/sessions/2026/11/19/rollout-2026-11-19T06-42-02-01a1f28a-7419-7eb3-934b-cd3b11888e17.jsonl",
+    "cwd": "/home/you/repo",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.4-mini",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git reset --hard --dry-run-not-real-flag"
+    },
+    "tool_use_id": "call_jnsEUlxnBr5cuaqZaMTRvMEz"
+  },
+  "PreToolUseTui": {
+    "session_id": "01a1f28a-7419-7eb3-934b-cd3b11888e17",
+    "turn_id": "01a1f28a-7536-70c3-ac51-cd5e3c3f5fe6",
+    "transcript_path": "/home/you/.codex/sessions/2026/11/19/rollout-2026-11-19T06-42-02-01a1f28a-7419-7eb3-934b-cd3b11888e17.jsonl",
+    "cwd": "/home/you/repo",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.4-mini",
+    "permission_mode": "default",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo tui-probe"
+    },
+    "tool_use_id": "call_jnsEUlxnBr5cuaqZaMTRvMEz"
+  }
+}
