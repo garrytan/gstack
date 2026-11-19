@@ -38,7 +38,7 @@ export type PlanDecl =
   | { kind: 'required'; line: string }
   | { kind: 'approved'; line: string; token: string }
   | { kind: 'exempt'; line: string; reason: string };
-export interface PlanRecord { line: string; state: 'approved' | 'exempt'; ref?: string; row_id?: string; row_sha256?: string; reason?: string; resolver: number }
+export interface PlanRecord { line: string; state: 'approved' | 'exempt'; ref?: string; row_id?: string; row_sha256?: string; reason?: string; resolver: number; from?: 'finish' }
 export interface PlanFailure { code: ResultCodeName; message: string; fix: string }
 export type PlanResolution = { ok: true; record: PlanRecord; summary: string } | { ok: false; failure: PlanFailure };
 
@@ -113,6 +113,7 @@ function planLineIn(text: string): PlanDecl | null {
 export function exemptReason(reason: string): string | null {
   const r = reason.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
   if (/^crew:\s*\S/.test(r)) return r.replace(/^crew:\s*/, 'crew:');
+  if (/^bug[\s-]?fix(?:es)?(?![a-z])/.test(r)) return 'bug fix';
   return (EXEMPT_REASONS as readonly string[]).includes(r) ? r : null;
 }
 
@@ -240,16 +241,19 @@ export function planLine(res: PlanResolution, mode: { mode: PlanMode; source: st
 }
 
 /** ready's plan step: the PLAN: line, the record for the READY note when it resolved, and the refusal under require. */
-export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?: PlanMode; changed: string[]; fragmentsDir?: string }): { line?: string; record?: PlanRecord; failure?: PlanFailure } {
+export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?: PlanMode; changed: string[]; fragmentsDir?: string; finishLine?: string }): { line?: string; record?: PlanRecord; failure?: PlanFailure } {
   const mode = planMode(o.policyValue, o.env);
-  const decl = parsePlanLine(o.body);
+  const own = parsePlanLine(o.body);
+  const fromFinish = !own && o.finishLine ? parsePlanLine(o.finishLine) : null;
+  const decl = own ?? fromFinish;
+  const mark = (res: PlanResolution): PlanResolution => (fromFinish && res.ok ? { ok: true, record: { ...res.record, from: 'finish' }, summary: `${res.summary} (from /ship finish's plan record; the PR body has no Plan: line)` } : res);
   if (mode.mode === 'off') {
     const note = offNote(mode);
     const line = note ? { line: note } : {};
     if (!decl) return line;
-    try { const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir }); return res.ok ? { ...line, record: res.record } : line; } catch { return line; }
+    try { const res = mark(resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir })); return res.ok ? { ...line, record: res.record } : line; } catch { return line; }
   }
-  const res = resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir });
+  const res = mark(resolvePlan(decl, { cwd: o.cwd, env: o.env, changed: o.changed, fragmentsDir: o.fragmentsDir }));
   const line = planLine(res, mode);
   if (res.ok) return { line, record: res.record };
   return mode.mode === 'require' ? { line, failure: res.failure } : { line };
@@ -261,7 +265,7 @@ export function landPlan(o: { env: Env; policyValue?: PlanMode; record?: PlanRec
   if (mode.mode === 'off') { const note = offNote(mode); return note ? { line: note } : {}; }
   const current = parsePlanLine(o.body)?.line ?? null;
   const why = !o.record ? 'the READY note carries no plan record'
-    : (current ?? 'Plan: exempt: changelog-only') !== o.record.line && !(current === null && o.record.reason === 'changelog-only') ? `the READY note recorded "${o.record.line}" but the PR body now says "${current ?? 'no Plan: line'}"` : null;
+    : (current ?? 'Plan: exempt: changelog-only') !== o.record.line && !(current === null && (o.record.reason === 'changelog-only' || o.record.from === 'finish')) ? `the READY note recorded "${o.record.line}" but the PR body now says "${current ?? 'no Plan: line'}"` : null;
   if (!why) return { line: `PLAN: ${o.record!.state} ${o.record!.ref ?? o.record!.reason}${o.record!.row_id ? ` row=${o.record!.row_id}` : ''} (from the READY note)` };
   const failure: PlanFailure = { code: 'QUEUE_PLAN_MISMATCH', message: why, fix: 'the lane puts the brief\'s Plan line in the PR body (gstack-approvals render --plan) and reruns gstack-ship-queue ready --pr <n> at the pin, which records any line that resolves whatever its own mode' };
   return mode.mode === 'require' ? { line: `PLAN: refused ${why} (QUEUE_PLAN_MISMATCH)`, failure } : { line: `PLAN: warn ${why} (QUEUE_PLAN_MISMATCH) [mode ${mode.mode} from ${mode.source}]` };
@@ -275,5 +279,18 @@ export function finishPlan(cwd: string, base: string, line: string | undefined, 
   const ref = run(['rev-parse', '--verify', '-q', `origin/${base}`]).status === 0 ? `origin/${base}` : base;
   const changed = run(['diff', '--name-only', `${ref}...HEAD`]).stdout?.split('\n').filter(Boolean) ?? [];
   const body = line ? (/^\s*(\*\*)?Plan:/i.test(line) ? line.trim() : `Plan: ${line.trim()}`) : '';
-  return readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
+  const out = readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
+  const file = run(['rev-parse', '--git-path', FINISH_PLAN_FILE]).stdout?.trim();
+  const branch = run(['branch', '--show-current']).stdout?.trim();
+  if (out.record && body && file && branch) try { fs.writeFileSync(path.resolve(cwd, file), JSON.stringify({ schema_version: 1, branch, line: out.record.line }) + '\n'); } catch { /* ready then reads the body only */ }
+  return out;
+}
+
+const FINISH_PLAN_FILE = 'gstack-finish-plan.json';
+
+/** The Plan line /ship finish resolved for `branch` on this checkout, which ready uses when the PR body has none. */
+export function finishPlanLine(cwd: string, branch: string | undefined): string | undefined {
+  if (!branch) return undefined;
+  const file = spawnSync('git', ['rev-parse', '--git-path', FINISH_PLAN_FILE], { cwd, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
+  try { const r = JSON.parse(fs.readFileSync(path.resolve(cwd, file!), 'utf8')); return r?.schema_version === 1 && r.branch === branch && typeof r.line === 'string' ? r.line : undefined; } catch { return undefined; }
 }

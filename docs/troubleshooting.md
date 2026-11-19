@@ -2250,6 +2250,20 @@ empty or holds whitespace. `add` refuses a `ruled_note` or
 ruling or a test-lane exception is the owner's: record it from the owner's
 session, outside the lane's /ship run.
 
+<a id="approval-ruling-run-open"></a>
+### `gstack-approvals rule: ... (APPROVAL_RULING_RUN_OPEN)`
+
+**Meaning.** A /ship run is open on this checkout (its marker is in the git dir until
+finish), and `rule` was given no `--owner-ref`. A ruling is the owner's, and the run's own
+runner never rules on the findings it is stopped on. Exit 2. Nothing was written.
+
+**Fix.** On Capy the owner (a Captain) has no session on the lane's checkout, so the lane
+relays the ruling: `gstack-approvals rule --finding <fp> --head <stop head> --reason <why>
+--words "<the owner's exact words>" --by "<the owner>" --owner-ref <thread code>:<message id
+or timestamp>`. The row, the receipt and the PR body's Ruled note line say it was relayed
+and from which message, so a reader can check the words against it. Otherwise record the
+ruling after the run stops.
+
 <a id="approval-record-secret"></a>
 ### `gstack-approvals: ... (APPROVAL_RECORD_SECRET)`
 

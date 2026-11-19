@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { placeReceipt } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
@@ -318,3 +319,74 @@ describe('on Capy, gstack-ship-receipt carry calls no gh write (GST-3183)', () =
     expect(h!.body).toContain(head);
   });
 });
+
+/** The real gh on PATH (on a Capy machine the wrapper's gh.real), pointed at a fake GitHub API on a unix socket it owns. */
+const REAL_GH = Bun.which('gh.real') ?? Bun.which('gh');
+async function fakeGithub() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-'));
+  const sock = path.join(dir, 's');
+  const cfg = path.join(dir, 'cfg');
+  fs.mkdirSync(cfg);
+  fs.writeFileSync(path.join(cfg, 'config.yml'), `http_unix_socket: ${sock}\n`);
+  fs.writeFileSync(path.join(dir, 'srv.ts'), [
+    'Bun.serve({ unix: process.argv[2], async fetch(req) {',
+    '  let v = {}; try { v = JSON.parse(await req.text()).variables || {}; } catch {}',
+    '  const owner = v.owner, name = v.name || v.repo;',
+    "  return Response.json({ data: { repository: { id: 'R', name, owner: { login: owner }, nameWithOwner: owner + '/' + name, url: 'https://github.com/' + owner + '/' + name, pullRequest: { id: 'P', number: v.pr_number || 7, body: 'Fixes a thing.\\n' } } } });",
+    '} });', '',
+  ].join('\n'));
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(REAL_GH!, path.join(bin, 'gh'));
+  const server = Bun.spawn([process.execPath, path.join(dir, 'srv.ts'), sock], { stdout: 'ignore', stderr: 'ignore' });
+  for (let i = 0; i < 100 && !fs.existsSync(sock); i++) await Bun.sleep(50);
+  const env = { PATH: `${bin}:${process.env.PATH}`, GH_CONFIG_DIR: cfg, GH_TOKEN: 'fake', GH_HOST: 'github.com', GH_ENTERPRISE_TOKEN: '', GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' };
+  return { env, stop: () => { server.kill(); fs.rmSync(dir, { recursive: true, force: true }); } };
+}
+
+describe('GH_REPO and fork heads on the HOST_PUBLISH hand-off (#4518 follow-up)', () => {
+  // Value: protects=with GH_REPO set, both hand-off paths name the repository gh's own write would have used, as real gh
+  //   resolves it (gh repo view ignores GH_REPO; gh pr view and edit honour it); fails_when=the destination read drops GH_REPO
+  //   and names origin's repository; seam=bin/gstack-post and bin/gstack-ship-receipt with real gh over a fake API socket
+  test.skipIf(!REAL_GH || process.platform === 'win32')('real gh: gstack-post and stub name GH_REPO, not origin', async () => {
+    const r = capyRepo();
+    r.githubOrigin();
+    r.f.git('remote', 'set-url', 'origin', 'https://github.com/forker/fx.git');
+    const gh = await fakeGithub();
+    try {
+      const comment = path.join(r.f.root, 'c.md');
+      fs.writeFileSync(comment, 'A plain comment.\n');
+      const post = r.run('gstack-post', ['pr-comment', '7', '--body-file', comment], { ...gh.env, GH_REPO: 'upstream/fx' });
+      expect(post.status, post.stderr).toBe(0);
+      expect(destinations(post.stdout)).toEqual([{ op: 'pr-comment', target: '7', repo: 'upstream/fx' }]);
+      const stub = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1'], { ...gh.env, GH_REPO: 'upstream/fx' });
+      expect(stub.status, stub.stderr).toBe(0);
+      expect(destinations(stub.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'upstream/fx' }]);
+    } finally { gh.stop(); }
+  });
+
+  // Value: protects=a pr-create hand-off from a fork checkout names owner:branch, as gh pr create would, and refuses when the
+  //   fork is on another host; fails_when=head= is the bare branch, which the base repository reads as its own; seam=bin/gstack-post
+  test('a fork pr-create names the head as origin-owner:branch, or refuses across hosts', () => {
+    const title = (r: ReturnType<typeof capyRepo>) => { const t = path.join(r.f.root, 't.txt'); fs.writeFileSync(t, 'Add a thing for users\n'); return t; };
+    const body = (r: ReturnType<typeof capyRepo>) => { const b = path.join(r.f.root, 'b.md'); fs.writeFileSync(b, 'Adds a thing for users.\n\n## Why\n\nBecause.\n'); return b; };
+    const r = capyRepo({ nameWithOwner: 'upstream/fx', url: 'https://github.com/upstream/fx' });
+    r.githubOrigin();
+    r.f.git('remote', 'set-url', 'origin', 'https://github.com/forker/fx.git');
+    const branch = r.f.git('branch', '--show-current').stdout.trim();
+    const n = r.run('gstack-post', ['pr-create', '--base', 'main', '--title-file', title(r), '--body-file', body(r)]);
+    expect(n.status, n.stderr).toBe(0);
+    expect(destinations(n.stdout)).toEqual([{ op: 'pr-create', target: 'new', repo: 'upstream/fx', base: 'main', head: `forker:${branch}` }]);
+    const named = r.run('gstack-post', ['pr-create', '--base', 'main', '--head', 'someone:topic', '--title-file', title(r), '--body-file', body(r)]);
+    expect(destinations(named.stdout)).toEqual([{ op: 'pr-create', target: 'new', repo: 'upstream/fx', base: 'main', head: 'someone:topic' }]);
+    const far = capyRepo({ nameWithOwner: 'upstream/fx', url: 'https://github.acme.test/upstream/fx' });
+    far.githubOrigin();
+    far.f.git('remote', 'set-url', 'origin', 'https://github.com/forker/fx.git');
+    const refused = far.run('gstack-post', ['pr-create', '--base', 'main', '--title-file', title(far), '--body-file', body(far)]);
+    expect(refused.status).toBe(64);
+    expect(refused.stdout).not.toContain('HOST_PUBLISH:');
+    expect(refused.stderr).toContain('pass --head <owner>:<branch>');
+    expect([...r.gh.writes(), ...far.gh.writes()]).toEqual([]);
+  });
+});
+

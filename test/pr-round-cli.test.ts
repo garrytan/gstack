@@ -64,6 +64,15 @@ describe('gstack-approvals round-grant', () => {
     expect(r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'more', '--reason', 'x', '--by', 'lane']).status).toBe(2);
     expect(r.run('gstack-approvals', ['add', '--ask', 'a', '--words', 'w', '--by', 'b', '--scope', `review_round_grant ${r.head} pr=5 kind=extra-round`]).status).toBe(2);
   });
+
+  // Value: protects=a Captain whose crew name starts with gstack can grant a round, while gstack's own names stay refused;
+  //   fails_when=the self-grant check matches a prefix (gstack-evals Captain refused, #4518 follow-up); seam=bin/gstack-approvals
+  test('a --by that only starts with gstack is a crew, not gstack: gstack-evals Captain records a grant', () => {
+    const r = repo();
+    for (const by of ['gstack', 'GStack', ' gstack no-stop default (K1) ']) expect(r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'extra-round', '--reason', 'x', '--by', by]).status).toBe(2);
+    const ok = r.run('gstack-approvals', ['round-grant', '--pr', '5', '--head', r.head, '--kind', 'extra-round', '--reason', 'x', '--by', 'gstack-evals Captain']);
+    expect([ok.status, ok.stderr]).toEqual([0, '']);
+  });
 });
 
 describe('gstack-ship-receipt history and stub', () => {

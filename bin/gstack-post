@@ -34,6 +34,7 @@ const code = runPost(process.argv.slice(2), {
   readFile: (p) => fs.readFileSync(p, "utf8"),
   out: (t) => process.stdout.write(t),
   err: (t) => process.stderr.write(t),
+  ghRepo: process.env.GH_REPO,
   ...(hostPublishes() ? { hostPublish: (op: string, target: string | undefined, parts: Array<["title" | "body", string]>, dest: HostDest) => handOff({ op, target, parts, ...dest }) } : {}),
 }, path.join(import.meta.dir, "gstack-config"));
 process.exitCode = code;

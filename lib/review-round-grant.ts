@@ -9,7 +9,7 @@
  */
 import { spawnSync } from './spawn-sync';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
-import { GSTACK_ACTOR } from './ruled-notes';
+import { isGstackActorName } from './ruled-notes';
 
 export const ROUND_GRANT_KINDS = ['extra-round', 'fix-check'] as const;
 export type RoundGrantKind = (typeof ROUND_GRANT_KINDS)[number];
@@ -29,7 +29,7 @@ export function reviewRoundGrants(rows: readonly ApprovalRow[]): ReviewRoundGran
   const out: ReviewRoundGrant[] = [];
   for (const r of rows) {
     const s = SCOPE.exec(r.scope), a = ASK.exec(r.ask);
-    if (r.outcome !== 'approved' || !s || !a || GSTACK_ACTOR.test(r.by)) continue;
+    if (r.outcome !== 'approved' || !s || !a || isGstackActorName(r.by)) continue;
     if (a[1] !== s[3] || a[2] !== s[1] || a[3] !== s[2]) continue;
     const findings = s[5]?.split(',');
     if ((s[3] === 'fix-check') !== (s[4] !== undefined) || (s[4] !== undefined && (!STOP_RUN.test(s[4]) || !findings!.every(f => FINDING_ID.test(f))))) continue;

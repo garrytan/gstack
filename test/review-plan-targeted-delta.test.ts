@@ -4,6 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { parseReviewTargeted, plainDocsSince, targetedClassesSince } from '../lib/ship-receipt-depth';
+import { targetedPatchId } from '../lib/review-targeted';
+import { targetedDelta } from '../lib/review-targeted-delta';
 
 const BIN = path.join(import.meta.dir, '..', 'bin');
 const dirs: string[] = [];
@@ -166,3 +168,18 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     expect(rendered.map(e => [e.reader, e.diff_base, e.head, e.classes])).toEqual([['targeted', mergeBase, r.git('rev-parse', 'HEAD'), ['money']]]);
   });
 });
+
+describe('a targeted read on a non-ASCII path (#4520 ruled note)', () => {
+  // Value: protects=the patch-id the targeted record stores and the one targetedDelta recomputes hash the same diff text when a
+  //   path is non-ASCII, so a plain-docs follow-up carries the read; fails_when=targetedPatchId quotes the path (core.quotePath
+  //   default) while the check does not, and the read never matches; seam=targetedPatchId and targetedDelta over a real git repo
+  test('a plain-docs change after the read carries it instead of refusing --targeted-ran', () => {
+    const r = reviewed({}, { 'src/caf\u00e9/billing.ts': MONEY_CODE });
+    const read = r.git('rev-parse', 'HEAD');
+    const ran = targetedPatchId(r.dir, r.git('merge-base', 'main', 'HEAD'));
+    expect(ran).toMatch(/^[0-9a-f]{40}$/);
+    r.commit({ 'docs/notes.md': '# Notes\n\nA plain paragraph.\n' }, 'docs');
+    expect(targetedDelta(r.dir, 'main', read, ran)).toEqual({ state: 'skip', reason: expect.stringContaining('plain docs'), carried: true });
+  });
+});
+

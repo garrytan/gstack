@@ -229,24 +229,31 @@ export function receiptSummaryLine(r: ShipReceipt): string {
 /** A risk-class PR (R51): the receipt's review depth has class gate or a risk class. Only these get the cross-family trail read. */
 export const riskClassReceipt = (r: ShipReceipt | undefined) => r?.review_depth?.class === 'gate' || !!r?.review_depth?.risk?.length;
 
+/** What ready found for the READY tail: its TRIAL_MERGES lines and the decision trail's cross-family read, or why there is none. */
+export interface ReadyTail { trialMerges: string[]; trailRead: { row: number; reader: string } | { missing: string } }
+
 /**
- * The rest of the READY block (GSTA-258 E1: the ready output is the whole READY): the receipt's review loop, the trial-merge
- * line the lane fills, and the Attention stub, whose opening line follows the receipt's risk class (docs/unattended.md).
+ * The rest of the READY block (GSTA-258 E1: the ready output is the whole READY): the receipt's review loop, ready's trial
+ * merges, and the Attention section, whose opening line follows the receipt's risk class and the trail's cross-family read
+ * (docs/unattended.md): a risk-class PR with no trail-read row prints MISSING instead of a line to fill in.
  */
-export function readyTailLines(r: ShipReceipt | undefined): string[] {
+export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { trialMerges: [], trailRead: { missing: 'ready did not look for one' } }): string[] {
   const loop = parseReviewLoop(r?.review_loop);
   const opt = (k: keyof ReviewLoopReceipt) => (loop?.[k] ? ` ${k}=${loop[k]}` : '');
   const risk = riskClassReceipt(r);
   const legacy = !!r && !r.review_depth;
+  const cls = legacy ? 'risk class unknown: the receipt records no review_depth' : `risk class: ${oneLine([r?.review_depth?.class === 'gate' ? 'gate' : '', ...(r?.review_depth?.risk ?? [])].filter(Boolean).join(', '))}`;
+  const reviewer = !legacy && !risk ? 'self-audited (not a risk class: no cross-family trail read)'
+    : 'row' in t.trailRead ? `reviewed by ${oneLine(t.trailRead.reader)} (${cls}; rule 27 cross-family trail read, trail row ${t.trailRead.row})`
+    : `MISSING: cross-family trail read (${cls}; rule 27): ${oneLine(t.trailRead.missing)}; have a reader on another model family read the trail and transcript, record it with gstack-decision-trail <trail> trail-read "<reader model>" <why> <evidence> <flags>, then rerun ready with --trail <trail>`;
   return [
     loop ? `REVIEW_LOOP: passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred} noted=${loop.noted ?? 0} fixed=${loop.fixed ?? 0}${opt('unrecorded')}${opt('unbound')}${opt('fix_checks')}` : 'REVIEW_LOOP: none in the receipt',
     ...(r?.ruled_notes ?? []).map(n => `RULED_NOTE: ${oneLine(ruledNoteText(n))}`),
     ...(r?.gate_dispositions ?? []).map(d => `GATE_DISPOSITION: ${oneLine(gateDispositionText(d))}`),
     ...laneExceptionBodyLines(r?.ci_carried).map(l => `TEST_LANE_EXCEPTION: ${oneLine(l.slice('Test-lane exception: '.length))}`),
-    'TRIAL_MERGES: <one line per open sibling pin that shares a file: its git merge-tree result and the resolution, or "none share a file">',
+    ...(t.trialMerges.length ? t.trialMerges : ['TRIAL_MERGES: MISSING: ready did not check the open PRs that share a file (rule 14)']),
     'Attention:',
-    legacy ? 'reviewed by <model on another family> (risk class unknown: the receipt records no review_depth; rule 27 cross-family trail read)'
-      : risk ? `reviewed by <model on another family> (risk class: ${oneLine([r?.review_depth?.class === 'gate' ? 'gate' : '', ...(r?.review_depth?.risk ?? [])].filter(Boolean).join(', '))}; rule 27 cross-family trail read)` : 'self-audited (not a risk class: no cross-family trail read)',
+    reviewer,
     '<flags against decision-trail row numbers, or No flags>',
   ];
 }
