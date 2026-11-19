@@ -144,6 +144,7 @@ export function parseClaudeCodeResult(stdout: string, stderr: string, exitCode: 
   }
   result.exit_code = exitCode;
   if (diagnostic) result.stderr = diagnostic;
+  if (result.error?.code === 'budget') result.stderr = [diagnostic, `ERROR: ${result.error.message}`].filter(Boolean).join('\n');
   return result;
 }
 
