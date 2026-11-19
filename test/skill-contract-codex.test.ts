@@ -104,6 +104,67 @@ describe('loads: Codex reading or injecting a gstack-* SKILL.md', () => {
   });
 });
 
+describe('reads: shell edge cases from the #4522 notes (GST-3197)', () => {
+  const meta = lines('exec-read-met.jsonl')[0];
+  const record = (payload: Record<string, unknown>) => JSON.stringify({ type: 'response_item', payload });
+  const user = record({ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review this' }] });
+  const call = (cmd: string, id = 'c1') => record({ type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd }), call_id: id });
+  const result = (output: string, id = 'c1') => record({ type: 'function_call_output', call_id: id, output });
+  const loads = (cmd: string, output?: string) => skillLoads(parseTranscript([meta, user, call(cmd), ...(output === undefined ? [] : [result(output)])].join('\n'))).map(l => l.skill);
+  const READ = 'cat ~/.codex/skills/gstack-review/SKILL.md';
+
+  test('A: a read that an earlier && command kept from running is not a load; a read before a later failure still is', () => {
+    expect(loads('cd /nope && ' + READ, 'Process exited with code 1\nOutput:\nbash: line 1: cd: /nope: No such file or directory')).toEqual([]);
+    expect(loads('cd /repo && ' + READ, 'Process exited with code 0\nOutput:\n---\nname: review')).toEqual(['gstack-review']);
+    expect(loads('cd /repo && ' + READ + ' && git diff missing-ref', "Process exited with code 128\nOutput:\n---\nfatal: bad revision 'missing-ref'")).toEqual(['gstack-review']);
+    expect(loads('cd /nope && ' + READ)).toEqual(['gstack-review']);
+    expect(loads('cd /nope && { ' + READ + '; }', 'Process exited with code 1\nOutput:\n')).toEqual(['gstack-review']);
+  });
+
+  test("B: ; inside quotes does not split a command, so sed -n '1,200p;201q' is a read", () => {
+    expect(loads("sed -n '1,200p;201q' ~/.codex/skills/gstack-review/SKILL.md", 'Process exited with code 0\nOutput:\n---')).toEqual(['gstack-review']);
+    expect(loads('sed -n "1,200p;201q" ~/.codex/skills/gstack-review/SKILL.md')).toEqual(['gstack-review']);
+    expect(loads('echo x; ' + READ)).toEqual(['gstack-review']);
+  });
+
+  test('C: a user turn holding only an image ends the run, so the next read of the same skill is a new load', () => {
+    const image = record({ type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }] });
+    const t = (between: string[]) => parseTranscript([meta, user, call(READ, 'a'), result('Process exited with code 0\nOutput:\n---', 'a'), ...between, call(READ, 'b'), result('Process exited with code 0\nOutput:\n---', 'b')].join('\n'));
+    expect(skillLoads(t([image]))).toHaveLength(2);
+    expect(skillLoads(t([]))).toHaveLength(1);
+  });
+
+  test('a || fallback whose first read fails loads from the second; the error names only the first path', () => {
+    expect(loads(READ + ' || cat ~/.agents/skills/gstack-review/SKILL.md', 'Process exited with code 0\nOutput:\ncat: /home/u/.codex/skills/gstack-review/SKILL.md: No such file or directory\n---\nname: review')).toEqual(['gstack-review']);
+    expect(loads(READ + ' || cat ~/.agents/skills/gstack-review/SKILL.md', 'Process exited with code 1\nOutput:\ncat: /home/u/.codex/skills/gstack-review/SKILL.md: No such file or directory\ncat: /home/u/.agents/skills/gstack-review/SKILL.md: No such file or directory')).toEqual([]);
+  });
+
+  test('a read error must name the path itself: SKILL.md.bak or another skill folder does not drop a good read', () => {
+    expect(loads(READ + '; ls ~/.codex/skills/gstack-review/SKILL.md.bak', "Process exited with code 2\nOutput:\n---\nls: cannot access '/home/u/.codex/skills/gstack-review/SKILL.md.bak': No such file or directory")).toEqual(['gstack-review']);
+    expect(loads(READ, "Process exited with code 1\nOutput:\ncat: /home/u/.codex/skills/gstack-review/SKILL.md: Permission denied")).toEqual([]);
+  });
+
+  test('an error line that does not provably name another file still drops the read', () => {
+    expect(loads('cat "$(realpath -m ~/.codex/skills/gstack-review/SKILL.md)"', 'Process exited with code 1\nOutput:\ncat: /home/u/dotfiles/skills/gstack-review/SKILL.md: No such file or directory')).toEqual([]);
+    expect(loads('cd ~/.codex/skills/gstack-review && cat SKILL.md', 'Process exited with code 1\nOutput:\ncat: SKILL.md: No such file or directory')).toEqual([]);
+    expect(loads(READ + '; cat /tmp/notes.txt', 'Process exited with code 1\nOutput:\n---\nname: review\ncat: /tmp/notes.txt: No such file or directory')).toEqual(['gstack-review']);
+  });
+
+  test('a multi-file read whose other file fails still loads', () => {
+    expect(loads(READ + ' /tmp/x', 'Process exited with code 1\nOutput:\n---\nname: review\ncat: /tmp/x: No such file or directory')).toEqual(['gstack-review']);
+  });
+
+  test('a one-file read that exits non-zero with no error text is not a load', () => {
+    expect(loads(READ, 'Process exited with code 1\nOutput:\n')).toEqual([]);
+    expect(loads("sed -n '1,200p' ~/.codex/skills/gstack-review/SKILL.md", 'Process exited with code 1\nOutput:\n')).toEqual([]);
+  });
+
+  test("PowerShell's Cannot find path is a read error", () => {
+    expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', "Get-Content: Cannot find path 'C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md' because it does not exist.")).toEqual([]);
+    expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', '---\nname: review')).toEqual(['gstack-review']);
+  });
+});
+
 describe('chunked reads: reading the same SKILL.md again continues the run', () => {
   const met = lines('exec-read-met.jsonl');
   const spawnAt = met.findIndex(l => l.includes('"function_call"') && l.includes('spawn_agent') && met.some(o => o.includes('function_call_output') && o.includes(JSON.parse(l).payload.call_id) && o.includes('agent_id')));

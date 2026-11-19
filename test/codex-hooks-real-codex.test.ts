@@ -105,6 +105,30 @@ async function codexAgainstStub(prompt: string): Promise<string[]> {
   return bodies;
 }
 
+/** Codex's own view of its hooks: app-server's hooks/list gives each handler's trust key, current hash and status. */
+async function listHooks(): Promise<{ hooks: { key: string; command?: string; currentHash: string; trustStatus: string }[]; warnings: string[]; errors: unknown[] }> {
+  const child = spawn('codex', ['app-server'], {
+    cwd: dir, stdio: ['pipe', 'pipe', 'ignore'],
+    env: { PATH: process.env.PATH ?? '', HOME: dir, CODEX_HOME: home(), OPENAI_API_KEY: 'sk-not-a-real-key' },
+  });
+  let out = '';
+  child.stdout.on('data', d => { out += d; });
+  for (const msg of [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'gstack-test', version: '1' } } },
+    { jsonrpc: '2.0', method: 'initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'hooks/list', params: { cwds: [dir] } },
+  ]) child.stdin.write(JSON.stringify(msg) + '\n');
+  const deadline = Date.now() + 30_000;
+  let reply: any;
+  while (Date.now() < deadline && !reply) {
+    reply = out.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).find(m => m?.id === 2);
+    if (!reply) await Bun.sleep(100);
+  }
+  child.kill('SIGKILL');
+  if (!reply?.result) throw new Error('codex app-server gave no hooks/list reply: ' + out.slice(-500));
+  return reply.result.data[0];
+}
+
 describe.skipIf(!usable && !required)('real codex reads the hooks.json gstack writes', () => {
   test('codex 0.170 or newer is on PATH', () => {
     expect(version?.[0] ?? 'no codex on PATH').toMatch(/^codex-cli /);
@@ -131,6 +155,43 @@ describe.skipIf(!usable && !required)('real codex reads the hooks.json gstack wr
     expect((await codexAgainstStub(`$${hinted} look at this`)).join('\n')).toContain('REAL_CODEX_SKILL_BODY');
     expect((await codexAgainstStub('$gstack-review look at this')).join('\n')).not.toContain('REAL_CODEX_SKILL_BODY');
   }, 200_000);
+
+test("removing gstack's group before yours leaves an empty group, and Codex still trusts your hook at the same key", async () => {
+    fs.mkdirSync(home(), { recursive: true });
+    const file = path.join(home(), 'hooks.json');
+    const gstackGuard = path.join(home(), 'skills', 'gstack', 'hosts', 'codex', 'hooks', 'codex-destructive-guard-hook');
+    const mine = { matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-guard', timeout: 3 }] };
+    fs.writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: gstackGuard, timeout: 10 }] }, mine] } }, null, 2));
+    const before = (await listHooks()).hooks.find(h => h.command === '/usr/local/bin/my-guard')!;
+    expect(before.key).toBe(fs.realpathSync(file) + ':pre_tool_use:1:0');
+    fs.writeFileSync(path.join(home(), 'config.toml'), '[hooks.state."' + before.key + '"]\ntrusted_hash = "' + before.currentHash + '"\n');
+    expect((await listHooks()).hooks.find(h => h.key === before.key)?.trustStatus).toBe('trusted');
+    const r = spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-settings-hook'), 'prune-stale', '--all'], {
+      env: { PATH: process.env.PATH ?? '', HOME: dir, GSTACK_HOOKS_FORMAT: 'codex', CODEX_HOME: home() }, encoding: 'utf8', timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse).toEqual([{ hooks: [] }, mine]);
+    const after = await listHooks();
+    expect(after.warnings).toEqual([]);
+    expect(after.errors).toEqual([]);
+    expect(after.hooks.map(h => [h.key, h.trustStatus])).toEqual([[before.key, 'trusted']]);
+    fs.writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [mine] } }, null, 2));
+    expect((await listHooks()).hooks.map(h => [h.key.split(':').slice(-2).join(':'), h.trustStatus])).toEqual([['0:0', 'untrusted']]);
+  }, 120_000);
+
+  test('a hook path with ( in it runs under Codex instead of exiting 2, which Codex reads as a block on every prompt', async () => {
+    install();
+    const odd = path.join(dir, 'hooks(2)');
+    fs.symlinkSync(path.join(ROOT, 'hosts', 'codex', 'hooks'), odd);
+    const r = spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-settings-hook'), 'ensure-event', '--event', 'UserPromptSubmit', '--command', path.join(odd, 'codex-skill-route-hook'), '--source', 'gstack-skill-route', '--timeout', '5'], {
+      env: { PATH: process.env.PATH ?? '', HOME: dir, GSTACK_HOOKS_FORMAT: 'codex', CODEX_HOME: home() }, encoding: 'utf8', timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    const out = await codexExec(['--dangerously-bypass-hook-trust']);
+    expect(fs.existsSync(marker())).toBe(true);
+    expect(fs.readFileSync(routeLog(), 'utf8')).toMatch(/event=routed skill=review .*host=codex/);
+    expect(out).not.toMatch(/blocked|exit code 2|syntax error/i);
+  }, 90_000);
 
   test('negative controls: an unknown key makes Codex skip the whole file, and untrusted hooks never run', async () => {
     install();
