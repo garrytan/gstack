@@ -177,6 +177,22 @@ describe('ready under a train policy: the screen choice', () => {
     expect(JSON.parse(fs.readFileSync(receipt, 'utf8')).plan).toMatchObject({ line: 'Plan: exempt: bug fix', state: 'exempt', reason: 'bug fix' });
   }, 120_000);
 
+
+  // Value: protects=train ready (gstack's own route) uses the Plan line /ship finish recorded for this branch and head when the
+  //   body has none, as plain ready does; fails_when=trainPlan drops finishLine and warns or refuses PLAN_RECORD_MISSING after
+  //   finish recorded Plan: exempt: bug fix (GSTA-649); seam=bin/gstack-ship-queue ready under a train policy
+  test('under GSTACK_PLAN_RECORD=require train ready takes the Plan line finish recorded when the body has none', () => {
+    const { fx, head, pregate } = readyFixture();
+    const file = path.resolve(fx.repo.work, fx.repo.git('rev-parse', '--git-path', 'gstack-finish-plan.json'));
+    fs.writeFileSync(file, JSON.stringify({ schema_version: 2, branch: fx.repo.git('branch', '--show-current'), head, line: 'Plan: exempt: bug fix' }) + '\n');
+    const ok = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen'], { GSTACK_PLAN_RECORD: 'require' });
+    expect([ok.status, ok.err]).toEqual([EXIT.ok, '']);
+    expect(ok.out.split('\n').filter(l => l.startsWith('PLAN:'))).toEqual(["PLAN: exempt bug fix (from /ship finish's plan record; the PR body has no Plan: line)"]);
+    const receipt = path.join(fx.state, 'ship-queue', 'ready', repoKey(fx), `1-${head}.json`);
+    expect(JSON.parse(fs.readFileSync(receipt, 'utf8')).plan).toMatchObject({ line: 'Plan: exempt: bug fix', from: 'finish' });
+  }, 120_000);
+
+
   test("GSTA-67: a lane whose origin is another URL form of the repository (#3331's git.capy.ai) writes its receipt under the owner/repo key", () => {
     const { fx, head, pregate } = readyFixture();
     githubOrigin(fx, 'https://git.capy.ai/fixture/repo.git');

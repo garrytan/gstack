@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { finishPlanLine } from '../lib/plan-record';
 import { RESULT_CODES } from '../lib/result-codes';
 import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -191,6 +192,7 @@ describe('finish (Steps 15-16)', () => {
     expect(ok.stdout.split('\n')[0]).toBe('PLAN: exempt bug fix');
     expect(ok.stdout).toMatch(/^COMMIT: /m);
     expect(ok.status).toBe(0);
+    expect(finishPlanLine(f.work, f.git('branch', '--show-current').stdout.trim(), f.git('rev-parse', 'HEAD').stdout.trim())).toBe('Plan: exempt: bug fix');
   });
 
   // Value: protects=under changelog_fragments the branch's own fragment is release metadata: version writes nothing and names it in NEXT, finish commits it as the release commit and the route counts it as metadata, and another fragment is still a feature file; fails_when=finish stops on changelog.d/<slug>.md or routes it to re-review (/ship #3648 fix-check 4, CRITICAL);

@@ -272,23 +272,27 @@ export function landPlan(o: { env: Env; policyValue?: PlanMode; record?: PlanRec
 }
 
 /** /ship finish's plan step (gstack-ship-release finish --plan "<the brief's Plan line>"): the same resolution ready makes, run before the stages. */
-export function finishPlan(cwd: string, base: string, line: string | undefined, env: Env = process.env): { line?: string; failure?: PlanFailure } {
+export function finishPlan(cwd: string, base: string, line: string | undefined, env: Env = process.env): { line?: string; record?: PlanRecord; failure?: PlanFailure } {
   let policy: ShipPolicy | undefined;
   try { const loaded = loadPolicyFromBase(cwd, base); policy = isUnavailable(loaded) ? undefined : loaded.policy; } catch { policy = undefined; }
   const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
   const ref = run(['rev-parse', '--verify', '-q', `origin/${base}`]).status === 0 ? `origin/${base}` : base;
   const changed = run(['diff', '--name-only', `${ref}...HEAD`]).stdout?.split('\n').filter(Boolean) ?? [];
   const body = line ? (/^\s*(\*\*)?Plan:/i.test(line) ? line.trim() : `Plan: ${line.trim()}`) : '';
-  const out = readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
-  const file = run(['rev-parse', '--git-path', FINISH_PLAN_FILE]).stdout?.trim();
-  const branch = run(['branch', '--show-current']).stdout?.trim();
-  const head = run(['rev-parse', '--verify', '-q', 'HEAD']).stdout?.trim();
-  if (!file) return out;
+  return readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
+}
+
+/** After finish's stages pass: the Plan line finish resolved, bound to the branch and the head finish left (its release commit included). */
+export function recordFinishPlan(cwd: string, record: PlanRecord | undefined): void {
+  const run = (args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
+  const file = run(['rev-parse', '--git-path', FINISH_PLAN_FILE]);
+  const branch = run(['branch', '--show-current']);
+  const head = run(['rev-parse', '--verify', '-q', 'HEAD']);
+  if (!file) return;
   try {
-    if (out.record && body && branch && head) fs.writeFileSync(path.resolve(cwd, file), JSON.stringify({ schema_version: 2, branch, head, line: out.record.line }) + '\n');
+    if (record && branch && head) fs.writeFileSync(path.resolve(cwd, file), JSON.stringify({ schema_version: 2, branch, head, line: record.line }) + '\n');
     else fs.rmSync(path.resolve(cwd, file), { force: true });
   } catch { /* ready then reads the body only */ }
-  return out;
 }
 
 const FINISH_PLAN_FILE = 'gstack-finish-plan.json';
