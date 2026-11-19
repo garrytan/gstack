@@ -6,12 +6,15 @@
 -- 2026-11-16..19 added about 2,000 junk events and 500 fake installs.
 --
 -- What this drops: clients older than v0.11.16.0 (released 2026-03-24) stop
--- landing. In the 30 days to 2026-11-19 that was 245 events from 13 to 22
--- installs and 163 update checks. Their sync keeps the batch and retries, so
--- nothing breaks on their side; it just never arrives.
+-- landing. In the 30 days to 2026-11-19 that was 245 events from 23 installs
+-- and 163 update checks. Their sync keeps the batch and retries, so nothing
+-- breaks on their side; it just never arrives.
 --
--- Deploy order: telemetry-ingest must already use the service role key
--- (this PR) before this runs, or every new event is refused.
+-- Deploy order: apply 004, 005, 006 and 007; deploy telemetry-ingest and
+-- community-pulse (the new ingest writes 004's and 006's columns, and the new
+-- pulse calls 006's function); confirm one ingest event lands; then apply
+-- this. Run earlier, it refuses every new event. Undo only by recreating
+-- 002's policies.
 
 DROP POLICY IF EXISTS "anon_insert_only" ON telemetry_events;
 DROP POLICY IF EXISTS "anon_insert_only" ON installations;

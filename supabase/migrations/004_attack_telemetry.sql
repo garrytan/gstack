@@ -26,7 +26,8 @@
 --     preventing cross-device rainbow table attacks
 
 -- IF NOT EXISTS: this migration was not applied to the live project until
--- after 006 was written, so it must be safe to run in any order and twice.
+-- after 006 was written, so it must be safe to run twice. It must run before
+-- 006, whose view and function read these columns.
 ALTER TABLE telemetry_events
   ADD COLUMN IF NOT EXISTS security_url_domain TEXT,
   ADD COLUMN IF NOT EXISTS security_payload_hash TEXT,
