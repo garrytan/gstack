@@ -19,6 +19,7 @@
 #
 #   bash supabase/verify-rls.sh
 set -uo pipefail
+BASH_COMPAT=50
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/config.sh"
