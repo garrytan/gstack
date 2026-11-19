@@ -118,6 +118,18 @@ describe('review_content_patterns negative controls', () => {
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/loader.ts`);
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/fetch.sh`);
   }, 120_000);
+
+  // Value: protects=a NUL byte or an upper-case extension cannot move a source file in a declared folder out of review;
+  //   fails_when=the binary arm or a case-sensitive test treats it as declared content; why_new=GST-3158 review (red-team p2#1);
+  //   seam=bin/gstack-review-plan; no_claim=source languages outside SOURCE_EXT
+  test('a binary or upper-case source file inside a declared folder stays in review as code', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/hidden.ts`]: 'export const y = 2;\n// \u0000\n', [`${DIR}/Loader.TS`]: 'export const load = () => 1;\n' });
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toMatch(/^REVIEW_EXCLUDE: patterns=1\/1 excluded=6 bytes=\d+ kept=2 content=declared:6 /m);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/hidden.ts`);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/Loader.TS`);
+  }, 120_000);
 });
 
 describe('excluded from review is not excluded from the guards', () => {

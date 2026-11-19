@@ -13,7 +13,7 @@
  * git exclude beats any positive pathspec. That second command is bounded by its argument
  * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it refuses the plan
  * (REVIEW_EXCLUDE_KEEP_TOO_LARGE) instead of being dropped (GST-3158). A file the base policy's
- * review_content_patterns also matches is content whatever its extension, unless it is a source file (SOURCE_EXT): the policy says so.
+ * review_content_patterns also matches is content whatever its extension, unless it is a source file (SOURCE_EXT, any case): the policy says so.
  *
  * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
  * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
@@ -267,12 +267,13 @@ export type ContentKind = 'binary' | 'data' | 'docs' | 'log' | 'declared';
  */
 type Scope = ExcludeInput & { named?: ReadonlySet<string>; declared?: ReadonlySet<string> };
 const config = (i: Scope, p: string) => isDataConfig(p) && !i.named?.has(p);
+const SOURCE = new RegExp(SOURCE_EXT.source, 'i');
 function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentKind | null {
   if (binary.has(p)) return 'binary';
   if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
   if (classifyPath(p, i.classRoot) === 'docs') return 'docs';
-  return i.declared?.has(p) && !SOURCE_EXT.test(p) ? 'declared' : null;
+  return i.declared?.has(p) && !SOURCE.test(p) ? 'declared' : null;
 }
 
 /**
@@ -312,7 +313,7 @@ function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
-  if (binary.has(p)) return (BINARY_CONTENT_EXT.test(p) || i.declared?.has(p)) && !native.has(p) ? null : 'code';
+  if (binary.has(p)) return (BINARY_CONTENT_EXT.test(p) || (i.declared?.has(p) && !SOURCE.test(p))) && !native.has(p) ? null : 'code';
   if (isAgentProse(p)) return 'agent-prose';
   if (config(i, p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';

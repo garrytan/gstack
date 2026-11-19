@@ -1571,8 +1571,9 @@ How it works:
   prose, a config file, a source file (`.ts`, `.js`, `.py`, `.rb`, `.sh`, `.go`,
   `.rs`, `.dart` and the like), gate-tagged, holds a secret line, or is named by full
   path from kept code. A binary declared file is content unless its bytes start
-  with executable magic. A declared file is never a consumer for the
-  named-by-code scan.
+  with executable magic or it is a source file (the extension check ignores
+  case). A declared non-source file is never a consumer for the named-by-code
+  scan; a source file kept there is.
 - **Excluded from review, not from the guards.** The secrets scan and the
   sealed-output guard read every changed file, excluded ones included
   (`test/review-content-patterns.test.ts`).
