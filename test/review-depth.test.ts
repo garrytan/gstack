@@ -872,12 +872,14 @@ describe('R114: a preregistration and its plain data are a write-up; data rows a
     ['wiki/plans/2026-11-18-geva-553-office-hours-rewrite-pre-run-change-1/arms.json', false], ['src/preregistered.json', false], ['wiki/plans/x-results/rows.jsonl', false],
   ])('PREREG_PATH %s -> %s', (p, hit) => expect(PREREG_PATH.test(p)).toBe(hit));
   // Value: protects=harness-evals#432, whose results rows code names by basename planned 17,773 runtime lines; fails_when=a text data
-  //   row counts as a runtime line, or a config file or a binary named image stops counting; seam=classifyDiff runtimeLines
-  test('data rows never count as runtime lines, named or not; config files and code still do', () => {
+  //   row counts as a runtime line, or a config file, a guard's JSON allowlist or a binary named image stops counting;
+  //   seam=classifyDiff runtimeLines; no_claim=a JSON guard allowlist outside a docs or results tree (harness-evals' scripts/public-safety/allow.json) keeps counting
+  test('data rows never count as runtime lines, named or not; a JSON outside a docs or results tree, config files and code still do', () => {
     const r = 'docs/benchmarks/2026-11-10-x/results';
-    const paths = [`${r}/main/opus-full/trials.jsonl`, `${r}/audit.json`, `${r}/rows.tsv`, `${r}/proxy-usage.ndjson`, `${r}/table.csv`, 'scripts/analyze.ts', 'package.json'];
-    const c = classifyDiff({ paths, perPath: paths.map(p => ({ path: p, lines: p.endsWith('.ts') ? 12 : p === 'package.json' ? 2 : 5000, binary: false })), consumed: paths.filter(p => p.startsWith(r)), gateTagged: 0 });
-    expect([c.class, c.runtimeLines]).toEqual(['code', 14]);
+    const paths = [`${r}/main/opus-full/trials.jsonl`, `${r}/audit.json`, 'docs/benchmarks/2026-11-10-x/locks/diet.lock.json', `${r}/rows.tsv`, 'lanes/x/runs/proxy-usage.ndjson', 'lanes/x/table.csv', 'scripts/analyze.ts', 'package.json', 'scripts/public-safety/allow.json'];
+    const lines = (p: string) => p.endsWith('.ts') ? 12 : p === 'package.json' ? 2 : p.endsWith('allow.json') ? 19 : 5000;
+    const c = classifyDiff({ paths, perPath: paths.map(p => ({ path: p, lines: lines(p), binary: false })), consumed: paths.filter(p => !p.endsWith('.ts') && p !== 'package.json'), gateTagged: 0 });
+    expect([c.class, c.runtimeLines]).toEqual(['code', 12 + 2 + 19]);
   });
 });
 

@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResultCodeName } from './result-codes';
 import { matchesAny } from './ship-policy';
-import { decodeCharRefs, DOC_SECRET_LINE, matchRisk, RISK_CLASSES, RISK_RULES, SECRET_PATH, secretPath, SVG_PATH, svgActive, TOKEN_PATH, type RiskClass } from './review-risk';
+import { decodeCharRefs, DOC_SECRET_LINE, matchRisk, RESULTS_TREE, RISK_CLASSES, RISK_RULES, SECRET_PATH, secretPath, SVG_PATH, svgActive, TOKEN_PATH, type RiskClass } from './review-risk';
 
 export type DiffClass = 'docs' | 'tests' | 'code' | 'gate';
 export type PathClass = 'docs' | 'tests' | 'code';
@@ -69,8 +69,8 @@ export const isDataConfig = (p: string) => DATA_CONFIG.some(r => r.test(p));
 export const BINARY_DATA_PATH = /\.(sqlite3?|db|duckdb|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|pdf|mp3|mp4|mov|wav|webm|log|out)$|(^|\/)logs\/[^/.]+$/i;
 /** Data files: JSON, CSV, TSV and raster images. YAML and TOML are never data here: deploy configs and API specs stay code. An SVG is data only as a drawing (svgDrawing); executable SVG stays code. */
 export const DATA_PATH = /\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
-/** Text data rows and records: never runtime lines, named by code or not (harness-evals#432 counted its results rows as runtime code). */
-export const DATA_ROWS = /\.(json|jsonl|ndjson|csv|tsv)$/i;
+/** Row data, never runtime lines whether code names it or not (harness-evals#432 counted its results rows as code); JSON counts too in a docs, results or preregistration tree. */
+export const DATA_ROWS = /\.(jsonl|ndjson|csv|tsv)$/i;
 /** A preregistration's own directory or file (R114): a path segment named prereg or preregistration (wiki/plans/<id>-prereg/, prereg-harbor.json, lanes/<x>/prereg2.md). */
 export const PREREG_PATH = /(^|\/|[-_.])(prereg|preregistration)s?\d*([-_./]|$)/i;
 /** Data-shaped files tools read by convention, with no code naming them: always code. */
@@ -264,6 +264,8 @@ export const unconsumedData = (i: Pick<ClassInput, 'consumed' | 'drawings' | 'ro
 const binaryData = (i: ClassInput, p: string) => !i.executables?.includes(p) && BINARY_DATA_PATH.test(p) && classifyPath(p, i.root) === 'code' && ![...AGENT_PROSE, ...GATE_PATH, TOKEN_PATH, ...DATA_CONFIG].some(r => r.test(p));
 /** A preregistration's plain data (R114): a data candidate under PREREG_PATH, docs even when code names it; its guard and risk checks still run (classifyDiff). */
 const preregData = (i: ClassInput, p: string) => !i.executables?.includes(p) && PREREG_PATH.test(p) && dataCandidate(p, i.root);
+/** A data file whose lines are rows, not runtime lines (DATA_ROWS): a JSON elsewhere, such as a guard's allowlist, can be config and keeps counting. */
+const dataRows = (i: ClassInput, e: PathLines) => !e.binary && !i.executables?.includes(e.path) && dataCandidate(e.path, i.root) && (DATA_ROWS.test(e.path) || (/\.json$/i.test(e.path) && (RESULTS_TREE.test(e.path) || PREREG_PATH.test(e.path))));
 const pathClass = (i: ClassInput, p: string): PathClass => i.executables?.includes(p) && !i.excluded?.has(p) ? 'code' : (i.excluded?.has(p) || (i.stampOnly ?? []).includes(p) || unconsumedData(i, p) || binaryData(i, p) || preregData(i, p) ? 'docs' : classifyPath(p, i.root));
 
 /** The diff's class, raised to gate by any gate signal; `errors` lists every input that fails the depth closed; `runtimeLines` counts code-class lines outside the base registry's outputs. */
@@ -309,7 +311,7 @@ export function classifyDiff(i: ClassInput): ClassResult {
   if (!i.perPath) return { class: cls, reasons, errors, runtimeLines: null, risk, detected, declared };
   let runtimeLines = 0;
   for (const e of i.perPath) {
-    if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path) || (!e.binary && DATA_ROWS.test(e.path) && dataCandidate(e.path, i.root) && !i.executables?.includes(e.path))) continue;
+    if (pathClass(i, e.path) !== 'code' || isOutput(i, e.path) || dataRows(i, e)) continue;
     if (e.binary) errors.push({ code: 'binary_code_path', detail: 'git reports a binary change, so its lines cannot be counted', input: e.path, repair: "register it as an output of an entry with a command in the base branch's .gstack/generated.json, or accept the full review" });
     else runtimeLines += e.lines;
   }

@@ -200,7 +200,7 @@ describe('GSTA-167 part 4a: which data files code names (scanConsumers)', () => 
     const head = r.commit({ 'data/rows.json': rows, 'wiki/post/data.json': rows });
     const c = collectCommit(r.dir, r.baseSha, head);
     expect([c.consumed, c.errors]).toEqual([['data/rows.json'], []]);
-    expect(depthOfCommitInput({ ...c, gateTagged: 0 })).toMatchObject({ class: 'code', runtimeLines: 0 });
+    expect(depthOfCommitInput({ ...c, gateTagged: 0 })).toMatchObject({ class: 'code', runtimeLines: 80 });
   });
   test('a consumer the change deletes still counts (merge base); a data file named only by another data file follows it', () => {
     const r = repo({ 'src/old.ts': "read('rules.json')\n", 'src/manifest.ts': "load('index.json')\n" });

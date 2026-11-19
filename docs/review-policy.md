@@ -425,11 +425,14 @@ post-review route, /autoplan's docs-only scope) keeps data files code. A numeric
 in a data file still schedules the outside voice.
 
 <a id="data-rows"></a>
-**Data rows are never runtime lines.** A JSON, JSONL, NDJSON, CSV or TSV file that
-code names keeps its class (code), so its readers still read it, but its lines never
-count as runtime lines: a results PR's trial rows are not code (harness-evals#432
-counted 17,773 runtime lines at its head, 147 of them code). Config files (the list
-above), agent prose, gate paths, executables and binary files keep counting as before.
+**Data rows are never runtime lines.** A JSONL, NDJSON, CSV or TSV file that code
+names keeps its class (code), so its readers still read it, but its lines never count
+as runtime lines, and neither do a JSON file's under a docs, wiki, results or reports
+directory or a [preregistration](#preregistrations) path: a results PR's trial rows
+are not code (harness-evals#432 counted 17,773 runtime lines at its head, 147 of them
+code). A JSON file code names anywhere else keeps counting, because it can be config
+a guard reads (harness-evals' `scripts/public-safety/allow.json`), and so do config
+files (the list above), agent prose, gate paths, executables and binary files.
 
 <a id="preregistrations"></a>
 **Preregistrations are write-ups (R114).** A preregistration that adds no scoring
