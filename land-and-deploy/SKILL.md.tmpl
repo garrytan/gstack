@@ -7,7 +7,7 @@ description: |
   verifies production health via canary checks. Takes over after /ship
   creates the PR. Use when: "merge", "land", "deploy", "merge and verify",
   "land it", "ship it to production". (gstack)
-codex_default_prompt: "Use $gstack-land-and-deploy to merge this pull request once its checks pass, wait for CI and the deploy, and verify production health before calling it landed."
+codex_default_prompt: "Use $land-and-deploy to merge this pull request once its checks pass, wait for CI and the deploy, and verify production health before calling it landed."
 allowed-tools:
   - Bash
   - Read
