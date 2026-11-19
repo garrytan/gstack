@@ -133,6 +133,11 @@ export const GATE_OUTCOMES = {
     summary: 'the configured version file is missing, empty, unreadable or malformed',
     fix: 'fix that file, or correct --version-path / .gstack/version-path',
   },
+  review_required_no_readers: {
+    state: 'not_run', anchor: 'review-required-no-readers',
+    summary: 'commits after the reviewed head would ship with no reviewer, because the plan was told the step applied no fix',
+    fix: 'pass the flags the step left (--fixed-blocking, --fixed-below, --touched-gate or --blocking-open) and plan again; the plan refuses rather than printing done (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#review-required-no-readers)',
+  },
   no_plan_bound: {
     state: 'not_run', anchor: 'plan-audit-not-run',
     summary: 'no plan is bound to this branch and no docs/designs/ file matches',

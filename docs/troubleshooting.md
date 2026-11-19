@@ -4143,6 +4143,25 @@ plan that ran past the limit was killed with no output (GST-1442).
 repository's file count (`git ls-files | wc -l`) to your Captain. For
 `reason=signal`, check the machine's free memory first.
 
+<a id="review-required-no-readers"></a>
+### `gstack-review-plan: not run (commits after the reviewed head would ship with no reviewer ...) (review_required_no_readers)`
+
+**Meaning.** After a full review pass (`--last full`), the plan was told the
+step fixed nothing: no `--fixed-blocking`, `--fixed-below`,
+`--touched-gate` or `--blocking-open`. But `--range-base` shows the PR has its
+own new commits since the reviewed head. Planning `done` there would ship those
+commits with no reviewer, so the plan refuses (exit 3) and prints no plan;
+`gstack-review-dispatch pass` stops on it before it creates any reader. Before
+this refusal, a round-2 /ship could report the review done with nothing read
+(GST-3187).
+
+**Fix.** Pass the flags that hold for what the step changed and plan again:
+`--fixed-blocking` for a fixed blocker, `--fixed-below` for fixes below the
+floor, `--touched-gate` when a fix edited a gate-class path. A gate-class edit
+on its own now plans a full pass on the range. If the commits since
+`--range-base` are not review fixes, pass the head the review actually read as
+`--range-base`.
+
 <a id="review-exclude-reference"></a>
 ### `REVIEW_EXCLUDE_REFERENCE`
 

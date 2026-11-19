@@ -472,7 +472,7 @@ function leanStep(h: History, depth?: Depth): NextStep {
 
 function loopStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1 reviews the whole diff' };
-  const fixed = !!(h.fixedBlocking || h.fixedBelow);
+  const fixed = !!(h.fixedBlocking || h.fixedBelow || h.touchedGate);
   if (h.last === 'fix-check') return h.blockingOpen || h.fixedBlocking || h.touchedGate ? { step: 'stop', reason: `the fix-check ${h.touchedGate && !h.blockingOpen && !h.fixedBlocking ? 'edited a gate-class path' : 'found a blocking finding'}: name it for the owner, whose grant may add one scoped fix-check, never a third round` } : { step: 'done', reason: fixed ? 'round cap 2 reached: the below-floor fixes ship as notes in the PR body and receipt' : 'the fix-check found nothing blocking' };
   if (h.blockingOpen && h.fullPasses >= FULL_PASS_CAP) return { step: 'stop', reason: `a blocking finding is open after ${FULL_PASS_CAP} rounds: name it for the owner` };
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
