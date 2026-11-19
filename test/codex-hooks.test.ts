@@ -173,6 +173,44 @@ describe('gstack-settings-hook: Codex hooks.json format', () => {
     expect(settingsHook(['trust-status'], { GSTACK_HOOKS_FORMAT: '' }).code).toBe(1);
   });
 
+  test('removing a gstack group that one of your hooks follows in the same event refuses and leaves the file as it was, so Codex keeps trusting your hook', () => {
+    writeUser();
+    ensureRoute(); ensureGuard();
+    const doc = read();
+    doc.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-late-guard' }] });
+    writeUser(doc);
+    const text = fs.readFileSync(hooksFile(), 'utf8');
+    for (const args of [['remove-source', '--source', 'gstack-destructive-guard'], ['prune-stale', '--all']]) {
+      const r = settingsHook(args);
+      expect(r.code).toBe(3);
+      expect(r.out).toContain('would move your own PreToolUse hooks');
+      expect(r.out).toContain('re-trust your hooks in Codex with /hooks');
+      expect(fs.readFileSync(hooksFile(), 'utf8')).toBe(text);
+    }
+    expect(ensureGuard().out).toContain('unchanged');
+    expect(settingsHook(['remove-source', '--source', 'gstack-skill-route']).code).toBe(0);
+    expect(read().hooks.UserPromptSubmit).toEqual(USER_FILE.hooks.UserPromptSubmit);
+    expect(read().hooks.PreToolUse).toEqual(doc.hooks.PreToolUse);
+  });
+
+  test('a symlinked hooks.json still reads config.toml from the Codex home, not from beside the link target', () => {
+    const home = path.join(dir, 'codex');
+    const dotfiles = path.join(dir, 'dotfiles');
+    fs.mkdirSync(home); fs.mkdirSync(dotfiles);
+    fs.writeFileSync(path.join(dotfiles, 'hooks.json'), JSON.stringify(USER_FILE, null, 2) + '\n');
+    fs.symlinkSync(path.join(dotfiles, 'hooks.json'), path.join(home, 'hooks.json'));
+    const linked = { GSTACK_SETTINGS_FILE: path.join(home, 'hooks.json') };
+    const cfg = path.join(home, 'config.toml');
+    fs.writeFileSync(cfg, '[[hooks.UserPromptSubmit]]\n[[hooks.UserPromptSubmit.hooks]]\ntype = "command"\ncommand = "' + ROUTE_CMD() + '"\n');
+    const route = ['ensure-event', '--event', 'UserPromptSubmit', '--command', ROUTE_CMD(), '--source', 'gstack-skill-route', '--timeout', '5'];
+    const r = settingsHook(route, linked);
+    expect(r.code).toBe(3);
+    expect(r.out).toContain(cfg + ' already declares gstack hook gstack-skill-route');
+    fs.writeFileSync(cfg, '[hooks.state."' + path.join(home, 'hooks.json') + ':user_prompt_submit:1:0"]\ntrusted_hash = "sha256:aa"\n');
+    expect(settingsHook(route, linked).code).toBe(0);
+    expect(settingsHook(['trust-status'], linked).out.trim()).toBe('gstack-skill-route\tUserPromptSubmit\ttrusted');
+  });
+
   test('the formats stay apart: Codex rows never claim settings.json items, Claude rows never claim hooks.json items', () => {
     const claudeShaped = { hooks: { PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [{ type: 'command', command: '/x/.claude/skills/gstack/hosts/claude/hooks/destructive-guard-hook', timeout: 10 }] }] } };
     writeUser(claudeShaped);

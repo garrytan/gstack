@@ -88,6 +88,10 @@ ACTION="${1:-}"
 SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json}"
 if [ "${GSTACK_HOOKS_FORMAT:-}" = codex ]; then
   SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-${CODEX_HOME:-$HOME/.codex}/hooks.json}"
+  # Codex reads config.toml from CODEX_HOME, beside the hooks.json path it was
+  # given, so take its directory before the symlink-resolving step below.
+  GSTACK_CODEX_CONFIG="${GSTACK_CODEX_CONFIG:-$(dirname "$SETTINGS_FILE")/config.toml}"
+  export GSTACK_CODEX_CONFIG
   case "$ACTION" in
     add|remove) echo "gstack-settings-hook: $ACTION is the legacy settings.json verb; use ensure-event or remove-source with GSTACK_HOOKS_FORMAT=codex" >&2; exit 1 ;;
   esac
@@ -253,6 +257,24 @@ function gsCodexConfigClash() {
 function gsCodexRefuse(path, problem) {
   throw Object.assign(new Error(path + " does not match the Codex hooks.json schema (" + problem + "); Codex skips that whole file, so gstack will not write it -- fix the file (or move it aside) and re-run ./setup"), { gstackUnreadableSettings: true });
 }
+function gsCodexMovedUserHooks(beforeText, settings) {
+  var before;
+  try { before = JSON.parse(beforeText); } catch (e) { return []; }
+  var bh = (before && before.hooks) || {};
+  var ah = (settings && settings.hooks) || {};
+  var moved = [];
+  Object.keys(bh).forEach(function (ev) {
+    (Array.isArray(bh[ev]) ? bh[ev] : []).forEach(function (g, gi) {
+      (g && Array.isArray(g.hooks) ? g.hooks : []).forEach(function (h, hi) {
+        if (h && h.type === "command" && gsOwnedRow(h.command, ev, g.matcher || "")) return;
+        var ag = (Array.isArray(ah[ev]) ? ah[ev] : [])[gi];
+        var same = ag && Array.isArray(ag.hooks) && JSON.stringify(ag.hooks[hi]) === JSON.stringify(h) && (ag.matcher || "") === (g.matcher || "");
+        if (!same && moved.indexOf(ev) < 0) moved.push(ev);
+      });
+    });
+  });
+  return moved;
+}
 function gsHadBashPrefix(c) { return String(c == null ? "" : c).trim().indexOf("bash ") === 0; }
 function gsStripWrap(c) {
   var s = String(c == null ? "" : c).trim();
@@ -413,6 +435,12 @@ function gsWriteIfChanged(path, beforeText, settings, existed) {
   var fs = require("fs");
   var afterText = JSON.stringify(settings, null, 2);
   if (afterText === beforeText) return false;
+  if (GS_CODEX) {
+    var moved = gsCodexMovedUserHooks(beforeText, settings);
+    if (moved.length > 0) {
+      throw Object.assign(new Error("left " + path + " unchanged: this change would move your own " + moved.join(", ") + " hooks, which come after the gstack hook there, to new positions. Codex keys hook trust by position, so they would stop running until you trust them again, and codex exec would skip them without asking. To remove the gstack hook yourself, delete its group from " + path + " and re-trust your hooks in Codex with /hooks"), { gstackUnreadableSettings: true });
+    }
+  }
   gsAssertSettingsUnchanged(path);
   // Preserve the live file mode across the tmp+rename (settings.json can
   // carry API keys in its env block -- a user-tightened 0600 must never be
@@ -645,8 +673,7 @@ case "$ACTION" in
     GSTACK_TIMEOUT="$TIMEOUT" \
     GSTACK_DIFF_ONLY="$DIFF_ONLY" \
     GSTACK_ENSURE="$ENSURE" \
-    GSTACK_CODEX_CONFIG="${GSTACK_CODEX_CONFIG:-$(dirname "$SETTINGS_FILE")/config.toml}" \
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+        bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
       const event = process.env.GSTACK_EVENT;
       const cmd = process.env.GSTACK_COMMAND;
@@ -1139,8 +1166,7 @@ case "$ACTION" in
     fi
     [ -f "$SETTINGS_FILE" ] || exit 0
     GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_CODEX_HOOKS_INPUT="$GSTACK_SETTINGS_INPUT" \
-    GSTACK_CODEX_CONFIG="${GSTACK_CODEX_CONFIG:-$(dirname "$SETTINGS_FILE")/config.toml}" \
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+        bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
       const fs = require("fs");
       const path = require("path");
       const loaded = gsLoadSettings(process.env.GSTACK_SETTINGS_PATH);
