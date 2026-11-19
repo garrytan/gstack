@@ -14,7 +14,8 @@
  *     it would with no guard loaded. A "deny" stays a deny. Nobody answers in claude -p (CLAUDE_CODE_ENTRYPOINT=sdk-cli),
  *     in an Agent SDK session (sdk-py, sdk-ts), where an ask with no permission callback is denied outright (checked
  *     with a real SDK run, GST-3169), or in a session gstack-session-kind calls headless, unattended or spawned. An SDK
- *     host with a person answering says so with CONDUCTOR_* (Conductor) or GSTACK_SESSION_KIND=interactive.
+ *     host with a person answering says so with CONDUCTOR_* (Conductor) or GSTACK_SESSION_KIND=interactive; that
+ *     marker also outranks CI=1 and the other markers gstack-session-kind reads.
  *   - Always exits 0. With the switch off it prints nothing.
  * Docs: docs/skill-routing-and-contracts.md#destructive-command-check.
  */
@@ -52,8 +53,9 @@ function main(): void {
   if (o?.permissionDecision === 'ask') {
     const reason = `${o.permissionDecisionReason ?? ''} ${ASK_NOTE}`.trim();
     const ep = process.env.CLAUDE_CODE_ENTRYPOINT ?? '';
-    const sdkHostAnswers = !!(process.env.CONDUCTOR_WORKSPACE_PATH || process.env.CONDUCTOR_PORT) || process.env.GSTACK_SESSION_KIND === 'interactive';
-    const kind = ep === 'sdk-cli' || (ep.startsWith('sdk-') && !sdkHostAnswers) ? 'headless' : sessionKind(2000);
+    const saysInteractive = process.env.GSTACK_SESSION_KIND === 'interactive';
+    const sdkHostAnswers = !!(process.env.CONDUCTOR_WORKSPACE_PATH || process.env.CONDUCTOR_PORT) || saysInteractive;
+    const kind = ep === 'sdk-cli' || (ep.startsWith('sdk-') && !sdkHostAnswers) ? 'headless' : saysInteractive ? 'interactive' : sessionKind(2000);
     if (kind && kind !== 'interactive') {
       process.stdout.write(JSON.stringify({ systemMessage: `${reason} Allowed without asking: this ${kind} session has nobody to answer.` }) + '\n');
       return;

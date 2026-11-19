@@ -64,6 +64,13 @@ describe('destructive-guard hook', () => {
     expect(decision(r.stdout).permissionDecision).toBe('ask');
   });
 
+  test('GSTACK_SESSION_KIND=interactive outranks CI=1, with or without an Agent SDK entrypoint (GST-3190)', () => {
+    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-py' }, {}] as Record<string, string>[]) {
+      const r = run(SHIM, payload('git push --force-with-lease origin feature'), { ...env, CI: '1', GSTACK_SESSION_KIND: 'interactive' });
+      expect(decision(r.stdout).permissionDecision).toBe('ask');
+    }
+  });
+
   test('claude -p, unmarked Agent SDK and headless sessions get a warning and no decision, so nothing waits on an answer; a deny stays a deny', () => {
     const reason = decision(run(CHECK, payload('rm -rf /var/data')).stdout).permissionDecisionReason;
     for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-py' }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }, { GSTACK_HEADLESS: '1' }] as Record<string, string>[]) {

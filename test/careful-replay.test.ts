@@ -185,6 +185,43 @@ const RULE_CASES: Array<[string, Decision, Tree]> = [
   ['npx wrangler d1 execute db --command="DROP TABLE users"', 'ask', 'clean'],
 ];
 
+// GST-3190: the command-parsing gaps a second read found after #4513. Every row but the controls decided differently
+// at 55aaa6c4; [item, command, expected, tree].
+const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
+  ['force-push through --repo=', 'git push --repo=origin +refs/heads/main', 'deny', 'clean'],
+  ['force-push through --repo=', 'git push --repo=origin --force main', 'deny', 'clean'],
+  ['cd in a pipeline', 'cd /tmp | true && rm -rf relative-demo', 'ask', 'clean'],
+  ['cd in a pipeline', 'true | cd /tmp && rm -rf relative-demo', 'ask', 'clean'],
+  ['cd in a pipeline (control)', 'cd /tmp/x && make 2>&1 | tee log && rm -rf repro', 'allow', 'clean'],
+  ['subshell gives back the scratch folder', 'cd /tmp && (pwd; pwd) && rm -rf relative-demo', 'allow', 'clean'],
+  ['reset to a $ revision', 'git reset --hard "$REV"', 'ask', 'clean'],
+  ['stash pop before a discard', 'git stash pop && git reset --hard', 'ask', 'clean'],
+  ['own write before a discard (decided: allow)', 'printf "%s\\n" demo >> README.md && git reset --hard', 'allow', 'clean'],
+  ['quiet git clean', 'git clean -fdxq', 'ask', 'dirty'],
+  ['quiet git clean', 'git clean -fd --quiet', 'ask', 'dirty'],
+  ['alternate git tree', 'GIT_DIR=.git git checkout -f main', 'ask', 'clean'],
+  ['alternate git tree', 'git --work-tree=/tmp clean -fx', 'ask', 'clean'],
+  ['find leading option', 'find -L /nonexistent/scratch-demo -delete', 'ask', 'clean'],
+  ['rm trailing flags', 'rm relative-demo -rf', 'ask', 'clean'],
+  ['rm trailing flags (control)', 'docker rm web -f', 'allow', 'clean'],
+  ['mktemp variable reassigned', 'T=$(mktemp -d); T=/nonexistent/scratch-demo; rm -f "$T"', 'ask', 'clean'],
+  ['.. traversal', 'rm -f /proc/../demo', 'ask', 'clean'],
+  ['.. traversal', 'rm -rf ../build', 'ask', 'clean'],
+  ['.. traversal', 'cd /tmp/../var && rm -rf relative-demo', 'ask', 'clean'],
+  ['dry run in another statement', 'aws s3 rm s3://example-invalid/demo --recursive --dryrun; terraform destroy', 'ask', 'clean'],
+  ['dry run in another statement', 'terraform destroy -var name=plan', 'ask', 'clean'],
+  ['push dry run in a flag group', 'git push -nf origin main', 'allow', 'clean'],
+  ['wipefs on a file', 'wipefs -a demo.img', 'allow', 'clean'],
+  ['wipefs on a file (control)', 'wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['SQL shape in a search or text', "grep 'truncate demo;' fixtures.sql", 'allow', 'clean'],
+  ['SQL shape in a search or text', "echo 'truncate demo;'", 'allow', 'clean'],
+  ['SQL shape in a search or text (control)', "echo 'TRUNCATE users;' | db-cli", 'ask', 'clean'],
+  ['psql in a path', "grep 'DROP TABLE' ./psql/example.sql", 'allow', 'clean'],
+  ['force-push after a cd', 'cd . && git push -f origin', 'deny', 'main'],
+  ['force-push of every branch', 'git push --force --all origin', 'deny', 'clean'],
+  ['force-push of every branch (control: no repository)', 'git push --force --all origin', 'ask', 'norepo'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -204,6 +241,7 @@ function makeTree(kind: Tree): string {
   git(['commit', '-q', '-m', 'init']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
   git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+  if (kind !== 'main') git(['branch', 'main']);
   if (kind === 'dirty') {
     fs.appendFileSync(path.join(dir, 'README.md'), 'edit\n');
     fs.appendFileSync(path.join(dir, 'experiment-single.sh'), 'edit\n');
@@ -261,6 +299,10 @@ describe('harmless scratch deletes no longer ask', () => {
 
 describe('each new rule, with negative controls', () => {
   test.each(RULE_CASES)('%s -> %s (%s tree)', (command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(PARSER_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
