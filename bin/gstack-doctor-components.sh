@@ -338,6 +338,7 @@ gstack_result_anchor() {
     PROSE_LINT_FOUND) printf '%s' 'prose-lint-found' ;;
     RECEIPT_BLOCKER_OPEN) printf '%s' 'receipt-blocker-open' ;;
     REVIEW_LOOP_EXCEPTION_INVALID) printf '%s' 'review-loop-exception-invalid' ;;
+    CI_CARRY_TREE_LOG_UNBOUND) printf '%s' 'ci-carry-tree-log-unbound' ;;
     CI_CARRY_RERUN_MALFORMED) printf '%s' 'ci-carry-rerun-malformed' ;;
     RECEIPT_CARRY_TREE_MISMATCH) printf '%s' 'receipt-carry-tree-mismatch' ;;
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
