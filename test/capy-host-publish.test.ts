@@ -193,8 +193,36 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(handedOff(pb.stdout)[0]!.body).toContain('<summary>Why</summary>');
   });
 
+  test('in a fork checkout gstack-post names the repository gh resolves (gh repo set-default, GH_REPO), not origin', () => {
+    const r = capyRepo({ nameWithOwner: 'upstream/fx', url: 'https://github.com/upstream/fx' });
+    r.githubOrigin();
+    r.f.git('remote', 'set-url', 'origin', 'https://github.com/forker/fx.git');
+    const body = path.join(r.f.root, 'b.md');
+    fs.writeFileSync(body, 'Adds a thing for users.\n\n## Why\n\nBecause.\n');
+    const comment = path.join(r.f.root, 'c.md');
+    fs.writeFileSync(comment, 'A plain comment.\n');
+    for (const [op, args] of [['pr-body', ['pr-body', '7', '--body-file', body]], ['pr-comment', ['pr-comment', '7', '--body-file', comment]]] as const) {
+      const out = r.run('gstack-post', [...args]);
+      expect(out.status, out.stderr).toBe(0);
+      expect(destinations(out.stdout)).toEqual([{ op, target: '7', repo: 'upstream/fx' }]);
+    }
+    expect(r.gh.writes()).toEqual([]);
+  });
+
+  test('gstack-post refuses, with no hand-off and no write, when gh cannot resolve the repository', () => {
+    const r = capyRepo(null);
+    r.githubOrigin();
+    const comment = path.join(r.f.root, 'c.md');
+    fs.writeFileSync(comment, 'A plain comment.\n');
+    const out = r.run('gstack-post', ['pr-comment', '7', '--body-file', comment]);
+    expect(out.status).toBe(3);
+    expect(out.stdout).not.toContain('HOST_PUBLISH:');
+    expect(out.stderr).toContain('cannot resolve the repository');
+    expect(r.gh.writes()).toEqual([]);
+  });
+
   test('gstack-post names a GitHub Enterprise host, and the branch gh pr create would have used as head', () => {
-    const r = capyRepo();
+    const r = capyRepo({ nameWithOwner: 'acme/tools', url: 'https://github.acme.test/acme/tools' });
     r.githubOrigin();
     r.f.git('remote', 'set-url', 'origin', 'https://github.acme.test/acme/tools.git');
     const comment = path.join(r.f.root, 'c.md');

@@ -3301,8 +3301,9 @@ before, then write the exact title and body they would have sent to
 a new private directory `<state root>/publish/<op>-<target>-<random>/<part>.md` (mode 0600, so one
 hand-off never overwrites another still waiting to be published) and print one line:
 `HOST_PUBLISH: <op> <target> repo=<owner/name> [host=<host>] [to=<comment id>] [base=<branch>] [head=<branch>] [draft] body-file=<path> [title-file=<path>] (...)`,
-which names everything gh would have worked out from the checkout: `repo=` always (the receipt commands read it
-with `gh repo view` when `--repo` is not passed, `gstack-post` from the origin remote), `host=` when it is not
+which names everything gh would have worked out from the checkout: `repo=` always (read with `gh repo view
+--json nameWithOwner,url`, so a fork checkout's `gh repo set-default` or `GH_REPO` is honoured as gh's write
+would have; `gstack-post` on GitLab uses the origin remote), `host=` when it is not
 github.com, a reply's comment, and a new PR's base, head (the current branch when `--head` is not passed) and draft
 state. Nothing reached GitHub yet. When the repository cannot be resolved the command refuses and prints no line,
 because a hand-off without one would land on whatever repository the host tool defaults to.

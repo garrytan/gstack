@@ -847,8 +847,14 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
         head = b.status === 0 ? b.stdout.trim() : "";
         if (!head) throw new UsageError("pr-create on Capy needs --head <branch> when HEAD is detached: the host's PR tool cannot infer it");
       }
+      let dest = { repo: remote.segments.join("/"), host: remote.host };
+      if (remote.kind === "github") {
+        const view = env.run("gh", ["repo", "view", "--json", "nameWithOwner,url"]);
+        try { const v = JSON.parse(view.stdout); dest = { repo: String(v.nameWithOwner ?? ""), host: new URL(String(v.url)).host }; } catch { dest = { repo: "", host: "" }; }
+        if (view.status !== 0 || !dest.repo) { env.err(`gstack-post: cannot resolve the repository gh would have written to (gh repo view --json nameWithOwner,url: ${view.stderr.trim().split("\n")[0] || "no repository"}); nothing was handed off\n`); return EXIT.cliFailed; }
+      }
       let line: string;
-      try { line = env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), host: remote.host, to: req.to, base: req.base, head, draft: req.draft }); }
+      try { line = env.hostPublish(req.op, n, parts, { ...dest, to: req.to, base: req.base, head, draft: req.draft }); }
       catch (e) { env.err(`gstack-post: could not write the hand-off for the host's PR tool: ${(e as Error).message}; nothing was handed off\n`); return EXIT.cliFailed; }
       env.out(line);
       return EXIT.posted;
