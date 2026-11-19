@@ -383,7 +383,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', o.pr, acceptedReceiptHeads(ctx, policy, head, info.body ?? ''));
   const gates = receipt.ok ? gateAcceptance({ cwd: ctx.repoRoot, branch: info.headRefName ?? '', pin: head, body: info.body ?? '', receipt: receipt.receipt }) : null;
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
-  const changed = git(ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
+  const changed = git(ctx.repoRoot, ['-c', 'core.quotePath=false', 'diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
   const lines = [
     `READY #${o.pr} ${head} STAMP_VERSION=${version}`,
@@ -410,7 +410,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
   if (gates?.failure) return fail(gates.failure, lines, run);
-  const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir, finishLine: finishPlanLine(ctx.repoRoot, info.headRefName) });
+  const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir, finishLine: finishPlanLine(ctx.repoRoot, info.headRefName, head) });
   if (plan.line) lines.push(plan.line);
   if (plan.failure) return fail(plan.failure, lines, run);
   if (!policy.policy.train && policy.policy.changelog_fragments) {

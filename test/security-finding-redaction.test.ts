@@ -164,6 +164,13 @@ describe('a red-team finding the owner ruled not security class (gstack-evals #3
     const reason = 'the routing pilot picks its four extra tasks before the seed is fixed';
     const rule = (finding: string, extra: string[]) => run('gstack-approvals', ['rule', '--finding', finding, '--head', head, '--reason', reason, '--words', 'a note, fix it by a dated change', '--by', 'Fixture Owner', ...extra]);
     expect(rule('src/x.ts:1:security', ['--not-security']).status).toBe(EXIT.usage);
+    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    fs.writeFileSync(marker, 'ship-run-1\n');
+    const inRun = rule('src/x.ts:2:red-team', ['--not-security', '--owner-ref', 'GSTA-36:2026-11-19T12:29:59Z']);
+    expect(inRun.status).toBe(EXIT.usage);
+    expect(inRun.stderr).toContain('--not-security');
+    fs.rmSync(marker);
+    expect(run('gstack-approvals', ['rulings']).stdout).not.toContain('src/x.ts:2');
     const ruled = rule('src/x.ts:1:red-team', ['--not-security']);
     expect(ruled.status, ruled.stderr).toBe(0);
     const line = run('gstack-approvals', ['rulings']).stdout.trim();

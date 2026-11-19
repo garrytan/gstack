@@ -1820,8 +1820,9 @@ fingerprint such as `src/x.ts:12:security`. Other findings print as before.
 The red-team reviewer tags every finding `red-team`, a statistics or scoring
 fix included, so the owner can rule one not security class with `gstack-approvals
 rule --not-security` (only on a `path:line:red-team` fingerprint; a `security`,
-`auth` or `secret` finding stays security class). That ruling's lines show its
-reason and its location as `<path>:<line> (red-team, ruled not security class)`.
+`auth` or `secret` finding stays security class, and the flag is refused while a
+/ship run is open on the checkout, so a run never lifts its own finding's redaction).
+That ruling's lines show its reason and its location as `<path>:<line> (red-team, ruled not security class)`.
 
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened

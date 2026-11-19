@@ -419,14 +419,19 @@ describe('bug-fix exemption wording and the plan finish recorded (GSTA-649, GSTA
   test('ready reads the Plan line finish resolved when the body has none, and land accepts it', () => {
     const f = fixture();
     const env = { ...f.env, GSTACK_PLAN_RECORD: 'require' };
+    spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '--allow-empty', '-m', 'seed'], { cwd: f.cwd, timeout: 30_000 });
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: f.cwd, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
     expect(finishPlan(f.cwd, 'main', 'Plan: exempt: bug fix', env).line).toBe('PLAN: exempt bug fix');
-    const ready = readyPlan({ cwd: f.cwd, env, body: 'Fixes a thing.', changed: ['lib/x.ts'], finishLine: finishPlanLine(f.cwd, 'capy/feature') });
+    const ready = readyPlan({ cwd: f.cwd, env, body: 'Fixes a thing.', changed: ['lib/x.ts'], finishLine: finishPlanLine(f.cwd, 'capy/feature', head) });
     expect(ready.failure).toBeUndefined();
     expect(ready.record).toMatchObject({ line: 'Plan: exempt: bug fix', state: 'exempt', reason: 'bug fix', from: 'finish' });
     expect(ready.line).toContain("from /ship finish's plan record");
     expect(landPlan({ env, record: ready.record, body: 'Fixes a thing.' }).failure).toBeUndefined();
-    expect(finishPlanLine(f.cwd, 'other-branch')).toBeUndefined();
-    expect(readyPlan({ cwd: f.cwd, env, body: 'Plan: exempt: flaky', changed: ['lib/x.ts'], finishLine: finishPlanLine(f.cwd, 'capy/feature') }).record).toMatchObject({ reason: 'flaky' });
+    expect(finishPlanLine(f.cwd, 'other-branch', head)).toBeUndefined();
+    expect(finishPlanLine(f.cwd, 'capy/feature', '0'.repeat(40))).toBeUndefined();
+    expect(readyPlan({ cwd: f.cwd, env, body: 'Plan: exempt: flaky', changed: ['lib/x.ts'], finishLine: finishPlanLine(f.cwd, 'capy/feature', head) }).record).toMatchObject({ reason: 'flaky' });
+    finishPlan(f.cwd, 'main', undefined, env);
+    expect(finishPlanLine(f.cwd, 'capy/feature', head)).toBeUndefined();
   });
 });
 

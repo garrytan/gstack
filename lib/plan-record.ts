@@ -282,15 +282,20 @@ export function finishPlan(cwd: string, base: string, line: string | undefined, 
   const out = readyPlan({ cwd, env, body, policyValue: policy?.plan_record, changed, fragmentsDir: policy?.changelog_fragments?.dir });
   const file = run(['rev-parse', '--git-path', FINISH_PLAN_FILE]).stdout?.trim();
   const branch = run(['branch', '--show-current']).stdout?.trim();
-  if (out.record && body && file && branch) try { fs.writeFileSync(path.resolve(cwd, file), JSON.stringify({ schema_version: 1, branch, line: out.record.line }) + '\n'); } catch { /* ready then reads the body only */ }
+  const head = run(['rev-parse', '--verify', '-q', 'HEAD']).stdout?.trim();
+  if (!file) return out;
+  try {
+    if (out.record && body && branch && head) fs.writeFileSync(path.resolve(cwd, file), JSON.stringify({ schema_version: 2, branch, head, line: out.record.line }) + '\n');
+    else fs.rmSync(path.resolve(cwd, file), { force: true });
+  } catch { /* ready then reads the body only */ }
   return out;
 }
 
 const FINISH_PLAN_FILE = 'gstack-finish-plan.json';
 
-/** The Plan line /ship finish resolved for `branch` on this checkout, which ready uses when the PR body has none. */
-export function finishPlanLine(cwd: string, branch: string | undefined): string | undefined {
+/** The Plan line /ship finish resolved for `branch` at `head` on this checkout, which ready uses when the PR body has none. */
+export function finishPlanLine(cwd: string, branch: string | undefined, head: string): string | undefined {
   if (!branch) return undefined;
   const file = spawnSync('git', ['rev-parse', '--git-path', FINISH_PLAN_FILE], { cwd, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
-  try { const r = JSON.parse(fs.readFileSync(path.resolve(cwd, file!), 'utf8')); return r?.schema_version === 1 && r.branch === branch && typeof r.line === 'string' ? r.line : undefined; } catch { return undefined; }
+  try { const r = JSON.parse(fs.readFileSync(path.resolve(cwd, file!), 'utf8')); return r?.schema_version === 2 && r.branch === branch && r.head === head && typeof r.line === 'string' ? r.line : undefined; } catch { return undefined; }
 }

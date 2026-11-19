@@ -207,6 +207,10 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
       expect(out.status, out.stderr).toBe(0);
       expect(destinations(out.stdout)).toEqual([{ op, target: '7', repo: 'upstream/fx' }]);
     }
+    const byUrl = r.run('gstack-post', ['pr-comment', 'https://github.com/forker/fx/pull/7', '--body-file', comment]);
+    expect(byUrl.status).toBe(64);
+    expect(byUrl.stdout).not.toContain('HOST_PUBLISH:');
+    expect(byUrl.stderr).toContain('upstream/fx');
     expect(r.gh.writes()).toEqual([]);
   });
 

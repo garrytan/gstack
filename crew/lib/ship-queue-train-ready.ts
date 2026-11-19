@@ -37,7 +37,7 @@ import { readyPlan } from '../../lib/plan-record';
 const Q = 'gstack-ship-queue';
 
 export interface ReadyOptions {
-  pr: string; pregate?: string; gateExit?: number; gateLog?: string; screen?: 'screen' | 'no-screen'; broad: boolean; dryRun: boolean;
+  pr: string; pregate?: string; trail?: string; gateExit?: number; gateLog?: string; screen?: 'screen' | 'no-screen'; broad: boolean; dryRun: boolean;
   /** `--dispatch-ci`: run these workflows on the PR branch, wait, and clear the matching requires-remote pregate lanes before reading the head. */
   dispatchCi?: { workflows: string[]; timeoutSec: number; pollMs: number };
   /** `--base-red --fixer <n>`: a conditional READY on a paused receipt, owned by the fixer PR (trains with gates only). */
