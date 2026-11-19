@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
 import { outsideVoiceFailurePolicy, outsideVoiceFor, type OutsideVoiceFailurePolicyOptions } from '../scripts/resolvers/outside-voice';
 import { generateAdversarialStep } from '../scripts/resolvers/outside-voice-steps';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -29,7 +30,7 @@ const base: OutsideVoiceFailurePolicyOptions = {
 describe('outsideVoiceFailurePolicy', () => {
   test('native fallback: every failure names the provider message and falls back to the native subagent', () => {
     expect(outsideVoiceFailurePolicy(ctxFor('claude'), base)).toBe([
-      '- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.',
+      '- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "Codex authentication failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.',
       '- **Timeout:** "Codex timed out after 5 minutes." Fall back to the Claude subagent below.',
       '- **Empty response:** "Codex returned no response." Fall back to the Claude subagent below.',
     ].join('\n'));
@@ -193,5 +194,32 @@ describe('ratchet (d): outside-voice failure prose has one owner', () => {
     const allowlist = readAllowlist().map((e, i) => (i === 0 ? { file: e.file, text: e.text } : e));
     const problems = scanFailureProse(scannedFiles(), allowlist);
     expect(problems).toEqual([`${ALLOWLIST}  entry for codex/SKILL.md.tmpl has no reason: ${allowlist[0].text}`]);
+  });
+});
+
+describe('a 402 or quota stop is never reported as an auth failure', () => {
+  test.each(['claude', 'codex'])('on %s: the auth rule excludes a 402 or quota stop ("auth" also covers "unauthorized")', (host) => {
+    const auth = outsideVoiceFailurePolicy(ctxFor(host), base).split('\n')[0]!;
+    expect(auth).toStartWith('- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota:');
+  });
+
+  test.each(['review/sections/adversarial.md', 'ship/sections/adversarial.md', 'design-review/sections/outside-voices.md', 'autoplan/DRIVER.md'])('generated %s carries the exclusion on every auth rule', (rel) => {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const rules = text.split('**Auth failure:**').slice(1);
+    expect(rules.length).toBeGreaterThan(0);
+    for (const rule of rules) expect(rule.slice(0, 80)).toContain('but no 402 or quota:');
+  });
+
+  test('the validator\'s budget line does not itself trip the auth keywords', () => {
+    const line = gateOutcomeLine('Codex outside review', 'budget_exhausted');
+    expect(line).not.toMatch(/auth|login|unauthorized|API key/i);
+    expect(line).toContain('HTTP 402');
+  });
+
+  test('the /codex skill\'s own error handling names the budget stop before its auth error', () => {
+    const text = fs.readFileSync(path.join(ROOT, 'codex/SKILL.md'), 'utf8');
+    const budget = text.indexOf('- **Budget or quota stop (HTTP 402, payment required, quota):**');
+    expect(budget).toBeGreaterThan(0);
+    expect(budget).toBeLessThan(text.indexOf('- **Auth error:**'));
   });
 });

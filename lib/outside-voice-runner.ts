@@ -142,16 +142,22 @@ class CodexCliRunner implements OutsideRunner {
     }
     const eventsFile = `${req.outFile}.events.jsonl`;
     const stderrFile = `${req.outFile}.stderr`;
+    const lastMessageFile = `${req.outFile}.last-message`;
     fs.mkdirSync(path.dirname(req.outFile), { recursive: true });
     fs.rmSync(req.outFile, { force: true });
+    fs.rmSync(lastMessageFile, { force: true });
     const argv = ['codex', 'exec', '-', '-C', req.cwd, '-s', sandbox, '-c', `model="${selected}"`, '-c', 'skills.include_instructions=false',
-      '-c', 'model_reasoning_effort="high"', '-c', 'web_search="cached"', '--json', '-o', req.outFile];
+      '-c', 'model_reasoning_effort="high"', '-c', 'web_search="cached"', '--json', '-o', lastMessageFile];
     this.child = Bun.spawn(argv, { cwd: req.cwd, env, stdin: new Blob([prompt]), stdout: Bun.file(eventsFile), stderr: Bun.file(stderrFile) });
     const timer = setTimeout(() => { this.child?.kill('SIGTERM'); setTimeout(() => this.child?.kill('SIGKILL'), 10_000).unref(); }, req.timeoutMs);
     const exit = await this.child.exited;
     clearTimeout(timer);
     const timedOut = Date.now() - started >= req.timeoutMs && exit !== 0;
-    const text = fs.existsSync(req.outFile) ? fs.readFileSync(req.outFile, 'utf8') : '';
+    const own = fs.existsSync(req.outFile) ? fs.readFileSync(req.outFile, 'utf8') : '';
+    const last = fs.existsSync(lastMessageFile) ? fs.readFileSync(lastMessageFile, 'utf8') : '';
+    const marked = (candidate: string) => candidate.trim() !== '' && !['missing_markers', 'empty_response'].includes(classifyOutsideReview({ text: candidate, gate: req.gate }).reason ?? '');
+    const text = marked(own) ? own : marked(last) || !own.trim() ? last : own;
+    if (text !== own) fs.writeFileSync(req.outFile, text);
     const events = fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '';
     const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, 'utf8') : '';
     const usage = usageFromEvents(events);

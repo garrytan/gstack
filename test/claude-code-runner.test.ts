@@ -82,6 +82,11 @@ if (mode === 'overflow') {
   for(let i=0;i<18;i++) { process.stdout.write(block); process.stderr.write(block); }
   await new Promise(() => {});
 }
+if (mode === 'payment' || mode === 'http401') {
+  const reply = mode === 'payment' ? 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}' : 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+  process.stdout.write(JSON.stringify({ type: 'result', is_error: true, result: reply, session_id: 'session-123' }));
+  process.exit(1);
+}
 if (mode === 'malformed') { process.stdout.write('broken JSON'); process.exit(0); }
 if (mode === 'array') { process.stdout.write('[]'); process.exit(0); }
 if (mode === 'null') { process.stdout.write('null'); process.exit(0); }
@@ -275,6 +280,16 @@ describe('Claude Code restricted execution', () => {
       if (mode === 'auth') expect(result.error?.message).toContain('interactively');
     });
   }
+
+  test('a 402 from the provider is a budget stop, not a login; a 401 stays an authentication failure', async () => {
+    const budget = await run('payment');
+    expect([budget.status, budget.error?.code]).toEqual(['unavailable', 'budget']);
+    expect(budget.error?.message).toContain('API Error: 402 Payment Required');
+    expect(budget.error?.message).toContain('allowance');
+    expect(budget.error?.message).not.toMatch(/log ?in|authenticat/i);
+    const auth = await run('http401');
+    expect([auth.status, auth.error?.code]).toEqual(['unavailable', 'authentication']);
+  });
 
   test('the combined stdout/stderr limit terminates a noisy CLI', async () => {
     const result = await run('overflow');

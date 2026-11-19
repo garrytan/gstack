@@ -730,7 +730,7 @@ Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Req
 For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
 - On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.

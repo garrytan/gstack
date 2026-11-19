@@ -106,7 +106,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
+- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
 - **Timeout:** "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
 - **Empty response:** "Codex returned no response." Fall back to the Claude subagent below.
 

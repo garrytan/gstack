@@ -1,0 +1,4 @@
+{
+  "bytes": -2,
+  "why": "second-model review auth rule no longer fires on a 402 or quota stop (GST-3181)"
+}

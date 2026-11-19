@@ -127,7 +127,7 @@ cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"`
 "${bin}/gstack-claude-code" --cwd "$_REPO_ROOT" --access ${opts.access ?? 'none'} --timeout-ms ${opts.timeoutMs}${opts.role ? ` --role ${opts.role}` : ''} <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/result.json" || _OUTSIDE_EXIT=$?
 # Preserve session/usage/modelUsage from this JSON; multiple models have no invented primary.
 cat "$_OUTSIDE_TMP/result.json" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-bun --no-env-file --config=/dev/null -e 'const r=await Bun.file(process.argv[1]).json(); await Bun.write(process.argv[3],typeof r.stderr==="string"?r.stderr:""); if(r.status!=="completed" || typeof r.result!=="string" || !r.result.trim()) process.exit(1); await Bun.write(process.argv[2],r.result)' "$_OUTSIDE_TMP/result.json" "$_OUTSIDE_TMP/text" "$_OUTSIDE_TMP/stderr" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }`;
+bun --no-env-file --config=/dev/null -e 'const r=await Bun.file(process.argv[1]).json(); await Bun.write(process.argv[3],typeof r.stderr==="string"?r.stderr:""); await Bun.write(process.argv[4],r.error?.code==="budget"?r.error.message:""); if(r.status!=="completed" || typeof r.result!=="string" || !r.result.trim()) process.exit(1); await Bun.write(process.argv[2],r.result)' "$_OUTSIDE_TMP/result.json" "$_OUTSIDE_TMP/text" "$_OUTSIDE_TMP/stderr" "$_OUTSIDE_TMP/provider-error" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }`;
   return `${outsideVoiceGuard(ctx)}
 ${runtimeRootPrelude(ctx)}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
@@ -143,7 +143,7 @@ ${v.id === 'codex' && ctx.skillName === 'autoplan' ? `if [ "$_OUTSIDE_EXIT" -eq 
 fi` : ''}
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
 _OUTSIDE_RC=0
-bun --no-env-file --config=/dev/null "${root}/lib/outside-review-result.ts" --label '${v.label} outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" ${v.id === 'codex' ? '--events "$_OUTSIDE_TMP/events" ' : ''}${opts.purpose === 'design-direction' ? 'proposal' : opts.gate ?? 'review'} "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+bun --no-env-file --config=/dev/null "${root}/lib/outside-review-result.ts" --label '${v.label} outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" ${v.id === 'codex' ? '--events "$_OUTSIDE_TMP/events" ' : '--provider-error "$_OUTSIDE_TMP/provider-error" '}${opts.purpose === 'design-direction' ? 'proposal' : opts.gate ?? 'review'} "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
 ${v.id === 'claude-code' ? '[ "$_OUTSIDE_RC" -eq 1 ] || cat "$_OUTSIDE_TMP/text" || exit 1\n' : ''}case "$_OUTSIDE_RC" in
   0|3) ;;
   4) echo 'OUTSIDE_STATUS: unverified provider=${v.id} host=${ctx.host}'; exit 4 ;;
@@ -190,7 +190,7 @@ Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fen
 }
 
 /**
- * outsideVoiceFailurePolicy owns the auth / timeout / empty-response / fallback
+ * outsideVoiceFailurePolicy owns the budget / auth / timeout / empty-response / fallback
  * bullets every outside-voice step renders after its invocation (moved from
  * the copies in review.ts and design.ts). Add a call site by passing that
  * site's semantics explicitly; no option has a default:
@@ -221,7 +221,7 @@ export function outsideVoiceFailurePolicy(ctx: TemplateContext, opts: OutsideVoi
     ? `"${v.label} timed out after ${opts.timeoutMinutes} minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if ${v.label} had reviewed.`
     : `"${v.label} timed out after ${opts.timeoutMinutes} minutes."`;
   return [
-    `- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${v.label} authentication failed. Run ${tick}${login}${tick} to authenticate."${fallback}`,
+    `- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "${v.label} authentication failed. Run ${tick}${login}${tick} to authenticate."${fallback}`,
     `- **Timeout:** ${timeout}${fallback}`,
     `- **Empty response:** "${v.label} returned no response.${opts.stderrOnEmpty ? ' Stderr: <paste relevant error>.' : ''}"${fallback}`,
   ].join('\n');

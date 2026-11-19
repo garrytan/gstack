@@ -215,7 +215,7 @@ Do not fall back on these defaults: a cream ground with a high-contrast serif an
 Be bold and specific."
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
 - On any Codex error: proceed with Claude subagent output only; identify it as the only completed independent proposal.

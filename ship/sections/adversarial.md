@@ -170,7 +170,7 @@ Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Req
 Present the full output verbatim. A Critical, High or `Blocks: yes` finding is CRITICAL; `Blocks: no` never lowers one, and only a named policy ground drops it. An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.
 
 **Error handling:** Only this optional outside adversarial pass is non-blocking; native completion and structured-review decisions still apply.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
+- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "Codex authentication failed. Run \`codex login\` to authenticate."
 - **Timeout:** "Codex timed out after 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
