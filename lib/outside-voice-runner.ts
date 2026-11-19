@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { parseReceipt, RESULT_FORMAT_HEADER } from './autoplan-reconcile';
 import { classifyOutsideReview, usageFromEvents, type OutsideGate, type OutsideReviewClassification, type TokenUsage } from './outside-review-result';
 
 export { usageFromEvents };
@@ -100,6 +101,22 @@ function finish(base: Omit<RunnerResult, 'ended_at' | 'wall_s' | 'output_sha256'
   return { schema_version: 1, ...base, output: outputExists ? outFile : null, output_sha256: outputExists ? sha256(fs.readFileSync(outFile)) : null, ended_at: new Date(ended).toISOString(), wall_s: Math.round((ended - startedMs) / 1000) };
 }
 
+/**
+ * Refusal text when --prompt is one of the files a run writes or deletes for --out (the result, Codex's events, stderr and closing
+ * message, the meta record), compared after symlinks resolve: the run would destroy its own input.
+ */
+export function promptOutputClash(promptFile: string, outFile: string): string | undefined {
+  const real = (file: string) => {
+    const abs = path.resolve(file);
+    try { return fs.realpathSync(abs); } catch { /* not written yet */ }
+    try { return path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs)); } catch { return abs; }
+  };
+  const prompt = real(promptFile);
+  const out = path.resolve(outFile);
+  const clash = [out, `${out}.events.jsonl`, `${out}.stderr`, `${out}.last-message`, `${out}.meta.json`].find(file => real(file) === prompt);
+  return clash && `--prompt ${promptFile} is ${clash === out ? 'the --out file' : `the ${clash.slice(out.length)} file this run writes beside --out ${outFile}`}, so the run would delete or overwrite its own prompt; write the prompt to another path`;
+}
+
 function classify(text: string, gate: OutsideGate, extra: { stderr?: string; exit?: number; events?: string }): { status: RunnerStatus; verdict: OutsideReviewClassification } {
   const verdict = classifyOutsideReview({ text, gate, ...extra });
   const status: RunnerStatus = verdict.verdict === 'unavailable' ? 'unavailable' : verdict.verdict === 'unverified' ? 'unverified' : 'completed';
@@ -130,6 +147,8 @@ class CodexCliRunner implements OutsideRunner {
     const base = { runner: this.id, capabilities: this.capabilities, input_sha256: sha256(prompt), started_at: new Date(started).toISOString(), usage: { usd: 'unknown' } as RunnerUsage, model: req.model ?? null, family: modelFamily(req.model), output: null } as const;
     const avail = this.available(req);
     if (!avail.ok) return finish({ ...base, status: 'unavailable', exit: 1, reason: 'cli_missing', detail: avail.reason }, started);
+    const clash = promptOutputClash(req.promptFile, req.outFile);
+    if (clash) return finish({ ...base, status: 'failed', exit: 2, reason: 'prompt_is_output', detail: clash }, started);
     const probe = path.join(req.binDir ?? DEFAULT_BIN, 'gstack-codex-probe');
     if (req.model) env.GSTACK_CODEX_MODEL = req.model;
     const role = req.gate === 'autoplan' || req.gate === 'spec' ? ['--role', 'plan-review'] : [];
@@ -156,7 +175,10 @@ class CodexCliRunner implements OutsideRunner {
     const own = fs.existsSync(req.outFile) ? fs.readFileSync(req.outFile, 'utf8') : '';
     const last = fs.existsSync(lastMessageFile) ? fs.readFileSync(lastMessageFile, 'utf8') : '';
     const marked = (candidate: string) => candidate.trim() !== '' && !['missing_markers', 'empty_response'].includes(classifyOutsideReview({ text: candidate, gate: req.gate }).reason ?? '');
-    const text = marked(own) ? own : marked(last) || !own.trim() ? last : own;
+    const receipt = req.gate === 'autoplan' ? /INPUT: (\S+) ([0-9a-f]{64})/.exec(prompt.toString('utf8').split(RESULT_FORMAT_HEADER)[1] ?? '') : null;
+    const complete = (candidate: string) => candidate.trim() !== '' && ['clean', 'findings'].includes(classifyOutsideReview({ text: candidate, gate: req.gate }).verdict)
+      && (!receipt || parseReceipt(candidate, { phase: receipt[1]!, sha256: receipt[2]! }).ok);
+    const text = complete(own) ? own : marked(last) || !own.trim() ? last : own;
     if (text !== own) fs.writeFileSync(req.outFile, text);
     const events = fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '';
     const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, 'utf8') : '';

@@ -66,8 +66,13 @@ function codexErrorLines(stderr: string): string[] {
 }
 /** The account's usage limit: Codex's line carries the reset time, so it is relayed verbatim. Same signature as the probe. */
 export const QUOTA_FAILURE = /usage limit|insufficient_quota|exceeded your current quota|quota exceeded/i;
-/** HTTP 402 Payment Required: a metering proxy's allowance or the account's budget, never an auth failure. */
-export const BUDGET_FAILURE = /(?:^|[^0-9])402(?:[^0-9]|$)|payment.?required/i;
+/**
+ * HTTP 402 Payment Required: a metering proxy's allowance or the account's budget, never an auth failure. The 402 counts only
+ * as a status (`status 402`, `HTTP 402`, `"code":402`, `Error: 402`, `402 Payment Required`), never inside a request id or a duration.
+ */
+export const BUDGET_FAILURE = /\b(?:http(?:\/\d(?:\.\d)?)?|status|code|error)\b[\s:="']{0,4}402\b|\b402[\s:-]+payment|payment[\s_-]?required/i;
+/** How lib/claude-code.ts opens its budget stop (a 402 or a usage limit): read as budget_exhausted, never as Codex's quota stop. */
+export const CLAUDE_CODE_BUDGET_STOP = "Claude Code's provider refused the call because";
 /** OpenAI's cyber-security refusal (R95): Capy relays it as `OpenAI key declined the request: cyber_policy: ...`; read from error lines only. */
 export const CYBER_POLICY_REFUSAL = /\bcyber_policy\b/;
 /** A plain HTTP 429 or rate limit: transient, so a separate reason from the quota. */
@@ -121,17 +126,17 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   if (exit !== 0) {
     const detail = sandbox(stderr);
     if (detail) return { state: 'unavailable', reason: 'sandbox_unavailable', detail };
-    const failures = exit !== 124 ? failureEventMessages(input.events ?? '') : [];
-    const errors = exit !== 124 ? [...codexErrorLines(stderr), ...failures] : [];
+    const final = exit !== 124 ? failureEventMessages(input.events ?? '').at(-1) : undefined;
+    const errors = exit === 124 ? [] : final !== undefined ? [final] : codexErrorLines(stderr);
     const refusal = errors.find(line => CYBER_POLICY_REFUSAL.test(line));
     if (refusal) return { state: 'unavailable', reason: 'cyber_policy_refused', detail: refusal.slice(0, 240) };
-    const budget = errors.find(line => BUDGET_FAILURE.test(line));
+    const budget = errors.find(line => BUDGET_FAILURE.test(line) || line.includes(CLAUDE_CODE_BUDGET_STOP));
     if (budget) return { state: 'unavailable', reason: 'budget_exhausted', detail: budget.slice(0, 240) };
     const quota = errors.find(line => QUOTA_FAILURE.test(line));
     if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota.slice(0, 240) };
     const rateLimit = errors.find(line => RATE_LIMIT_FAILURE.test(line));
     if (rateLimit) return { state: 'unavailable', reason: 'rate_limited', detail: rateLimit.slice(0, 240) };
-    const head = failures[failures.length - 1]?.slice(0, 240) ?? stderrHead(stderr);
+    const head = final?.slice(0, 240) ?? stderrHead(stderr);
     return { state: 'unavailable', reason: exit === 124 ? 'timeout' : 'execution_failed', detail: head ? `exit ${exit}: ${head}` : `exit ${exit}` };
   }
   const commands = commandEvidence(input.events ?? '');

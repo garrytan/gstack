@@ -3,7 +3,9 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runClaudeCode } from '../lib/claude-code';
+import { parseClaudeCodeResult, runClaudeCode } from '../lib/claude-code';
+import { classifyOutsideReview } from '../lib/outside-review-result';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DIR = mkdtempSync(path.join(tmpdir(), 'claude-code-runner-'));
@@ -414,5 +416,21 @@ describe('Claude Code restricted execution', () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.status).toBe('completed');
     expect(parsed.result.length).toBe(2 * 1024 * 1024);
+  });
+});
+
+describe('Claude Code budget stops (GST-3188)', () => {
+  test('exit 0 with subtype error_during_execution and a 402 in result is a budget stop, not a generic provider error', () => {
+    const stdout = JSON.stringify({ type: 'result', subtype: 'error_during_execution', result: 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}', session_id: 's-1' });
+    const result = parseClaudeCodeResult(stdout, '', 0);
+    expect([result.status, result.error?.code]).toEqual(['unavailable', 'budget']);
+    expect(result.stderr).toContain('402 Payment Required');
+  });
+
+  test('a Claude Code usage limit is reported as budget_exhausted, never with Codex\'s usage-limit message', () => {
+    const failed = parseClaudeCodeResult(JSON.stringify({ type: 'result', is_error: true, result: 'Claude AI usage limit reached|1763600000' }), '', 1);
+    const verdict = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: failed.stderr });
+    expect([verdict.verdict, verdict.reason]).toEqual(['unavailable', 'budget_exhausted']);
+    expect(gateOutcomeLine('Claude Code outside review', verdict.reason!, verdict.detail)).not.toMatch(/Codex|GSTACK_CODEX/);
   });
 });

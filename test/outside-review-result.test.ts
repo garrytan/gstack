@@ -677,3 +677,29 @@ describe('the execution_failed detail names the terminal Codex failure', () => {
     expect(result.detail).toBe(`exit 1: ${fatal}`);
   });
 });
+
+describe('the final Codex failure decides the cause, and only a 402 status is a budget stop (GST-3188)', () => {
+  test('an earlier 402 error event followed by a final 401 turn.failed reads as the 401, not budget_exhausted', () => {
+    const final = 'unexpected status 401 Unauthorized: Incorrect API key provided, url: http://127.0.0.1:45349/v1/responses';
+    const events = [
+      JSON.stringify({ type: 'error', message: 'unexpected status 402 Payment Required: allowance used up, url: http://127.0.0.1:45349/v1/responses' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: final } }),
+    ].join('\n');
+    const result = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: 'Reading additional input from stdin...', events });
+    expect([result.verdict, result.reason, result.detail]).toEqual(['unavailable', 'execution_failed', `exit 1: ${final}`]);
+  });
+
+  test('a 402 inside a request id or a duration is not a budget stop', () => {
+    for (const line of ['ERROR: unexpected status 500 Internal Server Error (request id req_9c3f402ab)', 'ERROR: unexpected status 401 Unauthorized after 402 ms']) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, reason: result.reason }).toEqual({ line, reason: 'execution_failed' });
+    }
+  });
+
+  test('a 402 written as an HTTP status, a status or code field, or an API error still is', () => {
+    for (const line of ['ERROR: HTTP 402', 'ERROR: HTTP/1.1 402', 'ERROR: {"status":402,"title":"E_ALLOWANCE"}', 'ERROR: API Error: 402 {"type":"error"}']) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, reason: result.reason }).toEqual({ line, reason: 'budget_exhausted' });
+    }
+  });
+});
