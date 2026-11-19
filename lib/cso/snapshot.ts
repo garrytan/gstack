@@ -613,10 +613,13 @@ async function rejectSpecialFiles(
   repo: string,
   home: string,
   admission: ReturnType<typeof snapshotAdmission>,
+  auditPaths?: readonly string[],
 ): Promise<void> {
   // Git intentionally omits untracked FIFOs and devices from ls-files. Walk
   // pathnames without opening payloads, then ask Git which special names are
   // ignored so a nonignored FIFO cannot silently disappear from the snapshot.
+  // Only the --paths audit scope and its ancestors are walked: nothing outside
+  // it is copied or assessed, so a special file there cannot reach the audit.
   admission.time();
   const ignoredRaw = await git(
       repo,
@@ -641,6 +644,17 @@ async function rejectSpecialFiles(
       candidate = candidate.slice(0, slash);
     }
   };
+  // Compare without case: on a case-insensitive filesystem the on-disk name
+  // can differ from Git's spelling, and walking too much is the safe error.
+  const scope = auditPaths?.map((prefix) => prefix.toLowerCase()),
+    unaudited = (path: string) => {
+      const folded = path.toLowerCase();
+      return (
+        scope !== undefined &&
+        !inAuditPaths(folded, scope) &&
+        !scope.some((prefix) => prefix.startsWith(`${folded}/`))
+      );
+    };
   const special: string[] = [];
   let visited = 0;
   const walk = (at: string, prefix = '') => {
@@ -650,7 +664,7 @@ async function rejectSpecialFiles(
       while ((item = directory.readSync()) !== null) {
         admission.time();
         const path = relativePath(prefix ? `${prefix}/${item.name}` : item.name);
-        if (noReadPath(path) || ignoredDirectory(path)) continue;
+        if (noReadPath(path) || ignoredDirectory(path) || unaudited(path)) continue;
         admission.count(++visited);
         const full = join(at, item.name),
           stat = fs.lstatSync(full);
@@ -758,7 +772,7 @@ export async function capture(
       }
       return inventory.has(path);
     };
-    await rejectSpecialFiles(repo, home, admission);
+    await rejectSpecialFiles(repo, home, admission, auditPaths);
     guard();
     const manifest: SnapshotManifest = {
       version: 3,
@@ -1180,7 +1194,7 @@ export async function capture(
     // Finish with a complete source check. Nothing below this block reads the
     // audited repository, so a late nonignored file or restored deletion cannot
     // fall between the final inventory and manifest publication.
-    await rejectSpecialFiles(repo, home, admission);
+    await rejectSpecialFiles(repo, home, admission, auditPaths);
     guard();
     assertEntriesStable('Source changed before snapshot persistence');
     if (canonical(list) !== canonical(await paths(repo, home, headCommit, admission)))

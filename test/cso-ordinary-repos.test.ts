@@ -331,6 +331,32 @@ describe('CSO start on a repository with in-repository symlinks', () => {
     const manifest = await capture(repo, newRun(repo).dir);
     expect(manifest.entries.find((entry) => entry.path === 'node_modules/.bin/broken')).toMatchObject({ originalHash: 'not-read', transformation: expect.stringMatching(/^excluded: /) });
   });
+
+  test('outside --paths an escaping link or a FIFO is withheld, not refused; inside it each is refused', async () => {
+    const root = tmp(),
+      repo = init(path.join(root, 'repo')),
+      outside = path.join(root, 'outside.txt'),
+      host = path.join(repo, 'tools', 'host'),
+      pipe = path.join(repo, 'tools', 'pipe'),
+      fifo = process.platform !== 'win32';
+    fs.mkdirSync(path.join(repo, 'src'));
+    fs.mkdirSync(path.join(repo, 'tools'));
+    commit(repo, { 'src/app.ts': 'export {};\n', 'tools/run.sh': 'echo\n' }, 'base');
+    fs.writeFileSync(outside, 'host\n');
+    fs.symlinkSync(outside, host);
+    if (fifo) expect(spawnSync('/usr/bin/mkfifo', [pipe], { timeout: 10_000 }).status).toBe(0);
+    const manifest = await capture(repo, newRun(repo).dir, undefined, undefined, {}, ['src']);
+    expect(manifest.entries.find((entry) => entry.path === 'tools/host')).toMatchObject({ originalHash: 'not-read', transformation: OUTSIDE_AUDIT_PATHS });
+    expect(manifest.entries.find((entry) => entry.path === 'src/app.ts')?.executionHash).toBeDefined();
+    const widened = () => capture(repo, newRun(repo).dir, undefined, undefined, {}, ['src', 'tools']);
+    if (fifo) {
+      fs.unlinkSync(host);
+      await expect(widened()).rejects.toMatchObject({ code: 'UNSAFE_PATH', message: 'Symlink or special source file: tools/pipe' });
+      fs.unlinkSync(pipe);
+      fs.symlinkSync(outside, host);
+    }
+    await expect(widened()).rejects.toMatchObject({ code: 'UNSAFE_PATH', message: 'Symlink or special source file: tools/host' });
+  });
 });
 
 describe('CSO history capture over the 1 MiB bound (#3255 bug 2)', () => {
