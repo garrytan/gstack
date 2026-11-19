@@ -667,6 +667,17 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
   fi
 fi
 
+# ─── Remove gstack hooks from Codex's hooks.json ────────────
+# Before the Codex skills go, for the same reason as above: SETTINGS_HOOK may
+# live in the install being removed. Only gstack's own matcher groups go (the
+# KNOWN_HOOKS rows marked host codex); the user's groups stay as they are.
+CODEX_HOOKS_FILE="${CODEX_HOME:-$HOME/.codex}/hooks.json"
+if [ -x "$SETTINGS_HOOK" ] && [ -f "$CODEX_HOOKS_FILE" ]; then
+  if GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$CODEX_HOOKS_FILE" "$SETTINGS_HOOK" prune-stale --all | grep -q "removed [1-9]"; then
+    REMOVED+=("gstack's Codex hooks in $CODEX_HOOKS_FILE")
+  fi
+fi
+
 # ─── Remove Codex skills ────────────────────────────────────
 CODEX_SKILLS="$HOME/.codex/skills"
 if [ -d "$CODEX_SKILLS" ]; then
