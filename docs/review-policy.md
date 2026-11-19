@@ -1188,11 +1188,11 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    outside voice's tree failure is recorded `unavailable` only when its reply holds no finding. The line catches a reader that
    worked elsewhere by accident; it is not proof of reading, since diff text can predict it. A `printed:` label
    before the line (plain, bold or inside its backticks) is still read, and its tree and toplevel are still compared
-   exactly (GST-776). Capy cannot start a subagent in a chosen directory, so before a stage takes a start token or sends
-   its first reader, the Capy pass program compares the checkout with the one shared readers start in (the thread's
-   working directory) and stops when that is another checkout or cannot be read: run /ship in the thread's own checkout.
-   A start directory outside any checkout, such as a multi-repo workspace root, holds no tree to review by mistake and
-   dispatches. Step 11's voices take the `adversarial-review` start
+   exactly (GST-776). Capy cannot start a subagent in a chosen directory, so shared readers start in the thread's working
+   directory, which may be another checkout, such as a project whose default checkout is a different repository. That is
+   allowed: the workspace step's `cd` and the `REVIEWED_TREE` check above cover it (GST-3145). Before a stage takes a
+   start token or sends its first reader, the Capy pass program checks only that the shipped checkout can be reached from
+   the directory readers start in, and stops, with nothing taken or dispatched, when it cannot. Step 11's voices take the `adversarial-review` start
    token by default, and a `logStart` list without it stops before anything runs. Decision 3.5's fix-check pass turns a
    `review` start into `review-fix-check`, so its row is never a pass (GST-1031).
 

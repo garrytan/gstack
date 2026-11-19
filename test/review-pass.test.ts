@@ -1338,34 +1338,53 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     sh('for i in $(seq 1 20); do echo "export const w$i = $i;" >> src/a.ts; done && git commit -qam allow', wt);
     return { dir, env, wt: fs.realpathSync(wt) };
   }
-  // Value: protects=no reader is started where Capy will put it (the shared machine's start checkout) when /ship ships another checkout; fails_when=the program dispatches readers that start in the primary checkout while the pass ships a worktree (GBRA-218's outside voice ignored `cd <dir> &&` and reviewed the primary checkout, losing Step 11 outside coverage);
-  //   why_new=GBRA-218 on gstack 1.92.25.0; Capy subagents take no working directory; seam=lib/capy-review-pass.js before any log start or create; no_claim=that Capy can start a reader in a chosen directory
-  test('a shared machine whose start checkout is not the worktree refuses before any start token or reader; a start directory outside any checkout dispatches', async () => {
+  // Value: protects=/ship can ship a checkout other than the one shared readers start in (HARN-105/HARN-107: a project whose default checkout is another repository), each brief opening with the cd into the shipped checkout and each reply still proving its tree; fails_when=the program refuses readers because their start checkout differs from the shipped one, a brief does not open with the cd, a reply from the start checkout or with a foreign tree is merged, or a shipped checkout readers cannot reach is dispatched;
+  //   why_new=GST-3145 on gstack 1.101.0.0 (the GST-482 start-checkout refusal contradicted the workspace step); seam=lib/capy-review-pass.js before any log start or create, and gstack-review-dispatch collect; no_claim=model compliance with the cd
+  test('readers that start in another checkout are dispatched with the cd into the shipped checkout first, a reply naming another tree is refused, and an unreachable checkout stops', async () => {
     const { dir, env, wt } = worktree();
     const out = path.join(wt, '.state/run/p1');
     const h = host(dir, env);
     const res = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
-    expect(res).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, not in ${wt}`);
-    expect(res).not.toContain('REVIEW_LOG_START:');
-    expect(h.creates.length).toBe(0);
+    expect(res).not.toContain('STOP:');
+    expect(res).toContain('REVIEW_LOG_START: review');
+    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(h.creates.length).toBeGreaterThan(0);
+    const cdFirst = `First step, before anything else: run \`cd '${wt}' && `;
+    for (const c of h.creates) {
+      const verdict = !c.title.includes(' audit/');
+      expect([c.prompt.startsWith(workspaceStep(wt, verdict) + '\n\n'), workspaceStep(wt, verdict).startsWith(cdFirst), c.prompt.endsWith('\n\n' + workspaceParagraph(wt, undefined, verdict))], c.title).toEqual([true, true, true]);
+      expect(c.summary!.split('\n')[0], c.title).toBe(treeLine(wt).trim());
+    }
+    expect(bin(wt, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout).not.toContain('wrong_tree');
+    const passCreates = h.creates.length;
     const voices = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], stage: 'voices', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' } } });
-    expect(voices).toContain('STOP: readers on the shared machine start in ');
-    expect(h.creates.length).toBe(0);
-    const started = host(wt, env);
-    expect(await runPass(started, { base: 'main', out: path.join(wt, '.state/run/p2'), pass: 'w0p2', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
-    expect(started.creates.length).toBeGreaterThan(0);
+    expect(voices).not.toContain('STOP:');
+    expect(h.creates.length).toBeGreaterThan(passCreates);
+    for (const c of h.creates.slice(passCreates)) expect(c.prompt.startsWith(cdFirst), c.title).toBe(true);
+    const stayed = host(dir, env, { reportFrom: () => dir });
+    const wrong = await runPass(stayed, { base: 'main', out: path.join(wt, '.state/run/p2'), pass: 'w0p2', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    expect(wrong).toContain('COLLECT_WRONG_TREE: reader=');
+    expect(wrong).toContain(`reported="${treeLine(dir).slice(15).trim()}"`);
+    expect(wrong).not.toContain('NEXT: judge');
+    expect(fs.existsSync(path.join(wt, '.state/run/p2/merged.jsonl')) ? fs.readFileSync(path.join(wt, '.state/run/p2/merged.jsonl'), 'utf8') : '').toBe('');
+    const forged = host(dir, env, { reportFrom: () => '', output: t => `REVIEWED_TREE: ${'0'.repeat(40)} ${wt}\n${cleanReply(t)}` });
+    const moved = await runPass(forged, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] });
+    expect(moved).toMatch(/COLLECT_(WRONG_TREE|TREE_MOVED): reader=/);
+    expect(moved).not.toContain('NEXT: judge');
     const outside = host(path.dirname(wt), env);
-    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
-    const broken = tmp('rp-broken-');
-    fs.writeFileSync(path.join(broken, '.git'), 'garbage\n');
-    const unreadable = host(broken, env);
-    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('STOP: cannot read the directory readers on the shared machine start in: fatal: invalid gitfile format');
-    expect(unreadable.creates.length).toBe(0);
-    const slow = host(wt, env, { pollsToFinish: 30 });
+    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    const walled = host(dir, env);
+    const bashW = walled.tools.capy.bash;
+    walled.tools.capy.bash = async (a: { command: string; description?: string }) => (a.description?.endsWith('reader reach check') ? { exit_code: 1, output: `bash: line 1: cd: ${wt}: Permission denied\n` } : bashW(a));
+    const unreachable = await runPass(walled, { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(unreachable).toContain(`STOP: readers on the shared machine cannot reach ${wt}, the checkout this pass ships: bash: line 1: cd: ${wt}: Permission denied`);
+    expect(unreachable).not.toContain('REVIEW_LOG_START:');
+    expect(walled.creates.length).toBe(0);
+    const slow = host(dir, env, { pollsToFinish: 30 });
     let probes = 0;
     const bash = slow.tools.capy.bash;
-    slow.tools.capy.bash = async (a) => { if (a.command.startsWith('if d=$(git rev-parse')) probes++; return bash(a); };
-    const input = { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'] };
+    slow.tools.capy.bash = async (a: { command: string; description?: string }) => { if (a.description?.endsWith('reader reach check')) probes++; return bash(a); };
+    const input = { base: 'main', out: path.join(wt, '.state/run/p6'), pass: 'w0p6', cwd: wt, planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(slow, input)).toContain('NEXT: poll');
     expect(await runPass(slow, input)).toContain('NEXT: poll');
     expect(probes).toBe(1);
@@ -1398,7 +1417,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
-  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (GST-776 refuses any other start checkout up front); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
+  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (readers that start in another checkout are covered by the GST-3145 test above); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
   //   why_new=GBRA-218 (no brief named a directory); seam=lib/review-pass.ts renderStage and the Capy pass program; no_claim=model compliance with the paragraph
   test('a reader that works in the checkout its brief names passes, and every brief names the worktree', async () => {
     const { dir, env, wt } = worktree();
