@@ -102,6 +102,18 @@ describe('GST-3187: a plan that would ship unreviewed commits refuses instead of
     expect(fs.existsSync(path.join(f.root, 'p2', 'pass-manifest.json'))).toBe(false);
   }, 180_000);
 
+  // Value: protects=--targeted-ran exempts the refusal only when the targeted read covers HEAD or carries the change, never by
+  //   being present; fails_when=a stale or foreign --targeted-ran turns a runtime commit nobody reviewed into NEXT: done;
+  //   seam=gstack-review-plan; no_claim=the docs-carry path, which review-plan-targeted-delta.test.ts covers
+  test('a --targeted-ran that does not cover the runtime commit still refuses', () => {
+    const f = fixture();
+    f.commit({ 'src/b.ts': 'export const b = 3;\n' }, 'fix: b');
+    const plan = f.run(PLAN, ['--base', 'main', '--pass', '1', '--last', 'full', '--range-base', f.pass1, '--targeted-ran', 'deadbeef']);
+    expect(plan.status, plan.stdout + plan.stderr).toBe(3);
+    expect(plan.stderr.trimEnd().endsWith('(review_required_no_readers)')).toBe(true);
+    expect(plan.stdout).not.toContain('NEXT: done');
+  }, 180_000);
+
   // Value: protects=the refusal fires only on unreviewed commits: no commit since the reviewed head is still done, and a flagged
   //   below-floor fix still plans its fix-check; fails_when=the guard refuses a clean pass 1 or a flagged fix;
   //   seam=gstack-review-plan; no_claim=the fix-check's verdict

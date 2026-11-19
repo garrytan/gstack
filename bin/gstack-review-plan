@@ -299,7 +299,7 @@ function main(): number {
     plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
-  if (last === 'full' && plan.next.step === 'done' && fixRange && fixRange.runtime_lines !== null && !ranArg && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
+  if (last === 'full' && plan.next.step === 'done' && fixRange && fixRange.runtime_lines !== null && !ran && !(delta?.state === 'skip' && delta.carried) && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
     process.stderr.write(`${gateOutcomeLine('gstack-review-plan', 'review_required_no_readers', `--pass ${pass} --last ${last} names no fix, but the PR's own change since --range-base ${fixRange.base.slice(0, 12)} has ${fixRange.runtime_lines} runtime line${fixRange.runtime_lines === 1 ? '' : 's'}`)} (review_required_no_readers)\n`);
     return EXIT.refused;
   }
