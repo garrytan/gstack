@@ -1075,7 +1075,8 @@ function postBody(rest: string[], pr: string | undefined, body: string): string 
     let dest: { repo: string; host: string } | undefined;
     try { const v = JSON.parse(view.out); dest = { repo: String(v.nameWithOwner ?? ''), host: new URL(String(v.url)).host }; } catch { dest = undefined; }
     if (!view.ok || !dest?.repo) return `cannot resolve the repository gh pr edit would have edited (gh repo view${repo ? ` ${repo}` : ''} --json nameWithOwner,url: ${view.err.split('\n')[0] || 'no repository'}); pass --repo <owner/repo>, nothing was handed off`;
-    process.stdout.write(handOff({ op: 'pr-body', target: pr, ...dest, parts: [['body', body]] }));
+    try { process.stdout.write(handOff({ op: 'pr-body', target: pr, ...dest, parts: [['body', body]] })); }
+    catch (e) { return `cannot write the hand-off for the host's PR tool (${(e as Error).message}), nothing was handed off`; }
     return null;
   }
   const tmp = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'gstack-runs-')), 'body.md');

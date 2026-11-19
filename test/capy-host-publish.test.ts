@@ -224,6 +224,39 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(out.stdout).not.toContain('HOST_PUBLISH:');
     expect(r.gh.writes()).toEqual([]);
   });
+
+  test('gstack-post pr-create on Capy with a detached HEAD and no --head refuses with no hand-off', () => {
+    const r = capyRepo();
+    r.githubOrigin();
+    const title = path.join(r.f.root, 't.txt');
+    fs.writeFileSync(title, 'Add a thing for users\n');
+    const body = path.join(r.f.root, 'b.md');
+    fs.writeFileSync(body, 'Adds a thing for users.\n\n## Why\n\nBecause.\n');
+    r.f.git('checkout', '-q', '--detach');
+    const out = r.run('gstack-post', ['pr-create', '--base', 'main', '--title-file', title, '--body-file', body]);
+    expect(out.status).toBe(64);
+    expect(out.stderr).toContain('--head <branch>');
+    expect(out.stdout).not.toContain('HOST_PUBLISH:');
+    expect(r.gh.writes()).toEqual([]);
+  });
+
+  test('a hand-off that cannot be written is a failure with no HOST_PUBLISH line, never a HIGH refusal', () => {
+    const r = capyRepo();
+    r.githubOrigin();
+    const blocked = path.join(r.f.root, 'not-a-dir');
+    fs.writeFileSync(blocked, '');
+    const comment = path.join(r.f.root, 'c.md');
+    fs.writeFileSync(comment, 'A plain comment.\n');
+    const post = r.run('gstack-post', ['pr-comment', '7', '--body-file', comment], { GSTACK_STATE_ROOT: blocked });
+    expect(post.status).toBe(3);
+    expect(post.stderr).toContain('could not write the hand-off');
+    expect(post.stdout).not.toContain('HOST_PUBLISH:');
+    const stub = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1'], { GSTACK_STATE_ROOT: blocked });
+    expect(stub.status).not.toBe(0);
+    expect(stub.stderr).toContain('cannot write the hand-off');
+    expect(stub.stdout).not.toContain('HOST_PUBLISH:');
+    expect(r.gh.writes()).toEqual([]);
+  });
 });
 
 describe('on Capy, gstack-ship-receipt carry calls no gh write (GST-3183)', () => {

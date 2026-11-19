@@ -847,7 +847,10 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
         head = b.status === 0 ? b.stdout.trim() : "";
         if (!head) throw new UsageError("pr-create on Capy needs --head <branch> when HEAD is detached: the host's PR tool cannot infer it");
       }
-      env.out(env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), host: remote.host, to: req.to, base: req.base, head, draft: req.draft }));
+      let line: string;
+      try { line = env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), host: remote.host, to: req.to, base: req.base, head, draft: req.draft }); }
+      catch (e) { env.err(`gstack-post: could not write the hand-off for the host's PR tool: ${(e as Error).message}; nothing was handed off\n`); return EXIT.cliFailed; }
+      env.out(line);
       return EXIT.posted;
     }
     return send(env, remote.kind, req, n, title, body);
