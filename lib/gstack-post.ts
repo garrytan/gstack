@@ -59,7 +59,7 @@ export interface PostEnv {
 }
 
 /** Where the gh write would have gone, so the host's PR tool can send the hand-off to the same place. */
-export interface HostDest { repo: string; to?: string; base?: string; head?: string; draft: boolean }
+export interface HostDest { repo: string; host: string; to?: string; base?: string; head?: string; draft: boolean }
 
 export const EXIT = { posted: 0, refused: 1, confirm: 2, cliFailed: 3, plainTitle: 4, usage: 64 } as const;
 
@@ -841,7 +841,13 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       }
     }
     if (env.hostPublish) {
-      env.out(env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), to: req.to, base: req.base, head: req.head, draft: req.draft }));
+      let head = req.head;
+      if (req.op === "pr-create" && !head) {
+        const b = env.run("git", ["branch", "--show-current"]);
+        head = b.status === 0 ? b.stdout.trim() : "";
+        if (!head) throw new UsageError("pr-create on Capy needs --head <branch> when HEAD is detached: the host's PR tool cannot infer it");
+      }
+      env.out(env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), host: remote.host, to: req.to, base: req.base, head, draft: req.draft }));
       return EXIT.posted;
     }
     return send(env, remote.kind, req, n, title, body);

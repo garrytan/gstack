@@ -25,12 +25,20 @@ const HOST_TOOL: Record<string, string> = {
   'issue-create': 'open the issue from title-file and body-file, or hand both files to whoever owns the work (Capy has no GitHub issue tool)',
 };
 
+/** A repository path the host tool can be pointed at: owner/name, or a GitLab group path. */
+const REPO_PATH = /^[\w.-]+(\/[\w.-]+)+$/;
+
 /**
  * Write each part to a new private directory <state root>/publish/<op>-<target>-<random>/<part>.md (mode 0600), so no
  * hand-off ever overwrites another one still waiting to be published (another repo's PR #7, a second pr-create), and return the HOST_PUBLISH: line naming them and the destination the gh write would have used
- * (repo=, reply's to=, pr-create's base=, head= and draft), with a newline.
+ * (repo= always, host= unless github.com, reply's to=, pr-create's base=, head= and draft), with a newline. The host tool
+ * has nothing else to go on and would fall back to the thread's primary repository, so a hand-off without a resolved
+ * repo throws before any file is written.
  */
-export function handOff(o: { op: string; target?: string; repo?: string; to?: string; base?: string; head?: string; draft?: boolean; parts: Array<[string, string]>; env?: StateRootEnv }): string {
+export function handOff(o: { op: string; target?: string; repo: string; host?: string; to?: string; base?: string; head?: string; draft?: boolean; parts: Array<[string, string]>; env?: StateRootEnv }): string {
+  if (!REPO_PATH.test(o.repo ?? '')) throw new Error(`HOST_PUBLISH needs the destination repository (owner/name), got ${JSON.stringify(o.repo ?? '')}`);
+  if (o.host !== undefined && !/^[\w.-]+(:\d+)?$/.test(o.host)) throw new Error(`HOST_PUBLISH host ${JSON.stringify(o.host)} is not a hostname`);
+  const host = o.host && o.host.toLowerCase() !== 'github.com' ? o.host.toLowerCase() : undefined;
   const dir = path.join(resolveStateRoot(o.env ?? process.env), 'publish');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const own = fs.mkdtempSync(path.join(dir, `${o.op}-${(o.target ?? 'new').replace(/[^\w.-]/g, '_')}-`));
@@ -41,6 +49,6 @@ export function handOff(o: { op: string; target?: string; repo?: string; to?: st
     fs.chmodSync(file, 0o600);
     return `${part}-file=${file}`;
   });
-  const dest = [o.repo && `repo=${o.repo}`, o.to && `to=${o.to}`, o.base && `base=${o.base}`, o.head && `head=${o.head}`, o.draft && 'draft'].filter(Boolean).map((d) => ` ${d}`).join('');
+  const dest = [`repo=${o.repo}`, host && `host=${host}`, o.to && `to=${o.to}`, o.base && `base=${o.base}`, o.head && `head=${o.head}`, o.draft && 'draft'].filter(Boolean).map((d) => ` ${d}`).join('');
   return `HOST_PUBLISH: ${o.op} ${o.target ?? 'new'}${dest} ${files.join(' ')} (gh was not called: on Capy it signs in as the owner's own GitHub account; ${HOST_TOOL[o.op] ?? 'publish these files with the host PR tool'}, before the next gstack step; docs/troubleshooting.md#host-publish)\n`;
 }

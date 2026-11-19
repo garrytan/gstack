@@ -3300,10 +3300,16 @@ op) and `gstack-ship-receipt stub`, `stop`, `claim` and `carry` with `--pr` run 
 before, then write the exact title and body they would have sent to
 a new private directory `<state root>/publish/<op>-<target>-<random>/<part>.md` (mode 0600, so one
 hand-off never overwrites another still waiting to be published) and print one line:
-`HOST_PUBLISH: <op> <target> [repo=<owner/name>] [to=<comment id>] [base=<branch>] [head=<branch>] [draft] body-file=<path> [title-file=<path>] (...)`,
-where the bracketed fields are where the gh write would have gone (a reply's comment, a new PR's base, head and draft state). Nothing reached GitHub yet.
+`HOST_PUBLISH: <op> <target> repo=<owner/name> [host=<host>] [to=<comment id>] [base=<branch>] [head=<branch>] [draft] body-file=<path> [title-file=<path>] (...)`,
+which names everything gh would have worked out from the checkout: `repo=` always (the receipt commands read it
+with `gh repo view` when `--repo` is not passed, `gstack-post` from the origin remote), `host=` when it is not
+github.com, a reply's comment, and a new PR's base, head (the current branch when `--head` is not passed) and draft
+state. Nothing reached GitHub yet. When the repository cannot be resolved the command refuses and prints no line,
+because a hand-off without one would land on whatever repository the host tool defaults to.
 
-**Fix.** Publish the named files with the host's PR tool before the next gstack step: `pr-body` and
+**Fix.** Publish the named files with the host's PR tool before the next gstack step, always passing `repo=`
+(Capy's `repo` argument) so a multi-repo or fork thread edits the right pull request; a `host=` the host tool
+cannot reach goes to whoever owns the work. Use `pr-body` and
 `pr-title` with Capy's `tools.pr.edit`, `pr-comment` and `reply` with `tools.pr.comment`, `pr-create`
 with `tools.pr.create`. Capy has no GitHub issue tool, so an `issue-create` or an `issue-comment` on an
 issue goes to whoever owns the work. Never run the `gh` write yourself. `claim` cannot read its own

@@ -23,13 +23,18 @@ const WRITE = /^(pr\t(edit|comment|create|ready|close|merge|review)|issue\t(comm
 const isWrite = (call: string) => WRITE.test(call + '\t')
   || (/^api\t/.test(call) && (/\t(--method|-X)(=|\t)(POST|PATCH|PUT|DELETE)\t/.test(call + '\t') || (/\t(-f|-F|--field|--raw-field|--input)(=|\t)/.test(call + '\t') && !/\tgraphql\t/.test(call + '\t'))));
 
-/** A gh on PATH that appends each call's argv (tab-separated) to calls.log and answers the reads /ship makes. */
-function recordingGh(dir: string, pr: { body: string; head?: string }) {
+/**
+ * A gh on PATH that appends each call's argv (tab-separated) to calls.log and answers the reads /ship makes. `repo` is
+ * what `gh repo view --json nameWithOwner,url` answers for the checkout (null: the read fails); a named repository answers
+ * as itself on github.com.
+ */
+function recordingGh(dir: string, pr: { body: string; head?: string }, repo: { nameWithOwner: string; url: string } | null = { nameWithOwner: 'fx/fx', url: 'https://github.com/fx/fx' }) {
   fs.mkdirSync(dir, { recursive: true });
   const log = path.join(dir, 'calls.log');
   fs.writeFileSync(log, '');
   fs.writeFileSync(path.join(dir, 'body.md'), pr.body);
   fs.writeFileSync(path.join(dir, 'pr.json'), JSON.stringify({ body: pr.body, headRefOid: pr.head ?? 'f'.repeat(40) }));
+  if (repo) fs.writeFileSync(path.join(dir, 'repo.json'), JSON.stringify(repo));
   fs.writeFileSync(path.join(dir, 'gh'), [
     '#!/bin/sh',
     `for a in "$@"; do printf '%s\\t' "$a"; done >> "${log}"; printf '\\n' >> "${log}"`,
@@ -38,6 +43,8 @@ function recordingGh(dir: string, pr: { body: string; head?: string }) {
     '  "pr view "*"--jq .createdAt"*) echo 2026-11-19T00:00:00Z; exit 0 ;;',
     `  "pr view "*) cat "${path.join(dir, 'pr.json')}"; exit 0 ;;`,
     '  "pr list "*) echo "[]"; exit 0 ;;',
+    `  "repo view --json nameWithOwner"*) cat "${path.join(dir, 'repo.json')}" 2>/dev/null || { echo "no git remotes found" >&2; exit 1; }; exit 0 ;;`,
+    '  "repo view "*"--json nameWithOwner"*) printf \'{"nameWithOwner":"%s","url":"https://github.com/%s"}\\n\' "$3" "$3"; exit 0 ;;',
     '  "repo view "*) echo PUBLIC; exit 0 ;;',
     '  "pr create "*) cat >/dev/null; echo https://github.com/fx/fx/pull/7; exit 0 ;;',
     '  "pr "*|"issue "*|"api "*) cat >/dev/null; echo "{}"; exit 0 ;;',
@@ -53,10 +60,27 @@ function handedOff(stdout: string): Array<Record<string, string>> {
   return stdout.split('\n').filter(l => l.startsWith('HOST_PUBLISH: ')).map(l => Object.fromEntries([...l.matchAll(/\b(body|title)-file=(\S+)/g)].map(m => [m[1]!, fs.readFileSync(m[2]!, 'utf8')])));
 }
 
-function capyRepo() {
+/**
+ * Where each HOST_PUBLISH: line sends its write: op, target, and every key=value (or bare draft) before the first file.
+ * The host tool has nothing else to go on, so a missing repo= sends the write to whatever repository it defaults to.
+ */
+function destinations(stdout: string): Array<Record<string, string | true>> {
+  return stdout.split('\n').filter(l => l.startsWith('HOST_PUBLISH: ')).map(l => {
+    const [op, target, ...rest] = l.slice('HOST_PUBLISH: '.length).split(' ');
+    const d: Record<string, string | true> = { op: op!, target: target! };
+    for (const t of rest) {
+      if (/^\w+-file=/.test(t) || t.startsWith('(')) break;
+      const eq = t.indexOf('=');
+      d[eq < 0 ? t : t.slice(0, eq)] = eq < 0 ? true : t.slice(eq + 1);
+    }
+    return d;
+  });
+}
+
+function capyRepo(repo?: { nameWithOwner: string; url: string } | null) {
   const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
   fxs.push(f);
-  const gh = recordingGh(path.join(f.root, 'gh'), { body: 'Fixes a thing.\n' });
+  const gh = recordingGh(path.join(f.root, 'gh'), { body: 'Fixes a thing.\n' }, repo);
   const env = { PATH: `${path.join(f.root, 'gh')}:${process.env.PATH}`, GSTACK_APPROVALS_MIRROR: '0', GSTACK_CAPY: '1', GIT_CONFIG_NOSYSTEM: '1' };
   const run = (bin: string, args: string[], extra: Record<string, string> = {}) => f.run(path.join(BIN, bin), args, { ...env, ...extra });
   /** gstack-post reads the origin URL itself, so drop the fixture's insteadOf mapping (it would show the bare path). */
@@ -83,9 +107,10 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     const [h] = handedOff(out.stdout);
     expect(h!.body).toStartWith('Fixes a thing.');
     expect(h!.body).toContain('"run":"r1"');
-    expect(out.stdout).toMatch(/^HOST_PUBLISH: pr-body 7 body-file=\S+ /m);
+    expect(destinations(out.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'fx/fx' }]);
     const again = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--repo', 'other/repo', '--run', 'r2']);
     expect(again.status, again.stderr).toBe(0);
+    expect(destinations(again.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'other/repo' }]);
     const file = (o: string) => /body-file=(\S+)/.exec(o)![1]!;
     expect(file(again.stdout)).not.toBe(file(out.stdout));
     expect(fs.readFileSync(file(out.stdout), 'utf8')).toContain('"run":"r1"');
@@ -102,12 +127,41 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(stop.status, stop.stderr).toBe(0);
     expect(stop.stdout).toContain('STOP_RECORD: run=ro head=' + r.head());
     expect(handedOff(stop.stdout)[0]!.body).toContain('"mark":"stop"');
+    expect(destinations(stop.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'fx/fx' }]);
     const g = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', r.head(), '--kind', 'extra-round', '--reason', 'x', '--by', 'Captain GStack Minder']).stdout)?.[1];
     expect(g).toBeDefined();
     const claim = r.run('gstack-ship-receipt', ['claim', '--pr', '7', '--run', 'r1', '--grant', g!]);
     expect(claim.status, claim.stderr).toBe(0);
     expect(claim.stdout).toContain('GRANT_CLAIMED: grant=' + g);
     expect(handedOff(claim.stdout)[0]!.body).toContain('"mark":"grant"');
+    expect(destinations(claim.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'fx/fx' }]);
+    expect(r.gh.writes()).toEqual([]);
+  });
+
+  test('in a two-repo thread, stub without --repo names the checkout\'s repository, not the primary one', () => {
+    const primary = capyRepo({ nameWithOwner: 'acme/primary', url: 'https://github.com/acme/primary' });
+    const second = capyRepo({ nameWithOwner: 'acme/widgets', url: 'https://github.com/acme/widgets' });
+    const a = primary.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1']);
+    const b = second.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1']);
+    expect([a.status, b.status], a.stderr + b.stderr).toEqual([0, 0]);
+    expect(destinations(a.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'acme/primary' }]);
+    expect(destinations(b.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'acme/widgets' }]);
+    expect([...primary.gh.writes(), ...second.gh.writes()]).toEqual([]);
+  });
+
+  test('stub names a GitHub Enterprise host beside the repo', () => {
+    const r = capyRepo({ nameWithOwner: 'acme/tools', url: 'https://ghe.acme.test/acme/tools' });
+    const out = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1']);
+    expect(out.status, out.stderr).toBe(0);
+    expect(destinations(out.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'acme/tools', host: 'ghe.acme.test' }]);
+  });
+
+  test('stub refuses, with no hand-off and no write, when the repository cannot be resolved', () => {
+    const r = capyRepo(null);
+    const out = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--run', 'r1']);
+    expect(out.status).not.toBe(0);
+    expect(out.stdout).not.toContain('HOST_PUBLISH:');
+    expect(out.stderr).toContain('repo');
     expect(r.gh.writes()).toEqual([]);
   });
 
@@ -118,25 +172,46 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     const body = file('body.md', 'Adds a thing for users.\n\n## Why\n\nBecause.\n');
     const title = file('title.txt', 'Add a thing for users\n');
     const comment = file('comment.md', 'A plain comment.\n');
-    const ops: Array<[string, string[], string, string]> = [
-      ['pr-body', ['pr-body', '7', '--body-file', body], 'body', '7 repo=fx/fx'],
-      ['pr-title', ['pr-title', '7', '--title-file', title], 'title', '7 repo=fx/fx'],
-      ['pr-comment', ['pr-comment', '7', '--body-file', comment], 'body', '7 repo=fx/fx'],
-      ['issue-comment', ['issue-comment', '7', '--body-file', comment], 'body', '7 repo=fx/fx'],
-      ['reply', ['reply', '7', '--to', '99', '--body-file', comment], 'body', '7 repo=fx/fx to=99'],
-      ['pr-create', ['pr-create', '--base', 'main', '--head', 'feat', '--draft', '--title-file', title, '--body-file', body], 'title', 'new repo=fx/fx base=main head=feat draft'],
-      ['issue-create', ['issue-create', '--title-file', title, '--body-file', comment], 'title', 'new repo=fx/fx'],
+    const ops: Array<[string, string[], string, Record<string, string | true>]> = [
+      ['pr-body', ['pr-body', '7', '--body-file', body], 'body', { target: '7', repo: 'fx/fx' }],
+      ['pr-title', ['pr-title', '7', '--title-file', title], 'title', { target: '7', repo: 'fx/fx' }],
+      ['pr-comment', ['pr-comment', '7', '--body-file', comment], 'body', { target: '7', repo: 'fx/fx' }],
+      ['issue-comment', ['issue-comment', '7', '--body-file', comment], 'body', { target: '7', repo: 'fx/fx' }],
+      ['reply', ['reply', '7', '--to', '99', '--body-file', comment], 'body', { target: '7', repo: 'fx/fx', to: '99' }],
+      ['pr-create', ['pr-create', '--base', 'main', '--head', 'feat', '--draft', '--title-file', title, '--body-file', body], 'title', { target: 'new', repo: 'fx/fx', base: 'main', head: 'feat', draft: true }],
+      ['issue-create', ['issue-create', '--title-file', title, '--body-file', comment], 'title', { target: 'new', repo: 'fx/fx' }],
     ];
     for (const [op, args, part, dest] of ops) {
       const out = r.run('gstack-post', args);
       expect([op, out.status, out.stderr]).toEqual([op, 0, expect.any(String)]);
       expect(out.stdout).not.toContain('POSTED:');
-      expect(out.stdout).toMatch(new RegExp(`^HOST_PUBLISH: ${op} ${dest} body-file=|^HOST_PUBLISH: ${op} ${dest} title-file=`, 'm'));
+      expect(destinations(out.stdout)).toEqual([{ op, ...dest }]);
       expect(handedOff(out.stdout)[0]![part]).toBeDefined();
     }
     expect(r.gh.writes()).toEqual([]);
     const pb = r.run('gstack-post', ['pr-body', '7', '--body-file', body]);
     expect(handedOff(pb.stdout)[0]!.body).toContain('<summary>Why</summary>');
+  });
+
+  test('gstack-post names a GitHub Enterprise host, and the branch gh pr create would have used as head', () => {
+    const r = capyRepo();
+    r.githubOrigin();
+    r.f.git('remote', 'set-url', 'origin', 'https://github.acme.test/acme/tools.git');
+    const comment = path.join(r.f.root, 'c.md');
+    fs.writeFileSync(comment, 'A plain comment.\n');
+    const title = path.join(r.f.root, 't.txt');
+    fs.writeFileSync(title, 'Add a thing for users\n');
+    const body = path.join(r.f.root, 'b.md');
+    fs.writeFileSync(body, 'Adds a thing for users.\n\n## Why\n\nBecause.\n');
+    const c = r.run('gstack-post', ['pr-comment', '7', '--body-file', comment]);
+    expect(c.status, c.stderr).toBe(0);
+    expect(destinations(c.stdout)).toEqual([{ op: 'pr-comment', target: '7', repo: 'acme/tools', host: 'github.acme.test' }]);
+    const branch = r.f.git('branch', '--show-current').stdout.trim();
+    expect(branch).not.toBe('');
+    const n = r.run('gstack-post', ['pr-create', '--base', 'main', '--title-file', title, '--body-file', body]);
+    expect(n.status, n.stderr).toBe(0);
+    expect(destinations(n.stdout)).toEqual([{ op: 'pr-create', target: 'new', repo: 'acme/tools', host: 'github.acme.test', base: 'main', head: branch }]);
+    expect(r.gh.writes()).toEqual([]);
   });
 
   test('gstack-post still refuses a HIGH finding on Capy and writes no hand-off file', () => {
@@ -170,12 +245,13 @@ describe('on Capy, gstack-ship-receipt carry calls no gh write (GST-3183)', () =
     repo.git('merge', '-q', '--no-edit', 'origin/main');
     const head = repo.git('rev-parse', 'HEAD');
     const shim = path.join(repo.root, 'gh');
-    const gh = recordingGh(shim, { body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 8, head: reviewed, base: 'main' } as any), head });
+    const gh = recordingGh(shim, { body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 8, head: reviewed, base: 'main' } as any), head }, { nameWithOwner: 'acme/tools', url: 'https://ghe.acme.test/acme/tools' });
     const out = runBin(repo, 'gstack-ship-receipt', ['carry', '--pr', '8', '--out', path.join(repo.root, 'run')],
       { GSTACK_STATE_ROOT: path.join(repo.root, 'state'), GSTACK_SESSION_KIND: 'unattended', GSTACK_CAPY: '1', PATH: `${shim}:${process.env.PATH}` });
     expect(out.status, out.err).toBe(0);
     expect(out.out).toContain(`CARRY: carried from ${reviewed.slice(0, 12)} to ${head.slice(0, 12)}`);
     expect(gh.writes()).toEqual([]);
+    expect(destinations(out.out)).toEqual([{ op: 'pr-body', target: '8', repo: 'acme/tools', host: 'ghe.acme.test' }]);
     const [h] = handedOff(out.out);
     expect(h!.body).toContain('## Summary\n\nProse.\n');
     expect(h!.body).toContain(head);
