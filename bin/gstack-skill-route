@@ -46,7 +46,8 @@ const routes = decision.route ? decision.routes.map(r => r.skill) : [];
 if (args.includes('--json')) {
   process.stdout.write(`${JSON.stringify({
     switch: { on: sw.on, source: sw.source }, threshold, skills_dir: dir, skills: skills.length, problems,
-    candidates: decision.candidates, route: decision.route?.skill ?? null, routes, reason: decision.route ? null : decision.reason, hint,
+    candidates: decision.candidates, route: decision.route?.skill ?? null, routes, bug_report: decision.route ? decision.bugReport : false,
+    reason: decision.route ? null : decision.reason, hint,
   }, null, 2)}\n`);
   process.exit(0);
 }
@@ -58,7 +59,7 @@ const lines = [
   ...(decision.candidates.length
     ? decision.candidates.map(c => `  ${c.score.toFixed(2)}  /${c.skill}  "${c.trigger}" (${c.matched} words, ${c.gstack ? 'gstack' : `installed: ${c.file}`})`)
     : ['  (none)']),
-  decision.route ? `route: ${routes.map(r => `/${r}`).join(', ')}` : `route: none (${decision.reason})`,
+  decision.route ? `route: ${routes.map(r => `/${r}`).join(', ')}${decision.bugReport ? ' (a bug report: the installed skill that claims bug reports)' : ''}` : `route: none (${decision.reason})`,
   ...(hint ? [`hint: ${hint}`] : []),
 ];
 process.stdout.write(`${lines.join('\n')}\n`);
