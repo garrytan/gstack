@@ -236,6 +236,16 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['round 2: cd then a discard (control)', 'cd B && git clean -fdx', 'ask', 'clean'],
   ['round 2: an image suffix under /dev', 'wipefs -a /dev/sdb.img', 'deny', 'clean'],
   ['round 2: wipefs option values', 'wipefs -t ext4 -a demo.img', 'allow', 'clean'],
+  ['wipefs in the regex again: targets from xargs', 'ls /dev/sd* | xargs wipefs -a', 'deny', 'clean'],
+  ['wipefs in the regex again: targets from stdin', 'echo /dev/sdb | xargs wipefs --all', 'deny', 'clean'],
+  ['wipefs in the regex again: --a', 'wipefs --a /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: --al', 'wipefs --al /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: attached short option value', 'wipefs -a -tvfat /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: attached value in a group', 'wipefs -aftvfat /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: image suffix under /dev', 'wipefs --al /dev/sdb.img', 'deny', 'clean'],
+  ['wipefs in the regex again: image names from xargs', 'ls *.img | xargs wipefs -a', 'deny', 'clean'],
+  ['wipefs in the regex again: attached value on an image (control)', 'wipefs -a -tvfat demo.img', 'allow', 'clean'],
+  ['wipefs in the regex again: several images (control)', 'wipefs --all disk.qcow2 build/b.iso', 'allow', 'clean'],
 ];
 
 let base = '';

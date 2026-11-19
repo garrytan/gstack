@@ -161,6 +161,8 @@ _STASH_POP=0
 _GIT_SUB=-1
 _HI_RM_ROOT=0
 _HI_DISK=0
+_WIPEFS_SEEN=0
+_WIPEFS_SAFE=0
 _RM_UNSAFE=0
 _OUTSIDE=0
 _PUSH_DENY=""
@@ -361,33 +363,58 @@ _careful_del() {
   return 0
 }
 
-# wipefs -a erases every signature on its targets: HIGH unless each target
-# has a disk-image suffix (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg)
-# outside /dev. The values of -o, -t and -O are not targets.
+# wipefs -a erases every signature on its targets. _RX_WIPEFS denies any
+# wipefs with -a, --a, --al or --all; this scan only proves the one exemption
+# on top of it. An invocation is proven when wipefs leads its statement (after
+# sudo or NAME=value words), and every target, with options read the way
+# getopt reads them, is a plain literal path outside /dev with a disk-image
+# suffix (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg). An unproven
+# invocation with -a in any spelling is HIGH here too.
 _careful_wipefs() {
-  local k="$1" t all=0 hit=0 val=0
+  local k="$1" t g j=0 all=0 hit=0 tgt=0 val=0 opts=1
+  _WIPEFS_SEEN=$((_WIPEFS_SEEN + 1))
+  while [ "$j" -lt $((k - 1)) ]; do
+    case "${T[$j]}" in sudo|[A-Za-z_]*=*) ;; *) hit=1 ;; esac
+    j=$((j + 1))
+  done
   while [ "$k" -lt "$n" ]; do
     t="${T[$k]}"; k=$((k + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
     case "$t" in
-      '') ;;
-      --all) all=1 ;;
-      --offset|--types|--output) val=1 ;;
-      --*) ;;
-      -*)
-        case "${t#-}" in
-          *[!a-zA-Z]*) ;;
-          *)
-            case "${t#-}" in *a*) all=1 ;; esac
-            case "${t#-}" in *[toO]) val=1 ;; esac ;;
-        esac ;;
-      [0-9]'>'*|'>'*|'<'*) ;;
-      /dev/*) hit=1 ;;
-      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg) ;;
+      '') continue ;;
+      '<'|'>'|'>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') val=1; continue ;;
+      [0-9]'>'*|'>'*|[0-9]'<'*|'<'*) continue ;;
+    esac
+    if [ "$opts" -eq 1 ]; then
+      case "$t" in
+        --) opts=0; continue ;;
+        --a|--al|--all) all=1; continue ;;
+        --offset|--types|--output) val=1; continue ;;
+        --*) continue ;;
+        -?*)
+          g="${t#-}"
+          while [ -n "$g" ]; do
+            case "$g" in
+              a*) all=1 ;;
+              [toO]) val=1; break ;;
+              [toO]*) break ;;
+            esac
+            g="${g#?}"
+          done
+          continue ;;
+      esac
+    fi
+    case "$t" in
+      *[!A-Za-z0-9._/+@%,:~-]*|*/dev/*|dev/*) hit=1 ;;
+      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg) tgt=1 ;;
       *) hit=1 ;;
     esac
   done
-  if [ "$all" -eq 1 ] && [ "$hit" -eq 1 ]; then _HI_DISK=1; fi
+  if [ "$hit" -eq 0 ] && [ "$tgt" -eq 1 ]; then
+    _WIPEFS_SAFE=$((_WIPEFS_SAFE + 1))
+  elif [ "$all" -eq 1 ]; then
+    _HI_DISK=1
+  fi
   return 0
 }
 
@@ -772,7 +799,21 @@ fi
 if [ -n "$_PUSH_DENY" ]; then
   _careful_deny high_force_push_default "Force-push to the default branch ($_PUSH_DENY) is blocked by gstack's destructive-command check. Use --force-with-lease on a feature branch; if the user truly means it, they run it themselves."
 fi
-if [ "$_HI_DISK" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
+# wipefs with -a in any spelling (-a, a short group holding a, --a, --al,
+# --all), however its targets arrive: on the line, from xargs or from stdin.
+# The one exemption: every wipefs word in the command is an invocation the
+# statement scan proved (literal image-suffix targets outside /dev).
+_RX_WIPEFS="(^|[[:space:];&|(/'\"${_BT}])wipefs['\"]?([[:space:]]${_NS})?(-a|[[:space:]'\"]-[[:alnum:]]*a)"
+_WIPEFS_HI=0
+case "$CMD_MEDIUM" in
+  *wipefs*)
+    if [[ $CMD_MEDIUM =~ $_RX_WIPEFS ]]; then
+      _WIPEFS_HI=1
+      _W_REST="${CMD_MEDIUM//wipefs/}"
+      if [ "$_WIPEFS_SAFE" -gt 0 ] && [ "$_WIPEFS_SAFE" -eq "$_WIPEFS_SEEN" ] && [ $(( (${#CMD_MEDIUM} - ${#_W_REST}) / 6 )) -eq "$_WIPEFS_SEEN" ]; then _WIPEFS_HI=0; fi
+    fi ;;
+esac
+if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
   _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
 fi
 
