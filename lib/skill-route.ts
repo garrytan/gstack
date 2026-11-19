@@ -185,6 +185,7 @@ export function scanInstalledSkills(dir: string): { skills: InstalledSkill[]; pr
     }
     if (frontmatter === null) continue;
     const name = frontmatterName(frontmatter, entry);
+    const gstack = ownedByGstack(path.join(dir, entry), file);
     let triggers: string[] = [];
     if (/^triggers:/m.test(frontmatter)) {
       triggers = frontmatterList(`---\n${frontmatter}\n---`, 'triggers');
@@ -196,8 +197,13 @@ export function scanInstalledSkills(dir: string): { skills: InstalledSkill[]; pr
         problems.push(`${SKILL_NAME.test(name) ? name : entry.slice(0, 64)}: ${problem}`);
         triggers = [];
       }
+      const short = isGstackSkill({ name, file, frontmatter, triggers, gstack }) ? [] : triggers.filter(t => contentTokens(t).length < 2);
+      if (short.length) {
+        problems.push(`${name}: skipped ${short.map(t => `"${t}"`).join(', ')}: another installed skill's trigger needs two content words, so one word cannot claim a prompt`);
+        triggers = triggers.filter(t => !short.includes(t));
+      }
     }
-    skills.push({ name, file, frontmatter, triggers, gstack: ownedByGstack(path.join(dir, entry), file) });
+    skills.push({ name, file, frontmatter, triggers, gstack });
   }
   return { skills, problems };
 }
@@ -335,19 +341,81 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
 export const ROUTED_SKILLS = ['review', 'qa', 'verify'];
 const isRouted = (s: InstalledSkill) => !isGstackSkill(s) || ROUTED_SKILLS.includes(baseName(s.name));
 
+/**
+ * Signs that a prompt reports a defect (bugReport). One strong sign is enough: a word for what went wrong, an exception
+ * name (ValueError), the verb fix, an issue template's expected or actual heading, a failure verb (fails, failed to,
+ * doesn't work) or a "should X, not Y" correction. Feature requests use error, exception and failure as nouns ("add
+ * error handling", "a custom exception class"), so those words, a negated verb, "should" and "instead of" are weak
+ * signs, and a bug report needs two different ones.
+ */
+const SYMPTOM_STEMS = new Set(['bug', 'crash', 'traceback', 'regression', 'broken', 'wrong', 'incorrect', 'incorrectly', 'defect',
+  'hang', 'stuck', 'freeze', 'freezes', 'leak', 'corrupt', 'imprecise', 'inaccurate', 'unexpected', 'unexpectedly', 'weird', 'strange',
+  'glitch', 'mismatch', 'typo'].map(stem));
+const STRONG_SIGN = new RegExp(String.raw`\b(?:expected (?:behaviou?r|result|output|value)|actual (?:behaviou?r|result|output)|what did you expect`
+  + String.raw`|what happened|steps to reproduce|to reproduce|reproducible|correct (?:output|result|value|answer|behaviou?r)|fails|failing`
+  + String.raw`|fail(?:ed)? to|(?:does|do|did)(?: not|n't) work|not working|no longer works?)\b|\bshould\b[^.!?]*(?:, not\b|\binstead of\b)`);
+const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot|can't|won't)\b/,
+  /\bshould\b/, /\binstead of\b/];
+
+/** The verb fix, as a prompt asks for one. */
+const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
+
+/** True when the prompt's window (promptWindow) reads as a bug report: one strong sign, or two different weak ones. */
+export function bugReport(prompt: string): boolean {
+  const text = promptWindow(prompt).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
+  if (words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || FIX_WORD.test(w) || /^[a-z]{3,}(?:error|exception)$/.test(w))) return true;
+  return STRONG_SIGN.test(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2;
+}
+
+/**
+ * A trigger that claims bug reports: the defect and fixing it, and nothing else, as "fix this bug" and "reproduce the bug
+ * in a test" do. A trigger that names its own target ("fix lint errors", "fix postgres bugs") claims only that kind of fix.
+ */
+const FIX_VERBS = ['fix', 'debug', 'repair', 'reproduce'];
+const GENERIC_CLAIM_WORDS = new Set(['bug', 'test', ...FIX_VERBS]);
+const claimsBugReports = (trigger: string) => {
+  const content = contentTokens(trigger);
+  return content.includes('bug') && content.some(w => FIX_VERBS.includes(w)) && content.every(w => GENERIC_CLAIM_WORDS.has(w));
+};
+
+/**
+ * On a bug report, the installed skill that claims bug reports, named alone: one with a claiming trigger that is not
+ * gstack's own (gstack's routed skills only check work), the best-scoring first, then by name. Null when none is installed.
+ */
+function bugFixRoute(skills: InstalledSkill[], candidates: RouteCandidate[]): RouteCandidate | null {
+  const score = (s: InstalledSkill) => candidates.find(c => c.skill === s.name)?.score ?? 0;
+  const fixer = skills.filter(s => !isGstackSkill(s) && s.triggers.some(claimsBugReports))
+    .sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name))[0];
+  if (!fixer) return null;
+  const trigger = fixer.triggers.find(claimsBugReports)!;
+  return { skill: fixer.name, score: 1, matched: contentTokens(trigger).length, trigger, file: fixer.file, gstack: false };
+}
+
 export type RouteDecision =
-  | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[] }
+  | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[]; bugReport: boolean }
   | { route: null; reason: 'slash-command' | 'skill-mention' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
-/** A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. */
+/**
+ * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
+ * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
+ * it holds the whole phrase of one of /review's or /qa's own triggers ("review this pr for bugs") and never asks for a
+ * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
+ */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
-  const candidates = scorePrompt(prompt, skills.filter(isRouted));
+  const routed = skills.filter(isRouted);
+  const candidates = scorePrompt(prompt, routed);
+  const window = promptWindow(prompt);
+  const seq = ` ${tokens(window).join(' ')} `;
+  const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
+    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => seq.includes(` ${tokens(t).join(' ')} `)));
+  const fixer = !findsBugs && bugReport(prompt) ? bugFixRoute(routed, candidates) : null;
+  if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
   const routes = candidates.filter((c, i) => c.score >= threshold && candidates.findIndex(o => o.skill === c.skill) === i).slice(0, MAX_ROUTES);
-  return routes.length ? { route: routes[0], routes, candidates } : { route: null, reason: 'below-threshold', candidates };
+  return routes.length ? { route: routes[0], routes, candidates, bugReport: false } : { route: null, reason: 'below-threshold', candidates };
 }
 
 export type HintVariant = 'name' | 'step' | 'contract';

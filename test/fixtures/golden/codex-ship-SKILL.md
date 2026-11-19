@@ -2,10 +2,10 @@
 name: ship
 description: |
   Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
-  push and create a PR. Use when asked to "ship", "deploy", "deploy this",
-  "push to main", "create a PR", "merge and push", or "get it deployed".
+  push and create a PR. Use when asked to "ship", "ship it", "push to main",
+  "create a PR" or "open a pull request". Deploying is /land-and-deploy.
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
-  is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
+  is ready, wants to push code up, or asks to create a PR. (gstack)
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
