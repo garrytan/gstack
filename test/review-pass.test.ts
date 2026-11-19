@@ -1338,12 +1338,13 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     sh('for i in $(seq 1 20); do echo "export const w$i = $i;" >> src/a.ts; done && git commit -qam allow', wt);
     return { dir, env, wt: fs.realpathSync(wt) };
   }
-  // Value: protects=/ship can ship a checkout other than the one shared readers start in (HARN-105/HARN-107: a project whose default checkout is another repository), each brief opening with the cd into the shipped checkout and each reply still proving its tree; fails_when=the program refuses readers because their start checkout differs from the shipped one, a brief does not open with the cd, a reply from the start checkout or with a foreign tree is merged, or a shipped checkout readers cannot reach is dispatched;
+  // Value: protects=/ship can ship a checkout other than the one shared readers start in (HARN-105/HARN-107: a project whose default checkout is another repository), each brief opening with the cd into the shipped checkout and each reply still proving its tree; fails_when=the program refuses readers because their start checkout differs from the shipped one, a brief does not open with the cd, a reply from the start checkout or with a foreign tree is merged, or readers are dispatched from another worktree of the shipped repository (where a command without its cd reads the wrong diff with no error) or to a shipped checkout they cannot reach;
   //   why_new=GST-3145 on gstack 1.101.0.0 (the GST-482 start-checkout refusal contradicted the workspace step); seam=lib/capy-review-pass.js before any log start or create, and gstack-review-dispatch collect; no_claim=model compliance with the cd
-  test('readers that start in another checkout are dispatched with the cd into the shipped checkout first, a reply naming another tree is refused, and an unreachable checkout stops', async () => {
+  test('readers that start in another repository are dispatched with the cd into the shipped checkout first, a reply naming another tree is refused, and another worktree of the same repository or an unreachable checkout stops', async () => {
     const { dir, env, wt } = worktree();
+    const other = fs.realpathSync(repo().dir);
     const out = path.join(wt, '.state/run/p1');
-    const h = host(dir, env);
+    const h = host(other, env);
     const res = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('REVIEW_LOG_START: review');
@@ -1361,26 +1362,31 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(voices).not.toContain('STOP:');
     expect(h.creates.length).toBeGreaterThan(passCreates);
     for (const c of h.creates.slice(passCreates)) expect(c.prompt.startsWith(cdFirst), c.title).toBe(true);
-    const stayed = host(dir, env, { reportFrom: () => dir });
+    const stayed = host(other, env, { reportFrom: () => other });
     const wrong = await runPass(stayed, { base: 'main', out: path.join(wt, '.state/run/p2'), pass: 'w0p2', cwd: wt, planFlags: ['--depth-floor', 'full'] });
     expect(wrong).toContain('COLLECT_WRONG_TREE: reader=');
-    expect(wrong).toContain(`reported="${treeLine(dir).slice(15).trim()}"`);
+    expect(wrong).toContain(`reported="${treeLine(other).slice(15).trim()}"`);
     expect(wrong).not.toContain('NEXT: judge');
     expect(fs.existsSync(path.join(wt, '.state/run/p2/merged.jsonl')) ? fs.readFileSync(path.join(wt, '.state/run/p2/merged.jsonl'), 'utf8') : '').toBe('');
-    const forged = host(dir, env, { reportFrom: () => '', output: t => `REVIEWED_TREE: ${'0'.repeat(40)} ${wt}\n${cleanReply(t)}` });
+    const forged = host(other, env, { reportFrom: () => '', output: t => `REVIEWED_TREE: ${'0'.repeat(40)} ${wt}\n${cleanReply(t)}` });
     const moved = await runPass(forged, { base: 'main', out: path.join(wt, '.state/run/p3'), pass: 'w0p3', cwd: wt, planFlags: ['--depth-floor', 'full'] });
     expect(moved).toMatch(/COLLECT_(WRONG_TREE|TREE_MOVED): reader=/);
     expect(moved).not.toContain('NEXT: judge');
     const outside = host(path.dirname(wt), env);
     expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
-    const walled = host(dir, env);
+    const sibling = host(dir, env);
+    const same = await runPass(sibling, { base: 'main', out: path.join(wt, '.state/run/p7'), pass: 'w0p7', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(same).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, another worktree of the repository this pass ships (${wt})`);
+    expect(same).not.toContain('REVIEW_LOG_START:');
+    expect(sibling.creates.length).toBe(0);
+    const walled = host(other, env);
     const bashW = walled.tools.capy.bash;
-    walled.tools.capy.bash = async (a: { command: string; description?: string }) => (a.description?.endsWith('reader reach check') ? { exit_code: 1, output: `bash: line 1: cd: ${wt}: Permission denied\n` } : bashW(a));
+    walled.tools.capy.bash = async (a: { command: string; description?: string }) => (a.description?.endsWith('reader reach check') ? { exit_code: 1, output: `${other}/.git\n${other}\nbash: line 1: cd: ${wt}: Permission denied\n` } : bashW(a));
     const unreachable = await runPass(walled, { base: 'main', out: path.join(wt, '.state/run/p5'), pass: 'w0p5', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(unreachable).toContain(`STOP: readers on the shared machine cannot reach ${wt}, the checkout this pass ships: bash: line 1: cd: ${wt}: Permission denied`);
     expect(unreachable).not.toContain('REVIEW_LOG_START:');
     expect(walled.creates.length).toBe(0);
-    const slow = host(dir, env, { pollsToFinish: 30 });
+    const slow = host(other, env, { pollsToFinish: 30 });
     let probes = 0;
     const bash = slow.tools.capy.bash;
     slow.tools.capy.bash = async (a: { command: string; description?: string }) => { if (a.description?.endsWith('reader reach check')) probes++; return bash(a); };
@@ -1417,7 +1423,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
-  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (readers that start in another checkout are covered by the GST-3145 test above); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
+  // Value: protects=/ship from a worktree that is the shared machine's start checkout works, its readers' briefs naming it (readers that start in another repository are covered by the GST-3145 test above); fails_when=a brief does not name the shipped checkout, or a correct reply is refused;
   //   why_new=GBRA-218 (no brief named a directory); seam=lib/review-pass.ts renderStage and the Capy pass program; no_claim=model compliance with the paragraph
   test('a reader that works in the checkout its brief names passes, and every brief names the worktree', async () => {
     const { dir, env, wt } = worktree();

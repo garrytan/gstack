@@ -1191,8 +1191,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    exactly (GST-776). Capy cannot start a subagent in a chosen directory, so shared readers start in the thread's working
    directory, which may be another checkout, such as a project whose default checkout is a different repository. That is
    allowed: the workspace step's `cd` and the `REVIEWED_TREE` check above cover it (GST-3145). Before a stage takes a
-   start token or sends its first reader, the Capy pass program checks only that the shipped checkout can be reached from
-   the directory readers start in, and stops, with nothing taken or dispatched, when it cannot. Step 11's voices take the `adversarial-review` start
+   start token or sends its first reader, the Capy pass program checks that the shipped checkout can be reached from
+   the directory readers start in, and stops, with nothing taken or dispatched, when it cannot or when readers start in
+   another worktree of the same repository: there a command run without its `cd` reads that worktree's diff with no
+   error, while another repository fails loudly on the diff base. Step 11's voices take the `adversarial-review` start
    token by default, and a `logStart` list without it stops before anything runs. Decision 3.5's fix-check pass turns a
    `review` start into `review-fix-check`, so its row is never a pass (GST-1031).
 
