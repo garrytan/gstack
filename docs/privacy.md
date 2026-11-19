@@ -11,9 +11,35 @@ no, and `gstack-config set telemetry off` turns it off at any time.
   whether the browser was used, whether the run was live or a test, a session
   id, the count of live session markers (below), the error class, the failed step, and an error message passed through gstack's
   secret redaction (cut to 200 characters). `community` adds a stable device
-  ID; `anonymous` sends no ID. Prompt-injection detections add the attacking
+  ID; `anonymous` sends no device ID. Prompt-injection detections add the attacking
   page's domain, a payload hash, a confidence score, the detection layer and
   the verdict.
+- **Each skill run also sends** these labels, each a pick from a
+  fixed list (anything else is sent as `unknown`):
+  - `host`: which coding agent ran it (`claude_code`, `codex`, `cursor` or
+    another of gstack's supported hosts), read from the agent's environment.
+  - `model_family`: `claude_opus`, `claude_sonnet`, `claude_haiku`, `gpt`,
+    `gemini` or `other`, as the model reports it about itself.
+  - `invoked`: started by you, by the model, or chained from another skill.
+  - `exit_reason`: completed, stopped by you, blocked, a tool error, a test
+    failure, the context limit, or gave up.
+  - `checks`: whether the skill's own checks passed, failed, weren't run, or
+    don't exist for that skill.
+  - `routing`: whether your CLAUDE.md/AGENTS.md has gstack's routing section
+    and whether gstack hooks are installed (`none`, `block`, `hooks`,
+    `both`). The files are read on your machine; only that word is sent.
+  - `harness_session_id`: a random 16-character id for one agent session. It
+    is created on first use, kept in that session's marker file below, and
+    ends when the marker does (120 idle minutes). It is never your device ID
+    and never reused, so it links the skills of one session and nothing
+    across sessions or machines. It is sent on both tiers.
+  - Upgrades send one `upgrade_completed` event: success or the failure
+    reason (`refused_dirty`, `busy`, `fetch_failed`, `setup_failed`,
+    `other`) and the version you came from. `--check` and unattended
+    sessions send nothing.
+  - `source` is set to `ci` under CI and `eval` inside gstack's eval runs,
+    so lab traffic stays out of real-use numbers. A duration gstack can't
+    measure is sent empty instead of 0.
 - **What's never sent:** code, file paths, repo names, branch names, prompts,
   or any other content you write.
 - **What stays on your machine:** opted in, each run is also logged to
@@ -61,8 +87,9 @@ them by name.
 your telemetry setting. They are functional state, not usage logs, and the
 files are never sent:
 
-- **Session markers:** `~/.gstack/sessions/<pid>`, one empty file per live agent
-  session, touched at skill start and deleted after 120 minutes. The count lets
+- **Session markers:** `~/.gstack/sessions/<pid>`, one file per live agent
+  session, touched at skill start and deleted after 120 idle minutes. With
+  telemetry on it holds that session's random `harness_session_id`. The count lets
   skills notice several sessions on one machine; with telemetry on, that number
   is the session count above.
 - **Project timeline:** `~/.gstack/projects/<repo>/timeline.jsonl` records skill
