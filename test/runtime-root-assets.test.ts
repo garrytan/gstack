@@ -107,7 +107,7 @@ function makeSource(): void {
 function buildRoot(host: string, windows = false): { root: string; stderr: string; status: number | null } {
   const root = path.join(tmp, windows ? 'home-windows' : 'home', host, 'skills', 'gstack');
   fs.mkdirSync(path.dirname(root), { recursive: true });
-  const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_copy_skill_md',
+  const functions = ['_link_or_copy', '_link_runtime_dists', '_copy_runtime_skill_refs', '_link_codex_skill_refs', '_copy_skill_md',
     '_sidecar_root_user_owned', '_gstack_generated_header', ROOT_BUILDERS[host]!]
     .filter(name => SETUP_SRC.includes(`\n${name}() {`)).map(extractFunction).join('\n');
   const r = spawnSync('bash', ['-c', `set -e\nIS_WINDOWS=${windows ? 1 : 0}\n${functions}\n${ROOT_BUILDERS[host]} "${windows ? ROOT : src}" "${root}"`],
@@ -224,7 +224,8 @@ describe.skipIf(process.platform === 'win32')('runtime roots carry every $GSTACK
     const { root } = buildRoot('codex');
     for (const dir of ['plan-design-review', 'office-hours']) {
       expect(fs.readdirSync(path.join(root, dir))).toEqual(['SKILL.md']);
-      expect(fs.lstatSync(path.join(root, dir, 'SKILL.md')).isSymbolicLink()).toBe(false);
+      // A link on Codex, which skips a symlinked SKILL.md: a real copy would list the skill twice (GST-3161).
+      expect(fs.lstatSync(path.join(root, dir, 'SKILL.md')).isSymbolicLink()).toBe(true);
       expect(fs.readFileSync(path.join(root, dir, 'SKILL.md'), 'utf8')).toContain('$GSTACK_ROOT');
     }
     expect(fs.existsSync(path.join(root, 'design-html', 'SKILL.md'))).toBe(false);
