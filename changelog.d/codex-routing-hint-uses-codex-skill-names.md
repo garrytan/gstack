@@ -1,0 +1,1 @@
+- **On Codex, gstack's skill suggestion now names the skill the way Codex lists it.** The routing hint used to say "gstack-review", a name Codex doesn't know, so mentioning it as `$gstack-review` loaded nothing. It now reads each skill's name from its installed `SKILL.md`, so the hint says `review` and `$review` loads the skill it suggests.
