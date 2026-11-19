@@ -32,7 +32,8 @@ The off switch is for people. The text the Stop hook shows the model never menti
 | Host | Routing hook | Contract Stop hook | Destructive-command check | Notes |
 |---|---|---|---|---|
 | Claude Code | yes | yes | yes | Registered in `~/.claude/settings.json` by `./setup` |
-| Codex, OpenCode, Cursor and other hosts | no | no | no | No hook support. `gstack-skill-contract check` still works on a Claude Code transcript |
+| Codex | no | no | no | Not ported yet. Codex CLI 0.170 runs hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `Stop` and more, from `$CODEX_HOME/hooks.json`), but `./setup --host codex` registers none of these three there |
+| OpenCode, Cursor and other hosts | no | no | no | gstack registers no hooks on these hosts. `gstack-skill-contract check` still works on a Claude Code transcript |
 
 ## Routing
 

@@ -855,6 +855,21 @@ _copy_runtime_skill_refs() {
   done
 }
 
+# _link_codex_skill_refs RENDER_SKILLS ROOT — the Codex form of the two copies
+# above plus gstack-upgrade's, which the preamble's upgrade flow reads. Codex
+# lists every real SKILL.md under its skills directory, so a real copy here is a
+# second entry beside gstack-<skill>/SKILL.md, and naming the skill then injects
+# nothing (GEVA-555, Codex 0.170). Codex skips a symlinked SKILL.md, so these are
+# links: each skill is listed once and the paths other skills read still resolve.
+_link_codex_skill_refs() {
+  local s
+  for s in gstack-upgrade office-hours plan-design-review; do
+    [ -f "$1/gstack-${s#gstack-}/SKILL.md" ] || continue
+    mkdir -p "$2/$s"
+    _link_or_copy "$1/gstack-${s#gstack-}/SKILL.md" "$2/$s/SKILL.md"
+  done
+}
+
 # ─── Real-file SKILL.md copies in host runtime roots (C3, #333) ──────────────
 # Codex skips a symlinked SKILL.md file, so the router and the nested SKILL.md
 # files in every host runtime root are real copies, rewritten on every run.
@@ -3179,10 +3194,7 @@ create_codex_runtime_root() {
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
   fi
   _link_runtime_dists "$gstack_dir" "$codex_gstack"
-  if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    _copy_skill_md "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
-  fi
-  _copy_runtime_skill_refs "$agents_dir" "$codex_gstack"
+  _link_codex_skill_refs "$agents_dir" "$codex_gstack"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
