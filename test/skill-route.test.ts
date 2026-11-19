@@ -74,6 +74,22 @@ describe('scorer', () => {
     expect(routePrompt('please test the site', [qa]).route?.skill).toBe('qa');
   });
 
+  test('a bug report is not a QA request: words a long report shares with a /qa trigger do not route it to /qa (GST-3123)', () => {
+    const routed = scanInstalledSkills(ROOT).skills.filter(s => ROUTED_SKILLS.includes(s.name));
+    const bugfix = { name: 'verify', file: '', frontmatter: '', triggers: ['fix this bug', 'reproduce the bug in a test'] };
+    const reports = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-bug-reports.json'), 'utf8')) as { id: string; prompt: string }[];
+    expect(reports.map(r => r.id)).toEqual(['tox-dev__tox-3666', 'zauberzeug__nicegui-5914', 'hkuds__openharness-217']);
+    for (const r of reports) {
+      expect([r.id, routePrompt(r.prompt, routed).route?.skill ?? null]).toEqual([r.id, null]);
+      expect([r.id, routePrompt(r.prompt, [bugfix]).route?.skill]).toEqual([r.id, 'verify']);
+    }
+    const qa = { name: 'qa', file: '', frontmatter: '', triggers: ['find bugs on site', 'test the site'] };
+    expect(routePrompt('pip cannot find the package and the install fails', [qa]).route).toBeNull();
+    expect(routePrompt(`The call site is reached on every login. ${'More detail here. '.repeat(10)}I can add regression tests.`, [qa]).route).toBeNull();
+    for (const ask of ['please test the site', 'qa test this page', 'find bugs on my site', 'can you test the site in the browser and fix what you find'])
+      expect([ask, routePrompt(ask, routed).route?.skill]).toEqual([ask, 'qa']);
+  });
+
   test('plain prompts that are not bug reports, reviews, QA or checks route nowhere', () => {
     const bugfix = { name: 'verify', file: '', frontmatter: '', triggers: ['fix this bug', 'reproduce the bug in a test'] };
     const routed = scanInstalledSkills(ROOT).skills.filter(s => ROUTED_SKILLS.includes(s.name));

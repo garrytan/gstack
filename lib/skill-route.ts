@@ -194,17 +194,33 @@ export interface RouteCandidate { skill: string; score: number; matched: number;
 
 /** A lone content word specific enough to route on by itself: five or more letters, not a question word. */
 const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
+/** How close, in words, a trigger made only of everyday words must sit when it matches out of order. */
+export const EVERYDAY_SPAN = 8;
+
+/** True when every word in want appears within some run of span consecutive words of seq. */
+function within(seq: string[], want: string[], span: number): boolean {
+  const need = new Set(want);
+  for (let i = 0; i < seq.length; i++) {
+    if (!need.has(seq[i])) continue;
+    if (new Set(seq.slice(i, i + span).filter(w => need.has(w))).size === need.size) return true;
+  }
+  return false;
+}
 
 /**
  * Every skill whose best trigger shares a content word with the prompt's window (promptWindow), best first
  * (score, matched words, name). A trigger's score is 1 when its whole phrase appears in the prompt, else the
  * share of its content words (stopwords dropped, lightly stemmed, defect words read as "bug") that the prompt
  * contains. A trigger with one content word scores only on its whole phrase unless that word is specific
- * (SPECIFIC_WORD).
+ * (SPECIFIC_WORD). A bug report is full of everyday words (find, test, run, site) and defect words, so two
+ * rules keep them from adding up to a request: a trigger only partly present needs a specific word other than
+ * "bug" among the words it shares, and a trigger of everyday words only, with no "bug", needs its words within
+ * EVERYDAY_SPAN words of each other.
  */
 export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCandidate[] {
   const scored = promptWindow(prompt);
-  const promptSeq = ` ${tokens(scored).join(' ')} `;
+  const seq = tokens(scored);
+  const promptSeq = ` ${seq.join(' ')} `;
   const promptSet = new Set(contentTokens(scored));
   const out: RouteCandidate[] = [];
   for (const skill of skills) {
@@ -213,10 +229,14 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
     for (const trigger of skill.triggers) {
       const content = contentTokens(trigger);
       if (!content.length) continue;
-      const matched = content.filter(w => promptSet.has(w)).length;
+      const shared = content.filter(w => promptSet.has(w));
+      const matched = shared.length;
       const phrase = promptSeq.includes(` ${tokens(trigger).join(' ')} `);
       const weakSingle = content.length === 1 && !SPECIFIC_WORD.test(content[0]);
-      const score = phrase ? 1 : weakSingle ? 0 : Math.round((matched / content.length) * 100) / 100;
+      const thinPartial = matched < content.length && !shared.some(w => w !== 'bug' && SPECIFIC_WORD.test(w));
+      const everyday = !content.some(w => w === 'bug' || SPECIFIC_WORD.test(w));
+      const scattered = matched === content.length && everyday && !within(seq, content, EVERYDAY_SPAN);
+      const score = phrase ? 1 : weakSingle || thinPartial || scattered ? 0 : Math.round((matched / content.length) * 100) / 100;
       const tie = !!best && score === best.score && (matched > best.matched || (matched === best.matched && phrase && !bestPhrase));
       if (score > 0 && (!best || score > best.score || tie)) {
         best = { skill: skill.name, score, matched, trigger, file: skill.file };
