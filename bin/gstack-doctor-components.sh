@@ -371,6 +371,7 @@ gstack_result_anchor() {
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
     REVIEW_DIFF_TOO_LARGE) printf '%s' 'review-diff-too-large' ;;
+    REVIEW_EXCLUDE_KEEP_TOO_LARGE) printf '%s' 'review-exclude-keep-too-large' ;;
     REVIEW_DIFF_UNREADABLE) printf '%s' 'review-diff-unreadable' ;;
     REVIEW_PLAN_STOPPED) printf '%s' 'review-plan-stopped' ;;
     REVIEW_EXCLUDE_REFERENCE) printf '%s' 'review-exclude-reference' ;;
