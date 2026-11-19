@@ -11,10 +11,15 @@
  *   - assistant message: text.
  *   - exec_command / shell call: a Bash tool_use whose command is the shell
  *     line; a command in it that reads a gstack-* SKILL.md under a skills/
- *     directory (cat, sed, head and the like) is also a skill load, unless
- *     the output says that read failed. Reading the same skill again with no
- *     user prompt or other skill load in between (a long SKILL.md read in
- *     chunks) continues the run, so it is not a new load.
+ *     directory (cat, sed, head and the like) is also a skill load. The line
+ *     splits into commands on &&, ||, ;, | and newlines outside quotes. A read
+ *     does not count when an output line reports a read error for that path
+ *     (matched up to the folder before skills/ when it is written out, and
+ *     never as the prefix of a longer name), or when the read is the line's
+ *     last simple command and the call exited non-zero: that exit status is
+ *     the read's own, so it failed or never ran. Reading the same skill again
+ *     with no user turn (text or image) or other skill load in between (a long
+ *     SKILL.md read in chunks) continues the run, so it is not a new load.
  *   - Codex's own spawn_agent call that started an agent: an Agent dispatch
  *     whose prompt is its message. Codex 0.170 answers a started agent with
  *     {"agent_id": ...} from its multi_agent_v1 namespace, or {"task_name":
@@ -38,8 +43,7 @@ const SKILL_INJECTION = /^\s*<skill>\s*<name>[^<]*<\/name>\s*<path>([^<]+)<\/pat
 const GSTACK_SKILL_FILE = /(?:^|[\\/])skills[\\/](gstack-[A-Za-z0-9][A-Za-z0-9_-]*)[\\/]SKILL\.md$/;
 const SHELL_SKILL_READ = /(?:^|[\\/\s'"=])skills[\\/](gstack-[A-Za-z0-9][A-Za-z0-9_-]*)[\\/]SKILL\.md(?=$|[\s'"`;|&)<>])/g;
 const READ_PROGRAM = /(?:^|[\s;|&(`'"])(?:cat|sed|head|tail|nl|less|more|bat|awk|Get-Content)(?=\s)/;
-const READ_FAILURE = /No such file|cannot open|can't read|cannot access|Permission denied|Is a directory/i;
-const SHELL_SEPARATOR = /&&|\|\||[;|\n]/;
+const READ_FAILURE = /No such file|cannot open|can't read|cannot access|Permission denied|Is a directory|Cannot find path/i;
 const SHELL_TOOLS = new Set(['exec_command', 'shell', 'shell_command', 'local_shell']);
 const EXIT_CODE = /(?:^|\n)Process exited with code (\d+)/;
 
@@ -76,13 +80,52 @@ function shellLine(input: Record<string, any>): string | null {
   return null;
 }
 
-/** The gstack-* skills a shell line's read commands read, in order of appearance. */
-function shellSkillReads(line: string): string[] {
-  return line.split(SHELL_SEPARATOR).filter(cmd => READ_PROGRAM.test(cmd)).flatMap(cmd => [...cmd.matchAll(SHELL_SKILL_READ)].map(m => m[1]));
+/** A shell line's commands: split on &&, ||, ;, | and newlines that sit outside quotes and backslash escapes. */
+function shellCommands(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\' && quote !== "'" && i + 1 < line.length) { cur += c + line[++i]; continue; }
+    if (quote) { if (c === quote) quote = ''; cur += c; continue; }
+    if (c === "'" || c === '"') { quote = c; cur += c; continue; }
+    if ((c === '&' || c === '|') && line[i + 1] === c) { out.push(cur); cur = ''; i++; continue; }
+    if (c === ';' || c === '|' || c === '\n') { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out;
 }
 
-const readFailed = (output: string | undefined, skill: string) =>
-  (output ?? '').split('\n').some(l => READ_FAILURE.test(l) && new RegExp(`skills[\\\\/]${skill}[\\\\/]SKILL\\.md`).test(l));
+interface ShellRead { skill: string; tail: string; last: boolean }
+
+/**
+ * The gstack-* skill reads in a shell line, in order. tail is the path an error line must name: from the folder
+ * before skills/ when that is written out literally, else from skills/. last: the read is the line's final command
+ * and a simple one (no grouping or substitution), so the call's exit status is the read's own.
+ */
+function shellSkillReads(line: string): ShellRead[] {
+  const cmds = shellCommands(line);
+  let lastIdx = cmds.length - 1;
+  while (lastIdx > 0 && !cmds[lastIdx].trim()) lastIdx--;
+  return cmds.flatMap((cmd, i) => (READ_PROGRAM.test(cmd) ? [...cmd.matchAll(SHELL_SKILL_READ)] : []).map(m => {
+    const at = m.index + m[0].indexOf('skills');
+    const parent = /(?:^|[\s'"=\\/])([A-Za-z0-9._-]+)[\\/]$/.exec(cmd.slice(0, at))?.[1];
+    return { skill: m[1], tail: `${parent ? `${parent}/` : ''}skills/${m[1]}/SKILL.md`, last: i === lastIdx && !/[(){}`]/.test(cmd) };
+  }));
+}
+
+const tailPattern = (tail: string) =>
+  new RegExp(`(?:^|[\\s'"\`:=\\\\/])${tail.split('/').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]')}(?![\\w.-])`);
+
+/**
+ * Whether an output line reports a read error for this read's path. A line that names another read's longer,
+ * written-out path (cat A || cat B, with A failing) belongs to that read.
+ */
+const readFailed = (output: string | undefined, read: ShellRead, reads: ShellRead[]) =>
+  (output ?? '').split('\n').some(l => READ_FAILURE.test(l) && tailPattern(read.tail).test(l)
+    && !reads.some(o => o.tail.length > read.tail.length && tailPattern(o.tail).test(l)));
 
 const exitedNonZero = (output: string | undefined) => {
   const code = output === undefined ? null : EXIT_CODE.exec(output);
@@ -146,6 +189,8 @@ export function parseCodexRollout(text: string): Transcript {
       const body = contentText(p.content);
       if (p.role === 'assistant') {
         if (body) events.push({ kind: 'text', line, text: body });
+      } else if (p.role === 'user' && !body && !fromHarness(p) && p.content.some((c: unknown) => isObject(c) && c.type === 'input_image')) {
+        lastLoad = null;
       } else if (p.role === 'user' && body) {
         const injected = SKILL_INJECTION.exec(body);
         const skill = injected ? GSTACK_SKILL_FILE.exec(injected[1].trim())?.[1] : undefined;
@@ -161,10 +206,12 @@ export function parseCodexRollout(text: string): Transcript {
       const command = SHELL_TOOLS.has(p.name) ? shellLine(input) : null;
       if (command !== null) {
         events.push({ kind: 'tool_use', line, id, name: 'Bash', input: { command } });
-        for (const skill of shellSkillReads(command)) {
-          if (skill === lastLoad || readFailed(outputs.get(id), skill)) continue;
-          events.push({ kind: 'load', line, skill, via: 'read' });
-          lastLoad = skill;
+        const reads = shellSkillReads(command);
+        const out = outputs.get(id);
+        for (const read of reads) {
+          if (read.skill === lastLoad || readFailed(out, read, reads) || (read.last && exitedNonZero(out))) continue;
+          events.push({ kind: 'load', line, skill: read.skill, via: 'read' });
+          lastLoad = read.skill;
         }
       } else if (p.name === 'spawn_agent' && startedAgent(outputs.get(id), p.namespace ?? undefined)) {
         const prompt = [input.message, ...(Array.isArray(input.items) ? input.items.map((i: unknown) => (isObject(i) ? i.text : undefined)) : [])]

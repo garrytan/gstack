@@ -48,6 +48,27 @@ describe('setup: Codex hook registration', () => {
     }
   });
 
+  test('a Windows install copies the Claude hooks the Codex shims import, so the copied shims run instead of failing open', () => {
+    const root = path.join(dir, 'codex', 'skills', 'gstack');
+    const script = ['set -e', 'IS_WINDOWS=1', '_CODEX_RENDER_ROOT="' + ROOT + '"', ...['_link_or_copy', '_copy_skill_md', '_link_runtime_dists', '_link_codex_skill_refs', 'create_codex_runtime_root'].map(fnBody),
+      'create_codex_runtime_root "' + ROOT + '" "' + root + '"'].join('\n');
+    const made = run(script);
+    expect(made.code).toBe(0);
+    expect(fs.lstatSync(path.join(root, 'hosts', 'claude', 'hooks')).isSymbolicLink()).toBe(false);
+    const payloads = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'codex-hooks', 'codex-0.170-payloads.json'), 'utf8'));
+    const shim = (name: string, payload: unknown) => spawnSync('bash', [path.join(root, 'hosts', 'codex', 'hooks', name)], {
+      input: JSON.stringify(payload), encoding: 'utf8', timeout: 30_000,
+      env: { PATH: process.env.PATH ?? '', HOME: dir, GSTACK_STATE_ROOT: path.join(dir, 'state') },
+    });
+    const guard = shim('codex-destructive-guard-hook', payloads.PreToolUse);
+    expect(guard.status).toBe(0);
+    expect(JSON.parse(guard.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
+    for (const [name, payload] of [['codex-skill-route-hook', payloads.UserPromptSubmit], ['codex-skill-contract-stop-hook', { hook_event_name: 'Stop', stop_hook_active: false }]] as const) {
+      const r = shim(name, payload);
+      expect({ name, status: r.status, stderr: r.stderr }).toEqual({ name, status: 0, stderr: expect.not.stringMatching(/Cannot find|ResolveMessage|error:/i) });
+    }
+  });
+
   /** One gate run with Codex selected and Claude not: SETTINGS_HOOK is empty, as setup leaves it for --host codex. */
   function gate(key: 'skill_routing' | 'destructive_guard' | 'skill_contracts', mode: string, env: Record<string, string> = {}, noTeam = 0) {
     const runtimeRoot = path.join(dir, 'codex', 'skills', 'gstack');
@@ -159,6 +180,43 @@ describe('gstack-uninstall and gstack-doctor with Codex hooks', () => {
     expect(r.status).toBe(0);
     expect(fs.existsSync(bin)).toBe(false);
     expect(JSON.parse(fs.readFileSync(path.join(home, '.codex', 'hooks.json'), 'utf8'))).toEqual({ hooks: { PreToolUse: [user] } });
+  });
+
+  const uninstall = () => {
+    const home = path.join(dir, 'home');
+    fs.mkdirSync(path.join(dir, 'repo'), { recursive: true });
+    const r = spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
+      env: { PATH: process.env.PATH ?? '', HOME: home, CODEX_HOME: path.join(home, '.codex'), GSTACK_STATE_DIR: path.join(home, '.gstack') },
+      cwd: path.join(dir, 'repo'), encoding: 'utf8', timeout: 60_000,
+    });
+    return { ...r, file: path.join(home, '.codex', 'hooks.json') };
+  };
+
+  test("uninstall with your own group after gstack's removes gstack's handler and leaves an empty group, so your hook keeps its trust position", () => {
+    const { user } = seed();
+    const file = path.join(dir, 'home', '.codex', 'hooks.json');
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    doc.hooks.PreToolUse.reverse();
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2));
+    const r = uninstall();
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("gstack's Codex hooks in " + r.file);
+    expect(r.stderr).not.toContain('WARNING');
+    expect(JSON.parse(fs.readFileSync(r.file, 'utf8'))).toEqual({ hooks: { PreToolUse: [{ hooks: [] }, user] } });
+  });
+
+  test("uninstall says so, naming the one handler to delete, when your handler sits inside gstack's group", () => {
+    seed();
+    const file = path.join(dir, 'home', '.codex', 'hooks.json');
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    doc.hooks.PreToolUse[1].hooks.push({ type: 'command', command: '/usr/local/bin/my-inner-guard' });
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2));
+    const r = uninstall();
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("WARNING: gstack's Codex hooks are still in " + r.file + ' and will fail once gstack is removed.');
+    expect(r.stderr).toContain('delete only the gstack handlers hooks.PreToolUse[1].hooks[0] (command ');
+    expect(r.stderr).not.toContain('delete its group');
+    expect(JSON.parse(fs.readFileSync(r.file, 'utf8'))).toEqual(doc);
   });
 
   test('the doctor row says whether each hook has a trust entry, and prints nothing without gstack hooks', () => {

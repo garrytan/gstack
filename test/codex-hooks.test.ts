@@ -157,7 +157,7 @@ describe('gstack-settings-hook: Codex hooks.json format', () => {
   test('trust-status reads the key Codex writes (<hooks.json>:<event>:<group>:<handler>) and never computes a hash', () => {
     writeUser();
     ensureRoute(); ensureGuard();
-    expect(settingsHook(['trust-status']).out.trim().split('\n').sort()).toEqual([
+    expect(settingsHook(['trust-status'], { CODEX_HOME: dir }).out.trim().split('\n').sort()).toEqual([
       'gstack-destructive-guard\tPreToolUse\tuntrusted', 'gstack-skill-route\tUserPromptSubmit\tuntrusted',
     ]);
     const file = fs.realpathSync(hooksFile());
@@ -167,30 +167,48 @@ describe('gstack-settings-hook: Codex hooks.json format', () => {
       '[hooks.state."' + file + ':pre_tool_use:1:0"]', 'trusted_hash = "sha256:bb"', '',
       '[hooks.state."' + file + ':user_prompt_submit:1:0"]', 'enabled = false', 'trusted_hash = "sha256:cc"', '',
     ].join('\n'));
-    expect(settingsHook(['trust-status']).out.trim().split('\n').sort()).toEqual([
+    expect(settingsHook(['trust-status'], { CODEX_HOME: dir }).out.trim().split('\n').sort()).toEqual([
       'gstack-destructive-guard\tPreToolUse\ttrusted', 'gstack-skill-route\tUserPromptSubmit\tdisabled',
     ]);
     expect(settingsHook(['trust-status'], { GSTACK_HOOKS_FORMAT: '' }).code).toBe(1);
   });
 
-  test('removing a gstack group that one of your hooks follows in the same event refuses and leaves the file as it was, so Codex keeps trusting your hook', () => {
+  test('removing a gstack group that one of your groups follows leaves an empty group in its place, so your hooks keep their trust positions', () => {
     writeUser();
     ensureRoute(); ensureGuard();
     const doc = read();
-    doc.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-late-guard' }] });
+    const late = { matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-late-guard' }] };
+    doc.hooks.PreToolUse.push(late);
+    writeUser(doc);
+    for (const args of [['remove-source', '--source', 'gstack-destructive-guard'], ['prune-stale', '--all']]) {
+      writeUser(doc);
+      const r = settingsHook(args);
+      expect(r.code).toBe(0);
+      expect(read().hooks.PreToolUse).toEqual([USER_FILE.hooks.PreToolUse[0], { hooks: [] }, late]);
+      codexKeysOnly(read());
+    }
+    expect(read().hooks.UserPromptSubmit).toEqual(USER_FILE.hooks.UserPromptSubmit);
+    expect(read().hooks.Stop).toEqual(USER_FILE.hooks.Stop);
+    expect(ensureGuard().out).toContain('registered');
+    expect(read().hooks.PreToolUse.slice(0, 3)).toEqual([USER_FILE.hooks.PreToolUse[0], { hooks: [] }, late]);
+  });
+
+  test('when one of your handlers follows the gstack handler inside its group, removal refuses and names only the gstack handler to delete', () => {
+    writeUser();
+    ensureGuard();
+    const doc = read();
+    doc.hooks.PreToolUse[1].hooks.push({ type: 'command', command: '/usr/local/bin/my-inner-guard' });
     writeUser(doc);
     const text = fs.readFileSync(hooksFile(), 'utf8');
     for (const args of [['remove-source', '--source', 'gstack-destructive-guard'], ['prune-stale', '--all']]) {
       const r = settingsHook(args);
       expect(r.code).toBe(3);
       expect(r.out).toContain('would move your own PreToolUse hooks');
-      expect(r.out).toContain('re-trust your hooks in Codex with /hooks');
+      expect(r.out).toContain('delete only the gstack handler hooks.PreToolUse[1].hooks[0] (command ' + JSON.stringify(GUARD_CMD()) + ')');
+      expect(r.out).toContain('keeping your own handlers and groups as they are, then re-trust your hooks in Codex with /hooks');
+      expect(r.out).not.toContain('delete its group');
       expect(fs.readFileSync(hooksFile(), 'utf8')).toBe(text);
     }
-    expect(ensureGuard().out).toContain('unchanged');
-    expect(settingsHook(['remove-source', '--source', 'gstack-skill-route']).code).toBe(0);
-    expect(read().hooks.UserPromptSubmit).toEqual(USER_FILE.hooks.UserPromptSubmit);
-    expect(read().hooks.PreToolUse).toEqual(doc.hooks.PreToolUse);
   });
 
   test('a symlinked hooks.json still reads config.toml from the Codex home, not from beside the link target', () => {
@@ -237,6 +255,111 @@ describe('gstack-settings-hook: Codex hooks.json format', () => {
         PreToolUse: [{ _gstack_source: 'gstack-destructive-guard', hooks: [{ type: 'command', command: root + '/destructive-guard-hook', timeout: 10 }], matcher: 'Bash|PowerShell' }],
       },
     }, null, 2) + '\n');
+  });
+});
+
+describe('gstack-settings-hook: hardening after #4512 and #4522 (GST-3197)', () => {
+  const runUnder = (shell: string[], command: string) => spawnSync(shell[0], [...shell.slice(1), command], { input: '{}', encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '', HOME: dir } });
+  const fakeHook = (file: string) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '#!/bin/sh\necho RAN_HOOK\n', { mode: 0o755 });
+  };
+
+  test('a home path with ( or & gives commands both hosts run: no exit 2, which Codex would read as a block on every prompt and Bash call', () => {
+    const root = path.join(dir, 'codex(old)&co', 'skills', 'gstack');
+    fakeHook(ROUTE_CMD(root));
+    expect(ensureRoute(root).out).toContain('registered');
+    const codexCmd = read().hooks.UserPromptSubmit[0].hooks[0].command;
+    const settings = path.join(dir, 'settings.json');
+    const claudeHook = path.join(root, 'hosts', 'claude', 'hooks', 'skill-route-hook');
+    fakeHook(claudeHook);
+    expect(settingsHook(['ensure-event', '--event', 'UserPromptSubmit', '--command', claudeHook, '--source', 'gstack-skill-route', '--timeout', '5'], { GSTACK_HOOKS_FORMAT: '', GSTACK_SETTINGS_FILE: settings }).code).toBe(0);
+    const claudeCmd = JSON.parse(fs.readFileSync(settings, 'utf8')).hooks.UserPromptSubmit[0].hooks[0].command;
+    for (const cmd of [codexCmd, claudeCmd]) {
+      for (const shell of [['bash', '-lc'], ['sh', '-c']]) {
+        const r = runUnder(shell, cmd);
+        expect({ shell: shell[0], status: r.status, out: r.stdout.trim() }).toEqual({ shell: shell[0], status: 0, out: 'RAN_HOOK' });
+      }
+    }
+    expect(ensureRoute(root).out).toContain('unchanged');
+  });
+
+  test('plain paths keep their unquoted commands, so no install is asked to re-trust its hooks', () => {
+    expect(ensureRoute().code).toBe(0);
+    expect(read().hooks.UserPromptSubmit[0].hooks[0].command).toBe(ROUTE_CMD());
+    const accented = path.join(dir, 'Jos\u00e9', 'skills', 'gstack');
+    expect(ensureRoute(accented).out).toContain('re-pointed');
+    expect(read().hooks.UserPromptSubmit[0].hooks[0].command).toBe(ROUTE_CMD(accented));
+  });
+
+  test('schema parity with Codex 0.170: description null is accepted; a null anywhere in MCP hook input is refused', () => {
+    writeUser({ description: null, hooks: {} });
+    expect(ensureRoute().code).toBe(0);
+    expect(read().description).toBeNull();
+    const mcp = (input: unknown) => ({ hooks: { Stop: [{ hooks: [{ type: 'mcp_tool', server: 's', tool: 't', input }] }] } });
+    for (const input of [{ optional: null }, { metadata: { optional: null } }, { values: [null] }, { big: 18446744073709551615 }]) {
+      const text = JSON.stringify(mcp(input));
+      fs.writeFileSync(hooksFile(), text);
+      const r = ensureRoute();
+      expect(r.code).toBe(3);
+      expect(r.out).toContain('input holds a null or an integer too large for TOML, which Codex rejects');
+      expect(fs.readFileSync(hooksFile(), 'utf8')).toBe(text);
+    }
+    writeUser(mcp({ metadata: { depth: 1, tags: ['a', true, -2.5] } }));
+    expect(ensureRoute().code).toBe(0);
+  });
+
+  test('rollback refuses a backup Codex would skip and leaves the live file as it is', () => {
+    writeUser();
+    ensureRoute();
+    const live = fs.readFileSync(hooksFile(), 'utf8');
+    const backup = fs.readFileSync(path.join(dir, 'hooks.json.bak-latest'), 'utf8').trim();
+    for (const bad of [JSON.stringify({ hooks: {}, _gstack_source: 'x' }), '{ "hooks": ']) {
+      fs.writeFileSync(backup, bad);
+      const r = settingsHook(['rollback']);
+      expect(r.code).toBe(3);
+      expect(r.out).toContain('does not match the Codex hooks.json schema');
+      expect(fs.readFileSync(hooksFile(), 'utf8')).toBe(live);
+    }
+    fs.writeFileSync(backup, JSON.stringify(USER_FILE, null, 2) + '\n');
+    expect(settingsHook(['rollback']).code).toBe(0);
+    expect(read()).toEqual(USER_FILE);
+  });
+
+  test('config.toml declaring the gstack guard under any matcher that selects Bash is a clash; matchers that never select Bash are not', () => {
+    writeUser();
+    const cfg = path.join(dir, 'config.toml');
+    const declare = (matcher: string | null) => fs.writeFileSync(cfg, '[[hooks.PreToolUse]]\n' + (matcher === null ? '' : 'matcher = ' + JSON.stringify(matcher) + '\n') + '[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "' + GUARD_CMD() + '"\n');
+    for (const matcher of ['^Bash$', 'Bash|PowerShell', '*', '', null, 'B.sh', '(unclosed']) {
+      declare(matcher);
+      const r = ensureGuard();
+      expect({ matcher, code: r.code }).toEqual({ matcher, code: 3 });
+      expect(r.out).toContain('already declares gstack hook gstack-destructive-guard under [hooks.PreToolUse], and Codex would run it twice');
+    }
+    expect(read()).toEqual(USER_FILE);
+    for (const matcher of ['PowerShell', '^Edit$', 'apply_patch|Write']) {
+      declare(matcher);
+      expect({ matcher, code: ensureGuard().code }).toEqual({ matcher, code: 0 });
+    }
+  });
+
+  test('trust-status keys on the hooks.json in the canonical CODEX_HOME, the way Codex does, even when hooks.json itself is a link', () => {
+    const real = path.join(dir, 'real-codex');
+    const link = path.join(dir, 'codex-link');
+    const dotfiles = path.join(dir, 'dotfiles');
+    fs.mkdirSync(real); fs.mkdirSync(dotfiles);
+    fs.symlinkSync(real, link);
+    fs.writeFileSync(path.join(dotfiles, 'hooks.json'), JSON.stringify(USER_FILE, null, 2) + '\n');
+    fs.symlinkSync(path.join(dotfiles, 'hooks.json'), path.join(real, 'hooks.json'));
+    const env = { CODEX_HOME: link, GSTACK_SETTINGS_FILE: '' };
+    expect(settingsHook(['ensure-event', '--event', 'UserPromptSubmit', '--command', ROUTE_CMD(), '--source', 'gstack-skill-route', '--timeout', '5'], env).code).toBe(0);
+    const trust = (keyFile: string) => {
+      fs.writeFileSync(path.join(real, 'config.toml'), '[hooks.state."' + keyFile + ':user_prompt_submit:1:0"]\ntrusted_hash = "sha256:aa"\n');
+      return settingsHook(['trust-status'], env).out.trim();
+    };
+    expect(trust(path.join(fs.realpathSync(real), 'hooks.json'))).toBe('gstack-skill-route\tUserPromptSubmit\ttrusted');
+    expect(trust(path.join(link, 'hooks.json'))).toBe('gstack-skill-route\tUserPromptSubmit\tuntrusted');
+    expect(trust(fs.realpathSync(path.join(dotfiles, 'hooks.json')))).toBe('gstack-skill-route\tUserPromptSubmit\tuntrusted');
   });
 });
 

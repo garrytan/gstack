@@ -132,10 +132,21 @@ the skill-routing UserPromptSubmit hook and the destructive-command PreToolUse h
 on every matching event once the install directory is gone.
 
 On Codex, manual removal also leaves gstack's hooks in
-`${CODEX_HOME:-~/.codex}/hooks.json`. Delete each matcher group whose command
-path points into `skills/gstack/hosts/codex/hooks/` (the skill-routing
-`UserPromptSubmit` hook and the destructive-command `PreToolUse` hook), and keep
-the rest of the file as it is.
+`${CODEX_HOME:-~/.codex}/hooks.json`: the skill-routing `UserPromptSubmit`
+hook, the destructive-command `PreToolUse` hook and the skill-contract `Stop`
+hook. Delete only gstack's handlers, the entries in a group's `hooks` list
+whose `command` points into `skills/gstack/hosts/codex/hooks/`, and keep your
+own handlers and the rest of the file as they are. Codex remembers which hooks
+you trusted by their position, so:
+
+- If gstack's handler is the only one in its group and your own groups come
+  after it in the same event, leave the group in place as `{ "hooks": [] }`.
+  Your hooks keep their positions and stay trusted. (The uninstall script does
+  this for you.)
+- If gstack's group is the last one in that event, delete the whole group.
+- If one of your handlers comes after gstack's inside the same group, deleting
+  gstack's handler moves yours up one place, so trust it again in Codex with
+  `/hooks`.
 
 If the OpenClaw or Hermes [start hook](hosts.md#start-hook) is on (the default for a new registration),
 manual removal also leaves its `gstack-start` plugin turned on. Turn it off
