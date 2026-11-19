@@ -663,7 +663,7 @@ receipt for H when the two trees differ only as a stamp does:
   `version-manifest`, `manifest-version`, `lockfile-root-version`,
   `changelog-heading`, `changelog-fragments` for the CHANGELOG under the fold,
   `changelog_fragments` for a folded fragment's deletion, `stamp_files`,
-  `stamp_paths`, `release_outputs`). `clear` prints the same
+  `stamp_paths`, `release_outputs`, `release_tool`). `clear` prints the same
   as `PREGATE_RECEIPT_SUBSTITUTED: …`, `verify` repeats it on its ok line, and
   the ship receipt carries the receipt string. The receipt's own tests and
   failed checks apply as before (its exit status is checked only when
@@ -687,7 +687,14 @@ receipt for H when the two trees differ only as a stamp does:
   `*_KEY_VERSION` written as the next minor, #3512) (so two trees
   at the same version refuse such a hunk as `other`), while the built-in
   version-file, manifest, lockfile and CHANGELOG rules compare content and do
-  not check the direction of the version move. The obligation stays uncleared; rerun
+  not check the direction of the version move. A `release_outputs` file that is
+  more than those rewrites, such as a generated file a merged release commit
+  added rows to, is a stamp, rule `release_tool`, when the policy's
+  `release_tool`, rerun on pregate.json's head, writes it byte for byte (the
+  tree receipt's rule, GST-1176, GST-3067). The tool is repo code, so `clear`
+  reruns it only with `--allow-repo-commands`; without the flag the file is
+  refused and the refusal says to pass it. A `release_outputs` path is judged
+  by this rule even when `stamp_files` does not list it. The obligation stays uncleared; rerun
   the gate on the head, or make the extra change a stamp under the repo's
   rule.
 

@@ -4803,13 +4803,17 @@ it refuses `caller_job_skipped` when its `<calling job> / <lane job>` job did no
 
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s
 tree only in the repo's stamp rule (`.gstack/ship-policy.json` on the base
-branch: `stamp_files`, `stamp_patterns`, the built-in version, manifest,
-lockfile and CHANGELOG forms), judged by the tree receipt's own classifier on a
+branch: `stamp_files`, `stamp_patterns`, `release_outputs`, the built-in
+version, manifest, lockfile and CHANGELOG forms), judged by the tree receipt's own classifier on a
 `git diff` of the two trees ([the gate ran ahead of the
 stamp](pregate.md#remote-gate-stamp-only)). The refusal line then says `and the
 trees differ beyond the stamp rule of <policy>: <path> (<rule>: <why>, line
 <n>)`, and the path it names is the one that is not a stamp: a file outside
 `stamp_files`, or a stamp file with a hunk that is not the old → new rewrite.
+A `release_outputs` file that is more than that rewrite is a stamp (rule
+`release_tool`) only when `release_tool`, rerun on the head, writes it byte for
+byte; `clear` reruns it only with `--allow-repo-commands`, and without the flag
+the refusal's reason includes `release_tool reruns only under --allow-repo-commands`.
 `the gated tree <t> is not an object in this repository` means the gated
 commit is not fetched here, so the two trees cannot be compared. Three more
 refusals close the substitution without classifying anything: `lists the test

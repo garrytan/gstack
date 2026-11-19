@@ -12,7 +12,8 @@
  * `substituteStampOnlyTree` is the one accepted substitution. The gated tree
  * and the head tree are diffed path by path, and every differing file is
  * classified by the tree receipt's own rule (lib/tree-receipt.ts
- * `classifyFiles`, the changelog_fragments fold included: the repo's `stamp_files` allowlist and `stamp_patterns`
+ * `classifyFiles` and, under --allow-repo-commands, `regenerateReleaseOutputs`, which reruns release_tool on
+ * pregate.json's head for a release output that is more than version rewrites, GST-3067; the changelog_fragments fold included: the repo's `stamp_files` allowlist and `stamp_patterns`
  * templates from `.gstack/ship-policy.json` on the base branch, beside the
  * built-in version-file, manifest-version, lockfile-root-version and
  * changelog-heading forms). The receipt is accepted for the head only when
@@ -33,7 +34,7 @@ import { spawnSync } from '../spawn-sync';
 import type { PregateReceiptSubstitution } from '../headless-artifacts';
 import { parseUnifiedDiff, versionAtRef } from '../restamp';
 import { isUnavailable, loadPolicyFromBase, SHIP_POLICY_PATH } from '../ship-policy';
-import { classifyFiles } from '../tree-receipt';
+import { classifyFiles, regenerateReleaseOutputs } from '../tree-receipt';
 import { treeMismatch } from './checks/lanes';
 
 /** What `clear` records when a remote_gate receipt from a stamp-only predecessor tree is accepted for the head (the pregate.json shape, lib/headless-artifacts.ts). */
@@ -75,7 +76,7 @@ export function baseMismatchFix(repoRoot: string, base: string, recorded: string
  * problem (opening with the same tree-mismatch clause `remoteReportProblem`
  * prints) with the fix.
  */
-export function substituteStampOnlyTree(repoRoot: string, base: string, gatedTree: string, headTree: string): SubstitutionResult {
+export function substituteStampOnlyTree(repoRoot: string, base: string, gatedTree: string, headTree: string, opts: { allowRepoCommands?: boolean; head?: string } = {}): SubstitutionResult {
   const short = (t: string) => t.slice(0, 12);
   const mismatch = treeMismatch(gatedTree, headTree);
   const rerun = `rerun the remote gate on tree ${short(headTree)} and pass its output with --receipt, or run gstack-pregate --stage tests --remote --spend-cap <usd> --allow-repo-commands`;
@@ -103,7 +104,11 @@ export function substituteStampOnlyTree(repoRoot: string, base: string, gatedTre
   if (diff === null) return { problem: `${mismatch}; git diff ${short(gatedTree)} ${short(headTree)} failed`, fix: rerun };
   const inventory = git(repoRoot, ['diff-tree', '-r', '-z', '--name-only', '--no-renames', '--ignore-submodules=none', '--end-of-options', gatedTree, headTree]);
   if (inventory === null) return { problem: `${mismatch}; git diff-tree ${short(gatedTree)} ${short(headTree)} failed`, fix: rerun };
-  const files = classifyFiles(repoRoot, parseUnifiedDiff(diff), gatedTree, headTree, loaded.policy, versionRel, oldV, newV);
+  // release_tool reruns on a commit (it stages a worktree), so only on pregate.json's head and only when that commit is the recorded tree.
+  const headCommit = opts.head && OBJECT_ID.test(opts.head) && git(repoRoot, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${opts.head}^{tree}`]) === headTree ? opts.head : null;
+  const regen = regenerateReleaseOutputs({ repoRoot, files: classifyFiles(repoRoot, parseUnifiedDiff(diff), gatedTree, headTree, loaded.policy, versionRel, oldV, newV), head: headCommit ?? '', policy: loaded.policy, version: newV, run: !!opts.allowRepoCommands && !!headCommit });
+  const notRerun = !opts.allowRepoCommands ? 'release_tool reruns only under --allow-repo-commands: rerun this clear with it to accept the output release_tool regenerates byte for byte' : `release_tool not rerun: pregate.json's head ${(opts.head ?? 'none').slice(0, 12)} is not a commit at tree ${short(headTree)}`;
+  const files = regen.files.map(f => regen.pending.includes(f.path) ? { ...f, residual: `${f.residual}; ${notRerun}` } : f);
   if (!files.length) return { problem: `${mismatch}; the trees differ but git diff produced no file entry to classify`, fix: rerun };
   const expected = new Set(inventory.split('\0').filter(Boolean));
   const seen = new Set(files.map(f => f.path));
