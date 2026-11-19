@@ -8,6 +8,11 @@
 #   - no table accepts an INSERT or UPDATE (008 closed the legacy inserts;
 #     every write now goes through the telemetry-ingest edge function)
 #
+# A check passes only on a permission denial (Postgres error 42501) in the
+# response body. A missing table or function fails, except community_benchmarks,
+# which may be absent (ABSENT). An invalid JWT, a constraint error or any other
+# response fails, so a wrong key or an unapplied migration cannot pass.
+#
 # Writes nothing: insert probes send an empty row, so a table that wrongly
 # accepts the insert still rejects the row on its NOT NULL columns, and the
 # check reports that as a failure.
@@ -32,8 +37,14 @@ TOTAL=0
 SKIPPED=0
 
 # check <role-label> <bearer> <description> <method> <path> [data]
-# Every check expects denial: 401/403 (permission), or 404 for an object the
-# API cannot see at all.
+# Every check expects a permission denial, and decides from the response body:
+#   - PASS only when the body carries Postgres error 42501 (permission denied).
+#   - PGRST205 or PGRST202 (table or function not found) is ABSENT, which
+#     counts as a pass for community_benchmarks only. For any other object it
+#     is a FAIL: the migration that creates it is not applied.
+#   - Anything else is a FAIL: data, an empty read, an update that matched no
+#     row, an invalid JWT (401 PGRST301), a write stopped only by a constraint
+#     (400 or 409), or a failed connection.
 check() {
   local label="$1" bearer="$2" desc="$3" method="$4" path="$5" data="${6:-}"
   TOTAL=$(( TOTAL + 1 ))
@@ -63,32 +74,45 @@ check() {
   rm -f "$hdr_file" 2>/dev/null || true
   http_code="$(echo "$http_code" | grep -oE '[0-9]{3}$' || echo "000")"
 
-  case "$http_code" in
-    401|403|404)
-      echo "  PASS  [$label] $desc (HTTP $http_code, denied)"
-      PASS=$(( PASS + 1 )) ;;
-    200|204)
-      local body
-      body="$(cat "$resp_file" 2>/dev/null || echo "")"
-      if [ "$method" = "GET" ] && { [ "$body" = "[]" ] || [ -z "$body" ]; }; then
-        echo "  FAIL  [$label] $desc (HTTP $http_code: readable, empty only because of row filtering)"
-      elif [ "$method" = "PATCH" ]; then
-        echo "  FAIL  [$label] $desc (HTTP $http_code: update permitted, no row matched)"
-      else
-        echo "  FAIL  [$label] $desc (HTTP $http_code: got data!)"
-      fi
-      FAIL=$(( FAIL + 1 )) ;;
-    400|409)
-      echo "  FAIL  [$label] $desc (HTTP $http_code: write permitted, stopped only by a constraint)"
-      FAIL=$(( FAIL + 1 )) ;;
-    000)
-      echo "  WARN  [$label] $desc (connection failed)"
-      FAIL=$(( FAIL + 1 )) ;;
-    *)
-      echo "  WARN  [$label] $desc (HTTP $http_code, unexpected)"
-      FAIL=$(( FAIL + 1 )) ;;
-  esac
+  local body object
+  body="$(cat "$resp_file" 2>/dev/null || echo "")"
   rm -f "$resp_file" 2>/dev/null || true
+  object="${path%%\?*}"
+  object="${object#rpc/}"
+
+  if [ "$http_code" = "000" ]; then
+    echo "  FAIL  [$label] $desc (connection failed)"
+    FAIL=$(( FAIL + 1 ))
+  elif [[ "$body" == *'"42501"'* ]]; then
+    echo "  PASS  [$label] $desc (HTTP $http_code, permission denied)"
+    PASS=$(( PASS + 1 ))
+  elif [[ "$body" == *PGRST205* || "$body" == *PGRST202* ]]; then
+    if [ "$object" = "community_benchmarks" ]; then
+      echo "  ABSENT [$label] $desc (HTTP $http_code, not present)"
+      PASS=$(( PASS + 1 ))
+    else
+      echo "  FAIL  [$label] $desc (HTTP $http_code: $object not found; is its migration applied?)"
+      FAIL=$(( FAIL + 1 ))
+    fi
+  elif [[ "$body" == *PGRST301* ]]; then
+    echo "  FAIL  [$label] $desc (HTTP $http_code: JWT rejected, so nothing was checked)"
+    FAIL=$(( FAIL + 1 ))
+  elif [ "$http_code" = "200" ] || [ "$http_code" = "204" ] || [ "$http_code" = "201" ]; then
+    if [ "$method" = "GET" ] && { [ "$body" = "[]" ] || [ -z "$body" ]; }; then
+      echo "  FAIL  [$label] $desc (HTTP $http_code: readable, empty only because of row filtering)"
+    elif [ "$method" = "PATCH" ]; then
+      echo "  FAIL  [$label] $desc (HTTP $http_code: update permitted, no row matched)"
+    else
+      echo "  FAIL  [$label] $desc (HTTP $http_code: got data!)"
+    fi
+    FAIL=$(( FAIL + 1 ))
+  elif [ "$http_code" = "400" ] || [ "$http_code" = "409" ]; then
+    echo "  FAIL  [$label] $desc (HTTP $http_code: write permitted, stopped only by a constraint)"
+    FAIL=$(( FAIL + 1 ))
+  else
+    echo "  FAIL  [$label] $desc (HTTP $http_code, not a permission denial)"
+    FAIL=$(( FAIL + 1 ))
+  fi
 }
 
 check_all() {

@@ -41,7 +41,7 @@ Deno.serve(async () => {
     cached = null; // cache miss/failure is non-fatal — recompute decides
   }
 
-  if (cached?.refreshed_at) {
+  if (cached?.refreshed_at && cached.data && "weekly_update_checks" in cached.data) {
     const age = Date.now() - new Date(cached.refreshed_at).getTime();
     if (age < CACHE_MAX_AGE_MS) {
       // Serving the cache means this (new) backend is healthy; assert the

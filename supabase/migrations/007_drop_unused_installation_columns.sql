@@ -12,6 +12,7 @@ DECLARE
   col text;
   filled bigint;
 BEGIN
+  LOCK TABLE public.installations IN ACCESS EXCLUSIVE MODE;
   FOREACH col IN ARRAY ARRAY['user_id', 'email', 'config_snapshot', 'analytics_snapshot',
                              'retro_history', 'last_backup_at', 'backup_version'] LOOP
     IF EXISTS (SELECT 1 FROM information_schema.columns
