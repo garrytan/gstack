@@ -150,6 +150,15 @@ describe('reads: shell edge cases from the #4522 notes (GST-3197)', () => {
     expect(loads(READ + '; cat /tmp/notes.txt', 'Process exited with code 1\nOutput:\n---\nname: review\ncat: /tmp/notes.txt: No such file or directory')).toEqual(['gstack-review']);
   });
 
+  test('a multi-file read whose other file fails still loads', () => {
+    expect(loads(READ + ' /tmp/x', 'Process exited with code 1\nOutput:\n---\nname: review\ncat: /tmp/x: No such file or directory')).toEqual(['gstack-review']);
+  });
+
+  test('a one-file read that exits non-zero with no error text is not a load', () => {
+    expect(loads(READ, 'Process exited with code 1\nOutput:\n')).toEqual([]);
+    expect(loads("sed -n '1,200p' ~/.codex/skills/gstack-review/SKILL.md", 'Process exited with code 1\nOutput:\n')).toEqual([]);
+  });
+
   test("PowerShell's Cannot find path is a read error", () => {
     expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', "Get-Content: Cannot find path 'C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md' because it does not exist.")).toEqual([]);
     expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', '---\nname: review')).toEqual(['gstack-review']);

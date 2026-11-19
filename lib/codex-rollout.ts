@@ -16,8 +16,8 @@
  *     does not count when an output line reports a read error for that path
  *     (matched up to the folder before skills/ when it is written out, and
  *     never as the prefix of a longer name), or when the read is the line's
- *     last simple command and the call exited non-zero: that exit status is
- *     the read's own, so it failed or never ran. Reading the same skill again
+ *     last simple command, names one file, and the call exited non-zero: that
+ *     exit status is the read's own, so it failed or never ran. Reading the same skill again
  *     with no user turn (text or image) or other skill load in between (a long
  *     SKILL.md read in chunks) continues the run, so it is not a new load.
  *   - Codex's own spawn_agent call that started an agent: an Agent dispatch
@@ -100,10 +100,29 @@ function shellCommands(line: string): string[] {
 
 interface ShellRead { skill: string; tail: string; last: boolean }
 
+const READ_WORD = /^(?:.*[\\/])?(cat|sed|head|tail|nl|less|more|bat|awk|Get-Content)$/;
+
+/** Whether a read command names one file: the words after its program, less options, numbers, redirections and a sed or awk script. */
+function namesOneFile(cmd: string): boolean {
+  const words = cmd.match(/(?:[^\s'"]+|'[^']*'|"(?:\\.|[^"\\])*")+/g) ?? [];
+  const at = words.findIndex(w => READ_WORD.test(w));
+  let script = at >= 0 && /^(?:sed|awk)$/.test(READ_WORD.exec(words[at])![1]);
+  let files = 0;
+  for (let i = at + 1; i < words.length; i++) {
+    const w = words[i];
+    if (/^\d*[<>]/.test(w)) { if (/^\d*[<>]+&?$/.test(w)) i++; continue; }
+    if (/^-(?:[ef]|-expression|-file)$/.test(w)) { script = false; i++; continue; }
+    if (w.startsWith('-') || /^\+?\d+$/.test(w)) continue;
+    if (script) { script = false; continue; }
+    files++;
+  }
+  return files === 1;
+}
+
 /**
  * The gstack-* skill reads in a shell line, in order. tail is the path an error line must name: from the folder
- * before skills/ when that is written out literally, else from skills/. last: the read is the line's final command
- * and a simple one (no grouping or substitution), so the call's exit status is the read's own.
+ * before skills/ when that is written out literally, else from skills/. last: the read is the line's final command,
+ * a simple one (no grouping or substitution) that names one file, so the call's exit status is the read's own.
  */
 function shellSkillReads(line: string): ShellRead[] {
   const cmds = shellCommands(line);
@@ -112,7 +131,7 @@ function shellSkillReads(line: string): ShellRead[] {
   return cmds.flatMap((cmd, i) => (READ_PROGRAM.test(cmd) ? [...cmd.matchAll(SHELL_SKILL_READ)] : []).map(m => {
     const at = m.index + m[0].indexOf('skills');
     const parent = /(?:^|[\s'"=\\/])([A-Za-z0-9._-]+)[\\/]$/.exec(cmd.slice(0, at))?.[1];
-    return { skill: m[1], tail: `${parent ? `${parent}/` : ''}skills/${m[1]}/SKILL.md`, last: i === lastIdx && !/[(){}`]/.test(cmd) };
+    return { skill: m[1], tail: `${parent ? `${parent}/` : ''}skills/${m[1]}/SKILL.md`, last: i === lastIdx && !/[(){}`]/.test(cmd) && namesOneFile(cmd) };
   }));
 }
 
