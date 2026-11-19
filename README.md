@@ -79,7 +79,7 @@ installs and passes the conformance tests but has no certification run yet;
 | Agent | Tier | Install | First invocation | Safety skills | Outside review needs | Repair |
 |-------|------|---------|------------------|---------------|----------------------|--------|
 | Claude Code | full | `--host claude` (default) | `/office-hours` | enforced (hooks block) | Codex CLI, signed in | `./setup --host claude` |
-| OpenAI Codex CLI | experimental | `--host codex` → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` | ask for `gstack-office-hours` | destructive commands blocked once you trust gstack's hooks ([Codex hooks](docs/skill-routing-and-contracts.md#codex)); the rest advisory | Claude Code CLI, signed in | `./setup --host codex` |
+| OpenAI Codex CLI | experimental | `--host codex` → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` | `$office-hours` | destructive commands blocked once you trust gstack's hooks ([Codex hooks](docs/skill-routing-and-contracts.md#codex)); the rest advisory | Claude Code CLI, signed in | `./setup --host codex` |
 | OpenCode | experimental | `--host opencode` → `~/.config/opencode/skills/gstack-*/` + `/gstack-*` commands | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host opencode` |
 | Cursor | experimental | `--host cursor` → `~/.cursor/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host cursor` |
 | Factory Droid | experimental | `--host factory` → `~/.factory/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host factory` |

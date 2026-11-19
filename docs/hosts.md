@@ -167,7 +167,7 @@ after you approve); ask for `gstack-office-hours`, or list them with
 Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
 load only in trusted folders (`/trust`).
 
-Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
+Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex` (Codex lists its one as `claude-code`: mention it as `$claude-code`); each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
 
@@ -226,7 +226,7 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`$claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#testing--evals)
