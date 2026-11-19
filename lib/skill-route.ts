@@ -354,7 +354,7 @@ const SYMPTOM_STEMS = new Set(['bug', 'crash', 'traceback', 'regression', 'broke
 const STRONG_SIGN = new RegExp(String.raw`\b(?:expected (?:behaviou?r|result|output|value)|actual (?:behaviou?r|result|output)|what did you expect`
   + String.raw`|what happened|steps to reproduce|to reproduce|reproducible|correct (?:output|result|value|answer|behaviou?r)|fails|failing`
   + String.raw`|fail(?:ed)? to|(?:does|do|did)(?: not|n't) work|not working|no longer works?)\b|\bshould\b[^.!?]*(?:, not\b|\binstead of\b)`);
-const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot)\b/,
+const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot|can't|won't)\b/,
   /\bshould\b/, /\binstead of\b/];
 
 /** True when the prompt's window (promptWindow) reads as a bug report: one strong sign, or two different weak ones. */
@@ -364,11 +364,15 @@ export function bugReport(prompt: string): boolean {
   return STRONG_SIGN.test(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2;
 }
 
-/** A trigger that claims bug reports: it names the defect and fixing it, as "fix this bug" and "reproduce the bug in a test" do. */
+/**
+ * A trigger that claims bug reports: the defect and fixing it, and nothing else, as "fix this bug" and "reproduce the bug
+ * in a test" do. A trigger that names its own target ("fix lint errors", "fix postgres bugs") claims only that kind of fix.
+ */
 const FIX_VERBS = ['fix', 'debug', 'repair', 'reproduce'];
+const GENERIC_CLAIM_WORDS = new Set(['bug', 'test', ...FIX_VERBS]);
 const claimsBugReports = (trigger: string) => {
   const content = contentTokens(trigger);
-  return content.includes('bug') && content.some(w => FIX_VERBS.includes(w));
+  return content.includes('bug') && content.some(w => FIX_VERBS.includes(w)) && content.every(w => GENERIC_CLAIM_WORDS.has(w));
 };
 
 /**
@@ -390,8 +394,9 @@ export type RouteDecision =
 
 /**
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
- * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute); any
- * other prompt goes to the skills whose triggers reach the threshold.
+ * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
+ * it asks for /review or /qa by one of their own triggers in full ("review this pr for bugs"): finding bugs is not
+ * fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
@@ -400,7 +405,8 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
-  const fixer = bugReport(prompt) ? bugFixRoute(routed, candidates) : null;
+  const findsBugs = candidates.some(c => c.gstack && c.score >= 1 && ['review', 'qa'].includes(baseName(c.skill)));
+  const fixer = !findsBugs && bugReport(prompt) ? bugFixRoute(routed, candidates) : null;
   if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
   const routes = candidates.filter((c, i) => c.score >= threshold && candidates.findIndex(o => o.skill === c.skill) === i).slice(0, MAX_ROUTES);
   return routes.length ? { route: routes[0], routes, candidates, bugReport: false } : { route: null, reason: 'below-threshold', candidates };

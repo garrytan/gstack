@@ -284,6 +284,19 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(traceLog()).toMatch(/event=routed skill=prove-it score=1 source=\S+prove-it\/SKILL\.md variant=name bug_report=true\n$/);
   });
 
+  test('a trigger that names its own target claims no bug report; a full /review or /qa trigger keeps a request to find bugs', () => {
+    const proveIt = other('prove-it', ['fix this bug']);
+    const lint = other('auto-fix-lint', ['fix lint errors', 'fix broken links', 'fix postgres bugs']);
+    expect(routePrompt('the app hangs on startup', [...routed, lint]).route).toBeNull();
+    expect(routePrompt('the app hangs on startup', [...routed, other('fixer', ['fix this error'])]).route?.skill).toBe('fixer');
+    expect(routePrompt('the app hangs on startup', [...routed, lint, proveIt])).toMatchObject({ bugReport: true, routes: [{ skill: 'prove-it' }] });
+    for (const [text, skill] of [['find bugs on site', 'qa'], ['Review this PR for bugs. Do not change any files.', 'review'], ['code review my fix', 'review']]) {
+      expect(routePrompt(text, [...routed, proveIt])).toMatchObject({ bugReport: false, route: { skill } });
+    }
+    expect(bugReport("the upload can't finish; it should")).toBe(true);
+    expect(bugReport("the upload won't finish; it should")).toBe(true);
+  });
+
   test('B1 in-sample: every bug report names prove-it alone and never /verify first; plain prompts name nothing (GST-3237)', () => {
     const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-b1-in-sample.json'), 'utf8')) as { prompts: { id: string; prompt_sha256: string; label: string; prompt: string }[] };
     expect(b1.prompts.length).toBe(60);
