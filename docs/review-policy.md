@@ -247,6 +247,7 @@ caught on another crew's PRs.
 |---|---|
 | none | full pass 1 on the whole diff |
 | a full pass with no edits | done |
+| a full pass (`--last full`) with no fix flag, when the PR has its own unreviewed runtime commits since `--range-base` | stop: `review_required_no_readers` (exit 3), not done; see [troubleshooting](troubleshooting.md#review-required-no-readers) |
 | a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
 | a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
