@@ -1,1 +1,1 @@
-{"blob":"6f9f93ff672653c72d9e0d97ff9499b6062890a3","since":6,"nonBehavioral":"adds crew/scripts/release-notes.ts to the free-only list beside release-cut.ts"}
+{"blob":"5fa6f0beccfc08d49513c6cca9b1ae29a09265d8","since":6,"nonBehavioral":"Adds the new Codex hooks workflow to FREE_ONLY_PR_FILES; no paid case reads it, so no eval verdict can change"}
