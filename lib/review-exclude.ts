@@ -13,7 +13,7 @@
  * git exclude beats any positive pathspec. That second command is bounded by its argument
  * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it refuses the plan
  * (REVIEW_EXCLUDE_KEEP_TOO_LARGE) instead of being dropped (GST-3158). A file the base policy's
- * review_content_patterns also matches is content whatever its extension, unless it is a source file (SOURCE_EXT, any case): the policy says so.
+ * review_content_patterns also matches is content whatever its extension, unless it stays code anyway (declaredData): the policy says so.
  *
  * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
  * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
@@ -31,7 +31,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
-import { SOURCE_EXT } from './pregate/import-graph';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
 import { KEY_NAME, SECRET_LINE, secretPath } from './review-risk';
@@ -265,15 +264,18 @@ export type ContentKind = 'binary' | 'data' | 'docs' | 'log' | 'declared';
  * config name there is data; and the files a review_exclude_paths and a review_content_patterns pattern both match, which
  * the base policy declares content.
  */
-type Scope = ExcludeInput & { named?: ReadonlySet<string>; declared?: ReadonlySet<string> };
+type Scope = ExcludeInput & { named?: ReadonlySet<string>; declared?: ReadonlySet<string>; keptDeclared?: ReadonlySet<string> };
 const config = (i: Scope, p: string) => isDataConfig(p) && !i.named?.has(p);
-const SOURCE = new RegExp(SOURCE_EXT.source, 'i');
+/** Source code by its name, in any letter case: a program extension, or a build or task file name. A declared file with one stays code. */
+const SOURCE = /(?:\.(?:[cm]?[jt]sx?|py[iw]?|pyx|rb|erb|rake|sh|bash|zsh|fish|ksh|csh|ps1|psm1|psd1|bat|cmd|vbs|go|rs|dart|java|kt|kts|scala|sc|groovy|gradle|clj[sc]?|swift|m|mm|c|h|cc|cpp|cxx|hpp|hh|hxx|ino|cs|fs|fsx|vb|php|phtml|pl|pm|lua|r|jl|ex|exs|erl|hrl|hs|ml|mli|elm|zig|nim|v|sol|sql|vue|svelte|astro|html?|xhtml|css|scss|sass|less|wasm|wat|tf|hcl|nix|mk|cmake|bzl|star|awk|sed|asm|s|applescript|jsonnet|tmpl|ejs|hbs|jinja2?|j2|mdx)|(?:^|\/)(?:Makefile|GNUmakefile|Dockerfile|Containerfile|Rakefile|Gemfile|Brewfile|Justfile|Procfile|Vagrantfile|Jenkinsfile|Earthfile|Tiltfile|BUILD|WORKSPACE|CMakeLists\.txt|meson\.build)(?:\.[^/]*)?)$/i;
+/** A declared file that is data: none of source, agent prose, config, a gate path or a .gstack/ or .github/ file, which stay code whatever the policy says. */
+const declaredData = (i: Scope, p: string) => !!i.declared?.has(p) && !SOURCE.test(p) && !isAgentProse(p) && !config(i, p) && !isGatePath(p) && !/^\.(gstack|github)\//.test(p);
 function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentKind | null {
   if (binary.has(p)) return 'binary';
   if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
   if (classifyPath(p, i.classRoot) === 'docs') return 'docs';
-  return i.declared?.has(p) && !SOURCE.test(p) ? 'declared' : null;
+  return declaredData(i, p) ? 'declared' : null;
 }
 
 /**
@@ -313,7 +315,7 @@ function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
-  if (binary.has(p)) return (BINARY_CONTENT_EXT.test(p) || (i.declared?.has(p) && !SOURCE.test(p))) && !native.has(p) ? null : 'code';
+  if (binary.has(p)) return (BINARY_CONTENT_EXT.test(p) || declaredData(i, p)) && !native.has(p) ? null : 'code';
   if (isAgentProse(p)) return 'agent-prose';
   if (config(i, p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
@@ -321,9 +323,13 @@ function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>
   return null;
 }
 
-/** A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the would-be-excluded set. */
-const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>) =>
-  !candidates.has(f) && !f.startsWith('.gstack/tmp/') && contentKind(i, f, new Set()) === null;
+/**
+ * A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the
+ * would-be-excluded set, or a declared file that stays in review (kept in this range, or an executable or link at `mode`).
+ */
+const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: string) =>
+  !candidates.has(f) && !f.startsWith('.gstack/tmp/') && (contentKind(i, f, new Set()) === null
+    || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
 
 /**
  * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
@@ -350,9 +356,9 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
       for (const entry of ls.out.split('\0')) {
         const tab = entry.indexOf('\t');
         const f = entry.slice(tab + 1);
-        if (tab < 0 || !consumer(i, f, candidates)) continue;
-        if (f.includes('\uFFFD')) return null;
         const meta = entry.slice(0, tab).split(' ');
+        if (tab < 0 || !consumer(i, f, candidates, at ? meta[0] : meta[1])) continue;
+        if (f.includes('\uFFFD')) return null;
         if (at) { if (meta[1] === 'blob') cached.push(`${meta[0]} ${meta[2]}\t${f}`); continue; }
         const [tag = '', mode, sha, stage] = meta;
         (tag === 'S' || tag !== tag.toUpperCase() ? cached : worktree).push(`${mode} ${sha} ${stage}\t${f}`);
@@ -411,7 +417,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native) ?? (unseen(p) ? 'consumer-scan-unavailable' : null));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
-  const named = grepFixed(x, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
+  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
@@ -441,7 +448,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0, declared: 0 };
   for (const p of sortedExcluded) content[contentKind(x, p, binary)!]++;
   const prefixes = [...new Set(applied.map(literalPrefix).filter(Boolean))];
-  const refs = grepFixed(x, prefixes, excluded, []) ?? new Map<string, Set<string>>();
+  const refs = grepFixed(y, prefixes, excluded, []) ?? new Map<string, Set<string>>();
   const patterns_sha256 = sha256(JSON.stringify(patterns));
   const list_sha256 = sha256(JSON.stringify({ applied, excluded: sortedExcluded, kept: keptList.map(k => [k.path, k.reason]) }));
   const record: ExcludeRecord = {

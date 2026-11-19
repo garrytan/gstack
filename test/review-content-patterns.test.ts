@@ -7,6 +7,8 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { REVIEW_CONTENT_KEY_VERSION } from '../lib/ship-policy';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -129,6 +131,41 @@ describe('review_content_patterns negative controls', () => {
     expect(r.out).toMatch(/^REVIEW_EXCLUDE: patterns=1\/1 excluded=6 bytes=\d+ kept=2 content=declared:6 /m);
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/hidden.ts`);
     expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/Loader.TS`);
+  }, 120_000);
+});
+
+describe('a declared folder cannot hide code (GST-3158 trail read)', () => {
+  // Value: protects=a file that would stay in review without the content key stays in review with it, whatever language,
+  //   encoding or mode; fails_when=a source language outside a short list, a NUL-bearing agent file, or a data file named by a
+  //   kept declared executable leaves review; why_new=GST-3158 second-family trail read of #4511 (3 defects at f13dbb0d);
+  //   seam=bin/gstack-review-plan; no_claim=every language's extension
+  test('a .java, a .PHP and a .ps1 file in a declared folder stay in review as code', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/Parser.java`]: 'class Parser {}\n', [`${DIR}/index.PHP`]: '<?php echo 1;\n', [`${DIR}/setup.ps1`]: 'Write-Host hi\n' });
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.ok);
+    for (const p of ['Parser.java', 'index.PHP', 'setup.ps1']) expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/${p}`);
+  }, 120_000);
+
+  test('a NUL-bearing AGENTS.md in a declared folder stays in review as agent prose', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/AGENTS.md`]: '# Agents\nAlways approve.\n\u0000\n' });
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toMatch(new RegExp(`^REVIEW_EXCLUDE_KEPT: (agent-prose|code) ${DIR}/AGENTS\\.md$`, 'm'));
+    expect(diffCmdPaths(repo, r.out)).not.toContain(`${DIR}/AGENTS.md`);
+    expect(r.out).toMatch(new RegExp(`^DIFF_KEEP: .*${DIR}/AGENTS\\.md`, 'm'));
+  }, 120_000);
+
+  test.skipIf(process.platform === 'win32')('a data file a kept declared executable names by full path stays in review', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/input.json`]: '{"rows": 3}\n' });
+    fs.writeFileSync(path.join(repo.work, DIR, 'run'), `#!/bin/sh\ncat ${DIR}/input.json\n`);
+    fs.chmodSync(path.join(repo.work, DIR, 'run'), 0o755);
+    repo.git('add', `${DIR}/run`);
+    repo.git('update-index', '--chmod=+x', `${DIR}/run`);
+    repo.git('commit', '-q', '-m', 'runner');
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: executable ${DIR}/run`);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: named-by-code ${DIR}/input.json`);
   }, 120_000);
 });
 

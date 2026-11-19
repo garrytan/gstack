@@ -1568,12 +1568,17 @@ How it works:
   that adds or widens the key changes nothing until it lands on the base.
 - **The other keep rules still apply.** A declared file is still kept when it
   is under `.gstack/` or `.github/`, a gate path, executable, a link, agent
-  prose, a config file, a source file (`.ts`, `.js`, `.py`, `.rb`, `.sh`, `.go`,
-  `.rs`, `.dart` and the like), gate-tagged, holds a secret line, or is named by full
-  path from kept code. A binary declared file is content unless its bytes start
-  with executable magic or it is a source file (the extension check ignores
-  case). A declared non-source file is never a consumer for the named-by-code
-  scan; a source file kept there is.
+  prose, a config file, source code, gate-tagged, holds a secret line, or is
+  named by full path from kept code. Source code means a program extension in
+  any letter case (`.ts`, `.py`, `.java`, `.c`, `.php`, `.ps1`, `.sql`, `.html`
+  and about a hundred more, listed as `SOURCE` in `lib/review-exclude.ts`) or a
+  build file name (`Makefile`, `Dockerfile`, `BUILD` and the like). These rules
+  hold for binary files too: a declared binary is content only when none of
+  them keeps it and its bytes don't start with executable magic.
+- **Kept files still protect what they name.** A declared file that stays in
+  review (source, agent prose, config, an executable, a link, or any file kept
+  in this PR) counts as code for the named-by-code scan, so a data file it names
+  by full path stays in review too. A declared data file names nothing.
 - **Excluded from review, not from the guards.** The secrets scan and the
   sealed-output guard read every changed file, excluded ones included
   (`test/review-content-patterns.test.ts`).
