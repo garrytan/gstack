@@ -31,7 +31,7 @@ const KIND_FIELDS: Record<ContractItem['kind'], string[]> = {
 };
 
 // The resolver and section that render the step each kind checks today. A host that suppresses the resolver, or a loadout that excludes the section, never shows that step, so its items are left out of the list there.
-const BACKED_BY: Partial<Record<ContractItem['kind'], { resolver: string; section: string }>> = {
+export const BACKED_BY: Partial<Record<ContractItem['kind'], { resolver: string; section: string }>> = {
   selected_specialists_dispatched: { resolver: 'REVIEW_ARMY', section: 'review-army' },
   agent_dispatch: { resolver: 'ADVERSARIAL_STEP', section: 'adversarial' },
 };
