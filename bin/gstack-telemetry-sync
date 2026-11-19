@@ -106,6 +106,10 @@ while IFS= read -r LINE; do
     fi
   fi
 
+  # Ingest refuses a body over 50,000 bytes (413) and the cursor would never
+  # move, so each POST stays under 45,000 bytes (LC_ALL=C: ${#} counts bytes).
+  [ "$COUNT" -gt 0 ] && [ "$(LC_ALL=C; echo $(( ${#BATCH} + ${#CLEAN} + 2 )))" -gt 45000 ] && break
+
   if [ "$FIRST" = "true" ]; then
     FIRST=false
   else

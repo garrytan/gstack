@@ -110,26 +110,26 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 
 ## Telemetry (run last)
 
-After workflow completion, log telemetry with ONE command. OUTCOME is
-success/error/abort/unknown; `SESSION_ID` and `TEL_START` are the values the
-preamble's skill-start output echoed. It also drains the artifacts-sync queue
-(the former skill-end sync step — do not run gstack-brain-sync separately).
+When done, make ONE call — it also drains the artifacts-sync
+queue (don't also run gstack-brain-sync).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
-`$GSTACK_STATE_ROOT/analytics/`, matching preamble analytics writes.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
 [ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack;[ -d "$_r/bin" ]||_r=~/.gemini/antigravity-cli/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host agy from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
 GSTACK_BIN=$GSTACK_ROOT/bin
 $GSTACK_BIN/gstack-skill-end --skill "ship" --outcome OUTCOME \
   --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \
-  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" \
+  --exit-reason EXIT_REASON --invoked INVOKED --model-family MODEL_FAMILY --checks CHECKS 2>/dev/null || true
 ```
 
-Replace `OUTCOME` and `USED_BROWSE` (yes/no) before running; substitute
-`SESSION_ID`/`TEL_START` from the skill-start echoes. `ERROR_MESSAGE`/`FAILED_STEP`
-are "" unless outcome is error. If the command is missing (stale install), skip
-telemetry — it never blocks the workflow.
+OUTCOME: success/error/abort/unknown. USED_BROWSE: yes/no. SESSION_ID, TEL_START:
+skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
+completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
+INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
+claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No command
+(stale install) — skip.
 
 ## Third-Party Web Actions
 

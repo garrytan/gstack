@@ -94,3 +94,55 @@ describe('migrations keep the public key and signed-in users out', () => {
     expect([...created].filter(p => /^anon_(insert|update)/.test(p))).toEqual([]);
   });
 });
+
+describe('the next telemetry fields stay in step across client, ingest and schema', () => {
+  const LOG = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-telemetry-log'), 'utf-8');
+  const sql = fs.readFileSync(path.join(MIGRATIONS, '009_next_telemetry_fields.sql'), 'utf-8');
+  const ingestEnums = (field: string) => {
+    const m = INGEST.match(new RegExp(`${field}: \\[([^\\]]*)\\]`));
+    return [...(m?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map(x => x[1]).sort();
+  };
+  const fields: Array<[string, string]> = [['host', 'HOST_FIELD'], ['model_family', 'MODEL_FIELD'], ['invoked', 'INVOKED_FIELD'],
+    ['exit_reason', 'EXIT_FIELD'], ['checks', 'CHECKS_FIELD'], ['routing', 'ROUTING_FIELD'], ['upgrade_error', 'UPGRADE_ERR_FIELD']];
+
+  test('each fixed list is the same in the client, the ingest and the CHECK (plus unknown)', () => {
+    for (const [col, v] of fields) {
+      const client = (LOG.match(new RegExp(`${v}="\\$\\(enum_field "\\$[A-Z_]+" ([^)]*)\\)"`))?.[1] ?? '').split(' ').filter(Boolean);
+      const check = [...(sql.match(new RegExp(`ADD COLUMN IF NOT EXISTS ${col} TEXT CHECK \\(${col} IN \\(([^)]*)\\)`))?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(x => x[1]);
+      expect(client.length, col).toBeGreaterThan(2);
+      expect(ingestEnums(col), col).toEqual([...client, 'unknown'].sort());
+      expect(check.sort(), col).toEqual([...client, 'unknown'].sort());
+    }
+  });
+
+  test('every column the ingest writes is added by a migration', () => {
+    const cols = new Set<string>();
+    for (const f of fs.readdirSync(MIGRATIONS).filter(x => x.endsWith('.sql'))) {
+      const text = fs.readFileSync(path.join(MIGRATIONS, f), 'utf-8');
+      const table = text.match(/CREATE TABLE telemetry_events \(([\s\S]*?)\n\);/)?.[1] ?? '';
+      for (const m of table.matchAll(/^\s+([a-z_]+)\s+[A-Z]/gm)) cols.add(m[1]);
+      for (const m of text.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)) cols.add(m[1]);
+    }
+    const rows = INGEST.match(/rows\.push\(\{([\s\S]*?)\n\s*\}\);/)?.[1] ?? '';
+    const written = [...rows.matchAll(/^\s+([a-z_]+):/gm)].map(m => m[1])
+      .concat(Object.keys({ outcome: 1, outcome_raw: 1, harness_session_id: 1, from_version: 1 }))
+      .concat(fields.map(([c]) => c))
+      .concat(['security_url_domain', 'security_payload_hash', 'security_confidence', 'security_layer', 'security_verdict']);
+    expect(written.length).toBeGreaterThan(25);
+    expect(written.filter(c => !cols.has(c))).toEqual([]);
+  });
+
+  test('009 gives the backend role what the pulse needs and nobody else anything', () => {
+    expect(sql).toContain('GRANT SELECT ON telemetry_live_events TO service_role;');
+    expect(sql).toContain('GRANT SELECT, INSERT, UPDATE ON community_pulse_cache TO service_role;');
+    expect(sql).not.toMatch(/GRANT [^;]* TO [^;]*\b(anon|authenticated|PUBLIC)\b/i);
+  });
+
+  test('007 drops the live-only user_id policies before the columns, and treats backup_version 0 as empty', () => {
+    const s007 = fs.readFileSync(path.join(MIGRATIONS, '007_drop_unused_installation_columns.sql'), 'utf-8');
+    const drops = ['auth_read_own', 'auth_update_own', 'auth_write_own'].map(p => s007.indexOf(`DROP POLICY IF EXISTS ${p} ON public.installations`));
+    expect(drops.every(i => i > 0 && i < s007.indexOf('DROP COLUMN'))).toBe(true);
+    expect(s007).toContain("CASE WHEN col = 'backup_version' THEN ' AND backup_version <> 0' ELSE '' END");
+  });
+});
+
