@@ -15,7 +15,7 @@
  * globs (lib/ship-policy.ts rules), commands are single lines under 512
  * bytes, at most 64 entries. Docs: docs/pregate.md#generated.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

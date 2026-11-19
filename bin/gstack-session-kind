@@ -10,7 +10,7 @@
 # failure time:
 #   spawned     → orchestrator session (OpenClaw). Auto-choose recommended option
 #                 per the skill's SPAWNED_SESSION block. Never prose, never BLOCKED.
-#   headless    → no human present (claude -p evals / CI). BLOCK on AUQ failure.
+#   headless    → no human present (claude -p evals / CI / codex exec). BLOCK on AUQ failure.
 #   interactive → a human is present. Prose-fallback on AUQ failure.
 #   unattended  → a parent agent drives this run and reads its artifacts, not
 #                 its prose (plan B1). Recommended options are auto-decided and
@@ -66,11 +66,60 @@ if [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ] || [ "
   exit 0
 fi
 
-# 4. CI / automation markers with no interactive host → headless.
+# 4. Codex non-interactive run: `codex exec` (alias `e`) or `codex review`. Codex
+#    0.170 gives every tool shell CODEX_THREAD_ID and CODEX_CI=1, and no TTY, in
+#    its interactive TUI and in exec alike, so the env cannot tell them apart.
+#    The process tree can: exec runs tool shells under its own `codex exec`
+#    process, while the TUI runs them under its `codex app-server` daemon. Walk
+#    up to the nearest codex process (argv[0], or argv[1] under node or a script
+#    interpreter) and read its subcommand. Linux's /proc keeps argv boundaries;
+#    elsewhere ps joins argv with spaces, so a TUI started with --no-daemon and a
+#    prompt whose first word is "exec" would read as exec there. Linux also reads
+#    parent pids from /proc, so a slim image without ps still works. Elsewhere
+#    any read failure (no ps, as in Git Bash) means no signal.
+_codex_argv() {
+  if [ -r "/proc/$1/cmdline" ]; then tr '\0' '\n' < "/proc/$1/cmdline"; else ps -o args= -p "$1" 2>/dev/null | tr ' ' '\n'; fi
+}
+_codex_noninteractive_ancestor() {
+  local pid=$PPID depth=0 tok i found skip sub
+  while [ "$depth" -lt 12 ] && [ "${pid:-0}" -gt 1 ] 2>/dev/null; do
+    i=0 found=0 skip=0 sub=""
+    while IFS= read -r tok; do
+      i=$((i + 1))
+      if [ "$found" -eq 0 ]; then
+        [ "$i" -le 2 ] || break
+        case "${tok##*/}" in codex|codex.js|codex.exe) found=1 ;; esac
+        continue
+      fi
+      if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+      case "$tok" in
+        -c|--config|-m|--model|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|-i|--image|--add-dir|--enable|--disable|--local-provider|--remote|--remote-auth-token-env) skip=1 ;;
+        -*|'') ;;
+        *) sub=$tok; break ;;
+      esac
+    done < <(_codex_argv "$pid")
+    if [ "$found" -eq 1 ]; then
+      case "$sub" in exec|e|review) return 0 ;; *) return 1 ;; esac
+    fi
+    if [ -r "/proc/$pid/status" ]; then
+      pid=$(while read -r tok sub; do [ "$tok" = "PPid:" ] && { echo "$sub"; break; }; done < "/proc/$pid/status")
+    else
+      pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') || return 1
+    fi
+    depth=$((depth + 1))
+  done
+  return 1
+}
+if [ -n "${CODEX_THREAD_ID:-}" ] && _codex_noninteractive_ancestor; then
+  echo "headless"
+  exit 0
+fi
+
+# 5. CI / automation markers with no interactive host → headless.
 if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   echo "headless"
   exit 0
 fi
 
-# 5. No positive headless signal → assume a human is present (degrade-safe default).
+# 6. No positive headless signal → assume a human is present (degrade-safe default).
 echo "interactive"

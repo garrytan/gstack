@@ -12,7 +12,7 @@
  * at all, the head file is a bootstrap and runs as written. `sealed` is not
  * compared: its guard reads the base branch's copy itself.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GENERATED_PATH } from '../regen';

@@ -24,7 +24,7 @@
  * origin/<base>; their commands and the test runner run only with
  * --allow-repo-commands (what /ship passes). Logic: lib/pregate/*.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseContainsHead } from '../lib/default-base';
@@ -273,7 +273,7 @@ function cmdClear(root: string, rest: string[]): number {
   const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands')) : undefined;
   if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }
   const evidence = checked && !('error' in checked) ? checked : undefined;
-  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence, flaky }, root);
+  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence, flaky, allowRepoCommands: rest.includes('--allow-repo-commands') }, root);
   if ('refused' in decision) {
     if (decision.refused === 'usage') { process.stderr.write(`gstack-pregate clear: ${decision.message}\n`); return EXIT.usage; }
     process.stderr.write(`gstack-pregate clear: receipt refused — ${decision.message}; fix: ${decision.fix ?? RESULT_CODES.PREGATE_RECEIPT_INVALID.fix} ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`);

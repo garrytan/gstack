@@ -19,7 +19,7 @@
  * file changed since (RESTAMP_NOT_STAGED). Idempotent; --dry-run writes nothing. Workflow command: ends with the
  * GSTACK_RESULT line. Logic: lib/restamp.ts; policy: lib/ship-policy.ts.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp, formatResult } from '../lib/headless-artifacts';

@@ -11,7 +11,7 @@
  * HISTORY_READ_FAILED instead of reading as absent
  * (docs/troubleshooting.md#history-read-failed).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 
 export const HISTORY_READ_TRIES = 3;
 

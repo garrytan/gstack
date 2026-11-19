@@ -7,7 +7,7 @@
  * line counts, the base commit's generated-output registry and collector errors;
  * the caller adds the gate-scan result.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveBase, type ResolvedBase } from './gate-diff/git';

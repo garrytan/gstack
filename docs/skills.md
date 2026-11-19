@@ -670,6 +670,8 @@ The skill no longer installs, and `./setup` removes an existing gstack-owned `in
 
 It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and asks for a focused failing test and a root-cause trace before another fix to a stubborn red. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/ship`. It never reviews, bumps versions, pushes or opens a PR.
 
+Since Claude Code 2.1.286, any installed skill named `verify` makes Claude Code tell the model to run it right before each `git commit` (except docs-only and tests-only commits). When the model calls `/verify` that way, without you typing it or asking for checks, it gets a quick check-only pass instead of the loop: one `gstack-checks quick` call that runs the same checks and selected tests, edits nothing, adds no tests, asks nothing and skips gstack's startup steps, then ends with one line, `VERIFY PASS`, `VERIFY FAIL` or `VERIFY skipped: <reason>`. A skip (no `origin` to select tests against, commands you haven't trusted yet, nothing declared) lets the commit go ahead; a `FAIL` makes the model stop and ask you before committing. The arguments `quick` or `pre-commit` ask for the same pass. `gstack-config set verify_before_commit off` turns the pass into an immediate `VERIFY skipped`; installing with `./setup --prefix` (`/gstack-verify`) removes Claude Code's instruction altogether.
+
 ---
 
 ## `/qa`
@@ -1484,7 +1486,7 @@ gstack can invoke a skill for you when your request matches one. By default (`pr
 
 ## Safety & Guardrails
 
-Four skills that add safety rails to any Claude Code session. They work via Claude Code's PreToolUse hooks — transparent, session-scoped, no configuration required.
+Four skills that add safety rails to any Claude Code session. They work via Claude Code's PreToolUse hooks — transparent, no configuration required. /careful's destructive-command check also runs in every session by default (`destructive_guard`; off: `gstack-config set destructive_guard off`); the others are session-scoped.
 
 ### `/careful`
 
@@ -1502,7 +1504,7 @@ On Windows the same hook checks Claude Code's PowerShell tool and any `pwsh`/`po
 
 Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`) are whitelisted — no false alarms on routine operations.
 
-You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; the escape hatch is ending the session-scoped `/careful` session). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
+You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; to run one anyway, turn the every-session check off with `gstack-config set destructive_guard off` and don't load `/careful` or `/guard`). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
 
 ### `/freeze`
 

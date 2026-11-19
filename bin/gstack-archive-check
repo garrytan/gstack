@@ -7,7 +7,7 @@
  *   gstack-archive-check thread --thread <code> --reads <file.json> [--stub-out <file>] [--json]
  *   gstack-archive-check landed --pr <n> [--repo <owner/repo>] [--json]
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import { checkThread, landedIssues, MAX_READ_AGE_MS } from '../lib/archive-check';
 import { flagValue } from '../lib/bin-context';

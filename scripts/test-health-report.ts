@@ -18,7 +18,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { GH_CLIENT, downloadRunArtifacts, formatFlakeSummary, historyFetcher, listRunJobs, listWorkflowRuns, readCiFlakeLedgers,
   readFlakeLedgerDir, repoSlug, unavailableReason, type CiRun, type FlakeWindow, type GhClient } from './lib/ci-history';
 import { analyzePassRates, readTrialOutcomeDir, type TrialRecord } from './eval-flake-rank';

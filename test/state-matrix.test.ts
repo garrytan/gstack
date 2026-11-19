@@ -17,6 +17,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
+import { VERDICT_ASK, workspaceStep } from '../lib/review-brief';
 import { checkStateMatrix, detectStateMachine, words } from '../lib/state-matrix';
 import { makeStateMatrixRepo, STATE_MATRIX_FIXTURE, type StateMatrixRepo } from './helpers/state-matrix-fixture';
 
@@ -142,6 +143,34 @@ describe('gstack-state-matrix check on the captured #6792 review', () => {
     expect(run(r.work, ['check', '-'], 'NO FINDINGS\n').out).toBe('STATE_MATRIX_CHECK: ok machines=0\n');
     expect(checkStateMatrix('NO FINDINGS\n', r.work, EXPECT).gaps.map(g => g.code)).toEqual(['no-matrix']);
     expect(checkStateMatrix('Here is my review:\n' + CAPTURED, r.work, EXPECT).gaps.map(g => g.code)).toEqual(['unparsed-line']);
+  });
+
+  /** The two header lines a /ship reader's brief asks for, made the way the brief says: its fingerprint command run in the checkout, then its verdict line with n=0. */
+  function briefHeader(dir: string): string {
+    const command = /run `([^`]+)`/.exec(workspaceStep(dir, true))![1]!;
+    const tree = spawnSync('bash', ['-c', command], { encoding: 'utf8', timeout: 30_000 });
+    expect(tree.status, tree.stderr).toBe(0);
+    const verdict = /`(REVIEW_VERDICT: blocking=)<n>`/.exec(VERDICT_ASK)![1]! + '0';
+    return `${tree.stdout.trim()}\n${verdict}\n`;
+  }
+
+  // Value: protects=a /ship state-machines reader that follows its brief is checked on its matrix, not stopped as incomplete; fails_when=the REVIEWED_TREE or REVIEW_VERDICT header the brief requires is read as an unparsed-line gap (CAPY-1 on yc-software/qm#3728), or any other prose line stops being one.
+  test('a reply that opens with the REVIEWED_TREE and REVIEW_VERDICT lines its brief requires is complete; other prose is still a gap', () => {
+    const r = repos[0] ?? repo();
+    const header = briefHeader(r.work);
+    const c = run(r.work, ['check', '-', '--expect', path.join(STATE_MATRIX_FIXTURE, 'expect.json')], header + CAPTURED);
+    expect(c.status, c.out + c.err).toBe(EXIT.ok);
+    expect(c.out).toMatch(/^STATE_MATRIX_CHECK: ok machines=1$/m);
+    expect(c.out).not.toContain('STATE_MATRIX_GAP');
+    expect(run(r.work, ['check', '-'], header + 'NO FINDINGS\n').out).toBe('STATE_MATRIX_CHECK: ok machines=0\n');
+    expect(checkStateMatrix(header.split('\n')[0] + '\n' + CAPTURED, r.work, EXPECT).gaps).toEqual([]);
+
+    const gaps = (text: string) => checkStateMatrix(text, r.work, EXPECT).gaps.map(g => `${g.code}: ${g.detail}`);
+    expect(gaps(header + 'Here is my review:\n' + CAPTURED)).toEqual(['unparsed-line: Here is my review:']);
+    expect(gaps(header + CAPTURED + header)).toEqual(header.trim().split('\n').map(l => `unparsed-line: ${l}`));
+    expect(gaps(header.replace('blocking=0', 'blocking=none') + CAPTURED)).toEqual(['unparsed-line: REVIEW_VERDICT: blocking=none']);
+    const [tree, verdict] = header.trim().split('\n');
+    expect(gaps(`${verdict}\n${tree}\n` + CAPTURED)).toEqual([verdict, tree].map(l => `unparsed-line: ${l}`));
   });
 });
 

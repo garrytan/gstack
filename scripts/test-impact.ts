@@ -14,7 +14,7 @@
  *
  * Nothing here changes what CI runs. Exit codes: 0 done, 1 a traced run or key failed, 2 usage or setup.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

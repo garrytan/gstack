@@ -12,6 +12,11 @@
  * caller passes --allow-repo-commands.
  * status: reads the last run's ledger; READY_FOR_SHIP only when every check
  * passed at the current tree and command set. It runs nothing.
+ * quick: the pass /verify runs when the agent calls it right before a commit
+ * (GST-3150). Same checks and selection as run, but it never asks for consent:
+ * an untrusted command set, a missing policy source or the verify_before_commit
+ * switch ends it with one `VERIFY skipped: <reason>` line, and a not-run result
+ * (ENV, TIMEOUT, UNMAPPED, TOO_BROAD) is named, never a red.
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -312,6 +317,17 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
   return { outcomes: final, ledger };
+}
+
+/** The quick pass's last line: FAIL on a red, PASS when something passed and nothing is red, else skipped. */
+export function quickLine(outcomes: readonly Outcome[]): { line: string; red: Outcome[] } {
+  const red = outcomes.filter(o => o.verdict === 'FAIL' || o.verdict === 'ZERO_RUN' || o.verdict === 'INCOMPLETE');
+  const passed = outcomes.filter(o => o.verdict === 'PASS');
+  const notRun = outcomes.filter(o => o.verdict !== 'PASS' && !red.includes(o)).map(o => `${o.name} ${o.verdict}`);
+  const secs = (outcomes.reduce((sum, o) => sum + o.ms, 0) / 1000).toFixed(1);
+  if (red.length) return { red, line: `VERIFY FAIL: ${red.map(o => `${o.name} ${o.verdict === 'FAIL' ? o.detail : o.verdict}`).join(', ')}${red[0].log ? `; log ${red[0].log}` : ''}` };
+  if (!passed.length) return { red, line: `VERIFY skipped: nothing ran to a result (${notRun.join(', ') || 'no checks'})` };
+  return { red, line: `VERIFY PASS: ${passed.map(o => o.name).join(', ')} in ${secs}s${notRun.length ? ` (not run: ${notRun.join(', ')})` : ''}` };
 }
 
 /** READY_FOR_SHIP only when the ledger is for this tree and command set and every check and the tests passed. */

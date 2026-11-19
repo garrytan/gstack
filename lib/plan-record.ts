@@ -19,7 +19,7 @@
  * store (gateState), so a revised gate must be imported again before it counts. Callers: gstack-ship-queue ready (writes the record into the READY note), land (checks
  * it), gstack-ship-release finish --plan (/ship) and gstack-approvals render --plan / plan-check.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

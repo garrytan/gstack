@@ -7,7 +7,7 @@
  * scripts/compare-pr-version.ts can accept an unstamped head and hold a
  * stamped one to the version the restamp allocates (base + the policy bump).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

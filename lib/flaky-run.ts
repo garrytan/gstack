@@ -40,7 +40,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn as spawnChild, spawnSync } from 'child_process';
+import { spawn as spawnChild } from 'child_process';
+import { spawnSync } from './spawn-sync';
 import { finalAttempt, JunitError, parseTestId, readJunit, type Attempt, type JunitReport, type JunitRunner, type JunitTest } from './junit';
 import { redactFindingSpans } from './redact-engine';
 import { resolveStateRoot } from './state-root';

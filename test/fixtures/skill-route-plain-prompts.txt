@@ -1,0 +1,63 @@
+# Plain prompts that fit none of the routed skills (/review, /qa, /verify) and are not bug reports.
+# test/skill-route.test.ts routes every line and expects no route; the last six use defect words
+# (error, exception, failed) in requests that are features, not bugs.
+Add a dark mode toggle to the settings page and remember the choice in localStorage.
+Write a CLI flag --json that prints the report as JSON instead of a table.
+Add pagination to the /users API endpoint, 50 rows per page.
+Create a new React component that shows a user's avatar with their initials as a fallback.
+Add support for reading the config from a TOML file as well as YAML.
+Implement a retry with exponential backoff for the S3 upload client.
+Add a "copy to clipboard" button next to each code block in the docs site.
+Build a small script that exports last month's orders to CSV.
+Add an optional timeout parameter to fetch_page, defaulting to 30 seconds.
+Let users sign in with GitHub OAuth in addition to email and password.
+Add a progress bar to the import command for large files.
+Support Python 3.13 in the package metadata and CI matrix.
+Add a webhook that posts to Slack when a deploy finishes.
+Implement a simple LRU cache for the geocoding lookups.
+Add keyboard shortcuts j and k to move between items in the inbox list.
+Explain how the scheduler decides which job runs next.
+What's the difference between a process and a thread in this runtime?
+How does the auth middleware decide whether a request is an admin request?
+Walk me through what happens when a user uploads a file, from the browser to the database.
+Why do we use a message queue between the API and the workers?
+What does the --strict flag in our tsconfig actually change?
+Summarize what changed in the last ten commits on main.
+Which modules import the payments client directly?
+How would I add a new language to the translation files?
+Is there a way to run only the integration tests locally?
+Write a README section that explains how to install the project on macOS.
+Rewrite the onboarding email so it sounds friendlier and shorter.
+Add docstrings to every public function in utils/dates.py.
+Draft release notes for version 2.4 from the merged pull requests.
+Write an architecture overview of the billing service for new engineers.
+Update the CONTRIBUTING guide to mention the new branch naming rule.
+Translate the error messages in the CLI help text into Spanish.
+Write a short blog post announcing the new search feature.
+Refactor the OrderService class into smaller functions without changing behavior.
+Rename the variable usr to user everywhere in the accounts module.
+Move the date helpers into their own module and update the imports.
+Convert the callbacks in the legacy upload code to async/await.
+Replace the hand-written argument parsing with argparse.
+Split the 2,000-line views.py into one file per resource.
+Extract the duplicated SQL into a shared query builder.
+Replace moment.js with date-fns across the frontend.
+Bump the Node version to 22 in the Dockerfile and the CI config.
+Set up a GitHub Actions workflow that builds the Docker image on every tag.
+Add a Makefile target that seeds the local database with sample data.
+Configure the logger to write JSON lines in production and pretty text in development.
+Pin all the Python dependencies and add a lock file.
+Add a health-check endpoint for the load balancer.
+Set up pre-commit with black and isort.
+Increase the database connection pool to 20 and make it configurable.
+Plot weekly active users for the last six months from the events table.
+Write a SQL query that finds customers who ordered more than three times in March.
+Compute the median response time per endpoint from these access logs.
+Build a notebook that compares the two pricing experiments.
+Load the survey CSV and give me counts by country.
+Add error handling to the upload endpoint so a bad file returns a clear message.
+Improve the error messages the CLI prints when a required flag is missing.
+Add a custom exception class for configuration problems and use it in the loader.
+Record failed login attempts in the audit table.
+Show a friendly page when the payment provider returns an error code.
+Add a section to the docs explaining what each exit code means.

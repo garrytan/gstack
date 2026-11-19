@@ -3,7 +3,10 @@
  * (before_prompt_build) and Hermes (pre_llm_call), telling the agent to run a gstack skill's start command as
  * written. Skill listings were followed on 1 of 29 chances (HARN-18); a per-turn note 97-100% (HARN-15).
  *
- * Off unless the user asks: `--start-hook`, GSTACK_HARNESS_START_HOOK or `gstack-config set harness_start_hook on`.
+ * On by default for a new registration (START_HOOK_DEFAULT); off with `--no-start-hook`, GSTACK_HARNESS_START_HOOK=0 or
+ * `gstack-config set harness_start_hook off`. A registration keeps every off it recorded, including one from before the
+ * default changed, because the plugin grants OpenClaw conversation access and an old off can't be told from the old
+ * default. The one exception is an on gstack had to refuse (ledger start_hook_by=refused), which the default retries.
  * Turning it on writes a fixed plugin into the harness profile (never under a custom --skills-dir) and changes the
  * harness's settings only through its own commands: OpenClaw needs plugins.entries.gstack-start.hooks.
  * allowConversationAccess before a non-bundled plugin's before_prompt_build runs (2026.10.6 hook-policy-decisions:6);
@@ -11,7 +14,7 @@
  * from off to on, so a plugin the user disabled in the harness is never turned back on. Turning it off and
  * unregistering run gstack_harness_hook_release in bin/gstack-harness-ledger.sh, the same code gstack-uninstall runs.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readConfigKey } from './state-root';
@@ -144,8 +147,13 @@ export function hookFiles(t: HookTarget, root: string): Map<string, Buffer> {
   return out;
 }
 
-/** The user's choice and where it came from: --start-hook/--no-start-hook, then the env var, then gstack-config, then the ledger. */
-export function hookChoice(flag: boolean | undefined, env: Env, stateRoot: string, recorded: string | undefined): { on: boolean; source: 'flag' | 'env' | 'config' | 'ledger' } | { invalid: string } {
+export const START_HOOK_DEFAULT: 'on' | 'off' = 'on';
+
+/**
+ * The user's choice and where it came from: --start-hook/--no-start-hook, then the env var, then gstack-config, then
+ * the ledger's on or off (unless the off is an on gstack refused, recordedBy 'refused'), then START_HOOK_DEFAULT.
+ */
+export function hookChoice(flag: boolean | undefined, env: Env, stateRoot: string, recorded: string | undefined, recordedBy?: string): { on: boolean; source: 'flag' | 'env' | 'config' | 'ledger' | 'default' } | { invalid: string } {
   if (flag !== undefined) return { on: flag, source: 'flag' };
   const parse = (v: string | null | undefined) => v == null || v === '' ? null : /^(1|on|true|yes)$/i.test(v) ? true : /^(0|off|false|no)$/i.test(v) ? false : undefined;
   const fromEnv = parse(env.GSTACK_HARNESS_START_HOOK);
@@ -155,7 +163,8 @@ export function hookChoice(flag: boolean | undefined, env: Env, stateRoot: strin
   const fromConfig = parse(stored);
   if (fromConfig === undefined) return { invalid: 'gstack-config harness_start_hook=' + JSON.stringify(stored) };
   if (fromConfig !== null) return { on: fromConfig, source: 'config' };
-  return { on: recorded === 'on', source: 'ledger' };
+  if (recorded === 'on' || (recorded === 'off' && recordedBy !== 'refused')) return { on: recorded === 'on', source: 'ledger' };
+  return { on: START_HOOK_DEFAULT === 'on', source: 'default' };
 }
 
 /** Runs the harness's own CLI for one profile: argv only, stdin closed, a timeout, and no environment beyond PATH, HOME and the profile. */

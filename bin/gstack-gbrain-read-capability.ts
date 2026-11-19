@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { gbrainInvocation, buildGbrainEnv } from '../lib/gbrain-exec';
 import { parseSourcesList } from '../lib/gbrain-sources';
 import { resolveStateRoot } from '../lib/state-root';
@@ -89,7 +89,8 @@ function readCapability(): Verdict {
     || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(slug)
     || slug.split('/').some(segment => !segment || segment === '.' || segment === '..'))
     return unknown('listed page has an invalid slug');
-  const fetched = run(['get', slug, '--source', pin, '--json']);
+  const fetched = run(['get', slug, '--source', pin, '--json', '--body', 'window', '--max-bytes', '4096'])
+    ?? run(['get', slug, '--source', pin, '--json']);
   if (!fetched) return unknown('source-scoped get unavailable; retry later');
   let page: unknown;
   try { page = JSON.parse(fetched); }

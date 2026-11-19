@@ -4,10 +4,11 @@
  *
  * Usage:
  *   gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]
- *   gstack-skill-route --default <skill_routing|skill_contracts|ceo_review_gate|autoplan_gate>
+ *   gstack-skill-route --default <skill_routing|skill_contracts|destructive_guard|ceo_review_gate|autoplan_gate>
  *
  * Prints the switch state, the threshold, every candidate skill with its
- * score and best trigger, the route the hook would take and the exact line it
+ * score, best trigger and source (gstack, or the installed SKILL.md), the
+ * route the hook would take (up to two skills) and the exact line it
  * would inject. Works with the switch off (a dry run): it never injects
  * anything. --default prints a switch's SWITCH_DEFAULT (on or off), the value
  * setup and gstack-config use when the switch is unset. Exit 0, or 2 on a usage error. Docs: docs/skill-routing-and-contracts.md.
@@ -16,13 +17,13 @@ import {
   ROUTE_THRESHOLD, SWITCH_DEFAULT, hintLine, installedSkillsDir, readSkillSwitch, routePrompt, scanInstalledSkills,
 } from '../lib/skill-route';
 
-const USAGE = 'Usage: gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]\n       gstack-skill-route --default <skill_routing|skill_contracts|ceo_review_gate|autoplan_gate>';
+const USAGE = 'Usage: gstack-skill-route --explain "<prompt>" [--json] [--threshold <n>]\n       gstack-skill-route --default <skill_routing|skill_contracts|destructive_guard|ceo_review_gate|autoplan_gate>';
 const args = process.argv.slice(2);
 if (args[0] === '--help' || args[0] === '-h') { process.stdout.write(`${USAGE}\n`); process.exit(0); }
 if (args[0] === '--default') {
   const name = args[1] ?? '';
   if (!Object.hasOwn(SWITCH_DEFAULT, name)) {
-    process.stderr.write(`SKILL_ROUTE_USAGE: --default needs skill_routing, skill_contracts, ceo_review_gate or autoplan_gate\n${USAGE}\n`);
+    process.stderr.write(`SKILL_ROUTE_USAGE: --default needs skill_routing, skill_contracts, destructive_guard, ceo_review_gate or autoplan_gate\n${USAGE}\n`);
     process.exit(2);
   }
   process.stdout.write(`${SWITCH_DEFAULT[name as keyof typeof SWITCH_DEFAULT]}\n`);
@@ -40,11 +41,12 @@ const dir = installedSkillsDir();
 const { skills, problems } = scanInstalledSkills(dir);
 const decision = routePrompt(prompt, skills, threshold);
 const sw = readSkillSwitch('skill_routing');
-const hint = decision.route ? hintLine(decision.route) : null;
+const hint = decision.route ? hintLine(decision.route, '', decision.routes[1]) : null;
+const routes = decision.route ? decision.routes.map(r => r.skill) : [];
 if (args.includes('--json')) {
   process.stdout.write(`${JSON.stringify({
     switch: { on: sw.on, source: sw.source }, threshold, skills_dir: dir, skills: skills.length, problems,
-    candidates: decision.candidates, route: decision.route?.skill ?? null, reason: decision.route ? null : decision.reason, hint,
+    candidates: decision.candidates, route: decision.route?.skill ?? null, routes, reason: decision.route ? null : decision.reason, hint,
   }, null, 2)}\n`);
   process.exit(0);
 }
@@ -54,9 +56,9 @@ const lines = [
   `skills: ${skills.length} scanned in ${dir}${problems.length ? ` (${problems.join('; ')})` : ''}`,
   'candidates:',
   ...(decision.candidates.length
-    ? decision.candidates.map(c => `  ${c.score.toFixed(2)}  /${c.skill}  "${c.trigger}" (${c.matched} words)`)
+    ? decision.candidates.map(c => `  ${c.score.toFixed(2)}  /${c.skill}  "${c.trigger}" (${c.matched} words, ${c.gstack ? 'gstack' : `installed: ${c.file}`})`)
     : ['  (none)']),
-  decision.route ? `route: /${decision.route.skill}` : `route: none (${decision.reason})`,
+  decision.route ? `route: ${routes.map(r => `/${r}`).join(', ')}` : `route: none (${decision.reason})`,
   ...(hint ? [`hint: ${hint}`] : []),
 ];
 process.stdout.write(`${lines.join('\n')}\n`);

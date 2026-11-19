@@ -86,7 +86,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { spawnSync } from 'child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import {
   SENTINEL, TESTED_ENGINE_VERSIONS, ADVISORY_RULE_IDS, DETECT_LIMITS,
   UNTRUSTED_BEGIN, UNTRUSTED_END, neutralizeSentinels,
@@ -879,7 +879,7 @@ function runEngine(p: Probe, engine: string, batch: string[], cwd: string, timeo
     timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: DETECT_LIMITS.stdoutBytes + 1024,
   });
   const out = r.stdout ?? new Uint8Array();
-  const tooLarge = out.byteLength > DETECT_LIMITS.stdoutBytes;
+  const tooLarge = r.exitedDueToMaxBuffer === true || out.byteLength > DETECT_LIMITS.stdoutBytes;
   return {
     exit: r.exitCode ?? 1,
     stdout: tooLarge ? '' : Buffer.from(out).toString('utf-8'),

@@ -14,7 +14,8 @@ for (const kind of ['ready', 'unknown'] as const) {
       expect(JSON.parse(check.stdout).status).toBe(kind);
       expect(fixture.calls()).toEqual([
         'sources list --json', 'list --source client-fixture --limit 1',
-        'get code/fixture/readme --source client-fixture --json',
+        'get code/fixture/readme --source client-fixture --json --body window --max-bytes 4096',
+        ...(kind === 'unknown' ? ['get code/fixture/readme --source client-fixture --json'] : []),
       ]);
       expect(fixture.sourceIntact()).toBe(true);
     } finally { fixture.cleanup(); }

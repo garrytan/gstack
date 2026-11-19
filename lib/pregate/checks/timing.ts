@@ -9,7 +9,7 @@
  * master went red on a 461 ms run against a 400 ms bound, and five such flakes
  * were fixed by hand in one week.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';

@@ -594,7 +594,12 @@ export const RELEASE_RESULT_CODES = {
   REVIEW_DIFF_TOO_LARGE: {
     anchor: 'review-diff-too-large',
     summary: 'one reviewer\'s diff is over the 2,000,000-byte review ceiling, so /ship stopped before writing a manifest or a brief instead of handing a reader more than it can read',
-    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or narrow a pattern the kept-file bound skipped; or split the PR',
+    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or split the PR',
+  },
+  REVIEW_EXCLUDE_KEEP_TOO_LARGE: {
+    anchor: 'review-exclude-keep-too-large',
+    summary: 'a review_exclude_paths pattern keeps so many matched files in review that the command readers run to read them would pass 24,000 argument bytes, so gstack-review-plan stopped instead of silently dropping the pattern; the line names the pattern, the kept count, the reasons they are kept and the bytes',
+    fix: 'when the kept files are published data (reason code on .patch, MANIFEST.sha256 or extension-less files), land a review_content_patterns entry over them beside the pattern on the base as its own PR, then bring the base into the branch and rerun once; otherwise narrow the pattern or split the PR',
   },
   REVIEW_DIFF_UNREADABLE: {
     anchor: 'review-diff-unreadable',
@@ -642,5 +647,10 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'push-git-failed',
     summary: 'git could not read the remote branch or git push failed for another reason (authentication, a pre-push hook or the network), so nothing was pushed',
     fix: 'repair the cause git printed in the STOP: line, repeat Step 16, then rerun push; never bypass a guard',
+  },
+  SPAWN_OUTPUT_INCOMPLETE: {
+    anchor: 'spawn-output-incomplete',
+    summary: 'a child process reported an error (ENOBUFS when its output passed maxBuffer) even though its exit status may be 0, so its output may be cut off and was not used',
+    fix: 'rerun once; if the output really is that large (a huge diff or file list), narrow the range or paths, and report a repeat to the gstack maintainers with the command named here',
   },
 } as const satisfies Record<string, ResultCode>;

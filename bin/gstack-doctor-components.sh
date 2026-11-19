@@ -371,6 +371,7 @@ gstack_result_anchor() {
     PR_WAIT_REFUSED) printf '%s' 'pr-wait-refused' ;;
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
     REVIEW_DIFF_TOO_LARGE) printf '%s' 'review-diff-too-large' ;;
+    REVIEW_EXCLUDE_KEEP_TOO_LARGE) printf '%s' 'review-exclude-keep-too-large' ;;
     REVIEW_DIFF_UNREADABLE) printf '%s' 'review-diff-unreadable' ;;
     REVIEW_PLAN_STOPPED) printf '%s' 'review-plan-stopped' ;;
     REVIEW_EXCLUDE_REFERENCE) printf '%s' 'review-exclude-reference' ;;
@@ -380,6 +381,7 @@ gstack_result_anchor() {
     PUSH_REFUSED) printf '%s' 'push-refused' ;;
     PUSH_REJECTED) printf '%s' 'push-rejected' ;;
     PUSH_GIT_FAILED) printf '%s' 'push-git-failed' ;;
+    SPAWN_OUTPUT_INCOMPLETE) printf '%s' 'spawn-output-incomplete' ;;
     APPROVAL_RECORD_INVALID) printf '%s' 'approval-record-invalid' ;;
     APPROVAL_RECORD_SECRET) printf '%s' 'approval-record-secret' ;;
     APPROVAL_RECORD_NO_BRANCH) printf '%s' 'approval-record-no-branch' ;;
@@ -443,6 +445,8 @@ gstack_result_anchor() {
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;
     REALITY_RECEIPT_UNRESOLVED) printf '%s' 'reality-receipt-unresolved' ;;
+    ARTIFACT_NOT_AUTOPLAN_RUN) printf '%s' 'artifact-not-autoplan-run' ;;
+    ARTIFACT_JOURNAL_MISMATCH) printf '%s' 'artifact-journal-mismatch' ;;
     GUARD_ENFORCED) printf '%s' 'guard-enforced' ;;
     CEO_ONLY_CONFLICT) printf '%s' 'ceo-only-conflict' ;;
     CEO_ONLY_AFTER_INIT) printf '%s' 'ceo-only-after-init' ;;

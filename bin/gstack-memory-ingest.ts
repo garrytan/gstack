@@ -57,7 +57,8 @@ import {
   realpathSync,
 } from "fs";
 import { join, basename, dirname, delimiter, relative } from "path";
-import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawn, type ChildProcess } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { homedir } from "os";
 import { createHash } from "crypto";
 

@@ -20,7 +20,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { createHash } from 'node:crypto';
 import { LIVE_REGISTRY, readTrialOutcomeDir, type Registry } from './eval-flake-rank';
 import { formatTrialOutcomes, parseTrialOutcomes } from '../test/helpers/eval-store';

@@ -10,7 +10,7 @@
  * failure; gh names no base for a PR from another repository. bin/gstack-diff-scope reads
  * both through this file's command line.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { resultLine } from './result-codes';
 
 export interface DefaultBase {

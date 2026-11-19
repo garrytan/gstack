@@ -27,7 +27,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { pollDelayMs } from '../lib/gh-poll';
 import { detectBaseBranch } from '../test/helpers/touchfiles';
 import { DEFAULT_JOBS, ROOT, type PaidTier } from './lib/paid-types';

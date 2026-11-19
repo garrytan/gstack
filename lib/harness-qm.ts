@@ -14,7 +14,7 @@
  */
 import { createHmac } from 'node:crypto';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { HarnessError, ledgerPath, readLedger, registrationId, writeLedger } from './harness-register';
 
 type Env = Record<string, string | undefined>;

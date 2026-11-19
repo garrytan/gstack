@@ -42,7 +42,7 @@
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
  * gstack-redact CLI), which chains any pre-existing hook.
  */
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
@@ -76,7 +76,8 @@ function git(args: string[]): string {
  * (#1946). status !== 0 covers repo errors; status === null covers a killed
  * process AND maxBuffer overflow — the oversized-diff case is exactly where
  * a large secret-bearing blob is most likely, so "couldn't read the diff"
- * must block, not silently allow.
+ * must block, not silently allow. Bun can report an overflow as status 0 with
+ * a cut-off diff; lib/spawn-sync.ts turns that into null (GST-3086).
  */
 function gitStrict(args: string[]): string {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -84,7 +85,7 @@ function gitStrict(args: string[]): string {
   // signal or maxBuffer overflow — null !== 0 is true).
   if (r.status !== 0) {
     throw new Error(
-      `git ${args[0]} failed (status=${r.status ?? "killed/overflow"}): ${(r.stderr ?? "").slice(0, 300)}`,
+      `git ${args[0]} failed (status=${r.status ?? "killed/overflow"}${r.error ? `, ${r.error.message}` : ""}): ${(r.stderr ?? "").slice(0, 300)}`,
     );
   }
   return r.stdout ?? "";

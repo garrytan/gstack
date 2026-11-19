@@ -9,7 +9,7 @@
  * (`git ls-files` count); a non-repo directory never triggers the offer.
  */
 
-import { spawnSync } from "child_process";
+import { spawnSync } from "../spawn-sync";
 import { resolve } from "path";
 import { readSelection } from "./selection";
 

@@ -93,6 +93,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # false = short names /qa, /ship
 # disabled_skills:          # comma-separated skills to leave unregistered,
 #                           # e.g. make-pdf,pair-agent ("" = all enabled)
+# verify_before_commit: on  # on | off. on: when the agent runs /verify right
+#                           #   before a commit (Claude Code asks it to), /verify
+#                           #   runs a quick check-only pass. off: that pass prints
+#                           #   "VERIFY skipped" and runs nothing. Typing /verify
+#                           #   yourself always runs the full skill.
 #
 # ─── Writing style (V1) ──────────────────────────────────────────────
 # explain_level: default    # default = jargon-glossed, outcome-framed prose
@@ -214,7 +219,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   (a one-line note on every turn to run the start
 #                           #   command of a skill; edits openclaw.json or config.yaml via the
 #                           #   harness CLI). off: takes it out. Absent = each
-#                           #   registration keeps its saved choice (default off).
+#                           #   registration keeps its saved choice, else on (the default).
 #                           #   GSTACK_HARNESS_START_HOOK=1|0 overrides it. Docs: docs/hosts.md
 #
 # ─── Advanced ────────────────────────────────────────────────────────
@@ -334,6 +339,7 @@ lookup_default() {
     update_check) echo "true" ;;
     update_channel) echo "auto" ;; # auto | stable | main — bin/gstack-update-channel.sh resolves auto (docs/releases.md)
     skill_prefix) echo "false" ;;
+    verify_before_commit) echo "on" ;; # on | off — off: /verify's pre-commit quick pass runs nothing (lib/checks.ts)
     explain_level) echo "default" ;;
     plan_mode_preamble) echo "on" ;; # on | off — off drops the plan-mode preamble on the next ./setup (#3168)
     claude_loadout) echo "full" ;; # a modules/loadouts.json name — written by ./setup --loadout (docs/loadouts.md)
@@ -353,6 +359,7 @@ lookup_default() {
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
     skill_routing) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_routing ;; # on | off — the skill-routing UserPromptSubmit hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
     skill_contracts) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_contracts ;; # on | off — the skill-contract Stop hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
+    destructive_guard) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default destructive_guard ;; # on | off — the destructive-command check (PreToolUse on Bash and PowerShell, /careful's check in every session); default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
     ceo_review_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default ceo_review_gate ;; # on | off — the /plan-ceo-review enforcement hooks; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
     autoplan_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default autoplan_gate ;; # on | off — the /autoplan stop gate; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
 
@@ -404,7 +411,7 @@ lookup_default() {
     agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
-    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice (docs/hosts.md#start-hook)
+    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice, else on (docs/hosts.md#start-hook)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
@@ -974,6 +981,12 @@ $_gstack_legacy_root"
       echo "Error: design_detector '$VALUE' not recognized. Valid values: auto, off. Existing value left unchanged." >&2
       exit 1
     fi
+    # verify_before_commit: gstack-checks quick skips only on the literal "off",
+    # so a typo such as "of" would silently leave the pre-commit pass on.
+    if [ "$KEY" = "verify_before_commit" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: verify_before_commit '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
     # cross_project_learnings: empty get is the first-run prompt sentinel.
     # Skills enable only on the literal "true". A typo must not persist — that
     # keeps the feature off and suppresses the prompt. Reject, like
@@ -1154,13 +1167,13 @@ $_gstack_legacy_root"
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts ceo_review_gate autoplan_gate plan_record; do
+               skill_routing skill_contracts destructive_guard ceo_review_gate autoplan_gate plan_record; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1180,13 +1193,13 @@ $_gstack_legacy_root"
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts ceo_review_gate autoplan_gate plan_record; do
+               skill_routing skill_contracts destructive_guard ceo_review_gate autoplan_gate plan_record; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

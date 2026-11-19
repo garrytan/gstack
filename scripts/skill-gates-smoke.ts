@@ -19,7 +19,7 @@
  * 0 when every check passes, 1 when one fails, 2 on a setup error.
  * Docs: docs/skill-gates.md#headless-smoke.
  */
-import { spawnSync } from 'child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';

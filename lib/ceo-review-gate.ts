@@ -14,7 +14,7 @@
  * else cwd) is never a candidate or the place the block names: the review's
  * own methodology sections are not its output.
  */
-import { spawnSync } from 'child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'fs';
 import * as path from 'path';
 import { isPlaceholder, sameSkill, skillLoads, type SkillLoad, type Transcript } from './skill-contract';

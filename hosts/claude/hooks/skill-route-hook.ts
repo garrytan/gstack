@@ -1,12 +1,12 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * skill-route-hook — UserPromptSubmit hook that names the gstack skill a prompt
- * fits (GST-1088, lane A). Off unless skill_routing is on (env
+ * skill-route-hook — UserPromptSubmit hook that names the skill a prompt fits,
+ * or the two that fit best (GST-1088, lane A; installed skills, GST-3123). On unless skill_routing is off (env
  * GSTACK_SKILL_ROUTING, then config skill_routing, then SWITCH_DEFAULT).
  *
  *   stdin (<= 256 KiB, 500 ms) -> switch on? -> JSON object with a prompt?
- *     -> not a /command, not over 8000 chars -> score against installed triggers
- *     -> at or above ROUTE_THRESHOLD: one additionalContext line -> exit 0
+ *     -> not a /command -> score its head and tail windows against installed triggers
+ *     -> at or above ROUTE_THRESHOLD: one additionalContext line naming up to MAX_ROUTES skills -> exit 0
  *
  * CONTRACT
  *   - Always exits 0 and never exits 2: it can never block a prompt. Any error
@@ -76,9 +76,13 @@ async function main(): Promise<void> {
   }
   const route = decision.route;
   const frontmatter = skills.find(s => s.file === route.file)?.frontmatter ?? '';
-  const out = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintLine(route, variantExtra(route, frontmatter)) } });
+  const also = decision.routes[1];
+  const out = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintLine(route, variantExtra(route, frontmatter), also) } });
   await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
-  trace({ event: 'routed', skill: route.skill, score: route.score, variant: hintVariant() });
+  trace({
+    event: 'routed', skill: route.skill, score: route.score, source: route.gstack ? 'gstack' : route.file, variant: hintVariant(),
+    ...(also ? { also: also.skill, also_score: also.score, also_source: also.gstack ? 'gstack' : also.file } : {}),
+  });
 }
 
 main()

@@ -7,7 +7,7 @@
  * buildBill (offline token estimates) and the dispatch counts ship and autoplan already document,
  * each found by its quoted line so a citation that drifts is named. Read-only except the CLI's write.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

@@ -74,6 +74,7 @@ branch that changes the policy.
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, lists blocking findings in unchanged code as deferred in the PR body (never as issues), and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of deferring it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
 | `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
+| `review_content_patterns` | git glob pathspecs | `[]` | Files that `review_exclude_paths` also matches and that count as content whatever their extension (`.patch` files, `MANIFEST.sha256`, extension-less licence texts), so the exclusion leaves them out. Explicit policy only; a pattern here with no `review_exclude_paths` pattern over the same files excludes nothing. Read from the base only. See [review_content_patterns](#review-content-patterns). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add `forbid_fetch` entries, never remove one. Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
@@ -1518,14 +1519,67 @@ kept files under an applied pattern come back through a second command,
 `DIFF_KEEP: <reader> git diff <diff-base> -- ':(top,literal)<path>' …`, which every
 brief names. That command is bounded by its argument bytes (24,000 across all
 patterns, under Windows' command-line limit): a pattern whose kept files would
-pass the bound is not applied, and the plan line says so as
-`skipped=<pattern>:kept=<n>:bytes=<b>`. Files that reach readers as
+pass the bound stops the plan with
+[`REVIEW_EXCLUDE_KEEP_TOO_LARGE`](troubleshooting.md#review-exclude-keep-too-large),
+which names the pattern, the kept count and why they are kept. A pattern is
+never dropped quietly: before GST-3158 it was left out with only a `skipped=`
+note, and the whole folder went to readers. Files that reach readers as
 [secret-line excerpts](#secret-line-excerpts) are not on that command, so they
 do not count toward the bound, and gstack reads them in git calls of at most
 24,000 argument bytes each (GST-1967). Every brief also gets one line:
 `Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
 on this branch matching <patterns>. They are not in your diff; do not report on
 their absence.`
+
+<a id="review-content-patterns"></a>
+### `review_content_patterns`: published data with code-shaped names
+
+`review_exclude_paths` leaves out only files gstack recognizes as content by
+their names. Some published data looks like code to it: a `.patch` file, a
+`MANIFEST.sha256`, a licence text with no extension. Those files are kept as
+`code`, so a folder full of them can't be excluded however the pattern is
+written. `review_content_patterns` is the policy saying "these are data":
+
+```json
+{
+  "review_exclude_paths": ["results/*/sessions/**"],
+  "review_content_patterns": ["results/*/sessions/**"],
+  "min_gstack_version": "<the release that introduced review_content_patterns>"
+}
+```
+
+**Example.** gstack-evals' head-to-head results PR (#352) had a 13.8 MB diff,
+13.6 MB of it published session data in one folder: 1,319 `.patch` files, a
+`licences/` folder of extension-less files and a `MANIFEST.sha256`. With only
+`review_exclude_paths`, all 1,439 files were kept as code and the PR could not
+pass the 2 MB review ceiling. With the same folder in `review_content_patterns`
+too, `gstack-review-plan` excludes the folder and readers get the ~540 KB of
+code the PR actually changes.
+
+How it works:
+
+- **Both keys must match.** A file is declared content only when a
+  `review_exclude_paths` pattern and a `review_content_patterns` pattern both
+  match it. A content pattern on its own excludes nothing. Both use the same
+  git glob dialect (`:(top,glob)` pathspecs).
+- **Explicit only.** gstack never guesses that a file is data. The policy PR
+  that adds the pattern to the base branch is the reviewed act.
+- **Read from the base only**, the same way as `review_exclude_paths`: a branch
+  that adds or widens the key changes nothing until it lands on the base.
+- **The other keep rules still apply.** A declared file is still kept when it
+  is under `.gstack/` or `.github/`, a gate path, executable, a link, agent
+  prose, a config file, a source file (`.ts`, `.js`, `.py`, `.rb`, `.sh`, `.go`,
+  `.rs`, `.dart` and the like), gate-tagged, holds a secret line, or is named by full
+  path from kept code. A binary declared file is content unless its bytes start
+  with executable magic or it is a source file (the extension check ignores
+  case). A declared non-source file is never a consumer for the named-by-code
+  scan; a source file kept there is.
+- **Excluded from review, not from the guards.** The secrets scan and the
+  sealed-output guard read every changed file, excluded ones included
+  (`test/review-content-patterns.test.ts`).
+
+Excluded declared files count as `declared:<n>` in the `REVIEW_EXCLUDE:` line's
+`content=` field.
 
 <a id="secret-line-excerpts"></a>
 **Secret-line excerpts (GST-1447).** A kept file whose only reason is
@@ -3012,9 +3066,12 @@ rule. The tool is repo code, so the receipt reruns it only with
 each stamped prefix; without the flag the file stays `changed`. The rerun is
 the Version Gate's: the stamped head (CHANGELOG folded, fragments deleted), a
 bare environment and a 120-second limit, so an output that depends on anything
-else fails closed as `changed`. With `stamp_files` set, a file outside it
-is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
-its diff. Any other byte is a change. A diff git cannot produce between the two
+else fails closed as `changed`. `gstack-pregate clear --receipt
+--allow-repo-commands` applies the same rule to a remote gate receipt from a
+predecessor tree (GST-3067). With `stamp_files` set, a file outside it and
+outside `release_outputs` is `changed (stamp_files: not in the repo's
+stamp_files allowlist)` whatever its diff; a `release_outputs` path is judged
+by the release-output rule above. Any other byte is a change. A diff git cannot produce between the two
 heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never
 reads as no change.
 

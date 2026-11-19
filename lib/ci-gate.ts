@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { headCheckRows, type HeadCheckRow } from './ci-head-checks';
 import { MIN_POLL_MS, pollDelayMs, syncLimitEnv, withRateLimit } from './gh-poll';
 

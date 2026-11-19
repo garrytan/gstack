@@ -1,4 +1,0 @@
----
-important: security
----
-- **A security finding's location and reason no longer go into a PR body.** When an owner ruled a security review finding a note, or a review deferred one in code the PR did not change, the PR body, its receipt block and the `Ruled note:`, `Gate disposition:` and deferred-findings lines named the file, line and reason, which on a public repository points at a live exposure. Findings whose category is `security`, `auth`, `secret` or `red-team` now print an opaque id and "security finding, details recorded privately"; the details stay in the private approval record (`gstack-approvals list`) and the local review files. `gstack-ship-receipt write` and `gstack-post` also refuse text that names a raw `path:line:security` fingerprint. Other findings print exactly as before.

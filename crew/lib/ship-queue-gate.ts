@@ -17,7 +17,7 @@
  * to leave the lane's machine.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { mergeChangelogs } from '../../lib/changelog-check';

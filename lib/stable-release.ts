@@ -13,7 +13,7 @@
  * project's own release tags never stand in for gstack's.
  * bin/gstack-doctor-check.sh resolves it the same way in Bash for its floor row.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { cmpVersion, parseVersion } from './version-source';

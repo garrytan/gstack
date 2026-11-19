@@ -39,10 +39,13 @@ explicit "no" removes a live registration. `GSTACK_TIMELINE_STOP_HOOK=no` and
 --source gstack-timeline-stop` removes it by hand, and `gstack-uninstall`
 removes it too.
 
-Two more hooks are off by default and registered only when you turn them on:
-skill routing (`./setup --skill-routing`, a `UserPromptSubmit` hook that names
-the gstack skill a prompt fits) and skill contracts (`./setup --skill-contracts`,
-a `Stop` hook that blocks once when a skill ends without its required outputs);
+Three more hooks are on by default: skill routing (a `UserPromptSubmit` hook
+that names the gstack skill, or an installed skill with its own `triggers:`, that
+a prompt fits), skill contracts (a `Stop` hook that
+blocks once when a skill ends without its required outputs) and the
+destructive-command check (a `PreToolUse` hook that runs /careful's check before
+every Bash and PowerShell command). Turn one off with `./setup --no-skill-routing`,
+`--no-skill-contracts` or `--no-destructive-guard`, or `gstack-config set <name> off`;
 see [skill-routing-and-contracts.md](skill-routing-and-contracts.md). The
 opt-in skill gates (`./setup --ceo-review-gate`, `./setup --autoplan-gate`)
 register their own hooks the same way; see [skill-gates.md](skill-gates.md).

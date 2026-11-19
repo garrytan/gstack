@@ -8,7 +8,7 @@
  * resolved is reported (`LANE_REF_UNAVAILABLE`), never assumed clear. Planned
  * paths may be globs (`lib/**`); `*` and `**` are the only wildcards.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { globToRegExp } from '../../lib/ship-policy';
 
 export interface LaneRef { branch: string; pr: number | null; ref: string }

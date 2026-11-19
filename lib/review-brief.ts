@@ -21,7 +21,7 @@
  * gstack-review-dispatch pass wrote for the kept files whose only reason is a secret line). Unset, every brief renders byte for byte as before. The base policy's readers.forbid_paths
  * (lib/review-fetch.ts) arrive the same way as policy_exclude items, without a disclosure.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
