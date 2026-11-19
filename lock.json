@@ -1,5 +1,8 @@
 {
-  "released": true,
-  "by": "cox.local:5977",
-  "at": "2026-11-19T09:02:40.438Z"
+  "pr": "4515",
+  "holder": "cox.local:6664",
+  "started_at": "2026-11-19T10:27:10.855Z",
+  "phase": "merging",
+  "journal": "land-pin:ec512c31ba6ddafeb380b49e85cccf6f0486e802",
+  "phase_at": "2026-11-19T10:27:10.856Z"
 }
