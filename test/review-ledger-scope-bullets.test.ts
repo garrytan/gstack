@@ -2,10 +2,11 @@
  * The collector read a reader's own scope list or passed-checks bullets as findings (GST-3201). On #4518 (p1, native adversarial
  * reader) "- a HIGH finding still refused;" in its list of what the tests cover collected as HIGH, and on #4519 (round 2, Red Team)
  * "- `missing_verdict` can't occur alongside P0 or P1 findings." in its list of checks that held collected as P0. Both replies
- * declared REVIEW_VERDICT: blocking=0, and both forced an owner ruling. Excerpts of the captured outputs below, as returned.
+ * declared REVIEW_VERDICT: blocking=0, and both forced an owner ruling, since a list item was never a summary candidate the lead could
+ * lower. Such a bullet now keeps its label and becomes one. Excerpts of the captured outputs below, as returned.
  */
 import { describe, expect, test } from 'bun:test';
-import { parseReply } from '../lib/review-ledger';
+import { judge, parseReply, type MergedLine } from '../lib/review-ledger';
 
 const CAPTURED_4518_P1_ADVERSARIAL = [
   'REVIEWED_TREE: 5733be6b184a1f8387580c089b4c0413beeb304b /workspace/gstack',
@@ -44,36 +45,48 @@ const CAPTURED_4519_R2_RED_TEAM = [
   JSON.stringify({ severity: 'INFORMATIONAL', confidence: 5, path: 'lib/outside-review-result.ts', line: 73, category: 'red-team', summary: "The tighter BUDGET_FAILURE regex no longer recognizes some real 402 spellings that the old one caught, such as 'Request failed with status code (402)' and 'got 402 from proxy' (both checked at runtime: false). Those now fall through to execution_failed. The gate still fails closed, but the user gets generic advice instead of the budget_exhausted fix.", fix: "Allow '(' in the separator class, e.g. [\\s:=\"'(]{0,4}, or accept that these spellings are rare.", fingerprint: 'lib/outside-review-result.ts:73:red-team', specialist: 'red-team' }),
 ].join('\n');
 
-const labels = (reader: string, out: string) => parseReply(reader, out, true, true).findings.map(f => [f.label, f.raw.slice(0, 40)]);
+const rows = (reader: string, out: string) => parseReply(reader, out, true, true).findings.map(f => [f.label, f.raw.slice(0, 40), !!f.summary]);
+const reply = (verdict: string, line: string) => ['REVIEWED_TREE: 42315eacf53a28493d84f02f9c3701e295a04733 /workspace/gstack', verdict, '', line].join('\n');
+const ZERO = 'REVIEW_VERDICT: blocking=0';
+/** The merged lines collect writes for a reply, then lead judgment lowering every line to INFORMATIONAL with a reason. */
+const lowered = (reader: string, out: string) => {
+  const merged: MergedLine[] = parseReply(reader, out, true, true).findings.map((f, i) => ({ id: `${reader}#${i + 1}`, reader, label: f.label, raw: f.raw, output_sha256: 'x', ...(f.summary ? { summary_candidate: true as const } : {}) }));
+  return judge(merged, merged.map(m => ({ id: m.id, severity: 'INFORMATIONAL', reason: 'the reader lists what passed; it reports no defect' })));
+};
 
 describe('a reader\'s scope and passed-checks bullets under a blocking=0 verdict', () => {
-  // Value: protects=a bullet that names severities only as a kind of finding never blocks when the reader declared blocking=0;
-  //   fails_when=#4518's or #4519's bullet collects as HIGH or P0 again, or a real finding loses its label; why_new=both forced
-  //   owner rulings (GST-3201); seam=parseReply with the verdict ask, as collect calls it; no_claim=lead judgment downstream
-  test('#4518: the scope-list bullet stays on record at INFORMATIONAL; the real finding keeps Severity: Low', () => {
-    expect(labels('adversarial-native', CAPTURED_4518_P1_ADVERSARIAL)).toEqual([
-      ['INFORMATIONAL', '- a HIGH finding still refused;'],
-      ['Low', "2. **claim's re-read check is now always"],
+  // Value: protects=a bullet that names severities only as a kind of finding, in a reply declaring blocking=0, is a summary candidate
+  //   the lead may lower with a reason, and still blocks until then; fails_when=#4518's or #4519's bullet cannot be lowered without an
+  //   owner ruling again, or a bullet asserting a blocker ("Two P0 findings remain") loses its label; why_new=both forced owner
+  //   rulings (GST-3201); seam=parseReply with the verdict ask and judge, as collect and the lead use them; no_claim=/ship's Step 11 prose
+  test('#4518: the scope-list bullet keeps HIGH as a summary candidate; the real finding keeps Severity: Low', () => {
+    expect(rows('adversarial-native', CAPTURED_4518_P1_ADVERSARIAL)).toEqual([
+      ['HIGH', '- a HIGH finding still refused;', true],
+      ['Low', "2. **claim's re-read check is now always", false],
     ]);
   });
 
-  test('#4519: the passed-check bullet stays on record at INFORMATIONAL, and the verdict agrees', () => {
+  test('#4519: the passed-check bullet keeps P0 as a summary candidate, so the lead can lower it with a reason', () => {
     const r = parseReply('red-team', CAPTURED_4519_R2_RED_TEAM, true, true);
-    expect(r.findings.map(f => f.label)).toEqual(['INFORMATIONAL', 'INFORMATIONAL']);
-    expect(r.verdict).toEqual({ state: 'valid', parsed: 0, declared: 0, agrees: true });
+    expect(r.findings.map(f => [f.label, !!f.summary])).toEqual([['P0', true], ['INFORMATIONAL', false]]);
+    expect(r.verdict).toEqual({ state: 'valid', parsed: 1, declared: 0, agrees: false });
+    expect(lowered('red-team', CAPTURED_4519_R2_RED_TEAM)).toMatchObject({ ok: true, dismissed: ['red-team#1'], downgraded: [] });
+    expect(lowered('adversarial-native', CAPTURED_4518_P1_ADVERSARIAL)).toMatchObject({ dismissed: ['adversarial-native#1'] });
   });
 
-  test('negative controls: the same bullet still collects as written without blocking=0, and a bullet that reports a defect still does', () => {
-    const bullet = "- `missing_verdict` can't occur alongside P0 or P1 findings.";
-    const reply = (verdict: string, line: string) => ['REVIEWED_TREE: 42315eacf53a28493d84f02f9c3701e295a04733 /workspace/gstack', verdict, '', line].join('\n');
-    expect(labels('red-team', reply('REVIEW_VERDICT: blocking=1', bullet))[0]![0]).toBe('P0');
-    expect(parseReply('red-team', bullet, true, false).findings.map(f => f.label)).toEqual(['P0']);
-    expect(labels('adversarial-native', CAPTURED_4518_P1_ADVERSARIAL.replace('- a HIGH finding still refused;', '- a HIGH finding still refused at lib/host-publish.ts:40;'))[0]![0]).toBe('HIGH');
-    const zero = 'REVIEW_VERDICT: blocking=0';
-    expect(labels('red-team', reply(zero, '- P0: the gate drops a HIGH finding.'))[0]![0]).toBe('P0');
-    expect(labels('red-team', reply(zero, '- a HIGH finding: the cache key drops the tree.'))[0]![0]).toBe('HIGH');
-    expect(labels('red-team', reply(zero, '- a HIGH finding still refused. Severity: High'))[0]![0]).toBe('High');
-    expect(labels('adversarial-native', reply(zero, '- a HIGH finding is dropped, FIXABLE.'))[0]![0]).toBe('CRITICAL');
-    expect(labels('red-team', reply(zero, '- the HIGH path crashes when the ledger is empty.'))[0]![0]).toBe('HIGH');
+  test('negative controls: a bullet asserting a blocker keeps its label and blocks until judged; other shapes collect as before', () => {
+    for (const line of ['- Two P0 findings remain unfixed.', '- The P0 finding is that the gate drops rows.']) {
+      expect(rows('red-team', reply(ZERO, line))).toEqual([['P0', line.slice(0, 40), true]]);
+      expect(parseReply('red-team', reply(ZERO, line), true, true).verdict).toMatchObject({ parsed: 1, agrees: false });
+    }
+    expect(rows('red-team', reply('REVIEW_VERDICT: blocking=1', "- `missing_verdict` can't occur alongside P0 or P1 findings."))[0]).toEqual(['P0', "- `missing_verdict` can't occur alongsid", false]);
+    expect(parseReply('red-team', "- `missing_verdict` can't occur alongside P0 or P1 findings.", true, false).findings.map(f => [f.label, !!f.summary])).toEqual([['P0', false]]);
+    expect(rows('adversarial-native', CAPTURED_4518_P1_ADVERSARIAL.replace('- a HIGH finding still refused;', '- a HIGH finding still refused at lib/host-publish.ts:40;'))[0]![2]).toBe(false);
+    expect(rows('red-team', reply(ZERO, '- P0: the gate drops a HIGH finding.'))[0]).toEqual(['P0', '- P0: the gate drops a HIGH finding.', false]);
+    expect(rows('red-team', reply(ZERO, '- a HIGH finding: the cache key drops the tree.'))[0]![2]).toBe(false);
+    expect(rows('red-team', reply(ZERO, '- a HIGH finding still refused. Severity: High'))[0]![2]).toBe(false);
+    expect(rows('adversarial-native', reply(ZERO, '- a HIGH finding is dropped, FIXABLE.'))[0]).toEqual(['CRITICAL', '- a HIGH finding is dropped, FIXABLE.', false]);
+    expect(rows('red-team', reply(ZERO, '- the HIGH path crashes when the ledger is empty.'))[0]![2]).toBe(false);
+    expect(lowered('red-team', reply(ZERO, '- P0: the gate drops a HIGH finding.'))).toMatchObject({ ok: false, downgraded: ['red-team#1'] });
   });
 });

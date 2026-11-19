@@ -17,8 +17,8 @@
  * an untrusted command set, a missing policy source or the verify_before_commit
  * switch ends it with one `VERIFY skipped: <reason>` line, and a not-run result
  * (ENV, UNMAPPED, TOO_BROAD) is named, never a red. A TIMEOUT is a red: a check
- * that never finished proved nothing, and the whole pass runs under one deadline
- * so its line prints inside Claude Code's 10-minute Bash limit.
+ * that never finished proved nothing. The checks share one deadline, and the
+ * test stage starts with what is left (its runner can still run past it).
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';

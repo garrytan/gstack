@@ -22,7 +22,8 @@ const USAGE = `Usage: gstack-checks <detect|trust|run|status|quick> [options]
   quick [--timeout <s>]  the pre-commit pass: run's checks and tests with no consent prompt, ending with one line,
                          VERIFY PASS|FAIL|skipped: <what>; untrusted commands, no pregate context or
                          verify_before_commit=off skip instead of stopping; exit 1 only on FAIL, and a TIMEOUT
-                         is a FAIL; --timeout bounds the whole pass (default 540, inside a 10-minute Bash call)
+                         is a FAIL; --timeout (default 540) is one budget the checks share, and the test
+                         stage starts with what is left
 
   --base <branch>        the branch pregate selects against (default: origin/HEAD's branch, else main)
 
