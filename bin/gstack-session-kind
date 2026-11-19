@@ -74,8 +74,9 @@ fi
 #    up to the nearest codex process (argv[0], or argv[1] under node or a script
 #    interpreter) and read its subcommand. Linux's /proc keeps argv boundaries;
 #    elsewhere ps joins argv with spaces, so a TUI started with --no-daemon and a
-#    prompt whose first word is "exec" would read as exec there. Any read failure
-#    (no ps, as in Git Bash) means no signal.
+#    prompt whose first word is "exec" would read as exec there. Linux also reads
+#    parent pids from /proc, so a slim image without ps still works. Elsewhere
+#    any read failure (no ps, as in Git Bash) means no signal.
 _codex_argv() {
   if [ -r "/proc/$1/cmdline" ]; then tr '\0' '\n' < "/proc/$1/cmdline"; else ps -o args= -p "$1" 2>/dev/null | tr ' ' '\n'; fi
 }
@@ -100,7 +101,11 @@ _codex_noninteractive_ancestor() {
     if [ "$found" -eq 1 ]; then
       case "$sub" in exec|e|review) return 0 ;; *) return 1 ;; esac
     fi
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') || return 1
+    if [ -r "/proc/$pid/status" ]; then
+      pid=$(while read -r tok sub; do [ "$tok" = "PPid:" ] && { echo "$sub"; break; }; done < "/proc/$pid/status")
+    else
+      pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') || return 1
+    fi
     depth=$((depth + 1))
   done
   return 1

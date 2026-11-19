@@ -109,6 +109,22 @@ describe.skipIf(process.platform === 'win32')('Codex sessions (GST-3161)', () =>
     expect(underCodex(['exec', 'x'], { CODEX_THREAD_ID: '' })).toBe('interactive');
     expect(underCodex(['exec', 'x'], { GSTACK_SESSION_KIND: 'unattended' })).toBe('unattended');
   });
+
+  test.skipIf(process.platform !== 'linux')('a shell between codex exec and the helper, with no ps on PATH → headless (Linux reads parent pids from /proc)', () => {
+    const nested = path.join(dir, 'nested', 'codex');
+    const noPs = path.join(dir, 'no-ps-bin');
+    fs.mkdirSync(path.dirname(nested));
+    fs.mkdirSync(noPs);
+    fs.writeFileSync(nested, `#!/usr/bin/env bash\nbash -c '"$SK_BIN"; true'\n`, { mode: 0o755 });
+    for (const tool of ['bash', 'tr']) fs.symlinkSync(Bun.which(tool)!, path.join(noPs, tool));
+    const run = (args: string[]) => execFileSync(nested, args, {
+      env: { PATH: noPs, SK_BIN: BIN, CODEX_THREAD_ID: 't-1', CODEX_CI: '1' },
+      encoding: 'utf-8',
+      timeout: 30_000,
+    }).trim();
+    expect(run(['exec', 'fix the bug'])).toBe('headless');
+    expect(run(['app-server', '--listen', 'unix://'])).toBe('interactive');
+  });
 });
 
 describe('GSTACK_SESSION_KIND explicit override (#2733)', () => {
