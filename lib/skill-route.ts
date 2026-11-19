@@ -95,23 +95,18 @@ export function installedSkillsDir(env: NodeJS.ProcessEnv = process.env): string
   return path.join(env.CLAUDE_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.claude'), 'skills');
 }
 
-/** The first 16 KiB of a file, with CRLF line ends read as LF. */
-function readHead(file: string): string {
+/** The frontmatter between the leading `---` lines, read from at most the first 16 KiB; null without one. */
+export function readFrontmatter(file: string): string | null {
   const fd = fs.openSync(file, 'r');
   try {
     const buf = Buffer.alloc(FRONTMATTER_MAX_BYTES);
-    return buf.subarray(0, fs.readSync(fd, buf, 0, FRONTMATTER_MAX_BYTES, 0)).toString('utf8').replace(/\r\n/g, '\n');
+    const text = buf.subarray(0, fs.readSync(fd, buf, 0, FRONTMATTER_MAX_BYTES, 0)).toString('utf8').replace(/\r\n/g, '\n');
+    if (!text.startsWith('---\n')) return null;
+    const end = text.indexOf('\n---', 4);
+    return end < 0 ? null : text.slice(4, end);
   } finally {
     fs.closeSync(fd);
   }
-}
-
-/** The frontmatter between the leading `---` lines, read from at most the first 16 KiB; null without one. */
-export function readFrontmatter(file: string): string | null {
-  const text = readHead(file);
-  if (!text.startsWith('---\n')) return null;
-  const end = text.indexOf('\n---', 4);
-  return end < 0 ? null : text.slice(4, end);
 }
 
 export function frontmatterName(frontmatter: string, fallback: string): string {
@@ -127,14 +122,19 @@ const SKILL_NAME = /^[A-Za-z0-9_][A-Za-z0-9_:-]{0,63}$/;
 export const MAX_ROUTES = 2;
 const GSTACK_ROOT = path.resolve(import.meta.dir, '..');
 
-/** gstack is true when the skill's directory holds .gstack-owned, its SKILL.md resolves into gstack's checkout, or it carries gen-skill-docs' banner. */
+/** gstack is true when the skill's directory holds .gstack-owned or its SKILL.md resolves into gstack's checkout. */
 export interface InstalledSkill { name: string; file: string; frontmatter: string; triggers: string[]; gstack?: boolean }
 
+/**
+ * The alias skills ./setup installs beside the generated ones (_install_alias_skill_md, the connect-chrome link). A
+ * skill built from a gstack-style template carries the same generated-file banner, so names, not the banner, decide.
+ */
+const GSTACK_ALIASES = ['_gstack-command', 'connect-chrome'];
 let templateNames: Set<string> | null = null;
-/** The skills gstack's checkout generates (a directory with SKILL.md.tmpl, and the root gstack skill); empty in a copied hook tree. */
+/** The skills gstack's checkout generates (a directory with SKILL.md.tmpl, and the root gstack skill) and its aliases. */
 function gstackSkillNames(): Set<string> {
   if (templateNames) return templateNames;
-  templateNames = new Set();
+  templateNames = new Set(GSTACK_ALIASES);
   try {
     for (const d of fs.readdirSync(GSTACK_ROOT)) if (fs.existsSync(path.join(GSTACK_ROOT, d, 'SKILL.md.tmpl'))) templateNames.add(d);
     if (fs.existsSync(path.join(GSTACK_ROOT, 'SKILL.md.tmpl'))) templateNames.add('gstack');
@@ -145,13 +145,11 @@ const baseName = (name: string) => name.toLowerCase().replace(/^gstack[-:]/, '')
 /** One of gstack's own skills: marked at install, or named like a skill gstack's checkout generates. */
 export const isGstackSkill = (s: InstalledSkill) => s.gstack === true || gstackSkillNames().has(baseName(s.name));
 
-const GENERATED_BANNER = /^<!-- AUTO-GENERATED from SKILL\.md\.tmpl/m;
-
 function ownedByGstack(dir: string, file: string): boolean {
   if (fs.existsSync(path.join(dir, '.gstack-owned'))) return true;
   try {
     const rel = path.relative(fs.realpathSync(GSTACK_ROOT), fs.realpathSync(file));
-    return (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || GENERATED_BANNER.test(readHead(file));
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
   } catch {
     return false;
   }
