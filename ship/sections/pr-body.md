@@ -309,7 +309,7 @@ It updates the body, then the title, retries a retired-GraphQL edit through REST
 reads the title back. Then resolve the draft state from Step 9's gate findings:
 
 1. Step 6.5 opened this PR as an early draft, the user did not ask for a draft, and no
-   gate finding is `open`: mark it ready now with `gh pr ready <pr-number>`.
+   gate finding is `open`: mark it ready now with `gh pr ready <pr-number>` (on Capy, with the host's PR tool instead).
 2. Step 6.5 opened it as an early draft and any gate finding is `open`: leave it a
    draft; print `Draft kept: Gate edits: N open` and the open findings' `gate` and path.
 3. The PR was already ready (not a draft) and any gate finding is `open`: publish only

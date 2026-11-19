@@ -199,6 +199,7 @@ function open(env: EarlyEnv, args: string[]): number {
     env.out(created.stdout);
     if (created.status !== 0) { env.err(created.stderr); return created.status; }
     const url = /^https?:\/\/\S+\/pull\/(\d+)\s*$/m.exec(created.stdout);
+    if (!url && /^HOST_PUBLISH: /m.test(created.stdout)) { env.err("gstack-post handed the draft to the host's PR tool (HOST_PUBLISH above), so there is no PR to trigger yet; open it there or continue without early review.\n"); return 3; }
     if (!url) { env.err("gstack-post did not print the new PR URL.\n"); return 3; }
     env.out(`EARLY_PR: ${url[1]}\nEARLY_PR_URL: ${url[0].trim()}\nEARLY_PR_OPENED_AT: ${Math.floor(env.now() / 1000)}\n`);
     if (ready) { env.out("GREPTILE_TRIGGER: not needed (ready PR; Greptile reviews it when opened)\n"); return 0; }
