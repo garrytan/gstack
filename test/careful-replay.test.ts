@@ -211,7 +211,7 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['dry run in another statement', 'aws s3 rm s3://example-invalid/demo --recursive --dryrun; terraform destroy', 'ask', 'clean'],
   ['dry run in another statement', 'terraform destroy -var name=plan', 'ask', 'clean'],
   ['push dry run in a flag group', 'git push -nf origin main', 'allow', 'clean'],
-  ['wipefs on a file', 'wipefs -a demo.img', 'allow', 'clean'],
+  ['wipefs on a file (GST-3207: no image exemption)', 'wipefs -a demo.img', 'deny', 'clean'],
   ['wipefs on a file (control)', 'wipefs -a /dev/sdb', 'deny', 'clean'],
   ['SQL shape in a search or text', "grep 'truncate demo;' fixtures.sql", 'allow', 'clean'],
   ['SQL shape in a search or text', "echo 'truncate demo;'", 'allow', 'clean'],
@@ -235,7 +235,7 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['round 2: cd after time', 'time cd B && git reset --hard', 'ask', 'clean'],
   ['round 2: cd then a discard (control)', 'cd B && git clean -fdx', 'ask', 'clean'],
   ['round 2: an image suffix under /dev', 'wipefs -a /dev/sdb.img', 'deny', 'clean'],
-  ['round 2: wipefs option values', 'wipefs -t ext4 -a demo.img', 'allow', 'clean'],
+  ['round 2: wipefs option values (GST-3207: no image exemption)', 'wipefs -t ext4 -a demo.img', 'deny', 'clean'],
   ['wipefs in the regex again: targets from xargs', 'ls /dev/sd* | xargs wipefs -a', 'deny', 'clean'],
   ['wipefs in the regex again: targets from stdin', 'echo /dev/sdb | xargs wipefs --all', 'deny', 'clean'],
   ['wipefs in the regex again: --a', 'wipefs --a /dev/sdb', 'deny', 'clean'],
@@ -244,13 +244,42 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['wipefs in the regex again: attached value in a group', 'wipefs -aftvfat /dev/sdb', 'deny', 'clean'],
   ['wipefs in the regex again: image suffix under /dev', 'wipefs --al /dev/sdb.img', 'deny', 'clean'],
   ['wipefs in the regex again: image names from xargs', 'ls *.img | xargs wipefs -a', 'deny', 'clean'],
-  ['wipefs in the regex again: attached value on an image (control)', 'wipefs -a -tvfat demo.img', 'allow', 'clean'],
-  ['wipefs in the regex again: several images (control)', 'wipefs --all disk.qcow2 build/b.iso', 'allow', 'clean'],
+  ['wipefs in the regex again: attached value on an image (GST-3207: no image exemption)', 'wipefs -a -tvfat demo.img', 'deny', 'clean'],
+  ['wipefs in the regex again: several images (GST-3207: no image exemption)', 'wipefs --all disk.qcow2 build/b.iso', 'deny', 'clean'],
   ['wipefs round 2: an image name that is a symlink', 'wipefs -a alias.img', 'deny', 'clean'],
   ['wipefs round 2: a symlink made in the same command', 'ln -sf /dev/sdb d.img; wipefs -a d.img', 'deny', 'clean'],
   ['wipefs round 2: output redirected into a disk', 'wipefs -a demo.img > /dev/mmcblk0', 'deny', 'clean'],
   ['wipefs round 2: a quoted spelling beside a proven wipe', "wipefs -a demo.img; wi''pefs -a /dev/sdb", 'deny', 'clean'],
-  ['wipefs round 2: errors sent to /dev/null (control)', 'wipefs -a demo.img 2>/dev/null', 'allow', 'clean'],
+  ['wipefs round 2: errors sent to /dev/null (GST-3207: no image exemption)', 'wipefs -a demo.img 2>/dev/null', 'deny', 'clean'],
+];
+
+// GST-3207: checks that only get stricter than 17303862: wipefs -a on every target, disk redirects with quotes or
+// through a link to /dev, a # inside quotes, and --no-dry-run. Every row but the controls was allowed or asked at
+// 17303862; [item, command, expected, tree].
+const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
+  ['wipefs: no image exemption', "wipefs -a demo.img >'/dev'/sdb", 'deny', 'clean'],
+  ['wipefs: no image exemption', 'wipefs -a demo.img" #" /dev/sda', 'deny', 'clean'],
+  ['wipefs: no image exemption', 'wipefs -a demo.img > devlink/sdb', 'deny', 'clean'],
+  ['wipefs: no image exemption (control: without -a it only lists)', 'wipefs demo.img', 'allow', 'clean'],
+  ['wipefs: a longer word is not wipefs (control)', 'echo wipefs-archive && wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['wipefs: a backslash before the name', '\\wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['quoted /dev redirect', "echo hi >'/dev'/sdb", 'deny', 'clean'],
+  ['quoted /dev redirect', 'echo hi > "/dev/mmcblk0"', 'deny', 'clean'],
+  ['redirect through a folder that links to /dev', 'echo hi > devlink/sdb', 'deny', 'clean'],
+  ['redirect through a folder that links to /dev (control: not a disk name)', 'echo hi > devlink/null', 'allow', 'clean'],
+  ['redirect through a folder that links to /dev (control: a real folder)', 'echo hi > build/sdb', 'allow', 'clean'],
+  ['quoted #', 'rm -rf "a #" ~', 'deny', 'clean'],
+  ['quoted # (control: a real comment)', "rm -rf 'x' # ~", 'ask', 'clean'],
+  ['quoted # (control: a real comment)', 'ls # rm -rf ~', 'allow', 'clean'],
+  ['push dry run undone later', 'git push -fn --no-dry-run origin main', 'deny', 'clean'],
+  ['push dry run undone later', 'git push --force -n --no-dry-run origin main', 'deny', 'clean'],
+  ['push dry run undone later (control: the last flag wins)', 'git push --no-dry-run -fn origin main', 'allow', 'clean'],
+  ['quoted # (control: a cd after it counts as an unknown folder)', 'git commit -m "fix #12 cd /tmp/x"; rm -rf relative-demo', 'ask', 'clean'],
+  ['quoted # (control: a cd after it counts as an unknown folder)', 'echo "a #" && cd /tmp/x && rm -rf relative-demo', 'allow', 'clean'],
+  ['a backslashed cd moves to an unknown folder', '\\cd /srv/demo && git reset --hard', 'ask', 'clean'],
+  ['a backslashed cd moves to an unknown folder', '\\pushd /srv/demo && git reset --hard', 'ask', 'clean'],
+  ['a backslashed cd moves to an unknown folder (control: never scratch)', '\\cd /tmp/x && rm -rf relative-demo', 'ask', 'clean'],
+  ['wipefs: a longer word still denies, as at 17303862', 'echo wipefs-archive', 'deny', 'clean'],
 ];
 
 let base = '';
@@ -273,6 +302,7 @@ function makeTree(kind: Tree): string {
     fs.writeFileSync(path.join(dir, image), '');
   }
   fs.symlinkSync('/dev/null', path.join(dir, 'alias.img'));
+  fs.symlinkSync('/dev', path.join(dir, 'devlink'));
   git(['add', '.']);
   git(['commit', '-q', '-m', 'init']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
@@ -339,6 +369,10 @@ describe('each new rule, with negative controls', () => {
   });
 
   test.each(PARSER_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(STRICT_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
