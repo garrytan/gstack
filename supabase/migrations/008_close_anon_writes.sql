@@ -13,8 +13,9 @@
 -- Deploy order: apply 004, 005, 006 and 007; deploy telemetry-ingest and
 -- community-pulse (the new ingest writes 004's and 006's columns, and the new
 -- pulse calls 006's function); confirm one ingest event lands; then apply
--- this. Run earlier, it refuses every new event. Undo only by recreating
--- 002's policies.
+-- this. Run earlier, it refuses every new event. Undo by re-granting anon's
+-- table privileges and recreating the policies this file drops (created in
+-- 001 and 003).
 
 DROP POLICY IF EXISTS "anon_insert_only" ON telemetry_events;
 DROP POLICY IF EXISTS "anon_insert_only" ON installations;
