@@ -434,10 +434,12 @@ describe('exit-code contract (#2526)', () => {
   //   file beside data still fails closed; fails_when=a data-only range exits 2 or data hides an unknown file; seam=none; no_claim=none
   test('a data-only range prints every flag false and exits 0; an unknown file beside data is still unmatched (FOUN-505)', () => {
     const data = runScopeFull(createRepo(['wiki/labels.json', 'results/rows.tsv']));
-    expect([data.status, data.vars.SCOPE_ERROR]).toEqual([0, undefined]);
+    expect(data.status).toBe(0);
+    expect(data.vars.SCOPE_ERROR).toBeUndefined();
     expect(Object.values(data.vars).every((v) => v === 'false')).toBe(true);
     const mixed = runScopeFull(createRepo(['wiki/labels.json', 'weird/layout.xyz']));
-    expect([mixed.status, mixed.vars.SCOPE_ERROR]).toEqual([2, 'unmatched']);
+    expect(mixed.status).toBe(2);
+    expect(mixed.vars.SCOPE_ERROR).toBe('unmatched');
     expect(mixed.stdout).toContain('# unmatched: weird/layout.xyz');
     expect(mixed.stdout).not.toContain('# unmatched: wiki/labels.json');
   });
