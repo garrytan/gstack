@@ -3853,7 +3853,10 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('$codex_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
-    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('_link_codex_skill_refs "$agents_dir" "$codex_gstack"');
+    const refs = setupContent.slice(setupContent.indexOf('_link_codex_skill_refs() {'), setupContent.indexOf('\n}\n', setupContent.indexOf('_link_codex_skill_refs() {')));
+    expect(refs).toContain('for s in gstack-upgrade office-hours plan-design-review; do');
+    expect(refs).toContain('_link_or_copy');
     expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$codex_gstack"');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
     // Review runtime assets: individual files from the shared helper, never
