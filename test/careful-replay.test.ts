@@ -352,6 +352,34 @@ const FOLLOWUP_CASES: Array<[string, string, Decision, Tree]> = [
   ['SQL text (control: a file next to /dev/null)', 'echo "TRUNCATE users;" > "/dev/null x"', 'ask', 'clean'],
 ];
 
+// GST-3207 review round at 12ad94a: ways the cd chain, a group's entry state, cd $NAME and the heredoc exemption could
+// be wrong. Every row but the controls was allowed at 12ad94a and asked at 17303862; CLEAN and DIRTY name the trees.
+const REVIEW_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a cd later in a loop body', 'cd /tmp/x && for d in a b; do rm -rf relative-demo; cd ~; done', 'ask', 'clean'],
+  ['a cd later in a loop body', 'cd /tmp/x && while true; do rm -rf relative-demo; cd ~; done', 'ask', 'clean'],
+  ['a cd later in a loop body', 'cd /tmp/x && for d in a b; do { rm -rf relative-demo; }; cd ~; done', 'ask', 'clean'],
+  ['a cd later in a loop body (control: none)', 'cd /tmp/x && for d in a b; do rm -rf relative-demo; done', 'allow', 'clean'],
+  ['a function that cds', 'f(){ cd ~; }; cd /tmp/x && { f; rm -rf relative-demo; }', 'ask', 'clean'],
+  ['a function that cds', 'f(){ cd DIRTY; }; cd CLEAN && f && git reset --hard', 'ask', 'dirty'],
+  ['a sourced file or eval that cds', 'cd CLEAN && source ./env.sh && git reset --hard', 'ask', 'dirty'],
+  ['a sourced file or eval that cds', 'cd CLEAN && . ./env.sh && git reset --hard', 'ask', 'dirty'],
+  ['a sourced file or eval that cds', 'cd CLEAN && eval "$GO" && git reset --hard', 'ask', 'dirty'],
+  ['a group with no cd (control)', 'cd /tmp/x && { make; rm -rf relative-demo; }', 'allow', 'clean'],
+  ['a quoted or backslashed cd', 'cd CLEAN && \\cd DIRTY && git reset --hard', 'ask', 'dirty'],
+  ['a quoted or backslashed cd', 'cd CLEAN && c"d" DIRTY && git reset --hard', 'ask', 'dirty'],
+  ['a quoted or backslashed cd', 'cd CLEAN && \\pushd DIRTY && git reset --hard', 'ask', 'dirty'],
+  ['a quoted or backslashed cd (control: a plain cd)', 'cd CLEAN && git reset --hard', 'allow', 'dirty'],
+  ['cd $NAME set again', 'T=/tmp/zz; read T < f; cd $T && rm -rf demo', 'ask', 'clean'],
+  ['cd $NAME set again', 'T=/tmp/zz; printf -v T %s $HOME; cd $T && rm -rf demo', 'ask', 'clean'],
+  ['cd $NAME set again', 'T=/tmp/zz; for T in $HOME/proj; do cd $T && rm -rf demo; done', 'ask', 'clean'],
+  ['cd $NAME set again', 'R=CLEAN; for R in DIRTY; do cd $R && git checkout -f; done', 'ask', 'dirty'],
+  ['cd $NAME set again', 'R=CLEAN; R+=/../dirty; cd $R && git reset --hard', 'ask', 'dirty'],
+  ['cd $NAME set again (control: set once)', 'T=/tmp/zz; cd $T && rm -rf demo', 'allow', 'clean'],
+  ['heredoc file run by a tool that does not name it', "cat > Makefile <<'EOF'\nall:\n\tgit reset --hard\nEOF\nmake", 'ask', 'dirty'],
+  ['heredoc file run by a tool that does not name it', "cat > justfile <<'EOF'\nx:\n\tgit checkout -f main\nEOF\njust x", 'ask', 'dirty'],
+  ['heredoc file run by a tool that does not name it', "cat > .git/hooks/pre-commit <<'EOF'\ngit reset --hard\nEOF\ngit commit -m x", 'ask', 'dirty'],
+];
+
 let base = '';
 let scratch = '';
 const trees = {} as Record<Tree, string>;
@@ -452,6 +480,10 @@ describe('each new rule, with negative controls', () => {
 
   test.each(FOLLOWUP_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(REVIEW_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command.replaceAll('CLEAN', trees.clean).replaceAll('DIRTY', trees.dirty), tree).decision).toBe(expected);
   });
 
   test('a second cd from scratch counts only when no part of it below scratch is a symlink', () => {

@@ -167,6 +167,9 @@ _HDOC=0
 _HASH=0
 _LN=0
 _CDPATH=0
+_OPAQUE=0
+_CDN=0
+_CDT=0
 _GL=0
 _SUBD=0
 _LV_TMP=" "
@@ -351,10 +354,36 @@ _careful_outside() {
   return 0
 }
 
+# Ways a command can move its folder or set a variable out of the scan's
+# sight: a shell function, source, . or eval runs in this shell, and a quoted
+# or backslashed cd, pushd or popd (c"d", \pushd) is not read as one. With any
+# of them the git probe does not trust the cd chain's folder, a group's entry
+# state is not restored and cd $NAME is not resolved.
+_careful_find_opaque() {
+  local s="$CMD_MEDIUM" m q='["'"'"'\\]'
+  local fn="(^|[[:space:];&|(${_BT}{])(function[[:space:]]+[A-Za-z_]|[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*[(][[:space:]]*[)])"
+  local src="(^|[[:space:];&|(${_BT}{])(source|eval)([[:space:]]|\$)"
+  local dot="(^|[;&|(${_BT}{${_NL}]|[[:space:]](do|then|else))[[:space:]]*[.][[:space:]]"
+  local cdw="(^|[[:space:];&|(${_BT}{])(${q}*c${q}*d|${q}*p${q}*u${q}*s${q}*h${q}*d|${q}*p${q}*o${q}*p${q}*d)${q}*([[:space:];&|)]|\$)"
+  if [[ $s =~ $fn ]] || [[ $s =~ $src ]] || [[ $s =~ $dot ]]; then _OPAQUE=1; return 0; fi
+  while [[ $s =~ $cdw ]]; do
+    m="${BASH_REMATCH[0]}"
+    case "${m#"${BASH_REMATCH[1]}"}" in *[\"\'\\]*) _OPAQUE=1; return 0 ;; esac
+    s="${s#*"$m"}"
+  done
+  return 0
+}
+
 # NAME=VALUE as the command's first statement, so it runs before any use,
 # with no single quote or backslash after it: a child shell started with
-# 'cd $NAME' or <<\EOF would not see an unexported NAME.
+# 'cd $NAME' or <<\EOF would not see an unexported NAME. Nothing else in the
+# command may set NAME (read, printf -v, NAME+=, NAME[0]=, for NAME, ...).
 _careful_set_first() {
+  [ "$_OPAQUE" -eq 0 ] || return 1
+  local no='(^|[[:space:];&|(])(read|local|declare|typeset|unset|mapfile|readarray|getopts|select|let|printf[[:space:]]+-v)([[:space:]]|$)'
+  [[ $CMD_MEDIUM =~ $no ]] && return 1
+  local set="(^|[^A-Za-z0-9_])${1}([+]=|\[)|(^|[[:space:];&|(])for[[:space:]]+${1}([[:space:]]|\$)"
+  [[ $CMD_MEDIUM =~ $set ]] && return 1
   local re="^[[:space:]]*${1}=(\"[^\"\$${_BT}\\\\]*\"|'[^']*'|[^[:space:];&|\$${_BT}\\\\'\"()]+)[[:space:]]*(&&|;|${_NL})"
   [[ $CMD_MEDIUM =~ $re ]] || return 1
   case "${CMD_MEDIUM:${#BASH_REMATCH[0]}}" in *"'"*|*'\'*) return 1 ;; esac
@@ -410,7 +439,19 @@ _careful_cd() {
 # or popd ran inside the group (at the same subshell depth) since then.
 _careful_gpush() {
   _GL=$((_GL + 1))
-  _G_S[$_GL]="$_SCRATCH"; _G_D[$_GL]="$_CUR_DIR"; _G_OK[$_GL]=1; _G_SD[$_GL]="$_SUBD"; _G_K[$_GL]="$1"
+  _G_S[$_GL]="$_SCRATCH"; _G_D[$_GL]="$_CUR_DIR"; _G_OK[$_GL]=1; _G_SD[$_GL]="$_SUBD"; _G_K[$_GL]="$1"; _G_L[$_GL]=-1
+}
+# A loop body runs again after its own later statements, so a group inside a
+# loop gives back its entry state only when no cd, pushd or popd comes after
+# the loop opened (_CDT counts them all up front, _CDN those seen so far).
+_careful_grestore() {
+  [ "$_OPAQUE" -eq 0 ] && [ "${_G_OK[$_GL]}" -eq 1 ] || return 1
+  local l="$_GL"
+  while [ "$l" -gt 0 ]; do
+    [ "${_G_L[$l]}" -lt 0 ] || [ "$_CDT" -le "${_G_L[$l]}" ] || return 1
+    l=$((l - 1))
+  done
+  return 0
 }
 _careful_gpop() {
   if [ "$_GL" -gt 0 ] && [ "${_G_K[$_GL]}" = k ]; then _GL=$((_GL - 1)); fi
@@ -806,7 +847,7 @@ _careful_git() {
       [ "$_HDOC" -eq 0 ] || return 0
       # After a cd, the tree is probed only where the cd chain leads to a
       # folder that is already there.
-      if [ "$_CD_SEEN" -eq 1 ] && { [ -z "$dir" ] || [ ! -d "$dir" ]; }; then dir=""; fi
+      if [ "$_CD_SEEN" -eq 1 ] && { [ "$_OPAQUE" -eq 1 ] || [ -z "$dir" ] || [ ! -d "$dir" ]; }; then dir=""; fi
       _careful_git_lose ;;
     filter-branch|filter-repo|reflog|gc) _careful_git_hist ;;
   esac
@@ -842,6 +883,15 @@ _careful_scan() {
   local segs=( $s )
   IFS=$' \t\n'
   case "$CMD_MEDIUM" in *cd*|*pushd*|*popd*) track=1 ;; esac
+  if [ "$track" -eq 1 ]; then
+    for seg in ${segs[@]+"${segs[@]}"}; do
+      case "$seg" in *cd*|*pushd*|*popd*) ;; *) continue ;; esac
+      for t in $seg; do
+        _careful_strip "$t"
+        case "$_S" in cd|pushd|popd|'\cd'|'\pushd'|'\popd') _CDT=$((_CDT + 1)) ;; esac
+      done
+    done
+  fi
   # for over the whole array: indexing it is linear per access on bash 3.2.
   for seg in ${segs[@]+"${segs[@]}"}; do
     # With no cd, pushd or popd anywhere, the separators change no folder state.
@@ -867,7 +917,7 @@ _careful_scan() {
         _SCRATCH=0
         [ "$_CUR_DIR" = "$_CH_D" ] || _CUR_DIR=""
         _CH_D="$_CUR_DIR"; _PL_S=0; _PL_D="$_CUR_DIR"
-        if [ "$_GL" -gt 0 ] && [ "${_G_OK[$_GL]}" -eq 1 ]; then
+        if [ "$_GL" -gt 0 ] && _careful_grestore; then
           _SCRATCH="${_G_S[$_GL]}"; _CUR_DIR="${_G_D[$_GL]}"; _CH_D="$_CUR_DIR"; _PL_S="$_SCRATCH"; _PL_D="$_CUR_DIR"
         fi
         continue ;;
@@ -876,7 +926,8 @@ _careful_scan() {
     if [ "$track" -eq 1 ]; then
       t="${seg#"${seg%%[![:space:]]*}"}"; t="${t%%[[:space:]]*}"
       case "$t" in
-        for|while|until|if|select|'{') _careful_gpush k ;;
+        for|while|until|select) _careful_gpush k; _G_L[$_GL]="$_CDN" ;;
+        if|'{') _careful_gpush k ;;
         done|fi|'}') _careful_gpop ;;
       esac
     fi
@@ -905,12 +956,13 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd)
+        cd|'\cd')
+          _CDN=$((_CDN + 1))
           # A quoted ~ is not expanded, so its folder is unknown.
           if [ $((i + 1)) -lt "$n" ]; then
             case "${RW[$((i + 1))]}" in \"'~'*|\''~'*) _careful_cd - ;; *) _careful_cd "${T[$((i + 1))]}" ;; esac
           else _careful_cd ""; fi ;;
-        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""; _careful_gcd ;;
+        pushd|popd|'\pushd'|'\popd') _CDN=$((_CDN + 1)); _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""; _careful_gcd ;;
         wipefs|*/wipefs|'\wipefs') _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
@@ -954,8 +1006,8 @@ _careful_git_warn() {
 # uncommitted work (a deploy hook's GIT_WORK_TREE=... git checkout -f). The
 # body counts as run, and is read as commands, when the command runs F (as a
 # command word, or after bash, sh, source, . or exec) or, for a file under
-# hooks/, when it also runs git push. awk prints the files, \002, then the
-# marked text.
+# hooks/, when it also runs git push. awk prints the files, \002, the lines
+# outside the bodies, \003, then the marked text.
 _AWK_HEREDOC='function writes(pre, rest,   s, w, f, k, m) {
   s = pre; sub(/.*(;|&&|[|][|]|[|]|[(])/, "", s)
   if (rest ~ /^[^;&]*[|]([^|]|$)/) return ""
@@ -995,7 +1047,7 @@ function mark(s,   o, p, b, a) {
 }
 BEGIN { RS = "\001" }
 {
-  n = split($0, L, "\n"); d = ""; w = 0; fl = ""; o = ""
+  n = split($0, L, "\n"); d = ""; w = 0; fl = ""; o = ""; rs = ""
   for (i = 1; i <= n; i++) {
     l = L[i]
     if (d != "") {
@@ -1004,6 +1056,7 @@ BEGIN { RS = "\001" }
       if (t == d) d = ""
       else if (w) l = mark(l)
     } else {
+      rs = rs l "\n"
       p = index(l, "<<")
       if (p > 0 && substr(l, p + 2, 1) != "<" && index(substr(l, p + 2), "<<") == 0) {
         r = substr(l, p + 2); dash = 0
@@ -1019,14 +1072,14 @@ BEGIN { RS = "\001" }
     }
     o = o (i > 1 ? "\n" : "") l
   }
-  printf "%s\002%s", fl, o
+  printf "%s\002%s\003%s", fl, rs, o
 }'
 _RX_GIT_PUSH="(^|[^[:alnum:]_])git([[:space:]][^;&|${_NL}]*)?[[:space:]]push([[:space:]]|\$)"
 _careful_heredocs() {
-  local out fl f b re u
-  case "$CMD_MEDIUM" in *$'\001'*|*$'\002'*|*$'\007'*) return 0 ;; esac
+  local out fl f b re u rs w
+  case "$CMD_MEDIUM" in *$'\001'*|*$'\002'*|*$'\003'*|*$'\007'*) return 0 ;; esac
   out=$(printf '%s' "$CMD_MEDIUM" | awk "$_AWK_HEREDOC" 2>/dev/null) || return 0
-  fl="${out%%$'\002'*}"; out="${out#*$'\002'}"
+  fl="${out%%$'\002'*}"; out="${out#*$'\002'}"; rs="${out%%$'\003'*}"; out="${out#*$'\003'}"
   [ -n "$fl" ] || return 0
   u=$(printf '%s' "$out" | tr -d "\"'")
   re="[|][[:space:]]*((sudo|env|exec|command)[[:space:]]+)*(bash|sh|zsh|dash|ksh)([[:space:];&|)]|\$)"
@@ -1042,6 +1095,15 @@ _careful_heredocs() {
     case "/$f" in */hooks/*) [[ $out =~ $_RX_GIT_PUSH ]] && return 0 ;; esac
   done <<EOF_HEREDOC
 $fl
+EOF_HEREDOC
+  # Outside the bodies only commands that run nothing may appear: make, npm
+  # run, just or git commit run a written file without naming it.
+  rs=$(printf '%s' "$rs" | tr ';&|()'"$_BT" '\n\n\n\n\n\n')
+  while IFS= read -r w; do
+    w="${w#"${w%%[![:space:]]*}"}"; w="${w%%[[:space:]]*}"
+    case "$w" in ''|cat|tee|chmod|ls|echo|printf|test|'['|true|:|mkdir|wc|head|tail|stat) ;; *) return 0 ;; esac
+  done <<EOF_HEREDOC
+$rs
 EOF_HEREDOC
   _CMD_SCAN="$out"
   return 0
@@ -1070,6 +1132,7 @@ _CMD_SCAN="$CMD_MEDIUM"
 case "$CMD_MEDIUM" in *'<<'*) _careful_heredocs ;; esac
 _careful_find_tmpvars
 _careful_find_loopvars
+_careful_find_opaque
 _careful_scan
 
 # --- HIGH tier: hard deny (best-effort advisory hard-stop, NOT a policy boundary) ---
