@@ -1568,7 +1568,8 @@ How it works:
   that adds or widens the key changes nothing until it lands on the base.
 - **The other keep rules still apply.** A declared file is still kept when it
   is under `.gstack/` or `.github/`, a gate path, executable, a link, agent
-  prose, a config file, gate-tagged, holds a secret line, or is named by full
+  prose, a config file, a source file (`.ts`, `.js`, `.py`, `.rb`, `.sh`, `.go`,
+  `.rs`, `.dart` and the like), gate-tagged, holds a secret line, or is named by full
   path from kept code. A binary declared file is content unless its bytes start
   with executable magic. A declared file is never a consumer for the
   named-by-code scan.

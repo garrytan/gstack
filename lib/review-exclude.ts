@@ -13,7 +13,7 @@
  * git exclude beats any positive pathspec. That second command is bounded by its argument
  * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it refuses the plan
  * (REVIEW_EXCLUDE_KEEP_TOO_LARGE) instead of being dropped (GST-3158). A file the base policy's
- * review_content_patterns also matches is content whatever its extension: the policy says so.
+ * review_content_patterns also matches is content whatever its extension, unless it is a source file (SOURCE_EXT): the policy says so.
  *
  * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
  * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
@@ -31,6 +31,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
+import { SOURCE_EXT } from './pregate/import-graph';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
 import { KEY_NAME, SECRET_LINE, secretPath } from './review-risk';
@@ -271,7 +272,7 @@ function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentK
   if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
   if (classifyPath(p, i.classRoot) === 'docs') return 'docs';
-  return i.declared?.has(p) ? 'declared' : null;
+  return i.declared?.has(p) && !SOURCE_EXT.test(p) ? 'declared' : null;
 }
 
 /**

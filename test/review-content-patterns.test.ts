@@ -106,6 +106,18 @@ describe('review_content_patterns negative controls', () => {
     expect(read).not.toContain(`${DIR}/summary.json`);
     expect(r.out).toMatch(new RegExp(`^DIFF_KEEP: .*${DIR}/task-0000/arm-gstack\\.patch`, 'm'));
   }, 120_000);
+
+  // Value: protects=a declaration reclassifies only names that are not code, so a branch cannot hide a source file inside a
+  //   declared folder; fails_when=a .ts or .sh file under both keys leaves review as declared content; why_new=GST-3158 review
+  //   (red-team p1#2); seam=bin/gstack-review-plan; no_claim=shebang detection in extension-less files
+  test('a source file inside a declared folder stays in review as code', () => {
+    const repo = results(policy([`${DIR}/**`], [`${DIR}/**`]), 3, { [`${DIR}/loader.ts`]: 'export const load = () => 1;\n', [`${DIR}/fetch.sh`]: 'curl -s example.invalid\n' });
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toMatch(/^REVIEW_EXCLUDE: patterns=1\/1 excluded=6 bytes=\d+ kept=2 content=declared:6 /m);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/loader.ts`);
+    expect(r.out).toContain(`REVIEW_EXCLUDE_KEPT: code ${DIR}/fetch.sh`);
+  }, 120_000);
 });
 
 describe('excluded from review is not excluded from the guards', () => {
