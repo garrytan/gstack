@@ -173,14 +173,17 @@ reinstall() { # FROM — run the install step; a pending marker survives a failu
   # failure: no pending marker for it.
   if [ "$_rc" -ne 0 ] && [ "$(cat "$_held")" = "gstack: fail wrapper" ]; then
     rm -f "$PENDING"
+    upg_tel none "$1"
     echo "gstack-upgrade: reinstalled $(head -1 "$ROOT/VERSION"); only the wrapper row failed (an owner action on the Drive copy, CAPY_WRAPPER_STALE), so no reinstall is pending"
   fi
   if [ "$_rc" -eq 0 ]; then
-    upg_tel none "$1"
     [ -n "$CALLER_PROJECT" ] || cat "$_held"
-    rm -f "$PENDING" "$_held" "$_ierr"; certify
+    rm -f "$PENDING" "$_held" "$_ierr"
+    ( certify ); _rc=$?
+    upg_tel "$([ "$_rc" -eq 0 ] && echo none || echo setup_failed)" "$1"
+    exit "$_rc"
   fi
-  upg_tel setup_failed "$1"
+  [ -f "$PENDING" ] && upg_tel setup_failed "$1"
   [ -s "$_held" ] && cat "$_held"
   [ "$_rc" -eq 3 ] && [ ! -s "$_held" ] && stop_trailer "$_ierr"
   rm -f "$_held" "$_ierr"
