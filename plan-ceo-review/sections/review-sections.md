@@ -549,7 +549,7 @@ Execute the four steps once:
    header only frames it. Accept findings only if it is an identifiable complete
    final reviewer report. Reject raw or in-progress transcripts; do not extract
    finding fragments from them. Terminal status or warning markers alone do not
-   establish report completeness. If any check fails or the report cannot be identified, follow step 4. Otherwise call TaskStop with the timer's ID, present it under an `OUTSIDE VOICE (Claude subagent):`
+   establish report completeness. If any check fails or the report cannot be identified, follow step 4. Otherwise call TaskStop with the timer's ID, present it under an `OUTSIDE VOICE (native subagent):`
    header, then continue to **Integrate reviewer findings**.
 4. Otherwise (timer first, no ID, failed or stopped status, partial or empty result,
    or Agent returns a report directly: no enforced deadline, so no credit), call

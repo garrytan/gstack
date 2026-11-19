@@ -84,7 +84,13 @@ fi
 # Gate findings get `actor` from the session classifier, never from the caller;
 # a non-interactive session's gate findings are forced to action "open".
 SESSION_KIND=$("$SCRIPT_DIR/gstack-session-kind" 2>/dev/null || echo interactive)
-export GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" GSTACK_STAMP_SESSION_KIND="$SESSION_KIND"
+# host comes from the harness detector (gstack-host), never from the caller:
+# the installed docs' baked-in host names the install target, not the harness
+# actually running (a session under a registered harness id stamps that id,
+# not the claude render's label). No gstack-host on the PATH (older install)
+# leaves the stamp empty and bindReview keeps the caller's value.
+GSTACK_STAMP_HOST=$("$SCRIPT_DIR/gstack-host" 2>/dev/null || true)
+export GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" GSTACK_STAMP_SESSION_KIND="$SESSION_KIND" GSTACK_STAMP_HOST="$GSTACK_STAMP_HOST"
 if [ "$INPUT" = --start ]; then
   START_SKILL="${2:-}" START_FIX="" START_RESERVATION=""
   if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi

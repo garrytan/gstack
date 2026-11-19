@@ -611,7 +611,7 @@ Note which direction was approved. This becomes the visual reference for all sub
 ## Design Outside Voices (independent)
 
 Use AskUserQuestion:
-> "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
+> "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; native subagent does an independent completeness review."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -718,7 +718,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 
 Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
-2. **Claude design subagent** (Agent tool, `run_in_background: false` when available; await its result. A launch receipt means it went background: await its completion notice.):
+2. **native design subagent** (Agent tool, `run_in_background: false` when available; await its result. A launch receipt means it went background: await its completion notice.):
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
 1. Information hierarchy: what does the user see first, second, third? Is it right?
@@ -733,17 +733,17 @@ For each finding: what's wrong, severity (critical/high/medium), and the fix."
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+- On any Codex error: proceed with native subagent output only, tagged `[single-model]`.
+- If native subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Output headers: `CODEX SAYS (design critique):` and `CLAUDE SUBAGENT (design completeness):`.
+Output headers: `CODEX SAYS (design critique):` and `NATIVE SUBAGENT (design completeness):`.
 
 **Synthesis — Litmus scorecard:**
 
 ```
 DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
 ═══════════════════════════════════════════════════════════════
-  Check                                    Claude  Codex  Consensus
+  Check                                    native  Codex  Consensus
   ─────────────────────────────────────── ─────── ─────── ─────────
   1. Brand unmistakable in first screen?   —       —      —
   2. One strong visual anchor?             —       —      —

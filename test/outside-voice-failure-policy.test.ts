@@ -29,9 +29,9 @@ const base: OutsideVoiceFailurePolicyOptions = {
 describe('outsideVoiceFailurePolicy', () => {
   test('native fallback: every failure names the provider message and falls back to the native subagent', () => {
     expect(outsideVoiceFailurePolicy(ctxFor('claude'), base)).toBe([
-      '- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.',
-      '- **Timeout:** "Codex timed out after 5 minutes." Fall back to the Claude subagent below.',
-      '- **Empty response:** "Codex returned no response." Fall back to the Claude subagent below.',
+      '- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate." Fall back to the native subagent below.',
+      '- **Timeout:** "Codex timed out after 5 minutes." Fall back to the native subagent below.',
+      '- **Empty response:** "Codex returned no response." Fall back to the native subagent below.',
     ].join('\n'));
   });
 

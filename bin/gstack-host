@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# gstack-host — names the harness actually running this session, the way
+# gstack-session-kind names the session kind. The value is a harness id,
+# never a model (GSTACK_ACTIVE_HOST names the harness, never the model).
+# It feeds the review-log host field (stamped by gstack-review-log) and the
+# skill-start banner line, so a row records the harness actually running,
+# never the installed docs' host label (the install target).
+#
+# Usage: gstack-host            -> prints the executing harness id
+#
+# Detection order (first match wins):
+#   0. GSTACK_ACTIVE_HOST — an explicit host registration (setup --host <h>
+#      env-var hosts); always outranks ambient markers. This is the generic
+#      mechanism: a harness registers itself with its own id.
+#   1. claude — the Claude Code markers, the unchanged branch condition from
+#      bin/gstack-skill-start.
+#   2. codex — the Codex markers, the unchanged branch condition from the
+#      generated outside-voice preflight.
+#   3. claude — the primary host. No markers, no guess: today's records log
+#      "claude" here (the installed primary docs are the claude render).
+set -euo pipefail
+
+if [ -n "${GSTACK_ACTIVE_HOST:-}" ]; then
+  echo "$GSTACK_ACTIVE_HOST"
+elif [ -n "${CLAUDECODE:-}" ] && { [ -z "${GSTACK_ACTIVE_HOST:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = "claude" ]; }; then
+  echo "claude"
+elif { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo "codex"
+else
+  echo "claude"
+fi

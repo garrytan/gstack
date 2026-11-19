@@ -271,6 +271,13 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
   if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
   if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
   if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
+  // host comes from the harness detector (bin/gstack-host via
+  // GSTACK_STAMP_HOST), never from the caller: the caller's value is the
+  // installed docs' host label, which names the install target, not the
+  // harness actually running (a session under a registered harness id
+  // records that id, not the claude render's "claude"). Absent stamp
+  // (older installs) keeps the caller's value.
+  if (env.GSTACK_STAMP_HOST) rec.host = env.GSTACK_STAMP_HOST;
   stampGateFindings(rec.findings, env.GSTACK_STAMP_SESSION_KIND);
   if (rec.skill === 'review-fix-check' && (typeof rec.completed !== 'boolean' || typeof rec.converged !== 'boolean')) {
     throw new Error('review-log: a review-fix-check row must carry completed and converged as true or false (review-army item 6 fields; without them gstack-review-read marks the row UNVERIFIED and finish cannot count it)');

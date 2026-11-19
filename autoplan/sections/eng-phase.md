@@ -4,7 +4,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH native subagent AND Codex if available (P6).
 
   **Bind phase input:** Run; use `snapshotPath` as `<ENG_INPUT>` for both voices:
 ```bash
@@ -12,7 +12,7 @@ bun "<SNAPSHOT_TOOL>" create eng "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 
-  **Claude eng subagent** (native tool):
+  **native eng subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.
@@ -108,12 +108,12 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
    (unattended: `incomplete` keeps it open).
 
 2. Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
-   (eng — architecture challenge) and Claude SUBAGENT (eng — independent review).
+   (eng — architecture challenge) and native SUBAGENT (eng — independent review).
    Eng consensus table:
 
 ```
 ENG DUAL VOICES — CONSENSUS TABLE:
-  Dimension                           Claude  Codex  Consensus
+  Dimension                           native  Codex  Consensus
   1. Architecture sound?               —       —      —
   2. Test coverage sufficient?         —       —      —
   3. Perf risks + budget/bench named?  —       —      —

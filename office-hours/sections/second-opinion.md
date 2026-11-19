@@ -106,11 +106,11 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
-- **Timeout:** "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
-- **Empty response:** "Codex returned no response." Fall back to the Claude subagent below.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the native subagent below.
+- **Timeout:** "Codex timed out after 5 minutes." Fall back to the native subagent below.
+- **Empty response:** "Codex returned no response." Fall back to the native subagent below.
 
-On any Codex error, fall back to the Claude subagent below.
+On any Codex error, fall back to the native subagent below.
 
 **If preflight is not ready (or Codex errored):**
 
@@ -118,7 +118,7 @@ Dispatch via the Agent tool with `run_in_background: false` when available (suba
 
 Subagent prompt: same mode-appropriate prompt as above (Startup or Builder variant).
 
-Present findings under a `SECOND OPINION (Claude subagent):` header.
+Present findings under a `SECOND OPINION (native subagent):` header.
 
 If the subagent fails or times out: "Second opinion unavailable. Continuing to Phase 4."
 
@@ -134,18 +134,18 @@ SECOND OPINION (Codex):
 ════════════════════════════════════════════════════════════
 ```
 
-If Claude subagent ran:
+If native subagent ran:
 ```
-SECOND OPINION (Claude subagent):
+SECOND OPINION (native subagent):
 ════════════════════════════════════════════════════════════
 <full subagent output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
 ```
 
 5. **Cross-model synthesis:** After presenting the second opinion output, provide 3-5 bullet synthesis:
-   - Where Claude agrees with the second opinion
-   - Where Claude disagrees and why
-   - Whether the challenged premise changes Claude's recommendation
+   - Where native agrees with the second opinion
+   - Where native disagrees and why
+   - Whether the challenged premise changes native's recommendation
 
 6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
 

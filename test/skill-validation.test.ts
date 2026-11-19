@@ -1570,17 +1570,17 @@ describe('Codex skill', () => {
     // Carved skill: the Step 4.8 adversarial body lives in sections/adversarial.md.
     const content = readSkillUnion('review');
     expect(content).toContain('Adversarial review (always-on)');
-    // Always-on: both Claude and Codex adversarial
-    expect(content).toContain('Claude adversarial subagent (always runs)');
+    // Always-on: both native and Codex adversarial
+    expect(content).toContain('native adversarial subagent (always runs)');
     expect(content).toContain('Codex adversarial challenge (runs whenever');
-    // Claude adversarial subagent dispatch
+    // native adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
     // Probe-based availability via the shared codexPreflight() (install + auth)
     expect(content).toContain('CODEX_MODE');
     expect(content).toContain('command -v codex'); // install check kept literal
-    // codex_reviews=disabled gates Codex passes only; Claude adversarial still runs
+    // codex_reviews=disabled gates Codex passes only; native adversarial still runs
     expectMentions(content, [['only', 'disabled', 'passes']], 'content');
     // Review log
     expect(content).toContain('adversarial-review');
@@ -1598,7 +1598,7 @@ describe('Codex skill', () => {
     expect(content).toContain('adversarial-review');
     expect(content).toContain('run-with-timeout --effort high ');
     expect(content).toContain('Investigate and fix');
-    expect(content).toContain('Claude adversarial subagent (on `DISPATCH: adversarial-native`)');
+    expect(content).toContain('native adversarial subagent (on `DISPATCH: adversarial-native`)');
   });
 
   test('scope drift detection in /review and /ship', () => {

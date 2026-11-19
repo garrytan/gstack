@@ -11,7 +11,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
 - Error message quality: require the agent-ready error contract (P1, completeness)
 - API/CLI naming: consistency wins over cleverness (P5)
 - DX taste decisions (opinionated defaults vs flexibility): mark TASTE DECISION
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH native subagent AND Codex if available (P6).
 
   **Bind phase input:** Run; use `snapshotPath` as `<DX_INPUT>` for both voices:
 ```bash
@@ -19,7 +19,7 @@ bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPa
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 
-  **Claude DX subagent** (native tool):
+  **native DX subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.
@@ -116,12 +116,12 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
    pre-fix pass scores.
 
 2. Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
-   (DX — developer experience challenge) and Claude SUBAGENT (DX — independent review).
+   (DX — developer experience challenge) and native SUBAGENT (DX — independent review).
    Produce DX consensus table:
 
 ```
 DX DUAL VOICES — CONSENSUS TABLE:
-  Dimension                           Claude  Codex  Consensus
+  Dimension                           native  Codex  Consensus
   1. Getting started < 5 min?          —       —      —
   2. API/CLI naming guessable?         —       —      —
   3. Error messages actionable?        —       —      —

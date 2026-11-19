@@ -102,7 +102,7 @@ Draft your own direction from the brief: fill Q2's aesthetic, palette, role-spec
 ## Design Outside Voices (independent)
 
 Use AskUserQuestion:
-> "Want outside design voices? Codex proposes an independent design direction; Claude subagent does an independent design direction proposal."
+> "Want outside design voices? Codex proposes an independent design direction; native subagent does an independent design direction proposal."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -202,7 +202,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 
 Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
-2. **Claude design subagent** (Agent tool, `run_in_background: false` when available; await its result. A launch receipt means it went background: await its completion notice.):
+2. **native design subagent** (Agent tool, `run_in_background: false` when available; await its result. A launch receipt means it went background: await its completion notice.):
 "Read the complete product brief at [the absolute DESIGN_BRIEF path printed above].
 
 Propose a surprising indie-studio direction beyond conventional enterprise UI.
@@ -218,11 +218,11 @@ Be bold and specific."
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only; identify it as the only completed independent proposal.
-- If Claude subagent also fails: "Outside voices unavailable — continuing to Q2 with my draft direction."
+- On any Codex error: proceed with native subagent output only; identify it as the only completed independent proposal.
+- If native subagent also fails: "Outside voices unavailable — continuing to Q2 with my draft direction."
 
 Present only completed, available voice outputs with their actual source and status.
-Output headers: `CODEX SAYS (design direction):` and `CLAUDE SUBAGENT (design direction):`.
+Output headers: `CODEX SAYS (design direction):` and `NATIVE SUBAGENT (design direction):`.
 
 **Handoff:** Retain every completed proposal (two, one, or none) with its source/status. Do not choose a direction here. Q2 compares these proposals with your earlier draft.
 After both voices finish (including failure), delete only the private brief you created, using its remembered absolute path.

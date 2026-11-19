@@ -4,7 +4,7 @@ import { HOST_PATHS } from '../scripts/resolvers/types';
  * Static guard for cross-model synthesis recommendation emit instructions.
  *
  * v1.25.1.0+ extended the AskUserQuestion recommendation-quality coverage
- * to cross-model skills (/codex review/challenge/consult, the Claude
+ * to cross-model skills (/codex review/challenge/consult, the native
  * adversarial subagent, and the Codex adversarial pass). Each surface MUST
  * tell the model to end its synthesis with a canonical
  *   `Recommendation: <action> because <reason>`
@@ -51,11 +51,11 @@ describe('cross-model synthesis emit instructions', () => {
     expect(tmpl).toMatch(/Recommendation:\s*<action>\s*because/);
   });
 
-  test('scripts/resolvers/outside-voice-steps.ts Claude adversarial subagent prompt requires Recommendation', () => {
+  test('scripts/resolvers/outside-voice-steps.ts native adversarial subagent prompt requires Recommendation', () => {
     const resolver = generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' });
     // The Claude subagent prompt must instruct the model to emit a final
     // canonical Recommendation line.
-    expect(resolver).toMatch(/Claude adversarial subagent[\s\S]+?Recommendation:\s*<action>\s*because/);
+    expect(resolver).toMatch(/native adversarial subagent[\s\S]+?Recommendation:\s*<action>\s*because/);
   });
 
   test('scripts/resolvers/outside-voice-steps.ts Codex adversarial command requires Recommendation', () => {

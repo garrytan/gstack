@@ -7,7 +7,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
 - Structural issues (missing states, broken hierarchy): auto-fix (P5)
 - Aesthetic/taste issues: mark TASTE DECISION
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH native subagent AND Codex if available (P6).
 
   **Bind phase input:** Run; use `snapshotPath` as `<DESIGN_INPUT>` for both voices:
 ```bash
@@ -15,7 +15,7 @@ bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodolo
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 
-  **Claude design subagent** (native tool):
+  **native design subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.
@@ -109,7 +109,7 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
 2. Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS (design — UX challenge)
-   and Claude SUBAGENT (design — independent review).
+   and native SUBAGENT (design — independent review).
    Produce the design litmus scorecard from plan-design-review. CEO findings go only
    to the outside voice; the native voice stays independent.
    Missing/disabled outside = N/A, not CONFIRMED; primary cannot replace it.

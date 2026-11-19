@@ -458,9 +458,9 @@ This fence is the only external-provider output surface. Native fallback prints
 only its `OUTSIDE VOICE (...)` subagent report; never print both for one review.
 
 **Error handling:** All errors are non-blocking — the outside voice is informational.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
-- **Timeout:** "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
-- **Empty response:** "Codex returned no response." Fall back to the Claude subagent below.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the native subagent below.
+- **Timeout:** "Codex timed out after 5 minutes." Fall back to the native subagent below.
+- **Empty response:** "Codex returned no response." Fall back to the native subagent below.
 
 **Native fallback — provider unavailable or execution failed, with reviews enabled:**
 
@@ -497,7 +497,7 @@ Execute the four steps once:
    header only frames it. Accept findings only if it is an identifiable complete
    final reviewer report. Reject raw or in-progress transcripts; do not extract
    finding fragments from them. Terminal status or warning markers alone do not
-   establish report completeness. If any check fails or the report cannot be identified, follow step 4. Otherwise call TaskStop with the timer's ID, present it under an `OUTSIDE VOICE (Claude subagent):`
+   establish report completeness. If any check fails or the report cannot be identified, follow step 4. Otherwise call TaskStop with the timer's ID, present it under an `OUTSIDE VOICE (native subagent):`
    header, then continue to Cross-model tension.
 4. Otherwise (timer first, no ID, failed or stopped status, partial or empty result,
    or Agent returns a report directly: no enforced deadline, so no credit), call

@@ -38,7 +38,7 @@ export const PARTS: PartSpec[] = [
   { id: 'review-9.3', file: RA, from: '### Step 9.3: Cross-review finding dedup', phase: 4 },
   { id: 'review-9.4', file: RA, from: '## Step 9.4: Fix-First and persistence', phase: 4 },
   { id: 'adversarial-11', file: ADV, from: null, phase: 4 },
-  { id: 'adversarial-native', file: ADV, from: '### Claude adversarial subagent (on `DISPATCH: adversarial-native`)', phase: 4 },
+  { id: 'adversarial-native', file: ADV, from: '### native adversarial subagent (on `DISPATCH: adversarial-native`)', phase: 4 },
   { id: 'adversarial-codex', file: ADV, from: '### Codex adversarial challenge (on `DISPATCH: outside-voice`, when `CODEX_MODE` is `ready` or `unverified`)', phase: 4 },
   { id: 'adversarial-structured', file: ADV, from: '### Codex structured review (on `DISPATCH: outside-voice`, 200+ lines)', phase: 4 },
   { id: 'adversarial-finish', file: ADV, from: '### Persist the review result', phase: 4 },

@@ -219,3 +219,24 @@ describe('lib: deriveFromFindings, bindReview order and reviewFreshness', () => 
     expect(reviewFreshness({ ...base, skill: 'codex-review', status: 'clean', findings_open: 0, findings: 2, findings_fixed: 1 }, w)?.status).toBe('UNVERIFIED');
   });
 });
+
+describe('logger-stamped host (the executing harness, never the install target)', () => {
+  test('the logger stamps host from gstack-host, never from the caller', () => {
+    const file = findings([{ id: 'r-eng-native-1', severity: 'High', disposition: 'open' }]);
+    // The caller claims the installed docs' host label; the explicit
+    // GSTACK_ACTIVE_HOST registration (the generic mechanism any harness
+    // uses to self-identify) says kiro, so the row records kiro.
+    const r = run([JSON.stringify({ skill: 'plan-eng-review', host: 'claude' }), '--findings', file], { GSTACK_ACTIVE_HOST: 'kiro', CLAUDECODE: '' });
+    expect(r.code).toBe(0);
+    const [row] = writtenRows();
+    expect(row.host).toBe('kiro');
+  });
+
+  test('no explicit registration: the stamp follows the unchanged claude branch condition', () => {
+    const file = findings([{ id: 'r-eng-native-1', severity: 'High', disposition: 'open' }]);
+    const r = run([JSON.stringify({ skill: 'plan-eng-review', host: 'codex' }), '--findings', file], { GSTACK_ACTIVE_HOST: '', CLAUDECODE: '1' });
+    expect(r.code).toBe(0);
+    const [row] = writtenRows();
+    expect(row.host).toBe('claude');
+  });
+});

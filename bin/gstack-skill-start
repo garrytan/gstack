@@ -164,6 +164,13 @@ eval "$("$_BIN/gstack-repo-mode" 2>/dev/null)" 2>/dev/null || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 echo "SESSION_KIND: $_SESSION_KIND$_SESSION_KIND_NOTE"
+# HOST records the executing harness, not the install target: gstack-host
+# detects it the way SESSION_KIND comes from gstack-session-kind (a harness
+# self-registers via GSTACK_ACTIVE_HOST; ambient claude/codex markers fall
+# back to their branch conditions). The review logger stamps the same value
+# onto review-log rows.
+_HOST=$("$_BIN/gstack-host" 2>/dev/null || echo claude)
+echo "HOST: $_HOST"
 # Capy (capy/skill/gstack/captain.md): GSTACK_CAPY=1 comes from the Capy launch
 # line. On, every decision goes through Capy (Captain or person) and the
 # capy-asks block below says how; GSTACK_CAPY_ASKS=0 keeps the line but drops

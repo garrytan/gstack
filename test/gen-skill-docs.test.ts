@@ -1785,11 +1785,11 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     expect(content).toMatch(/[Ss]ynthesis/);
   });
 
-  test('contains Claude subagent fallback', () => {
+  test('contains native subagent fallback', () => {
     expect(content).toContain('CODEX_MODE: not_installed');
     expect(content).toContain('If preflight is not ready');
     expect(content).toContain('Agent tool');
-    expect(content).toContain('SECOND OPINION (Claude subagent)');
+    expect(content).toContain('SECOND OPINION (native subagent)');
   });
 
   test('contains premise revision check', () => {

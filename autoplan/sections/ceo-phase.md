@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology ceo "<REVIEW_SKILL>" "<RESTORE_PATH>"` per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
-Execute in this order: Step 0 (including its completed Spec Review Loop) → Claude
+Execute in this order: Step 0 (including its completed Spec Review Loop) → native
 CEO voice → Codex CEO voice → consensus → Review Sections → saved summary → phase
 announcement. Dispatching a reviewer never completes its step.
 
@@ -62,7 +62,7 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 
-  **Claude CEO subagent** (via Agent tool):
+  **native CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   A launch receipt means it went background: await its completion notice.
   Other hosts: foreground; await completion when supported.
@@ -141,7 +141,7 @@ Failed/incomplete outside review → unavailable; disabled → skip outside. Bot
 Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
   **Error handling:** Codex auth/timeout/empty → proceed with the
-  Claude subagent only, tagged `[single-model]`. If it also fails →
+  native subagent only, tagged `[single-model]`. If it also fails →
   "Outside voices unavailable — continuing with primary review."
 
   **Degradation matrix:** Both fail → "single-reviewer mode". Codex only →
@@ -155,7 +155,7 @@ Produce the CEO consensus table from the completed results:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
-  Dimension                           Claude  Codex  Consensus
+  Dimension                           native  Codex  Consensus
   1. Premises valid?                   —       —      —
   2. Right problem to solve?           —       —      —
   3. Scope calibration correct?        —       —      —

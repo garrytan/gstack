@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 4.8: Adversarial review (always-on)
 
-Every diff gets the Claude adversarial pass. Add Codex when its preflight is ready; unavailable or disabled outside coverage stays explicit.
+Every diff gets the native adversarial pass. Add Codex when its preflight is ready; unavailable or disabled outside coverage stays explicit.
 
 **Detect diff size:**
 
@@ -60,26 +60,26 @@ echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
 Branch on the echoed `CODEX_MODE`:
-- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
-- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the native adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running native adversarial only."
+- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required native adversarial pass; do not dispatch a duplicate.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
-- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
-- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Keep the required native adversarial pass; do not dispatch a duplicate. The ~10s round trip is cached for 1h.
+- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required native adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
 
 `CODEX_MODE: disabled` means skip the Codex passes ONLY.
 `ready` and `unverified` run them; every other mode skips them with the printed reason.
-The Claude adversarial subagent always runs.
+The native adversarial subagent always runs.
 
 **User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires `CODEX_MODE: ready` (or `unverified`)).
 
 ---
 
-### Claude adversarial subagent (always runs)
+### native adversarial subagent (always runs)
 
 Before dispatch, run `~/.claude/skills/gstack/bin/gstack-review-log --start adversarial-review`
 and save the returned token for this native attempt. Do the same before each outside
@@ -98,7 +98,7 @@ Read the diff for this branch. First list changed files: `DIFF_BASE=$(git merge-
 
 Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). A finding blocks only if it would fail a test, break production, or lose data or secrets; end each finding with `Severity: Critical|High|Medium|Low` and `Blocks: yes|no`. After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
-Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE or `Blocks: yes` findings** are CRITICAL and are queued for the parent's Fix-First handling at Step 5; do not edit during Step 4.8. **Other INVESTIGATE findings** are informational; `Blocks: no` never lowers a FIXABLE one.
+Present findings under an `ADVERSARIAL REVIEW (native subagent):` header. **FIXABLE or `Blocks: yes` findings** are CRITICAL and are queued for the parent's Fix-First handling at Step 5; do not edit during Step 4.8. **Other INVESTIGATE findings** are informational; `Blocks: no` never lowers a FIXABLE one.
 
 If the subagent fails or times out, record native coverage as incomplete. Continue independent passes and persistence, not release.
 
@@ -276,9 +276,9 @@ ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ════════════════════════════════════════════════════════════
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to the parent checklist/specialists: [from earlier steps]
-  Unique to Claude adversarial: [from subagent]
+  Unique to native adversarial: [from subagent]
   Unique to Codex: [from completed outside adversarial or structured review]
-  Review sources (models unknown unless reported): parent checklist/specialists ✓/✗  Claude adversarial ✓/✗  Codex ✓/✗
+  Review sources (models unknown unless reported): parent checklist/specialists ✓/✗  native adversarial ✓/✗  Codex ✓/✗
 ════════════════════════════════════════════════════════════
 ```
 

@@ -6,9 +6,13 @@ import { CODEX_MODEL_CONFIG_FLAG, CODEX_SANDBOX_REF, CODEX_WEB_SEARCH_FLAG, code
 import { runtimeRootPrelude } from './runtime-root';
 
 export function outsideVoiceFor(ctx: Pick<TemplateContext, 'host'>) {
+  // The native lane is same-harness/fresh-context by definition, so its label
+  // must not name one vendor's harness: on a non-Claude harness (e.g. Chief)
+  // the claude host's lane is the native in-host lane, not a Claude model
+  // pass. 'Claude' misattributed the executing model in review records.
   return ctx.host === 'codex'
     ? { id: 'claude-code' as const, label: 'Claude Code', skillName: 'claude-code', nativeLabel: 'Codex (in-host)' }
-    : { id: 'codex' as const, label: 'Codex', skillName: 'codex', nativeLabel: ctx.host === 'claude' ? 'Claude' : `${ctx.host} (in-host)` };
+    : { id: 'codex' as const, label: 'Codex', skillName: 'codex', nativeLabel: ctx.host === 'claude' ? 'native' : `${ctx.host} (in-host)` };
 }
 
 const sh = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;

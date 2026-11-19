@@ -301,7 +301,7 @@ outside reviewer: yes; run evals: yes; reduce scope on a complete plan: no).
 2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
 3. **Codex disagreements** — the outside reviewer recommends differently and has a valid point.
 
-**User Challenge** — Claude and Codex both recommend changing the
+**User Challenge** — native and Codex both recommend changing the
 user's stated direction (merge, split, add or remove features/skills/workflows), or a
 premise is clearly wrong. Never auto-decide User Challenges: each is a Phase 4 `uc<n>`
 approval, never mid-run (the user has context models lack); flag agreed security/feasibility
@@ -522,15 +522,15 @@ echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
 Branch on the echoed `CODEX_MODE`:
-- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
-- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`disabled`** (or a send's `consent_missing` line) — `codex_reviews` is off or unreadable. Skip the Codex passes only; the native adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running native adversarial only."
+- **`helper_unavailable`** — the probe is missing or not executable; relay the line above (cause and fix). Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed; outside coverage unavailable. Install: `npm install -g @openai/codex`." Keep the required native adversarial pass; do not dispatch a duplicate.
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
-- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`model_unusable`** — the role invocation rejected policy, auth or model selection. Relay its reason and source-specific Repair/HINT lines, not a lower-priority setting. `AUTH_FAILED` needs `codex login`; never substitute a model. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required Claude adversarial pass; do not dispatch a duplicate.
-- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required Claude adversarial pass; do not dispatch a duplicate.
+- **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`model_unusable`** — the role invocation rejected policy, auth or model selection. Relay its reason and source-specific Repair/HINT lines, not a lower-priority setting. `AUTH_FAILED` needs `codex login`; never substitute a model. Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`quota_exhausted`** — Codex usage limit: relay the probe's lines verbatim (reset time, retry); no more Codex calls this run. Keep the required native adversarial pass; do not dispatch a duplicate.
+- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Keep the required native adversarial pass; do not dispatch a duplicate.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out or, with `(rate_limited)`, hit a 429; say so, and let the pass's own verdict decide.
 Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blob/main/docs/model-policy.md) model. Relay its diagnostics; never infer quota from the review block's exit status.
 
@@ -642,7 +642,7 @@ findings outside this plan, or `None.`); also written above `## Implementation p
 Auto-decided: see the plan's Decision Audit Trail.
 
 ### Review Scores
-CEO, Design, DX and Eng: phase summary plus Codex, Claude
+CEO, Design, DX and Eng: phase summary plus Codex, native
 and consensus status; say skipped where a phase did not run. Then the CYCLE line
 from `~/.claude/skills/gstack/bin/gstack-autoplan-timing summary --run <RUN_ID> --out "$_AP"`.
 
