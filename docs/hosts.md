@@ -226,7 +226,7 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`$claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#testing--evals)
