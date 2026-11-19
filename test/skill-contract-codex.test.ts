@@ -8,6 +8,7 @@
  * transcripts only prove the Codex branch leaves them alone.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import codex from '../hosts/codex';
@@ -259,5 +260,15 @@ describe('the Stop hook on Codex', () => {
   test('skill_contracts off turns it off on Codex too', () => {
     expect(stop(1, AT_FIRST_STOP, { GSTACK_SKILL_CONTRACTS: 'off' }).stdout).toBe('');
     expect(fs.existsSync(path.join(state, 'skill-contracts'))).toBe(false);
+  });
+
+  test('gstack-skill-contract check reads a Codex rollout against gstack\'s own contract', () => {
+    const check = (name: string) => spawnSync(BIN, ['check', '--transcript', path.join(DIR, name), '--skill', 'gstack-review'], { env: hookEnv(state, skills, { GSTACK_INSTALLED_SKILLS_DIR: '', HOME: work }), encoding: 'utf8', timeout: 20_000 });
+    const met = check('exec-read-met.jsonl');
+    expect(met.status).toBe(0);
+    expect(met.stdout).toStartWith('SKILL_CONTRACT_MET gstack-review');
+    const unmet = check('exec-read-failed-spawn.jsonl');
+    expect(unmet.status).toBe(1);
+    expect(unmet.stdout).toContain('missing review-report');
   });
 });

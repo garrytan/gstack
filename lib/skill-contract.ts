@@ -324,7 +324,7 @@ interface ItemCheck { met: boolean; detail: string; fix: string }
 
 /**
  * Item kinds a Codex run never checks: Codex suppresses the resolver that renders their step (REVIEW_ARMY for
- * /review's specialists), so its SKILL.md never asks for them. test/codex-rollout.test.ts pins this list to
+ * /review's specialists), so its SKILL.md never asks for them. test/skill-contract-codex.test.ts pins this list to
  * hosts/codex.ts and the Done means resolver.
  */
 export const CODEX_SKIPPED_KINDS: readonly ItemKind[] = ['selected_specialists_dispatched'];
