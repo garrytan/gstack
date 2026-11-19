@@ -27,6 +27,56 @@ interface TelemetryEvent {
   security_confidence?: number;
   security_layer?: string;
   security_verdict?: string;
+  host?: string;
+  model_family?: string;
+  invoked?: string;
+  exit_reason?: string;
+  checks?: string;
+  routing?: string;
+  harness_session_id?: string;
+  from_version?: string;
+  upgrade_error?: string;
+}
+
+// Fields from migration 009 (docs/privacy.md). Each is a pick from a fixed list
+// the client also enforces, a 16-hex random session id, or a version; anything
+// else is stored as null. Keep these lists equal to bin/gstack-telemetry-log's.
+const NEXT_ENUMS: Record<string, string[]> = {
+  host: ["claude_code", "codex", "cursor", "openclaw", "hermes", "copilot", "gemini", "kiro",
+    "opencode", "factory", "agy", "slate", "gbrain", "qm", "other", "unknown"],
+  model_family: ["claude_opus", "claude_sonnet", "claude_haiku", "claude_other", "gpt", "gemini", "other", "unknown"],
+  invoked: ["user", "model", "chained", "unknown"],
+  exit_reason: ["completed", "user_stopped", "blocked", "tool_error", "test_failed", "context_limit", "gave_up", "unknown"],
+  checks: ["passed", "failed", "not_run", "none", "unknown"],
+  routing: ["none", "block", "hooks", "both", "unknown"],
+  upgrade_error: ["none", "refused_dirty", "busy", "fetch_failed", "setup_failed", "other", "unknown"],
+};
+const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/;
+function nextFields(event: TelemetryEvent) {
+  const out: Record<string, string | null> = {};
+  for (const [k, allowed] of Object.entries(NEXT_ENUMS)) {
+    const v = (event as unknown as Record<string, unknown>)[k];
+    out[k] = typeof v === "string" && allowed.includes(v) ? v : null;
+  }
+  out.harness_session_id = typeof event.harness_session_id === "string" &&
+      /^[0-9a-f]{16}$/.test(event.harness_session_id) ? event.harness_session_id : null;
+  out.from_version = typeof event.from_version === "string" && VERSION_RE.test(event.from_version)
+    ? event.from_version : null;
+  return out;
+}
+
+// outcome arrives in about ten spellings from older clients; store one of four
+// and keep the original in outcome_raw when it differed.
+const OUTCOME_MAP: Record<string, string> = {
+  success: "success", ok: "success", done: "success", completed: "success",
+  error: "error", fail: "error", failed: "error", failure: "error",
+  abort: "abort", aborted: "abort", cancelled: "abort", canceled: "abort",
+  unknown: "unknown",
+};
+function normalizeOutcome(outcome: unknown) {
+  const raw = String(outcome).slice(0, 20);
+  const norm = OUTCOME_MAP[raw.toLowerCase()] ?? "unknown";
+  return { outcome: norm, outcome_raw: norm === raw ? null : raw };
 }
 
 // bin/gstack-telemetry-log writes source from --source or
@@ -136,7 +186,7 @@ Deno.serve(async (req) => {
         skill: event.skill ? String(event.skill).slice(0, 50) : null,
         session_id: event.session_id ? String(event.session_id).slice(0, 50) : null,
         duration_s: typeof event.duration_s === "number" ? event.duration_s : null,
-        outcome: String(event.outcome).slice(0, 20),
+        ...normalizeOutcome(event.outcome),
         error_class: event.error_class ? String(event.error_class).slice(0, 100) : null,
         error_message: event.error_message ? String(event.error_message).slice(0, 500) : null,
         failed_step: event.failed_step ? String(event.failed_step).slice(0, 100) : null,
@@ -145,6 +195,7 @@ Deno.serve(async (req) => {
         installation_id: event.installation_id ? String(event.installation_id).slice(0, 64) : null,
         source: normalizeSource(event.source),
         ...(event.event_type === "attack_attempt" ? securityFields(event) : {}),
+        ...nextFields(event),
       });
 
       // Track installations for upsert
