@@ -98,6 +98,7 @@ const SCRATCH_DELETES = [
   'TMP=$(mktemp -d); trap \'rm -rf "$TMP"\' EXIT; ls',
   'cd app && rm -rf node_modules',
   'python3 -m pytest -q; rm -rf /tmp/pytest-of-user',
+  'cd /tmp/x && make 2>&1 | tee log && rm -rf repro',
 ];
 
 // One case per new or changed rule, each decided differently before this change, plus negative controls.
@@ -168,6 +169,18 @@ const RULE_CASES: Array<[string, Decision, Tree]> = [
   ['redis-cli FLUSHALL', 'ask', 'clean'],
   ['docker system prune --volumes -f', 'ask', 'clean'],
   ['ls -la && git status', 'allow', 'clean'],
+  ['(cd /tmp/build && make) && rm -rf src', 'ask', 'clean'],
+  ['x=$(cd /tmp && pwd); rm -rf src', 'ask', 'clean'],
+  ['cd /tmp/x; popd; rm -rf src', 'ask', 'clean'],
+  ['cd /tmp/nope; rm -rf src', 'ask', 'clean'],
+  ['cd /tmp/x || rm -rf src', 'ask', 'clean'],
+  ['rm / -rf --no-preserve-root', 'deny', 'clean'],
+  ['sudo rm ~ -r', 'deny', 'clean'],
+  ['D=/tmp/x; D=src; rm -rf "$D"', 'ask', 'clean'],
+  ['/usr/local/bin/rm -rf src', 'ask', 'clean'],
+  ['/usr/bin/psql -c "DROP TABLE users"', 'ask', 'clean'],
+  ['node -e "client.query(\'DROP TABLE users\')"', 'ask', 'clean'],
+  ['npx wrangler d1 execute db --command="DROP TABLE users"', 'ask', 'clean'],
 ];
 
 let base = '';
@@ -247,5 +260,12 @@ describe('harmless scratch deletes no longer ask', () => {
 describe('each new rule, with negative controls', () => {
   test.each(RULE_CASES)('%s -> %s (%s tree)', (command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test('a 200 KB command is still checked well inside the guard hook\'s 8 s timeout', () => {
+    const body = Array.from({ length: 4000 }, (_, i) => `const x${i} = f(a, b) && (c || d); // ${i}`).join('\n');
+    const started = Date.now();
+    expect(decide(`cat > x.ts <<'EOF'\n${body}\nEOF\nrm -rf src`, 'clean').decision).toBe('ask');
+    expect(Date.now() - started).toBeLessThan(6000);
   });
 });

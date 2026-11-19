@@ -127,13 +127,12 @@ fi
 # each statement into words (one layer of quotes stripped, nothing expanded).
 # Every rm, git, find, rsync, shred and unlink word starts an invocation whose
 # arguments are the rest of its statement, wherever it sits: after sudo,
-# xargs, bash -c '...' or another command. Builtins only (bash 3.2), no fork,
-# except git, which runs only after a force-push or a discard of uncommitted
+# xargs, bash -c '...' or another command. Builtins only (bash 3.2) apart from
+# one awk call that cuts the statements, and git, which runs only after a force-push or a discard of uncommitted
 # work has already matched.
 _NL=$'\n'
 _BT='`'
 _NS="[^;&|${_NL}]*"
-_SEP='[;&|()`]'
 _RX_VAR='^[$][{]?([A-Za-z_][A-Za-z0-9_]*)(:[?][^}]*)?[}]?(/.*)?$'
 _RX_HOME='(~|[$]HOME|[$][{]HOME[}])'
 _RX_TMP='^(/private)?(/tmp|/var/tmp)/[^[:space:]]+$'
@@ -152,6 +151,7 @@ _CAREFUL_CWD="${_CAREFUL_CWD%/}"
 _TMPVARS=" "
 _SCRATCH=0
 _CD_SEEN=0
+_STK=""
 _GIT_SUB=-1
 _HI_RM_ROOT=0
 _RM_UNSAFE=0
@@ -193,6 +193,8 @@ _careful_resolve() {
   local re="(^|[[:space:];&|(])${name}=(\"(/tmp/|/var/tmp/)[^\"${_BT}(]*\"|(/tmp/|/var/tmp/)[^[:space:];&|()\"'${_BT}]*|\"[^\"\$]*\"|'[^']*'|[^[:space:];&|\$()\"'${_BT}]+)([[:space:];&|)]|\$)"
   if [[ $CMD_MEDIUM =~ $re ]]; then
     _careful_strip "${BASH_REMATCH[2]}"
+    local again="(^|[[:space:];&|(])${name}=.*[[:space:];&|(]${name}="
+    [[ $CMD_MEDIUM =~ $again ]] && return 0
     _R="$_S$rest"
     return 0
   fi
@@ -257,7 +259,7 @@ _careful_cd() {
 }
 
 _careful_rm() {
-  local k="$1" t rec=0 nt=0 first=1 q=""
+  local k="$1" t rec=0 late=0 nt=0 first=1 q=""
   local tg=()
   # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
   case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
@@ -269,8 +271,8 @@ _careful_rm() {
     # recursive rm leads with its flags, as the original family required.
     if [ "$first" -eq 1 ]; then first=0; case "$t" in -*) ;; *) rec=2 ;; esac; fi
     case "$t" in
-      --recursive) [ "$rec" -eq 2 ] || rec=1 ;;
-      -*) case "${t#-}" in *[!a-zA-Z]*|'') ;; *[rR]*) [ "$rec" -eq 2 ] || rec=1 ;; esac ;;
+      --recursive) late=1; [ "$rec" -eq 2 ] || rec=1 ;;
+      -*) case "${t#-}" in *[!a-zA-Z]*|'') ;; *[rR]*) late=1; [ "$rec" -eq 2 ] || rec=1 ;; esac ;;
       [0-9]'>'*|[0-9]'<'*|'>'*|'<'*) ;;
       *) tg[$nt]="$t"; nt=$((nt + 1)) ;;
     esac
@@ -279,8 +281,9 @@ _careful_rm() {
   k=0
   while [ "$k" -lt "$nt" ]; do
     t="${tg[$k]}"; k=$((k + 1))
+    # GNU rm takes flags after its operands: rm / -rf still denies.
+    if [ "$late" -eq 1 ] && [[ $t =~ $_RX_ROOT ]]; then _HI_RM_ROOT=1; fi
     if [ "$rec" -eq 1 ]; then
-      if [[ $t =~ $_RX_ROOT ]]; then _HI_RM_ROOT=1; fi
       _careful_rm_safe "$t" || _RM_UNSAFE=1
     fi
     if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
@@ -534,8 +537,22 @@ _careful_git() {
   return 0
 }
 
+# A cd into scratch holds only while every later statement is joined by && or
+# a pipe: after ; || & or a newline the cd may have failed. A subshell, $( )
+# or backtick block gives back the outer folder when it closes. One awk pass
+# cuts the statements (a bash pattern substitution is quadratic on long input)
+# and marks each separator: \001 ( \002 ) \003 backtick \004 joined \005 break.
+_careful_pop() {
+  [ -n "$_STK" ] || return 0
+  local sv="${_STK#"${_STK%??}"}"
+  _STK="${_STK%??}"
+  [ "${sv%?}" -eq 1 ] || _SCRATCH=0
+  [ "${sv#?}" -eq 0 ] || _CD_SEEN=1
+  return 0
+}
 _careful_scan() {
-  local s="${CMD_MEDIUM//$_SEP/$_NL}" seg t i n ns si=0
+  local s seg t i n ns si=0 bt=0
+  s=$(printf '%s\n' "$CMD_MEDIUM" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&|[|]/, "\n\004\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_MEDIUM"
   local IFS="$_NL"
   set -f
   local segs=( $s )
@@ -543,7 +560,15 @@ _careful_scan() {
   ns=${#segs[@]}
   while [ "$si" -lt "$ns" ]; do
     seg="${segs[$si]}"; si=$((si + 1))
-    case "$seg" in *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*) ;; *) continue ;; esac
+    case "$seg" in
+      $'\001') _STK="$_STK$_SCRATCH$_CD_SEEN"; continue ;;
+      $'\002') _careful_pop; continue ;;
+      $'\003') if [ "$bt" -eq 0 ]; then bt=1; _STK="$_STK$_SCRATCH$_CD_SEEN"; else bt=0; _careful_pop; fi; continue ;;
+      $'\004') continue ;;
+      $'\005') _SCRATCH=0; continue ;;
+      *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*) ;;
+      *) continue ;;
+    esac
     n=0
     T=()
     RW=()
@@ -556,8 +581,9 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; fi ;;
-        rm|'\rm'|/bin/rm|/usr/bin/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
+        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        pushd|popd) _CD_SEEN=1; _SCRATCH=0 ;;
+        rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
         find|rsync|shred|unlink) _careful_del "${T[$i]}" $((i + 1)) ;;
       esac
@@ -747,7 +773,7 @@ fi
 
 # SQL DROP and TRUNCATE ask only when the command runs a SQL client or a
 # database call; the words in a grep pattern, a comment or a test file don't.
-_RX_SQL_CLIENT="(^|[[:space:];&|(\"'])(psql|mysql|mariadb|sqlite3|invoke-sqlcmd|clickhouse(-client)?|duckdb|sqlcmd|snowsql|bq[[:space:]]+query|cockroach[[:space:]]+sql|mongosh|cqlsh|supabase[[:space:]]+db|prisma[[:space:]]+db[[:space:]]+execute|rails[[:space:]]+(db|dbconsole)|manage\.py[[:space:]]+dbshell)([^[:alnum:]_]|\$)|\.execute(script|many)?[[:space:]]*[(]|\.sql[[:space:]]*[(]|(^|[^[:alnum:]_])(sqlalchemy|pymysql)([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])psycopg|(^|[^[:alnum:]_])sqlite3\.connect"
+_RX_SQL_CLIENT="(^|[[:space:];&|(\"'/])(psql|mysql|mysqlsh|mariadb|sqlite3|pgcli|usql|wrangler[[:space:]]+d1[[:space:]]+execute|turso[[:space:]]+db[[:space:]]+shell|invoke-sqlcmd|clickhouse(-client)?|duckdb|sqlcmd|snowsql|bq[[:space:]]+query|cockroach[[:space:]]+sql|mongosh|cqlsh|supabase[[:space:]]+db|prisma[[:space:]]+db[[:space:]]+execute|rails[[:space:]]+(db|dbconsole)|manage\.py[[:space:]]+dbshell)([^[:alnum:]_]|\$)|\.(execute(script|many)?|query|exec|raw)[[:space:]]*[(]|executeraw|\.sql[[:space:]]*[(]|(^|[^[:alnum:]_])(sqlalchemy|pymysql)([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])psycopg|(^|[^[:alnum:]_])sqlite3\.connect"
 _RX_DROP='drop[[:space:]]+(table|database)'
 if [ -z "$WARN" ] && [[ $CMD_MEDIUM_LOWER =~ $_RX_DROP ]] && [[ $CMD_MEDIUM_LOWER =~ $_RX_SQL_CLIENT ]]; then
   WARN="Destructive: SQL DROP detected. This permanently deletes database objects."
