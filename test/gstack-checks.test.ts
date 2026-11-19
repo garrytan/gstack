@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { declaredVerify, healthStack, manifestChecks, testVerdict } from '../lib/checks';
+import { declaredVerify, healthStack, manifestChecks, quickLine, testVerdict, type Outcome } from '../lib/checks';
 import type { CheckResult } from '../lib/pregate/types';
 import { BASE_PREGATE, ROOT, cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -101,6 +101,21 @@ describe('testVerdict', () => {
   });
 });
 
+describe('quickLine', () => {
+  // Value: protects=the pre-commit line is red on a zero-run or incomplete selection and never green when nothing reached a result;
+  //   fails_when=ZERO_RUN/INCOMPLETE leave the red set, or an all-ENV/TIMEOUT run reads VERIFY PASS; why_new=the fixture test only
+  //   reaches PASS, FAIL and UNMAPPED; seam=none; no_claim=the wording after the VERIFY token
+  test('classifies red, not-run and passed outcomes', () => {
+    const o = (name: string, verdict: Outcome['verdict']): Outcome => ({ name, verdict, ms: 100, detail: 'exit 1', lines: [] });
+    expect(quickLine([o('typecheck', 'ENV'), o('tests', 'TIMEOUT')])).toEqual({ red: [], line: 'VERIFY skipped: nothing ran to a result (typecheck ENV, tests TIMEOUT)' });
+    expect(quickLine([]).line).toBe('VERIFY skipped: nothing ran to a result (no checks)');
+    expect(quickLine([o('typecheck', 'PASS'), o('tests', 'ZERO_RUN')]).line).toMatch(/^VERIFY FAIL: tests ZERO_RUN/);
+    expect(quickLine([o('tests', 'INCOMPLETE')]).red.map(r => r.name)).toEqual(['tests']);
+    expect(quickLine([o('typecheck', 'FAIL')]).line).toBe('VERIFY FAIL: typecheck exit 1');
+    expect(quickLine([o('typecheck', 'PASS'), o('tests', 'TOO_BROAD')]).line).toBe('VERIFY PASS: typecheck in 0.2s (not run: tests TOO_BROAD)');
+  });
+});
+
 describe('gstack-checks on a fixture repo', () => {
   // Value: protects=nothing runs before consent, including pregate's selection manifest command, and any change to a check or a
   //   selection command needs consent again; fails_when=an untrusted or edited command executes; why_new=the boundary is new;
@@ -185,6 +200,45 @@ describe('gstack-checks on a fixture repo', () => {
     const moved = run(s, '--only', 'verify');
     expect(moved.out).toContain('CHECK verify INCOMPLETE');
     expect(moved.status).toBe(1);
+  }, 60_000);
+
+  // Value: protects=the pass Claude Code triggers before a commit never asks for consent, never stops on a missing remote and ends
+  //   with one VERIFY line, red only on a real failure; fails_when=an untrusted command runs, a no-remote repo exits non-zero, an
+  //   unmapped file blocks a commit, or the off switch still runs checks; why_new=quick is new (GST-3150); seam=pregate's real
+  //   selection and the fixture's selection marker; no_claim=the wording after the VERIFY token
+  test('quick: the pre-commit pass skips instead of stopping and ends with one line', () => {
+    const s = setup();
+    const quick = (env: Record<string, string> = {}) => s.checks(['quick'], env);
+    const last = (out: string) => out.trim().split('\n').at(-1) ?? '';
+    commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    const untrusted = quick();
+    expect(untrusted.status).toBe(0);
+    expect(untrusted.out).toMatch(/^VERIFY skipped: .*not trusted/);
+    expect(fs.existsSync(s.mark)).toBe(false);
+    expect(s.checks(['trust']).status).toBe(0);
+    const green = quick();
+    expect(green.status).toBe(0);
+    expect(last(green.out)).toMatch(/^VERIFY PASS: typecheck, tests in [\d.]+s$/);
+    write(s.repo.work, 'lib/util.js', 'exports.add = (a, b) => a - b;\n');
+    const red = quick();
+    expect(red.status).toBe(1);
+    expect(last(red.out)).toMatch(/^VERIFY FAIL: tests /);
+    write(s.repo.work, 'lib/util.js', 'exports.add = (a, b) => b + a;\n');
+    write(s.repo.work, 'lib/orphan.js', 'exports.lonely = () => 2;\n');
+    const unmapped = quick();
+    expect(unmapped.status).toBe(0);
+    expect(last(unmapped.out)).toMatch(/^VERIFY PASS: typecheck in [\d.]+s \(not run: tests UNMAPPED\)$/);
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-checks-noremote-'));
+    dirs.push(bare);
+    expect(spawnSync('git', ['init', '-q'], { cwd: bare, timeout: 30_000 }).status).toBe(0);
+    write(bare, 'calc.py', 'def add(a, b):\n    return a + b\n');
+    const noRemote = runBin(s.repo, 'gstack-checks', ['quick'], {}, bare);
+    expect(noRemote.status).toBe(0);
+    expect(noRemote.out).toMatch(/^VERIFY skipped: no origin\/\S+ to compare against .*\(POLICY_SOURCE_UNAVAILABLE\)\n$/);
+    expect(spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), 'set', 'verify_before_commit', 'off'], { env: { ...process.env, ...s.repo.env }, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const off = quick();
+    expect(off.status).toBe(0);
+    expect(off.out).toStartWith('VERIFY skipped: verify_before_commit is off');
   }, 60_000);
 
   // Value: protects=a selection that runs zero tests is not green; fails_when=exit 0 with no test counted reads PASS; why_new=the
