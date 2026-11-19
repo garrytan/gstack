@@ -166,6 +166,7 @@ _QS=n
 _HDOC=0
 _HASH=0
 _LN=0
+_CDPATH=0
 _GL=0
 _SUBD=0
 _LV_TMP=" "
@@ -225,25 +226,39 @@ _careful_find_tmpvars() {
 }
 _careful_is_tmpvar() { case "$_TMPVARS" in *" $1 "*) return 0 ;; esac; return 1; }
 
-# Loop variables (for NAME in WORDS) whose words are all plain literals, set
-# nowhere else in the command, in a command with no read, local, declare,
-# typeset, unset, mapfile, readarray, getopts, select or eval. _LV_TMP holds
+# Loop variables (for NAME in WORDS; do BODY; done) whose words are all plain
+# literals, set nowhere else in the command, in a command with no read, local,
+# declare, typeset, unset, mapfile, readarray, getopts, select or eval. NAME
+# may be used only inside BODY, which holds no nested do/done, single quote,
+# backslash or backtick, so every use sees a loop word. _LV_TMP holds
 # names whose every word is a /tmp or /var/tmp path, _LV_REL names with plain
 # relative words, which are scratch only after a cd into scratch.
 _careful_find_loopvars() {
   case "$CMD_MEDIUM" in *for*) ;; *) return 0 ;; esac
-  local s="$CMD_MEDIUM" name ws w rel ok nw ra
+  local s="$CMD_MEDIUM" pre="" m0 name ws w rel ok nw ra body post
+  local hb='^[[:space:]]*[;'"$_NL"'][[:space:]'"$_NL"']*do([[:space:]'"$_NL"']|$)'
+  local kw='(^|[[:space:];&|('"$_NL"'])(do|done)([[:space:];&|)'"$_NL"']|$)'
   local re='(^|[[:space:];&|(])for[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+in[[:space:]]+([^;&|()'"$_NL"']*)'
   local no='(^|[[:space:];&|(])(read|local|declare|typeset|unset|mapfile|readarray|getopts|select|eval)([[:space:]]|$)'
   [[ $s =~ $no ]] && return 0
   while [[ $s =~ $re ]]; do
-    name="${BASH_REMATCH[2]}"; ws="${BASH_REMATCH[3]}"
-    s="${s#*"${BASH_REMATCH[0]}"}"
+    m0="${BASH_REMATCH[0]}"; name="${BASH_REMATCH[2]}"; ws="${BASH_REMATCH[3]}"
+    pre="$pre${s%%"$m0"*}$m0"
+    s="${s#*"$m0"}"
     ra="(^|[^A-Za-z0-9_])${name}[+]?="
     [[ $CMD_MEDIUM =~ $ra ]] && continue
     ra="(^|[[:space:];&|(])for[[:space:]]+${name}[[:space:]]"
     [[ $s =~ $ra ]] && continue
     case "$_LV_TMP$_LV_REL" in *" $name "*) continue ;; esac
+    [[ $s =~ $hb ]] || continue
+    body="${s#*"${BASH_REMATCH[0]}"}"
+    [[ $body =~ $kw ]] && [ "${BASH_REMATCH[2]}" = done ] || continue
+    post="${body#*"${BASH_REMATCH[0]}"}"
+    body="${body%%"${BASH_REMATCH[0]}"*}"
+    case "$body" in *"'"*|*'\'*|*"$_BT"*) continue ;; esac
+    ra="[$][{]?${name}([^A-Za-z0-9_]|$)"
+    [[ $pre =~ $ra ]] && continue
+    [[ $post =~ $ra ]] && continue
     rel=0; ok=1; nw=0
     set -f
     for w in $ws; do
@@ -334,6 +349,16 @@ _careful_outside() {
   return 0
 }
 
+# NAME=VALUE as the command's first statement, so it runs before any use,
+# with no single quote or backslash after it: a child shell started with
+# 'cd $NAME' or <<\EOF would not see an unexported NAME.
+_careful_set_first() {
+  local re="^[[:space:]]*${1}=(\"[^\"\$${_BT}\\\\]*\"|'[^']*'|[^[:space:];&|\$${_BT}\\\\'\"()]+)[[:space:]]*(&&|;|${_NL})"
+  [[ $CMD_MEDIUM =~ $re ]] || return 1
+  case "${CMD_MEDIUM:${#BASH_REMATCH[0]}}" in *"'"*|*'\'*) return 1 ;; esac
+  return 0
+}
+
 # _CUR_DIR is the folder a cd leads to, or empty when it is unknown. A cd
 # into /tmp or /var/tmp, into a mktemp variable, or into a variable this
 # command sets to a /tmp path is scratch. So is a relative cd from scratch
@@ -345,20 +370,22 @@ _careful_cd() {
   _CD_SEEN=1
   _SCRATCH=0
   _careful_gcd
-  if [[ $a =~ $_RX_VAR ]] && ! _careful_is_tmpvar "${BASH_REMATCH[1]}"; then
+  if [[ $a =~ $_RX_VAR ]] && ! _careful_is_tmpvar "${BASH_REMATCH[1]}" && _careful_set_first "${BASH_REMATCH[1]}"; then
     _careful_resolve "$a"
     [ -n "$_RISK" ] || a="$_R"
   fi
   case "$a" in
     '') _CUR_DIR="${HOME:-}" ;;
     -*) _CUR_DIR="" ;;
-    *) _careful_join_dir "$_CUR_DIR" "$a"; _CUR_DIR="$_D" ;;
+    *) _careful_join_dir "$_CUR_DIR" "$a"; _CUR_DIR="$_D"
+       case "/$a/" in */../*) _CUR_DIR="" ;; esac
+       case "$a" in /*|'~'*) ;; *) [ "$_CDPATH" -eq 0 ] || _CUR_DIR="" ;; esac ;;
   esac
   case "/$1/" in */../*) return 0 ;; esac
   case "/$a/" in */../*) return 0 ;; esac
   if [[ "${a%/}/x" =~ $_RX_TMP ]]; then _SCRATCH=1; fi
   if [[ $a =~ $_RX_VAR ]] && _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _SCRATCH=1; fi
-  [ "$_SCRATCH" -eq 0 ] && [ "$was" -eq 1 ] && [ "$_LN" -eq 0 ] || return 0
+  [ "$_SCRATCH" -eq 0 ] && [ "$was" -eq 1 ] && [ "$_LN" -eq 0 ] && [ "$_CDPATH" -eq 0 ] || return 0
   case "$a" in /*|'~'*|'$'*|-*|*'`'*|*'*'*|*'?'*|*'['*) return 0 ;; esac
   if [ -n "$from" ]; then
     [[ "${_CUR_DIR%/}/x" =~ $_RX_TMP ]] || return 0
@@ -401,7 +428,7 @@ _careful_gcd() {
 }
 
 _careful_rm() {
-  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1 w c
+  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1 w c t0 k0 j
   local tg=()
   # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
   case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
@@ -422,12 +449,17 @@ _careful_rm() {
       case "$w" in
         \"*|\'*)
           c="${w%"${w#?}"}"
-          if [ "${#w}" -eq 1 ] || [ "${w%"$c"}" = "$w" ]; then
-            while [ "$k" -lt "$n" ]; do
-              t="$t ${T[$k]}"; w="${RW[$k]}"; k=$((k + 1))
-              case "$w" in *"$c") break ;; esac
-            done
-          fi ;;
+          case "${w#?}" in
+            *"$c"*) ;;
+            *)
+              t0="$t"; k0="$k"; j=0
+              while [ "$k" -lt "$n" ]; do
+                t="$t ${T[$k]}"; w="${RW[$k]}"; k=$((k + 1))
+                case "${w%"$c"}" in *"$c"*) break ;; esac
+                case "$w" in *"$c") j=1; break ;; esac
+              done
+              [ "$j" -eq 1 ] || { t="$t0"; k="$k0"; } ;;
+          esac ;;
       esac
     fi
     [ -n "$t" ] || continue
@@ -541,6 +573,7 @@ _careful_join_dir() {
     *'$'*|*'`'*) _D="" ;;
     /*) _D="$2" ;;
     '~'|'~/'*) _D="${HOME:-}${2#\~}" ;;
+    '~'*) _D="" ;;
     *) if [ -n "$1" ]; then _D="$1/$2"; else _D=""; fi ;;
   esac
 }
@@ -935,6 +968,14 @@ _AWK_HEREDOC='function writes(pre, rest,   s, w, f, k, m) {
   if (f ~ /^(&|\/dev\/)/) return ""
   return f
 }
+function expands(i,   k, t) {
+  for (k = i + 1; k <= n; k++) {
+    t = L[k]; if (dash) sub(/^\t+/, "", t)
+    if (t == d) return 0
+    if (index(L[k], "$") > 0 || index(L[k], "`") > 0) return 1
+  }
+  return 0
+}
 function mark(s,   o, p, b, a) {
   o = ""
   while ((p = index(s, "git")) > 0) {
@@ -962,10 +1003,12 @@ BEGIN { RS = "\001" }
         r = substr(l, p + 2); dash = 0
         if (substr(r, 1, 1) == "-") { dash = 1; r = substr(r, 2) }
         sub(/^[ \t]+/, "", r)
-        if (match(r, /^\047[^\047]*\047/) || match(r, /^"[^"]*"/)) d = substr(r, 2, RLENGTH - 2)
-        else if (match(r, /^\\?[A-Za-z0-9_.-]+/)) { d = substr(r, 1, RLENGTH); sub(/^\\/, "", d) }
+        qd = 0
+        if (match(r, /^\047[^\047]*\047/) || match(r, /^"[^"]*"/)) { d = substr(r, 2, RLENGTH - 2); qd = 1 }
+        else if (match(r, /^\\?[A-Za-z0-9_.-]+/)) { d = substr(r, 1, RLENGTH); if (sub(/^\\/, "", d)) qd = 1 }
+        if (d != "" && index(" \t;&|<>)", substr(r, RLENGTH + 1, 1)) == 0 && RLENGTH < length(r)) d = ""
         w = 0
-        if (d != "") { f = writes(substr(l, 1, p - 1), substr(r, RLENGTH + 1)); if (f != "") { w = 1; fl = fl f "\n" } }
+        if (d != "") { f = writes(substr(l, 1, p - 1), substr(r, RLENGTH + 1)); if (f != "" && (qd || !expands(i))) { w = 1; fl = fl f "\n" } }
       }
     }
     o = o (i > 1 ? "\n" : "") l
@@ -974,17 +1017,22 @@ BEGIN { RS = "\001" }
 }'
 _RX_GIT_PUSH="(^|[^[:alnum:]_])git([[:space:]][^;&|${_NL}]*)?[[:space:]]push([[:space:]]|\$)"
 _careful_heredocs() {
-  local out fl f b re
+  local out fl f b re u
   case "$CMD_MEDIUM" in *$'\001'*|*$'\002'*|*$'\007'*) return 0 ;; esac
   out=$(printf '%s' "$CMD_MEDIUM" | awk "$_AWK_HEREDOC" 2>/dev/null) || return 0
   fl="${out%%$'\002'*}"; out="${out#*$'\002'}"
   [ -n "$fl" ] || return 0
+  u=$(printf '%s' "$out" | tr -d "\"'")
+  re="[|][[:space:]]*((sudo|env|exec|command)[[:space:]]+)*(bash|sh|zsh|dash|ksh)([[:space:];&|)]|\$)"
+  [[ $u =~ $re ]] && return 0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     b="${f##*/}"
     case "$b" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
     re="(^|[;&|(${_BT}${_NL}]|[[:space:]](then|do|else|exec|bash|sh|zsh|dash|ksh|source|[.]|env|sudo|nohup|xargs|time))[[:space:]]*[^[:space:];&|]*${b//./[.]}([[:space:];&|)]|\$)"
-    [[ $out =~ $re ]] && return 0
+    [[ $u =~ $re ]] && return 0
+    re="(^|[[:space:];&|(${_BT}${_NL}])(bash|sh|zsh|dash|ksh|source|exec|eval|xargs)[[:space:]][^;&|${_NL}]*${b//./[.]}"
+    [[ $u =~ $re ]] && return 0
     case "/$f" in */hooks/*) [[ $out =~ $_RX_GIT_PUSH ]] && return 0 ;; esac
   done <<EOF_HEREDOC
 $fl
@@ -1011,6 +1059,7 @@ _careful_pending() {
 case "$CMD_MEDIUM" in *'#'*) _HASH=1 ;; esac
 _RX_LN="(^|[[:space:];&|(${_BT}])ln[[:space:]]"
 [[ $CMD_MEDIUM =~ $_RX_LN ]] && _LN=1
+{ [ -n "${CDPATH:-}" ] || [[ $CMD_MEDIUM == *CDPATH* ]]; } && _CDPATH=1
 _CMD_SCAN="$CMD_MEDIUM"
 case "$CMD_MEDIUM" in *'<<'*) _careful_heredocs ;; esac
 _careful_find_tmpvars
@@ -1231,7 +1280,7 @@ _AWK_STMTS='BEGIN { RS = "\001" }
       if (c == "<") continue
       j = i + 1
       while (substr(s, j, 1) == ">" || substr(s, j, 1) == "|") j++
-      if (substr(s, j, 1) == "&") { i = j; continue }
+      if (substr(s, j, 1) == "&") { r = 1; i = j; continue }
       while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
       t = ""
       while (j <= n && index(" \t\n;&|<>()", substr(s, j, 1)) == 0) { t = t substr(s, j, 1); j++ }
