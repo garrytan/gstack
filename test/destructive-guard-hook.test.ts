@@ -59,9 +59,14 @@ describe('destructive-guard hook', () => {
     expect(decision(r.stdout).permissionDecision).toBe('ask');
   });
 
-  test('claude -p and headless sessions get a warning and no decision, so nothing waits on an answer; a deny stays a deny', () => {
+  test('an Agent SDK host that says a person answers (GSTACK_SESSION_KIND=interactive) still gets the ask', () => {
+    const r = run(SHIM, payload('rm -rf /var/data'), { CLAUDE_CODE_ENTRYPOINT: 'sdk-py', GSTACK_SESSION_KIND: 'interactive' });
+    expect(decision(r.stdout).permissionDecision).toBe('ask');
+  });
+
+  test('claude -p, unmarked Agent SDK and headless sessions get a warning and no decision, so nothing waits on an answer; a deny stays a deny', () => {
     const reason = decision(run(CHECK, payload('rm -rf /var/data')).stdout).permissionDecisionReason;
-    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { GSTACK_HEADLESS: '1' }] as Record<string, string>[]) {
+    for (const env of [{ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-py' }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }, { GSTACK_HEADLESS: '1' }] as Record<string, string>[]) {
       const r = run(SHIM, payload('rm -rf /var/data'), env);
       expect(r.code).toBe(0);
       const out = JSON.parse(r.stdout);

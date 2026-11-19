@@ -1492,19 +1492,21 @@ Four skills that add safety rails to any Claude Code session. They work via Clau
 
 Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash and PowerShell command gets checked against known-dangerous patterns:
 
-- `rm -rf` / `rm -r` — recursive delete
-- `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` — data loss
-- `git push --force` / `git push -f` — history rewrite
-- `git reset --hard` — discard commits
-- `git checkout .` / `git restore .` — discard uncommitted work
+- `rm -rf` / `rm -r` of anything that isn't scratch — recursive delete
+- `rm`, `find -delete`, `rsync --delete`, `shred` or `unlink` outside the session folder, or through a variable that may be unset — files git can't bring back
+- SQL `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` run by a database client — data loss
+- `git push --force` / `-f` / `+ref` / `--force-with-lease` and remote branch deletes — history rewrite
+- `git reset --hard`, `checkout -- paths`, `checkout -f`, `switch -f`, `restore`, `clean -f` — only when the tree really has uncommitted work they would discard; `stash drop` and `worktree remove --force` always
+- `filter-branch`, `filter-repo`, BFG, `reflog expire --expire=now`, `gc --prune=now` — history you can't get back
+- database resets (`prisma migrate reset`, `supabase db reset`, `rails db:drop`, `dropdb`, `FLUSHALL`) and cloud deletes (`terraform destroy`, `aws` delete calls, `helm uninstall`, `gh repo delete`, `docker volume rm`)
 - `kubectl delete` — production resource deletion
 - `docker rm -f` / `docker system prune` — container/image loss
 
 On Windows the same hook checks Claude Code's PowerShell tool and any `pwsh`/`powershell`/`cmd` launched from Bash: `Remove-Item` and its aliases with `-Recurse`/`-Force` (any parameter prefix), cmd `rd /s` and `del /s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` and .NET deletes ask, and encoded or dynamic PowerShell (`-EncodedCommand`, `iex`, `Start-Process` of a shell, `& $cmd`) asks because it can't be inspected. PowerShell coverage is best-effort; Claude Code permission deny rules such as `"PowerShell(Remove-Item *)"` are the hard stop.
 
-Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`) are whitelisted — no false alarms on routine operations.
+Deleting scratch never asks: anything under `/tmp/` or `/var/tmp/`, a `mktemp` folder, caches such as `~/.cache` and `~/.npm`, and build output (`node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`, `.venv`, `.pytest_cache` and the like). In a replay of 254,322 agent commands, `/tmp` deletes were 95% of the old check's false asks.
 
-You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; to run one anyway, turn the every-session check off with `gstack-config set destructive_guard off` and don't load `/careful` or `/guard`). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
+You can override any MEDIUM warning. Three catastrophic shapes are hard-denied instead of asked, however the command is written: recursive deletes of the filesystem root, your home directory, a top-level system folder or a personal folder such as `~/.ssh` or `~/Documents`; force-pushes to `main`, `master` or the repo's default branch (`--force-with-lease` alone never triggers the deny); and raw writes, formats or wipes of a whole disk (to run one anyway, turn the every-session check off with `gstack-config set destructive_guard off` and don't load `/careful` or `/guard`). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
 
 ### `/freeze`
 

@@ -39,16 +39,20 @@ echo '{"skill":"careful","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(base
 
 ## What's protected
 
-| Pattern | Example | Risk |
-|---------|---------|------|
-| `rm -rf` / `rm -r` / `rm --recursive` | `rm -rf /var/data` | Recursive delete |
-| `DROP TABLE` / `DROP DATABASE` | `DROP TABLE users;` | Data loss |
-| `TRUNCATE` | `TRUNCATE orders;` | Data loss |
-| `git push --force` / `-f` | `git push -f origin main` | History rewrite |
-| `git reset --hard` | `git reset --hard HEAD~3` | Uncommitted work loss |
-| `git checkout .` / `git restore .` | `git checkout .` | Uncommitted work loss |
-| `kubectl delete` | `kubectl delete pod` | Production impact |
-| `docker rm -f` / `docker system prune` | `docker system prune -a` | Container/image loss |
+Each command in a chain is checked on its own (after `&&`, `sudo`, `xargs`,
+inside `bash -c`).
+
+| Asks before | Example |
+|-------------|---------|
+| `rm -r` of anything but scratch (see below) | `rm -rf /var/data` |
+| Deleting outside the session folder: `rm`, find's delete actions, `rsync --delete`, `shred`, `unlink` | `rm -f ~/notes.txt` |
+| `DROP TABLE`/`DATABASE` through a SQL client; SQL `TRUNCATE` | `psql -c "DROP TABLE users"` |
+| Force-push (`-f`, `+ref`, `--force-with-lease`); remote branch delete | `git push -f origin feature` |
+| `reset --hard`, `checkout -f`/`-- paths`, `restore`, `clean -f` when there is work to lose; `stash drop`, `worktree remove --force` | `git clean -fdx` |
+| History rewrites (`filter-branch`, BFG, `reflog expire --expire=now`) | |
+| Database resets (`prisma migrate reset`, `dropdb`, `FLUSHALL`, `DELETE FROM` with no `WHERE`) | |
+| Cloud deletes (`terraform destroy`, `aws`/`gcloud`/`az` delete; not dry runs) | |
+| `kubectl delete`, `docker rm -f`, `docker system prune` | |
 
 ## PowerShell and cmd (Windows)
 
@@ -71,26 +75,24 @@ PowerShell and its aliases: `"deny": ["PowerShell(Remove-Item *)"]` in
 
 ## Safe exceptions
 
-These patterns are allowed without warning:
-- `rm -rf node_modules` / `.next` / `dist` / `__pycache__` / `.cache` / `build` / `.turbo` / `coverage`
+A recursive delete never asks when every target is scratch: under `/tmp/` or
+`/var/tmp/`, a `$(mktemp)` variable, a relative path after `cd` into scratch, a
+cache (`~/.cache`, `~/.npm` and the like), or a build artifact
+(`node_modules`, `dist`, `build`, `.next`, `.venv` and the like). A path containing `..` is never scratch.
 
 ## How it works
 
-The hook reads `tool_name` and the command from the tool input JSON, checks it against the
-patterns above, and returns a `hookSpecificOutput` payload with
-`permissionDecision: "ask"` and a warning reason if a match is found (the
-decision must be nested under `hookSpecificOutput` — Claude Code ignores a
-top-level `permissionDecision`). You can always override a MEDIUM warning and
-proceed.
+The hook checks each command against the patterns above and returns
+`permissionDecision: "ask"` (nested under `hookSpecificOutput`) with a reason.
+You can always approve an ask and proceed.
 
 ## HIGH tier (hard deny)
 
-Two catastrophic shapes are **denied**, not asked: `rm -r`/`-R` of exactly
-`/`, `~`, or `$HOME`, and force-push to the repo's **default branch**. SIMPLE
-commands only (no `;`, `&&`, `||`, `|`, newline) — compound shapes fall
-through to the MEDIUM ask; `--force-with-lease` is never HIGH. A best-effort
-advisory hard-stop, not a policy boundary: the escape hatch is running the
-command yourself, outside the agent.
+**Denied**, not asked: a recursive delete of `/`, `~`, a system folder or
+`~/.ssh`-style personal folder; a force-push to `main`, `master` or the
+**default branch** (`--force-with-lease` is never HIGH); a disk wipe
+(`dd of=/dev/sda`, `mkfs`). Best-effort, not a policy boundary: you can still
+run the command yourself.
 
 ## Project patterns (additive only)
 
@@ -102,10 +104,7 @@ baseline warning. Invalid regex lines are skipped.
 
 ## Always on
 
-Since gstack's helper hooks went on by default, `./setup` also registers this
-check as a Claude Code hook for every session (`destructive_guard`), so it runs
-even when /careful is never loaded. Loading /careful adds nothing to that
-check; /guard still adds the edit boundary. Turn the every-session check off
-with `gstack-config set destructive_guard off` (or `./setup
---no-destructive-guard`). With it off, /careful's own hooks last until the
-conversation ends.
+`./setup` registers this check for every session (`destructive_guard`), so it
+runs even when /careful is never loaded; /guard still adds the edit boundary.
+Turn it off with `gstack-config set destructive_guard off`; /careful's own
+hooks then last until the conversation ends.

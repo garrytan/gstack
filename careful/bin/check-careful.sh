@@ -3,9 +3,11 @@
 # Reads JSON from stdin, checks a Bash or PowerShell command for destructive
 # patterns (best-effort string matching, not a security boundary).
 # Two tiers:
-#   HIGH   — a tiny set of catastrophic SIMPLE commands returns "deny"
+#   HIGH   — a few catastrophic shapes return "deny" in any command shape
 #            (best-effort advisory hard-stop, not a policy boundary).
 #   MEDIUM — the destructive families below return "ask" (always overridable).
+# The families and their scratch exceptions follow GEVA-560's replay of
+# 254,322 agent commands (careful/SKILL.md lists them).
 # The decision MUST be nested under hookSpecificOutput — Claude Code ignores a
 # top-level permissionDecision, which silently no-ops the warning.
 set -euo pipefail
@@ -75,6 +77,10 @@ fi
 # Shared helper respects GSTACK_HOME, so tests never write real analytics.
 _careful_log_fire() { gstack_hook_log_fire careful "$1"; }
 
+# A bug in the checks below (set -e stopping on an unexpected status) must
+# fail toward an ask, never toward silence, which Claude Code reads as allow.
+trap '_careful_rc=$?; if [ "$_careful_rc" -ne 0 ]; then gstack_hook_decision ask "[careful] The destructive-command check failed on this command (exit $_careful_rc), so it could not be checked. Approve only if you know what it does."; exit 0; fi' EXIT
+
 # Normalize: lowercase for case-insensitive SQL matching
 CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 
@@ -95,102 +101,562 @@ if grep -qE '\$\{IFS\}|\$IFS|\$\(echo[^)]*base64[^)]*\)|base64[[:space:]]+(-d|--
   exit 0
 fi
 
-# --- HIGH tier: hard deny (best-effort advisory hard-stop, NOT a policy boundary) ---
-# Only SIMPLE commands are eligible: string matching cannot resolve what a
-# compound command does (`cd X && git push --force` — whose cwd? which repo?),
-# so anything containing ; && || | or a newline falls through to the MEDIUM ask
-# families below — conservative failure = ask, never guess.
-# --force-with-lease is deliberately NOT matched here (it is the safe variant).
-# curl|sh stays MEDIUM/allow territory: hard-denying it would block legitimate
-# installer flows, including gstack's own setup pattern.
-_IS_SIMPLE=1
-case "$CMD" in
-  *';'*|*'&&'*|*'||'*|*'|'*|*$'\n'*) _IS_SIMPLE=0 ;;
-esac
-if [ "$_IS_SIMPLE" -eq 1 ]; then
-  # Recursive delete aimed at the filesystem root or the whole home directory.
-  # Tokenized: options (long or short, any position — --no-preserve-root may
-  # trail the target) are skipped; EVERY non-option token must be a root-class
-  # target (/, ~, $HOME, /*), and a recursive flag must be present. noglob is
-  # forced around word-splitting so a literal /* token never expands.
-  if grep -qE '^[[:space:]]*(sudo[[:space:]]+)?rm[[:space:]]' <<< "$CMD" 2>/dev/null \
-    && grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|$)' <<< "$CMD" 2>/dev/null; then
-    _ROOT_TARGETS=0
-    _SAFE_TARGETS=0
-    set -f
-    for _TOK in $CMD; do
-      # Strip one layer of surrounding quotes: rm -rf "/" is still rm -rf /.
-      _TOK="${_TOK#\"}"; _TOK="${_TOK%\"}"; _TOK="${_TOK#\'}"; _TOK="${_TOK%\'}"
-      case "$_TOK" in
-        # Skip non-target decoration: options, `--`, redirections (2>/dev/null
-        # is the most common suffix on agent-generated commands), backgrounding.
-        sudo|rm|-*|--|[0-9]'>'*|'>'*|'<'*|'&') continue ;;
-        '/'|'~'|'~/'|'$HOME'|'$HOME/'|'${HOME}'|'${HOME}/'|'/*'|'//') _ROOT_TARGETS=1 ;;
-        *) _SAFE_TARGETS=1 ;;
-      esac
+# --- Commit-message masking (#1060) ---
+# Mask quoted -m/-am/--message argument content in git commit commands so that
+# descriptive commit messages do not trigger false positives. The quote-aware
+# scanner lives in mask-commit-message.awk beside this hook: as a heredoc inside
+# a command substitution, its quote characters are mis-parsed by bash 3.2
+# (macOS /bin/bash), which made this whole hook a syntax error there. A missing
+# program or an awk failure leaves the command unmasked. Every check below,
+# the hard denies included, reads the masked command.
+WARN=""
+PATTERN=""
+CMD_MEDIUM="$CMD"
+CMD_MEDIUM_LOWER="$CMD_LOWER"
+_MASK_AWK="$_HOOK_DIR/mask-commit-message.awk"
+case "$CMD" in *git*commit*) _MAYBE_COMMIT=1 ;; *) _MAYBE_COMMIT=0 ;; esac
+if [ "$_MAYBE_COMMIT" -eq 1 ] && [ -f "$_MASK_AWK" ]; then
+  if _cmd_masked=$(printf '%s' "$CMD" | awk -f "$_MASK_AWK" 2>/dev/null); then
+    CMD_MEDIUM="$_cmd_masked"
+    CMD_MEDIUM_LOWER=$(printf '%s' "$CMD_MEDIUM" | tr '[:upper:]' '[:lower:]')
+  fi
+fi
+
+# --- Statement scan (GEVA-560) ---
+# The command is cut into statements at ; & | ( ) backtick and newline, and
+# each statement into words (one layer of quotes stripped, nothing expanded).
+# Every rm, git, find, rsync, shred and unlink word starts an invocation whose
+# arguments are the rest of its statement, wherever it sits: after sudo,
+# xargs, bash -c '...' or another command. Builtins only (bash 3.2) apart from
+# one awk call that cuts the statements, and git, which runs only after a force-push or a discard of uncommitted
+# work has already matched.
+_NL=$'\n'
+_BT='`'
+_NS="[^;&|${_NL}]*"
+_RX_VAR='^[$][{]?([A-Za-z_][A-Za-z0-9_]*)(:[?][^}]*)?[}]?(/.*)?$'
+_RX_HOME='(~|[$]HOME|[$][{]HOME[}])'
+_RX_TMP='^(/private)?(/tmp|/var/tmp)/[^[:space:]]+$'
+_RX_CACHE="^${_RX_HOME}/(\.cache|\.npm|\.bun/install/cache|\.cargo/registry|\.local/share/uv|Library/Caches)(/|\$)"
+_RX_ARTIFACT="^([^[:space:];&|#(${_BT}\$]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.nox|htmlcov|\.eggs|\.venv|venv|[^/[:space:]]+\.egg-info)(/|/\*)?\$"
+_RX_ROOT="^(/+|/+\*|${_RX_HOME}(/+|/+\*)?|/(usr|etc|var|home|opt|bin|sbin|lib|lib64|boot|root|srv|System|Users|Library|Applications|private|mnt/c|c)(/+|/+\*)?|${_RX_HOME}/(Documents|Desktop|Downloads|Library|Pictures|Movies|Music|\.ssh|\.config|\.aws|\.gnupg|\.kube)(/+|/+\*)?)\$"
+
+_CAREFUL_CWD="${GSTACK_HOOK_CWD:-}"
+[ -n "$_CAREFUL_CWD" ] || _CAREFUL_CWD="$PWD"
+if command -v gstack_hook_normalize_path >/dev/null 2>&1; then
+  gstack_hook_normalize_path "$_CAREFUL_CWD"
+  _CAREFUL_CWD="$GSTACK_HOOK_PATH"
+fi
+_CAREFUL_CWD="${_CAREFUL_CWD%/}"
+
+_TMPVARS=" "
+_SCRATCH=0
+_CD_SEEN=0
+_STK=""
+_GIT_SUB=-1
+_HI_RM_ROOT=0
+_RM_UNSAFE=0
+_OUTSIDE=0
+_PUSH_DENY=""
+_PUSH_FORCE=0
+_PUSH_DELETE=0
+_HIST=0
+_LOSE_NOW=""
+_PEND_N=0
+_S=""
+_R=""
+_RISK=""
+_D=""
+
+# Up to two layers of quotes, any mix: trap 'rm -rf "$T"' leaves $T.
+_Q="[\"']"
+_careful_strip() { _S="${1#$_Q}"; _S="${_S#$_Q}"; _S="${_S%$_Q}"; _S="${_S%$_Q}"; }
+
+# Variables assigned from mktemp anywhere in the command (NAME=$(mktemp ...)).
+_careful_find_tmpvars() {
+  local s="$CMD_MEDIUM" re='(^|[[:space:];&|(])([A-Za-z_][A-Za-z0-9_]*)="?[$][(][[:space:]]*mktemp([^[:alnum:]_]|$)'
+  case "$s" in *mktemp*) ;; *) return 0 ;; esac
+  while [[ $s =~ $re ]]; do
+    _TMPVARS="$_TMPVARS${BASH_REMATCH[2]} "
+    s="${s#*"${BASH_REMATCH[0]}"}"
+  done
+  return 0
+}
+_careful_is_tmpvar() { case "$_TMPVARS" in *" $1 "*) return 0 ;; esac; return 1; }
+
+# A $VAR-led word: _R is the word with VAR's value from an assignment in the
+# same command, or the word unchanged with _RISK guarded (${VAR:?}) or
+# unguarded (an unset VAR turns "$VAR/" into "/").
+_careful_resolve() {
+  _R="$1"; _RISK=""
+  [[ $1 =~ $_RX_VAR ]] || return 0
+  local name="${BASH_REMATCH[1]}" guard="${BASH_REMATCH[2]}" rest="${BASH_REMATCH[3]}"
+  local re="(^|[[:space:];&|(])${name}=(\"(/tmp/|/var/tmp/)[^\"${_BT}(]*\"|(/tmp/|/var/tmp/)[^[:space:];&|()\"'${_BT}]*|\"[^\"\$]*\"|'[^']*'|[^[:space:];&|\$()\"'${_BT}]+)([[:space:];&|)]|\$)"
+  if [[ $CMD_MEDIUM =~ $re ]]; then
+    _careful_strip "${BASH_REMATCH[2]}"
+    local again="(^|[[:space:];&|(])${name}=.*[[:space:];&|(]${name}="
+    if [[ $CMD_MEDIUM =~ $again ]]; then _RISK=unguarded; return 0; fi
+    _R="$_S$rest"
+    return 0
+  fi
+  if [ -n "$guard" ]; then _RISK=guarded; else _RISK=unguarded; fi
+  return 0
+}
+
+# Scratch a recursive delete may remove without asking: /tmp and /var/tmp,
+# a mktemp variable, regenerable caches, build artifacts, and relative paths
+# after a cd into scratch. Anything with a .. component is never scratch.
+_careful_rm_safe() {
+  local t="$1"
+  if [[ $t =~ $_RX_VAR ]] && ! _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _careful_resolve "$t"; t="$_R"; fi
+  case "/$t/" in */../*) return 1 ;; esac
+  [[ $t =~ $_RX_TMP ]] && return 0
+  [[ $t =~ $_RX_CACHE ]] && return 0
+  case "$t" in '$'*|'~'*) ;; *) [[ $t =~ $_RX_ARTIFACT ]] && return 0 ;; esac
+  if [[ $t =~ $_RX_VAR ]] && _careful_is_tmpvar "${BASH_REMATCH[1]}"; then return 0; fi
+  if [ "$_SCRATCH" -eq 1 ]; then
+    case "$t" in /*|'~'*|'$'*|-*|*'`'*|*'('*|*'*'*) ;; *) return 0 ;; esac
+  fi
+  return 1
+}
+
+# A delete target outside the session's folder: an absolute or ~ path that is
+# not scratch or a cache, a path climbing out with .., or a word led by a
+# variable that may be unset.
+_careful_outside() {
+  local t="$1"
+  [ -n "$t" ] || return 1
+  case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
+  case "/$t/" in */../*) return 0 ;; esac
+  [[ $t =~ $_RX_TMP ]] && return 1
+  [[ $t =~ $_RX_CACHE ]] && return 1
+  if [[ $t =~ $_RX_VAR ]]; then
+    _careful_is_tmpvar "${BASH_REMATCH[1]}" && return 1
+    _careful_resolve "$t"
+    [ "$_RISK" = unguarded ] && return 0
+    [ "$_RISK" = guarded ] && return 1
+    t="$_R"
+    case "/$t/" in */../*) return 0 ;; esac
+    [[ $t =~ $_RX_TMP ]] && return 1
+    [[ $t =~ $_RX_CACHE ]] && return 1
+  fi
+  case "$t" in
+    '~'|'~/'*) t="${HOME:-}${t#\~}" ;;
+    '~'*) return 0 ;;
+    /*) ;;
+    *) return 1 ;;
+  esac
+  t="${t%/}"
+  if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
+  return 0
+}
+
+_careful_cd() {
+  _CD_SEEN=1
+  _SCRATCH=0
+  if [[ "${1%/}/x" =~ $_RX_TMP ]]; then _SCRATCH=1; fi
+  if [[ $1 =~ $_RX_VAR ]] && _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _SCRATCH=1; fi
+  return 0
+}
+
+_careful_rm() {
+  local k="$1" t rec=0 late=0 nt=0 first=1 q=""
+  local tg=()
+  # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
+  case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
+  while [ "$k" -lt "$n" ]; do
+    t="${T[$k]}"; k=$((k + 1))
+    if [ -n "$q" ]; then case "${RW[$((k - 1))]}" in *"$q") k=$n ;; esac; fi
+    [ -n "$t" ] || continue
+    # A subcommand named rm (aws s3 rm s3://b --recursive) is not rm: a real
+    # recursive rm leads with its flags, as the original family required.
+    if [ "$first" -eq 1 ]; then first=0; case "$t" in -*) ;; *) rec=2 ;; esac; fi
+    case "$t" in
+      --recursive) late=1; [ "$rec" -eq 2 ] || rec=1 ;;
+      -*) case "${t#-}" in *[!a-zA-Z]*|'') ;; *[rR]*) late=1; [ "$rec" -eq 2 ] || rec=1 ;; esac ;;
+      [0-9]'>'*|[0-9]'<'*|'>'*|'<'*) ;;
+      *) tg[$nt]="$t"; nt=$((nt + 1)) ;;
+    esac
+  done
+  if [ "$rec" -eq 1 ] && [ "$nt" -eq 0 ]; then _RM_UNSAFE=1; fi
+  k=0
+  while [ "$k" -lt "$nt" ]; do
+    t="${tg[$k]}"; k=$((k + 1))
+    # GNU rm takes flags after its operands: rm / -rf still denies.
+    if [ "$late" -eq 1 ] && [[ $t =~ $_RX_ROOT ]]; then _HI_RM_ROOT=1; fi
+    if [ "$rec" -eq 1 ]; then
+      _careful_rm_safe "$t" || _RM_UNSAFE=1
+    fi
+    if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
+  done
+  return 0
+}
+
+# find -delete / -exec rm, rsync --delete, shred and unlink outside the folder.
+_careful_del() {
+  [ "$_OUTSIDE" -eq 0 ] || return 0
+  local tool="$1" k="$2" t last="" del=0 dry=0 act=0 stop=0 hit=0
+  while [ "$k" -lt "$n" ]; do
+    t="${T[$k]}"; k=$((k + 1))
+    [ -n "$t" ] || continue
+    case "$tool" in
+      shred|unlink)
+        case "$t" in -*) ;; *) if _careful_outside "$t"; then hit=1; fi ;; esac ;;
+      rsync)
+        case "$t" in
+          --delete*) del=1 ;;
+          -n|--dry-run) dry=1 ;;
+          --*) ;;
+          -*) case "${t#-}" in *[!a-zA-Z]*) ;; *n*) dry=1 ;; esac ;;
+          [0-9]'>'*|'>'*|'<'*) ;;
+          *) last="$t" ;;
+        esac ;;
+      find)
+        case "$t" in
+          -delete) act=1; stop=1 ;;
+          -exec|-execdir)
+            stop=1
+            if [ "$k" -lt "$n" ]; then case "${T[$k]}" in rm|/bin/rm|/usr/bin/rm) act=1 ;; esac; fi ;;
+          -*|'('|'!'|'\('|')') stop=1 ;;
+          *) if [ "$stop" -eq 0 ] && _careful_outside "$t"; then hit=2; fi ;;
+        esac ;;
+    esac
+  done
+  case "$tool" in
+    rsync) if [ "$del" -eq 1 ] && [ "$dry" -eq 0 ] && [ -n "$last" ] && _careful_outside "$last"; then hit=1; fi ;;
+    find) if [ "$hit" -eq 2 ] && [ "$act" -eq 1 ]; then hit=1; else hit=0; fi ;;
+  esac
+  if [ "$hit" -eq 1 ]; then _OUTSIDE=1; fi
+  return 0
+}
+
+_careful_join_dir() {
+  case "$2" in
+    *'$'*|*'`'*) _D="" ;;
+    /*) _D="$2" ;;
+    '~'|'~/'*) _D="${HOME:-}${2#\~}" ;;
+    *) if [ -n "$1" ]; then _D="$1/$2"; else _D=""; fi ;;
+  esac
+}
+
+_careful_default_branch() {
+  local b
+  b=$(git -C "$1" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)
+  b="${b#refs/remotes/origin/}"
+  if [ -z "$b" ]; then
+    if git -C "$1" show-ref --verify -q refs/remotes/origin/main 2>/dev/null; then b=main
+    elif git -C "$1" show-ref --verify -q refs/remotes/origin/master 2>/dev/null; then b=master
+    fi
+  fi
+  printf '%s' "$b"
+}
+
+# A forced push (not --force-with-lease alone) that lands on main, master or
+# the default branch, named or as the current branch.
+_careful_push_default() {
+  local j=0 r hit="" def cur="" bare=0
+  [ "$nr" -gt 0 ] || bare=1
+  while [ "$j" -lt "$nr" ]; do
+    r="${refs[$j]}"; j=$((j + 1))
+    case "$r" in main|master) hit="$r"; break ;; HEAD) bare=1 ;; esac
+  done
+  if [ -z "$hit" ]; then
+    def=$(_careful_default_branch "${dir:-$_CAREFUL_CWD}")
+    j=0
+    while [ -n "$def" ] && [ "$j" -lt "$nr" ]; do
+      r="${refs[$j]}"; j=$((j + 1))
+      if [ "$r" = "$def" ]; then hit="$r"; break; fi
     done
-    set +f
-    if [ "$_ROOT_TARGETS" -eq 1 ] && [ "$_SAFE_TARGETS" -eq 0 ]; then
-      _careful_log_fire "high_rm_root"
-      gstack_hook_decision deny "[careful][HIGH] Recursive delete of / or the home directory is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
-      exit 0
+    if [ -z "$hit" ] && [ "$bare" -eq 1 ] && [ -n "$dir" ]; then
+      cur=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+      if [ -n "$cur" ] && { [ "$cur" = main ] || [ "$cur" = master ] || [ "$cur" = "$def" ]; }; then hit="$cur"; fi
     fi
   fi
-  # Force-push to the repo's default branch (the shared history everyone pulls).
-  # Force is carried by -f/--force OR by git's plus-refspec syntax (+main,
-  # +HEAD:main) which needs no flag at all. --force-with-lease never matches.
-  if grep -qE '^[[:space:]]*git[[:space:]]+push([[:space:]]|$)' <<< "$CMD" 2>/dev/null; then
-    _HAS_FORCE=0
-    if grep -qE '(^|[[:space:]])(-f|--force)($|[[:space:]])' <<< "$CMD" 2>/dev/null; then
-      _HAS_FORCE=1
-    elif grep -qE '(^|[[:space:]])\+[^[:space:]]' <<< "$CMD" 2>/dev/null; then
-      _HAS_FORCE=1
-    fi
-    if [ "$_HAS_FORCE" -eq 1 ]; then
-      # Full branch path (slashed defaults like release/2.0 stay intact) and
-      # FIXED-STRING token comparison — never interpolate a branch name into
-      # an ERE (metacharacters would over/under-match).
-      _DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||' || true)
-      # Conductor worktrees often lack the origin/HEAD symbolic ref — without a
-      # fallback the HIGH tier would be silently inert in the primary deploy
-      # environment. Probe the two conventional defaults.
-      if [ -z "$_DEFAULT_BRANCH" ]; then
-        if git show-ref --verify -q refs/remotes/origin/main 2>/dev/null; then
-          _DEFAULT_BRANCH="main"
-        elif git show-ref --verify -q refs/remotes/origin/master 2>/dev/null; then
-          _DEFAULT_BRANCH="master"
-        fi
-      fi
-      if [ -n "$_DEFAULT_BRANCH" ]; then
-        _TARGETS_DEFAULT=0
-        set -f
-        for _TOK in $CMD; do
-          # Strip one layer of surrounding quotes: `git push -f origin "main"`
-          # must not dodge the deny just because the ref is quoted.
-          _TOK="${_TOK#\"}"; _TOK="${_TOK%\"}"; _TOK="${_TOK#\'}"; _TOK="${_TOK%\'}"
-          case "$_TOK" in git|push|sudo|-*) continue ;; esac
-          _REF="${_TOK#+}"          # +main -> main
-          _REF="${_REF##*:}"        # HEAD:main / src:main -> main
-          if [ "$_REF" = "$_DEFAULT_BRANCH" ]; then
-            _TARGETS_DEFAULT=1
-            break
-          fi
-        done
-        set +f
-        if [ "$_TARGETS_DEFAULT" -eq 0 ] && grep -qE '^[[:space:]]*git[[:space:]]+push([[:space:]]+(-f|--force))*[[:space:]]*$' <<< "$CMD" 2>/dev/null; then
-          # Bare `git push --force` (force flags only, no remote/ref): targets
-          # the current branch's upstream — the default branch only when ON it.
-          _CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
-          [ -n "$_CURRENT_BRANCH" ] && [ "$_CURRENT_BRANCH" = "$_DEFAULT_BRANCH" ] && _TARGETS_DEFAULT=1
-        fi
-        if [ "$_TARGETS_DEFAULT" -eq 1 ]; then
-          _careful_log_fire "high_force_push_default"
-          gstack_hook_decision deny "[careful][HIGH] Force-push to the default branch ($_DEFAULT_BRANCH) is blocked by gstack's destructive-command check. Use --force-with-lease on a feature branch; if the user truly means it, they run it themselves."
-          exit 0
-        fi
-      fi
-    fi
+  [ -z "$hit" ] || _PUSH_DENY="$hit"
+  return 0
+}
+
+_careful_push() {
+  local j=0 t r force=0 lease=0 dry=0 del=0 np=0 nr=0
+  local refs=()
+  while [ "$j" -lt "$na" ]; do
+    t="${a[$j]}"; j=$((j + 1))
+    case "$t" in
+      --force-with-lease*|--force-if-includes) lease=1 ;;
+      -f|--force|--mirror) force=1 ;;
+      -n|--dry-run) dry=1 ;;
+      -d|--delete) del=1 ;;
+      --*) ;;
+      -*) case "${t#-}" in *[!a-zA-Z]*) ;; *f*) force=1 ;; esac ;;
+      [0-9]'>'*|'>'*|'<'*) ;;
+      *)
+        np=$((np + 1))
+        if [ "$np" -gt 1 ]; then
+          case "$t" in '+'*) force=1 ;; :?*) del=1 ;; esac
+          r="${t#+}"; r="${r##*:}"; r="${r#refs/heads/}"
+          refs[$nr]="$r"; nr=$((nr + 1))
+        fi ;;
+    esac
+  done
+  [ "$dry" -eq 0 ] || return 0
+  if [ "$force" -eq 1 ] && [ -z "$_PUSH_DENY" ]; then _careful_push_default; fi
+  if [ "$force" -eq 1 ] || [ "$lease" -eq 1 ]; then _PUSH_FORCE=1; fi
+  if [ "$del" -eq 1 ]; then _PUSH_DELETE=1; fi
+  return 0
+}
+
+# Queue a check that asks only when the tree really holds work the command
+# would discard (tracked changes, or what git clean -n lists). An unknown
+# tree (after a cd, --work-tree, a $ or backtick argument) asks without git.
+_careful_pend() {
+  local kind="$1" name="$2" d="$dir" x
+  shift 2
+  for x in ${1+"$@"}; do case "$x" in *'$'*|*'`'*) d="" ;; esac; done
+  [ "$wt" -eq 0 ] || d=""
+  _PEND_KIND[$_PEND_N]="$kind"
+  _PEND_NAME[$_PEND_N]="$name"
+  _PEND_DIR[$_PEND_N]="$d"
+  _PEND_ARGS[$_PEND_N]="${*:-}"
+  _PEND_N=$((_PEND_N + 1))
+  return 0
+}
+
+_careful_git_lose() {
+  local j=0 t c force=0 dd=0 staged=0 wtree=0 dry=0 inter=0 hard=0 skip=0 np=0 nq=0 nc=0
+  local pre=() post=() cargs=()
+  case "$sub" in
+    stash) case "${a[0]:-}" in drop|clear) _LOSE_NOW="${_LOSE_NOW:-git_stash_drop}" ;; esac; return 0 ;;
+    worktree) [ "${a[0]:-}" = remove ] || return 0 ;;
+  esac
+  while [ "$j" -lt "$na" ]; do
+    t="${a[$j]}"; j=$((j + 1))
+    if [ "$dd" -eq 1 ]; then post[$nq]="$t"; nq=$((nq + 1)); cargs[$nc]="$t"; nc=$((nc + 1)); continue; fi
+    if [ "$skip" -eq 1 ]; then skip=0; cargs[$nc]="$t"; nc=$((nc + 1)); continue; fi
+    case "$t" in
+      --) dd=1; cargs[$nc]="$t"; nc=$((nc + 1)) ;;
+      --hard) hard=1 ;;
+      -f|--force|--discard-changes) force=1 ;;
+      --staged) staged=1 ;;
+      --worktree) wtree=1 ;;
+      -n|--dry-run) dry=1 ;;
+      -i|--interactive|--pathspec-from-file*) inter=1 ;;
+      -s|--source|-e|--exclude) skip=1; cargs[$nc]="$t"; nc=$((nc + 1)) ;;
+      --*) cargs[$nc]="$t"; nc=$((nc + 1)) ;;
+      -*)
+        c="${t#-}"
+        case "$c" in
+          *[!a-zA-Z]*) cargs[$nc]="$t"; nc=$((nc + 1)) ;;
+          *)
+            case "$c" in *f*) force=1 ;; esac
+            case "$c" in *n*) dry=1 ;; esac
+            case "$c" in *i*) inter=1 ;; esac
+            case "$c" in *S*) staged=1 ;; esac
+            case "$c" in *W*) wtree=1 ;; esac
+            c="${c//f/}"
+            if [ -n "$c" ]; then cargs[$nc]="-$c"; nc=$((nc + 1)); fi ;;
+        esac ;;
+      *) pre[$np]="$t"; np=$((np + 1)); cargs[$nc]="$t"; nc=$((nc + 1)) ;;
+    esac
+  done
+  case "$sub" in
+    reset) if [ "$hard" -eq 1 ]; then _careful_pend tracked git_reset_hard; fi ;;
+    checkout)
+      [ "$wt" -eq 0 ] || return 0
+      if [ "$force" -eq 1 ]; then _careful_pend tracked git_discard_paths
+      elif [ "$dd" -eq 1 ]; then
+        if [ "$nq" -gt 0 ]; then _careful_pend tracked git_discard_paths "${post[@]}"; fi
+      elif [ "$np" -gt 0 ]; then
+        case "${pre[0]}" in .*) _careful_pend tracked git_discard "${pre[@]}" ;; esac
+      fi ;;
+    switch) if [ "$wt" -eq 0 ] && [ "$force" -eq 1 ]; then _careful_pend tracked git_discard_paths; fi ;;
+    restore)
+      if [ "$staged" -eq 0 ] || [ "$wtree" -eq 1 ]; then
+        c=git_discard_paths
+        if [ "$np" -gt 0 ]; then case "${pre[0]}" in .*) c=git_discard ;; esac; fi
+        if [ "$inter" -eq 1 ]; then dir=""; fi
+        _careful_pend tracked "$c" ${pre[@]+"${pre[@]}"} ${post[@]+"${post[@]}"}
+      fi ;;
+    clean)
+      [ "$wt" -eq 0 ] || return 0
+      if [ "$force" -eq 1 ] && [ "$dry" -eq 0 ]; then
+        if [ "$inter" -eq 1 ]; then dir=""; fi
+        _careful_pend clean git_clean ${cargs[@]+"${cargs[@]}"}
+      fi ;;
+    worktree) if [ "$force" -eq 1 ]; then _LOSE_NOW="${_LOSE_NOW:-git_worktree_force}"; fi ;;
+  esac
+  return 0
+}
+
+_careful_git_hist() {
+  local j=0
+  case "$sub" in
+    filter-branch|filter-repo)
+      while [ "$j" -lt "$na" ]; do [ "${a[$j]}" = --version ] && return 0; j=$((j + 1)); done
+      _HIST=1 ;;
+    reflog)
+      [ "${a[0]:-}" = expire ] || return 0
+      while [ "$j" -lt "$na" ]; do case "${a[$j]}" in *=now|*=all) _HIST=1 ;; esac; j=$((j + 1)); done ;;
+    gc)
+      while [ "$j" -lt "$na" ]; do case "${a[$j]}" in --prune=now|--prune=all) _HIST=1 ;; esac; j=$((j + 1)); done ;;
+  esac
+  return 0
+}
+
+_careful_git() {
+  local k="$1" p=0 t dir="$_CAREFUL_CWD" wt=0 sub na=0
+  local a=()
+  while [ "$p" -lt $((k - 1)) ]; do
+    case "${T[$p]}" in GIT_WORK_TREE=*|GIT_DIR=*) wt=1 ;; esac
+    p=$((p + 1))
+  done
+  while [ "$k" -lt "$n" ]; do
+    t="${T[$k]}"
+    case "$t" in
+      -C) k=$((k + 1)); if [ "$k" -lt "$n" ]; then _careful_join_dir "$dir" "${T[$k]}"; dir="$_D"; fi ;;
+      -c|--exec-path|--namespace|--config-env) k=$((k + 1)) ;;
+      --git-dir|--work-tree) wt=1; k=$((k + 1)) ;;
+      --git-dir=*|--work-tree=*) wt=1 ;;
+      -*) ;;
+      *) break ;;
+    esac
+    k=$((k + 1))
+  done
+  [ "$k" -lt "$n" ] || return 0
+  sub="${T[$k]}"
+  _GIT_SUB=$k
+  k=$((k + 1))
+  while [ "$k" -lt "$n" ]; do
+    if [ -n "${T[$k]}" ]; then a[$na]="${T[$k]}"; na=$((na + 1)); fi
+    k=$((k + 1))
+  done
+  [ "$_CD_SEEN" -eq 0 ] || dir=""
+  case "$sub" in
+    push) _careful_push ;;
+    reset|checkout|switch|restore|clean|stash|worktree) _careful_git_lose ;;
+    filter-branch|filter-repo|reflog|gc) _careful_git_hist ;;
+  esac
+  return 0
+}
+
+# A cd into scratch holds only while every later statement is joined by && or
+# a pipe: after ; || & or a newline the cd may have failed. A subshell, $( )
+# or backtick block gives back the outer folder when it closes. One awk pass
+# cuts the statements (a bash pattern substitution is quadratic on long input)
+# and marks each separator: \001 ( \002 ) \003 backtick \004 joined \005 break.
+_careful_pop() {
+  [ -n "$_STK" ] || return 0
+  local sv="${_STK#"${_STK%??}"}"
+  _STK="${_STK%??}"
+  [ "${sv%?}" -eq 1 ] || _SCRATCH=0
+  [ "${sv#?}" -eq 0 ] || _CD_SEEN=1
+  return 0
+}
+_careful_scan() {
+  local s seg t i n ns si=0 bt=0
+  s=$(printf '%s\n' "$CMD_MEDIUM" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&|[|]/, "\n\004\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_MEDIUM"
+  local IFS="$_NL"
+  set -f
+  local segs=( $s )
+  IFS=$' \t\n'
+  ns=${#segs[@]}
+  while [ "$si" -lt "$ns" ]; do
+    seg="${segs[$si]}"; si=$((si + 1))
+    case "$seg" in
+      $'\001') _STK="$_STK$_SCRATCH$_CD_SEEN"; continue ;;
+      $'\002') _careful_pop; continue ;;
+      $'\003') if [ "$bt" -eq 0 ]; then bt=1; _STK="$_STK$_SCRATCH$_CD_SEEN"; else bt=0; _careful_pop; fi; continue ;;
+      $'\004') continue ;;
+      $'\005') _SCRATCH=0; continue ;;
+      *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*) ;;
+      *) continue ;;
+    esac
+    n=0
+    T=()
+    RW=()
+    for t in $seg; do
+      case "$t" in '#'*) break ;; esac
+      _careful_strip "$t"
+      RW[$n]="$t"; T[$n]="$_S"; n=$((n + 1))
+    done
+    _GIT_SUB=-1
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      case "${T[$i]}" in
+        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        pushd|popd) _CD_SEEN=1; _SCRATCH=0 ;;
+        rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
+        git|*/git) _careful_git $((i + 1)) ;;
+        find|rsync|shred|unlink) _careful_del "${T[$i]}" $((i + 1)) ;;
+      esac
+      i=$((i + 1))
+    done
+  done
+  set +f
+  return 0
+}
+
+# Queued uncommitted-work checks, in command order: the first that would
+# discard something sets the warning. git failing, or no repo, asks.
+_careful_tree_dirty() {
+  local kind="$1" d="$2" out
+  shift 2
+  if [ "$kind" = clean ]; then
+    out=$(GIT_OPTIONAL_LOCKS=0 git -C "$d" clean -n ${1+"$@"} </dev/null 2>/dev/null) || return 0
+  else
+    out=$(GIT_OPTIONAL_LOCKS=0 git -C "$d" status --porcelain --untracked-files=no ${1+--} ${1+"$@"} </dev/null 2>/dev/null) || return 0
   fi
+  [ -n "$out" ]
+}
+_careful_git_warn() {
+  PATTERN="$1"
+  case "$1" in
+    git_reset_hard) WARN="Destructive: git reset --hard discards all uncommitted changes." ;;
+    git_discard) WARN="Destructive: discards all uncommitted changes in the working tree." ;;
+    git_discard_paths) WARN="Destructive: discards uncommitted changes in the working tree (checkout -- paths, checkout -f, switch -f or restore)." ;;
+    git_clean) WARN="Destructive: git clean -f permanently deletes untracked files, which git cannot bring back." ;;
+    git_stash_drop) WARN="Destructive: git stash drop/clear deletes stashed work." ;;
+    git_worktree_force) WARN="Destructive: git worktree remove --force deletes a worktree and its uncommitted changes." ;;
+  esac
+  return 0
+}
+_careful_pending() {
+  local q=0 d
+  local IFS=' '
+  set -f
+  while [ "$q" -lt "$_PEND_N" ]; do
+    d="${_PEND_DIR[$q]}"
+    if [ -z "$d" ] || _careful_tree_dirty "${_PEND_KIND[$q]}" "$d" ${_PEND_ARGS[$q]}; then
+      _careful_git_warn "${_PEND_NAME[$q]}"
+      break
+    fi
+    q=$((q + 1))
+  done
+  set +f
+  return 0
+}
+
+_careful_find_tmpvars
+_careful_scan
+
+# --- HIGH tier: hard deny (best-effort advisory hard-stop, NOT a policy boundary) ---
+# In any command shape: a recursive delete of /, the home folder, a top-level
+# system folder or a personal data folder; a forced push (not
+# --force-with-lease) to main, master or the default branch; a raw write,
+# format or wipe of a whole disk. curl|sh stays allowed: hard-denying it would
+# block legitimate installer flows, including gstack's own setup pattern.
+_careful_deny() {
+  _careful_log_fire "$1"
+  gstack_hook_decision deny "[careful][HIGH] $2"
+  exit 0
+}
+_RX_DISK="(^|[[:space:];&|(])dd[[:space:]]+(${_NS}[[:space:]])?of=/dev/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)|(^|[[:space:];&|(])mkfs(\.[[:alnum:]_]+)?[[:space:]]+${_NS}/dev/(sd|nvme|disk|hd|vd|xvd|mmcblk)|(^|[[:space:];&|(])wipefs[[:space:]]+${_NS}-a|>[[:space:]]*/dev/(sd|nvme|disk|hd|vd|xvd)[a-z0-9]*|diskutil[[:space:]]+(erase|zeroDisk|secureErase)"
+if [ "$_HI_RM_ROOT" -eq 1 ]; then
+  _careful_deny high_rm_root "Recursive delete of /, the home directory, or a top-level system or personal folder is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
+fi
+if [ -n "$_PUSH_DENY" ]; then
+  _careful_deny high_force_push_default "Force-push to the default branch ($_PUSH_DENY) is blocked by gstack's destructive-command check. Use --force-with-lease on a feature branch; if the user truly means it, they run it themselves."
+fi
+if [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
+  _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
 fi
 
 # --- Check for safe exceptions (one standalone rm of build artifacts) ---
@@ -212,34 +678,13 @@ fi
 #     literal characters, which broke the anchored match by accident).
 case "$CMD" in
   *$'\n'*) : ;; # multi-line: fall through to the destructive checks
-  *)
+  *rm*)
     if grep -qE '^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(([^[:space:];&|#(`]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)[[:space:]]*)+$' <<< "$CMD" 2>/dev/null; then
       echo '{}'
       exit 0
     fi
     ;;
 esac
-
-# --- Destructive pattern checks (MEDIUM tier — always overridable) ---
-WARN=""
-PATTERN=""
-
-# Mask quoted -m/-am/--message argument content in git commit commands so that
-# descriptive commit messages do not trigger false positives (#1060). The
-# quote-aware scanner lives in mask-commit-message.awk beside this hook: as a
-# heredoc inside a command substitution, its quote characters are mis-parsed by
-# bash 3.2 (macOS /bin/bash), which made this whole hook a syntax error there.
-# A missing program or an awk failure leaves the command unmasked.
-CMD_MEDIUM="$CMD"
-CMD_MEDIUM_LOWER="$CMD_LOWER"
-_MASK_AWK="$_HOOK_DIR/mask-commit-message.awk"
-case "$CMD" in *git*commit*) _MAYBE_COMMIT=1 ;; *) _MAYBE_COMMIT=0 ;; esac
-if [ "$_MAYBE_COMMIT" -eq 1 ] && [ -f "$_MASK_AWK" ]; then
-  if _cmd_masked=$(printf '%s' "$CMD" | awk -f "$_MASK_AWK" 2>/dev/null); then
-    CMD_MEDIUM="$_cmd_masked"
-    CMD_MEDIUM_LOWER=$(printf '%s' "$CMD_MEDIUM" | tr '[:upper:]' '[:lower:]')
-  fi
-fi
 
 # --- PowerShell and cmd table (#3067) ---
 # Runs on the PowerShell tool's command, and on the part of any command from a
@@ -319,42 +764,50 @@ if [ -n "$_WIN_SCAN" ]; then
   done
 fi
 
-# rm -rf / rm -r / rm -R / rm --recursive (capital -R is BSD/macOS recursive)
-if [ -z "$WARN" ] && grep -qE 'rm\s+(-[a-zA-Z]*[rR]|--recursive)' <<< "$CMD_MEDIUM" 2>/dev/null; then
+# rm -rf / rm -r / rm -R / rm --recursive with a target that is not scratch
+# (GEVA-560: /tmp, mktemp, caches and build artifacts no longer ask).
+if [ -z "$WARN" ] && [ "$_RM_UNSAFE" -eq 1 ]; then
   WARN="Destructive: recursive delete (rm -r). This permanently removes files."
   PATTERN="rm_recursive"
 fi
 
-# DROP TABLE / DROP DATABASE
-if [ -z "$WARN" ] && grep -qE 'drop\s+(table|database)' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
+# SQL DROP and TRUNCATE ask only when the command runs a SQL client or a
+# database call; the words in a grep pattern, a comment or a test file don't.
+_RX_SQL_CLIENT="(^|[[:space:];&|(\"'/])(psql|mysql|mysqlsh|mariadb|sqlite3|pgcli|usql|wrangler[[:space:]]+d1[[:space:]]+execute|turso[[:space:]]+db[[:space:]]+shell|invoke-sqlcmd|clickhouse(-client)?|duckdb|sqlcmd|snowsql|bq[[:space:]]+query|cockroach[[:space:]]+sql|mongosh|cqlsh|supabase[[:space:]]+db|prisma[[:space:]]+db[[:space:]]+execute|rails[[:space:]]+(db|dbconsole)|manage\.py[[:space:]]+dbshell)([^[:alnum:]_]|\$)|\.(execute(script|many)?|query|exec|raw)[[:space:]]*[(]|executeraw|\.sql[[:space:]]*[(]|(^|[^[:alnum:]_])(sqlalchemy|pymysql)([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])psycopg|(^|[^[:alnum:]_])sqlite3\.connect"
+_RX_DROP='drop[[:space:]]+(table|database)'
+if [ -z "$WARN" ] && [[ $CMD_MEDIUM_LOWER =~ $_RX_DROP ]] && [[ $CMD_MEDIUM_LOWER =~ $_RX_SQL_CLIENT ]]; then
   WARN="Destructive: SQL DROP detected. This permanently deletes database objects."
   PATTERN="drop_table"
 fi
 
-# TRUNCATE
-if [ -z "$WARN" ] && grep -qE '\btruncate\b' <<< "$CMD_MEDIUM_LOWER" 2>/dev/null; then
-  WARN="Destructive: SQL TRUNCATE detected. This deletes all rows from a table."
-  PATTERN="truncate"
+# TRUNCATE TABLE, TRUNCATE x; / CASCADE / RESTART, or TRUNCATE x run by a SQL client.
+_RX_TRUNC="(^|[^[:alnum:]_])truncate[[:space:]]+table([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])truncate[[:space:]]+[[:alnum:]_.\"${_BT}]+[[:space:]]*(;|cascade([^[:alnum:]_]|\$)|restart([^[:alnum:]_]|\$))"
+_RX_TRUNC_ANY="(^|[^[:alnum:]_])truncate[[:space:]]+[[:alnum:]_.\"${_BT}]"
+if [ -z "$WARN" ] && case "$CMD_MEDIUM_LOWER" in *truncate*) true ;; *) false ;; esac; then
+  if [[ $CMD_MEDIUM_LOWER =~ $_RX_TRUNC ]] || { [[ $CMD_MEDIUM_LOWER =~ $_RX_TRUNC_ANY ]] && [[ $CMD_MEDIUM_LOWER =~ $_RX_SQL_CLIENT ]]; }; then
+    WARN="Destructive: SQL TRUNCATE detected. This deletes all rows from a table."
+    PATTERN="truncate"
+  fi
 fi
 
-# git push --force / git push -f / plus-refspec force (git push origin +ref)
-if [ -z "$WARN" ] && grep -qE 'git\s+push\s' <<< "$CMD_MEDIUM" 2>/dev/null \
-  && grep -qE '(-f\b|--force|(^|[[:space:]])\+[^[:space:]])' <<< "$CMD_MEDIUM" 2>/dev/null; then
+# git push --force / -f / +refspec / --force-with-lease, read from the push's
+# own arguments (a tail -f elsewhere on the line is not a force); --dry-run
+# never asks. Deleting a remote branch or tag asks too.
+if [ -z "$WARN" ] && [ "$_PUSH_FORCE" -eq 1 ]; then
   WARN="Destructive: git force-push rewrites remote history. Other contributors may lose work."
   PATTERN="git_force_push"
 fi
-
-# git reset --hard
-if [ -z "$WARN" ] && grep -qE 'git\s+reset\s+--hard' <<< "$CMD_MEDIUM" 2>/dev/null; then
-  WARN="Destructive: git reset --hard discards all uncommitted changes."
-  PATTERN="git_reset_hard"
+if [ -z "$WARN" ] && [ "$_PUSH_DELETE" -eq 1 ]; then
+  WARN="Destructive: git push --delete removes a branch or tag on the remote."
+  PATTERN="git_push_delete"
 fi
 
-# git checkout . / git restore .
-if [ -z "$WARN" ] && grep -qE 'git\s+(checkout|restore)\s+\.' <<< "$CMD_MEDIUM" 2>/dev/null; then
-  WARN="Destructive: discards all uncommitted changes in the working tree."
-  PATTERN="git_discard"
-fi
+# Commands that throw away uncommitted work. reset --hard, checkout -- paths,
+# checkout -f, switch -f/--discard-changes, restore without --staged and
+# clean -f ask only when the tree really holds work they would discard; stash
+# drop/clear and worktree remove --force always ask.
+if [ -z "$WARN" ] && [ -n "$_LOSE_NOW" ]; then _careful_git_warn "$_LOSE_NOW"; fi
+if [ -z "$WARN" ] && [ "$_PEND_N" -gt 0 ]; then _careful_pending; fi
 
 # kubectl delete
 if [ -z "$WARN" ] && grep -qE 'kubectl\s+delete' <<< "$CMD_MEDIUM" 2>/dev/null; then
@@ -366,6 +819,39 @@ fi
 if [ -z "$WARN" ] && grep -qE 'docker\s+(rm\s+-f|system\s+prune)' <<< "$CMD_MEDIUM" 2>/dev/null; then
   WARN="Destructive: Docker force-remove or prune. May delete running containers or cached images."
   PATTERN="docker_destructive"
+fi
+
+# History rewrites that remove the way back.
+_RX_BFG='(^|[[:space:];&|(])(bfg|java[[:space:]]+-jar[[:space:]]+[^[:space:]]*bfg[^[:space:]]*\.jar)[[:space:]]'
+if [ -z "$WARN" ] && { [ "$_HIST" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_BFG ]]; }; then
+  WARN="Destructive: rewrites git history or expires the reflog, which removes the way back."
+  PATTERN="git_history"
+fi
+
+# Databases, cloud and cluster resources.
+_RX_DB="prisma[[:space:]]+migrate[[:space:]]+reset|prisma[[:space:]]+db[[:space:]]+push[[:space:]]+${_NS}--(force-reset|accept-data-loss)|alembic[[:space:]]+downgrade[[:space:]]+(base|-[0-9])|supabase[[:space:]]+db[[:space:]]+reset|(rails|rake)[[:space:]]+db:(drop|reset|purge|schema:load)|manage\.py[[:space:]]+flush|(^|[[:space:];&|(])dropdb[[:space:]]|redis-cli([[:space:]]${_NS})?[^[:alnum:]_]flush(all|db)([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])dropdatabase[[:space:]]*[(]|(^|[^[:alnum:]_])drop[[:space:]]+schema([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])delete[[:space:]]+from[[:space:]]+[[:alnum:]_.\"${_BT}]+[[:space:]]*(;|\"|'|\$)"
+if [ -z "$WARN" ] && [[ $CMD_MEDIUM_LOWER =~ $_RX_DB ]]; then
+  WARN="Destructive: resets, drops or empties a database."
+  PATTERN="db_destructive"
+fi
+_RX_CLOUD="terraform[[:space:]]+(destroy|apply[[:space:]]+${_NS}-destroy)|pulumi[[:space:]]+destroy|(^|[[:space:];&|(])aws[[:space:]]+${_NS}(s3[[:space:]]+(rm[[:space:]]+${_NS}--recursive|rb)|s3[[:space:]]+sync[[:space:]]+${_NS}--delete|[a-z0-9-]*[[:space:]]+(delete|terminate|remove|deregister)-[a-z0-9-]+)|(gcloud|az|doctl)[[:space:]]+${_NS}[[:space:]](delete|destroy)([^[:alnum:]_]|\$)|(flyctl|fly)[[:space:]]+${_NS}(destroy|apps[[:space:]]+destroy)([^[:alnum:]_]|\$)|heroku[[:space:]]+(apps:destroy|pg:reset)|helm[[:space:]]+(uninstall|delete)[[:space:]]|gh[[:space:]]+(repo|release)[[:space:]]+delete([^[:alnum:]_]|\$)|docker[[:space:]]+volume[[:space:]]+(rm|prune)([^[:alnum:]_]|\$)|docker[[:space:]]+system[[:space:]]+prune[[:space:]]+${_NS}--volumes"
+if [ -z "$WARN" ] && [[ $CMD_MEDIUM =~ $_RX_CLOUD ]]; then
+  _m="${BASH_REMATCH[0]}"
+  _rest="${CMD_MEDIUM#*"$_m"}"
+  _rest="$_m${_rest%%"$_NL"*}"
+  _RX_CLOUD_DRY='--dryrun|--dry-run|(^|[^[:alnum:]_])plan([^[:alnum:]_]|$)'
+  if ! [[ $_rest =~ $_RX_CLOUD_DRY ]]; then
+    WARN="Destructive: deletes cloud or cluster resources (terraform/pulumi destroy, aws/gcloud/az delete, helm uninstall, docker volume rm)."
+    PATTERN="cloud_destructive"
+  fi
+fi
+
+# Deletes outside this session's folder (rm with any flags, find -delete,
+# find -exec rm, rsync --delete, shred, unlink), or through a variable that
+# may be unset.
+if [ -z "$WARN" ] && [ "$_OUTSIDE" -eq 1 ]; then
+  WARN="Destructive: deletes files outside this session's folder, or through a variable that may be empty."
+  PATTERN="delete_outside"
 fi
 
 # --- Additive project patterns ---
