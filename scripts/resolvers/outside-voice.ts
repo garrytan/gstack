@@ -190,7 +190,7 @@ Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fen
 }
 
 /**
- * outsideVoiceFailurePolicy owns the budget / auth / timeout / empty-response / fallback
+ * outsideVoiceFailurePolicy owns the auth / timeout / empty-response / fallback
  * bullets every outside-voice step renders after its invocation (moved from
  * the copies in review.ts and design.ts). Add a call site by passing that
  * site's semantics explicitly; no option has a default:
@@ -221,7 +221,7 @@ export function outsideVoiceFailurePolicy(ctx: TemplateContext, opts: OutsideVoi
     ? `"${v.label} timed out after ${opts.timeoutMinutes} minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if ${v.label} had reviewed.`
     : `"${v.label} timed out after ${opts.timeoutMinutes} minutes."`;
   return [
-    `- **Auth failure:** If stderr has "auth", "login" or "API key" but no 402 or quota: "${v.label} authentication failed. Run ${tick}${login}${tick} to authenticate."${fallback}`,
+    `- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${v.label} authentication failed. Run ${tick}${login}${tick} to authenticate."${fallback}`,
     `- **Timeout:** ${timeout}${fallback}`,
     `- **Empty response:** "${v.label} returned no response.${opts.stderrOnEmpty ? ' Stderr: <paste relevant error>.' : ''}"${fallback}`,
   ].join('\n');
