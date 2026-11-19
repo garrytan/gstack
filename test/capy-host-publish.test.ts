@@ -112,20 +112,20 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     const body = file('body.md', 'Adds a thing for users.\n\n## Why\n\nBecause.\n');
     const title = file('title.txt', 'Add a thing for users\n');
     const comment = file('comment.md', 'A plain comment.\n');
-    const ops: Array<[string, string[], string]> = [
-      ['pr-body', ['pr-body', '7', '--body-file', body], 'body'],
-      ['pr-title', ['pr-title', '7', '--title-file', title], 'title'],
-      ['pr-comment', ['pr-comment', '7', '--body-file', comment], 'body'],
-      ['issue-comment', ['issue-comment', '7', '--body-file', comment], 'body'],
-      ['reply', ['reply', '7', '--to', '99', '--body-file', comment], 'body'],
-      ['pr-create', ['pr-create', '--base', 'main', '--draft', '--title-file', title, '--body-file', body], 'title'],
-      ['issue-create', ['issue-create', '--title-file', title, '--body-file', comment], 'title'],
+    const ops: Array<[string, string[], string, string]> = [
+      ['pr-body', ['pr-body', '7', '--body-file', body], 'body', '7 repo=fx/fx'],
+      ['pr-title', ['pr-title', '7', '--title-file', title], 'title', '7 repo=fx/fx'],
+      ['pr-comment', ['pr-comment', '7', '--body-file', comment], 'body', '7 repo=fx/fx'],
+      ['issue-comment', ['issue-comment', '7', '--body-file', comment], 'body', '7 repo=fx/fx'],
+      ['reply', ['reply', '7', '--to', '99', '--body-file', comment], 'body', '7 repo=fx/fx to=99'],
+      ['pr-create', ['pr-create', '--base', 'main', '--head', 'feat', '--draft', '--title-file', title, '--body-file', body], 'title', 'new repo=fx/fx base=main head=feat draft'],
+      ['issue-create', ['issue-create', '--title-file', title, '--body-file', comment], 'title', 'new repo=fx/fx'],
     ];
-    for (const [op, args, part] of ops) {
+    for (const [op, args, part, dest] of ops) {
       const out = r.run('gstack-post', args);
       expect([op, out.status, out.stderr]).toEqual([op, 0, expect.any(String)]);
       expect(out.stdout).not.toContain('POSTED:');
-      expect(out.stdout).toMatch(new RegExp(`^HOST_PUBLISH: ${op} `, 'm'));
+      expect(out.stdout).toMatch(new RegExp(`^HOST_PUBLISH: ${op} ${dest} body-file=|^HOST_PUBLISH: ${op} ${dest} title-file=`, 'm'));
       expect(handedOff(out.stdout)[0]![part]).toBeDefined();
     }
     expect(r.gh.writes()).toEqual([]);
