@@ -430,6 +430,18 @@ describe('exit-code contract (#2526)', () => {
     expect(vars.SCOPE_API).toBe('false');
   });
 
+  // Value: protects=FOUN-505, a fix range of one data .json reads as data, not unmatched, so a granted fix-check can plan; an unknown
+  //   file beside data still fails closed; fails_when=a data-only range exits 2 or data hides an unknown file; seam=none; no_claim=none
+  test('a data-only range prints every flag false and exits 0; an unknown file beside data is still unmatched (FOUN-505)', () => {
+    const data = runScopeFull(createRepo(['wiki/labels.json', 'results/rows.tsv']));
+    expect([data.status, data.vars.SCOPE_ERROR]).toEqual([0, undefined]);
+    expect(Object.values(data.vars).every((v) => v === 'false')).toBe(true);
+    const mixed = runScopeFull(createRepo(['wiki/labels.json', 'weird/layout.xyz']));
+    expect([mixed.status, mixed.vars.SCOPE_ERROR]).toEqual([2, 'unmatched']);
+    expect(mixed.stdout).toContain('# unmatched: weird/layout.xyz');
+    expect(mixed.stdout).not.toContain('# unmatched: wiki/labels.json');
+  });
+
   // Value: protects=an Apple file type no arm knows still fails closed after Swift and Xcode got arms; fails_when=a broad
   //   *.swift-style or catch-all arm swallows unknown extensions; why_new=GST-3041 added Apple arms; seam=none; no_claim=none
   test('an unknown Apple file type (a Metal shader) still fails closed (GST-3041)', () => {

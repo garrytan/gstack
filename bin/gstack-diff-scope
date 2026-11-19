@@ -117,10 +117,12 @@ TEST_PATH_RE='(^|/)(tests?|spec|__tests__)/|(^|/)tests?\.py$|(^|/)test_[^/]+\.py
 
 # Data files (lib/review-depth.ts DATA_PATH) outside the config locations its
 # DATA_CONFIG and agent-prose rules keep code: .github/, config/, dotfiles,
-# *.config.*, .gstack/. Case-insensitive, as DATA_PATH is.
+# *.config.*, .gstack/. Case-insensitive, as DATA_PATH is. A data file sets no
+# category but is never unmatched: its rows are data, and lib/review-depth.ts's
+# data rule decides its class.
 DATA_FILE_RE='\.(json|jsonl|ndjson|csv|tsv|png|jpe?g|gif|webp|bmp|ico|avif)$'
 DATA_CONFIG_RE='(^|/)\.github/|(^|/)config/|(^|/)\.[^/]+$|(^|/)[^/]+\.config\.[^/]+$|^\.gstack/'
-_session_data() {
+_data_file() {
   local r=1
   shopt -s nocasematch
   if [[ "$1" =~ $DATA_FILE_RE ]] && [[ ! "$1" =~ $DATA_CONFIG_RE ]]; then r=0; fi
@@ -234,6 +236,7 @@ if [ "${#FILES_LIST[@]}" -eq 0 ]; then
 fi
 
 UNMATCHED=()
+N_UNMATCHED=0
 
 # Categories are INDEPENDENT booleans (#2299): a single first-match-wins case
 # made them mutually exclusive, so Button.test.jsx set FRONTEND but not TESTS
@@ -328,7 +331,7 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   # session handling, so it is not auth; session config still is.
   case "$f" in
     *jwt*|*permission*|*role*) m_auth=true ;;
-    *session*) _session_data "$f" || m_auth=true ;;
+    *session*) _data_file "$f" || m_auth=true ;;
     # Apple permissions (GST-3041): Info.plist holds URL schemes, App Transport
     # Security exceptions and usage strings; entitlements grant capabilities
     # (keychain groups, push, HealthKit); the privacy manifest declares data use.
@@ -363,8 +366,9 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
 
   if [ "$m_frontend" = false ] && [ "$m_prompts" = false ] && [ "$m_tests" = false ] \
     && [ "$m_docs" = false ] && [ "$m_config" = false ] && [ "$m_migrations" = false ] \
-    && [ "$m_api" = false ] && [ "$m_auth" = false ] && [ "$m_backend" = false ]; then
+    && [ "$m_api" = false ] && [ "$m_auth" = false ] && [ "$m_backend" = false ] && ! _data_file "$f"; then
     UNMATCHED+=("$f")
+    N_UNMATCHED=$((N_UNMATCHED + 1))
   fi
 done
 
@@ -465,8 +469,10 @@ _print_flags
 
 # Changed files but ZERO category matches (#2526): a classifier bug, an
 # unrecognised layout, or a new top-level directory would otherwise present
-# as "no reviewers needed" with the skip invisible. Trip loudly instead.
-if [ "$FRONTEND" = false ] && [ "$BACKEND" = false ] && [ "$PROMPTS" = false ] \
+# as "no reviewers needed" with the skip invisible. Trip loudly instead. A
+# range of data files alone (a one-string fix to a .json after a granted stop,
+# FOUN-505) is no classifier miss: it prints every flag false and exits 0.
+if [ "$N_UNMATCHED" -gt 0 ] && [ "$FRONTEND" = false ] && [ "$BACKEND" = false ] && [ "$PROMPTS" = false ] \
   && [ "$TESTS" = false ] && [ "$DOCS" = false ] && [ "$CONFIG" = false ] \
   && [ "$MIGRATIONS" = false ] && [ "$API" = false ] && [ "$AUTH" = false ]; then
   echo "SCOPE_ERROR=unmatched"
