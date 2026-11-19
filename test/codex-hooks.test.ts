@@ -256,19 +256,35 @@ describe('skill routing on Codex', () => {
 
   test("gstack's Codex skills take Codex's names and the triggers of the same skill in this checkout", () => {
     const { skills } = scanCodexSkills(codexSkills());
-    const review = skills.find(s => s.name === 'gstack-review');
+    const review = skills.find(s => s.name === 'review');
     expect(review?.gstack).toBe(true);
     expect(review?.triggers).toContain('review my changes');
     expect(skills.find(s => s.name === 'my-notes')?.triggers).toEqual([]);
     const decision = routePrompt(PAYLOADS.UserPromptSubmit.prompt, skills, undefined, 'codex');
-    expect(decision.route?.skill).toBe('gstack-review');
+    expect(decision.route?.skill).toBe('review');
+  });
+
+  test('a Codex skill is named by its SKILL.md name, with or without skill_prefix, and by its folder when that name is unusable', () => {
+    const names = (frontmatterName: string | null) => {
+      const skills = path.join(dir, 'codex-named');
+      fs.rmSync(skills, { recursive: true, force: true });
+      fs.mkdirSync(path.join(skills, 'gstack-review'), { recursive: true });
+      fs.writeFileSync(path.join(skills, 'gstack-review', 'SKILL.md'), '---\n' + (frontmatterName === null ? '' : 'name: ' + frontmatterName + '\n') + 'description: d\n---\n');
+      const scan = scanCodexSkills(skills);
+      const decision = routePrompt(PAYLOADS.UserPromptSubmit.prompt, scan.skills, undefined, 'codex');
+      return { name: scan.skills[0]?.name, routed: decision.route?.skill, problems: scan.problems };
+    };
+    expect(names('review')).toEqual({ name: 'review', routed: 'review', problems: [] });
+    expect(names('gstack-review')).toEqual({ name: 'gstack-review', routed: 'gstack-review', problems: [] });
+    expect(names(null)).toEqual({ name: 'gstack-review', routed: 'gstack-review', problems: [] });
+    expect(names('"not a name"')).toEqual({ name: 'gstack-review', routed: 'gstack-review', problems: [] });
   });
 
   test('a $ skill mention or a / command is never routed on Codex; on Claude Code a $ prompt still routes as before', () => {
     const { skills } = scanCodexSkills(codexSkills());
     expect(routePrompt('$gstack-review review my changes', skills, undefined, 'codex')).toMatchObject({ route: null, reason: 'skill-mention' });
     expect(routePrompt('/review review my changes', skills, undefined, 'codex')).toMatchObject({ route: null, reason: 'slash-command' });
-    expect(routePrompt('  $ review my changes', skills).route?.skill).toBe('gstack-review');
+    expect(routePrompt('  $ review my changes', skills).route?.skill).toBe('review');
   });
 
   test("the Codex line names Codex's skill; Claude Code's line is unchanged", () => {
@@ -289,8 +305,8 @@ describe('skill routing on Codex', () => {
     expect(r.status).toBe(0);
     const out = JSON.parse(r.stdout).hookSpecificOutput;
     expect(out.hookEventName).toBe('UserPromptSubmit');
-    expect(out.additionalContext).toContain('this request fits the gstack-review skill. Read and follow the gstack-review skill');
-    expect(fs.readFileSync(path.join(dir, 'state', 'hooks', 'skill-route.log'), 'utf8')).toMatch(/event=routed skill=gstack-review .*host=codex/);
+    expect(out.additionalContext).toContain('this request fits the review skill. Read and follow the review skill');
+    expect(fs.readFileSync(path.join(dir, 'state', 'hooks', 'skill-route.log'), 'utf8')).toMatch(/event=routed skill=review .*host=codex/);
     expect(run({ GSTACK_SKILL_ROUTING: 'off' }).stdout).toBe('');
   });
 });

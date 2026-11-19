@@ -203,9 +203,10 @@ export function scanInstalledSkills(dir: string): { skills: InstalledSkill[]; pr
 }
 
 /**
- * Codex's skills, as scanInstalledSkills reads them, with each gstack skill (a gstack-<name> directory) named by
- * its directory, the name Codex mentions it by ($gstack-review). Codex renders keep only name and description, so
- * a gstack skill without triggers takes them from the same skill's Claude render in this checkout.
+ * Codex's skills, as scanInstalledSkills reads them. Each gstack skill (a gstack-<name> directory) keeps the name its
+ * installed SKILL.md gives, the one Codex lists and mentions it by (gstack-review/ holds name: review, so $review), or
+ * its directory when that name is missing or unusable. Codex renders keep only name and description, so a gstack
+ * skill without triggers takes them from the same skill's Claude render in this checkout.
  */
 export function scanCodexSkills(dir: string): { skills: InstalledSkill[]; problems: string[] } {
   const { skills, problems } = scanInstalledSkills(dir);
@@ -221,7 +222,7 @@ export function scanCodexSkills(dir: string): { skills: InstalledSkill[]; proble
           if (fm && /^triggers:/m.test(fm)) triggers = frontmatterList(`---\n${fm}\n---`, 'triggers');
         } catch { /* no Claude render beside this file: the skill routes on nothing */ }
       }
-      return { ...s, name: entry, triggers, gstack: true };
+      return { ...s, name: SKILL_NAME.test(s.name) ? s.name : entry, triggers, gstack: true };
     }),
   };
 }

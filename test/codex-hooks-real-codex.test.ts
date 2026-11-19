@@ -69,6 +69,41 @@ async function codexExec(extra: string[]): Promise<string> {
   return out;
 }
 
+/** Run codex exec to completion against a local stub model that answers every turn at once; returns each request body. */
+async function codexAgainstStub(prompt: string): Promise<string[]> {
+  const bodies: string[] = [];
+  const sse = (data: Record<string, unknown>) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+  const server = Bun.serve({
+    port: 0, hostname: '127.0.0.1',
+    async fetch(req) {
+      bodies.push(await req.text());
+      const item = { type: 'message', id: 'msg_stub', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'stub', annotations: [] }] };
+      const usage = { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null, total_tokens: 2 };
+      return new Response(sse({ type: 'response.created', response: { id: 'resp_stub' } })
+        + sse({ type: 'response.output_item.done', output_index: 0, item })
+        + sse({ type: 'response.completed', response: { id: 'resp_stub', usage } }), { headers: { 'content-type': 'text/event-stream' } });
+    },
+  });
+  try {
+    const work = path.join(dir, 'work');
+    fs.mkdirSync(work, { recursive: true });
+    const child = spawn('codex', ['exec', '--skip-git-repo-check', '--dangerously-bypass-hook-trust', '-c', 'model_provider=gstack_stub',
+      '-c', `model_providers.gstack_stub={name="stub",base_url="http://127.0.0.1:${server.port}/v1",wire_api="responses"}`, prompt], {
+      cwd: work, stdio: ['ignore', 'ignore', 'ignore'],
+      env: {
+        PATH: process.env.PATH ?? '', HOME: dir, CODEX_HOME: home(), OPENAI_API_KEY: 'sk-not-a-real-key', SHELL: '/bin/bash',
+        GSTACK_STATE_ROOT: path.join(dir, 'state'), GSTACK_INSTALLED_SKILLS_DIR: path.join(home(), 'skills'),
+      },
+    });
+    const killer = setTimeout(() => child.kill('SIGKILL'), 60_000);
+    await new Promise(resolve => child.on('exit', resolve));
+    clearTimeout(killer);
+  } finally {
+    server.stop(true);
+  }
+  return bodies;
+}
+
 describe.skipIf(!usable && !required)('real codex reads the hooks.json gstack writes', () => {
   test('codex 0.170 or newer is on PATH', () => {
     expect(version?.[0] ?? 'no codex on PATH').toMatch(/^codex-cli /);
@@ -79,9 +114,22 @@ describe.skipIf(!usable && !required)('real codex reads the hooks.json gstack wr
     install();
     const out = await codexExec(['--dangerously-bypass-hook-trust']);
     expect(fs.existsSync(marker())).toBe(true);
-    expect(fs.readFileSync(routeLog(), 'utf8')).toMatch(/event=routed skill=gstack-review .*host=codex/);
+    expect(fs.readFileSync(routeLog(), 'utf8')).toMatch(/event=routed skill=review .*host=codex/);
     expect(out).not.toContain('failed to parse hooks config');
   }, 90_000);
+
+  test("the routing hint names the skill the way Codex lists it, and that $mention loads the skill's body", async () => {
+    install();
+    const skill = path.join(home(), 'skills', 'gstack-review');
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(path.join(skill, 'SKILL.md'), '---\nname: review\ndescription: Review a diff before it lands.\n---\nREAL_CODEX_SKILL_BODY\n');
+    const [routed] = await codexAgainstStub('please review my changes');
+    const hinted = /this request fits the ([A-Za-z0-9_:-]+) skill/.exec(routed ?? '')?.[1];
+    expect(hinted).toBe('review');
+    expect(routed).toContain(`- ${hinted}: Review a diff before it lands. (file: `);
+    expect((await codexAgainstStub(`$${hinted} look at this`)).join('\n')).toContain('REAL_CODEX_SKILL_BODY');
+    expect((await codexAgainstStub('$gstack-review look at this')).join('\n')).not.toContain('REAL_CODEX_SKILL_BODY');
+  }, 200_000);
 
   test('negative controls: an unknown key makes Codex skip the whole file, and untrusted hooks never run', async () => {
     install();
