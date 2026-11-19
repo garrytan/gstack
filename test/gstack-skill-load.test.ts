@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { generatePreamble } from '../scripts/resolvers/preamble';
 import { generateSkillPreamble } from '../scripts/resolvers/preamble-hoist';
+import { addLoadGrant } from '../scripts/resolvers/load-injection';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -75,17 +76,76 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-skill-load', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('preamble prints the file, and one line when it is missing', () => {
-    const dir = fakeBin(null);
+  test('a leading-zero timeout is read as decimal', () => {
+    const dir = fakeBin('sleep 30; echo never');
     try {
-      const file = path.join(dir, 'preamble.md');
-      fs.writeFileSync(file, '# gstack shared preamble abc\n\nbody\n');
-      expect(load(dir, ['preamble', file])).toEqual({ status: 0, stdout: '# gstack shared preamble abc\n\nbody\n', stderr: '' });
-      const missing = load(dir, ['preamble', path.join(dir, 'nope.md')]);
-      expect(missing.status).toBe(0);
-      expect(missing.stdout.trim().split('\n')).toHaveLength(1);
-      expect(missing.stdout).toStartWith('SHARED_PREAMBLE: not loaded (');
+      const r = load(dir, ['start', '--skill', 'x'], { GSTACK_SKILL_LOAD_TIMEOUT: '08' });
+      expect(r.stdout).toBe('SKILL_START: timed out after 8s at load; run the start command below yourself with Bash, then continue.\n');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a timeout keeps what the start already printed', () => {
+    const dir = fakeBin('echo "JUST_UPGRADED 1.0 2.0"; printf partial; sleep 30');
+    try {
+      const r = load(dir, ['start', '--skill', 'x'], { GSTACK_SKILL_LOAD_TIMEOUT: '1' });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('JUST_UPGRADED 1.0 2.0\npartial\nSKILL_START: timed out after 1s at load; run the start command below yourself with Bash, then continue.\n');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('preamble prints only a skill preamble under its own install root, else one line', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-root-'));
+    try {
+      fs.mkdirSync(path.join(root, 'bin'));
+      fs.copyFileSync(LOADER, path.join(root, 'bin', 'gstack-skill-load'));
+      fs.mkdirSync(path.join(root, 'ship', 'sections'), { recursive: true });
+      const file = path.join(root, 'ship', 'sections', 'preamble.md');
+      fs.writeFileSync(file, '# gstack shared preamble abc\n\nbody\n');
+      const bin = path.join(root, 'bin');
+      expect(load(bin, ['preamble', file])).toEqual({ status: 0, stdout: '# gstack shared preamble abc\n\nbody\n', stderr: '' });
+      const secret = path.join(root, 'secret.txt');
+      fs.writeFileSync(secret, 'TOKEN');
+      fs.mkdirSync(path.join(root, 'ship', 'other'));
+      fs.writeFileSync(path.join(root, 'ship', 'other', 'preamble.md'), 'TOKEN');
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-outside-'));
+      fs.mkdirSync(path.join(outside, 'x', 'sections'), { recursive: true });
+      fs.writeFileSync(path.join(outside, 'x', 'sections', 'preamble.md'), 'TOKEN');
+      try {
+        for (const target of [secret, path.join(root, 'ship', 'other', 'preamble.md'), path.join(root, 'ship', 'sections', '..', '..', 'secret.txt'),
+          path.join(outside, 'x', 'sections', 'preamble.md'), path.join(root, 'ship', 'sections', 'nope.md'), path.join(root, 'nope', 'sections', 'preamble.md')]) {
+          const r = load(bin, ['preamble', target]);
+          expect(r.status, target).toBe(0);
+          expect(r.stdout, target).not.toContain('TOKEN');
+          expect(r.stdout.trim().split('\n'), target).toHaveLength(1);
+          expect(r.stdout, target).toStartWith('SHARED_PREAMBLE: not loaded (');
+        }
+      } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe('addLoadGrant', () => {
+  const ctx = { host: 'claude', tmplPath: 'x/SKILL.md.tmpl', paths: { ...HOST_PATHS.claude, binDir: '/opt/g/bin' } } as TemplateContext;
+  const body = '\n---\n!`/opt/g/bin/gstack-skill-load start --skill "x"`\n';
+
+  test('adds the grant for the render\'s own bin dir to an allowed-tools list', () => {
+    expect(addLoadGrant('---\nname: x\nallowed-tools:\n  - Bash\n  - Read' + body, ctx))
+      .toBe('---\nname: x\nallowed-tools:\n  - Bash\n  - Read\n  - Bash(/opt/g/bin/gstack-skill-load:*)' + body);
+  });
+
+  test('adds an allowed-tools list when the frontmatter has none', () => {
+    expect(addLoadGrant('---\nname: x' + body, ctx)).toBe('---\nname: x\nallowed-tools:\n  - Bash(/opt/g/bin/gstack-skill-load:*)' + body);
+  });
+
+  test('refuses a scalar allowed-tools', () => {
+    expect(() => addLoadGrant('---\nname: x\nallowed-tools: Bash' + body, ctx)).toThrow('allowed-tools must be a YAML list');
+  });
+
+  test('leaves a render with no injected line, or another host, unchanged', () => {
+    const plain = '---\nname: x\nallowed-tools:\n  - Bash\n---\nbody\n';
+    expect(addLoadGrant(plain, ctx)).toBe(plain);
+    const codex = { ...ctx, host: 'codex' } as TemplateContext;
+    expect(addLoadGrant('---\nname: x' + body, codex)).toBe('---\nname: x' + body);
   });
 });
 

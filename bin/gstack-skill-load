@@ -23,10 +23,15 @@ MODE=${1:-}
 
 case "$MODE" in
   preamble)
-    if [ -n "${1:-}" ] && [ -f "$1" ] && [ -r "$1" ]; then
+    # Only <install root>/<skill>/sections/preamble.md: the allowed-tools grant
+    # auto-approves this helper, so it must not read any other file.
+    ROOT=$(cd "$_BIN/.." 2>/dev/null && pwd)
+    DIR=$(cd "$(dirname "${1:-.}")" 2>/dev/null && pwd)
+    if [ -n "${1:-}" ] && [ -n "$ROOT" ] && [ "$(basename "$1")" = preamble.md ] && [ "$(basename "$DIR")" = sections ] \
+      && [ "$(dirname "$(dirname "$DIR")")" = "$ROOT" ] && [ -f "$1" ] && [ -r "$1" ]; then
       cat "$1" 2>/dev/null && exit 0
     fi
-    echo "SHARED_PREAMBLE: not loaded (${1:-no file given} is missing or unreadable); Read the file named above if it exists, else tell the user to run ./setup or /gstack-upgrade."
+    echo "SHARED_PREAMBLE: not loaded (${1:-no file given} is missing, unreadable or not a gstack shared preamble); Read the file named above if it exists, else tell the user to run ./setup or /gstack-upgrade."
     exit 0 ;;
   start) ;;
   *)
@@ -36,7 +41,9 @@ esac
 
 RETRY="run the start command below yourself with Bash, then continue"
 LIMIT=${GSTACK_SKILL_LOAD_TIMEOUT:-15}
-case "$LIMIT" in ''|*[!0-9]*|0) LIMIT=15 ;; esac
+case "$LIMIT" in ''|*[!0-9]*) LIMIT=15 ;; esac
+LIMIT=$((10#$LIMIT))
+[ "$LIMIT" -gt 0 ] || LIMIT=15
 
 # The start keys its session on the harness pid. Run from here, its own walk
 # would stop at this script, so derive the pid the way a direct call would.
@@ -63,6 +70,8 @@ while kill -0 "$PID" 2>/dev/null; do
     kill -TERM -- "-$PID" 2>/dev/null || kill -TERM "$PID"
     sleep 1
     kill -KILL -- "-$PID" 2>/dev/null || kill -KILL "$PID"
+    cat "$OUT" 2>/dev/null
+    [ -n "$(tail -c 1 "$OUT" 2>/dev/null)" ] && echo
     echo "SKILL_START: timed out after ${LIMIT}s at load; $RETRY."
     exit 0
   fi
