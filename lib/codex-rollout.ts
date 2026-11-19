@@ -10,16 +10,17 @@
  *     injected <skill>). An injected gstack-* SKILL.md is also a skill load.
  *   - assistant message: text.
  *   - exec_command / shell call: a Bash tool_use whose command is the shell
- *     line; a line that reads a gstack-* SKILL.md under a skills/ directory
- *     (cat, sed, head and the like) is also a skill load.
+ *     line; a command in it that reads a gstack-* SKILL.md under a skills/
+ *     directory (cat, sed, head and the like) is also a skill load, unless
+ *     the call exited non-zero.
  *   - spawn_agent call that started an agent: an Agent dispatch whose prompt
- *     is its message. One whose output names no agent_id (it failed) stays a
- *     plain spawn_agent call, so it is not a dispatch.
+ *     is its message. One whose output names no agent_id (it failed, or it
+ *     has no output) stays a plain spawn_agent call, so it is not a dispatch.
  *   - any other call: a tool_use under its own name. Call outputs are
  *     tool_results; a shell output that exited non-zero is an error.
  * Records of other types (event_msg, turn_context, reasoning and the rest)
  * are skipped. Throws UnknownShape when a record this reader uses has a shape
- * it does not know.
+ * it does not know, including call arguments that are not a JSON object.
  */
 import { UnknownShape, type Transcript, type TranscriptEvent } from './skill-contract';
 
@@ -28,8 +29,9 @@ const isObject = (v: unknown): v is Record<string, any> => typeof v === 'object'
 const META_PREFIX = /^\s*(?:<(?:environment_context|user_instructions|INSTRUCTIONS|skill|hook_prompt|subagent_notification|turn_aborted|user_shell_command|codex_internal_context|context_window_guidance|image_resize_notice|side_conversation)\b|# AGENTS\.md instructions)/;
 const SKILL_INJECTION = /^\s*<skill>\s*<name>[^<]*<\/name>\s*<path>([^<]+)<\/path>/;
 const GSTACK_SKILL_FILE = /(?:^|[\\/])skills[\\/](gstack-[A-Za-z0-9][A-Za-z0-9_-]*)[\\/]SKILL\.md$/;
-const SHELL_SKILL_READ = /(?:^|[\\/])skills[\\/](gstack-[A-Za-z0-9][A-Za-z0-9_-]*)[\\/]SKILL\.md(?=$|[\s'"`;|&)<>])/g;
+const SHELL_SKILL_READ = /(?:^|[\\/\s'"=])skills[\\/](gstack-[A-Za-z0-9][A-Za-z0-9_-]*)[\\/]SKILL\.md(?=$|[\s'"`;|&)<>])/g;
 const READ_PROGRAM = /(?:^|[\s;|&(`'"])(?:cat|sed|head|tail|nl|less|more|bat|awk|Get-Content)(?=\s)/;
+const SHELL_SEPARATOR = /&&|\|\||[;|\n]/;
 const SHELL_TOOLS = new Set(['exec_command', 'shell', 'shell_command', 'local_shell']);
 const EXIT_CODE = /(?:^|\n)Process exited with code (\d+)/;
 
@@ -50,15 +52,12 @@ function contentText(content: unknown): string {
   return content.filter(c => isObject(c) && typeof c.text === 'string').map(c => c.text).join('\n');
 }
 
-function args(raw: unknown): Record<string, any> {
+function args(raw: unknown, line: number): Record<string, any> {
   if (isObject(raw)) return raw;
-  if (typeof raw !== 'string') return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isObject(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
+  let parsed: unknown;
+  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : undefined; } catch { /* reported below */ }
+  if (!isObject(parsed)) throw new UnknownShape(`line ${line}: call arguments are not a JSON object`);
+  return parsed;
 }
 
 function shellLine(input: Record<string, any>): string | null {
@@ -69,14 +68,18 @@ function shellLine(input: Record<string, any>): string | null {
   return null;
 }
 
-/** The gstack-* skills a shell line reads, in order of appearance. */
+/** The gstack-* skills a shell line's read commands read, in order of appearance. */
 function shellSkillReads(line: string): string[] {
-  if (!READ_PROGRAM.test(line)) return [];
-  return [...line.matchAll(SHELL_SKILL_READ)].map(m => m[1]);
+  return line.split(SHELL_SEPARATOR).filter(cmd => READ_PROGRAM.test(cmd)).flatMap(cmd => [...cmd.matchAll(SHELL_SKILL_READ)].map(m => m[1]));
 }
 
+const exitedNonZero = (output: string | undefined) => {
+  const code = output === undefined ? null : EXIT_CODE.exec(output);
+  return !!code && code[1] !== '0';
+};
+
 const startedAgent = (output: string | undefined) => {
-  if (output === undefined) return true;
+  if (output === undefined) return false;
   try {
     const parsed: unknown = JSON.parse(output);
     return isObject(parsed) && typeof parsed.agent_id === 'string' && parsed.agent_id !== '';
@@ -135,11 +138,11 @@ export function parseCodexRollout(text: string): Transcript {
       }
     } else if ((p.type === 'function_call' || p.type === 'custom_tool_call') && typeof p.name === 'string') {
       const id = String(p.call_id ?? '');
-      const input = args(p.type === 'custom_tool_call' ? { input: p.input } : p.arguments);
+      const input = args(p.type === 'custom_tool_call' ? { input: p.input } : p.arguments, line);
       const command = SHELL_TOOLS.has(p.name) ? shellLine(input) : null;
       if (command !== null) {
         events.push({ kind: 'tool_use', line, id, name: 'Bash', input: { command } });
-        for (const skill of shellSkillReads(command)) events.push({ kind: 'load', line, skill, via: 'read' });
+        if (!exitedNonZero(outputs.get(id))) for (const skill of shellSkillReads(command)) events.push({ kind: 'load', line, skill, via: 'read' });
       } else if (p.name === 'spawn_agent' && startedAgent(outputs.get(id))) {
         const prompt = [input.message, ...(Array.isArray(input.items) ? input.items.map((i: unknown) => (isObject(i) ? i.text : undefined)) : [])]
           .filter(v => typeof v === 'string').join('\n');
@@ -149,8 +152,7 @@ export function parseCodexRollout(text: string): Transcript {
       }
     } else if ((p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && typeof p.call_id === 'string') {
       const out = outputs.get(p.call_id) ?? '';
-      const code = EXIT_CODE.exec(out);
-      events.push({ kind: 'tool_result', line, id: p.call_id, text: out, isError: !!code && code[1] !== '0' });
+      events.push({ kind: 'tool_result', line, id: p.call_id, text: out, isError: exitedNonZero(out) });
     }
   }
   if (messages === 0) throw new UnknownShape('Codex rollout has no response_item message records');

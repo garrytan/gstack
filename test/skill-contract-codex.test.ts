@@ -89,8 +89,13 @@ describe('loads: Codex reading or injecting a gstack-* SKILL.md', () => {
     const meta = lines('exec-read-met.jsonl')[0];
     const call = (cmd: string) => JSON.stringify({ type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd }), call_id: 'c1' } });
     const user = JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review this' }] } });
-    const loads = (cmd: string) => skillLoads(parseTranscript([meta, user, call(cmd)].join('\n'))).map(l => l.skill);
+    const result = (output: string) => JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output } });
+    const loads = (cmd: string, output?: string) => skillLoads(parseTranscript([meta, user, call(cmd), ...(output === undefined ? [] : [result(output)])].join('\n'))).map(l => l.skill);
     expect(loads("sed -n '1,200p' \"$CODEX_HOME/skills/gstack-review/SKILL.md\"")).toEqual(['gstack-review']);
+    expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md', 'Process exited with code 0\nOutput:\n---')).toEqual(['gstack-review']);
+    expect(loads('cat ~/.codex/skills/gstack-review/SKILL.md', 'Process exited with code 1\nOutput:\ncat: No such file')).toEqual([]);
+    expect(loads('cd ~/.codex && cat skills/gstack-review/SKILL.md')).toEqual(['gstack-review']);
+    expect(loads('cat README.md && ls ~/.codex/skills/gstack-review/SKILL.md')).toEqual([]);
     expect(loads('ls ~/.codex/skills/gstack-review/SKILL.md')).toEqual([]);
     expect(loads('cat ~/src/gstack/review/SKILL.md')).toEqual([]);
     expect(loads('cat ~/.codex/skills/review/SKILL.md')).toEqual([]);
@@ -110,6 +115,21 @@ describe('dispatch: a spawn_agent call that started an agent', () => {
     const callId = all.map(l => JSON.parse(l).payload).find(p => p?.type === 'function_call_output' && String(p.output).includes('agent_id')).call_id;
     const t = parseTranscript(all.filter(l => !l.includes(callId)).join('\n'));
     expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('a spawn_agent with no output is not a dispatch', () => {
+    const all = lines('exec-read-failed-spawn.jsonl');
+    const callId = all.map(l => JSON.parse(l).payload).find(p => p?.type === 'function_call_output' && String(p.output).includes('agent_id')).call_id;
+    const t = parseTranscript(all.filter(l => !(l.includes(callId) && l.includes('function_call_output'))).join('\n'));
+    expect(t.events.some(e => e.kind === 'tool_use' && e.name === 'Agent')).toBe(false);
+    expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('call arguments that are not a JSON object throw UnknownShape, so the hook fails open', () => {
+    const meta = lines('exec-read-met.jsonl')[0];
+    const user = JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review this' }] } });
+    const spawn = JSON.stringify({ type: 'response_item', payload: { type: 'function_call', name: 'spawn_agent', arguments: '{"message": ', call_id: 's1' } });
+    expect(() => parseTranscript([meta, user, spawn].join('\n'))).toThrow(UnknownShape);
   });
 });
 
