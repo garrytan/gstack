@@ -39,6 +39,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ghSpawnSync } from '../lib/gh-poll';
+import { handOff, hostPublishes } from '../lib/host-publish';
 import { EXIT, exitTableHelp, NO_STOP_CLASSES, type ShipReceipt } from '../lib/headless-artifacts';
 import { resultLine, resultLineWithDocs } from '../lib/result-codes';
 import { versionAtRef } from '../lib/restamp';
@@ -89,7 +90,7 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       carry the receipt to HEAD when only a base merge, tests, release metadata or registered
                                       outputs the --pregate regen check proved (recreated them) changed since its head (product patch-id
                                       unchanged), or after a rebase onto a tree the receipt covers with the recorded product
-                                      patch-id: rewrites the receipt with a \`carry\` record, posts the body (gh pr edit) and
+                                      patch-id: rewrites the receipt with a \`carry\` record, posts the body (gh pr edit; on Capy a HOST_PUBLISH: hand-off) and
                                       prints GSTACK_RESULT: skill=ship status=complete; RECEIPT_CARRY_PRODUCT_CHANGED /
                                       RECEIPT_CARRY_TREE_MISMATCH / RECEIPT_CARRY_REFUSED leave the body unchanged (exit 3);
                                       a receipt that records a pregate needs --pregate current for HEAD (RECEIPT_CARRY_PREGATE_STALE);
@@ -109,7 +110,8 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
   stub --pr <n> | --body <file> --run <id> [--head <sha>] [--review-loop <json|@file>] [--void]
                                       Step 9: record this /ship run's rounds so far in the runs block before its receipt exists, so a
                                       run that stops still counts; the run's receipt write (same --run) replaces it; --void marks an
-                                      infrastructure failure that counts nothing
+                                      infrastructure failure that counts nothing. stub, stop, claim and carry with --pr edit the PR body
+                                      through gh; on Capy (GSTACK_CAPY=1) they print HOST_PUBLISH: with the body file instead (GST-3183)
   stop --pr <n> | --body <file> --run <id> --since <REVIEW_SINCE>
                                       Step 9, on NEXT: stop: record the review this run stopped on (its commit and tree, from the newest
                                       via:ship review row bound to one committed tree) as a stop record in the runs block, and print the
@@ -971,14 +973,8 @@ function cmdCarry(rest: string[], json: boolean): number {
     process.stdout.write(json ? JSON.stringify({ skill: 'ship', status: 'dry-run', head, carry: plan.carry }) + '\n' : `CARRY: would carry from ${from.slice(0, 12)} to ${head.slice(0, 12)} (${plan.carry.reason}); nothing written\n`);
     return EXIT.ok;
   }
-  if (bodyFile) fs.writeFileSync(bodyFile, newBody);
-  else {
-    const tmp = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'gstack-carry-')), 'body.md');
-    fs.writeFileSync(tmp, newBody, { mode: 0o600 });
-    const edit = gh(['pr', 'edit', pr!, ...(repo ? ['--repo', repo] : []), '--body-file', tmp]);
-    fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
-    if (!edit.ok) return incomplete(`gh pr edit failed: ${edit.err}; the receipt was not carried`);
-  }
+  const posted = postBody(rest, pr, newBody);
+  if (posted) return incomplete(`${posted}; the receipt was not carried`);
   process.stdout.write(`CARRY: carried from ${from.slice(0, 12)} to ${head.slice(0, 12)} (${plan.carry.reason})\n`);
   return writeRunRecord({ receipt: carried, head, pr, source, repoRoot, out: flag(rest, '--out'), json, line, incomplete, extra: { carried_from: carried.carry!.from, carry_reason: carried.carry!.reason } });
 }
@@ -1069,10 +1065,12 @@ function readBody(rest: string[]): { ok: true; body: string; pr?: string } | { o
   try { return { ok: true, body: JSON.parse(r.out).body ?? '', pr }; } catch { return { ok: false, why: 'gh returned no JSON body', fix: 'rerun; check gh auth status' }; }
 }
 
+/** Write the body back: to --body, to a HOST_PUBLISH hand-off on Capy (GST-3183), else through gh pr edit. */
 function postBody(rest: string[], pr: string | undefined, body: string): string | null {
   const bodyFile = flag(rest, '--body');
   if (bodyFile) { fs.writeFileSync(bodyFile, body); return null; }
   const repo = flag(rest, '--repo');
+  if (hostPublishes()) { process.stdout.write(handOff({ op: 'pr-body', target: pr, repo, parts: [['body', body]] })); return null; }
   const tmp = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'gstack-runs-')), 'body.md');
   fs.writeFileSync(tmp, body, { mode: 0o600 });
   const edit = gh(['pr', 'edit', pr!, ...(repo ? ['--repo', repo] : []), '--body-file', tmp]);
@@ -1143,7 +1141,8 @@ function cmdClaim(rest: string[]): number {
   if (other) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${other.run}: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   const err = postBody(rest, read.pr, placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })));
   if (err) { process.stderr.write(`gstack-ship-receipt claim: ${err}; not claimed, so do not dispatch\n`); return EXIT.fail; }
-  const again = readBody(rest);
+  const handedOff = !flag(rest, '--body') && hostPublishes();
+  const again = handedOff ? { ok: true as const, body: placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })) } : readBody(rest);
   if (!again.ok) { process.stderr.write(`gstack-ship-receipt claim: ${again.why}; the claim is unconfirmed, so do not dispatch\n`); return EXIT.fail; }
   const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
   if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }

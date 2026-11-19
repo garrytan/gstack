@@ -3291,6 +3291,23 @@ the same digits with a `+`, spaces, dashes, dots or parentheses still report.
 using the `TOKEN:` line the refusal printed; MEDIUM findings do not block
 pushes.
 
+<a id="host-publish"></a>
+### Host publish
+
+**Meaning.** A `HOST_PUBLISH:` line means nothing was sent through gh. On Capy (`GSTACK_CAPY=1`) the machine's `gh` is signed in as the owner's own GitHub
+account, so gstack never writes to GitHub through it there (GST-3183). `gstack-post` (every write
+op) and `gstack-ship-receipt stub`, `stop`, `claim` and `carry` with `--pr` run all their checks as
+before, then write the exact title and body they would have sent to
+`<state root>/publish/<op>-<target>.<part>.md` (mode 0600) and print one line:
+`HOST_PUBLISH: <op> <target> body-file=<path> [title-file=<path>] (...)`. Nothing reached GitHub yet.
+
+**Fix.** Publish the named files with the host's PR tool before the next gstack step: `pr-body` and
+`pr-title` with Capy's `tools.pr.edit`, `pr-comment` and `reply` with `tools.pr.comment`, `pr-create`
+with `tools.pr.create`. Capy has no GitHub issue tool, so an `issue-create` or an `issue-comment` on an
+issue goes to whoever owns the work. Never run the `gh` write yourself. `claim` cannot read its own
+marker back before you publish, so a second run that claims the same grant is caught by the next
+`gstack-ship-receipt history` instead (`PR_REVIEW_GRANT: not applied`).
+
 <a id="gstack-post-pr-body-merge"></a>
 ### `gstack-post pr-body` kept sections the body file did not contain
 
