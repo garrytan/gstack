@@ -131,7 +131,7 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
     if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota.slice(0, 240) };
     const rateLimit = errors.find(line => RATE_LIMIT_FAILURE.test(line));
     if (rateLimit) return { state: 'unavailable', reason: 'rate_limited', detail: rateLimit.slice(0, 240) };
-    const head = failures[0]?.slice(0, 240) ?? stderrHead(stderr);
+    const head = failures[failures.length - 1]?.slice(0, 240) ?? stderrHead(stderr);
     return { state: 'unavailable', reason: exit === 124 ? 'timeout' : 'execution_failed', detail: head ? `exit ${exit}: ${head}` : `exit ${exit}` };
   }
   const commands = commandEvidence(input.events ?? '');

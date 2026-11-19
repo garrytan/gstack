@@ -664,3 +664,16 @@ describe('an HTTP 402 or payment-required refusal is unavailable (budget_exhaust
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 });
+
+describe('the execution_failed detail names the terminal Codex failure', () => {
+  test('a transient reconnect error before turn.failed does not become the detail', () => {
+    const fatal = 'unexpected status 500 Internal Server Error, url: http://127.0.0.1:41000/v1/responses';
+    const events = [
+      JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5 (stream disconnected before completion)' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: fatal } }),
+    ].join('\n');
+    const result = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: 'Reading additional input from stdin...', events });
+    expect([result.verdict, result.reason]).toEqual(['unavailable', 'execution_failed']);
+    expect(result.detail).toBe(`exit 1: ${fatal}`);
+  });
+});
