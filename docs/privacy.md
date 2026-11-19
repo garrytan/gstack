@@ -26,8 +26,11 @@ no, and `gstack-config set telemetry off` turns it off at any time.
 - **Where it goes:** [Supabase](https://supabase.com) (an open-source Firebase
   alternative). The schema is in [`supabase/migrations/`](../supabase/migrations/),
   so you can verify what's collected. The publishable key in the repo is a
-  public key; row-level security denies direct access, and edge functions
-  enforce schema checks, event allowlists and field length limits.
+  public key that can neither read nor write those tables; every write goes
+  through edge functions that enforce schema checks, event allowlists and
+  field length limits. gstack never uses Supabase sign-in, and signed-in users
+  are denied everything too. gstack's own test suite never sends telemetry
+  to the live project.
 
 **Update check (on by default, regardless of telemetry).** Every interactive
 skill start runs `gstack-update-check`. When its cache is stale (60 minutes after an
