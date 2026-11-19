@@ -175,6 +175,24 @@ describe('dispatch: a spawn_agent call that started an agent', () => {
     }
   });
 
+  test('negative control: a same-named spawn_agent from another tool namespace is not Codex\'s, whatever its result says', () => {
+    const sol = lines('exec-sol-spawn-met.jsonl');
+    const retag = (namespace: string, output?: string) => parseTranscript(sol.map(l => {
+      const rec = JSON.parse(l);
+      if (rec.payload?.type === 'function_call' && rec.payload.name === 'spawn_agent') return JSON.stringify({ ...rec, payload: { ...rec.payload, namespace } });
+      if (output !== undefined && rec.payload?.type === 'function_call_output' && rec.payload.call_id === 'call_spawn_1') return JSON.stringify({ ...rec, payload: { ...rec.payload, output } });
+      return l;
+    }).join('\n'));
+    for (const namespace of ['mcp__agents__', 'my_extension']) {
+      const t = retag(namespace);
+      expect(t.events.some(e => e.kind === 'tool_use' && e.name === 'Agent')).toBe(false);
+      expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+    }
+    expect(status(retag('multi_agent_v1'), realReview(retag('multi_agent_v1')))['adversarial-pass']).toBe('missing');
+    const v1 = retag('multi_agent_v1', '{"agent_id":"019a-v1","nickname":null}');
+    expect(status(v1, realReview(v1))['adversarial-pass']).toBe('met');
+  });
+
   test('call arguments that are not a JSON object throw UnknownShape, so the hook fails open', () => {
     const meta = lines('exec-read-met.jsonl')[0];
     const user = JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review this' }] } });
