@@ -90,7 +90,7 @@ You can always approve an ask and proceed.
 
 **Denied**, not asked: a recursive delete of `/`, `~`, a system folder or
 `~/.ssh`-style personal folder; a force-push to `main`, `master` or the
-**default branch** (`--force-with-lease` alone is never HIGH); a disk wipe
+**default branch** (`--force-with-lease` is never HIGH); a disk wipe
 (`dd of=/dev/sda`, `mkfs`). Best-effort, not a policy boundary: you can still
 run the command yourself.
 
