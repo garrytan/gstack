@@ -27,6 +27,7 @@ function fixture(opts: {
   reviews?: Array<{ login: string; commit: string }>;
   summaries?: string[];
   config?: string;
+  createdStdout?: string;
 } = {}) {
   const root = fs.mkdtempSync(path.join(tmp, "repo-"));
   const state = fs.mkdtempSync(path.join(tmp, "state-"));
@@ -68,7 +69,7 @@ function fixture(opts: {
       if (cmd === "gh" && joined.includes("/check-runs")) return ok(JSON.stringify(opts.checks ?? []));
       if (cmd === "gh" && joined.includes("/reviews")) return ok(JSON.stringify(opts.reviews ?? []));
       if (cmd === "gh" && joined.includes("/issues/12/comments")) return ok(JSON.stringify(opts.summaries ?? []));
-      if (cmd === "bun" && args[1] === "pr-create") return ok("REPO_VISIBILITY: private\nhttps://github.com/acme/widget/pull/12\nPOSTED: pr-create\n");
+      if (cmd === "bun" && args[1] === "pr-create") return ok(opts.createdStdout ?? "REPO_VISIBILITY: private\nhttps://github.com/acme/widget/pull/12\nPOSTED: pr-create\n");
       if (cmd === "bun") return ok("POSTED\n");
       return { status: 1, stdout: "", stderr: "unexpected" };
     },
@@ -206,6 +207,14 @@ describe("opening the early PR (CEO-8)", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("EARLY_PR: none (PR 5 is already open");
     expect(f.posts()).toEqual([]);
+  });
+
+  test("on Capy, a HOST_PUBLISH hand-off with no PR URL exits 3 and prints no EARLY_PR", () => {
+    const f = fixture({ files: { "greptile.json": "{}" }, createdStdout: "HOST_PUBLISH: pr-create new repo=acme/widget head=feature/x draft title-file=/x/title.md body-file=/x/body.md (gh was not called)\n" });
+    const r = f.run("open", "--base", "main", "--title-file", "/t");
+    expect(r.code).toBe(3);
+    expect(r.out).toContain("handed the draft to the host's PR tool");
+    expect(r.out).not.toContain("EARLY_PR:");
   });
 });
 

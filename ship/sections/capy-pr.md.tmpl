@@ -10,7 +10,9 @@ repeating the captions. gstack-post folds each into a collapsed section. `## App
 Agent notes section, where `gstack-ship-receipt write` also puts the receipt. A body posted any other way,
 Capy's PR tool included, is folded first: pass the output of
 `~/.claude/skills/gstack/bin/gstack-post fold --body-file "$PR_BODY_FILE"` (it posts nothing, and exit 4
-with `PLAIN_BODY:` lines means rewrite the body file first).
+with `PLAIN_BODY:` lines means rewrite the body file first). Under Capy `gstack-post` and the receipt
+commands never write through `gh`, which signs in as the owner: each prints `HOST_PUBLISH:` with the files to
+publish through the host's PR tool before the next step, to the `repo=` it names.
 
 1. **Pick the evidence:** one to three before/after pairs, highest-signal first. The first is the
    key image.
