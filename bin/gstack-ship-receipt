@@ -1156,6 +1156,7 @@ function cmdClaim(rest: string[]): number {
   const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
   if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n`);
+  if (g.findings) process.stdout.write(`FIX_CHECK_ROW: ${JSON.stringify({ range_base: g.head, covers: g.findings })} (add both fields to this grant's review-fix-check row: a complete one with no blocker of its own marks exactly these findings fixed in the receipt's loop record, docs/troubleshooting.md#receipt-blocker-open)\n`);
   return EXIT.ok;
 }
 

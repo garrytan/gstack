@@ -7488,7 +7488,8 @@ grant buys one fix-check. A granted fix-check closes exactly the findings its
 grant names once its `review-fix-check` row is complete, has `range_base` at
 the grant's stop head, lists every one of those findings in `covers`, and holds
 no blocking finding of its own; a row that covers fewer, or found a blocker,
-closes none (GST-3246). Never edit the review-log row or the loop file to
+closes none (GST-3246). `gstack-ship-receipt claim` prints both fields on its
+`FIX_CHECK_ROW:` line when the run claims the grant. Never edit the review-log row or the loop file to
 drop the finding, and never write the receipt by hand
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 

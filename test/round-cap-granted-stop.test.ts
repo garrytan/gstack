@@ -186,7 +186,9 @@ describe('the CLI seams', () => {
     const plan = r.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '3', '--pr', '7', '--round-grant', g!, '--stop', s]);
     expect(plan.status, plan.stderr).toBe(0);
     expect(plan.stdout).toContain('next=fix-check');
-    expect(r.run('gstack-ship-receipt', ['claim', '--body', r.body, '--run', 'fc1', '--grant', g!]).stdout).toContain('GRANT_CLAIMED: grant=' + g);
+    const claimed = r.run('gstack-ship-receipt', ['claim', '--body', r.body, '--run', 'fc1', '--grant', g!]).stdout;
+    expect(claimed).toContain('GRANT_CLAIMED: grant=' + g);
+    expect(claimed).toContain(`FIX_CHECK_ROW: {"range_base":"${s}","covers":["p1/outside-voice#1"]} (add both fields`);
     const twice = r.run('gstack-ship-receipt', ['claim', '--body', r.body, '--run', 'fc2', '--grant', g!]);
     expect(twice.status).toBe(3);
     expect(twice.stderr).toContain('(GRANT_SPENT)');
