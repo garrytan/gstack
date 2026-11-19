@@ -77,6 +77,15 @@ export function historyMarker(note: string): string {
 /** Transformation recorded for a repository boundary Git listed as one entry: an untracked nested repository or a registered submodule gitlink. */
 export const NESTED_REPOSITORY =
   'excluded: nested Git repository; Git listed it as a single boundary entry and never descends into it, so its own source and history are not audited with this repository';
+/** Transformation recorded for a symlink whose relative target resolves inside the repository; the link is never followed. */
+export const IN_REPOSITORY_LINK =
+  'excluded: symlink to a file or directory inside this repository; the link is not followed, and its target is handled under its own path';
+/** Transformation recorded for an in-scope symlink whose target lies outside the --paths prefixes: nothing at the target is audited, so it is a gap. */
+export const LINK_OUTSIDE_AUDIT_PATHS =
+  'withheld: symlink to a path outside the --paths audit scope; the link is not followed and its target is not audited';
+/** Transformation recorded for a symlink whose target this snapshot does not capture, such as an ignored file or Git metadata: nothing at the target is audited, so it is a gap. */
+export const LINK_TO_UNCAPTURED_PATH =
+  'withheld: symlink to a path this snapshot does not capture, such as an ignored file; the link is not followed and its target is not audited';
 export function inAuditPaths(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
@@ -323,6 +332,68 @@ function directoryIdentities(root: string, path: string): DirectoryIdentity[] {
     identities.push({ path: cursor, dev: stat.dev, ino: stat.ino, mode: stat.mode });
   }
   return identities;
+}
+type LinkIdentity = {
+  dev: number;
+  ino: number;
+  size: number;
+  mode: number;
+  target: Buffer;
+  /** Repository-relative path the link resolves to ('' for the root); undefined when not contained or not resolved. */
+  resolved: string | undefined;
+};
+/**
+ * Bind a source symlink by its own identity and target without following it,
+ * or return undefined when the path is not a symlink. With `follow`, `resolved`
+ * is set only when the relative target resolves, lexically and through every
+ * intermediate link, to a regular file or directory inside root. Such a link
+ * never leaves the repository, so it is safe to record. An absolute, escaping,
+ * broken or cyclic link, or one resolving to a special file, is not contained,
+ * and callers refuse it inside the audit scope. Without `follow` the target is
+ * never resolved: a link outside the audit scope or in a host dependency tree
+ * is bound by identity alone.
+ */
+function sourceLink(root: string, path: string, follow: boolean): LinkIdentity | undefined {
+  const rel = relativePath(path);
+  directoryIdentities(root, rel);
+  const full = join(root, rel),
+    changed = () => new CsoError('SNAPSHOT_RACE', `Source symlink changed during validation: ${rel}`),
+    // A link that disappears or stops being a link while it is read changed
+    // during capture, like any other recorded entry.
+    read = <T>(operation: () => T): T => {
+      try {
+        return operation();
+      } catch (error: any) {
+        if (['ENOENT', 'ENOTDIR', 'EINVAL'].includes(error?.code)) throw changed();
+        throw error;
+      }
+    },
+    named = read(() => fs.lstatSync(full));
+  if (!named.isSymbolicLink()) return undefined;
+  const target = read(() => fs.readlinkSync(full, { encoding: 'buffer' })),
+    resolved = follow ? linkResolution(root, full, target.toString()) : undefined,
+    current = read(() => fs.lstatSync(full));
+  // Re-read the target so `resolved` cannot describe a different link that
+  // reused the inode between the two lstat calls.
+  if (
+    !current.isSymbolicLink() ||
+    current.dev !== named.dev ||
+    current.ino !== named.ino ||
+    !read(() => fs.readlinkSync(full, { encoding: 'buffer' })).equals(target)
+  )
+    throw changed();
+  return { dev: named.dev, ino: named.ino, size: named.size, mode: named.mode & 0o777, target, resolved };
+}
+function linkResolution(root: string, full: string, target: string): string | undefined {
+  if (!target || isAbsolute(target) || !inside(root, resolve(dirname(full), target))) return;
+  try {
+    const real = fs.realpathSync(full);
+    if (!inside(root, real)) return;
+    const stat = fs.statSync(real);
+    if (stat.isFile() || stat.isDirectory()) return relative(root, real).split(sep).join('/');
+  } catch {
+    return;
+  }
 }
 function assertDirectoryIdentities(identities: DirectoryIdentity[], path: string): void {
   for (const expected of identities) {
@@ -587,6 +658,7 @@ async function rejectSpecialFiles(
           walk(full, path);
           continue;
         }
+        if (stat.isSymbolicLink() && sourceLink(repo, path, true)?.resolved !== undefined) continue;
         if (!stat.isFile()) special.push(path);
       }
     } finally {
@@ -658,6 +730,7 @@ export async function capture(
       gitModes = new Map<string, string>(),
       sensitiveEvidence: any[] = [],
       boundaries = new Map<string, fs.Stats>(),
+      links = new Map<string, LinkIdentity>(),
       absentPaths = new Set<string>();
     let total = 0;
     guard();
@@ -673,6 +746,18 @@ export async function capture(
     if (unmatched !== undefined)
       throw new CsoError('INVALID_ARGUMENT', `--paths entry matches no source file: ${unmatched}`);
     const outsideAudit = (path: string) => auditPaths !== undefined && !inAuditPaths(path, auditPaths);
+    // Every inventory path and every directory that holds one, so a link can
+    // tell whether its target is captured under its own name. Built only when
+    // the repository has a link.
+    let inventory: Set<string> | undefined;
+    const captured = (path: string) => {
+      if (!inventory) {
+        inventory = new Set(['']);
+        for (const entry of list)
+          for (let at = entry; at; at = at.slice(0, Math.max(at.lastIndexOf('/'), 0))) inventory.add(at);
+      }
+      return inventory.has(path);
+    };
     await rejectSpecialFiles(repo, home, admission);
     guard();
     const manifest: SnapshotManifest = {
@@ -737,8 +822,54 @@ export async function capture(
       } // tracked deletions are represented by absence and the diff manifest
       // Host dependency trees and paths outside --paths aren't copied, assessed,
       // or counted toward the source cap. Their omission is still explicit.
-      const dependency = noReadPath(path);
-      if (dependency || outsideAudit(path)) {
+      const dependency = noReadPath(path),
+        outside = outsideAudit(path);
+      // A symlink is never followed. One whose target stays inside the
+      // repository is an explicit exclusion bound to the link's identity: its
+      // target is captured under its own path, so nothing is lost. If that
+      // target is outside --paths, or is not captured at all, such as an
+      // ignored file, nothing there is audited, so the link is a gap. A link
+      // in a host dependency tree or outside --paths is withheld like other
+      // unread source, and its target is never resolved. Git hashes a link as
+      // its target string, which keeps base comparison exact.
+      if (source.isSymbolicLink()) {
+        const link = sourceLink(repo, path, !dependency && !outside);
+        // A scope that names a link would audit only the link, never its target.
+        if (link && auditPaths?.includes(path))
+          throw new CsoError(
+            'INVALID_ARGUMENT',
+            link.resolved
+              ? `--paths entry is a symlink: ${path}; pass the path it points to, ${link.resolved}`
+              : `--paths entry is a symlink: ${path}`,
+          );
+        if (!link || (link.resolved === undefined && !dependency && !outside))
+          throw new CsoError('UNSAFE_PATH', `Symlink or special source file: ${path}`);
+        links.set(path, link);
+        gitModes.set(path, '120000');
+        gitHashes.set(
+          path,
+          createHash(objectFormat).update(`blob ${link.target.length}\0`).update(link.target).digest('hex'),
+        );
+        entries.push({
+          path,
+          pathId: snapshotPathId(repo, path),
+          originalHash: 'not-read',
+          bytes: link.size,
+          mode: link.mode,
+          transformation: dependency
+            ? `excluded: ${exclusion(path) ?? 'host dependency input'}`
+            : outside
+              ? OUTSIDE_AUDIT_PATHS
+              : outsideAudit(link.resolved!)
+                ? LINK_OUTSIDE_AUDIT_PATHS
+                : captured(link.resolved!)
+                  ? IN_REPOSITORY_LINK
+                  : LINK_TO_UNCAPTURED_PATH,
+        });
+        guard();
+        continue;
+      }
+      if (dependency || outside) {
         const stat = fs.lstatSync(containedFile(repo, path));
         if (stat.isSymbolicLink() || !stat.isFile())
           throw new CsoError('UNSAFE_PATH', `Special source input: ${path}`);
@@ -853,6 +984,23 @@ export async function capture(
               current.dev !== boundary.dev ||
               current.ino !== boundary.ino ||
               current.mode !== boundary.mode
+            )
+              throw new CsoError('SNAPSHOT_RACE', `${message}: ${e.path}`);
+            guard();
+            continue;
+          }
+          const link = links.get(e.path);
+          if (link) {
+            // A retargeted, replaced or newly escaping link fails the capture,
+            // and so does one whose intermediate links now resolve elsewhere.
+            const current = sourceLink(repo, e.path, !noReadPath(e.path) && !outsideAudit(e.path));
+            if (
+              !current ||
+              current.resolved !== link.resolved ||
+              current.dev !== link.dev ||
+              current.ino !== link.ino ||
+              current.mode !== link.mode ||
+              !current.target.equals(link.target)
             )
               throw new CsoError('SNAPSHOT_RACE', `${message}: ${e.path}`);
             guard();

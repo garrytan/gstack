@@ -1,13 +1,14 @@
 // Regressions for /cso on ordinary user repositories: an untracked nested Git
 // repository (#3255 bug 1), a patch history over the 1 MiB bound (#3255 bug 2),
-// and a Docker socket that realpath refuses to open (#3248).
+// a Docker socket that realpath refuses to open (#3248), and symlinks whose
+// target stays inside the repository.
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { NESTED_REPOSITORY, capture, historyMarker } from '../lib/cso/snapshot';
+import { IN_REPOSITORY_LINK, LINK_OUTSIDE_AUDIT_PATHS, LINK_TO_UNCAPTURED_PATH, NESTED_REPOSITORY, OUTSIDE_AUDIT_PATHS, capture, historyMarker } from '../lib/cso/snapshot';
 import { newRun, readJson } from '../lib/cso/state';
 import { MAX_OUTPUT } from '../lib/cso/contracts';
 import { dockerEndpoint } from '../lib/cso/docker';
@@ -149,6 +150,186 @@ describe('CSO start on a repository with an untracked nested repository (#3255 b
       swapping.mockRestore();
     }
     expect(swapped).toBe(true);
+  });
+});
+
+describe('CSO start on a repository with in-repository symlinks', () => {
+  test('start succeeds, records each contained link as an explicit exclusion, and still audits its target', () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    fs.mkdirSync(path.join(repo, 'docs'));
+    commit(repo, { 'README.md': 'readme\n', 'docs/guide.md': 'guide\n' }, 'base');
+    fs.symlinkSync('README.md', path.join(repo, 'README'));
+    fs.symlinkSync('docs', path.join(repo, 'handbook'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'links');
+    const started = cso(repo, ['start', '--repo', repo, '--scope', 'auth', '--offline']);
+    expect(started.stderr).toBe('');
+    expect(started.status).toBe(0);
+    const run = JSON.parse(started.stdout),
+      dir = path.join(state, 'security', 'cso', run.repoId, run.runId),
+      report = readJson(path.join(dir, 'report.json')),
+      snapshot = report.coverage.find((item: any) => item.domain === 'snapshot-inputs');
+    expect(snapshot.exclusions.sort()).toEqual([`README: ${IN_REPOSITORY_LINK}`, `handbook: ${IN_REPOSITORY_LINK}`]);
+    expect(snapshot.gaps).toEqual([]);
+    expect(fs.readdirSync(path.join(dir, 'snapshot')).sort()).toEqual(['README.md', 'docs']);
+  });
+
+  test('a link may point up out of its directory, and an unchanged link is not a changed path', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    fs.mkdirSync(path.join(repo, 'web'));
+    commit(repo, { 'README.md': 'readme\n', 'web/app.ts': 'export {};\n' }, 'base');
+    fs.symlinkSync('../README.md', path.join(repo, 'web', 'README.md'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'link');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    commit(repo, { 'web/app.ts': 'export const changed = 1;\n' }, 'change');
+    const manifest = await capture(repo, newRun(repo).dir, base),
+      link = manifest.entries.find((entry) => entry.path === 'web/README.md');
+    expect(link).toMatchObject({ originalHash: 'not-read', transformation: IN_REPOSITORY_LINK });
+    expect(link?.executionHash).toBeUndefined();
+    expect(manifest.changedPaths).toEqual(['web/app.ts']);
+  });
+
+  test('negative controls: absolute, escaping, broken, cyclic and special-file links are still refused', async () => {
+    const root = tmp(),
+      repo = init(path.join(root, 'repo')),
+      outside = path.join(root, 'outside.txt');
+    commit(repo, { 'README.md': 'readme\n', '.gitignore': 'ignored-*\n' }, 'base');
+    fs.writeFileSync(outside, 'host\n');
+    // Ignored links are allowed on their own, so these prove the check follows
+    // the whole chain rather than trusting the first hop.
+    fs.symlinkSync(outside, path.join(repo, 'ignored-escape'));
+    const links: Record<string, string> = {
+      absolute: path.join(repo, 'README.md'),
+      escape: '../outside.txt',
+      broken: 'missing.txt',
+      cycle: 'cycle',
+      hop: 'ignored-escape',
+    };
+    if (process.platform !== 'win32') {
+      expect(spawnSync('/usr/bin/mkfifo', [path.join(repo, 'ignored-fifo')], { timeout: 10_000 }).status).toBe(0);
+      links.fifo = 'ignored-fifo';
+    }
+    for (const [name, target] of Object.entries(links)) {
+      const link = path.join(repo, name);
+      fs.symlinkSync(target, link);
+      try {
+        await expect(capture(repo, newRun(repo).dir)).rejects.toMatchObject({ code: 'UNSAFE_PATH', message: `Symlink or special source file: ${name}` });
+      } finally {
+        fs.unlinkSync(link);
+      }
+    }
+  });
+
+  test('negative control: a link retargeted or deleted during capture fails as a snapshot race', async () => {
+    const repo = init(path.join(tmp(), 'repo')),
+      target = path.join(repo, 'README');
+    commit(repo, { 'README.md': 'readme\n', 'OTHER.md': 'other\n' }, 'base');
+    fs.symlinkSync('README.md', target);
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'link');
+    const original = fs.lstatSync;
+    let hits = 0;
+    const counting = spyOn(fs, 'lstatSync').mockImplementation(((candidate: any, options?: any) => {
+      if (path.resolve(String(candidate)) === target) hits++;
+      return options === undefined ? original(candidate) : original(candidate, options);
+    }) as typeof fs.lstatSync);
+    try {
+      await capture(repo, newRun(repo).dir, 'HEAD');
+    } finally {
+      counting.mockRestore();
+    }
+    // The last two reads of the link are the final stability check's. Change
+    // it just before them. A retargeted link is itself contained, so only the
+    // recorded identity can catch it.
+    const last = hits - 1;
+    const changes: [() => void, string][] = [
+      [() => fs.symlinkSync('OTHER.md', target), 'Source changed before snapshot persistence: README'],
+      [() => {}, 'Source symlink changed during validation: README'],
+    ];
+    for (const [replace, message] of changes) {
+      hits = 0;
+      let swapped = false;
+      const swapping = spyOn(fs, 'lstatSync').mockImplementation(((candidate: any, options?: any) => {
+        if (path.resolve(String(candidate)) === target && ++hits === last) {
+          fs.unlinkSync(target);
+          replace();
+          swapped = true;
+        }
+        return options === undefined ? original(candidate) : original(candidate, options);
+      }) as typeof fs.lstatSync);
+      try {
+        await expect(capture(repo, newRun(repo).dir, 'HEAD')).rejects.toMatchObject({ code: 'SNAPSHOT_RACE', message });
+      } finally {
+        swapping.mockRestore();
+        fs.rmSync(target, { force: true });
+        fs.symlinkSync('README.md', target);
+      }
+      expect(swapped).toBe(true);
+    }
+  });
+
+  test('a link whose target is ignored or Git metadata is a gap: nothing at the target is audited', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    fs.mkdirSync(path.join(repo, 'generated'));
+    fs.writeFileSync(path.join(repo, 'generated', 'auth.js'), 'module.exports = {};\n');
+    commit(repo, { '.gitignore': 'generated/\n', 'index.js': 'require("./auth");\n' }, 'base');
+    fs.symlinkSync('generated/auth.js', path.join(repo, 'auth.js'));
+    fs.symlinkSync('.git/config', path.join(repo, 'gitconfig'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'links');
+    const manifest = await capture(repo, newRun(repo).dir);
+    for (const link of ['auth.js', 'gitconfig'])
+      expect(manifest.entries.find((entry) => entry.path === link)).toMatchObject({ originalHash: 'not-read', transformation: LINK_TO_UNCAPTURED_PATH });
+    expect(manifest.entries.map((entry) => entry.path)).not.toContain('generated/auth.js');
+  });
+
+  test('a retargeted link and a file replaced by a link with the same bytes are changed paths', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    commit(repo, { 'README.md': 'readme\n', 'OTHER.md': 'other\n', alias: 'README.md' }, 'base');
+    fs.symlinkSync('README.md', path.join(repo, 'LINK'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'link');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    fs.unlinkSync(path.join(repo, 'LINK'));
+    fs.symlinkSync('OTHER.md', path.join(repo, 'LINK'));
+    fs.unlinkSync(path.join(repo, 'alias'));
+    fs.symlinkSync('README.md', path.join(repo, 'alias'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'retarget');
+    expect((await capture(repo, newRun(repo).dir, base)).changedPaths).toEqual(['LINK', 'alias']);
+  });
+
+  test('under --paths a link entry is refused, a link to an out-of-scope target is a gap, and an out-of-scope link is withheld', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    fs.mkdirSync(path.join(repo, 'src'));
+    fs.mkdirSync(path.join(repo, 'tools'));
+    commit(repo, { 'src/app.ts': 'export {};\n', 'tools/run.sh': 'echo\n' }, 'base');
+    fs.symlinkSync('tools', path.join(repo, 'bin'));
+    fs.symlinkSync('../tools', path.join(repo, 'src', 'tools'));
+    fs.symlinkSync('run.sh', path.join(repo, 'tools', 'alias'));
+    await expect(capture(repo, newRun(repo).dir, undefined, undefined, {}, ['bin'])).rejects.toMatchObject({ code: 'INVALID_ARGUMENT', message: '--paths entry is a symlink: bin; pass the path it points to, tools' });
+    const manifest = await capture(repo, newRun(repo).dir, undefined, undefined, {}, ['src']);
+    expect(manifest.entries.find((entry) => entry.path === 'src/tools')).toMatchObject({ originalHash: 'not-read', transformation: LINK_OUTSIDE_AUDIT_PATHS });
+    expect(manifest.entries.find((entry) => entry.path === 'tools/alias')).toMatchObject({ originalHash: 'not-read', transformation: OUTSIDE_AUDIT_PATHS });
+  });
+
+  test('a --paths entry deleted from disk is recorded as a deletion, not refused', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    fs.mkdirSync(path.join(repo, 'src'));
+    commit(repo, { 'src/old.ts': 'export {};\n', 'src/app.ts': 'export {};\n' }, 'base');
+    fs.unlinkSync(path.join(repo, 'src', 'old.ts'));
+    const manifest = await capture(repo, newRun(repo).dir, undefined, undefined, {}, ['src/old.ts']);
+    expect(manifest.deletedPaths?.map((entry) => entry.path)).toEqual(['src/old.ts']);
+  });
+
+  test('a broken link in an unignored host dependency tree is excluded, not refused', async () => {
+    const repo = init(path.join(tmp(), 'repo'));
+    commit(repo, { 'index.ts': 'export {};\n' }, 'base');
+    fs.mkdirSync(path.join(repo, 'node_modules', '.bin'), { recursive: true });
+    fs.symlinkSync('../missing/cli.js', path.join(repo, 'node_modules', '.bin', 'broken'));
+    const manifest = await capture(repo, newRun(repo).dir);
+    expect(manifest.entries.find((entry) => entry.path === 'node_modules/.bin/broken')).toMatchObject({ originalHash: 'not-read', transformation: expect.stringMatching(/^excluded: /) });
   });
 });
 
