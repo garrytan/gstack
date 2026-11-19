@@ -2965,11 +2965,45 @@ describe('Codex generation (--host codex)', () => {
       const tmpl = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf-8');
       const prompt = extractCodexDefaultPrompt(tmpl);
       expect(prompt, `${dir} declares codex_default_prompt`).toBeDefined();
-      expect(prompt!, dir).toContain(`$gstack-${dir}`);
+      expect(prompt!, dir).toContain(`$${dir} `);
       expect(prompt!, `${dir}: a prompt tells the picker what the skill is for`).not.toBe(`Use gstack-${dir} for this task.`);
       const yaml = Bun.YAML.parse(fs.readFileSync(path.join(AGENTS_DIR, `gstack-${dir}`, 'agents', 'openai.yaml'), 'utf-8')) as { interface: { default_prompt: string } };
       expect(yaml.interface.default_prompt, dir).toBe(prompt!);
     }
+  });
+
+  // Codex 0.170 lists and mentions a skill by its SKILL.md name: (`review`), not
+  // its gstack-review folder, so `$gstack-review` loads nothing (GST-3196).
+  // Value: protects=every $-mention a Codex user is shown loads a listed skill; fails_when=a template, the Codex render or a doc says $gstack-<skill> where Codex lists <skill>; why_new=the prompt test above checks only seven templates and no docs; seam=none; no_claim=Codex's own mention parser
+  test('every $gstack- mention in the Codex render and the docs names a skill Codex lists', () => {
+    const listed = new Set<string>();
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.isFile() && /\.(md|ya?ml)$/.test(e.name)) files.push(p);
+      }
+    };
+    for (const skill of fs.readdirSync(AGENTS_DIR)) {
+      const md = path.join(AGENTS_DIR, skill, 'SKILL.md');
+      if (!fs.existsSync(md)) continue;
+      const name = fs.readFileSync(md, 'utf-8').match(/^---\n[\s\S]*?^name:[ \t]*(\S+)/m)?.[1];
+      if (name) listed.add(name);
+      walk(path.join(AGENTS_DIR, skill));
+    }
+    expect(listed.has('review') && listed.has('gstack-upgrade')).toBe(true);
+    const docs = ['README.md', ...fs.readdirSync(path.join(ROOT, 'docs')).filter(f => f.endsWith('.md')).map(f => path.join('docs', f))];
+    const bad: string[] = [];
+    for (const f of [...files, ...docs.map(d => path.join(ROOT, d))]) {
+      for (const m of fs.readFileSync(f, 'utf-8').matchAll(/\$(gstack-[a-z0-9-]*[a-z0-9])/g)) {
+        if (!listed.has(m[1])) bad.push(`${path.relative(f.startsWith(AGENTS_DIR) ? AGENTS_DIR : ROOT, f)}: $${m[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+    const codexRow = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf-8').split('\n').find(l => l.startsWith('| OpenAI Codex CLI |'));
+    const first = codexRow?.split('|')[4]?.match(/`\$([a-z0-9-]+)`/)?.[1];
+    expect(first && listed.has(first) ? first : codexRow).toBe('office-hours');
   });
 
   test('a template without codex_default_prompt: keeps the generic default_prompt', () => {

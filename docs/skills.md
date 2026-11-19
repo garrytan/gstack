@@ -1423,7 +1423,7 @@ through `-c model=...`, overriding the CLI's configured model for that call.
 Native review also sets `-c review_model=...` to that selection, overriding any
 separate review-model pin.
 
-On Codex hosts, the Claude outside-voice skill is `gstack-claude-code`. Its
+On Codex hosts, the Claude outside-voice skill is `$claude-code`. Its
 review, challenge, and consult calls preserve Claude's configured model.
 `GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
 sessions; a model named in your request takes precedence. Harness routing is
