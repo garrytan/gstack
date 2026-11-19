@@ -298,4 +298,15 @@ describe('installed skills beside gstack (GST-3123)', () => {
       expect([p, routePrompt(p, [helper, ...routed]).route?.skill ?? null]).toEqual([p, null]);
     expect(routePrompt('can you fix it', [helper]).route?.skill).toBe('helper');
   });
+
+  test("an unmarked copy of a gstack-generated SKILL.md is gstack's own, and one line names a skill once", () => {
+    const generated = '---\nname: _gstack-command\ndescription: Picks the gstack skill.\ntriggers:\n  - gstack\n  - which gstack skill\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n# gstack\n';
+    const dir = skillsDir([], { '_gstack-command': generated, 'prove-it': skill('prove-it', ['fix this bug']) });
+    const scan = scanInstalledSkills(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(scan.skills.map(s => [s.name, isGstackSkill(s)])).toEqual([['_gstack-command', true], ['prove-it', false]]);
+    expect(routePrompt('which gstack skill should I use for this', scan.skills).route).toBeNull();
+    const d = routePrompt('please fix this bug', [other('verify', ['fix this bug']), other('verify', ['fix this bug'])]);
+    expect(d.route ? d.routes.map(r => r.skill) : []).toEqual(['verify']);
+  });
 });

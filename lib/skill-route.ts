@@ -95,18 +95,23 @@ export function installedSkillsDir(env: NodeJS.ProcessEnv = process.env): string
   return path.join(env.CLAUDE_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.claude'), 'skills');
 }
 
-/** The frontmatter between the leading `---` lines, read from at most the first 16 KiB; null without one. */
-export function readFrontmatter(file: string): string | null {
+/** The first 16 KiB of a file, with CRLF line ends read as LF. */
+function readHead(file: string): string {
   const fd = fs.openSync(file, 'r');
   try {
     const buf = Buffer.alloc(FRONTMATTER_MAX_BYTES);
-    const text = buf.subarray(0, fs.readSync(fd, buf, 0, FRONTMATTER_MAX_BYTES, 0)).toString('utf8').replace(/\r\n/g, '\n');
-    if (!text.startsWith('---\n')) return null;
-    const end = text.indexOf('\n---', 4);
-    return end < 0 ? null : text.slice(4, end);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, FRONTMATTER_MAX_BYTES, 0)).toString('utf8').replace(/\r\n/g, '\n');
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** The frontmatter between the leading `---` lines, read from at most the first 16 KiB; null without one. */
+export function readFrontmatter(file: string): string | null {
+  const text = readHead(file);
+  if (!text.startsWith('---\n')) return null;
+  const end = text.indexOf('\n---', 4);
+  return end < 0 ? null : text.slice(4, end);
 }
 
 export function frontmatterName(frontmatter: string, fallback: string): string {
@@ -115,14 +120,14 @@ export function frontmatterName(frontmatter: string, fallback: string): string {
 }
 
 const MAX_TRIGGERS = 12;
-/** Trigger text the hook may quote in its line: letters, digits, spaces and . , ' ? ! / - only, so a SKILL.md cannot write instructions into it. */
+/** Trigger text the hook may quote in its line: letters, digits, spaces and . , ' ? ! / - only, so it cannot leave its quotes or add markup or shell characters. */
 const TRIGGER_TEXT = /^[A-Za-z0-9 ,.'?!\/-]+$/;
 const SKILL_NAME = /^[A-Za-z0-9_][A-Za-z0-9_:-]{0,63}$/;
 /** At most this many skills are named in one hook line. */
 export const MAX_ROUTES = 2;
 const GSTACK_ROOT = path.resolve(import.meta.dir, '..');
 
-/** gstack is true when the skill's directory holds .gstack-owned or its SKILL.md resolves into gstack's checkout. */
+/** gstack is true when the skill's directory holds .gstack-owned, its SKILL.md resolves into gstack's checkout, or it carries gen-skill-docs' banner. */
 export interface InstalledSkill { name: string; file: string; frontmatter: string; triggers: string[]; gstack?: boolean }
 
 let templateNames: Set<string> | null = null;
@@ -140,11 +145,13 @@ const baseName = (name: string) => name.toLowerCase().replace(/^gstack[-:]/, '')
 /** One of gstack's own skills: marked at install, or named like a skill gstack's checkout generates. */
 export const isGstackSkill = (s: InstalledSkill) => s.gstack === true || gstackSkillNames().has(baseName(s.name));
 
+const GENERATED_BANNER = /^<!-- AUTO-GENERATED from SKILL\.md\.tmpl/m;
+
 function ownedByGstack(dir: string, file: string): boolean {
   if (fs.existsSync(path.join(dir, '.gstack-owned'))) return true;
   try {
     const rel = path.relative(fs.realpathSync(GSTACK_ROOT), fs.realpathSync(file));
-    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    return (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || GENERATED_BANNER.test(readHead(file));
   } catch {
     return false;
   }
@@ -304,7 +311,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   const candidates = scorePrompt(prompt, skills.filter(isRouted));
-  const routes = candidates.filter(c => c.score >= threshold).slice(0, MAX_ROUTES);
+  const routes = candidates.filter((c, i) => c.score >= threshold && candidates.findIndex(o => o.skill === c.skill) === i).slice(0, MAX_ROUTES);
   return routes.length ? { route: routes[0], routes, candidates } : { route: null, reason: 'below-threshold', candidates };
 }
 
