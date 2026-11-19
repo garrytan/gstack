@@ -15,9 +15,13 @@
  *     the output says that read failed. Reading the same skill again with no
  *     user prompt or other skill load in between (a long SKILL.md read in
  *     chunks) continues the run, so it is not a new load.
- *   - spawn_agent call that started an agent: an Agent dispatch whose prompt
- *     is its message. One whose output names no agent_id (it failed, or it
- *     has no output) stays a plain spawn_agent call, so it is not a dispatch.
+ *   - spawn_agent call that started an agent, in any tool namespace: an Agent
+ *     dispatch whose prompt is its message. Codex 0.170 answers a started
+ *     agent with {"agent_id": ...} (multi_agents) or, when it serves the tool
+ *     in its collaboration namespace (multi_agents_v2, as for gpt-6.1-sol),
+ *     {"task_name": "/root/<name>"}. One whose output names neither (it
+ *     failed, or it has no output) stays a plain spawn_agent call, so it is not
+ *     a dispatch.
  *   - any other call: a tool_use under its own name. Call outputs are
  *     tool_results; a shell output that exited non-zero is an error.
  * Records of other types (event_msg, turn_context, reasoning and the rest)
@@ -88,7 +92,7 @@ const startedAgent = (output: string | undefined) => {
   if (output === undefined) return false;
   try {
     const parsed: unknown = JSON.parse(output);
-    return isObject(parsed) && typeof parsed.agent_id === 'string' && parsed.agent_id !== '';
+    return isObject(parsed) && [parsed.agent_id, parsed.task_name].some(id => typeof id === 'string' && id !== '');
   } catch {
     return false;
   }
