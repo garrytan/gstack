@@ -228,9 +228,10 @@ caught on another crew's PRs.
    first dispatch, which writes a grant record into the runs block; a grant
    another run claimed is refused (`GRANT_SPENT`), a voided run's claim still
    spends it, and stop and grant records are never trimmed from the block.
-   gstack never grants itself a round: `--by` naming gstack (any name starting
-   with "gstack", so a Captain called GStack Minder writes "Captain GStack
-   Minder") and a grant from inside an open `/ship` run are refused, and `add`
+   gstack never grants itself a round: `--by` naming gstack (one of the names
+   gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
+   whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
+   grant) and a grant from inside an open `/ship` run are refused, and `add`
    refuses the scope. `--by` is otherwise the caller's own text, recorded and
    not checked: a lane that records a grant (or a ruling) from another checkout
    under its Captain's name can't be told apart from the Captain doing it, so the
