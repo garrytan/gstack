@@ -110,10 +110,10 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 
 ## Telemetry (run last)
 
-When done, log telemetry in ONE call — it also drains the artifacts-sync
-queue (do not also run gstack-brain-sync).
+When done, make ONE call — it also drains the artifacts-sync
+queue (don't also run gstack-brain-sync).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** writes only to `$GSTACK_STATE_ROOT/analytics/`.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
 [ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.factory/skills/gstack;[ -d "$_r/bin" ]||_r=~/.factory/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host factory from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
@@ -128,7 +128,7 @@ OUTCOME: success/error/abort/unknown. USED_BROWSE: yes/no. SESSION_ID, TEL_START
 skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
 completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
 INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
-claude_haiku/gpt/gemini/other. CHECKS: passed/failed/not_run/none. No command
+claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No command
 (stale install) — skip.
 
 ## Third-Party Web Actions

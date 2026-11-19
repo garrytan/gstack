@@ -16,15 +16,14 @@ no, and `gstack-config set telemetry off` turns it off at any time.
   the verdict.
 - **Each skill run also sends** these labels, each a pick from a
   fixed list (anything else is sent as `unknown`):
-  - `host`: which coding agent ran it (`claude_code`, `codex`, `cursor` or
-    another of gstack's supported hosts), read from the agent's environment.
-  - `model_family`: `claude_opus`, `claude_sonnet`, `claude_haiku`, `gpt`,
-    `gemini` or `other`, as the model reports it about itself.
+  - `host`: which coding agent ran it (`claude_code`, `codex`, `cursor`,
+    `openclaw`, `hermes` or `other`), read from the agent's environment.
+  - `model_family`: `claude_opus`, `claude_sonnet`, `claude_haiku`,
+    `claude_other`, `gpt`, `gemini` or `other`, as the model reports it about itself.
   - `invoked`: started by you, by the model, or chained from another skill.
   - `exit_reason`: completed, stopped by you, blocked, a tool error, a test
     failure, the context limit, or gave up.
-  - `checks`: whether the skill's own checks passed, failed, weren't run, or
-    don't exist for that skill.
+  - `checks`: whether the skill's own checks passed, failed or weren't run.
   - `routing`: whether your CLAUDE.md/AGENTS.md has gstack's routing section
     and whether gstack hooks are installed (`none`, `block`, `hooks`,
     `both`). The files are read on your machine; only that word is sent.

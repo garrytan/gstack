@@ -81,7 +81,7 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-end next fields', ()
     const marker = path.join(tmp, 'sessions', '4242');
     fs.writeFileSync(marker, '');
     const args = ['--skill', 'qa', '--outcome', 'success', '--session-id', '4242-1700000000-1', '--tel-start', '1700000000',
-      '--exit-reason', 'completed', '--invoked', 'user', '--model-family', 'claude_opus', '--checks', 'none'];
+      '--exit-reason', 'completed', '--invoked', 'user', '--model-family', 'claude_opus', '--checks', 'not_run'];
     run('gstack-skill-end', args, { CLAUDECODE: '1' });
     run('gstack-skill-end', args, { CLAUDECODE: '1' });
     const [a, b] = await eventually(2);
@@ -89,7 +89,7 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-end next fields', ()
     expect(b.harness_session_id).toBe(a.harness_session_id);
     expect(fs.readFileSync(marker, 'utf-8')).toBe(a.harness_session_id);
     expect(fs.readdirSync(path.join(tmp, 'sessions'))).toEqual(['4242']);
-    expect([a.host, a.exit_reason, a.invoked, a.model_family, a.checks, a.routing]).toEqual(['claude_code', 'completed', 'user', 'claude_opus', 'none', 'none']);
+    expect([a.host, a.exit_reason, a.invoked, a.model_family, a.checks, a.routing]).toEqual(['claude_code', 'completed', 'user', 'claude_opus', 'not_run', 'none']);
   });
 
   test('under a shared harness (capy-server) every session has one pid, so no session id is sent', async () => {

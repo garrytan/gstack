@@ -299,11 +299,11 @@ enum_field() { # <value> <allowed values...>
   local a; for a in "$@"; do [ "$v" = "$a" ] && { printf '"%s"' "$v"; return; }; done
   printf '"unknown"'
 }
-HOST_FIELD="$(enum_field "$HOST" claude_code codex cursor openclaw hermes copilot gemini kiro opencode factory agy slate gbrain qm other)"
+HOST_FIELD="$(enum_field "$HOST" claude_code codex cursor openclaw hermes other)"
 MODEL_FIELD="$(enum_field "$MODEL_FAMILY" claude_opus claude_sonnet claude_haiku claude_other gpt gemini other)"
 INVOKED_FIELD="$(enum_field "$INVOKED" user model chained)"
 EXIT_FIELD="$(enum_field "$EXIT_REASON" completed user_stopped blocked tool_error test_failed context_limit gave_up)"
-CHECKS_FIELD="$(enum_field "$CHECKS" passed failed not_run none)"
+CHECKS_FIELD="$(enum_field "$CHECKS" passed failed not_run)"
 ROUTING_FIELD="$(enum_field "$ROUTING" none block hooks both)"
 UPGRADE_ERR_FIELD="$(enum_field "$UPGRADE_ERROR" none refused_dirty busy fetch_failed setup_failed other)"
 HSESS_FIELD="null"

@@ -90,7 +90,8 @@ if [ "$_TEL" != "off" ] && [ -x "$_BIN/gstack-telemetry-log" ]; then
   # Claude Code sets CLAUDECODE and Codex sets CODEX_THREAD_ID.
   case "${GSTACK_ACTIVE_HOST:-}" in
     claude) _HOST=claude_code ;;
-    ?*) _HOST="$GSTACK_ACTIVE_HOST" ;;
+    codex|cursor|openclaw|hermes) _HOST="$GSTACK_ACTIVE_HOST" ;;
+    ?*) _HOST=other ;;
     *) if [ -n "${CLAUDECODE:-}" ]; then _HOST=claude_code
        elif [ -n "${CODEX_THREAD_ID:-}" ]; then _HOST=codex
        else _HOST=unknown; fi ;;

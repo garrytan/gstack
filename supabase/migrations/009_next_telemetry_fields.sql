@@ -6,7 +6,8 @@
 -- lists; the CHECKs here are the last line.
 --
 -- Deploy order (each step only after the one before it):
---   1. PR #4537's telemetry-ingest and migrations 004-008 (done live 2026-11-19),
+--   1. PR #4537's telemetry-ingest and migrations 004-006 and 008 (done live
+--      2026-11-19; 007 waits for this PR and is applied after step 4),
 --   2. this migration,
 --   3. this PR's telemetry-ingest (it writes these columns; deployed before
 --      step 2, every insert fails and telemetry stalls until step 2 lands),
@@ -15,13 +16,13 @@
 
 ALTER TABLE telemetry_events
   ADD COLUMN IF NOT EXISTS host TEXT CHECK (host IN ('claude_code', 'codex', 'cursor', 'openclaw',
-    'hermes', 'copilot', 'gemini', 'kiro', 'opencode', 'factory', 'agy', 'slate', 'gbrain', 'qm', 'other', 'unknown')),
+    'hermes', 'other', 'unknown')),
   ADD COLUMN IF NOT EXISTS model_family TEXT CHECK (model_family IN ('claude_opus', 'claude_sonnet',
     'claude_haiku', 'claude_other', 'gpt', 'gemini', 'other', 'unknown')),
   ADD COLUMN IF NOT EXISTS invoked TEXT CHECK (invoked IN ('user', 'model', 'chained', 'unknown')),
   ADD COLUMN IF NOT EXISTS exit_reason TEXT CHECK (exit_reason IN ('completed', 'user_stopped', 'blocked',
     'tool_error', 'test_failed', 'context_limit', 'gave_up', 'unknown')),
-  ADD COLUMN IF NOT EXISTS checks TEXT CHECK (checks IN ('passed', 'failed', 'not_run', 'none', 'unknown')),
+  ADD COLUMN IF NOT EXISTS checks TEXT CHECK (checks IN ('passed', 'failed', 'not_run', 'unknown')),
   ADD COLUMN IF NOT EXISTS routing TEXT CHECK (routing IN ('none', 'block', 'hooks', 'both', 'unknown')),
   ADD COLUMN IF NOT EXISTS harness_session_id TEXT CHECK (harness_session_id ~ '^[0-9a-f]{16}$'),
   ADD COLUMN IF NOT EXISTS from_version TEXT CHECK (from_version ~ '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'),

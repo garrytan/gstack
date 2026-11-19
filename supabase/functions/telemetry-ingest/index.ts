@@ -42,12 +42,11 @@ interface TelemetryEvent {
 // the client also enforces, a 16-hex random session id, or a version; anything
 // else is stored as null. Keep these lists equal to bin/gstack-telemetry-log's.
 const NEXT_ENUMS: Record<string, string[]> = {
-  host: ["claude_code", "codex", "cursor", "openclaw", "hermes", "copilot", "gemini", "kiro",
-    "opencode", "factory", "agy", "slate", "gbrain", "qm", "other", "unknown"],
+  host: ["claude_code", "codex", "cursor", "openclaw", "hermes", "other", "unknown"],
   model_family: ["claude_opus", "claude_sonnet", "claude_haiku", "claude_other", "gpt", "gemini", "other", "unknown"],
   invoked: ["user", "model", "chained", "unknown"],
   exit_reason: ["completed", "user_stopped", "blocked", "tool_error", "test_failed", "context_limit", "gave_up", "unknown"],
-  checks: ["passed", "failed", "not_run", "none", "unknown"],
+  checks: ["passed", "failed", "not_run", "unknown"],
   routing: ["none", "block", "hooks", "both", "unknown"],
   upgrade_error: ["none", "refused_dirty", "busy", "fetch_failed", "setup_failed", "other", "unknown"],
 };

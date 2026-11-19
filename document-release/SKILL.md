@@ -78,10 +78,10 @@ Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<
 
 ## Telemetry (run last)
 
-When done, log telemetry in ONE call — it also drains the artifacts-sync
-queue (do not also run gstack-brain-sync).
+When done, make ONE call — it also drains the artifacts-sync
+queue (don't also run gstack-brain-sync).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** writes only to `$GSTACK_STATE_ROOT/analytics/`.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-skill-end --skill "document-release" --outcome OUTCOME \
@@ -94,7 +94,7 @@ OUTCOME: success/error/abort/unknown. USED_BROWSE: yes/no. SESSION_ID, TEL_START
 skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
 completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
 INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
-claude_haiku/gpt/gemini/other. CHECKS: passed/failed/not_run/none. No command
+claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No command
 (stale install) — skip.
 
 ## Step 0: Detect platform and base branch
