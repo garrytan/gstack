@@ -30,14 +30,19 @@ const INSTALL_STEPS: RegExp[] = [
   /devicectl\s+device\s+install\b/,
 ];
 
-const NO_NOTICE_NEEDED: Record<string, string> = {
-  'bin/gstack-gbrain-source-wireup':
-    'only removes ~/Library/LaunchAgents/com.gstack.brain-sync.plist on --uninstall; no gstack version writes it (checked below)',
-  'lib/gbrain-guards.ts': 'names an existing gbrain autopilot install in a refusal message; installs nothing',
-  'open-gstack-browser/SKILL.md.tmpl':
-    "its fallback loads gstack browse into gstack's own browser, which the user just opened; nothing goes into their regular Chrome",
-  'ios-qa/daemon/src/devicectl.ts':
-    "installApp() has no caller; it would install the user's own app under test, nothing of gstack's",
+const NO_NOTICE_NEEDED: Record<string, { line: string; why: string }> = {
+  'bin/gstack-gbrain-source-wireup': {
+    line: 'PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"',
+    why: 'only removes ~/Library/LaunchAgents/com.gstack.brain-sync.plist on --uninstall; no gstack version writes it (checked below)',
+  },
+  'lib/gbrain-guards.ts': {
+    line: '`\\`gbrain autopilot --install\\` set one up), or end the process that only mentions it`,',
+    why: 'names an existing gbrain autopilot install in a refusal message; installs nothing',
+  },
+  'open-gstack-browser/SKILL.md.tmpl': {
+    line: '> 4. If it\'s NOT listed at all, click **"Load unpacked"** and navigate to:',
+    why: "its fallback loads gstack browse into gstack's own browser, which the user just opened; nothing goes into their regular Chrome",
+  },
 };
 
 const SCANNED = /^(bin\/|lib\/|scripts\/|browse\/src\/|design\/src\/|ios-qa\/daemon\/src\/|make-pdf\/src\/|gstack-upgrade\/|setup$|CLAUDE\.md$|.*\.tmpl$)/;
@@ -58,17 +63,24 @@ describe('background-job notice (R115)', () => {
   test('every install step in shipped code has the notice line just above it', () => {
     const missing: string[] = [];
     for (const rel of trackedFiles()) {
-      if (rel in NO_NOTICE_NEEDED) continue;
       const abs = path.join(ROOT, rel);
       if (!fs.statSync(abs).isFile()) continue;
       const lines = fs.readFileSync(abs, 'utf8').split('\n');
       lines.forEach((line, i) => {
+        if (NO_NOTICE_NEEDED[rel]?.line === line.trim()) return;
         if (INSTALL_STEPS.some(re => re.test(line)) && !hasNoticeAbove(lines, i)) {
           missing.push(`${rel}:${i + 1}: ${line.trim()}`);
         }
       });
     }
     expect(missing).toEqual([]);
+  });
+
+  test('each exemption still names a real install-step line in its file', () => {
+    for (const [rel, { line }] of Object.entries(NO_NOTICE_NEEDED)) {
+      expect(INSTALL_STEPS.some(re => re.test(line))).toBe(true);
+      expect(read(rel).split('\n').map(l => l.trim())).toContain(line);
+    }
   });
 
   test('sync-gbrain tells the user about com.gbrain.autopilot before installing it', () => {
