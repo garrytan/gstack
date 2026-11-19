@@ -83,15 +83,16 @@ export function gbrainPairRepo(): { repo: FixtureRepo; pair: GbrainPair; gated: 
  * entry has no commit-status contexts, as on GitHub. A check run marked
  * earlier_attempt belongs to a superseded workflow-run attempt: like GitHub's
  * default filter=latest, the shim hides it unless the call asks for filter=all.
- * workflowRuns answers actions/runs?head_sha=<sha> the same way (none by default).
+ * workflowRuns answers actions/runs?head_sha=<sha> the same way (none by default). list answers gh pr list (a failure when absent).
  */
-export function ghQueueShim(repo: FixtureRepo, data: { prs: Record<string, unknown>; checks: Record<string, unknown>; statuses?: Record<string, unknown>; workflowRuns?: Record<string, unknown> }): { PATH: string } {
+export function ghQueueShim(repo: FixtureRepo, data: { prs: Record<string, unknown>; checks: Record<string, unknown>; statuses?: Record<string, unknown>; workflowRuns?: Record<string, unknown>; list?: unknown[] }): { PATH: string } {
   const dir = path.join(repo.root, 'gh-queue-shim');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify(data));
   const js = [
     "const d = require(process.argv[2]); const a = process.argv.slice(3);",
     "if (a[0] === 'pr' && a[1] === 'view') { const p = d.prs[a[2]]; if (!p) { console.error('no pull request found'); process.exit(1); } console.log(JSON.stringify(p)); process.exit(0); }",
+    "if (a[0] === 'pr' && a[1] === 'list') { if (!d.list) { console.error('gh shim: no pr list'); process.exit(1); } console.log(JSON.stringify(d.list)); process.exit(0); }",
     "const paged = (c, key, page) => { if (c.pages) return c.pages[page - 1] || { total_count: c.pages.reduce((n, p) => n + p[key].length, 0), [key]: [] }; const total = c.total_count ?? c[key].length; return page === 1 ? { total_count: total, ...c } : { total_count: total, [key]: [] }; };",
     "const latestOnly = (c, url) => /[?&]filter=all(&|$)/.test(url) || !c || !Array.isArray(c.check_runs) || !c.check_runs.some(r => r.earlier_attempt) ? c : { check_runs: c.check_runs.filter(r => !r.earlier_attempt) };",
     "if (a[0] === 'api') { const w = /actions\\/runs\\?head_sha=([0-9a-f]+).*page=(\\d+)/.exec(a[1] || ''); if (w) { console.log(JSON.stringify(paged((d.workflowRuns || {})[w[1]] || { workflow_runs: [] }, 'workflow_runs', Number(w[2])))); process.exit(0); } }",

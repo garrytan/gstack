@@ -1090,8 +1090,13 @@ for that read. Every other PR skips it: the run's own audit is the review. The
 run's final report ends with an `Attention` section that opens with `reviewed
 by <model>` (risk class) or `self-audited` (every other PR) on its own line
 and lists each flag against its rows; `No flags` is a valid body, a missing
-opening line is not. `gstack-ship-queue ready` prints the stub with the right
-opening line for the receipt it bound. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+opening line is not. The reader's read is a trail row with phase `trail-read`
+whose decision names the reader (`gstack-decision-trail <file> trail-read
+"openai/gpt-6.2-sol (Subagent 4)" <why> <evidence> <flags>`).
+`gstack-ship-queue ready --trail <file>` prints the opening line from that row
+for a risk-class receipt, or `MISSING: cross-family trail read` when the trail
+has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
+`git merge-tree` at both heads. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 

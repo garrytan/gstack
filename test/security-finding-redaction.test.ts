@@ -149,3 +149,39 @@ describe('the full approvals table', () => {
     expect(out).toContain(`ruled_note src/x.ts:1:naming at ${HEAD}: naming ships as a note`);
   });
 });
+
+// Value: protects=a red-team finding the owner ruled not security class (gstack-evals #380: a statistics fix) shows its location
+//   and reason in public text, the receipt validates and the public-text guards pass it, while security, auth and secret
+//   findings cannot take the exemption; fails_when=every red-team ruling prints "security finding, details recorded privately",
+//   or the exemption reaches a security-category finding; seam=gstack-approvals rule|rulings and gstack-ship-receipt write
+describe('a red-team finding the owner ruled not security class (gstack-evals #380)', () => {
+  test.skipIf(process.platform === 'win32')('rule --not-security prints the finding; a security category refuses the flag', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    fs.writeFileSync(path.join(f.root, 'stub', 'gh'), '#!/bin/sh\ncase "$*" in *visibility*) echo PUBLIC ;; *) exit 1 ;; esac\n', { mode: 0o755 });
+    const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const reason = 'the routing pilot picks its four extra tasks before the seed is fixed';
+    const rule = (finding: string, extra: string[]) => run('gstack-approvals', ['rule', '--finding', finding, '--head', head, '--reason', reason, '--words', 'a note, fix it by a dated change', '--by', 'Fixture Owner', ...extra]);
+    expect(rule('src/x.ts:1:security', ['--not-security']).status).toBe(EXIT.usage);
+    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    fs.writeFileSync(marker, 'ship-run-1\n');
+    const inRun = rule('src/x.ts:2:red-team', ['--not-security', '--owner-ref', 'GSTA-36:2026-11-19T12:29:59Z']);
+    expect(inRun.status).toBe(EXIT.usage);
+    expect(inRun.stderr).toContain('--not-security');
+    fs.rmSync(marker);
+    expect(run('gstack-approvals', ['rulings']).stdout).not.toContain('src/x.ts:2');
+    const ruled = rule('src/x.ts:1:red-team', ['--not-security']);
+    expect(ruled.status, ruled.stderr).toBe(0);
+    const line = run('gstack-approvals', ['rulings']).stdout.trim();
+    expect(line).toStartWith(`Ruled note: src/x.ts:1 (red-team, ruled not security class) at ${head.slice(0, 12)} ruled by Fixture Owner at `);
+    expect(line).toContain(reason);
+    expect(securityFingerprints(line)).toEqual([]);
+    const body = path.join(f.root, 'body.md');
+    fs.writeFileSync(body, `## Pre-Landing Review\n\n${line}\n`);
+    const write = f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { GSTACK_APPROVALS_MIRROR: '0' });
+    expect(write.status, write.stderr).toBe(EXIT.ok);
+    expect(fs.readFileSync(body, 'utf8')).toContain('"not_security": true');
+  });
+});
+

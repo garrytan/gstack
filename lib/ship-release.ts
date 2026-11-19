@@ -35,7 +35,7 @@ import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type B
 import { waitForRun } from './ci-carry';
 import { MIN_POLL_MS } from './gh-poll';
 import { lanesOnlyHeadPolicy } from './pregate/head-policy';
-import { finishPlan } from './plan-record';
+import { finishPlan, recordFinishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { checkBranch, loadPlainTitlePolicy, type PlainFinding } from './plain-title';
 import { buildRunCheck } from './pregate/run-check';
@@ -577,6 +577,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   if (plan.failure) return new Report().add(plan.line!).stop(`${plan.failure.message} (${plan.failure.code}); fix: ${plan.failure.fix}`);
   const r = await finishStages(argv, cwd);
   if (plan.line) r.lines.unshift(plan.line);
+  if (r.exit === 0) recordFinishPlan(cwd, flag('--plan') ? plan.record : undefined);
   const marker = r.exit === 0 && shipRunMarker(cwd);
   if (marker) fs.rmSync(marker, { force: true });
   return r;

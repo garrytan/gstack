@@ -1765,8 +1765,13 @@ and ask `ruled_note <fingerprint> at <head>: <reason>`, with the head's full sha
 two findings ruled with the same reason in one reply get two rows, and a ruling at
 a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
 `rule` refuses a `--head` that is not a commit in the repository, a reason with a
-newline or control character, a `--by` naming gstack, and any ruling while this
-checkout holds an open /ship run's marker (the lane's own runner). `add` refuses a
+newline or control character, a `--by` naming gstack, and a ruling while this
+checkout holds an open /ship run's marker (the lane's own runner) unless the lane
+relays the owner's words with `--owner-ref <thread code>:<message id or timestamp>`
+(on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
+source is `relayed:<owner ref>`, and its `RULED_NOTE:`, receipt entry and `Ruled note:`
+line say `(relayed from <owner ref>)`, so a reader can check the words against that
+message; without it the refusal is `APPROVAL_RULING_RUN_OPEN`. `add` refuses a
 `ruled_note` scope, so `rule` is the only path. A review-log field never makes a
 ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
@@ -1814,6 +1819,12 @@ visibility lookup that can fail or change, and a private repository can go
 public with its PR history. As a backstop, `gstack-ship-receipt write` refuses a
 `--body` and `gstack-post` refuses any text that names a raw security
 fingerprint such as `src/x.ts:12:security`. Other findings print as before.
+The red-team reviewer tags every finding `red-team`, a statistics or scoring
+fix included, so the owner can rule one not security class with `gstack-approvals
+rule --not-security` (only on a `path:line:red-team` fingerprint; a `security`,
+`auth` or `secret` finding stays security class, and the flag is refused while a
+/ship run is open on the checkout, so a run never lifts its own finding's redaction).
+That ruling's lines show its reason and its location as `<path>:<line> (red-team, ruled not security class)`.
 
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened

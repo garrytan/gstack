@@ -32,12 +32,12 @@ import { extractReceipt } from '../../lib/ship-receipt';
 import { loadReady, nowIso, persist, readyNoteUnpushed, readyPath, rebuildFromNotes, type ReadyReceipt, type ScreenChoice } from './ship-queue-train-record';
 import { baseOverlap, fetchBase, mergeCommit, outOk, outPending, outRefused, trainEnv, type TrainEnv, type TrainOut } from './ship-queue-train';
 import { checkWavePin } from './ship-queue-wave';
-import { readyPlan } from '../../lib/plan-record';
+import { finishPlanLine, readyPlan } from '../../lib/plan-record';
 
 const Q = 'gstack-ship-queue';
 
 export interface ReadyOptions {
-  pr: string; pregate?: string; gateExit?: number; gateLog?: string; screen?: 'screen' | 'no-screen'; broad: boolean; dryRun: boolean;
+  pr: string; pregate?: string; trail?: string; gateExit?: number; gateLog?: string; screen?: 'screen' | 'no-screen'; broad: boolean; dryRun: boolean;
   /** `--dispatch-ci`: run these workflows on the PR branch, wait, and clear the matching requires-remote pregate lanes before reading the head. */
   dispatchCi?: { workflows: string[]; timeoutSec: number; pollMs: number };
   /** `--base-red --fixer <n>`: a conditional READY on a paused receipt, owned by the fixer PR (trains with gates only). */
@@ -198,7 +198,7 @@ const screenLine = (c: ScreenChoice) => `screen: ${c.choice}${c.policy ? ` polic
 /** The brief's Plan line resolved at ready, as non-train ready does (docs/ship-policy.md#plan-record); the receipt carries the record train land reads. */
 function trainPlan(env: TrainEnv, body: string, baseSha: string, head: string, lines: string[]) {
   const changed = git(env.ctx.repoRoot, ['diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
-  const plan = readyPlan({ cwd: env.ctx.repoRoot, env: process.env, body, policyValue: env.policy.policy.plan_record, changed, fragmentsDir: env.policy.policy.changelog_fragments?.dir });
+  const plan = readyPlan({ cwd: env.ctx.repoRoot, env: process.env, body, policyValue: env.policy.policy.plan_record, changed, fragmentsDir: env.policy.policy.changelog_fragments?.dir, finishLine: finishPlanLine(env.ctx.repoRoot, git(env.ctx.repoRoot, ['branch', '--show-current']).out.trim(), head) });
   if (plan.line) lines.push(plan.line);
   return plan;
 }

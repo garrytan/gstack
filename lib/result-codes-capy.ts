@@ -15,6 +15,11 @@ export const CAPY_RESULT_CODES = {
     summary: 'an approval row is missing a required field, holds a value outside its enum, or exceeds a length cap',
     fix: 'rerun gstack-approvals add with every required flag (--ask, --words, --scope, --by) inside the caps it names; nothing was written',
   },
+  APPROVAL_RULING_RUN_OPEN: {
+    anchor: 'approval-ruling-run-open',
+    summary: 'gstack-approvals rule ran on a checkout where a /ship run is open, with no --owner-ref, and a run\'s own runner never rules on its findings',
+    fix: 'relay the owner\'s ruling with --owner-ref <thread code>:<message id or timestamp> --by <the owner> --words <their exact words>, or record it after the run stops; nothing was written',
+  },
   APPROVAL_RECORD_SECRET: {
     anchor: 'approval-record-secret',
     summary: 'a field of the approval row matched the secret scanner, so the row was refused and nothing was written',

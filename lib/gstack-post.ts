@@ -56,6 +56,8 @@ export interface PostEnv {
   err(text: string): void;
   /** On Capy (GSTACK_CAPY=1): write the checked parts for the host's PR tool and return its HOST_PUBLISH: line; gh is never called to write (GST-3183). */
   hostPublish?(op: Op, target: string | undefined, parts: Array<[Part, string]>, dest: HostDest): string;
+  /** GH_REPO: gh's PR and issue commands write there, but gh repo view ignores it, so the destination read names it. */
+  ghRepo?: string;
 }
 
 /** Where the gh write would have gone, so the host's PR tool can send the hand-off to the same place. */
@@ -849,9 +851,16 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       }
       let dest = { repo: remote.segments.join("/"), host: remote.host };
       if (remote.kind === "github") {
-        const view = env.run("gh", ["repo", "view", "--json", "nameWithOwner,url"]);
+        const ghRepo = env.ghRepo?.trim();
+        const view = env.run("gh", ["repo", "view", ...(ghRepo ? [ghRepo] : []), "--json", "nameWithOwner,url"]);
         try { const v = JSON.parse(view.stdout); dest = { repo: String(v.nameWithOwner ?? ""), host: new URL(String(v.url)).host }; } catch { dest = { repo: "", host: "" }; }
-        if (view.status !== 0 || !dest.repo) { env.err(`gstack-post: cannot resolve the repository gh would have written to (gh repo view --json nameWithOwner,url: ${view.stderr.trim().split("\n")[0] || "no repository"}); nothing was handed off\n`); return EXIT.cliFailed; }
+        if (view.status !== 0 || !dest.repo) { env.err(`gstack-post: cannot resolve the repository gh would have written to (gh repo view${ghRepo ? ` ${ghRepo}` : ""} --json nameWithOwner,url: ${view.stderr.trim().split("\n")[0] || "no repository"}); nothing was handed off\n`); return EXIT.cliFailed; }
+        const origin = remote.segments.join("/");
+        if (req.target !== undefined && !/^[1-9][0-9]*$/.test(req.target) && origin.toLowerCase() !== dest.repo.toLowerCase()) { env.err(`gstack-post: target ${req.target} names ${origin}, but the hand-off goes to ${dest.repo}, the repository gh resolves (gh repo set-default or GH_REPO); pass the number of the ${dest.repo} pull request or issue; nothing was handed off\n`); return EXIT.usage; }
+        if (req.op === "pr-create" && head && !head.includes(":") && origin.toLowerCase() !== dest.repo.toLowerCase()) {
+          if (remote.host.toLowerCase() !== dest.host.toLowerCase() || remote.segments.length !== 2) { env.err(`gstack-post: pr-create from ${remote.host}/${origin} into ${dest.host}/${dest.repo}: the head branch is on another host or a nested namespace, so the host's PR tool cannot name it; pass --head <owner>:<branch>; nothing was handed off\n`); return EXIT.usage; }
+          head = `${remote.segments[0]}:${head}`;
+        }
       }
       let line: string;
       try { line = env.hostPublish(req.op, n, parts, { ...dest, to: req.to, base: req.base, head, draft: req.draft }); }

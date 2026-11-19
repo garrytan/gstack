@@ -3,7 +3,7 @@
  * gstack-ship-queue — the shared merge queue, one subcommand per protocol
  * step (field list 2, W1; docs/ship-policy.md#run-a-shared-merge-queue).
  *
- *   gstack-ship-queue ready --pr <n> [--pregate <pregate.json>] [--gate-exit <rc> --gate-log <file>]
+ *   gstack-ship-queue ready --pr <n> [--pregate <pregate.json>] [--trail <decisions.tsv>] [--gate-exit <rc> --gate-log <file>]
  *                           (refused with QUEUE_RECEIPT_MISSING|STALE unless the PR body carries /ship's receipt for HEAD)
  *   gstack-ship-queue stamp --pr <n> --version <X> --expect-gated <sha> --expect-base <sha>
  *                           [--expect-order <pr,...>] [--allow-repo-commands] [--gate-exit <rc> --gate-log <file>]
@@ -47,9 +47,11 @@ logShipCall('gstack-ship-queue');
 
 const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (docs/ship-policy.md#run-a-shared-merge-queue)
 
-  ready --pr <n> [--pregate <file>] [--gate-exit <rc> --gate-log <file>]
+  ready --pr <n> [--pregate <file>] [--trail <decisions.tsv>] [--gate-exit <rc> --gate-log <file>]
                                            READY #<n> <head> STAMP_VERSION=<X|unstamped>, CI at that head, PREGATE, gate state,
-                                           SHIP_RECEIPT (refused unless the PR body carries /ship's receipt for that head)
+                                           SHIP_RECEIPT (refused unless the PR body carries /ship's receipt for that head),
+                                           TRIAL_MERGES for each open PR sharing a file, and the Attention line: a risk-class
+                                           receipt names the --trail's newest trail-read row, or prints MISSING: cross-family trail read
   stamp --pr <n> --version <X> --expect-gated <sha> --expect-base <sha> [--expect-order <pr,...>] [--allow-repo-commands]
         [--gate-exit <rc> --gate-log <file>]
                                            restamp, commit and prove: QUEUE_STAMP: <pr> <X> head= gated= tree= receipt=
@@ -234,10 +236,10 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'ready') {
     const unfetched = refreshBase(ctx);
     const loaded = loadBasePolicy(ctx);
-    if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), ...gate });
+    if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), trail: flag(args, '--trail'), ...gate });
     if (unfetched) return finish('ready', { ok: false, lines: [], run: 'none', failure: unfetched });
     if (['--screen', '--no-screen', '--broad'].some(f => args.includes(f))) process.stderr.write('gstack-ship-queue ready: --screen/--no-screen/--broad ignored: the base policy declares no train block\n');
-    return finish('ready', ready(ctx, { pr, pregate: flag(args, '--pregate'), ...gate }));
+    return finish('ready', ready(ctx, { pr, pregate: flag(args, '--pregate'), trail: flag(args, '--trail'), ...gate }));
   }
   if (cmd === 'stamp') {
     const version = flag(args, '--version');
