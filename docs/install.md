@@ -40,7 +40,8 @@ explicit "no" removes a live registration. `GSTACK_TIMELINE_STOP_HOOK=no` and
 removes it too.
 
 Three more hooks are on by default: skill routing (a `UserPromptSubmit` hook
-that names the gstack skill a prompt fits), skill contracts (a `Stop` hook that
+that names the gstack skill, or an installed skill with its own `triggers:`, that
+a prompt fits), skill contracts (a `Stop` hook that
 blocks once when a skill ends without its required outputs) and the
 destructive-command check (a `PreToolUse` hook that runs /careful's check before
 every Bash and PowerShell command). Turn one off with `./setup --no-skill-routing`,
