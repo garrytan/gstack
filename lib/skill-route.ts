@@ -357,10 +357,13 @@ const STRONG_SIGN = new RegExp(String.raw`\b(?:expected (?:behaviou?r|result|out
 const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot|can't|won't)\b/,
   /\bshould\b/, /\binstead of\b/];
 
+/** The verb fix, as a prompt asks for one. */
+const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
+
 /** True when the prompt's window (promptWindow) reads as a bug report: one strong sign, or two different weak ones. */
 export function bugReport(prompt: string): boolean {
   const text = promptWindow(prompt).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
-  if (words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || /^(?:re-)?fix(?:es|ing)?$/.test(w) || /^[a-z]{3,}(?:error|exception)$/.test(w))) return true;
+  if (words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || FIX_WORD.test(w) || /^[a-z]{3,}(?:error|exception)$/.test(w))) return true;
   return STRONG_SIGN.test(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2;
 }
 
@@ -395,8 +398,8 @@ export type RouteDecision =
 /**
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
- * it asks for /review or /qa by one of their own triggers in full ("review this pr for bugs"): finding bugs is not
- * fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
+ * it holds the whole phrase of one of /review's or /qa's own triggers ("review this pr for bugs") and never asks for a
+ * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
@@ -405,7 +408,10 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
-  const findsBugs = candidates.some(c => c.gstack && c.score >= 1 && ['review', 'qa'].includes(baseName(c.skill)));
+  const window = promptWindow(prompt);
+  const seq = ` ${tokens(window).join(' ')} `;
+  const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
+    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => seq.includes(` ${tokens(t).join(' ')} `)));
   const fixer = !findsBugs && bugReport(prompt) ? bugFixRoute(routed, candidates) : null;
   if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
   const routes = candidates.filter((c, i) => c.score >= threshold && candidates.findIndex(o => o.skill === c.skill) === i).slice(0, MAX_ROUTES);

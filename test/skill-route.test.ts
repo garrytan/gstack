@@ -290,9 +290,13 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(routePrompt('the app hangs on startup', [...routed, lint]).route).toBeNull();
     expect(routePrompt('the app hangs on startup', [...routed, other('fixer', ['fix this error'])]).route?.skill).toBe('fixer');
     expect(routePrompt('the app hangs on startup', [...routed, lint, proveIt])).toMatchObject({ bugReport: true, routes: [{ skill: 'prove-it' }] });
-    for (const [text, skill] of [['find bugs on site', 'qa'], ['Review this PR for bugs. Do not change any files.', 'review'], ['code review my fix', 'review']]) {
+    for (const [text, skill] of [['find bugs on site', 'qa'], ['Review this PR for bugs. Do not change any files.', 'review'], ['review this PR for bugs', 'review']]) {
       expect(routePrompt(text, [...routed, proveIt])).toMatchObject({ bugReport: false, route: { skill } });
     }
+    const named = (text: string) => { const d = routePrompt(text, [...routed, proveIt]); return d.route ? d.routes.map(r => r.skill) : []; };
+    expect(named('The checkout page on our site crashes with TypeError when the cart is empty. Find the cause and fix it.')).toEqual(['prove-it']);
+    expect(named('This code throws ValueError on empty input, I need it fixed before the review tomorrow')).toEqual(['prove-it']);
+    expect(named('code review flagged a crash in parse(); please fix the bug')).toEqual(['prove-it']);
     expect(bugReport("the upload can't finish; it should")).toBe(true);
     expect(bugReport("the upload won't finish; it should")).toBe(true);
   });
