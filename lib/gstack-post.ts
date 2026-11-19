@@ -55,8 +55,11 @@ export interface PostEnv {
   out(text: string): void;
   err(text: string): void;
   /** On Capy (GSTACK_CAPY=1): write the checked parts for the host's PR tool and return its HOST_PUBLISH: line; gh is never called to write (GST-3183). */
-  hostPublish?(op: Op, target: string | undefined, parts: Array<[Part, string]>): string;
+  hostPublish?(op: Op, target: string | undefined, parts: Array<[Part, string]>, dest: HostDest): string;
 }
+
+/** Where the gh write would have gone, so the host's PR tool can send the hand-off to the same place. */
+export interface HostDest { repo: string; to?: string; base?: string; head?: string; draft: boolean }
 
 export const EXIT = { posted: 0, refused: 1, confirm: 2, cliFailed: 3, plainTitle: 4, usage: 64 } as const;
 
@@ -838,7 +841,7 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
       }
     }
     if (env.hostPublish) {
-      env.out(env.hostPublish(req.op, n, parts));
+      env.out(env.hostPublish(req.op, n, parts, { repo: remote.segments.join("/"), to: req.to, base: req.base, head: req.head, draft: req.draft }));
       return EXIT.posted;
     }
     return send(env, remote.kind, req, n, title, body);

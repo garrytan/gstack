@@ -3299,7 +3299,8 @@ account, so gstack never writes to GitHub through it there (GST-3183). `gstack-p
 op) and `gstack-ship-receipt stub`, `stop`, `claim` and `carry` with `--pr` run all their checks as
 before, then write the exact title and body they would have sent to
 `<state root>/publish/<op>-<target>.<part>.md` (mode 0600) and print one line:
-`HOST_PUBLISH: <op> <target> body-file=<path> [title-file=<path>] (...)`. Nothing reached GitHub yet.
+`HOST_PUBLISH: <op> <target> [repo=<owner/name>] [to=<comment id>] [base=<branch>] [head=<branch>] [draft] body-file=<path> [title-file=<path>] (...)`,
+where the bracketed fields are where the gh write would have gone (a reply's comment, a new PR's base, head and draft state). Nothing reached GitHub yet.
 
 **Fix.** Publish the named files with the host's PR tool before the next gstack step: `pr-body` and
 `pr-title` with Capy's `tools.pr.edit`, `pr-comment` and `reply` with `tools.pr.comment`, `pr-create`

@@ -17,7 +17,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { spawnSync } from "../lib/spawn-sync";
-import { runPost } from "../lib/gstack-post";
+import { runPost, type HostDest } from "../lib/gstack-post";
 import { handOff, hostPublishes } from "../lib/host-publish";
 
 const code = runPost(process.argv.slice(2), {
@@ -34,6 +34,6 @@ const code = runPost(process.argv.slice(2), {
   readFile: (p) => fs.readFileSync(p, "utf8"),
   out: (t) => process.stdout.write(t),
   err: (t) => process.stderr.write(t),
-  ...(hostPublishes() ? { hostPublish: (op: string, target: string | undefined, parts: Array<["title" | "body", string]>) => handOff({ op, target, parts }) } : {}),
+  ...(hostPublishes() ? { hostPublish: (op: string, target: string | undefined, parts: Array<["title" | "body", string]>, dest: HostDest) => handOff({ op, target, parts, ...dest }) } : {}),
 }, path.join(import.meta.dir, "gstack-config"));
 process.exitCode = code;
