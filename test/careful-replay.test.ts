@@ -185,6 +185,74 @@ const RULE_CASES: Array<[string, Decision, Tree]> = [
   ['npx wrangler d1 execute db --command="DROP TABLE users"', 'ask', 'clean'],
 ];
 
+// GST-3190: the command-parsing gaps a second read found after #4513. Every row but the controls decided differently
+// at 55aaa6c4; [item, command, expected, tree].
+const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
+  ['force-push through --repo=', 'git push --repo=origin +refs/heads/main', 'deny', 'clean'],
+  ['force-push through --repo=', 'git push --repo=origin --force main', 'deny', 'clean'],
+  ['cd in a pipeline', 'cd /tmp | true && rm -rf relative-demo', 'ask', 'clean'],
+  ['cd in a pipeline', 'true | cd /tmp && rm -rf relative-demo', 'ask', 'clean'],
+  ['cd in a pipeline (control)', 'cd /tmp/x && make 2>&1 | tee log && rm -rf repro', 'allow', 'clean'],
+  ['subshell gives back the scratch folder', 'cd /tmp && (pwd; pwd) && rm -rf relative-demo', 'allow', 'clean'],
+  ['reset to a $ revision', 'git reset --hard "$REV"', 'ask', 'clean'],
+  ['stash pop before a discard', 'git stash pop && git reset --hard', 'ask', 'clean'],
+  ['own write before a discard (decided: allow)', 'printf "%s\\n" demo >> README.md && git reset --hard', 'allow', 'clean'],
+  ['quiet git clean', 'git clean -fdxq', 'ask', 'dirty'],
+  ['quiet git clean', 'git clean -fd --quiet', 'ask', 'dirty'],
+  ['alternate git tree', 'GIT_DIR=.git git checkout -f main', 'ask', 'clean'],
+  ['alternate git tree', 'git --work-tree=/tmp clean -fx', 'ask', 'clean'],
+  ['find leading option', 'find -L /nonexistent/scratch-demo -delete', 'ask', 'clean'],
+  ['rm trailing flags', 'rm relative-demo -rf', 'ask', 'clean'],
+  ['rm trailing flags (control)', 'docker rm web -f', 'allow', 'clean'],
+  ['mktemp variable reassigned', 'T=$(mktemp -d); T=/nonexistent/scratch-demo; rm -f "$T"', 'ask', 'clean'],
+  ['.. traversal', 'rm -f /proc/../demo', 'ask', 'clean'],
+  ['.. traversal', 'rm -rf ../build', 'ask', 'clean'],
+  ['.. traversal', 'cd /tmp/../var && rm -rf relative-demo', 'ask', 'clean'],
+  ['dry run in another statement', 'aws s3 rm s3://example-invalid/demo --recursive --dryrun; terraform destroy', 'ask', 'clean'],
+  ['dry run in another statement', 'terraform destroy -var name=plan', 'ask', 'clean'],
+  ['push dry run in a flag group', 'git push -nf origin main', 'allow', 'clean'],
+  ['wipefs on a file', 'wipefs -a demo.img', 'allow', 'clean'],
+  ['wipefs on a file (control)', 'wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['SQL shape in a search or text', "grep 'truncate demo;' fixtures.sql", 'allow', 'clean'],
+  ['SQL shape in a search or text', "echo 'truncate demo;'", 'allow', 'clean'],
+  ['SQL shape in a search or text (control)', "echo 'TRUNCATE users;' | db-cli", 'ask', 'clean'],
+  ['psql in a path', "grep 'DROP TABLE' ./psql/example.sql", 'allow', 'clean'],
+  ['force-push after a cd', 'cd . && git push -f origin', 'deny', 'main'],
+  ['force-push of every branch', 'git push --force --all origin', 'deny', 'clean'],
+  ['force-push of every branch (control: no repository)', 'git push --force --all origin', 'ask', 'norepo'],
+  ['second-model trail read: push option value', 'git push -onote --force origin main', 'deny', 'clean'],
+  ['second-model trail read: wipefs on a device by another path', 'wipefs -a sda', 'deny', 'clean'],
+  ['second-model trail read: wipefs on a device by another path', '/sbin/wipefs -af "$DISK"', 'deny', 'clean'],
+  ['second-model trail read: dry-run text before the delete', 'FLAGS=--dryrun terraform destroy', 'ask', 'clean'],
+  ['second-model trail read: || is not a pipe', "echo 'truncate demo;' || true", 'allow', 'clean'],
+  ['review: dry run on the line before', 'aws s3 sync . s3://b --dryrun\naws s3 rb s3://prod --force', 'ask', 'clean'],
+  ['review: dry run on the line before', 'aws s3 ls s3://b --dryrun;aws s3 rb s3://prod --force', 'ask', 'clean'],
+  ['review: dry run on the line before', 'aws ec2 terminate-instances --instance-ids i-1 --dry-run\naws ec2 terminate-instances --instance-ids i-1', 'ask', 'clean'],
+  ['review: SQL text sent to a file', "printf 'truncate users;' > q.sql && db-cli < q.sql", 'ask', 'clean'],
+  ['review: quoted ; before a pipe', 'echo "TRUNCATE TABLE users;" | mycli prod', 'ask', 'clean'],
+  ['round 2: cd after if', 'if cd B; then git clean -fdx; fi', 'ask', 'clean'],
+  ['round 2: cd after while', 'while cd B; do git checkout -- .; break; done', 'ask', 'clean'],
+  ['round 2: cd after time', 'time cd B && git reset --hard', 'ask', 'clean'],
+  ['round 2: cd then a discard (control)', 'cd B && git clean -fdx', 'ask', 'clean'],
+  ['round 2: an image suffix under /dev', 'wipefs -a /dev/sdb.img', 'deny', 'clean'],
+  ['round 2: wipefs option values', 'wipefs -t ext4 -a demo.img', 'allow', 'clean'],
+  ['wipefs in the regex again: targets from xargs', 'ls /dev/sd* | xargs wipefs -a', 'deny', 'clean'],
+  ['wipefs in the regex again: targets from stdin', 'echo /dev/sdb | xargs wipefs --all', 'deny', 'clean'],
+  ['wipefs in the regex again: --a', 'wipefs --a /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: --al', 'wipefs --al /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: attached short option value', 'wipefs -a -tvfat /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: attached value in a group', 'wipefs -aftvfat /dev/sdb', 'deny', 'clean'],
+  ['wipefs in the regex again: image suffix under /dev', 'wipefs --al /dev/sdb.img', 'deny', 'clean'],
+  ['wipefs in the regex again: image names from xargs', 'ls *.img | xargs wipefs -a', 'deny', 'clean'],
+  ['wipefs in the regex again: attached value on an image (control)', 'wipefs -a -tvfat demo.img', 'allow', 'clean'],
+  ['wipefs in the regex again: several images (control)', 'wipefs --all disk.qcow2 build/b.iso', 'allow', 'clean'],
+  ['wipefs round 2: an image name that is a symlink', 'wipefs -a alias.img', 'deny', 'clean'],
+  ['wipefs round 2: a symlink made in the same command', 'ln -sf /dev/sdb d.img; wipefs -a d.img', 'deny', 'clean'],
+  ['wipefs round 2: output redirected into a disk', 'wipefs -a demo.img > /dev/mmcblk0', 'deny', 'clean'],
+  ['wipefs round 2: a quoted spelling beside a proven wipe', "wipefs -a demo.img; wi''pefs -a /dev/sdb", 'deny', 'clean'],
+  ['wipefs round 2: errors sent to /dev/null (control)', 'wipefs -a demo.img 2>/dev/null', 'allow', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -200,10 +268,16 @@ function makeTree(kind: Tree): string {
   fs.writeFileSync(path.join(dir, 'README.md'), 'hi\n');
   fs.writeFileSync(path.join(dir, 'experiment-single.sh'), 'echo 1\n');
   fs.writeFileSync(path.join(dir, '.gitignore'), 'config/local/\n');
+  for (const image of ['demo.img', 'disk.qcow2', path.join('build', 'b.iso')]) {
+    fs.mkdirSync(path.dirname(path.join(dir, image)), { recursive: true });
+    fs.writeFileSync(path.join(dir, image), '');
+  }
+  fs.symlinkSync('/dev/null', path.join(dir, 'alias.img'));
   git(['add', '.']);
   git(['commit', '-q', '-m', 'init']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
   git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+  if (kind !== 'main') git(['branch', 'main']);
   if (kind === 'dirty') {
     fs.appendFileSync(path.join(dir, 'README.md'), 'edit\n');
     fs.appendFileSync(path.join(dir, 'experiment-single.sh'), 'edit\n');
@@ -261,6 +335,10 @@ describe('harmless scratch deletes no longer ask', () => {
 
 describe('each new rule, with negative controls', () => {
   test.each(RULE_CASES)('%s -> %s (%s tree)', (command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(PARSER_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 

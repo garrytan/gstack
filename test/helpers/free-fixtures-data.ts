@@ -69,6 +69,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/coverage-audit-cd-chain.json': ['test/coverage-audit-evidence.test.ts'],
   'test/fixtures/coverage-audit-parallel-column.json': ['test/coverage-audit-evidence.test.ts'],
   'test/fixtures/coverage-audit-plan-eng-wc-bytes.json': ['test/coverage-audit-evidence.test.ts'],
+  'test/fixtures/coverage-audit-relative-cd.json': ['test/coverage-audit-evidence.test.ts'],
   'test/fixtures/coverage-audit-separator-collision.json': ['test/coverage-audit-evidence.test.ts'],
   'test/fixtures/coverage-audit-summary.json': ['test/coverage-audit-evidence.test.ts'],
   'test/fixtures/coverage-audit-two-file-grep.json': ['test/coverage-audit-evidence.test.ts'],

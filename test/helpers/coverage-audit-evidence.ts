@@ -24,7 +24,8 @@ type Paths = typeof posix;
 interface Owned { path: string; content: string }
 /** One displayed stdout unit: a literal echo, a complete owned file or unknown neighboring output. */
 type Piece = { kind: 'label'; text: string } | ({ kind: 'owned' } & Owned) | { kind: 'unknown'; min: number; max: number };
-interface ShellScope { cwd: string; path: Paths; owned: Owned[] }
+/** shell: the session shell's working directory before this call, when the transcript proves it (sessionShell). */
+interface ShellScope { cwd: string; path: Paths; owned: Owned[]; shell?: string }
 
 /** Words and the && ; || | operators of a single-line command. Quotes stay in
  * their word; expansion, substitution, redirection (except discarded stderr),
@@ -165,11 +166,17 @@ function commandPieces(command: unknown, scope: ShellScope): Piece[] | undefined
   // One leading assertion of the recorded cwd, followed by one uniform list.
   // `cd CWD;` runs the list whether or not cd succeeds, exactly like an all-;
   // list, so only it may precede an && chain. Other mixes (`cd CWD && A; B`)
-  // could run later relative reads elsewhere and stay unsupported.
+  // could run later relative reads elsewhere and stay unsupported. A bare `cd ..` (or ../..) also asserts the
+  // recorded cwd when the proved session shell sits that many levels below it (census 44351657692: `cd <cwd>/review`
+  // in an earlier call, then `cd .. && cat -n src/billing.ts && ...`); .. names skip CDPATH and tilde expansion, and
+  // only && keeps the reads from running elsewhere when that cd fails.
   if (lists[0]!.length === 1 && lists[0]![0]![0] === 'cd') {
     const [, target, ...rest] = lists[0]![0]!;
     const [assertion, ...chain] = separators, kinds = new Set(chain.filter(separator => separator !== '||'));
-    if (rest.length || target === undefined || literal(target) !== scope.cwd || lists.length < 2 || assertion === '||' ||
+    const value = target === undefined ? undefined : literal(target);
+    const asserted = value === scope.cwd || (assertion === '&&' && scope.shell !== undefined && /^\.\.(?:\/\.\.)*\/?$/.test(value ?? '') &&
+      scope.path.resolve(scope.shell, value!) === scope.cwd);
+    if (rest.length || !asserted || lists.length < 2 || assertion === '||' ||
         kinds.size > 1 || (assertion !== ';' && kinds.size && !kinds.has(assertion!))) return undefined;
     lists.shift(); separators.shift();
   }
@@ -316,6 +323,26 @@ function pieceReads(pieces: Piece[] | undefined, output: unknown, whole: boolean
   return whole && (pending || !/^\n*$/.test(out.slice(cursor))) ? new Set() : credited;
 }
 
+const SHELL_NEUTRAL = new Set(['ls', 'cat', 'wc', 'head', 'tail', 'grep', 'sed', 'pwd', 'echo', 'stat', 'file', 'du', 'sort', 'uniq', 'cut', 'nl', 'git']);
+/**
+ * The session shell's cwd after one main-session Bash call, or undefined when the transcript cannot prove it. Claude
+ * Code keeps a Bash call's final working directory for the next call. Two forms are tracked: a line of plain read
+ * commands with no quote, expansion, grouping, redirect (but discarded or merged stderr) or background job leaves the
+ * cwd as it was; the same line after a leading `cd <absolute dir inside the recorded cwd>` then ; or && moves it
+ * there, only when the call succeeded and printed no cd error. Anything else makes the cwd unknown.
+ */
+function sessionShell(command: unknown, result: Record<string, any>, before: string | undefined, scope: Pick<ShellScope, 'cwd' | 'path'>): string | undefined {
+  if (typeof command !== 'string') return undefined;
+  const lead = /^cd[ \t]+(\S+)[ \t]*(?:;|&&)[ \t]*/.exec(command.trim());
+  const rest = (lead ? command.trim().slice(lead[0].length) : command.trim()).replace(/[ \t]2>(?:&1|\/dev\/null)(?=[ \t;|]|$)/g, '');
+  if (!rest.split(/;|&&|\|\|?/).every(part => /^[\w.\/*?[\]:=,+@%^ \t-]*$/.test(part) && SHELL_NEUTRAL.has(part.trim().split(/[ \t]+/)[0]!))) return undefined;
+  if (!lead) return before;
+  const target = literal(lead[1]!), relative = target === undefined ? '' : scope.path.relative(scope.cwd, target);
+  if (target === undefined || !scope.path.isAbsolute(target) || scope.path.resolve(target) !== target || !relative ||
+      relative.startsWith('..') || scope.path.isAbsolute(relative)) return undefined;
+  return (result.is_error !== undefined && result.is_error !== false) || /\bcd:/.test(outputText(result.content)) ? undefined : target;
+}
+
 function delivered(output: unknown, expected: string): boolean {
   const text = outputText(output);
   const body = normalized(expected);
@@ -341,7 +368,13 @@ export function coverageAuditReadEvidence(transcript: unknown[], files: Coverage
   const session = init[0].session_id,
     uses = new Map<string, { name: string; input: Record<string, any> } | null>(),
     results = new Set<string>();
+  // The proved session shell cwd, lost (undefined) on any Bash call whose effect on it is unknown: a subagent's, or
+  // one issued while another Bash call was still outstanding, since their execution order is not recorded.
+  let shell: string | undefined = files.cwd;
+  const outstanding = new Set<string>(), concurrent = new Set<string>();
   for (const e of transcript.slice(transcript.indexOf(init[0]) + 1)) {
+    if (object(e) && e.parent_tool_use_id !== null && e.parent_tool_use_id !== undefined && object(e.message) && Array.isArray(e.message.content) &&
+        e.message.content.some(b => object(b) && b.type === 'tool_use' && b.name === 'Bash')) shell = undefined;
     if (!object(e) || e.session_id !== session || (e.parent_tool_use_id !== null && e.parent_tool_use_id !== undefined) ||
         !object(e.message) || !Array.isArray(e.message.content)) continue;
     for (const b of e.message.content) {
@@ -351,12 +384,20 @@ export function coverageAuditReadEvidence(transcript: unknown[], files: Coverage
       if (e.type === 'assistant' && b.type === 'tool_use' && typeof b.id === 'string') {
         if (uses.has(b.id)) return { sourceRead: false, testsRead: false };
         uses.set(b.id, e.message.role === 'assistant' && object(b.input) ? { name: b.name, input: b.input } : null);
+        if (b.name === 'Bash') {
+          if (outstanding.size) [...outstanding, b.id].forEach(id => concurrent.add(id));
+          outstanding.add(b.id);
+        }
       } else if (e.type === 'user' && b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
         if (results.has(b.tool_use_id)) return { sourceRead: false, testsRead: false };
         results.add(b.tool_use_id);
         const u = e.message.role === 'user' ? uses.get(b.tool_use_id) : undefined;
+        outstanding.delete(b.tool_use_id);
+        const before = concurrent.has(b.tool_use_id) ? undefined : shell;
+        if (!u) shell = undefined;
+        else if (u.name === 'Bash') shell = concurrent.has(b.tool_use_id) ? undefined : sessionShell(u.input.command, b, before, { cwd: files.cwd, path });
         if (!u || (b.is_error !== undefined && b.is_error !== false)) continue;
-        const credited = u.name === 'Bash' ? shellReads(u.input.command, b.content, { cwd: files.cwd, path, owned: [files.source, files.tests] }) : undefined;
+        const credited = u.name === 'Bash' ? shellReads(u.input.command, b.content, { cwd: files.cwd, path, owned: [files.source, files.tests], shell: before }) : undefined;
         for (const [key, file] of [['sourceRead', files.source], ['testsRead', files.tests]] as const) {
           if (u.name === 'Read' ? typeof u.input.file_path === 'string' &&
               path.resolve(files.cwd, u.input.file_path) === file.path && delivered(b.content, file.content)
