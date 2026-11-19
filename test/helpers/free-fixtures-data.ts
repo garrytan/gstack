@@ -30,6 +30,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/autoplan-setup-packet-o-call.json': ['test/plan-pending-question-pty.test.ts'],
   'test/fixtures/autoplan-setup-packet-o-screen.txt': ['test/plan-pending-question-pty.test.ts'],
   'test/fixtures/autoplan-with-result-au.json': ['test/autoplan-phase-observer.test.ts'],
+  'test/fixtures/careful/geva-560-synthetic.jsonl': ['test/careful-replay.test.ts'],
   'test/fixtures/ceo-completion-handoff-m-call.json': ['test/plan-count-completion.test.ts'],
   'test/fixtures/claude-usage-2.1.292.json': ['test/claude-usage.test.ts'],
   'test/fixtures/context-restore-transcript.jsonl': ['test/context-restore-transcripts.test.ts'],
