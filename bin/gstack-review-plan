@@ -28,6 +28,7 @@ import { locate, readRecord } from '../lib/approval-record';
 import { reviewRoundGrants } from '../lib/review-round-grant';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { runScriptSync } from '../lib/script-invocation';
 import { baseNote } from '../lib/gate-diff/git';
 import { collectCommit, collectLive, reviewPlanTimeoutMs } from '../lib/review-collect';
@@ -298,6 +299,10 @@ function main(): number {
     plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
+  if (last === 'full' && plan.next.step === 'done' && fixRange && fixRange.runtime_lines !== null && !ran && !(delta?.state === 'skip' && delta.carried) && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
+    process.stderr.write(`${gateOutcomeLine('gstack-review-plan', 'review_required_no_readers', `--pass ${pass} --last ${last} names no fix, but the PR's own change since --range-base ${fixRange.base.slice(0, 12)} has ${fixRange.runtime_lines} runtime line${fixRange.runtime_lines === 1 ? '' : 's'}`)} (review_required_no_readers)\n`);
+    return EXIT.refused;
+  }
   const targetedDeltaOut = delta?.state === 'dispatch' ? { range_base: delta.range_base, paths: delta.paths, classes: targeted.classes } : null;
   const selection = policySelection(active && { state: 'active', specs: active.specs, keep: active.keep, excerpt: active.excerpt }, readers);
   plan.dispatches.forEach((d, i) => { if (d.role !== 'fix-check') plan.dispatches[i] = selectFor(d, selection); });
