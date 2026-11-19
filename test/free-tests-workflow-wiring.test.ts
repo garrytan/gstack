@@ -261,7 +261,10 @@ describe('free-tests workflow wiring', () => {
       expect(steps[config].run, name).toContain('APT::Keep-Downloaded-Packages "true";');
       expect(steps[base].run, name).toContain("dpkg-query -W -f='${binary:Package}=${Version}\\n' | sha256sum");
       expect(steps[restore].uses, name).toStartWith('actions/cache/restore@');
-      expect(steps[restore].with, name).toEqual({ path: '~/.cache/gstack-apt-debs', key: 'linux-apt-debs-${{ steps.apt_base.outputs.packages }}-playwright-${{ steps.playwright.outputs.version }}' });
+      expect(steps[base].env, name).toEqual({ PLAYWRIGHT_VERSION: '${{ steps.playwright.outputs.version }}' });
+      expect(steps[base].run, name).toContain('echo "cache_key=linux-apt-debs-$(');
+      expect(steps[base].run, name).toContain(')-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"');
+      expect(steps[restore].with, name).toEqual({ path: '~/.cache/gstack-apt-debs', key: '${{ steps.apt_base.outputs.cache_key }}' });
       expect(steps[offline].if, name).toBe("steps.apt_cache.outputs.cache-hit == 'true'");
       expect(steps[offline].run, name).toBe('sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb');
       expect(steps[keep].if, name).toBe("steps.apt_cache.outputs.cache-hit != 'true'");

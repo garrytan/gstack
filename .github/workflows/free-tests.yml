@@ -484,13 +484,15 @@ jobs:
         run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
       - name: Fingerprint the runner's installed system packages
         id: apt_base
-        run: echo "packages=$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
       - name: Restore the system packages an earlier run downloaded
         id: apt_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/gstack-apt-debs
-          key: linux-apt-debs-${{ steps.apt_base.outputs.packages }}-playwright-${{ steps.playwright.outputs.version }}
+          key: ${{ steps.apt_base.outputs.cache_key }}
       - name: Install the cached system packages without the network
         id: apt_offline
         if: steps.apt_cache.outputs.cache-hit == 'true'
@@ -652,13 +654,15 @@ jobs:
         run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
       - name: Fingerprint the runner's installed system packages
         id: apt_base
-        run: echo "packages=$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
       - name: Restore the system packages an earlier run downloaded
         id: apt_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/gstack-apt-debs
-          key: linux-apt-debs-${{ steps.apt_base.outputs.packages }}-playwright-${{ steps.playwright.outputs.version }}
+          key: ${{ steps.apt_base.outputs.cache_key }}
       - name: Install the cached system packages without the network
         id: apt_offline
         if: steps.apt_cache.outputs.cache-hit == 'true'
