@@ -134,6 +134,7 @@ _NL=$'\n'
 _BT='`'
 _NS="[^;&|${_NL}]*"
 _RX_VAR='^[$][{]?([A-Za-z_][A-Za-z0-9_]*)(:[?][^}]*)?[}]?(/.*)?$'
+_RX_BAREVAR='^[$][{]?([A-Za-z_][A-Za-z0-9_]*)[}]?$'
 _RX_HOME='(~|[$]HOME|[$][{]HOME[}])'
 _RX_TMP='^(/private)?(/tmp|/var/tmp)/[^[:space:]]+$'
 _RX_CACHE="^${_RX_HOME}/(\.cache|\.npm|\.bun/install/cache|\.cargo/registry|\.local/share/uv|Library/Caches)(/|\$)"
@@ -161,9 +162,17 @@ _STASH_POP=0
 _GIT_SUB=-1
 _HI_RM_ROOT=0
 _HI_DISK=0
-_WIPEFS_SEEN=0
-_WIPEFS_SAFE=0
-_STMT_N=0
+_QS=n
+_HDOC=0
+_HASH=0
+_LN=0
+_GL=0
+_SUBD=0
+_LV_TMP=" "
+_LV_REL=" "
+_W=""
+_W2=""
+_WR=""
 _RM_UNSAFE=0
 _OUTSIDE=0
 _PUSH_DENY=""
@@ -181,6 +190,25 @@ _D=""
 _Q="[\"']"
 _careful_strip() { _S="${1#$_Q}"; _S="${_S#$_Q}"; _S="${_S%$_Q}"; _S="${_S%$_Q}"; }
 
+# Quote state carried from word to word (n, s or d), so a # inside quotes
+# ("a #") is not read as a comment. Escaped quotes are skipped; a wrong guess
+# only reads more of the command, never less.
+_careful_qs() {
+  local x="$1" c
+  [ "${#x}" -le 4096 ] || return 0
+  x="${x//\\[\"\']/}"
+  x="${x//[!\"\']/}"
+  while [ -n "$x" ]; do
+    c="${x%"${x#?}"}"; x="${x#?}"
+    case "$_QS$c" in
+      "n'") _QS=s ;;
+      'n"') _QS=d ;;
+      "s'"|'d"') _QS=n ;;
+    esac
+  done
+  return 0
+}
+
 # Variables assigned from mktemp anywhere in the command (NAME=$(mktemp ...)).
 _careful_find_tmpvars() {
   local s="$CMD_MEDIUM" re='(^|[[:space:];&|(])([A-Za-z_][A-Za-z0-9_]*)="?[$][(][[:space:]]*mktemp([^[:alnum:]_]|$)'
@@ -196,6 +224,46 @@ _careful_find_tmpvars() {
   return 0
 }
 _careful_is_tmpvar() { case "$_TMPVARS" in *" $1 "*) return 0 ;; esac; return 1; }
+
+# Loop variables (for NAME in WORDS) whose words are all plain literals, set
+# nowhere else in the command, in a command with no read, local, declare,
+# typeset, unset, mapfile, readarray, getopts, select or eval. _LV_TMP holds
+# names whose every word is a /tmp or /var/tmp path, _LV_REL names with plain
+# relative words, which are scratch only after a cd into scratch.
+_careful_find_loopvars() {
+  case "$CMD_MEDIUM" in *for*) ;; *) return 0 ;; esac
+  local s="$CMD_MEDIUM" name ws w rel ok nw ra
+  local re='(^|[[:space:];&|(])for[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+in[[:space:]]+([^;&|()'"$_NL"']*)'
+  local no='(^|[[:space:];&|(])(read|local|declare|typeset|unset|mapfile|readarray|getopts|select|eval)([[:space:]]|$)'
+  [[ $s =~ $no ]] && return 0
+  while [[ $s =~ $re ]]; do
+    name="${BASH_REMATCH[2]}"; ws="${BASH_REMATCH[3]}"
+    s="${s#*"${BASH_REMATCH[0]}"}"
+    ra="(^|[^A-Za-z0-9_])${name}[+]?="
+    [[ $CMD_MEDIUM =~ $ra ]] && continue
+    ra="(^|[[:space:];&|(])for[[:space:]]+${name}[[:space:]]"
+    [[ $s =~ $ra ]] && continue
+    case "$_LV_TMP$_LV_REL" in *" $name "*) continue ;; esac
+    rel=0; ok=1; nw=0
+    set -f
+    for w in $ws; do
+      _careful_strip "$w"; w="$_S"; nw=$((nw + 1))
+      case "/$w/" in */../*) ok=0 ;; esac
+      case "$w" in ''|-*|*[!A-Za-z0-9._/+@%,:-]*) ok=0 ;; esac
+      if ! [[ $w =~ $_RX_TMP ]]; then case "$w" in /*) ok=0 ;; *) rel=1 ;; esac; fi
+    done
+    set +f
+    [ "$ok" -eq 1 ] && [ "$nw" -gt 0 ] || continue
+    if [ "$rel" -eq 1 ]; then _LV_REL="$_LV_REL$name "; else _LV_TMP="$_LV_TMP$name "; fi
+  done
+  return 0
+}
+_careful_loopvar() {
+  [[ $1 =~ $_RX_BAREVAR ]] || return 1
+  case "$_LV_TMP" in *" ${BASH_REMATCH[1]} "*) return 0 ;; esac
+  case "$_LV_REL" in *" ${BASH_REMATCH[1]} "*) [ "${2:-}" = rel ] || [ "$_SCRATCH" -eq 1 ] && return 0 ;; esac
+  return 1
+}
 
 # A $VAR-led word: _R is the word with VAR's value from an assignment in the
 # same command, or the word unchanged with _RISK guarded (${VAR:?}) or
@@ -221,6 +289,7 @@ _careful_resolve() {
 # after a cd into scratch. Anything with a .. component is never scratch.
 _careful_rm_safe() {
   local t="$1"
+  _careful_loopvar "$t" && return 0
   if [[ $t =~ $_RX_VAR ]] && ! _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _careful_resolve "$t"; t="$_R"; fi
   case "/$t/" in */../*) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 0
@@ -239,6 +308,7 @@ _careful_rm_safe() {
 _careful_outside() {
   local t="$1"
   [ -n "$t" ] || return 1
+  _careful_loopvar "$t" rel && return 1
   case "/$t/" in */../*) return 0 ;; esac
   case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 1
@@ -264,23 +334,74 @@ _careful_outside() {
   return 0
 }
 
-# _CUR_DIR is the folder a cd leads to, or empty when it is unknown.
+# _CUR_DIR is the folder a cd leads to, or empty when it is unknown. A cd
+# into /tmp or /var/tmp, into a mktemp variable, or into a variable this
+# command sets to a /tmp path is scratch. So is a relative cd from scratch
+# (cd /tmp/w && cd sub) when the command makes no links (ln) and no part of
+# the path below the scratch folder is a symlink on disk, since a symlink
+# could lead out of it.
 _careful_cd() {
+  local a="$1" was="$_SCRATCH" from="$_CUR_DIR" p c rel
   _CD_SEEN=1
   _SCRATCH=0
-  case "$1" in
+  _careful_gcd
+  if [[ $a =~ $_RX_VAR ]] && ! _careful_is_tmpvar "${BASH_REMATCH[1]}"; then
+    _careful_resolve "$a"
+    [ -n "$_RISK" ] || a="$_R"
+  fi
+  case "$a" in
     '') _CUR_DIR="${HOME:-}" ;;
     -*) _CUR_DIR="" ;;
-    *) _careful_join_dir "$_CUR_DIR" "$1"; _CUR_DIR="$_D" ;;
+    *) _careful_join_dir "$_CUR_DIR" "$a"; _CUR_DIR="$_D" ;;
   esac
   case "/$1/" in */../*) return 0 ;; esac
-  if [[ "${1%/}/x" =~ $_RX_TMP ]]; then _SCRATCH=1; fi
-  if [[ $1 =~ $_RX_VAR ]] && _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _SCRATCH=1; fi
+  case "/$a/" in */../*) return 0 ;; esac
+  if [[ "${a%/}/x" =~ $_RX_TMP ]]; then _SCRATCH=1; fi
+  if [[ $a =~ $_RX_VAR ]] && _careful_is_tmpvar "${BASH_REMATCH[1]}"; then _SCRATCH=1; fi
+  [ "$_SCRATCH" -eq 0 ] && [ "$was" -eq 1 ] && [ "$_LN" -eq 0 ] || return 0
+  case "$a" in /*|'~'*|'$'*|-*|*'`'*|*'*'*|*'?'*|*'['*) return 0 ;; esac
+  if [ -n "$from" ]; then
+    [[ "${_CUR_DIR%/}/x" =~ $_RX_TMP ]] || return 0
+    p="$from"; rel="$a/"
+    while [ -n "$rel" ]; do
+      c="${rel%%/*}"; rel="${rel#*/}"
+      case "$c" in ''|.) continue ;; esac
+      p="$p/$c"
+      [ ! -L "$p" ] || return 0
+    done
+  fi
+  _SCRATCH=1
+  return 0
+}
+
+# Groups that run only as a whole: a ( ) subshell, a backtick or $( ) block,
+# and a for, while, until, if, select or { } body. A statement after ; || & or
+# a newline inside one still runs only if the group was reached, so it starts
+# from the folder state the group was entered with, as long as no cd, pushd
+# or popd ran inside the group (at the same subshell depth) since then.
+_careful_gpush() {
+  _GL=$((_GL + 1))
+  _G_S[$_GL]="$_SCRATCH"; _G_D[$_GL]="$_CUR_DIR"; _G_OK[$_GL]=1; _G_SD[$_GL]="$_SUBD"; _G_K[$_GL]="$1"
+}
+_careful_gpop() {
+  if [ "$_GL" -gt 0 ] && [ "${_G_K[$_GL]}" = k ]; then _GL=$((_GL - 1)); fi
+  return 0
+}
+_careful_gclose() {
+  local l="$_GL"
+  while [ "$l" -gt 0 ] && [ "${_G_K[$l]}" != p ]; do l=$((l - 1)); done
+  [ "$l" -gt 0 ] || return 0
+  _GL=$((l - 1)); _SUBD=$((_SUBD - 1))
+  return 0
+}
+_careful_gcd() {
+  local l="$_GL"
+  while [ "$l" -gt 0 ] && [ "${_G_SD[$l]}" -eq "$_SUBD" ]; do _G_OK[$l]=0; l=$((l - 1)); done
   return 0
 }
 
 _careful_rm() {
-  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1
+  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1 w c
   local tg=()
   # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
   case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
@@ -294,6 +415,21 @@ _careful_rm() {
   while [ "$k" -lt "$n" ]; do
     t="${T[$k]}"; k=$((k + 1))
     if [ -n "$q" ]; then case "${RW[$((k - 1))]}" in *"$q") k=$n ;; esac; fi
+    # A quoted target with spaces ("/tmp/scratch demo") is one word: join it
+    # back, unless this rm itself sits inside a quoted string.
+    if [ -z "$q" ]; then
+      w="${RW[$((k - 1))]}"
+      case "$w" in
+        \"*|\'*)
+          c="${w%"${w#?}"}"
+          if [ "${#w}" -eq 1 ] || [ "${w%"$c"}" = "$w" ]; then
+            while [ "$k" -lt "$n" ]; do
+              t="$t ${T[$k]}"; w="${RW[$k]}"; k=$((k + 1))
+              case "$w" in *"$c") break ;; esac
+            done
+          fi ;;
+      esac
+    fi
     [ -n "$t" ] || continue
     # A subcommand named rm (aws s3 rm s3://b --recursive) is not rm: a real
     # recursive rm leads with its flags, as the original family required.
@@ -310,11 +446,15 @@ _careful_rm() {
   while [ "$k" -lt "$nt" ]; do
     t="${tg[$k]}"; k=$((k + 1))
     # GNU rm takes flags after its operands: rm / -rf still denies.
-    if [ "$late" -eq 1 ] && [[ $t =~ $_RX_ROOT ]]; then _HI_RM_ROOT=1; fi
-    if [ "$rec" -eq 1 ]; then
-      _careful_rm_safe "$t" || _RM_UNSAFE=1
+    if [ "$late" -eq 1 ]; then
+      set -f
+      for w in $t; do [[ $w =~ $_RX_ROOT ]] && _HI_RM_ROOT=1; done
+      set +f
     fi
-    if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
+    if [ "$rec" -eq 1 ]; then
+      _careful_rm_safe "${t// /_}" || _RM_UNSAFE=1
+    fi
+    if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "${t// /_}"; then _OUTSIDE=1; fi
   done
   return 0
 }
@@ -364,76 +504,35 @@ _careful_del() {
   return 0
 }
 
-# wipefs -a erases every signature on its targets. _RX_WIPEFS denies any
-# wipefs with -a, --a, --al or --all; this scan only proves the one exemption
-# on top of it. An invocation is proven when wipefs leads its statement (after
-# sudo or NAME=value words); every target, with options read the way getopt
-# reads them, is a plain literal path outside /dev with a disk-image suffix
-# (.img, .iso, .raw, .qcow2, .vhd, .vhdx, .vmdk, .dmg) that already exists as
-# a regular file, not a symlink, in a known folder; and no redirect goes into
-# /dev other than /dev/null, /dev/stdout or /dev/stderr. An unproven
-# invocation with -a in any spelling is HIGH here too.
+# wipefs -a erases every signature on its targets. _RX_WIPEFS below denies
+# any wipefs with -a, --a, --al or --all in the command text; this scan reads
+# the options the way getopt does, so a spelling the regex can't see
+# (wipefs -$'a' /dev/sdb) is HIGH too. No target is exempt: GEVA-560's replay
+# of 254,322 agent commands holds no wipefs -a at all, so an image-file
+# exemption bought nothing, and each fact it had to prove was a way past the
+# deny.
 _careful_wipefs() {
-  local k="$1" t g j=0 all=0 hit=0 tgt=0 val=0 red=0 opts=1
-  _WIPEFS_SEEN=$((_WIPEFS_SEEN + 1))
-  while [ "$j" -lt $((k - 1)) ]; do
-    case "${T[$j]}" in sudo|[A-Za-z_]*=*) ;; *) hit=1 ;; esac
-    j=$((j + 1))
-  done
+  local k="$1" t g val=0
   while [ "$k" -lt "$n" ]; do
     t="${T[$k]}"; k=$((k + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
     case "$t" in
-      '') continue ;;
-      '<'|'>'|'>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') red=1; continue ;;
-    esac
-    if [ "$red" -eq 0 ]; then
-      case "$t" in [0-9]'>'*|'>'*|[0-9]'<'*|'<'*) red=1; t="${t##*[<>]}" ;; esac
-    fi
-    if [ "$red" -eq 1 ]; then
-      red=0
-      _careful_join_dir "$_CUR_DIR" "$t"
-      case "$_D" in
-        /dev/null|/dev/stdout|/dev/stderr) ;;
-        ''|/dev|/dev/*|*/dev/*) hit=1 ;;
-      esac
-      continue
-    fi
-    if [ "$opts" -eq 1 ]; then
-      case "$t" in
-        --) opts=0; continue ;;
-        --a|--al|--all) all=1; continue ;;
-        --offset|--types|--output) val=1; continue ;;
-        --*) continue ;;
-        -?*)
-          g="${t#-}"
-          while [ -n "$g" ]; do
-            case "$g" in
-              a*) all=1 ;;
-              [toO]) val=1; break ;;
-              [toO]*) break ;;
-            esac
-            g="${g#?}"
-          done
-          continue ;;
-      esac
-    fi
-    case "$t" in
-      *[!A-Za-z0-9._/+@%,:~-]*|*/dev/*|dev/*) hit=1 ;;
-      *.img|*.iso|*.raw|*.qcow2|*.vhd|*.vhdx|*.vmdk|*.dmg)
-        _careful_join_dir "$_CUR_DIR" "$t"
-        case "$_D" in
-          ''|/dev/*) hit=1 ;;
-          *) if [ -f "$_D" ] && [ ! -L "$_D" ]; then tgt=1; else hit=1; fi ;;
-        esac ;;
-      *) hit=1 ;;
+      --) break ;;
+      --a|--al|--all) _HI_DISK=1 ;;
+      --offset|--types|--output) val=1 ;;
+      --*) ;;
+      -?*)
+        g="${t#-}"
+        while [ -n "$g" ]; do
+          case "$g" in
+            a*) _HI_DISK=1 ;;
+            [toO]) val=1; break ;;
+            [toO]*) break ;;
+          esac
+          g="${g#?}"
+        done ;;
     esac
   done
-  if [ "$hit" -eq 0 ] && [ "$tgt" -eq 1 ]; then
-    _WIPEFS_SAFE=$((_WIPEFS_SAFE + 1))
-  elif [ "$all" -eq 1 ]; then
-    _HI_DISK=1
-  fi
   return 0
 }
 
@@ -500,6 +599,7 @@ _careful_push() {
       --mirror) force=1; all=1 ;;
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
+      --no-dry-run) dry=0 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
       --repo) repo=1; val=1 ;;
@@ -667,7 +767,12 @@ _careful_git() {
   done
   case "$sub" in
     push) _careful_push ;;
-    reset|checkout|switch|restore|clean|stash|worktree) [ "$_CD_SEEN" -eq 0 ] || dir=""; _careful_git_lose ;;
+    reset|checkout|switch|restore|clean|stash|worktree)
+      [ "$_HDOC" -eq 0 ] || return 0
+      # After a cd, the tree is probed only where the cd chain leads to a
+      # folder that is already there.
+      if [ "$_CD_SEEN" -eq 1 ] && { [ -z "$dir" ] || [ ! -d "$dir" ]; }; then dir=""; fi
+      _careful_git_lose ;;
     filter-branch|filter-repo|reflog|gc) _careful_git_hist ;;
   esac
   return 0
@@ -696,7 +801,7 @@ _careful_pop() {
 }
 _careful_scan() {
   local s seg t i n bt=0 track=0
-  s=$(printf '%s\n' "$CMD_MEDIUM" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&/, "\n\004\n"); gsub(/[|]/, "\n\006\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_MEDIUM"
+  s=$(printf '%s\n' "$_CMD_SCAN" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&/, "\n\004\n"); gsub(/[|]/, "\n\006\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$_CMD_SCAN"
   local IFS="$_NL"
   set -f
   local segs=( $s )
@@ -707,15 +812,16 @@ _careful_scan() {
     # With no cd, pushd or popd anywhere, the separators change no folder state.
     if [ "$track" -eq 0 ]; then case "$seg" in $'\001'|$'\002'|$'\003'|$'\004'|$'\005'|$'\006') continue ;; esac; fi
     case "$seg" in
-      $'\002') _careful_pop; continue ;;
+      $'\002') _careful_gclose; _careful_pop; continue ;;
       $'\001'|$'\003')
         if [ "$seg" = $'\003' ]; then
-          if [ "$bt" -eq 1 ]; then bt=0; _careful_pop; continue; fi
+          if [ "$bt" -eq 1 ]; then bt=0; _careful_gclose; _careful_pop; continue; fi
           bt=1
         fi
         _STK="$_STK$_SCRATCH$_PIPE$_PL_S$_CD_SEEN"
         if [ "$_CD_SEEN" -eq 1 ]; then _STK_D[${#_STK}]="$_CUR_DIR"; _STK_H[${#_STK}]="$_CH_D"; _STK_PD[${#_STK}]="$_PL_D"; fi
         _PIPE=0; _PL_S="$_SCRATCH"; _PL_D="$_CUR_DIR"; _CH_D="$_CUR_DIR"
+        _SUBD=$((_SUBD + 1)); _careful_gpush p
         continue ;;
       $'\004')
         if [ "$_PIPE" -eq 1 ]; then _PIPE=0; _SCRATCH="$_PL_S"; _CUR_DIR="$_PL_D"; fi
@@ -726,19 +832,37 @@ _careful_scan() {
         _SCRATCH=0
         [ "$_CUR_DIR" = "$_CH_D" ] || _CUR_DIR=""
         _CH_D="$_CUR_DIR"; _PL_S=0; _PL_D="$_CUR_DIR"
+        if [ "$_GL" -gt 0 ] && [ "${_G_OK[$_GL]}" -eq 1 ]; then
+          _SCRATCH="${_G_S[$_GL]}"; _CUR_DIR="${_G_D[$_GL]}"; _CH_D="$_CUR_DIR"; _PL_S="$_SCRATCH"; _PL_D="$_CUR_DIR"
+        fi
         continue ;;
       $'\006') _PIPE=1; _SCRATCH="$_PL_S"; _CUR_DIR="$_PL_D"; continue ;;
     esac
-    case "$seg" in *[![:space:]]*) _STMT_N=$((_STMT_N + 1)) ;; esac
+    if [ "$track" -eq 1 ]; then
+      t="${seg#"${seg%%[![:space:]]*}"}"; t="${t%%[[:space:]]*}"
+      case "$t" in
+        for|while|until|if|select|'{') _careful_gpush k ;;
+        done|fi|'}') _careful_gpop ;;
+      esac
+    fi
     case "$seg" in
       *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*|*wipefs*) ;;
-      *) continue ;;
+      *)
+        if [ "$_HASH" -eq 1 ]; then
+          t="$seg"
+          [ "$_QS" != n ] || { t="${t%%[[:space:]]#*}"; case "$t" in '#'*) t="" ;; esac; }
+          _careful_qs "$t"
+        fi
+        continue ;;
     esac
     n=0
     T=()
     RW=()
     for t in $seg; do
-      case "$t" in '#'*) break ;; esac
+      if [ "$_HASH" -eq 1 ]; then
+        case "$t" in '#'*) [ "$_QS" != n ] || break ;; esac
+        _careful_qs "$t"
+      fi
       _careful_strip "$t"
       RW[$n]="$t"; T[$n]="$_S"; n=$((n + 1))
     done
@@ -747,10 +871,11 @@ _careful_scan() {
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
         cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
-        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR="" ;;
-        wipefs|*/wipefs) _careful_wipefs $((i + 1)) ;;
+        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""; _careful_gcd ;;
+        wipefs|*/wipefs|'\wipefs') _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
+        git$'\007'|*/git$'\007') _HDOC=1; _careful_git $((i + 1)); _HDOC=0 ;;
         find|rsync|shred|unlink) _careful_del "${T[$i]}" $((i + 1)) ;;
       esac
       i=$((i + 1))
@@ -784,6 +909,89 @@ _careful_git_warn() {
   esac
   return 0
 }
+# A heredoc written to a file with cat > F or tee F is data until something
+# runs F. In such a body each git word becomes git plus \007, so the scan
+# still reads its pushes, history rewrites and deletes but not its discards of
+# uncommitted work (a deploy hook's GIT_WORK_TREE=... git checkout -f). The
+# body counts as run, and is read as commands, when the command runs F (as a
+# command word, or after bash, sh, source, . or exec) or, for a file under
+# hooks/, when it also runs git push. awk prints the files, \002, then the
+# marked text.
+_AWK_HEREDOC='function writes(pre, rest,   s, w, f, k, m) {
+  s = pre; sub(/.*(;|&&|[|][|]|[|]|[(])/, "", s)
+  if (rest ~ /^[^;&]*[|]([^|]|$)/) return ""
+  m = split(s " " rest, w, /[ \t]+/); k = 1
+  while (k <= m && (w[k] == "" || w[k] == "sudo" || w[k] == "env" || w[k] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) k++
+  if (w[k] == "cat") {
+    for (; k <= m; k++) if (w[k] ~ /^[0-9]*>>?/) {
+      f = w[k]; sub(/^[0-9]*>>?/, "", f)
+      if (f == "" && k < m) f = w[k + 1]
+      break
+    }
+  } else if (w[k] == "tee") {
+    for (k++; k <= m; k++) if (w[k] !~ /^-/ && w[k] !~ /^<</) { f = w[k]; break }
+  }
+  gsub(/["\047]/, "", f)
+  if (f ~ /^(&|\/dev\/)/) return ""
+  return f
+}
+function mark(s,   o, p, b, a) {
+  o = ""
+  while ((p = index(s, "git")) > 0) {
+    b = p > 1 ? substr(s, p - 1, 1) : " "
+    a = substr(s, p + 3, 1)
+    o = o substr(s, 1, p + 2)
+    if (index(" \t;&|(`\"\047/", b) > 0 && (a == " " || a == "\t" || a == "")) o = o "\007"
+    s = substr(s, p + 3)
+  }
+  return o s
+}
+BEGIN { RS = "\001" }
+{
+  n = split($0, L, "\n"); d = ""; w = 0; fl = ""; o = ""
+  for (i = 1; i <= n; i++) {
+    l = L[i]
+    if (d != "") {
+      t = l
+      if (dash) sub(/^\t+/, "", t)
+      if (t == d) d = ""
+      else if (w) l = mark(l)
+    } else {
+      p = index(l, "<<")
+      if (p > 0 && substr(l, p + 2, 1) != "<" && index(substr(l, p + 2), "<<") == 0) {
+        r = substr(l, p + 2); dash = 0
+        if (substr(r, 1, 1) == "-") { dash = 1; r = substr(r, 2) }
+        sub(/^[ \t]+/, "", r)
+        if (match(r, /^\047[^\047]*\047/) || match(r, /^"[^"]*"/)) d = substr(r, 2, RLENGTH - 2)
+        else if (match(r, /^\\?[A-Za-z0-9_.-]+/)) { d = substr(r, 1, RLENGTH); sub(/^\\/, "", d) }
+        w = 0
+        if (d != "") { f = writes(substr(l, 1, p - 1), substr(r, RLENGTH + 1)); if (f != "") { w = 1; fl = fl f "\n" } }
+      }
+    }
+    o = o (i > 1 ? "\n" : "") l
+  }
+  printf "%s\002%s", fl, o
+}'
+_RX_GIT_PUSH="(^|[^[:alnum:]_])git([[:space:]][^;&|${_NL}]*)?[[:space:]]push([[:space:]]|\$)"
+_careful_heredocs() {
+  local out fl f b re
+  case "$CMD_MEDIUM" in *$'\001'*|*$'\002'*|*$'\007'*) return 0 ;; esac
+  out=$(printf '%s' "$CMD_MEDIUM" | awk "$_AWK_HEREDOC" 2>/dev/null) || return 0
+  fl="${out%%$'\002'*}"; out="${out#*$'\002'}"
+  [ -n "$fl" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    b="${f##*/}"
+    case "$b" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
+    re="(^|[;&|(${_BT}${_NL}]|[[:space:]](then|do|else|exec|bash|sh|zsh|dash|ksh|source|[.]|env|sudo|nohup|xargs|time))[[:space:]]*[^[:space:];&|]*${b//./[.]}([[:space:];&|)]|\$)"
+    [[ $out =~ $re ]] && return 0
+    case "/$f" in */hooks/*) [[ $out =~ $_RX_GIT_PUSH ]] && return 0 ;; esac
+  done <<EOF_HEREDOC
+$fl
+EOF_HEREDOC
+  _CMD_SCAN="$out"
+  return 0
+}
 _careful_pending() {
   local q=0 d
   local IFS=' '
@@ -800,7 +1008,13 @@ _careful_pending() {
   return 0
 }
 
+case "$CMD_MEDIUM" in *'#'*) _HASH=1 ;; esac
+_RX_LN="(^|[[:space:];&|(${_BT}])ln[[:space:]]"
+[[ $CMD_MEDIUM =~ $_RX_LN ]] && _LN=1
+_CMD_SCAN="$CMD_MEDIUM"
+case "$CMD_MEDIUM" in *'<<'*) _careful_heredocs ;; esac
 _careful_find_tmpvars
+_careful_find_loopvars
 _careful_scan
 
 # --- HIGH tier: hard deny (best-effort advisory hard-stop, NOT a policy boundary) ---
@@ -823,19 +1037,37 @@ if [ -n "$_PUSH_DENY" ]; then
 fi
 # wipefs with -a in any spelling (-a, a short group holding a, --a, --al,
 # --all), however its targets arrive: on the line, from xargs or from stdin.
-# The one exemption: every statement in the command is a wipefs invocation
-# the statement scan proved, and the command holds no other wipefs word.
-_RX_WIPEFS="(^|[[:space:];&|(/'\"${_BT}])wipefs['\"]?([[:space:]]${_NS})?(-a|[[:space:]'\"]-[[:alnum:]]*a)"
+# The deny needs wipefs as a word of its own: echo wipefs-archive runs none.
+_RX_WIPEFS="(^|[[:space:];&|(/'\"${_BT}\\])wipefs['\"]*([[:space:]]${_NS})?(-a|[[:space:]'\"]-[[:alnum:]]*a)"
+_RX_WIPEFS_CMD="(^|[[:space:];&|(/'\"${_BT}\\])wipefs['\"]*([[:space:];&|)<>]|\$)"
 _WIPEFS_HI=0
 case "$CMD_MEDIUM" in
-  *wipefs*)
-    if [[ $CMD_MEDIUM =~ $_RX_WIPEFS ]]; then
-      _WIPEFS_HI=1
-      _W_REST="${CMD_MEDIUM//wipefs/}"
-      if [ "$_WIPEFS_SAFE" -gt 0 ] && [ "$_WIPEFS_SAFE" -eq "$_WIPEFS_SEEN" ] && [ "$_WIPEFS_SAFE" -eq "$_STMT_N" ] && [ $(( (${#CMD_MEDIUM} - ${#_W_REST}) / 6 )) -eq "$_WIPEFS_SEEN" ]; then _WIPEFS_HI=0; fi
-    fi ;;
+  *wipefs*) if [[ $CMD_MEDIUM =~ $_RX_WIPEFS ]] && [[ $CMD_MEDIUM =~ $_RX_WIPEFS_CMD ]]; then _WIPEFS_HI=1; fi ;;
 esac
-if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
+# A redirect into a whole disk counts with its quotes taken out (>'/dev'/sdb),
+# and through a folder that is a symlink to /dev (d/sdb with d -> /dev): the
+# folder is resolved on disk, not read as text.
+_RX_DISK_REDIR=">[|]?[[:space:]]*(/dev/|([^[:space:];&|<>()\$${_BT}]*/)?)(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)[a-z0-9]*([^[:alnum:]_.-]|\$)"
+_HI_REDIR=0
+_RX_DISK_REDIR_ANY=">[|]?[[:space:]]*[^[:space:];&|<>()]*(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)"
+case "$CMD_MEDIUM" in
+  *'>'*)
+    _rest=""
+    if [[ $CMD_MEDIUM =~ $_RX_DISK_REDIR_ANY ]]; then _rest=$(printf '%s' "$CMD_MEDIUM" | tr -d "\"'") || _rest="$CMD_MEDIUM"; fi
+    while [ "$_HI_REDIR" -eq 0 ] && [[ $_rest =~ $_RX_DISK_REDIR ]]; do
+      _m="${BASH_REMATCH[0]}"
+      _d="${BASH_REMATCH[1]}"
+      case "$_d" in
+        /dev/) _HI_REDIR=1 ;;
+        *)
+          _d="${_d%/}"
+          case "$_d" in /*) ;; '') _d="$_CAREFUL_CWD" ;; *) _d="$_CAREFUL_CWD/$_d" ;; esac
+          if [[ "$(cd -P -- "$_d" 2>/dev/null && pwd -P)" =~ ^/+dev/*$ ]]; then _HI_REDIR=1; fi ;;
+      esac
+      _rest="${_rest#*"$_m"}"
+    done ;;
+esac
+if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [ "$_HI_REDIR" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
   _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."
 fi
 
@@ -964,8 +1196,6 @@ fi
 # TRUNCATE TABLE, TRUNCATE x; / CASCADE / RESTART, or TRUNCATE x run by a SQL client.
 _RX_TRUNC="(^|[^[:alnum:]_])truncate[[:space:]]+table([^[:alnum:]_]|\$)|(^|[^[:alnum:]_])truncate[[:space:]]+[[:alnum:]_.\"${_BT}]+[[:space:]]*(;|cascade([^[:alnum:]_]|\$)|restart([^[:alnum:]_]|\$))"
 _RX_TRUNC_ANY="(^|[^[:alnum:]_])truncate[[:space:]]+[[:alnum:]_.\"${_BT}]"
-# The SQL shape alone does not count inside a search (grep, rg, git grep) or
-# text printed with echo or printf that is not piped on to another command.
 _careful_stmt_at() {
   local pre="${2%%"$1"*}" post="${2#*"$1"}" tail
   _S="${pre##*[;&|$_NL]}"
@@ -974,33 +1204,121 @@ _careful_stmt_at() {
   _D="$post"
   _TL="$tail"
 }
-_careful_text_only() {
-  local w sep="$2"
+# The SQL shape alone does not count when the statement holding it only
+# searches or prints text: grep, rg, ag, ack or git grep (not -O, which runs a
+# command on the files it finds) whose output goes on only to head, tail, wc,
+# sort, uniq, cut, tr, cat, nl, column, less, more or another search; or echo
+# or printf text that is neither piped nor redirected. Statements and pipes
+# are cut where bash cuts them, outside quotes, by one awk pass that prints
+# each pipeline part as "statement start end redirect" (byte offsets) and each
+# statement as "x statement 1" when it holds $( ), a backtick, <( ), >( ) or
+# a ( ) group, which never count as text. A redirect to /dev/null or to a file
+# descriptor is not one.
+_AWK_STMTS='BEGIN { RS = "\001" }
+{
+  s = $0; n = length(s); q = 0; st = 0; b = 0; x = 0; r = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1); d = substr(s, i + 1, 1)
+    if (q == 1) { if (c == "\047") q = 0; continue }
+    if (c == "\\") { i++; continue }
+    if (c == "`" || (c == "$" && d == "(")) { x = 1; continue }
+    if (q == 2) { if (c == "\"") q = 0; continue }
+    if (c == "\047") { q = 1; continue }
+    if (c == "\"") { q = 2; continue }
+    if (c == "(" || c == ")") { x = 1; continue }
+    if (c == ">" || c == "<") {
+      if (d == "(") { x = 1; continue }
+      if (c == "<") continue
+      j = i + 1
+      while (substr(s, j, 1) == ">" || substr(s, j, 1) == "|") j++
+      if (substr(s, j, 1) == "&") { i = j; continue }
+      while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
+      t = ""
+      while (j <= n && index(" \t\n;&|<>()", substr(s, j, 1)) == 0) { t = t substr(s, j, 1); j++ }
+      gsub(/["\047]/, "", t)
+      if (t != "/dev/null") r = 1
+      continue
+    }
+    if (c == "&" && d == ">") continue
+    if (c == "|" && d != "|") { print st, b, i - 1, r; r = 0; if (d == "&") i++; b = i; continue }
+    if (c == ";" || c == "\n" || c == "&" || c == "|") {
+      print st, b, i - 1, r; print "x", st, x; st++; x = 0; r = 0
+      if ((c == "&" && d == "&") || (c == "|" && d == "|")) i++
+      b = i; continue
+    }
+  }
+  print st, b, n, r; print "x", st, x
+}'
+_careful_lead() {
   set -f
   set -- $1
   set +f
-  while [ $# -gt 0 ]; do case "$1" in sudo|env|command|*=*|'('|'{') shift ;; *) break ;; esac; done
-  w="${1:-}"; w="${w#(}"
-  case "$w" in
-    grep|egrep|fgrep|zgrep|rg|ag|ack) return 0 ;;
-    git) [ "${2:-}" = grep ] && return 0 ;;
+  while [ $# -gt 0 ]; do case "$1" in sudo|env|command|*=*) shift ;; *) break ;; esac; done
+  _careful_strip "${1:-}"
+  _W="$_S"
+  _W2="${2:-}"
+  _WR="$*"
+}
+_careful_text_part() {
+  local k="$1" st="${_SS[$1]}" a
+  [ "${_SX[$st]:-1}" -eq 0 ] && [ "${_SR[$k]}" -eq 0 ] || return 1
+  _careful_lead "${_SQ:${_SB[$k]}:$((_SE[$k] - _SB[$k]))}"
+  case "$_W" in
     echo|printf)
-      # Printed text that goes on to a pipe or a file may be run later.
-      sep="${_D//||/}"
-      case "$_S$_TL$sep" in *'|'*|*'>'*) ;; *) return 0 ;; esac ;;
+      [ $((k + 1)) -ge "$_NS_" ] || [ "${_SS[$((k + 1))]}" != "$st" ]
+      return ;;
+    git)
+      [ "$_W2" = grep ] || return 1
+      set -f
+      for a in $_WR; do case "$a" in --open*|-[!-]*O*|-O*) set +f; return 1 ;; esac; done
+      set +f ;;
+    grep|egrep|fgrep|zgrep|rg|ag|ack) ;;
+    *) return 1 ;;
   esac
-  return 1
+  k=$((k + 1))
+  while [ "$k" -lt "$_NS_" ] && [ "${_SS[$k]}" = "$st" ]; do
+    [ "${_SR[$k]}" -eq 0 ] || return 1
+    _careful_lead "${_SQ:${_SB[$k]}:$((_SE[$k] - _SB[$k]))}"
+    case "$_W" in head|tail|wc|sort|uniq|cut|tr|cat|nl|column|less|more|grep|egrep|fgrep|rg) ;; *) return 1 ;; esac
+    k=$((k + 1))
+  done
+  return 0
+}
+# Prints 1 when some SQL shape sits outside a text-only statement, else 0.
+# Runs in a subshell with LC_ALL=C so bash and awk count the same bytes.
+_careful_trunc_scan() {
+  local rest m pre pos=0 p a1 a2 a3 a4 k _SQ="$CMD_MEDIUM" _NS_=0 out
+  local _SS=() _SB=() _SE=() _SR=() _SX=()
+  case "$_SQ" in *$'\001'*) echo 1; return 0 ;; esac
+  out=$(printf '%s' "$_SQ" | LC_ALL=C awk "$_AWK_STMTS" 2>/dev/null) || { echo 1; return 0; }
+  while read -r a1 a2 a3 a4; do
+    if [ "$a1" = x ]; then _SX[$a2]="$a3"; else _SS[$_NS_]="$a1"; _SB[$_NS_]="$a2"; _SE[$_NS_]="$a3"; _SR[$_NS_]="$a4"; _NS_=$((_NS_ + 1)); fi
+  done <<EOF_STMTS
+$out
+EOF_STMTS
+  rest="$CMD_MEDIUM_LOWER"
+  [ "${#rest}" -eq "${#_SQ}" ] || { echo 1; return 0; }
+  while [[ $rest =~ $_RX_TRUNC ]]; do
+    m="${BASH_REMATCH[0]}"
+    pre="${rest%%"$m"*}"
+    pos=$((pos + ${#pre}))
+    p="$pos"
+    case "$m" in t*) ;; *) p=$((p + 1)) ;; esac
+    k=0
+    while [ "$k" -lt "$_NS_" ] && [ "${_SE[$k]}" -le "$p" ]; do k=$((k + 1)); done
+    if [ "$k" -ge "$_NS_" ] || [ "${_SB[$k]}" -gt "$p" ] || ! _careful_text_part "$k"; then echo 1; return 0; fi
+    pos=$((pos + ${#m}))
+    rest="${rest#*"$m"}"
+  done
+  echo 0
 }
 if [ -z "$WARN" ] && case "$CMD_MEDIUM_LOWER" in *truncate*) true ;; *) false ;; esac; then
   _hit=0
   if [[ $CMD_MEDIUM_LOWER =~ $_RX_TRUNC_ANY ]] && [[ $CMD_MEDIUM_LOWER =~ $_RX_SQL_CLIENT ]]; then _hit=1; fi
-  _rest="$CMD_MEDIUM_LOWER"
-  while [ "$_hit" -eq 0 ] && [[ $_rest =~ $_RX_TRUNC ]]; do
-    _careful_stmt_at "${BASH_REMATCH[0]}" "$_rest"
-    _careful_text_only "$_S" "$_R" || _hit=1
-    _rest="$_D"
-  done
-  if [ "$_hit" -eq 1 ]; then
+  if [ "$_hit" -eq 0 ] && [[ $CMD_MEDIUM_LOWER =~ $_RX_TRUNC ]]; then
+    _hit=$(LC_ALL=C; _careful_trunc_scan) || _hit=1
+  fi
+  if [ "$_hit" = 1 ]; then
     WARN="Destructive: SQL TRUNCATE detected. This deletes all rows from a table."
     PATTERN="truncate"
   fi

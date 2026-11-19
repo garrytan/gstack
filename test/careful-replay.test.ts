@@ -211,7 +211,7 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['dry run in another statement', 'aws s3 rm s3://example-invalid/demo --recursive --dryrun; terraform destroy', 'ask', 'clean'],
   ['dry run in another statement', 'terraform destroy -var name=plan', 'ask', 'clean'],
   ['push dry run in a flag group', 'git push -nf origin main', 'allow', 'clean'],
-  ['wipefs on a file', 'wipefs -a demo.img', 'allow', 'clean'],
+  ['wipefs on a file (GST-3207: no image exemption)', 'wipefs -a demo.img', 'deny', 'clean'],
   ['wipefs on a file (control)', 'wipefs -a /dev/sdb', 'deny', 'clean'],
   ['SQL shape in a search or text', "grep 'truncate demo;' fixtures.sql", 'allow', 'clean'],
   ['SQL shape in a search or text', "echo 'truncate demo;'", 'allow', 'clean'],
@@ -235,7 +235,7 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['round 2: cd after time', 'time cd B && git reset --hard', 'ask', 'clean'],
   ['round 2: cd then a discard (control)', 'cd B && git clean -fdx', 'ask', 'clean'],
   ['round 2: an image suffix under /dev', 'wipefs -a /dev/sdb.img', 'deny', 'clean'],
-  ['round 2: wipefs option values', 'wipefs -t ext4 -a demo.img', 'allow', 'clean'],
+  ['round 2: wipefs option values (GST-3207: no image exemption)', 'wipefs -t ext4 -a demo.img', 'deny', 'clean'],
   ['wipefs in the regex again: targets from xargs', 'ls /dev/sd* | xargs wipefs -a', 'deny', 'clean'],
   ['wipefs in the regex again: targets from stdin', 'echo /dev/sdb | xargs wipefs --all', 'deny', 'clean'],
   ['wipefs in the regex again: --a', 'wipefs --a /dev/sdb', 'deny', 'clean'],
@@ -244,16 +244,88 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
   ['wipefs in the regex again: attached value in a group', 'wipefs -aftvfat /dev/sdb', 'deny', 'clean'],
   ['wipefs in the regex again: image suffix under /dev', 'wipefs --al /dev/sdb.img', 'deny', 'clean'],
   ['wipefs in the regex again: image names from xargs', 'ls *.img | xargs wipefs -a', 'deny', 'clean'],
-  ['wipefs in the regex again: attached value on an image (control)', 'wipefs -a -tvfat demo.img', 'allow', 'clean'],
-  ['wipefs in the regex again: several images (control)', 'wipefs --all disk.qcow2 build/b.iso', 'allow', 'clean'],
+  ['wipefs in the regex again: attached value on an image (GST-3207: no image exemption)', 'wipefs -a -tvfat demo.img', 'deny', 'clean'],
+  ['wipefs in the regex again: several images (GST-3207: no image exemption)', 'wipefs --all disk.qcow2 build/b.iso', 'deny', 'clean'],
   ['wipefs round 2: an image name that is a symlink', 'wipefs -a alias.img', 'deny', 'clean'],
   ['wipefs round 2: a symlink made in the same command', 'ln -sf /dev/sdb d.img; wipefs -a d.img', 'deny', 'clean'],
   ['wipefs round 2: output redirected into a disk', 'wipefs -a demo.img > /dev/mmcblk0', 'deny', 'clean'],
   ['wipefs round 2: a quoted spelling beside a proven wipe', "wipefs -a demo.img; wi''pefs -a /dev/sdb", 'deny', 'clean'],
-  ['wipefs round 2: errors sent to /dev/null (control)', 'wipefs -a demo.img 2>/dev/null', 'allow', 'clean'],
+  ['wipefs round 2: errors sent to /dev/null (GST-3207: no image exemption)', 'wipefs -a demo.img 2>/dev/null', 'deny', 'clean'],
+];
+
+// GST-3207: the open notes left by #4521 and #4525, and the extra /tmp asks GEVA-560 measured at 55aaa6c4 (gap G14).
+// Every row but the controls decided differently at 17303862; [item, command, expected, tree].
+const FOLLOWUP_CASES: Array<[string, string, Decision, Tree]> = [
+  ['wipefs: no image exemption', "wipefs -a demo.img >'/dev'/sdb", 'deny', 'clean'],
+  ['wipefs: no image exemption', 'wipefs -a demo.img" #" /dev/sda', 'deny', 'clean'],
+  ['wipefs: no image exemption', 'wipefs -a demo.img > devlink/sdb', 'deny', 'clean'],
+  ['wipefs: no image exemption (control: without -a it only lists)', 'wipefs demo.img', 'allow', 'clean'],
+  ['wipefs: a longer word is not wipefs', 'echo wipefs-archive', 'allow', 'clean'],
+  ['wipefs: a longer word is not wipefs (control)', 'echo wipefs-archive && wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['wipefs: a backslash before the name', '\\wipefs -a /dev/sdb', 'deny', 'clean'],
+  ['quoted /dev redirect', "echo hi >'/dev'/sdb", 'deny', 'clean'],
+  ['quoted /dev redirect', 'echo hi > "/dev/mmcblk0"', 'deny', 'clean'],
+  ['redirect through a folder that links to /dev', 'echo hi > devlink/sdb', 'deny', 'clean'],
+  ['redirect through a folder that links to /dev (control: not a disk name)', 'echo hi > devlink/null', 'allow', 'clean'],
+  ['redirect through a folder that links to /dev (control: a real folder)', 'echo hi > build/sdb', 'allow', 'clean'],
+  ['quoted #', 'rm -rf "a #" ~', 'deny', 'clean'],
+  ['quoted # (control: a real comment)', "rm -rf 'x' # ~", 'ask', 'clean'],
+  ['quoted # (control: a real comment)', 'ls # rm -rf ~', 'allow', 'clean'],
+  ['push dry run undone later', 'git push -fn --no-dry-run origin main', 'deny', 'clean'],
+  ['push dry run undone later', 'git push --force -n --no-dry-run origin main', 'deny', 'clean'],
+  ['push dry run undone later (control: the last flag wins)', 'git push --no-dry-run -fn origin main', 'allow', 'clean'],
+  ['SQL text piped to a shell', "grep 'truncate users;' a.sql | sh", 'ask', 'clean'],
+  ['SQL text into process substitution', "grep 'truncate users;' a.sql > >(sh)", 'ask', 'clean'],
+  ['SQL text into process substitution', "grep -c ok <(dbtool exec 'TRUNCATE TABLE users')", 'ask', 'clean'],
+  ['SQL text with git grep -O', "git grep -O 'truncate users;'", 'ask', 'clean'],
+  ['SQL text with git grep -O', "git grep --open-files-in-pager=sh 'truncate users;'", 'ask', 'clean'],
+  ['SQL text inside $( )', 'echo "$(dbtool exec \'TRUNCATE TABLE users\')"', 'ask', 'clean'],
+  ['SQL text with a pipe in a later statement', "echo 'truncate demo;'; ls | wc -l", 'allow', 'clean'],
+  ['SQL text with a quoted ;', "grep 'a; truncate demo;' fixtures.sql", 'allow', 'clean'],
+  ['SQL text (control: search output to a pager)', "grep 'truncate demo;' fixtures.sql | head", 'allow', 'clean'],
+  ['SQL text (control: not text)', 'mytool truncate users; ls', 'ask', 'clean'],
+  ['LC_ALL=C cd (closed by #4525; pinned)', 'LC_ALL=C cd /tmp && rm -rf relative-demo', 'allow', 'clean'],
+  ['scratch after a second cd', 'cd /tmp/x && cd sub && rm -rf relative-demo', 'allow', 'clean'],
+  ['scratch after a second cd', 'T=$(mktemp -d) && cd "$T" && cd sub && rm -rf relative-demo', 'allow', 'clean'],
+  ['scratch after a second cd (control: ..)', 'cd /tmp/x && cd ../.. && rm -rf relative-demo', 'ask', 'clean'],
+  ['scratch after a second cd (control: a link made first)', 'cd /tmp/x && ln -s ~ s && cd s && rm -rf relative-demo', 'ask', 'clean'],
+  ['scratch through a variable set to /tmp', 'W=/tmp/w && cd "$W" && rm -rf relative-demo', 'allow', 'clean'],
+  ['scratch inside a subshell', 'cd /tmp/x && (make; rm -rf relative-demo)', 'allow', 'clean'],
+  ['scratch inside a subshell (control: cd inside)', 'cd /tmp/x && (cd ~; rm -rf relative-demo)', 'ask', 'clean'],
+  ['scratch inside a subshell (control: reached after ;)', 'cd /tmp/x; (rm -rf relative-demo)', 'ask', 'clean'],
+  ['scratch inside a loop', 'cd /tmp/x && for f in a b; do rm -rf relative-demo; done', 'allow', 'clean'],
+  ['scratch inside a loop', 'cd /tmp/x && if [ -d o ]; then rm -rf relative-demo; fi', 'allow', 'clean'],
+  ['scratch inside a loop (control: cd in the body)', 'cd /tmp/x && for d in a b; do cd $d; rm -rf relative-demo; done', 'ask', 'clean'],
+  ['scratch inside a loop (control: cd in a group)', 'cd /tmp/x && { cd ~; rm -rf relative-demo; }', 'ask', 'clean'],
+  ['scratch inside a loop (control: after the loop)', 'cd /tmp/x && for f in a; do :; done; rm -rf relative-demo', 'ask', 'clean'],
+  ['loop variable target', 'cd /tmp/x && for f in a b; do rm -rf "$f"; done', 'allow', 'clean'],
+  ['loop variable target', 'for f in /tmp/a /tmp/b; do rm -rf $f; done', 'allow', 'clean'],
+  ['loop variable target (control: not in scratch)', 'for f in a b; do rm -rf $f; done', 'ask', 'clean'],
+  ['loop variable target (control: a path after it)', 'for f in a b; do rm -rf $f/; done', 'ask', 'clean'],
+  ['loop variable target (control: a home word)', 'for f in ~ b; do rm -rf $f; done', 'ask', 'clean'],
+  ['loop variable target (control: set elsewhere)', 'f=~; for f in a; do rm -rf $f; done', 'ask', 'clean'],
+  ['reset after a cd to a known folder', 'D=. && cd "$D" && git reset -q --hard', 'allow', 'clean'],
+  ['reset after a cd to a known folder', 'cd . && git reset -q --hard', 'allow', 'clean'],
+  ['reset after a cd to a known folder (control: changes there)', 'D=. && cd "$D" && git reset -q --hard', 'ask', 'dirty'],
+  ['reset after a cd to a known folder (control: unset variable)', 'cd $REPO && git reset -q --hard', 'ask', 'clean'],
+  ['reset after a cd to a known folder (control: folder not there yet)', 'cd missing-demo && git reset -q --hard', 'ask', 'clean'],  ['heredoc written to a hook file', "cat > hooks/post-receive <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF", 'allow', 'clean'],
+  ['heredoc written to a hook file', "cat > hooks/post-receive <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF\nchmod +x hooks/post-receive", 'allow', 'clean'],
+  ['heredoc written to a hook file', "tee deploy.sh <<'EOF' >/dev/null\ngit --work-tree=/srv checkout -f main\nEOF", 'allow', 'clean'],
+  ['heredoc written to a hook file (control: the file is run)', "cat > hooks/post-receive <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF\nbash hooks/post-receive", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: the file is run)', "cat > hooks/post-receive <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF\nchmod +x hooks/post-receive && ./hooks/post-receive", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: a push runs the hook)', "cat > /git/p/hooks/post-receive <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF\ncd /tmp/w && git push origin main", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: piped to a shell)', "cat <<'EOF' | sh\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: run by bash)', "bash <<'EOF'\nGIT_WORK_TREE=/var/www git checkout -f main\nEOF", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: deletes still count)', "cat > hooks/x <<'EOF'\nrm -rf /var/www/old\nEOF", 'ask', 'clean'],
+  ['heredoc written to a hook file (control: force-pushes still count)', "cat > hooks/x <<'EOF'\ngit push -f origin main\nEOF", 'deny', 'clean'],
+  ['quoted /tmp path with a space (G16)', 'rm -rf "/tmp/scratch demo"', 'allow', 'clean'],
+  ['quoted /tmp path with a space (control: a second target)', 'rm -rf "/tmp/a b" ~/x', 'ask', 'clean'],
+  ['quoted /tmp path with a space (control: ..)', "rm -rf '/tmp/x y/../../etc'", 'ask', 'clean'],
+  ['quoted /tmp path with a space (control: root word)', 'rm -rf "/ "', 'deny', 'clean'],
 ];
 
 let base = '';
+let scratch = '';
 const trees = {} as Record<Tree, string>;
 
 function makeTree(kind: Tree): string {
@@ -273,6 +345,7 @@ function makeTree(kind: Tree): string {
     fs.writeFileSync(path.join(dir, image), '');
   }
   fs.symlinkSync('/dev/null', path.join(dir, 'alias.img'));
+  fs.symlinkSync('/dev', path.join(dir, 'devlink'));
   git(['add', '.']);
   git(['commit', '-q', '-m', 'init']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
@@ -292,8 +365,15 @@ beforeAll(() => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-careful-replay-'));
   fs.mkdirSync(path.join(base, 'home'));
   for (const kind of ['clean', 'dirty', 'main', 'norepo'] as Tree[]) trees[kind] = makeTree(kind);
+  // A real scratch folder under /tmp holding a link out of it, for the second-cd symlink control.
+  scratch = fs.mkdtempSync('/tmp/gstack-careful-scratch-');
+  fs.mkdirSync(path.join(scratch, 'sub'));
+  fs.symlinkSync(path.join(base, 'home'), path.join(scratch, 'out'));
 });
-afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
+afterAll(() => {
+  fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(scratch, { recursive: true, force: true });
+});
 
 function decide(command: string, tree: Tree, tool = 'Bash'): { decision: Decision; reason: string } {
   const cwd = trees[tree];
@@ -340,6 +420,16 @@ describe('each new rule, with negative controls', () => {
 
   test.each(PARSER_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(FOLLOWUP_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test('a second cd from scratch counts only when no part of it below scratch is a symlink', () => {
+    expect(decide('cd ' + scratch + ' && cd sub && rm -rf relative-demo', 'clean').decision).toBe('allow');
+    expect(decide('cd ' + scratch + ' && cd out && rm -rf relative-demo', 'clean').decision).toBe('ask');
+    expect(decide('cd ' + scratch + ' && cd out/x && rm -rf relative-demo', 'clean').decision).toBe('ask');
   });
 
   test('a 200 KB command is still checked well inside the guard hook\'s 8 s timeout', () => {
