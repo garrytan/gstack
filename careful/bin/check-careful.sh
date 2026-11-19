@@ -799,9 +799,14 @@ _RX_DISK_REDIR_ANY=">[|]?[[:space:]]*[^[:space:];&|<>()]*(sd|nvme|disk|rdisk|hd|
 case "$CMD_MEDIUM" in
   *'>'*)
     _rest=""
-    if [[ $CMD_MEDIUM =~ $_RX_DISK_REDIR_ANY ]]; then _rest=$(printf '%s' "$CMD_MEDIUM" | tr -d "\"'") || _rest="$CMD_MEDIUM"; fi
-    while [ "$_HI_REDIR" -eq 0 ] && [[ $_rest =~ $_RX_DISK_REDIR ]]; do
-      _m="${BASH_REMATCH[0]}"
+    # grep lists each distinct redirect once, so repeated text costs one probe;
+    # past 64 distinct ones the scan stops, which only skips this extra deny.
+    if [[ $CMD_MEDIUM =~ $_RX_DISK_REDIR_ANY ]]; then
+      _rest=$(printf '%s\n' "$CMD_MEDIUM" | tr -d "\"'" | LC_ALL=C grep -oE "$_RX_DISK_REDIR" | LC_ALL=C sort -u | head -n 64) || _rest=""
+    fi
+    while IFS= read -r _m; do
+      [ "$_HI_REDIR" -eq 0 ] || break
+      [[ $_m =~ $_RX_DISK_REDIR ]] || continue
       _d="${BASH_REMATCH[1]}"
       case "$_d" in
         /dev/) _HI_REDIR=1 ;;
@@ -810,8 +815,10 @@ case "$CMD_MEDIUM" in
           case "$_d" in /*) ;; '') _d="$_CAREFUL_CWD" ;; *) _d="$_CAREFUL_CWD/$_d" ;; esac
           if [[ "$(cd -P -- "$_d" 2>/dev/null && pwd -P)" =~ ^/+dev/*$ ]]; then _HI_REDIR=1; fi ;;
       esac
-      _rest="${_rest#*"$_m"}"
-    done ;;
+    done <<EOF_REDIR
+$_rest
+EOF_REDIR
+    ;;
 esac
 if [ "$_HI_DISK" -eq 1 ] || [ "$_WIPEFS_HI" -eq 1 ] || [ "$_HI_REDIR" -eq 1 ] || [[ $CMD_MEDIUM =~ $_RX_DISK ]]; then
   _careful_deny high_disk "Writing to, formatting or wiping a whole disk is blocked by gstack's destructive-command check. If the user truly means it, they run it themselves."

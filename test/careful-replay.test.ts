@@ -373,6 +373,13 @@ describe('each new rule, with negative controls', () => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
+  test('a long command full of redirect-like words is still checked well inside the guard hook\'s 8 s timeout', () => {
+    const body = Array.from({ length: 12000 }, (_, i) => `a > d${i}/sdb`).join(' ');
+    const started = Date.now();
+    expect(decide(`echo "${body}"; rm -rf src`, 'clean').decision).toBe('ask');
+    expect(Date.now() - started).toBeLessThan(6000);
+  });
+
   test('a 200 KB command is still checked well inside the guard hook\'s 8 s timeout', () => {
     const body = Array.from({ length: 4000 }, (_, i) => `const x${i} = f(a, b) && (c || d); // ${i}`).join('\n');
     const started = Date.now();
