@@ -177,6 +177,8 @@ const RULE_CASES: Array<[string, Decision, Tree]> = [
   ['rm / -rf --no-preserve-root', 'deny', 'clean'],
   ['sudo rm ~ -r', 'deny', 'clean'],
   ['D=/tmp/x; D=src; rm -rf "$D"', 'ask', 'clean'],
+  ['D=/srv/x; D=/srv/y; rm -f $D', 'ask', 'clean'],
+  ['D=/srv/a; D=/srv/b; find $D -delete', 'ask', 'clean'],
   ['/usr/local/bin/rm -rf src', 'ask', 'clean'],
   ['/usr/bin/psql -c "DROP TABLE users"', 'ask', 'clean'],
   ['node -e "client.query(\'DROP TABLE users\')"', 'ask', 'clean'],

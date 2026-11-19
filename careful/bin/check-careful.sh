@@ -194,7 +194,7 @@ _careful_resolve() {
   if [[ $CMD_MEDIUM =~ $re ]]; then
     _careful_strip "${BASH_REMATCH[2]}"
     local again="(^|[[:space:];&|(])${name}=.*[[:space:];&|(]${name}="
-    [[ $CMD_MEDIUM =~ $again ]] && return 0
+    if [[ $CMD_MEDIUM =~ $again ]]; then _RISK=unguarded; return 0; fi
     _R="$_S$rest"
     return 0
   fi
