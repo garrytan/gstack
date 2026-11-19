@@ -273,7 +273,8 @@ describe('installed skills beside gstack (GST-3123)', () => {
     const report = 'Saving a draft with an empty title raises KeyError: title. It should save with the title "Untitled".';
     expect(routePrompt(report, [...routed, other('prove-it', ['reproduce the bug in a test'])])).toMatchObject({ bugReport: true, route: { skill: 'prove-it', trigger: 'reproduce the bug in a test' } });
     expect(routePrompt(report, routed).route).toBeNull();
-    expect(routePrompt('the tests are failing, run the checks', [...routed, other('prove-it', ['fix this bug'])]).routes).toEqual([expect.objectContaining({ skill: 'prove-it' })]);
+    const failing = routePrompt('the tests are failing, run the checks', [...routed, other('prove-it', ['fix this bug'])]);
+    expect(failing.route ? failing.routes.map(r => r.skill) : []).toEqual(['prove-it']);
     expect(routePrompt('run the checks', [...routed, other('prove-it', ['fix this bug'])]).route?.skill).toBe('verify');
     expect(routePrompt('the tests are failing, run the checks', [...routed, other('prove-it', ['prove the fix'])]).route?.skill).toBe('verify');
     const dir = skillsDir(['verify'], { 'prove-it': skill('prove-it', ['fix this bug']) });
