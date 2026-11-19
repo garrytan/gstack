@@ -18,6 +18,7 @@ Nothing else was edited.
 | `app-server-injected-early-exit.jsonl` | `codex app-server`, the skill sent as a `skill` input | Codex injects the SKILL.md as a `<skill>` user message; the run ends "Nothing to review" |
 | `exec-mention-not-loaded.jsonl` | `codex exec '$gstack-review ...'`, with a probe Stop hook that blocked once | `codex exec` passes a typed `$gstack-review` as plain text, so nothing loads |
 | `exec-subagent.jsonl` | the subagent rollout from the failed-spawn run | `session_meta.source` names the parent thread |
+| `exec-sol-spawn-met.jsonl` | `codex exec -m gpt-6.1-sol` against a local stub Responses endpoint (no key, GEVA-562), skill injected, gstack's contract Stop hook on | Codex serves `spawn_agent` in its `collaboration` namespace with a required `task_name`, and the started agent's result is `{"task_name":"/root/adversarial"}` with no `agent_id`; before this reader knew that shape the hook blocked a met review once |
 
 `stop-payloads.json` holds the three Stop payloads Codex sent gstack's hook in
 the first two runs, and what the hook printed.

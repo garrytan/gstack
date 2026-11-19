@@ -149,6 +149,50 @@ describe('dispatch: a spawn_agent call that started an agent', () => {
     expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
   });
 
+  test("Sol's spawn_agent in Codex's collaboration namespace answers with task_name, not agent_id: that started agent is a dispatch", () => {
+    const sol = lines('exec-sol-spawn-met.jsonl');
+    const call = sol.map(l => JSON.parse(l).payload).find(p => p?.type === 'function_call' && p.name === 'spawn_agent');
+    expect(call.namespace).toBe('collaboration');
+    expect(JSON.parse(call.arguments).task_name).toBe('adversarial');
+    const atFirstStop = parseTranscript(sol.slice(0, sol.findIndex(l => l.includes('<hook_prompt'))).join('\n'));
+    const dispatch = atFirstStop.events.find(e => e.kind === 'tool_use' && e.name === 'Agent') as { input: Record<string, unknown> } | undefined;
+    expect(String(dispatch?.input.prompt)).toContain('Think like an attacker and a chaos engineer');
+    expect(status(atFirstStop, realReview(atFirstStop))).toEqual({ 'adversarial-pass': 'met', 'review-report': 'met' });
+  });
+
+  test('negative control: a collaboration spawn_agent whose output names no task_name is not a dispatch', () => {
+    const sol = lines('exec-sol-spawn-met.jsonl');
+    const callId = sol.map(l => JSON.parse(l).payload).find(p => p?.type === 'function_call' && p.name === 'spawn_agent').call_id;
+    for (const output of ['{"task_name":""}', 'spawn_agent failed: task_name is required', '{"nickname":"Ada"}']) {
+      const edited = sol.map(l => {
+        const rec = JSON.parse(l);
+        if (rec.payload?.type !== 'function_call_output' || rec.payload.call_id !== callId) return l;
+        return JSON.stringify({ ...rec, payload: { ...rec.payload, output } });
+      });
+      const t = parseTranscript(edited.join('\n'));
+      expect(t.events.some(e => e.kind === 'tool_use' && e.name === 'Agent')).toBe(false);
+      expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+    }
+  });
+
+  test('negative control: a same-named spawn_agent from another tool namespace is not Codex\'s, whatever its result says', () => {
+    const sol = lines('exec-sol-spawn-met.jsonl');
+    const retag = (namespace: string, output?: string) => parseTranscript(sol.map(l => {
+      const rec = JSON.parse(l);
+      if (rec.payload?.type === 'function_call' && rec.payload.name === 'spawn_agent') return JSON.stringify({ ...rec, payload: { ...rec.payload, namespace } });
+      if (output !== undefined && rec.payload?.type === 'function_call_output' && rec.payload.call_id === 'call_spawn_1') return JSON.stringify({ ...rec, payload: { ...rec.payload, output } });
+      return l;
+    }).join('\n'));
+    for (const namespace of ['mcp__agents__', 'my_extension']) {
+      const t = retag(namespace);
+      expect(t.events.some(e => e.kind === 'tool_use' && e.name === 'Agent')).toBe(false);
+      expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+    }
+    expect(status(retag('multi_agent_v1'), realReview(retag('multi_agent_v1')))['adversarial-pass']).toBe('missing');
+    const v1 = retag('multi_agent_v1', '{"agent_id":"019a-v1","nickname":null}');
+    expect(status(v1, realReview(v1))['adversarial-pass']).toBe('met');
+  });
+
   test('call arguments that are not a JSON object throw UnknownShape, so the hook fails open', () => {
     const meta = lines('exec-read-met.jsonl')[0];
     const user = JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'review this' }] } });

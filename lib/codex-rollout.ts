@@ -15,9 +15,14 @@
  *     the output says that read failed. Reading the same skill again with no
  *     user prompt or other skill load in between (a long SKILL.md read in
  *     chunks) continues the run, so it is not a new load.
- *   - spawn_agent call that started an agent: an Agent dispatch whose prompt
- *     is its message. One whose output names no agent_id (it failed, or it
- *     has no output) stays a plain spawn_agent call, so it is not a dispatch.
+ *   - Codex's own spawn_agent call that started an agent: an Agent dispatch
+ *     whose prompt is its message. Codex 0.170 answers a started agent with
+ *     {"agent_id": ...} from its multi_agent_v1 namespace, or {"task_name":
+ *     "/root/<name>"} from its collaboration namespace (multi_agents_v2, as for
+ *     gpt-6.1-sol); a call with no namespace may carry either. One whose output
+ *     names no id for its namespace (it failed, or it has no output), or a
+ *     same-named tool in any other namespace, stays a plain spawn_agent call,
+ *     so it is not a dispatch.
  *   - any other call: a tool_use under its own name. Call outputs are
  *     tool_results; a shell output that exited non-zero is an error.
  * Records of other types (event_msg, turn_context, reasoning and the rest)
@@ -84,11 +89,15 @@ const exitedNonZero = (output: string | undefined) => {
   return !!code && code[1] !== '0';
 };
 
-const startedAgent = (output: string | undefined) => {
+const startedAgent = (output: string | undefined, namespace: unknown) => {
   if (output === undefined) return false;
   try {
     const parsed: unknown = JSON.parse(output);
-    return isObject(parsed) && typeof parsed.agent_id === 'string' && parsed.agent_id !== '';
+    if (!isObject(parsed)) return false;
+    const ids = namespace === 'multi_agent_v1' ? [parsed.agent_id]
+      : namespace === 'collaboration' ? [parsed.task_name]
+      : namespace === undefined ? [parsed.agent_id, parsed.task_name] : [];
+    return ids.some(id => typeof id === 'string' && id !== '');
   } catch {
     return false;
   }
@@ -157,7 +166,7 @@ export function parseCodexRollout(text: string): Transcript {
           events.push({ kind: 'load', line, skill, via: 'read' });
           lastLoad = skill;
         }
-      } else if (p.name === 'spawn_agent' && startedAgent(outputs.get(id))) {
+      } else if (p.name === 'spawn_agent' && startedAgent(outputs.get(id), p.namespace ?? undefined)) {
         const prompt = [input.message, ...(Array.isArray(input.items) ? input.items.map((i: unknown) => (isObject(i) ? i.text : undefined)) : [])]
           .filter(v => typeof v === 'string').join('\n');
         events.push({ kind: 'tool_use', line, id, name: 'Agent', input: { prompt, ...(typeof input.agent_type === 'string' ? { subagent_type: input.agent_type } : {}) } });
