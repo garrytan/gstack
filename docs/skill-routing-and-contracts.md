@@ -40,8 +40,10 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
 
 - A trigger scores 1 when its whole phrase appears in the prompt. Otherwise it scores the share of its content words (common words dropped, light stemming, so "failing" matches "fails") that the prompt contains. A trigger with one content word counts only on its whole phrase, unless that word has five or more letters and is not a question word.
 - A bug report is full of everyday words (find, test, run, site) and defect words, so they never add up to a request by themselves. A trigger only partly present needs one of its five-letter-or-longer words, other than the defect word, among the words it shares: "pip cannot find the package and the install fails" no longer matches "find bugs on site". A trigger made only of shorter everyday words, with no defect word, needs them within 8 words of each other: a report that mentions a "call site" and, much later, "regression tests" no longer matches "test the site" (GST-3123).
-- Only /review, /qa and /verify route (/investigate did too until it was cut, GST-1717). In the d7 check (PR #3912), scoring every installed skill's triggers sent 17 of 32 non-fit Terminal-Bench prompts to some skill at 0.66; routing only the four routed skills of that time sent 4. The other skills wait for their own trigger review.
-- The skill with the best score routes when it reaches the threshold, 0.66: both words of a two-word trigger, or two of three.
+- Of gstack's own skills, only /review, /qa and /verify route (/investigate did too until it was cut, GST-1717). In the d7 check (PR #3912), scoring every gstack skill's triggers sent 17 of 32 non-fit Terminal-Bench prompts to some skill at 0.66; routing only the four routed skills of that time sent 4. The other gstack skills wait for their own trigger review.
+- Any other installed skill that lists `triggers:` in its own SKILL.md routes too (GST-3123). No host but gstack reads that field, so writing it is how a skill asks gstack to route it. A skill is gstack's own when its directory holds `.gstack-owned`, its SKILL.md links into gstack's checkout, or its name is one gstack generates.
+- An installed skill's triggers are used only when its name is letters, digits, `_`, `:` and `-`, it lists at most 12 triggers of at most 200 characters, and every trigger is letters, digits, spaces and `. , ' ? ! / -`. Otherwise the whole skill is skipped and named in `gstack-skill-route --explain` and the routing log, so a SKILL.md cannot write instructions into the hook's line.
+- The skills that reach the threshold, 0.66 (both words of a two-word trigger, or two of three), are ranked by score; at the same score gstack's own skill comes first, then the trigger with more matched words, then the name. The line names the top skill, or the top two: "this request fits /verify or /prove-it. Run the one that fits better ...".
 - Words a bug report uses for the defect (error, exception, traceback, crash, fails, failure, broken, regression, incorrect, wrong, defect, and exception names such as `ValueError`) score as "bug", so "parse_one raises ValueError, please fix" matches a "fix this bug" trigger. Paths and identifiers stay whole (`site-packages`, `src/review.ts`, `max_retries`), so a traceback's paths never match a trigger's words.
 - When a trigger ties with another of the same skill on score and words, a whole-phrase match wins.
 - A prompt longer than 5,000 characters is scored on its first 4,000 and last 1,000 characters, where the request usually sits; a log pasted between them is not scored, so its words cannot match everything. Until GST-3110 such prompts (over 8,000 characters) were never routed.
@@ -57,8 +59,8 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
     threshold: 0.66
     skills: 63 scanned in /home/you/.claude/skills
     candidates:
-      1.00  /verify  "verify my change" (2 words)
-      0.50  /review  "check my diff" (1 words)
+      1.00  /verify  "verify my change" (2 words, gstack)
+      0.50  /review  "review my changes" (1 words, gstack)
     route: /verify
     hint: gstack skill routing (UserPromptSubmit hook; ...
 
@@ -66,7 +68,7 @@ Add `--json` for a machine-readable answer, or `--threshold <n>` to see another 
 
 ### Routing log
 
-Every decision is one line in `$GSTACK_STATE_ROOT/hooks/skill-route.log`: the session, the event (`routed`, `no-route` with its reason, or an error) and, for errors, `failures=<n>` for that session. The log never holds prompt text. On any error the hook prints nothing and exits 0; it never blocks a prompt.
+Every decision is one line in `$GSTACK_STATE_ROOT/hooks/skill-route.log`: the session, the event (`routed`, `no-route` with its reason, or an error), for a route the skill, its score and its `source` (`gstack`, or the installed SKILL.md's path) plus `also=` for a second skill, and, for errors, `failures=<n>` for that session. The log never holds prompt text. On any error the hook prints nothing and exits 0; it never blocks a prompt.
 
 <a id="destructive-command-check"></a>
 ## Destructive-command check

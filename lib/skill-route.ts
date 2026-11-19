@@ -114,9 +114,43 @@ export function frontmatterName(frontmatter: string, fallback: string): string {
   return m ? m[1].trim().replace(/^["']|["']$/g, '') : fallback;
 }
 
-export interface InstalledSkill { name: string; file: string; frontmatter: string; triggers: string[] }
+const MAX_TRIGGERS = 12;
+/** Trigger text the hook may quote in its line: letters, digits, spaces and . , ' ? ! / - only, so a SKILL.md cannot write instructions into it. */
+const TRIGGER_TEXT = /^[A-Za-z0-9 ,.'?!\/-]+$/;
+const SKILL_NAME = /^[A-Za-z0-9_][A-Za-z0-9_:-]{0,63}$/;
+/** At most this many skills are named in one hook line. */
+export const MAX_ROUTES = 2;
+const GSTACK_ROOT = path.resolve(import.meta.dir, '..');
 
-/** Every installed skill with frontmatter, sorted by directory; `problems` names skills whose triggers the repo's reader cannot use. */
+/** gstack is true when the skill's directory holds .gstack-owned or its SKILL.md resolves into gstack's checkout. */
+export interface InstalledSkill { name: string; file: string; frontmatter: string; triggers: string[]; gstack?: boolean }
+
+let templateNames: Set<string> | null = null;
+/** The skills gstack's checkout generates (a directory with SKILL.md.tmpl, and the root gstack skill); empty in a copied hook tree. */
+function gstackSkillNames(): Set<string> {
+  if (templateNames) return templateNames;
+  templateNames = new Set();
+  try {
+    for (const d of fs.readdirSync(GSTACK_ROOT)) if (fs.existsSync(path.join(GSTACK_ROOT, d, 'SKILL.md.tmpl'))) templateNames.add(d);
+    if (fs.existsSync(path.join(GSTACK_ROOT, 'SKILL.md.tmpl'))) templateNames.add('gstack');
+  } catch { /* no checkout beside this file */ }
+  return templateNames;
+}
+const baseName = (name: string) => name.toLowerCase().replace(/^gstack[-:]/, '');
+/** One of gstack's own skills: marked at install, or named like a skill gstack's checkout generates. */
+export const isGstackSkill = (s: InstalledSkill) => s.gstack === true || gstackSkillNames().has(baseName(s.name));
+
+function ownedByGstack(dir: string, file: string): boolean {
+  if (fs.existsSync(path.join(dir, '.gstack-owned'))) return true;
+  try {
+    const rel = path.relative(fs.realpathSync(GSTACK_ROOT), fs.realpathSync(file));
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+/** Every installed skill with frontmatter, sorted by directory; `problems` names skills whose triggers the hook will not use. */
 export function scanInstalledSkills(dir: string): { skills: InstalledSkill[]; problems: string[] } {
   const skills: InstalledSkill[] = [];
   const problems: string[] = [];
@@ -139,12 +173,16 @@ export function scanInstalledSkills(dir: string): { skills: InstalledSkill[]; pr
     let triggers: string[] = [];
     if (/^triggers:/m.test(frontmatter)) {
       triggers = frontmatterList(`---\n${frontmatter}\n---`, 'triggers');
-      if (!triggers.length || triggers.some(t => !t || t.length > MAX_TRIGGER_CHARS)) {
-        problems.push(`${name}: malformed triggers`);
+      const problem = !SKILL_NAME.test(name) ? 'a name outside letters, digits, _ : and -'
+        : !triggers.length || triggers.some(t => !t || t.length > MAX_TRIGGER_CHARS) ? 'malformed triggers'
+        : triggers.length > MAX_TRIGGERS ? `more than ${MAX_TRIGGERS} triggers`
+        : triggers.some(t => !TRIGGER_TEXT.test(t)) ? "trigger text outside letters, digits, spaces and . , ' ? ! / -" : '';
+      if (problem) {
+        problems.push(`${SKILL_NAME.test(name) ? name : entry.slice(0, 64)}: ${problem}`);
         triggers = [];
       }
     }
-    skills.push({ name, file, frontmatter, triggers });
+    skills.push({ name, file, frontmatter, triggers, gstack: ownedByGstack(path.join(dir, entry), file) });
   }
   return { skills, problems };
 }
@@ -190,7 +228,7 @@ export function promptWindow(prompt: string): string {
   return `${prompt.slice(0, PROMPT_HEAD_CHARS)}\n${prompt.slice(-PROMPT_TAIL_CHARS)}`;
 }
 
-export interface RouteCandidate { skill: string; score: number; matched: number; trigger: string; file: string }
+export interface RouteCandidate { skill: string; score: number; matched: number; trigger: string; file: string; gstack: boolean }
 
 /** A lone content word specific enough to route on by itself: five or more letters, not a question word. */
 const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
@@ -239,33 +277,35 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
       const score = phrase ? 1 : weakSingle || thinPartial || scattered ? 0 : Math.round((matched / content.length) * 100) / 100;
       const tie = !!best && score === best.score && (matched > best.matched || (matched === best.matched && phrase && !bestPhrase));
       if (score > 0 && (!best || score > best.score || tie)) {
-        best = { skill: skill.name, score, matched, trigger, file: skill.file };
+        best = { skill: skill.name, score, matched, trigger, file: skill.file, gstack: isGstackSkill(skill) };
         bestPhrase = phrase;
       }
     }
     if (best) out.push(best);
   }
-  return out.sort((a, b) => b.score - a.score || b.matched - a.matched || a.skill.localeCompare(b.skill));
+  return out.sort((a, b) => b.score - a.score || Number(b.gstack) - Number(a.gstack) || b.matched - a.matched || a.skill.localeCompare(b.skill));
 }
 
 /**
- * The skills the hook may route to: plan-v2 decision 4's discovery targets. Run D's prompts showed routing
- * every installed skill's triggers false-routes most non-fit prompts (docs/skill-routing-and-contracts.md).
+ * gstack's own skills the hook may route to: plan-v2 decision 4's discovery targets. Run D's prompts showed routing
+ * every gstack skill's triggers false-routes most non-fit prompts (docs/skill-routing-and-contracts.md). Any other
+ * installed skill that lists triggers routes too (GST-3123): no host but gstack reads `triggers:`, so a skill
+ * that writes them is asking gstack to route it.
  */
 export const ROUTED_SKILLS = ['review', 'qa', 'verify'];
-const isRouted = (name: string) => ROUTED_SKILLS.includes(name.toLowerCase().replace(/^gstack[-:]/, ''));
+const isRouted = (s: InstalledSkill) => !isGstackSkill(s) || ROUTED_SKILLS.includes(baseName(s.name));
 
 export type RouteDecision =
-  | { route: RouteCandidate; candidates: RouteCandidate[] }
+  | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[] }
   | { route: null; reason: 'slash-command' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD): RouteDecision {
   const trimmed = prompt.trim();
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
-  const candidates = scorePrompt(prompt, skills.filter(s => isRouted(s.name)));
-  const top = candidates[0];
-  return top && top.score >= threshold ? { route: top, candidates } : { route: null, reason: 'below-threshold', candidates };
+  const candidates = scorePrompt(prompt, skills.filter(isRouted));
+  const routes = candidates.filter(c => c.score >= threshold).slice(0, MAX_ROUTES);
+  return routes.length ? { route: routes[0], routes, candidates } : { route: null, reason: 'below-threshold', candidates };
 }
 
 export type HintVariant = 'name' | 'step' | 'contract';
@@ -278,13 +318,15 @@ export function hintVariant(env: NodeJS.ProcessEnv = process.env): HintVariant {
   return (HINT_VARIANTS as string[]).includes(v) ? v as HintVariant : DEFAULT_HINT_VARIANT;
 }
 
-/** The one additionalContext line: its source, its off switch, the skill, and the ask to say gstack routed it. */
-export function hintLine(route: RouteCandidate, extra = ''): string {
+/** The one additionalContext line: its source, its off switch, the skill (or two), and the ask to say gstack routed it. */
+export function hintLine(route: RouteCandidate, extra = '', also?: RouteCandidate): string {
   const s = `/${route.skill}`;
-  const trigger = route.trigger.replace(/["\s]+/g, ' ').trim();
-  return `gstack skill routing (UserPromptSubmit hook; matched the installed ${s} trigger "${trigger}"; off: gstack-config set skill_routing off): ` +
-    `this request fits ${s}. Run ${s} with the Skill tool before you start, and tell the user in one sentence that gstack routed this to ${s}.` +
-    (extra.trim() ? ` ${extra.replace(/\s+/g, ' ').trim()}` : '');
+  const matched = (r: RouteCandidate) => `the installed /${r.skill} trigger "${r.trigger.replace(/["\s]+/g, ' ').trim()}"`;
+  const head = `gstack skill routing (UserPromptSubmit hook; matched ${matched(route)}${also ? ` and ${matched(also)}` : ''}; off: gstack-config set skill_routing off): `;
+  const ask = also
+    ? `this request fits ${s} or /${also.skill}. Run the one that fits better with the Skill tool before you start (${s} if both fit), and tell the user in one sentence which skill gstack routed this to.`
+    : `this request fits ${s}. Run ${s} with the Skill tool before you start, and tell the user in one sentence that gstack routed this to ${s}.`;
+  return head + ask + (extra.trim() ? ` ${extra.replace(/\s+/g, ' ').trim()}` : '');
 }
 
 /** First sentence under a skill body's first "Step 1", "Phase 1" or "How to work" heading, plain text, at most 200 chars; '' without one. */
