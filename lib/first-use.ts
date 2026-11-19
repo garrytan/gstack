@@ -113,7 +113,7 @@ export function recordRoot(env: NodeJS.ProcessEnv = process.env): Result<{ root:
   if (env.GSTACK_CAPY !== '1') return { root: path.join(resolveStateRoot(env), 'first-use') };
   const drive = path.join(env.HOME || os.homedir(), '.capy', 'drive');
   let found: string[] = [];
-  try { found = fs.readdirSync(drive).filter(d => d.startsWith('user-') && fs.statSync(path.join(drive, d)).isDirectory()); } catch { /* no drive mounted */ }
+  try { found = fs.readdirSync(drive).filter(d => d.startsWith('user-') && fs.statSync(path.join(drive, d)).isDirectory()).sort(); } catch { /* no drive mounted */ }
   if (found.length !== 1) return fail('FIRST_USE_NO_PRIVATE_DRIVE', found.length ? `${found.length} user-level drive folders (${found.join(', ')})` : `no user-level drive folder under ${drive}`);
   return { root: path.join(drive, found[0]!, 'first-use') };
 }

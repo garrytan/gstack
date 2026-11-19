@@ -281,14 +281,16 @@ describe('gstack-lease', () => {
     const { dir, leases } = checkout();
     const [first, second] = [sleeper(), sleeper()];
     // The first touch holds the lock across its prune (find runs under the lock) until the test releases it.
+    // Its owner write also waits a moment after the O_EXCL create, so the owner file is briefly empty.
     const release = path.join(dir, 'release');
-    const slow = bashEnv(dir, `find() { case "$*" in *'+120'*) until [ -e "${release}" ]; do sleep 0.05; done ;; esac; command find "$@"; }\n`);
+    const slow = bashEnv(dir, `find() { case "$*" in *'+120'*) until [ -e "${release}" ]; do sleep 0.05; done ;; esac; command find "$@"; }\nprintf() { [ -n "\${_gl_dir:-}" ] && sleep 0.3; builtin printf "$@"; }\n`);
     const holder = spawn('bash', [LEASE, 'touch', '--root', dir, '--pid', String(first)], { env: { ...baseEnv, BASH_ENV: slow }, stdio: 'ignore' });
     children.push(holder);
     const exited = new Promise<number | null>((resolve) => holder.on('exit', resolve));
     const owner = path.join(leases, '.lock', 'owner');
-    for (let i = 0; i < 500 && !fs.existsSync(owner); i++) await Bun.sleep(20);
-    expect(fs.readFileSync(owner, 'utf8')).toMatch(new RegExp(`^${holder.pid} `));
+    const ownerLine = () => { try { return fs.readFileSync(owner, 'utf8'); } catch { return ''; } };
+    for (let i = 0; i < 500 && !ownerLine().endsWith('\n'); i++) await Bun.sleep(20);
+    expect(ownerLine()).toMatch(new RegExp(`^${holder.pid} `));
     const blocked = run(['touch', '--root', dir, '--pid', String(second)], { GSTACK_LEASE_LOCK_TRIES: '3' });
     fs.writeFileSync(release, '');
     expect(blocked.status, blocked.stdout + blocked.stderr).toBe(3);
