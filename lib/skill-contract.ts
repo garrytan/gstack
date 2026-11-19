@@ -6,8 +6,10 @@
  *
  *   contract: { version: 1, items: [ { id, kind, ... } ] }
  *
- * checkContract() is a pure function of a Claude Code transcript (the JSONL a
- * hook payload's transcript_path names): the model never self-records. Waivers
+ * checkContract() is a pure function of a Claude Code transcript or a Codex
+ * rollout (the JSONL a hook payload's transcript_path names; parseTranscript
+ * tells them apart by content, lib/codex-rollout.ts reads the rollout): the
+ * model never self-records. Waivers
  * are read the same way, from the `gstack-skill-contract waive` Bash calls in
  * that transcript, and count as misses for follow. The Stop hook
  * (hosts/claude/hooks/skill-contract-stop-hook.ts) and `gstack-skill-contract`
@@ -17,8 +19,9 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { isCodexRollout, parseCodexRollout } from './codex-rollout';
 import { atomicWriteSync } from './fs-atomic';
-import { readFrontmatter, scanInstalledSkills } from './skill-route';
+import { installedSkillsDir, readFrontmatter, scanInstalledSkills } from './skill-route';
 import { resolveStateRoot } from './state-root';
 
 export const TRANSCRIPT_MAX_BYTES = 32 * 1024 * 1024;
@@ -170,8 +173,11 @@ export function itemSummary(item: ContractItem): string {
 export type TranscriptEvent =
   | { kind: 'prompt' | 'meta' | 'text'; line: number; text: string }
   | { kind: 'tool_use'; line: number; id: string; name: string; input: Record<string, any> }
-  | { kind: 'tool_result'; line: number; id: string; text: string; isError: boolean };
-export interface Transcript { events: TranscriptEvent[]; sessionId: string | null }
+  | { kind: 'tool_result'; line: number; id: string; text: string; isError: boolean }
+  /** Codex only: the model read, or Codex injected, a gstack-* SKILL.md (lib/codex-rollout.ts). */
+  | { kind: 'load'; line: number; skill: string; via: 'read' | 'injected' };
+/** format and subagent are set only on a Codex rollout; a Claude Code transcript leaves both out. */
+export interface Transcript { events: TranscriptEvent[]; sessionId: string | null; format?: 'codex'; subagent?: boolean }
 
 const META_PREFIX = /^\s*<(?:local-command-stdout|local-command-stderr|system-reminder|task-notification|user-prompt-submit-hook|bash-input|bash-stdout|bash-stderr)\b/;
 
@@ -184,9 +190,11 @@ function blockText(content: unknown): string {
 /**
  * Main-thread events of a Claude Code transcript JSONL. Sidechain (subagent) records are skipped unless
  * includeSidechain is set (a subagent's own agent-<id>.jsonl holds only sidechain records); unparseable lines (a
- * partial last line) are skipped. Throws UnknownShape when the file is not a transcript this parser knows.
+ * partial last line) are skipped. A Codex rollout (first record session_meta) goes to parseCodexRollout instead.
+ * Throws UnknownShape when the file is not a transcript this parser knows.
  */
 export function parseTranscript(text: string, opts: { includeSidechain?: boolean } = {}): Transcript {
+  if (isCodexRollout(text)) return parseCodexRollout(text);
   const events: TranscriptEvent[] = [];
   let sessionId: string | null = null;
   let lines = 0;
@@ -258,13 +266,18 @@ export function sameSkill(a: string, b: string): boolean {
   return x === y || x === `gstack-${y}` || `gstack-${x}` === y;
 }
 
-export interface SkillLoad { skill: string; at: number; line: number; via: 'skill-tool' | 'slash-command' | 'read' }
+export interface SkillLoad { skill: string; at: number; line: number; via: 'skill-tool' | 'slash-command' | 'read' | 'injected' }
 
-/** Every skill load in order: a Skill tool call, a typed /command, or a Read of a SKILL.md under a skills/ directory (an installed skill, not a checkout's source). */
+/**
+ * Every skill load in order: a Skill tool call, a typed /command, or a Read of a SKILL.md under a skills/ directory (an
+ * installed skill, not a checkout's source). On Codex, the load events lib/codex-rollout.ts found.
+ */
 export function skillLoads(t: Transcript): SkillLoad[] {
   const loads: SkillLoad[] = [];
   t.events.forEach((e, at) => {
-    if (e.kind === 'tool_use' && e.name === 'Skill') {
+    if (e.kind === 'load') {
+      loads.push({ skill: canonicalSkill(e.skill), at, line: e.line, via: e.via });
+    } else if (e.kind === 'tool_use' && e.name === 'Skill') {
       const name = e.input.skill ?? e.input.command;
       if (typeof name === 'string' && name.trim()) loads.push({ skill: canonicalSkill(name.split(/\s/)[0]), at, line: e.line, via: 'skill-tool' });
     } else if (e.kind === 'tool_use' && e.name === 'Read' && typeof e.input.file_path === 'string') {
@@ -309,7 +322,14 @@ function parseNames(raw: string): string[] {
 
 interface ItemCheck { met: boolean; detail: string; fix: string }
 
-function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
+/**
+ * Item kinds a Codex run never checks: Codex suppresses the resolver that renders their step (REVIEW_ARMY for
+ * /review's specialists), so its SKILL.md never asks for them. test/skill-contract-codex.test.ts pins this list to
+ * hosts/codex.ts and the Done means resolver.
+ */
+export const CODEX_SKIPPED_KINDS: readonly ItemKind[] = ['selected_specialists_dispatched'];
+
+function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): ItemCheck {
   const texts = run.filter(e => e.kind === 'text').map(e => (e as { text: string }).text);
   const agents = run.filter((e): e is ToolUse => isToolUse(e) && AGENT_TOOLS.test(e.name));
   switch (item.kind) {
@@ -349,6 +369,11 @@ function checkItem(item: ContractItem, run: TranscriptEvent[]): ItemCheck {
     }
     case 'agent_dispatch': {
       const re = new RegExp(item.match as string, 'i');
+      if (codex) {
+        return agents.some(a => re.test(agentText(a)))
+          ? { met: true, detail: `a spawn_agent call matches /${item.match}/`, fix: '' }
+          : { met: false, detail: `no spawn_agent call matches /${item.match}/`, fix: item.fix ?? `start the subagent pass matching /${item.match}/ with spawn_agent, then wait_agent for its result` };
+      }
       return agents.some(a => re.test(agentText(a)))
         ? { met: true, detail: `an Agent dispatch matches /${item.match}/`, fix: '' }
         : { met: false, detail: `no Agent dispatch matches /${item.match}/`, fix: item.fix ?? `dispatch the Agent pass matching /${item.match}/` };
@@ -392,7 +417,7 @@ export interface CheckResult {
 
 /**
  * The contract against one run of the skill: from its load (the last one, or the one at loadLine) to its next load.
- * Pure: same transcript, same result.
+ * On a Codex rollout, items of a CODEX_SKIPPED_KINDS kind are left out. Pure: same transcript, same result.
  */
 export function checkContract(t: Transcript, skill: string, contract: Contract, opts: { loadLine?: number } = {}): CheckResult {
   const events = t.events;
@@ -407,9 +432,11 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const exitMarker = new RegExp(`^[ \\t>*_-]*${markerPattern(DEFAULT_MATCHERS.earlyExit).source}`, 'im');
   const endedEarly = !!finalText && run.includes(finalText as TranscriptEvent) && exitMarker.test(finalText.text);
   const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
-  const items: ItemResult[] = load ? contract.items.map(item => {
+  const codex = t.format === 'codex';
+  const checked = codex ? contract.items.filter(item => !CODEX_SKIPPED_KINDS.includes(item.kind)) : contract.items;
+  const items: ItemResult[] = load ? checked.map(item => {
     if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
-    const r = checkItem(item, run);
+    const r = checkItem(item, run, codex);
     if (r.met) return { id: item.id, kind: item.kind, status: 'met', detail: r.detail, fix: '' };
     const reason = waived.get(item.id);
     return reason ? { id: item.id, kind: item.kind, status: 'waived', detail: r.detail, fix: r.fix, reason } : { id: item.id, kind: item.kind, status: 'missing', detail: r.detail, fix: r.fix };
@@ -481,6 +508,23 @@ export function lookupContract(skill: string, skillsDir: string, skillFile?: str
   const parsed = frontmatter === null ? null : parseContract(frontmatter);
   if (parsed === null) return { skill, file, error: `${file} declares no contract`, reason: 'no-contract' };
   return 'error' in parsed ? { skill, file, error: `${file}: ${parsed.error}`, reason: 'invalid' } : { skill, file, contract: parsed.contract };
+}
+
+/** gstack's own checkout (this file is lib/skill-contract.ts). */
+const GSTACK_ROOT = path.resolve(import.meta.dir, '..');
+
+/**
+ * The contract of a skill the transcript loaded. Claude Code: the installed skill (installedSkillsDir). Codex: its
+ * installed SKILL.md keeps only name and description, so the contract comes from gstack's own copy of the skill,
+ * <gstack>/<name without gstack->/SKILL.md (GSTACK_INSTALLED_SKILLS_DIR replaces <gstack>).
+ */
+export function transcriptContract(t: Transcript, skill: string, env: NodeJS.ProcessEnv = process.env): ContractLookup {
+  if (t.format !== 'codex') return lookupContract(skill, installedSkillsDir(env));
+  const dir = env.GSTACK_INSTALLED_SKILLS_DIR || GSTACK_ROOT;
+  const name = canonicalSkill(skill);
+  const names = /^[a-z0-9][a-z0-9_-]*$/.test(name) ? [name.replace(/^gstack-/, ''), name] : [];
+  const file = names.map(n => path.join(dir, n, 'SKILL.md')).find(f => fs.existsSync(f));
+  return file ? lookupContract(skill, dir, file) : { skill, file: null, error: `no gstack skill named ${skill} under ${dir}`, reason: 'not-found' };
 }
 
 export type Outcome = 'met' | 'met_waived' | 'blocked' | 'met_after_block' | 'miss' | 'deferred';

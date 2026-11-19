@@ -27,7 +27,7 @@ const home = () => path.join(dir, 'codex');
 const marker = () => path.join(dir, 'user-session-start');
 const routeLog = () => path.join(dir, 'state', 'hooks', 'skill-route.log');
 
-/** The user's own SessionStart hook, then gstack's two groups through gstack-settings-hook's Codex format. */
+/** The user's own SessionStart hook, then gstack's three groups through gstack-settings-hook's Codex format. */
 function install(): void {
   fs.mkdirSync(home(), { recursive: true });
   fs.writeFileSync(path.join(home(), 'hooks.json'), JSON.stringify({
@@ -42,6 +42,7 @@ function install(): void {
   const shims = path.join(ROOT, 'hosts', 'codex', 'hooks');
   hook(['ensure-event', '--event', 'UserPromptSubmit', '--command', path.join(shims, 'codex-skill-route-hook'), '--source', 'gstack-skill-route', '--timeout', '5']);
   hook(['ensure-event', '--event', 'PreToolUse', '--command', path.join(shims, 'codex-destructive-guard-hook'), '--source', 'gstack-destructive-guard', '--matcher', 'Bash', '--timeout', '10']);
+  hook(['ensure-event', '--event', 'Stop', '--command', path.join(shims, 'codex-skill-contract-stop-hook'), '--source', 'gstack-skill-contract', '--timeout', '10']);
   const skills = path.join(dir, 'skills', 'gstack-review');
   fs.mkdirSync(skills, { recursive: true });
   fs.writeFileSync(path.join(skills, 'SKILL.md'), '---\nname: review\ndescription: Review a diff before it lands.\n---\n');

@@ -1,0 +1,44 @@
+[
+  {
+    "payload": {
+      "session_id": "01a1f281-eb07-7940-a3fd-e8cf129453b7",
+      "turn_id": "01a1f281-ec48-79c1-8d84-982d2138ba57",
+      "transcript_path": "/home/dev/.codex/sessions/2026/11/19/rollout-2026-11-19T06-32-43-01a1f281-eb07-7940-a3fd-e8cf129453b7.jsonl",
+      "cwd": "/home/dev/repo",
+      "hook_event_name": "Stop",
+      "model": "gpt-5.4-mini",
+      "permission_mode": "bypassPermissions",
+      "stop_hook_active": false,
+      "last_assistant_message": "Pre-Landing Review: 1 issue (1 critical, 0 informational)\n\n- Critical — `calc.py:4-5`: `avg(xs)` crashes on empty input (`ZeroDivisionError`) and rejects iterators/generators because it requires `len(xs)`. That makes the new API brittle for common callers and turns a simple helper into a runtime failure path.\n\nGate edits: none detected."
+    },
+    "hook_stdout": ""
+  },
+  {
+    "payload": {
+      "session_id": "01a1f282-b418-7040-bb98-0b3dffdc76fe",
+      "turn_id": "01a1f282-b458-79d2-b82f-07a4a0f25843",
+      "transcript_path": "/home/dev/.codex/sessions/2026/11/19/rollout-2026-11-19T06-33-34-01a1f282-b418-7040-bb98-0b3dffdc76fe.jsonl",
+      "cwd": "/home/dev/repo",
+      "hook_event_name": "Stop",
+      "model": "gpt-5.4-mini",
+      "permission_mode": "bypassPermissions",
+      "stop_hook_active": false,
+      "last_assistant_message": "Pre-Landing Review: 1 issue (1 critical, 0 informational)\n\n- [critical] `calc.py:4` — `avg([])` raises `ZeroDivisionError` because `len(xs)` is `0`; this makes the new helper fail on empty input instead of handling or explicitly rejecting it.\n  - Fix: add an empty-sequence check and raise a clearer `ValueError` (or define the expected empty-case behavior)."
+    },
+    "hook_stdout": "{\"decision\":\"block\",\"reason\":\"SKILL_CONTRACT_UNMET gstack-review (contract v1): missing adversarial-pass, review-report. Fix: adversarial-pass: start the subagent pass matching /Think like an attacker and a chaos engineer/ with spawn_agent, then wait_agent for its result; review-report: fill Gate edits in the Pre-Landing Review with real values. If an item truly does not apply, run '/home/dev/.local/share/gstack/bin/gstack-skill-contract' waive <item> --reason \\\"<why>\\\" (this session only; counted as a miss for follow). This blocks once.\"}"
+  },
+  {
+    "payload": {
+      "session_id": "01a1f282-b418-7040-bb98-0b3dffdc76fe",
+      "turn_id": "01a1f282-b458-79d2-b82f-07a4a0f25843",
+      "transcript_path": "/home/dev/.codex/sessions/2026/11/19/rollout-2026-11-19T06-33-34-01a1f282-b418-7040-bb98-0b3dffdc76fe.jsonl",
+      "cwd": "/home/dev/repo",
+      "hook_event_name": "Stop",
+      "model": "gpt-5.4-mini",
+      "permission_mode": "bypassPermissions",
+      "stop_hook_active": true,
+      "last_assistant_message": "Pre-Landing Review: 1 issue (1 critical, 0 informational)\n\n- [critical] `calc.py:4-5` — `avg([])` raises `ZeroDivisionError` because `len(xs)` can be `0`; this makes the new helper fail on empty input.\n  - Fix: reject empty input up front with a clear `ValueError`, or define and implement the intended empty-sequence behavior.\n\nGate edits: none detected (0 listed, 0 read; patterns: simple arithmetic helper; unlisted idioms: none)"
+    },
+    "hook_stdout": ""
+  }
+]

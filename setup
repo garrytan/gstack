@@ -5046,9 +5046,9 @@ _skill_hook_gate() {
   done
 }
 # ─── Codex hooks (GST-3172) ──────────────────────────────────────────────────
-# The same switches register two Codex hooks in ${CODEX_HOME:-~/.codex}/hooks.json
-# (docs/skill-routing-and-contracts.md#codex): skill_routing (UserPromptSubmit)
-# and destructive_guard (PreToolUse on Bash), each in its own matcher group with
+# The same switches register three Codex hooks in ${CODEX_HOME:-~/.codex}/hooks.json
+# (docs/skill-routing-and-contracts.md#codex): skill_routing (UserPromptSubmit),
+# skill_contracts (Stop, GST-3173) and destructive_guard (PreToolUse on Bash), each in its own matcher group with
 # an explicit timeout (Codex's default is 600 s). gstack-settings-hook writes the
 # file in its Codex format: no tag keys (Codex skips a hooks.json with a key it
 # does not know, the user's hooks included), the user's groups left as they are,
@@ -5074,6 +5074,7 @@ if [ "$INSTALL_CODEX" -eq 1 ] && [ "$CODEX_REPO_LOCAL" -eq 0 ] && [ -x "$CODEX_S
 fi
 CODEX_ROUTE_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-route-hook "$CODEX_GSTACK" || true)"
 CODEX_GUARD_HOOK="$(_hook_command_path hosts/codex/hooks/codex-destructive-guard-hook "$CODEX_GSTACK" || true)"
+CODEX_CONTRACT_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-contract-stop-hook "$CODEX_GSTACK" || true)"
 # _codex_hook_gate KEY DECISION SOURCE_OF_DECISION — called from _skill_hook_gate
 # with the decision it resolved, so both hosts follow one switch (D1).
 _codex_hook_gate() {
@@ -5081,6 +5082,7 @@ _codex_hook_gate() {
   case "$key" in
     skill_routing) event=UserPromptSubmit; cmd="$CODEX_ROUTE_HOOK"; source=gstack-skill-route; timeout=5; matcher="" ;;
     destructive_guard) event=PreToolUse; cmd="$CODEX_GUARD_HOOK"; source=gstack-destructive-guard; timeout=10; matcher=Bash ;;
+    skill_contracts) event=Stop; cmd="$CODEX_CONTRACT_HOOK"; source=gstack-skill-contract; timeout=10; matcher="" ;;
     *) return 0 ;;
   esac
   if [ "$decision" = "off" ] || [ "$NO_TEAM_MODE" -eq 1 ]; then
