@@ -82,7 +82,7 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-skill-load', () => {
       const r = load(dir, ['start', '--skill', 'x'], { GSTACK_SKILL_LOAD_TIMEOUT: '08' });
       expect(r.stdout).toBe('SKILL_START: timed out after 8s at load; run the start command below yourself with Bash, then continue.\n');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 
   test('a timeout keeps what the start already printed', () => {
     const dir = fakeBin('echo "JUST_UPGRADED 1.0 2.0"; printf partial; sleep 30');
@@ -93,33 +93,58 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-skill-load', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('preamble prints only a skill preamble under its own install root, else one line', () => {
+  test('preamble prints a shared preamble from any root, including a render dir outside the install root', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-root-'));
+    const render = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-render-'));
+    try {
+      fs.mkdirSync(path.join(root, 'bin'));
+      fs.copyFileSync(LOADER, path.join(root, 'bin', 'gstack-skill-load'));
+      const bin = path.join(root, 'bin');
+      const body = '<!-- AUTO-GENERATED from scripts/resolvers/preamble-hoist.ts — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n# gstack shared preamble d8804c5ab6bf\n\nbody\n';
+      for (const dir of [path.join(root, 'ship', 'sections'), path.join(render, 'ship', 'sections')]) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'preamble.md'), body);
+        expect(load(bin, ['preamble', path.join(dir, 'preamble.md')]), dir).toEqual({ status: 0, stdout: body, stderr: '' });
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(render, { recursive: true, force: true });
+    }
+  });
+
+  test('preamble refuses a file without a well-formed shared preamble header, with one line', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-root-'));
     try {
       fs.mkdirSync(path.join(root, 'bin'));
       fs.copyFileSync(LOADER, path.join(root, 'bin', 'gstack-skill-load'));
-      fs.mkdirSync(path.join(root, 'ship', 'sections'), { recursive: true });
-      const file = path.join(root, 'ship', 'sections', 'preamble.md');
-      fs.writeFileSync(file, '# gstack shared preamble abc\n\nbody\n');
       const bin = path.join(root, 'bin');
-      expect(load(bin, ['preamble', file])).toEqual({ status: 0, stdout: '# gstack shared preamble abc\n\nbody\n', stderr: '' });
+      const sections = path.join(root, 'ship', 'sections');
+      fs.mkdirSync(sections, { recursive: true });
+      const cases: Array<[string, string]> = [
+        ['missing header', 'TOKEN\n# gstack shared preamble d8804c5ab6bf\n'],
+        ['missing header after comments', '<!-- generated -->\nTOKEN\n'],
+        ['malformed id', '# gstack shared preamble TOKEN\n'],
+        ['short id', '# gstack shared preamble d8804c\nTOKEN\n'],
+        ['trailing text', '# gstack shared preamble d8804c5ab6bf TOKEN\n'],
+        ['wrong heading', '## gstack shared preamble d8804c5ab6bf\nTOKEN\n'],
+        ['empty file', ''],
+      ];
+      for (const [label, text] of cases) {
+        const file = path.join(sections, 'preamble.md');
+        fs.writeFileSync(file, text);
+        const r = load(bin, ['preamble', file]);
+        expect(r.status, label).toBe(0);
+        expect(r.stdout, label).not.toContain('TOKEN');
+        expect(r.stdout.trim().split('\n'), label).toHaveLength(1);
+        expect(r.stdout, label).toStartWith('SHARED_PREAMBLE: not loaded (');
+      }
       const secret = path.join(root, 'secret.txt');
       fs.writeFileSync(secret, 'TOKEN');
-      fs.mkdirSync(path.join(root, 'ship', 'other'));
-      fs.writeFileSync(path.join(root, 'ship', 'other', 'preamble.md'), 'TOKEN');
-      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-load-outside-'));
-      fs.mkdirSync(path.join(outside, 'x', 'sections'), { recursive: true });
-      fs.writeFileSync(path.join(outside, 'x', 'sections', 'preamble.md'), 'TOKEN');
-      try {
-        for (const target of [secret, path.join(root, 'ship', 'other', 'preamble.md'), path.join(root, 'ship', 'sections', '..', '..', 'secret.txt'),
-          path.join(outside, 'x', 'sections', 'preamble.md'), path.join(root, 'ship', 'sections', 'nope.md'), path.join(root, 'nope', 'sections', 'preamble.md')]) {
-          const r = load(bin, ['preamble', target]);
-          expect(r.status, target).toBe(0);
-          expect(r.stdout, target).not.toContain('TOKEN');
-          expect(r.stdout.trim().split('\n'), target).toHaveLength(1);
-          expect(r.stdout, target).toStartWith('SHARED_PREAMBLE: not loaded (');
-        }
-      } finally { fs.rmSync(outside, { recursive: true, force: true }); }
+      for (const target of [secret, path.join(sections, 'nope.md')]) {
+        const r = load(bin, ['preamble', target]);
+        expect(r.stdout, target).not.toContain('TOKEN');
+        expect(r.stdout, target).toStartWith('SHARED_PREAMBLE: not loaded (');
+      }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -23,12 +23,12 @@ MODE=${1:-}
 
 case "$MODE" in
   preamble)
-    # Only <install root>/<skill>/sections/preamble.md: the allowed-tools grant
-    # auto-approves this helper, so it must not read any other file.
-    ROOT=$(cd "$_BIN/.." 2>/dev/null && pwd)
-    DIR=$(cd "$(dirname "${1:-.}")" 2>/dev/null && pwd)
-    if [ -n "${1:-}" ] && [ -n "$ROOT" ] && [ "$(basename "$1")" = preamble.md ] && [ "$(basename "$DIR")" = sections ] \
-      && [ "$(dirname "$(dirname "$DIR")")" = "$ROOT" ] && [ -f "$1" ] && [ -r "$1" ]; then
+    # Only a gstack shared preamble: the allowed-tools grant auto-approves this
+    # helper, so it prints a file only when its first line after the generated
+    # comments is `# gstack shared preamble <12-hex id>`. Renders served from
+    # another root (--link-root) keep their preambles outside the install root.
+    if [ -n "${1:-}" ] && [ -f "$1" ] && [ -r "$1" ] \
+      && awk '!/^<!--/ { print; exit }' "$1" 2>/dev/null | grep -Eqx '# gstack shared preamble [0-9a-f]{12}'; then
       cat "$1" 2>/dev/null && exit 0
     fi
     echo "SHARED_PREAMBLE: not loaded (${1:-no file given} is missing, unreadable or not a gstack shared preamble); Read the file named above if it exists, else tell the user to run ./setup or /gstack-upgrade."
