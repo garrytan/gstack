@@ -48,7 +48,7 @@ describe('setup: Codex hook registration', () => {
     }
   });
 
-  test('a Windows install copies the Claude hooks the Codex shims import, so the copied shims run instead of failing open', () => {
+  test('a Windows install copies the Claude hooks the Codex shims import, so the copied shims run under bash instead of failing open', () => {
     const root = path.join(dir, 'codex', 'skills', 'gstack');
     const script = ['set -e', 'IS_WINDOWS=1', '_CODEX_RENDER_ROOT="' + ROOT + '"', ...['_link_or_copy', '_copy_skill_md', '_link_runtime_dists', '_link_codex_skill_refs', 'create_codex_runtime_root'].map(fnBody),
       'create_codex_runtime_root "' + ROOT + '" "' + root + '"'].join('\n');

@@ -269,8 +269,9 @@ function gsCodexConfigClash() {
 // A gstack command declared under another matcher still runs twice when that
 // matcher selects a tool the row names: Codex 0.170 matcher.rs treats empty
 // or "*" as every tool, [A-Za-z0-9_|] as exact names and anything else as an
-// unanchored regex. A matcher JS cannot compile counts as a clash (refusal is
-// the safe side). Bash, the only tool a Codex row names, has no matcher aliases.
+// unanchored regex (Rust syntax: a leading (?i), (?m) or (?s) group and \A / \z
+// are translated). A matcher JS still cannot compile counts as a clash
+// (refusal is the safe side). Bash, the only tool a Codex row names, has no matcher aliases.
 function gsCodexClashRow(cmd, event, matcher) {
   var b = gsBaseOf(cmd);
   var row = Object.prototype.hasOwnProperty.call(KNOWN_HOOKS, b) ? KNOWN_HOOKS[b] : null;
@@ -281,8 +282,18 @@ function gsCodexClashRow(cmd, event, matcher) {
     var names = matcher.split("|");
     return tools.some(function (t) { return names.indexOf(t) >= 0; }) ? row : null;
   }
+  var src = matcher, flags = "";
+  var lead = /^\(\?([a-zA-Z]+)\)/.exec(src);
+  if (lead) {
+    if (/[^ims]/.test(lead[1])) return row;
+    flags = lead[1];
+    src = src.slice(lead[0].length);
+  }
+  src = src.replace(/(^|[^\\])((?:\\\\)*)\\A/g, "$1$2^").replace(/(^|[^\\])((?:\\\\)*)\\z/g, "$1$2$$");
   var re;
-  try { re = new RegExp(matcher); } catch (e) { return row; }
+  try { re = new RegExp(src, flags); } catch (e) {
+    try { re = new RegExp(src, flags + "u"); } catch (e2) { return row; }
+  }
   return tools.some(function (t) { return re.test(t); }) ? row : null;
 }
 function gsCodexRefuse(path, problem) {

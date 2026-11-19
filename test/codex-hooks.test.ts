@@ -337,7 +337,11 @@ describe('gstack-settings-hook: hardening after #4512 and #4522 (GST-3197)', () 
       expect(r.out).toContain('already declares gstack hook gstack-destructive-guard under [hooks.PreToolUse], and Codex would run it twice');
     }
     expect(read()).toEqual(USER_FILE);
-    for (const matcher of ['PowerShell', '^Edit$', 'apply_patch|Write']) {
+    for (const matcher of ['\\ABash\\z', '(?i)^bash$']) {
+      declare(matcher);
+      expect({ matcher, code: ensureGuard().code }).toEqual({ matcher, code: 3 });
+    }
+    for (const matcher of ['PowerShell', '^Edit$', 'apply_patch|Write', '(?i)^Edit$', '\\AEdit\\z']) {
       declare(matcher);
       expect({ matcher, code: ensureGuard().code }).toEqual({ matcher, code: 0 });
     }

@@ -120,12 +120,17 @@ const tailPattern = (tail: string) =>
   new RegExp(`(?:^|[\\s'"\`:=\\\\/])${tail.split('/').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]')}(?![\\w.-])`);
 
 /**
- * Whether an output line reports a read error for this read's path. A line that names another read's longer,
- * written-out path (cat A || cat B, with A failing) belongs to that read.
+ * Whether an output line reports a read error for this read. Every error line counts, except one that provably
+ * names another file: another read's written-out path (cat A || cat B, with A failing; the longer path wins when
+ * both match), or a path that is no SKILL.md at all (cat SKILL.md /tmp/x).
  */
 const readFailed = (output: string | undefined, read: ShellRead, reads: ShellRead[]) =>
-  (output ?? '').split('\n').some(l => READ_FAILURE.test(l) && tailPattern(read.tail).test(l)
-    && !reads.some(o => o.tail.length > read.tail.length && tailPattern(o.tail).test(l)));
+  (output ?? '').split('\n').some(l => {
+    if (!READ_FAILURE.test(l)) return false;
+    const own = tailPattern(read.tail).test(l);
+    if (reads.some(o => o !== read && o.tail !== read.tail && tailPattern(o.tail).test(l) && (!own || o.tail.length > read.tail.length))) return false;
+    return own || !/[\\/]/.test(l) || /SKILL\.md(?![\w.-])/i.test(l);
+  });
 
 const exitedNonZero = (output: string | undefined) => {
   const code = output === undefined ? null : EXIT_CODE.exec(output);

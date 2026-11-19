@@ -144,6 +144,12 @@ describe('reads: shell edge cases from the #4522 notes (GST-3197)', () => {
     expect(loads(READ, "Process exited with code 1\nOutput:\ncat: /home/u/.codex/skills/gstack-review/SKILL.md: Permission denied")).toEqual([]);
   });
 
+  test('an error line that does not provably name another file still drops the read', () => {
+    expect(loads('cat "$(realpath -m ~/.codex/skills/gstack-review/SKILL.md)"', 'Process exited with code 1\nOutput:\ncat: /home/u/dotfiles/skills/gstack-review/SKILL.md: No such file or directory')).toEqual([]);
+    expect(loads('cd ~/.codex/skills/gstack-review && cat SKILL.md', 'Process exited with code 1\nOutput:\ncat: SKILL.md: No such file or directory')).toEqual([]);
+    expect(loads(READ + '; cat /tmp/notes.txt', 'Process exited with code 1\nOutput:\n---\nname: review\ncat: /tmp/notes.txt: No such file or directory')).toEqual(['gstack-review']);
+  });
+
   test("PowerShell's Cannot find path is a read error", () => {
     expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', "Get-Content: Cannot find path 'C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md' because it does not exist.")).toEqual([]);
     expect(loads('Get-Content C:\\Users\\u\\.codex\\skills\\gstack-review\\SKILL.md', '---\nname: review')).toEqual(['gstack-review']);

@@ -143,7 +143,9 @@ you trusted by their position, so:
   after it in the same event, leave the group in place as `{ "hooks": [] }`.
   Your hooks keep their positions and stay trusted. (The uninstall script does
   this for you.)
-- If gstack's group is the last one in that event, delete the whole group.
+- If gstack's group is the last one in that event and holds only gstack's
+  handlers, delete the whole group. If it also holds one of yours, delete only
+  gstack's handler.
 - If one of your handlers comes after gstack's inside the same group, deleting
   gstack's handler moves yours up one place, so trust it again in Codex with
   `/hooks`.
