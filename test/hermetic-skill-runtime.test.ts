@@ -372,7 +372,7 @@ describe('hermetic skill runtime', () => {
       write(path.join(state, 'config.yaml'), 'update_check: false\nartifacts_sync_mode_prompted: true\n');
       const env = { PATH: `${commands}${path.delimiter}${process.env.PATH!}`, HOME: runtimeHome, GSTACK_HOME: state };
       const preamble = read(path.join(config, 'skills', 'autoplan', 'SKILL.md'))
-        .match(/## Preamble \(run first\)\n\n```bash\n([\s\S]*?)\n```/)![1];
+        .match(/## Preamble \(run first\)\n[\s\S]*?```bash\n([\s\S]*?)\n```/)![1];
       const output = execFileSync('bash', ['-c', preamble], { cwd: home, env, encoding: 'utf8', timeout: 20_000 });
       expect(output).toContain('SKILL_START_PROTO: 1');
       expect(output).not.toContain('STALE_OPERATOR');

@@ -54,7 +54,9 @@ test('missing local checkpoint and competing Step 0 entry instructions fail the 
 test('other skills keep their existing preamble entry and plan-mode starting point', () => {
   for (const host of ALL_HOST_CONFIGS) for (const skill of ['plan-ceo-review', 'plan-devex-review', 'ship', 'review']) {
     const ctx = context(skill, host);
-    expect(generatePreambleBash(ctx).startsWith('## Preamble (run first)\n\n```bash')).toBe(true);
+    const entry = generatePreambleBash(ctx);
+    if (host.name === 'claude') expect(entry).toStartWith(`## Preamble (run first)\n\n!\`${ctx.paths.binDir}/gstack-skill-load start --skill "${skill}"`);
+    else expect(entry.startsWith('## Preamble (run first)\n\n```bash')).toBe(true);
     if (host.capabilities.planMode) expect(generatePlanModeInfo(ctx)).toContain('starting from Step 0;');
     else expect(generatePlanModeInfo(ctx)).toBe('');
     expect(generatePreambleBash(ctx)).not.toContain('Before the command below');
