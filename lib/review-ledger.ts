@@ -329,6 +329,7 @@ export function parseFindings(reader: string, output: string, fixableRaises = tr
 
 export interface VerdictCheck { state: 'valid' | 'missing' | 'malformed'; parsed: number; declared?: number; agrees?: boolean; why?: string }
 export interface ReplyFinding { label: string; raw: string; summary?: true; synthetic?: true }
+const FINDING_KIND = new RegExp(`(?<![A-Za-z0-9])${SEV_LIST}\\s+findings?(?![A-Za-z0-9])(?!\\s*:)`, 'g');
 const blockingRow = (f: { label: string; raw: string }) => (rank(f.label) ?? 0) >= 4 && !statesNoBlocks(f.raw);
 
 /**
@@ -337,7 +338,10 @@ const blockingRow = (f: { label: string; raw: string }) => (rank(f.label) ?? 0) 
  * line lowers nothing by itself. Declared more than parsed adds CRITICAL rows, one per unmatched at= location and one for the
  * rest; declared fewer marks each blocking row with no anchor (no list item, heading, field, lead label or JSON; a file:line in prose
  * is not one, and in a NO FINDINGS reply a list item is not one either, GST-2972) and no Blocks: yes a summary candidate, whether a CRITICAL or P0 word or the native voice's FIXABLE raise made it block. It still
- * blocks until lead judgment lowers it with a reason.
+ * blocks until lead judgment lowers it with a reason. A reply whose valid line declares blocking=0 keeps on record at INFORMATIONAL each
+ * single-line bullet with no structure, no file:line and no label beyond severities naming findings as a kind (`- a HIGH finding still
+ * refused;`, `- \`missing_verdict\` can't occur alongside P0 or P1 findings.`, #4518 and #4519): the reader's scope list or passed checks,
+ * which its own verdict says do not block.
  */
 export function parseReply(reader: string, output: string, fixableRaises = true, asked = false): { findings: ReplyFinding[]; verdict?: VerdictCheck } {
   const verdict = asked ? parseVerdict(output) : undefined;
@@ -349,6 +353,7 @@ export function parseReply(reader: string, output: string, fixableRaises = true,
     return { findings, ...(verdict ? { verdict: { state: verdict.state, parsed: findings.filter(blockingRow).length, ...(verdict.state === 'malformed' ? { why: verdict.why } : {}) } } : {}) };
   }
   const n = verdict.blocking;
+  if (n === 0) for (const r of rows) if (!r.shaped && /^[-*+]\s/.test(r.raw) && !r.raw.includes(' | ') && !ANY_LABEL.test(r.raw.replace(FINDING_KIND, ' '))) r.label = 'INFORMATIONAL';
   const parsed = rows.filter(blockingRow).length;
   const findings: ReplyFinding[] = rows.map(f => ({ label: f.label, raw: f.raw, ...(n < parsed && blockingRow(f) && !f.anchored && !BLOCKS_YES.test(f.raw) ? { summary: true as const } : {}) }));
   if (n > parsed) {
