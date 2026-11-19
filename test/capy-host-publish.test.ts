@@ -84,6 +84,12 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(h!.body).toStartWith('Fixes a thing.');
     expect(h!.body).toContain('"run":"r1"');
     expect(out.stdout).toMatch(/^HOST_PUBLISH: pr-body 7 body-file=\S+ /m);
+    const again = r.run('gstack-ship-receipt', ['stub', '--pr', '7', '--repo', 'other/repo', '--run', 'r2']);
+    expect(again.status, again.stderr).toBe(0);
+    const file = (o: string) => /body-file=(\S+)/.exec(o)![1]!;
+    expect(file(again.stdout)).not.toBe(file(out.stdout));
+    expect(fs.readFileSync(file(out.stdout), 'utf8')).toContain('"run":"r1"');
+    expect(fs.readFileSync(file(out.stdout), 'utf8')).not.toContain('"run":"r2"');
   });
 
   test('gstack-ship-receipt stop and claim hand their body edits off too', () => {
