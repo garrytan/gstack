@@ -40,9 +40,10 @@ describe('setup: Codex hook registration', () => {
   test('both Codex hooks resolve through _hook_command_path against the Codex runtime root, which links hosts/codex/hooks', () => {
     expect(setupSrc).toContain('CODEX_ROUTE_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-route-hook "$CODEX_GSTACK" || true)"');
     expect(setupSrc).toContain('CODEX_GUARD_HOOK="$(_hook_command_path hosts/codex/hooks/codex-destructive-guard-hook "$CODEX_GSTACK" || true)"');
+    expect(setupSrc).toContain('CODEX_CONTRACT_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-contract-stop-hook "$CODEX_GSTACK" || true)"');
     expect(fnBody('create_codex_runtime_root')).toContain('_link_or_copy "$gstack_dir/hosts/codex/hooks" "$codex_gstack/hosts/codex/hooks"');
     expect(fnBody('_skill_hook_gate')).toContain('if [ -n "${CODEX_HOOKS_FILE:-}" ]; then _codex_hook_gate "$key" "$decision" "$src"; fi');
-    for (const f of ['codex-skill-route-hook', 'codex-destructive-guard-hook']) {
+    for (const f of ['codex-skill-route-hook', 'codex-destructive-guard-hook', 'codex-skill-contract-stop-hook']) {
       expect(fs.statSync(path.join(ROOT, 'hosts', 'codex', 'hooks', f)).mode & 0o111).toBeTruthy();
     }
   });
@@ -61,6 +62,7 @@ describe('setup: Codex hook registration', () => {
       'CODEX_SETTINGS_HOOK="' + ROOT + '/bin/gstack-settings-hook"; CODEX_GSTACK="' + runtimeRoot + '"',
       'CODEX_ROUTE_HOOK="' + runtimeRoot + '/hosts/codex/hooks/codex-skill-route-hook"',
       'CODEX_GUARD_HOOK="' + runtimeRoot + '/hosts/codex/hooks/codex-destructive-guard-hook"',
+      'CODEX_CONTRACT_HOOK="' + runtimeRoot + '/hosts/codex/hooks/codex-skill-contract-stop-hook"',
       fnBody('_codex_hook_gate'),
       fnBody('_skill_hook_gate'),
       '_skill_hook_gate ' + key + ' "$1" GSTACK_X Event "" source 5 "what"',
@@ -80,8 +82,9 @@ describe('setup: Codex hook registration', () => {
     expect(hooks().UserPromptSubmit).toEqual([{ hooks: [{ type: 'command', command: expect.stringMatching(/hosts\/codex\/hooks\/codex-skill-route-hook$/), timeout: 5 }] }]);
     expect(hooks().PreToolUse).toEqual([{ matcher: 'Bash', hooks: [{ type: 'command', command: expect.stringMatching(/hosts\/codex\/hooks\/codex-destructive-guard-hook$/), timeout: 10 }] }]);
     expect(gate('skill_routing', '')).toEqual({ code: 0, out: '' });
-    expect(gate('skill_contracts', 'on').out).not.toContain('Codex');
-    expect(Object.keys(hooks()).sort()).toEqual(['PreToolUse', 'UserPromptSubmit']);
+    expect(gate('skill_contracts', 'on').out).toContain('registered Codex Stop hook in ' + hooksFile() + ' (on via flag; turn off: gstack-config set skill_contracts off, or ./setup --no-skill-contracts)');
+    expect(hooks().Stop).toEqual([{ hooks: [{ type: 'command', command: expect.stringMatching(/hosts\/codex\/hooks\/codex-skill-contract-stop-hook$/), timeout: 10 }] }]);
+    expect(Object.keys(hooks()).sort()).toEqual(['PreToolUse', 'Stop', 'UserPromptSubmit']);
   });
 
   test("off, a saved off and --no-team remove only gstack's Codex group", () => {
@@ -92,6 +95,9 @@ describe('setup: Codex hook registration', () => {
     expect(hooks().PreToolUse).toHaveLength(1);
     gate('skill_routing', '');
     expect(hooks().UserPromptSubmit).toBeUndefined();
+    gate('skill_contracts', 'on');
+    gate('skill_contracts', 'off');
+    expect(hooks().Stop).toBeUndefined();
     gate('destructive_guard', '', {}, 1);
     expect(hooks()).toEqual({});
   });
@@ -121,7 +127,8 @@ describe('gstack-uninstall and gstack-doctor with Codex hooks', () => {
     const user = { matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-guard', timeout: 3 }] };
     const ours = { matcher: 'Bash', hooks: [{ type: 'command', command: codex + '/skills/gstack/hosts/codex/hooks/codex-destructive-guard-hook', timeout: 10 }] };
     const route = { hooks: [{ type: 'command', command: codex + '/skills/gstack/hosts/codex/hooks/codex-skill-route-hook', timeout: 5 }] };
-    fs.writeFileSync(path.join(codex, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [user, ours], UserPromptSubmit: [route] } }, null, 2));
+    const contract = { hooks: [{ type: 'command', command: codex + '/skills/gstack/hosts/codex/hooks/codex-skill-contract-stop-hook', timeout: 10 }] };
+    fs.writeFileSync(path.join(codex, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [user, ours], UserPromptSubmit: [route], Stop: [contract] } }, null, 2));
     return { user };
   }
 
@@ -165,10 +172,10 @@ describe('gstack-uninstall and gstack-doctor with Codex hooks', () => {
       'BIN="' + ROOT + '/bin"; SRC="' + ROOT + '"', fn, 'check_codex_hooks',
     ].join('\n');
     const codexHome = path.join(dir, 'home', '.codex');
-    expect(run(script, { CODEX_HOME: codexHome }).out).toBe('warn|codex hooks|destructive-guard no trust entry, skill-route no trust entry (Codex skips a hook until it is trusted)|open Codex and trust them at its startup prompt or in /hooks\n');
+    expect(run(script, { CODEX_HOME: codexHome }).out).toBe('warn|codex hooks|destructive-guard no trust entry, skill-route no trust entry, skill-contract no trust entry (Codex skips a hook until it is trusted)|open Codex and trust them at its startup prompt or in /hooks\n');
     const file = fs.realpathSync(path.join(codexHome, 'hooks.json'));
-    fs.writeFileSync(path.join(codexHome, 'config.toml'), '[hooks.state."' + file + ':pre_tool_use:1:0"]\ntrusted_hash = "sha256:a"\n[hooks.state."' + file + ':user_prompt_submit:0:0"]\ntrusted_hash = "sha256:b"\n');
-    expect(run(script, { CODEX_HOME: codexHome }).out).toBe('ok|codex hooks|destructive-guard trusted, skill-route trusted (trust entry found; hash not checked)|\n');
+    fs.writeFileSync(path.join(codexHome, 'config.toml'), '[hooks.state."' + file + ':pre_tool_use:1:0"]\ntrusted_hash = "sha256:a"\n[hooks.state."' + file + ':user_prompt_submit:0:0"]\ntrusted_hash = "sha256:b"\n[hooks.state."' + file + ':stop:0:0"]\ntrusted_hash = "sha256:c"\n');
+    expect(run(script, { CODEX_HOME: codexHome }).out).toBe('ok|codex hooks|destructive-guard trusted, skill-route trusted, skill-contract trusted (trust entry found; hash not checked)|\n');
     fs.writeFileSync(path.join(codexHome, 'hooks.json'), JSON.stringify({ hooks: {} }));
     expect(run(script, { CODEX_HOME: codexHome }).out).toBe('');
   });
