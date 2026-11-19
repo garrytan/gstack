@@ -575,7 +575,7 @@ export async function buildTrain(ctx: QueueContext, o: BuildOptions): Promise<Tr
       const red = results.filter(r => !r.ok);
       if (red.length) {
         const again = `${Q} train build ${prsArgs(t.slots, t.explicit_order)} --dry-run --stack-tests`;
-        return outFailed({ code: 'QUEUE_TRAIN_STACK_RED', message: red.map(r => `#${r.pr}'s new tests fail on the integrated prefix T${r.prefix} (${r.files.join(', ')})`).join('; ') + '; they pass on the PR head alone only if nothing before it in the train changes what they read' },
+        return outFailed({ code: 'QUEUE_TRAIN_STACK_RED', message: red.map(r => (r.files.length ? `#${r.pr}'s new tests fail on the integrated prefix T${r.prefix} (${r.files.join(', ')})` : `#${r.pr}: ${r.detail}`)).join('; ') + '; they pass on the PR head alone only if nothing before it in the train changes what they read' },
           [...dry, 'DRY-RUN: nothing written, pushed or dispatched'], `fix ${red.map(r => `#${r.pr}'s tests against T${r.prefix}`).join(' and ')}, or reorder with --order, then ${again}`, 'none');
       }
     }

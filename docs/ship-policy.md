@@ -1166,7 +1166,9 @@ to the base, with a name ending in `.test`, `_test`, `.spec` or `_spec` and a
 JS or TS extension, bun's own rule, so a helper or fixture under `test/` is not
 one) on the integrated prefix that includes it, T<k>, in a scratch worktree, and prints
 `STACK_TESTS: #<pr> T<k> <n> new test file(s) pass|FAIL (<files>)` or `no new
-test files`. A failure is `QUEUE_TRAIN_STACK_RED` (nothing written, pushed or
+test files`. When git cannot list the files a PR adds, the line is
+`STACK_TESTS: #<pr> T<k> FAIL: cannot list the test files it adds: <git error>`,
+since an unread list is not an empty one. A failure is `QUEUE_TRAIN_STACK_RED` (nothing written, pushed or
 dispatched): the tests pass on the PR head alone only because nothing before
 it in the train had changed what they read, so fix them against that prefix or
 reorder with `--order`. The default command is `bun --no-env-file

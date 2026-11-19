@@ -102,12 +102,14 @@ describe('testVerdict', () => {
 });
 
 describe('quickLine', () => {
-  // Value: protects=the pre-commit line is red on a zero-run or incomplete selection and never green when nothing reached a result;
-  //   fails_when=ZERO_RUN/INCOMPLETE leave the red set, or an all-ENV/TIMEOUT run reads VERIFY PASS; why_new=the fixture test only
+  // Value: protects=the pre-commit line is red on a zero-run, incomplete or timed-out check and never green when nothing reached a
+  //   result; fails_when=ZERO_RUN/INCOMPLETE/TIMEOUT leave the red set, or an all-ENV run reads VERIFY PASS; why_new=the fixture test only
   //   reaches PASS, FAIL and UNMAPPED; seam=none; no_claim=the wording after the VERIFY token
   test('classifies red, not-run and passed outcomes', () => {
     const o = (name: string, verdict: Outcome['verdict']): Outcome => ({ name, verdict, ms: 100, detail: 'exit 1', lines: [] });
-    expect(quickLine([o('typecheck', 'ENV'), o('tests', 'TIMEOUT')])).toEqual({ red: [], line: 'VERIFY skipped: nothing ran to a result (typecheck ENV, tests TIMEOUT)' });
+    expect(quickLine([o('typecheck', 'ENV'), o('tests', 'ENV')])).toEqual({ red: [], line: 'VERIFY skipped: nothing ran to a result (typecheck ENV, tests ENV)' });
+    expect(quickLine([o('typecheck', 'PASS'), o('tests', 'TIMEOUT')]).line).toBe('VERIFY FAIL: tests TIMEOUT');
+    expect(quickLine([o('typecheck', 'ENV'), o('tests', 'TIMEOUT')]).red.map(r => r.name)).toEqual(['tests']);
     expect(quickLine([]).line).toBe('VERIFY skipped: nothing ran to a result (no checks)');
     expect(quickLine([o('typecheck', 'PASS'), o('tests', 'ZERO_RUN')]).line).toMatch(/^VERIFY FAIL: tests ZERO_RUN/);
     expect(quickLine([o('tests', 'INCOMPLETE')]).red.map(r => r.name)).toEqual(['tests']);
@@ -239,6 +241,22 @@ describe('gstack-checks on a fixture repo', () => {
     const off = quick();
     expect(off.status).toBe(0);
     expect(off.out).toStartWith('VERIFY skipped: verify_before_commit is off');
+  }, 60_000);
+
+  // Value: protects=a check that times out fails the pre-commit pass, and the pass ends with its line inside its --timeout, so a
+  //   10-minute Bash call always sees it; fails_when=a timed-out check reads VERIFY PASS (not run), or each check gets the whole
+  //   --timeout again; why_new=GST-3201; seam=the real quick pass on the fixture repo with a typecheck that never exits; no_claim=
+  //   Claude Code's own Bash limit
+  test('quick: a timeout is a red, and --timeout bounds the whole pass', () => {
+    const s = setup();
+    commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });
+    expect(s.checks(['trust']).status).toBe(0);
+    write(s.repo.work, 'scripts/typecheck.js', 'setTimeout(() => {}, 30000);\n');
+    const started = Date.now();
+    const slow = s.checks(['quick', '--timeout', '3']);
+    expect(slow.status).toBe(1);
+    expect(slow.out.trim().split('\n').at(-1)).toMatch(/^VERIFY FAIL: typecheck TIMEOUT, tests TIMEOUT/);
+    expect(Date.now() - started).toBeLessThan(20_000);
   }, 60_000);
 
   // Value: protects=a selection that runs zero tests is not green; fails_when=exit 0 with no test counted reads PASS; why_new=the

@@ -1114,7 +1114,10 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `blocking=0` still collects as CRITICAL, as a summary candidate the lead lowers with a reason. An automatic relabel
    was tried and removed (gstack#4353): beside a denial line such as "No other CRITICAL issues.", it let a real
    unanchored FIXABLE blocker drop to FIXABLE while the count still agreed. A reader that undercounts a real blocker
-   therefore loses nothing without a written reason. `verify` re-parses each output the way its
+   therefore loses nothing without a written reason. The same holds for a reader's scope list (GST-3201): when the valid line declares
+   `blocking=0`, a single-line list item with no structure (no ` | ` table cell, Severity or Blocks field, or file:line) and no
+   severity label other than one naming findings as a kind ("a HIGH finding still refused", "P0 or P1 findings") keeps its own
+   label and is marked a summary candidate, so the lead lowers it with a reason; "Two P0 findings remain unfixed" has the same shape and still blocks until judged. `verify` re-parses each output the way its
    render asked, prints `VERIFY_VERDICT: agree=<a> asked=<n>` and one `VERDICT <reader> AGREES|DISAGREES|MISSING|MALFORMED`
    row per checked reply. These are informational: a disagreeing count has already added or marked its rows, so
    they never make a ledger dirty. When collect prints `agrees=no` or `declared=malformed`, read the reply, then judge the

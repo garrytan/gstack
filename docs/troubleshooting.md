@@ -7165,7 +7165,9 @@ rule; a helper or fixture under `test/` is not one) on the integrated prefix tha
 T<k> (the base plus every slot up to and including that PR), in a scratch
 worktree, and they failed. The `STACK_TESTS: #<pr> T<k> <n> new test file(s)
 FAIL (<files>): <failing assertion>` line names the files and the runner's
-failing lines. Those tests pass on the PR head alone only because nothing
+failing lines. A `STACK_TESTS: #<pr> T<k> FAIL: cannot list the test files it
+adds: <git error>` line means git could not list the files the PR adds; fix
+what the git error names and rerun the dry run. Otherwise, those tests pass on the PR head alone only because nothing
 before it in the train had changed what they read (a PR stacked on another
 PR's test files or fixtures hit this on 2026-10-26). Nothing was written,
 pushed or dispatched; the ordinary dry run (without `--stack-tests`) does not

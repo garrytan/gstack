@@ -181,11 +181,11 @@ const CHILD_PROCESS = String.raw`['"](?:node:)?child_process['"]`;
 
 /** Whether this source takes spawnSync from node:child_process (named, aliased, namespace, default or require). */
 export function importsRawSpawnSync(text: string): boolean {
-  for (const m of text.matchAll(new RegExp(String.raw`import\s*\{([^}]*)\}\s*from\s*${CHILD_PROCESS}`, 'g'))) {
+  for (const m of text.matchAll(new RegExp(String.raw`import\s*(?:\w+\s*,\s*)?\{([^}]*)\}\s*from\s*${CHILD_PROCESS}`, 'g'))) {
     if (/(?:^|[,{\s])spawnSync\b/.test(m[1].replace(/\btype\s+spawnSync\b/g, ''))) return true;
   }
-  for (const m of text.matchAll(new RegExp(String.raw`import\s+(?:\*\s+as\s+)?(\w+)\s+from\s*${CHILD_PROCESS}`, 'g'))) {
-    if (new RegExp(String.raw`\b${m[1]}\.spawnSync\b`).test(text)) return true;
+  for (const m of text.matchAll(new RegExp(String.raw`import\s+(?:\*\s+as\s+)?(\w+)(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+(\w+)))?\s+from\s*${CHILD_PROCESS}`, 'g'))) {
+    if (m.slice(1).some(name => name && new RegExp(String.raw`\b${name}\.spawnSync\b`).test(text))) return true;
   }
   return new RegExp(String.raw`require\(\s*${CHILD_PROCESS}\s*\)`).test(text) && /\bspawnSync\b/.test(text);
 }
@@ -227,6 +227,10 @@ describe('raw spawnSync import ratchet', () => {
     expect(importsRawSpawnSync("import {\n  spawn,\n  spawnSync,\n} from 'node:child_process';")).toBe(true);
     expect(importsRawSpawnSync("import * as cp from 'node:child_process';\ncp.spawnSync('git', [], { timeout: 1000 });")).toBe(true);
     expect(importsRawSpawnSync("const { spawnSync } = require('child_process');")).toBe(true);
+    expect(importsRawSpawnSync("import cp, { spawnSync } from 'node:child_process';")).toBe(true);
+    expect(importsRawSpawnSync("import cp, { spawn } from 'node:child_process';\ncp.spawnSync('git', [], { timeout: 1000 });")).toBe(true);
+    expect(importsRawSpawnSync("import cp, * as all from 'node:child_process';\nall.spawnSync('git', [], { timeout: 1000 });")).toBe(true);
+    expect(importsRawSpawnSync("import cp, { spawn } from 'node:child_process';\ncp.spawn('git', []);")).toBe(false);
     expect(importsRawSpawnSync("import type { SpawnSyncReturns } from 'node:child_process';")).toBe(false);
     expect(importsRawSpawnSync("import { spawn, type spawnSync } from 'node:child_process';")).toBe(false);
     expect(importsRawSpawnSync("import * as cp from 'node:child_process';\ncp.spawn('git', []);")).toBe(false);
