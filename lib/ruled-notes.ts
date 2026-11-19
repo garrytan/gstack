@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
+import { BIN_DIR, runScriptSync } from './script-invocation';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
 
 export interface RuledNote { finding: string; head: string; by: string; reason: string; at: string; approval: string; relayed?: string; not_security?: true }
@@ -16,7 +17,14 @@ export interface RuledNote { finding: string; head: string; by: string; reason: 
 const SCOPE = /^ruled_note (\S+) ([0-9a-f]{40})$/;
 const ASK = /^ruled_note (\S+) at ([0-9a-f]{40}): (\S(?:.*\S)?)$/;
 /** A ruler gstack names for itself (the no-stop default's `gstack no-stop default (K1)`) is no owner. */
-export const GSTACK_ACTOR = /^gstack\b/i;
+const GSTACK_ACTOR = /^gstack\b/i;
+/**
+ * A crew named after gstack, in its brand capitals with a capitalised word after it (`GStack Minder (GSTA-36)`), is a person's
+ * crew: GSTACK_ACTOR's prefix match refused it as --by on every owner record. gstack writes each name of its own in lower case
+ * (GSTACK_ACTOR_NAMES, bin/gstack-no-stop), so this exemption on top of the catch admits none of them.
+ */
+const GSTACK_NAMED_CREW = /^GStack [A-Z]/;
+export const isGstackActor = (by: string) => GSTACK_ACTOR.test(by.trim()) && !GSTACK_NAMED_CREW.test(by.trim());
 /** The names gstack itself writes as `by`, matched whole: `gstack-evals Captain` or `GStack Minder` is a person's crew, not gstack. */
 export const GSTACK_ACTOR_NAMES: readonly string[] = ['gstack', 'gstack no-stop default (K1)'];
 export const isGstackActorName = (by: string) => GSTACK_ACTOR_NAMES.some(n => n.toLowerCase() === by.trim().toLowerCase());
@@ -34,7 +42,7 @@ export function ruledNotes(rows: readonly ApprovalRow[]): RuledNote[] {
   const byFinding = new Map<string, RuledNote>();
   for (const r of rows) {
     const scope = SCOPE.exec(r.scope), ask = ASK.exec(r.ask);
-    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || GSTACK_ACTOR.test(r.by)) continue;
+    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || isGstackActor(r.by)) continue;
     const finding = scope[1]!, head = scope[2]!, key = `${finding} ${head}`;
     byFinding.delete(key);
     const source = r.source.split(' ');
@@ -63,9 +71,16 @@ export const publicRuledNote = (n: RuledNote): RuledNote => !isSecurityFinding(n
 /** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `, from publicRuledNote. */
 export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(note); return `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by}${n.relayed ? ` (relayed from ${n.relayed})` : ''} at ${n.at}: ${n.reason} (approval ${n.approval})`; };
 
-/** The /ship run open on this checkout (its marker in the git dir, which finish removes), if any. */
+/**
+ * The /ship run open on this checkout, if any: its marker in the git dir (which finish removes) while its run is open on the
+ * checkout's lease, as gate's openShipRunsOn reads it. A marker a run left when it stopped before finish stops counting once
+ * gstack-lease says the run is closed (released, past 120 minutes or its holder gone); a lease check that cannot run keeps it open.
+ */
 export function openShipRun(cwd: string): string | undefined {
   const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd, encoding: 'utf8', timeout: 10_000 });
   if (p.status !== 0 || !p.stdout.trim()) return undefined;
-  try { return fs.readFileSync(path.resolve(cwd, p.stdout.trim()), 'utf8').trim() || undefined; } catch { return undefined; }
+  let run = '';
+  try { run = fs.readFileSync(path.resolve(cwd, p.stdout.trim()), 'utf8').trim(); } catch { return undefined; }
+  if (!run || runScriptSync(path.join(BIN_DIR, 'gstack-lease'), ['open', '--root', cwd, '--run', run], { cwd, encoding: 'utf8', timeout: 60_000 }).status === 1) return undefined;
+  return run;
 }

@@ -29,7 +29,7 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
-import { GSTACK_ACTOR, isGstackActorName, openShipRun, OWNER_REF, RULED_NOTE_SCOPE, ruledNoteRow, ruledNoteSource, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { isGstackActor, isGstackActorName, openShipRun, OWNER_REF, RULED_NOTE_SCOPE, ruledNoteRow, ruledNoteSource, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
@@ -66,7 +66,8 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): extra-round is
           one round with its fix round past the cap of 2, instead of the read-only final review; it binds
           that head of that PR only and is spent by the round; the lane or its Captain records it, never the owner, and
-          --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself
+          --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself,
+          except a fix-check grant whose --stop-run is that open run: the fix round of the stop it recorded
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
           --reason <why, one line> --words <the owner's exact words> --by <who granted>
           the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
@@ -180,9 +181,10 @@ function main(argv: string[]): number {
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('round-grant needs --head <the head that needs the round, a commit in this repository>');
       if (!by || isGstackActorName(by)) return invalid('round-grant needs --by <the lane or its Captain>: gstack never grants itself a round');
+      const stopRun = (flags['--stop-run'] ?? '').trim();
       const open = openShipRun(process.cwd());
-      if (open) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; record it from the lane after the run stops`);
-      const stopRun = (flags['--stop-run'] ?? '').trim(), findings = [...new Set((flags['--findings'] ?? '').split(',').map(f => f.trim()).filter(Boolean))];
+      if (open && !(kind === 'fix-check' && stopRun === open)) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; record it from the lane after the run stops, or, for the stop this run recorded (gstack-ship-receipt stop), as --kind fix-check --stop-run ${open}`);
+      const findings = [...new Set((flags['--findings'] ?? '').split(',').map(f => f.trim()).filter(Boolean))];
       if (kind === 'fix-check' && (!STOP_RUN.test(stopRun) || !findings.length || !findings.every(f => FINDING_ID.test(f)))) return invalid('round-grant --kind fix-check needs --stop-run <the run gstack-ship-receipt stop named> and --findings <the open finding ids it is for, comma-separated>: it buys the fix round of that one stop');
       if (kind !== 'fix-check' && (flags['--stop-run'] !== undefined || flags['--findings'] !== undefined)) return invalid('--stop-run and --findings belong to --kind fix-check: an extra-round grant names no stop');
       const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'] }, loc.branch);
@@ -195,7 +197,7 @@ function main(argv: string[]): number {
       if (!files.length || files.some(f => /\s/.test(f)) || !reason || /[\x00-\x1f\x7f]/.test(reason)) return invalid('lane-exception needs --files <the uncovered inventory files, comma-separated, no spaces> and --reason <why, one line>');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('lane-exception needs --head <the pushed head the owner granted at, a commit in this repository>');
-      if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a test-lane exception is the owner\'s, so --by names who granted it');
+      if (isGstackActor(flags['--by'] ?? '')) return invalid('--by names gstack; a test-lane exception is the owner\'s, so --by names who granted it');
       const open = openShipRun(process.cwd());
       if (open) return invalid(`/ship run ${open} is open on this checkout: a test-lane exception is the owner's, never the lane's own runner's; record it from the owner's session`);
       const built = buildRow({ ...testLaneExceptionRow(head.stdout.trim(), files, reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
@@ -208,7 +210,7 @@ function main(argv: string[]): number {
       if (/[\x00-\x1f\x7f]/.test(reason)) return invalid('--reason is one line: no newline or control character');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('rule needs --head <the stop head the owner ruled at, a commit in this repository>');
-      if (GSTACK_ACTOR.test((flags['--by'] ?? '').trim())) return invalid('--by names gstack; a ruling is the owner\'s, so --by names who ruled');
+      if (isGstackActor(flags['--by'] ?? '')) return invalid('--by names gstack; a ruling is the owner\'s, so --by names who ruled');
       const ownerRef = flags['--owner-ref']?.trim(), notSecurity = bools.has('--not-security');
       if (ownerRef !== undefined && (!OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim() || !(flags['--by'] ?? '').trim())) return invalid('--owner-ref relays the owner\'s ruling: <thread code>:<message id or timestamp> (GSTA-36:2026-11-19T12:29:59Z), with --by <the owner> and --words <their exact words>');
       if (notSecurity && !/:red-team$/i.test(finding)) return invalid('--not-security is the owner\'s call on a red-team finding (path:line:red-team); a security, auth or secret finding is security class by its category');
@@ -226,7 +228,7 @@ function main(argv: string[]): number {
       if (!ONE_LINE.test(reason) || !ONE_LINE.test(words) || !ONE_LINE.test(by)) return invalid('--reason, --words and --by are one line each: no newline or control character');
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('gate needs --head <the stop head the owner answered at, a commit in this repository>');
-      if (GSTACK_ACTOR.test(by)) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
+      if (isGstackActor(by)) return invalid('--by names gstack; a gate disposition is the owner\'s, so --by names who recorded it');
       const built = buildRow({ ...gateDispositionRow(finding, gateId, head.stdout.trim(), reason), words, by, date: flags['--date'], source: GATE_SOURCE }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       const res = recordGateDisposition(process.cwd(), loc, built);

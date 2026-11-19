@@ -1,0 +1,4 @@
+{
+  "bytes": 129,
+  "why": "a granted fix-check row records range_base and covers so it can close its grant's findings (GST-3246)"
+}

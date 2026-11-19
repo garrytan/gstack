@@ -436,6 +436,22 @@ function isReviewLoopSha(span: string, match: RegExpExecArray): boolean {
 }
 
 /**
+ * A fix-check round grant's scope names the /ship run whose stop it answers
+ * (`review_round_grant <sha> pr=<n> kind=fix-check stop=<run> findings=<ids>`, lib/review-round-grant.ts), and a run id
+ * is often the PR number, a dash and a short sha (`507-7192673`), which pii.phone.e164 reads as a national phone number,
+ * so gstack-approvals refused the grant (harness-evals #507). Only the position decides: a span with no space inside that
+ * scope's stop= token, ending where the token ends. The same digits in the grant's reason or words, or anywhere else,
+ * still report.
+ */
+const ROUND_GRANT_STOP_BEFORE = /\breview_round_grant [0-9a-f]{40} pr=[1-9]\d* kind=fix-check stop=[\w.:-]*$/;
+function isRoundGrantStopRun(span: string, match: RegExpExecArray): boolean {
+  if (!/^[\w.:-]+$/.test(span)) return false;
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  return ROUND_GRANT_STOP_BEFORE.test(input.slice(Math.max(0, start - 300), start)) && input.startsWith(" findings=", end);
+}
+
+/**
  * A four-part version (MAJOR.MINOR.PATCH.BUILD: .NET assembly versions,
  * gstack's own VERSION) is byte-for-byte a dotted quad, and `1.128.1.0` is a
  * public address, so `"version": "1.128.1.0"` raised pii.ip_public on every
@@ -1771,7 +1787,8 @@ export const PATTERNS: RedactPattern[] = [
     // coordinates (looksLikeDecimalCoordinates) and seed/nonce/timestamp JSON
     // values (isNumericMetadataValue), GitHub Actions run and job ids in
     // their id positions (isCiRunIdentifier), a short sha after
-    // review_loop_grant or review_loop_exception (isReviewLoopSha), and bare
+    // review_loop_grant or review_loop_exception (isReviewLoopSha), the run
+    // id in a fix-check round grant's stop= (isRoundGrantStopRun), and bare
     // powers of two and hash/PRNG constants (isNumericConstant).
     validate: (span, match) =>
       !insideUuid(match) &&
@@ -1782,7 +1799,8 @@ export const PATTERNS: RedactPattern[] = [
       !looksLikeDecimalCoordinates(span) &&
       !isNumericMetadataValue(span, match) &&
       !isCiRunIdentifier(span, match) &&
-      !isReviewLoopSha(span, match),
+      !isReviewLoopSha(span, match) &&
+      !isRoundGrantStopRun(span, match),
   },
   {
     id: "pii.ssn",

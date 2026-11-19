@@ -297,7 +297,7 @@ export interface ReviewLoopSummary {
   est_input_tokens?: number;
   /** Blocking findings no row gives a disposition (fixed, deferred, noted, skipped or a gate answer): found, outcome unrecorded. */
   unrecorded?: number;
-  /** Blocking findings a row holds whose newest action is `open`, gate findings aside (GST-3075): the loop stopped with them unfixed, so write refuses the receipt (RECEIPT_BLOCKER_OPEN). Each is its ledger id or fingerprint, or both as `{ id, fingerprint }` so a ruling on either closes it. Only a later row's action clears it: an earlier `fixed`, a fix trailer or a fix-check ledger never does, since none of them shows the finding was fixed after it was raised again. */
+  /** Blocking findings a row holds whose newest action is `open`, gate findings aside (GST-3075): the loop stopped with them unfixed, so write refuses the receipt (RECEIPT_BLOCKER_OPEN). Each is its ledger id or fingerprint, or both as `{ id, fingerprint }` so a ruling on either closes it. Only a later row's action clears it: an earlier `fixed`, a fix trailer or a fix-check ledger never does, since none of them shows the finding was fixed after it was raised again. A granted fix-check's row is that later row for exactly the findings its grant names (`grantedFixes`). */
   open?: Array<string | { id: string; fingerprint: string }>;
   /** Dispatch ledgers whose collected and judged findings were counted (gstack-review-dispatch). */
   ledgers_read?: number;
@@ -392,6 +392,24 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
   });
 }
 
+/** A fix-check round grant (lib/review-round-grant.ts): the stop head it answers and the findings its fix round is for. */
+export type FixCheckGrant = { kind: string; head: string; findings?: readonly string[] };
+
+/**
+ * The fix-checks that confirm a grant's fixes (GST-2968, gstack #4537): a complete review-fix-check row of this run that read
+ * the PR's change since the grant's stop head (its range_base is that head), names every finding the grant names in
+ * `covers`, and holds no blocking finding of its own left unfixed. Each yields the grant's findings, exactly, and when the
+ * row's read started. A row covering fewer of them, or one that found a blocker, confirms nothing.
+ */
+function grantedFixes(loopRows: readonly Record<string, any>[], grants: readonly FixCheckGrant[]): Array<{ at: number; findings: readonly string[] }> {
+  const stops = (r: Record<string, any>) => typeof r.range_base === 'string' && /^[0-9a-f]{7,40}$/i.test(r.range_base) ? (h: string) => h.startsWith(r.range_base.toLowerCase()) : () => false;
+  const clean = (r: Record<string, any>) => r.completed === true && Array.isArray(r.covers)
+    && !(Array.isArray(r.findings) ? r.findings : []).some((f: any) => f && typeof f === 'object' && rowBlocks(f) && f.action !== 'fixed' && f.action !== 'auto-fixed');
+  return loopRows.filter(r => r.skill === FIX_CHECK_SKILL && clean(r)).flatMap(r => grants
+    .filter(g => g.kind === 'fix-check' && g.findings?.length && stops(r)(g.head.toLowerCase()) && g.findings.every(f => r.covers.includes(f)))
+    .map(g => ({ at: rowTime(r), findings: g.findings! })));
+}
+
 /**
  * The loop summary. blocking_found counts every blocker found (GST-951). Each CRITICAL the dispatch ledgers hold
  * (`ledgerBlockers`, one list per ledger) is paired with at most one row finding per ledger at the same path:line, raised
@@ -408,7 +426,7 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  * decision 3.5 runs a fix-check only after the loop applied that pass's fixes, and a blocker the loop does not fix is deferred
  * or noted by a row. A blocker the last pass found stays unrecorded, and with every fix-check logged the rows decide.
  */
-export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
+export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = [], grants: readonly FixCheckGrant[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
   const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL || r.skill === VOICES_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
@@ -425,7 +443,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
   const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
   const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
-  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; action?: string; gate: boolean; ledgerId?: string; fingerprint?: string };
+  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; action?: string; actionAt?: number; gate: boolean; ledgerId?: string; fingerprint?: string };
   const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
@@ -449,6 +467,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
         candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
         disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
         action: typeof f.action === 'string' ? f.action : prior?.action,
+        actionAt: typeof f.action === 'string' ? rowTime(row) : prior?.actionAt,
         gate: !!prior?.gate || f.gate !== undefined,
         ...(ledgerId ?? prior?.ledgerId ? { ledgerId: ledgerId ?? prior?.ledgerId } : {}),
         ...(prior?.fingerprint ?? findingIdentity(f) ? { fingerprint: prior?.fingerprint ?? findingIdentity(f) } : {}),
@@ -492,6 +511,11 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
   for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
+  const confirmed = grantedFixes(loopRows, grants);
+  for (const [k, s] of blockers) {
+    if (s.gate || s.action !== 'open' || !confirmed.some(c => c.at > (s.actionAt ?? Infinity) && [k, s.ledgerId, s.fingerprint].some(n => n !== undefined && c.findings.includes(n)))) continue;
+    s.action = 'fixed'; s.disposed = true; fixed.add(k);
+  }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;
   const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };

@@ -166,6 +166,7 @@ describe('a red-team finding the owner ruled not security class (gstack-evals #3
     expect(rule('src/x.ts:1:security', ['--not-security']).status).toBe(EXIT.usage);
     const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
     fs.writeFileSync(marker, 'ship-run-1\n');
+    expect(f.run(path.join(BIN, 'gstack-lease'), ['touch', '--root', f.work, '--pid', String(process.pid), '--run', 'ship-run-1']).status).toBe(0);
     const inRun = rule('src/x.ts:2:red-team', ['--not-security', '--owner-ref', 'GSTA-36:2026-11-19T12:29:59Z']);
     expect(inRun.status).toBe(EXIT.usage);
     expect(inRun.stderr).toContain('--not-security');

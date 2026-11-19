@@ -75,6 +75,57 @@ describe('gstack-approvals round-grant', () => {
   });
 });
 
+// Value: protects=a stopped /ship run's own fix-check grant records as its stop message says, a marker whose lease closed blocks
+//   nothing, a run id that looks like a phone number passes, and gstack's own names stay refused while a GStack-named crew rules;
+//   fails_when=round-grant refuses a closed run's stale marker (harness-evals #508), the stop's own fix-check grant inside the
+//   open run, or --stop-run 507-7192673 (harness-evals #507), or rule refuses --by "GStack Minder (GSTA-36)";
+//   seam=bin/gstack-approvals round-grant|rule|rulings, lib/ruled-notes.ts openShipRun, lib/redact-patterns.ts
+describe('GST-3246: round grants on a stopped run, run ids, and GStack-named crews', () => {
+  const marker = (dir: string, run: string) => {
+    const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd: dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    fs.writeFileSync(path.resolve(dir, p), run + '\n');
+  };
+  const lease = (dir: string, run: string) => expect(spawnSync(BIN('gstack-lease'), ['touch', '--root', dir, '--pid', String(process.pid), '--run', run], { encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+  const grant = (r: ReturnType<typeof repo>, extra: string[]) => r.run('gstack-approvals', ['round-grant', '--pr', '507', '--head', r.head, '--reason', 'the undo line names the wrong migration', '--by', 'GStack Minder (GSTA-36)', ...extra]);
+  const fixCheck = (run: string) => ['--kind', 'fix-check', '--stop-run', run, '--findings', 'p2/outside-voice#3'];
+
+  test('a marker whose run the lease shows closed does not block a grant', () => {
+    const r = repo();
+    marker(r.dir, 'ship-508-closed');
+    const g = grant(r, ['--kind', 'extra-round']);
+    expect([g.status, g.stderr]).toEqual([0, '']);
+  });
+
+  test('inside an open run, only the fix-check grant of that run\'s own stop records', () => {
+    const r = repo();
+    marker(r.dir, 'ship-508-open');
+    lease(r.dir, 'ship-508-open');
+    const extra = grant(r, ['--kind', 'extra-round']);
+    expect([extra.status, extra.stderr]).toEqual([2, expect.stringContaining('/ship run ship-508-open is open on this checkout')]);
+    expect(grant(r, fixCheck('ship-507-other')).status).toBe(2);
+    const own = grant(r, fixCheck('ship-508-open'));
+    expect([own.status, own.stderr]).toEqual([0, '']);
+  });
+
+  test('a run id of a PR number, a dash and a short sha is no phone number in the grant, and the same digits in free text still are', () => {
+    const r = repo();
+    const ok = grant(r, fixCheck('507-7192673'));
+    expect([ok.status, ok.stderr]).toEqual([0, '']);
+    expect(r.run('gstack-approvals', ['list', '--json']).stdout).toContain('stop=507-7192673 findings=p2/outside-voice#3');
+    const phone = r.run('gstack-approvals', ['round-grant', '--pr', '507', '--head', r.head, '--reason', 'call 507-7192673 first', '--by', 'GStack Minder (GSTA-36)', ...fixCheck('ship-507')]);
+    expect([phone.status, phone.stderr]).toEqual([3, expect.stringContaining('pii.phone.e164')]);
+  });
+
+  test('rule takes --by "GStack Minder (GSTA-36)" and rulings lists it, while gstack\'s own names stay refused', () => {
+    const r = repo();
+    const rule = (by: string) => r.run('gstack-approvals', ['rule', '--finding', 'src/a.ts:1:correctness', '--head', r.head, '--reason', 'ships as a disclosed note', '--words', 'note it', '--by', by]);
+    for (const by of ['gstack', 'gstack no-stop default (K1)', 'gstack ship lane', 'GStack ship lane', 'GSTACK Minder']) expect(rule(by).status).toBe(2);
+    const ok = rule('GStack Minder (GSTA-36)');
+    expect([ok.status, ok.stderr]).toEqual([0, '']);
+    expect(r.run('gstack-approvals', ['rulings']).stdout).toContain('ruled by GStack Minder (GSTA-36) at ');
+  });
+});
+
 describe('gstack-ship-receipt history and stub', () => {
   test('history prints the rounds, the flags Step 9 passes and the route; a stub counts until the run writes its receipt', () => {
     const r = repo();

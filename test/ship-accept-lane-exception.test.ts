@@ -161,6 +161,7 @@ describe('an owner-granted test-lane exception (GST-1595)', () => {
     const { f, head } = fx();
     const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
     fs.writeFileSync(marker, 'ship-1595-abc\n');
+    expect(f.run(path.join(BIN, 'gstack-lease'), ['touch', '--root', f.work, '--pid', String(process.pid), '--run', 'ship-1595-abc']).status).toBe(0);
     const inRun = grant(f, head);
     expect([inRun.status, inRun.stderr]).toEqual([EXIT.usage, expect.stringContaining('/ship run ship-1595-abc is open on this checkout')]);
     fs.rmSync(marker);

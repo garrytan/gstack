@@ -215,7 +215,11 @@ caught on another crew's PRs.
      head, or another run claimed it (`PR_REVIEW_GRANT: not applied (why)`).
      A fix-check found nothing to read (an empty, reverted or base-only change)
      plans no fix-check. The fix-check never earns another: a blocker there
-     stops with `PR_ROUND_CAP` again.
+     stops with `PR_ROUND_CAP` again. A clean one whose row lists every grant
+     finding in `covers` closes exactly those findings in the receipt's loop
+     record (GST-3246). Inside the stopped run itself, `round-grant` refuses
+     every grant except this one, `--stop-run` naming that open run; a run
+     marker whose lease has closed blocks nothing.
    - **`--kind extra-round`, before review.** One round past the cap, with its fix
      round, at a head no review has stopped at: instead of the read-only review.
      Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names

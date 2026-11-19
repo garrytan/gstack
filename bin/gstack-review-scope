@@ -30,6 +30,7 @@ import {
   REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
 import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
+import { readReviewRoundGrants } from '../lib/review-round-grant';
 
 const HELP = `gstack-review-scope — finding scope for /ship's review loop (docs/ship-policy.md#review-scope)
 
@@ -213,7 +214,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const log = spawnSync('git', ['log', '--first-parent', '--no-merges', `--since=${since}`, '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', 'HEAD'], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   if (log.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `git log for Review-Finding trailers failed: ${(log.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
-  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers);
+  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers, readReviewRoundGrants(process.cwd()));
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
   for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);

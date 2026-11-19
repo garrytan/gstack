@@ -858,8 +858,9 @@ Other scopes apply decisions 2–4 in order.
    test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
    --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
-   row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
-   CRITICAL goes to decision 2; otherwise decision 4.
+   row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A granted fix-check's row
+   adds `"range_base":"<the stop head>"` and `"covers":[<the grant's finding ids the fixes address>]`.
+   A CRITICAL goes to decision 2; otherwise decision 4.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it
    clears may you continue to Step 10. A pass whose only findings were deferred or
    noted applied no edits and continues here: the loop converges below the floor.

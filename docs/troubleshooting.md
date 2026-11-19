@@ -7484,7 +7484,11 @@ counted here.
 **Fix.** Fix the finding, commit, and run /ship again on the new head; that
 run's Step 9 row records it `fixed`. If it should ship unfixed, take the stop
 to the owner: their ruled note (`gstack-approvals rule`) closes it, or their
-grant buys one fix-check. Never edit the review-log row or the loop file to
+grant buys one fix-check. A granted fix-check closes exactly the findings its
+grant names once its `review-fix-check` row is complete, has `range_base` at
+the grant's stop head, lists every one of those findings in `covers`, and holds
+no blocking finding of its own; a row that covers fewer, or found a blocker,
+closes none (GST-3246). Never edit the review-log row or the loop file to
 drop the finding, and never write the receipt by hand
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 

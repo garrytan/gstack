@@ -109,6 +109,7 @@ describe('finish with owner-ruled notes (GST-1537)', () => {
 
     const marker = f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim();
     fs.writeFileSync(path.resolve(f.work, marker), 'ship-3122-a022992\n');
+    expect(f.run(path.join(BIN, 'gstack-lease'), ['touch', '--root', f.work, '--pid', String(process.pid), '--run', 'ship-3122-a022992']).status).toBe(0);
     const inRun = rule(f, RACE, passHead);
     expect([inRun.status, inRun.stderr]).toEqual([EXIT.usage, expect.stringContaining('/ship run ship-3122-a022992 is open on this checkout')]);
     fs.rmSync(path.resolve(f.work, marker));
@@ -502,6 +503,7 @@ describe('a ruling relayed into an open /ship run (GBRA-108, gbrain #9762)', () 
     const { f, passHead } = grantedFixCheck(QM3122);
     const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
     fs.writeFileSync(marker, 'ship-9762-abc\n');
+    expect(f.run(path.join(BIN, 'gstack-lease'), ['touch', '--root', f.work, '--pid', String(process.pid), '--run', 'ship-9762-abc']).status).toBe(0);
     const bare = rule(f, RACE, passHead, 'GBrain Minder (GBRA-108)');
     expect([bare.status, bare.stderr]).toEqual([EXIT.usage, expect.stringContaining('(APPROVAL_RULING_RUN_OPEN)')]);
     expect(bare.stderr).not.toContain('APPROVAL_RECORD_INVALID');
