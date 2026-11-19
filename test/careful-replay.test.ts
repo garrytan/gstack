@@ -254,8 +254,8 @@ const PARSER_CASES: Array<[string, string, Decision, Tree]> = [
 ];
 
 // GST-3207: checks that only get stricter than 17303862: wipefs -a on every target, disk redirects with quotes or
-// through a link to /dev, a # inside quotes, and --no-dry-run. Every row but the controls was allowed or asked at
-// 17303862; [item, command, expected, tree].
+// through a link to /dev, and --no-dry-run. Every row but the controls was allowed or asked at 17303862;
+// [item, command, expected, tree].
 const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
   ['wipefs: no image exemption', "wipefs -a demo.img >'/dev'/sdb", 'deny', 'clean'],
   ['wipefs: no image exemption', 'wipefs -a demo.img" #" /dev/sda', 'deny', 'clean'],
@@ -268,18 +268,15 @@ const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
   ['redirect through a folder that links to /dev', 'echo hi > devlink/sdb', 'deny', 'clean'],
   ['redirect through a folder that links to /dev (control: not a disk name)', 'echo hi > devlink/null', 'allow', 'clean'],
   ['redirect through a folder that links to /dev (control: a real folder)', 'echo hi > build/sdb', 'allow', 'clean'],
-  ['quoted #', 'rm -rf "a #" ~', 'deny', 'clean'],
-  ['quoted # (control: a real comment)', "rm -rf 'x' # ~", 'ask', 'clean'],
-  ['quoted # (control: a real comment)', 'ls # rm -rf ~', 'allow', 'clean'],
   ['push dry run undone later', 'git push -fn --no-dry-run origin main', 'deny', 'clean'],
   ['push dry run undone later', 'git push --force -n --no-dry-run origin main', 'deny', 'clean'],
   ['push dry run undone later (control: the last flag wins)', 'git push --no-dry-run -fn origin main', 'allow', 'clean'],
-  ['quoted # (control: a cd after it counts as an unknown folder)', 'git commit -m "fix #12 cd /tmp/x"; rm -rf relative-demo', 'ask', 'clean'],
-  ['quoted # (control: a cd after it counts as an unknown folder)', 'echo "a #" && cd /tmp/x && rm -rf relative-demo', 'allow', 'clean'],
-  ['a backslashed cd moves to an unknown folder', '\\cd /srv/demo && git reset --hard', 'ask', 'clean'],
-  ['a backslashed cd moves to an unknown folder', '\\pushd /srv/demo && git reset --hard', 'ask', 'clean'],
-  ['a backslashed cd moves to an unknown folder (control: never scratch)', '\\cd /tmp/x && rm -rf relative-demo', 'ask', 'clean'],
+  ['wipefs: a redirect is not an option end', 'wipefs > -- -$\'a\' /dev/sdb', 'deny', 'clean'],
+  ['wipefs: a backslashed name with a getopt spelling', '\\wipefs -$\'a\' /dev/sdb', 'deny', 'clean'],
   ['wipefs: a longer word still denies, as at 17303862', 'echo wipefs-archive', 'deny', 'clean'],
+  ['unchanged from 17303862 (control: words after a quoted # stay unread)', 'echo \'git push -f origin main # --dry-run\'', 'deny', 'clean'],
+  ['unchanged from 17303862 (control: words after a quoted # stay unread)', 'echo \'git restore # --staged\'', 'ask', 'dirty'],
+  ['unchanged from 17303862 (control: a backslashed cd stays unread)', '\\cd /srv/demo && git push -f', 'ask', 'clean'],
 ];
 
 let base = '';

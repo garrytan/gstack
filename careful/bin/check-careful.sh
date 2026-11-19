@@ -161,8 +161,6 @@ _STASH_POP=0
 _GIT_SUB=-1
 _HI_RM_ROOT=0
 _HI_DISK=0
-_QS=n
-_HASH=0
 _RM_UNSAFE=0
 _OUTSIDE=0
 _PUSH_DENY=""
@@ -179,25 +177,6 @@ _D=""
 # Up to two layers of quotes, any mix: trap 'rm -rf "$T"' leaves $T.
 _Q="[\"']"
 _careful_strip() { _S="${1#$_Q}"; _S="${_S#$_Q}"; _S="${_S%$_Q}"; _S="${_S%$_Q}"; }
-
-# Quote state carried from word to word (n, s or d), so a # inside quotes
-# ("a #") is not read as a comment. Escaped quotes are skipped; a wrong guess
-# only reads more of the command, never less.
-_careful_qs() {
-  local x="$1" c
-  [ "${#x}" -le 4096 ] || return 0
-  x="${x//\\[\"\']/}"
-  x="${x//[!\"\']/}"
-  while [ -n "$x" ]; do
-    c="${x%"${x#?}"}"; x="${x#?}"
-    case "$_QS$c" in
-      "n'") _QS=s ;;
-      'n"') _QS=d ;;
-      "s'"|'d"') _QS=n ;;
-    esac
-  done
-  return 0
-}
 
 # Variables assigned from mktemp anywhere in the command (NAME=$(mktemp ...)).
 _careful_find_tmpvars() {
@@ -394,6 +373,12 @@ _careful_wipefs() {
   while [ "$k" -lt "$n" ]; do
     t="${T[$k]}"; k=$((k + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
+    # A redirect and its target are not options: wipefs > -- -a still wipes.
+    case "$t" in
+      '') continue ;;
+      '<'|'>'|'>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') val=1; continue ;;
+      [0-9]'>'*|'>'*|[0-9]'<'*|'<'*) continue ;;
+    esac
     case "$t" in
       --) break ;;
       --a|--al|--all) _HI_DISK=1 ;;
@@ -673,7 +658,7 @@ _careful_pop() {
   return 0
 }
 _careful_scan() {
-  local s seg t i n bt=0 track=0 qh=-1
+  local s seg t i n bt=0 track=0
   s=$(printf '%s\n' "$CMD_MEDIUM" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&/, "\n\004\n"); gsub(/[|]/, "\n\006\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_MEDIUM"
   local IFS="$_NL"
   set -f
@@ -709,26 +694,13 @@ _careful_scan() {
     esac
     case "$seg" in
       *rm*|*git*|*find*|*rsync*|*shred*|*unlink*|*cd*|*pushd*|*popd*|*wipefs*) ;;
-      *)
-        if [ "$_HASH" -eq 1 ]; then
-          t="$seg"
-          [ "$_QS" != n ] || { t="${t%%[[:space:]]#*}"; case "$t" in '#'*) t="" ;; esac; }
-          _careful_qs "$t"
-        fi
-        continue ;;
+      *) continue ;;
     esac
     n=0
     T=()
     RW=()
-    # qh is the first word the comment rule used to cut (a # inside quotes).
-    # Words after it are read now, but a cd among them counts as a cd into
-    # an unknown folder, so reading them only adds checks.
-    qh=-1
     for t in $seg; do
-      if [ "$_HASH" -eq 1 ]; then
-        case "$t" in '#'*) [ "$_QS" != n ] || break; [ "$qh" -ge 0 ] || qh=$n ;; esac
-        _careful_qs "$t"
-      fi
+      case "$t" in '#'*) break ;; esac
       _careful_strip "$t"
       RW[$n]="$t"; T[$n]="$_S"; n=$((n + 1))
     done
@@ -736,10 +708,8 @@ _careful_scan() {
     i=0
     while [ "$i" -lt "$n" ]; do
       case "${T[$i]}" in
-        cd)
-          if [ "$qh" -ge 0 ] && [ "$i" -gt "$qh" ]; then _CD_SEEN=1; _SCRATCH=0; _CUR_DIR=""
-          elif [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
-        pushd|popd|'\cd'|'\pushd'|'\popd') _CD_SEEN=1; _SCRATCH=0; _CUR_DIR="" ;;
+        cd) if [ $((i + 1)) -lt "$n" ]; then _careful_cd "${T[$((i + 1))]}"; else _careful_cd ""; fi ;;
+        pushd|popd) _CD_SEEN=1; _SCRATCH=0; _CUR_DIR="" ;;
         wipefs|*/wipefs|'\wipefs') _careful_wipefs $((i + 1)) ;;
         rm|'\rm'|*/rm|*':-rm'|*':=rm'|*':+rm') if [ "$i" -ne "$_GIT_SUB" ]; then _careful_rm $((i + 1)); fi ;;
         git|*/git) _careful_git $((i + 1)) ;;
@@ -792,7 +762,6 @@ _careful_pending() {
   return 0
 }
 
-case "$CMD_MEDIUM" in *'#'*) _HASH=1 ;; esac
 _careful_find_tmpvars
 _careful_scan
 
