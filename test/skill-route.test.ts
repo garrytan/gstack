@@ -100,6 +100,23 @@ describe('scorer', () => {
     expect(plain.filter(p => routePrompt(p, [bugfix, ...fixtureSkills, ...routed]).route)).toEqual([]);
   });
 
+  test('words inside inline code or a fenced code block never match a trigger; the prose around them still routes', () => {
+    const routed = scanInstalledSkills(ROOT).skills.filter(s => ROUTED_SKILLS.includes(s.name));
+    const names = (text: string) => { const d = routePrompt(text, routed); return d.route ? d.routes.map(r => r.skill) : []; };
+    for (const text of [
+      'You have 1 orchestration message. Run `orca orchestration check --run run_<run-id> --terminal term_<terminal-id>`.',
+      'Run `gh pr review 123 --approve` once CI is done.',
+      'Run ``tool lint check --fix`` and paste the output.',
+      'Pasted from CI:\n```\n$ make check\nall tests pass\n```\nWhat does this output mean?',
+    ]) {
+      expect([text, names(text)]).toEqual([text, []]);
+      expect([text, routePrompt(text, routed, undefined, 'codex').route]).toEqual([text, null]);
+    }
+    for (const text of ['run the checks', 'run the checks until green', 'verify my change', 'verify my change in `src/app.ts`',
+      'run the checks, then `git push`', 'an unclosed ` backtick: run the checks'])
+      expect([text, names(text)[0]]).toEqual([text, 'verify']);
+  });
+
   test('only the three discovery targets route; another installed skill with a matching trigger does not', () => {
     expect(ROUTED_SKILLS).toEqual(['review', 'qa', 'verify']);
     const ship = { name: 'ship', file: '', frontmatter: '', triggers: ['ship this branch'] };

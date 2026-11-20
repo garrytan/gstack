@@ -268,6 +268,31 @@ export function contentTokens(text: string): string[] {
   return [...new Set(words(text).filter(w => !STOPWORDS.has(w)).map(w => concept(stem(w))))];
 }
 
+/** A fence line opens or closes a fenced code block: up to three spaces, then three or more backticks or tildes. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * The prompt's prose: its Markdown code (fenced code blocks and inline code spans, read as CommonMark reads them) blanked
+ * out, so a command, path or log inside backticks never matches a trigger. "Run `tool check --run x`" names a command; it
+ * does not ask to run the checks. An unclosed fence runs to the end of the prompt, as in CommonMark; an unmatched
+ * backtick run is plain text.
+ */
+export function proseText(prompt: string): string {
+  const out: string[] = [];
+  let fence = '';
+  for (const line of prompt.split('\n')) {
+    const m = FENCE.exec(line);
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) fence = '';
+      out.push('');
+    } else if (m && !(m[1][0] === '`' && line.slice(m[0].length).includes('`'))) {
+      fence = m[1];
+      out.push('');
+    } else out.push(line);
+  }
+  return out.join('\n').replace(/(?<!`)(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, ' ');
+}
+
 /** The text a prompt is scored on: all of it, or its head and tail windows when it is longer than both. */
 export function promptWindow(prompt: string): string {
   if (prompt.length <= PROMPT_HEAD_CHARS + PROMPT_TAIL_CHARS) return prompt;
@@ -292,7 +317,7 @@ function within(seq: string[], want: string[], span: number): boolean {
 }
 
 /**
- * Every skill whose best trigger shares a content word with the prompt's window (promptWindow), best first
+ * Every skill whose best trigger shares a content word with the window (promptWindow) of the prompt's prose (proseText), best first
  * (score, matched words, name). A trigger's score is 1 when its whole phrase appears in the prompt, else the
  * share of its content words (stopwords dropped, lightly stemmed, defect words read as "bug") that the prompt
  * contains. A trigger with one content word scores only on its whole phrase unless that word is specific
@@ -302,7 +327,7 @@ function within(seq: string[], want: string[], span: number): boolean {
  * EVERYDAY_SPAN words of each other.
  */
 export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCandidate[] {
-  const scored = promptWindow(prompt);
+  const scored = promptWindow(proseText(prompt));
   const seq = tokens(scored);
   const promptSeq = ` ${seq.join(' ')} `;
   const promptSet = new Set(contentTokens(scored));
@@ -399,7 +424,8 @@ export type RouteDecision =
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
  * it holds the whole phrase of one of /review's or /qa's own triggers ("review this pr for bugs") and never asks for a
- * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
+ * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold. Triggers
+ * match the prompt's prose only (proseText); the bug-report signs still read its code, where an error name often sits.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
@@ -408,7 +434,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
-  const window = promptWindow(prompt);
+  const window = promptWindow(proseText(prompt));
   const seq = ` ${tokens(window).join(' ')} `;
   const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
     && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => seq.includes(` ${tokens(t).join(' ')} `)));
