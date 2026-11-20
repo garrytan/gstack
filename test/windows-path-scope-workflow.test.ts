@@ -160,7 +160,7 @@ describe('Windows Setup E2E runs by install path', () => {
     expect(scope['runs-on']).toBe('ubuntu-24.04');
     expect(scope.steps[0].with).toEqual({ 'fetch-depth': 2, 'persist-credentials': false });
     const windowsJobs = Object.keys(setupE2e.jobs).filter(name => name !== 'windows-scope' && name !== 'trunk-dynamic-ci');
-    expect(windowsJobs).toEqual(['windows-setup', 'held-install-journey']);
+    expect(windowsJobs).toEqual(['windows-setup', 'windows-setup-recovery', 'windows-setup-cso', 'held-install-journey', 'held-install-trial', 'held-install-later-release']);
     for (const name of windowsJobs) {
       expect([name, setupE2e.jobs[name]['runs-on'], setupE2e.jobs[name].needs, setupE2e.jobs[name].if])
         .toEqual([name, 'windows-latest', 'windows-scope', "needs.windows-scope.outputs.install == 'true'"]);
