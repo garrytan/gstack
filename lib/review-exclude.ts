@@ -33,7 +33,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
-import { lineTags } from './gate-diff/tags';
+import { lineTags, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, DATA_ROWS, PREREG_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
@@ -128,21 +128,28 @@ const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
 /**
  * The gate scan's jsonl (`gstack-gate-diff --format jsonl`: a summary line, then one record per listed hunk): every path
- * with a tagged hunk, and those whose every tagged hunk sits on an unrenamed path and carries only tags some one of its added
- * lines carries alone outside the floor (lineTags). A path tag (RH-3), a floor-only tag (RH-15) or a hunk-level one (RH-1's
- * removed declarations, RH-16 across lines) keeps its path out of `content`, so an excerpt of tagged lines shows every tag.
+ * with a tagged hunk, and those whose every tagged hunk sits on an unrenamed path, carries only tags some one of its added
+ * lines carries alone outside the floor (lineTags), and tags nothing once those lines are taken out (tagHunk on the rest). A
+ * path tag (RH-3), a floor-only tag (RH-15) or a hunk-level instance (RH-1's removed declarations, RH-16 across lines),
+ * even beside a one-line instance of the same tag, keeps its path out of `content`, so an excerpt of tagged lines shows
+ * every tagged instance.
  */
 export function gateScanPaths(jsonl: string): { tagged: Set<string>; content: Set<string> } {
   const tagged = new Set<string>();
   const whole = new Set<string>();
   for (const l of jsonl.split('\n').slice(1)) {
-    let h: { path?: unknown; old_path?: unknown; tags?: unknown; new?: unknown };
+    let h: { path?: unknown; old_path?: unknown; tags?: unknown; new?: unknown; old?: unknown };
     try { h = JSON.parse(l); } catch { continue; }
     if (typeof h.path !== 'string' || !Array.isArray(h.tags) || !h.tags.length) continue;
     const p = h.path;
     tagged.add(p);
-    const carried = new Set(Array.isArray(h.new) ? h.new.flatMap(t => (typeof t === 'string' ? lineTags(t, p).tags : [])) : []);
-    if (h.old_path !== undefined || !h.tags.every(t => carried.has(t))) whole.add(p);
+    const added = Array.isArray(h.new) ? h.new.filter((t): t is string => typeof t === 'string') : [];
+    const old = Array.isArray(h.old) ? h.old.filter((t): t is string => typeof t === 'string') : [];
+    const carried = new Set<unknown>();
+    const rest: string[] = [];
+    for (const t of added) { const g = lineTags(t, p).tags; if (g.length) g.forEach(x => carried.add(x)); else rest.push(t); }
+    const left = tagHunk({ header: '', lines: [...old.map(text => ({ kind: 'del' as const, text })), ...rest.map(text => ({ kind: 'add' as const, text }))] }, { floor: null, path: p, allPaths: new Set([p]) }).tags;
+    if (h.old_path !== undefined || !h.tags.every(t => carried.has(t)) || left.length) whole.add(p);
   }
   return { tagged, content: new Set([...tagged].filter(p => !whole.has(p))) };
 }
@@ -458,20 +465,22 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const gateData = [...reasons].filter(([p, r]) => r === 'gate-tagged' && !p.includes('\n') && !!i.gateContent?.has(p) && !binary.has(p) && !unseen(p) && rows(p)
     && [null, 'secret-line'].includes(pathReason({ ...text, gateTagged: null }, p, sel.files.get(p)!, binary, native))).map(([p]) => p);
   const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
-  const named = grepFixed(y, [...candidates, ...secretOnly, ...gateData].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly, ...gateData]), [i.mergeBase]);
+  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase]) : new Map<string, Set<string>>();
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
     else if (named.has(p)) reasons.set(p, 'named-by-code');
   }
-  const excerptable = new Set(i.gateTagged === null || named === null ? [] : [...secretOnly, ...gateData].filter(p => !named.has(p)));
+  const secretExcerptable = new Set(i.gateTagged === null || named === null ? [] : secretOnly.filter(p => !named.has(p)));
+  const excerptable = new Set(i.gateTagged === null || named === null || gateNamed === null ? [...secretExcerptable] : [...secretExcerptable, ...gateData.filter(p => !gateNamed.has(p))]);
   const applied: string[] = [];
   const keep = new Set<string>();
   for (const p of patterns) {
     const hit = sel.byPattern.get(p) ?? [];
     if (!hit.some(f => reasons.get(f) === null)) continue;
     const kept = hit.filter(f => reasons.get(f) !== null);
-    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !excerptable.has(f)));
+    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !secretExcerptable.has(f)));
     if (bytes > KEEP_ARG_MAX_BYTES) {
       const why = new Map<string, number>();
       for (const f of kept) why.set(reasons.get(f)!, (why.get(reasons.get(f)!) ?? 0) + 1);

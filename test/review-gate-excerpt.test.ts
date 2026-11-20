@@ -9,7 +9,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { REVIEW_DIFF_MAX_BYTES, gateScanPaths, secretValueLine, secretValueSpans } from '../lib/review-exclude';
+import { REVIEW_DIFF_MAX_BYTES, gateScanPaths, reviewExclude, secretValueLine, secretValueSpans } from '../lib/review-exclude';
+import { collectCommit } from '../lib/review-collect';
+import { REVIEW_CONTENT_KEY_VERSION } from '../lib/ship-policy-keys';
 import { secretExcerpt } from '../lib/review-secret-excerpt';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -141,9 +143,10 @@ describe('gateScanPaths', () => {
       rec({ path: 'r/span.log', tags: ['RH-16'], new: ['try { x() } catch (e) {', '}'] }),
       rec({ path: 'r/both.jsonl', tags: ['RH-13'], new: ['// eslint-disable-line'] }),
       rec({ path: 'r/both.jsonl', tags: ['RH-16'], new: ['catch (e) {', '}'] }),
+      rec({ path: 'r/mixed.log', tags: ['RH-16'], new: ['run(); try { a() } catch (e) {}', 'try { b() } catch (e) {', '}'] }),
       ''].join('\n');
     const g = gateScanPaths(out);
-    expect([...g.tagged].sort()).toEqual(['r/__snapshots__/s.json', 'r/a.jsonl', 'r/both.jsonl', 'r/moved.jsonl', 'r/span.log']);
+    expect([...g.tagged].sort()).toEqual(['r/__snapshots__/s.json', 'r/a.jsonl', 'r/both.jsonl', 'r/mixed.log', 'r/moved.jsonl', 'r/span.log']);
     expect([...g.content]).toEqual(['r/a.jsonl']);
   });
 });
@@ -197,3 +200,47 @@ describe('a long credential line keeps its value in the excerpt', () => {
   });
 });
 
+describe('the plan and the receipt build the same selection', () => {
+  /** reviewExclude on HEAD as the plan runs it (with the gate scan's content set) and as the receipt and queue run it (without). */
+  const both = (repo: FixtureRepo, tagged: Set<string>) => {
+    const head = repo.git('rev-parse', 'HEAD');
+    const baseSha = repo.git('rev-parse', 'origin/main');
+    const c = collectCommit(repo.work, baseSha, head);
+    const at = (gateContent?: Set<string>) => reviewExclude({ root: repo.work, baseSha, ref: 'origin/main', mergeBase: c.mergeBase!, head, perPath: c.perPath, added: c.added, classRoot: c.root ?? [], gateTagged: tagged, ...(gateContent ? { gateContent } : {}), context: 'test' });
+    return { plan: at(tagged), receipt: at() };
+  };
+  const shape = (x: ReturnType<typeof reviewExclude>) => x.state === 'active' ? { state: x.state, digest: x.record.digest, applied: x.record.applied, kept: x.kept } : x.state === 'refused' ? { state: x.state, code: x.code } : { state: x.state };
+
+  // Value: protects=a receipt written after a plan that cut gate-tagged data matches that plan's selection, so the queue does
+  //   not refuse it; fails_when=a cut declared file stops counting as a reader of other paths (plan) while it still does
+  //   (receipt), so a file it names is excluded in one and kept in the other (RECEIPT_INVALID field=review_exclude);
+  //   why_new=/ship's final review of #4556 (adversarial reader); seam=reviewExclude on a real repository
+  test('a cut declared file that names another path keeps the record identical', () => {
+    const policy = JSON.stringify({ review_exclude_paths: ['docs/benchmarks/**'], review_content_patterns: ['docs/benchmarks/**/sessions/**'], min_gstack_version: REVIEW_CONTENT_KEY_VERSION }) + '\n';
+    const repo = makeFixtureRepo({ prefix: 'gstack-gate-agree-', baseFiles: { '.gstack/ship-policy.json': policy } });
+    repos.push(repo);
+    const s0 = 'docs/benchmarks/demo/sessions/s0.txt';
+    const lines = Array.from({ length: 40 }, (_, n) => n === 5 ? 'patched: // eslint-disable-next-line no-console' : n === 9 ? 'read docs/benchmarks/demo/results/summary.json' : `turn ${n}`);
+    commit(repo, { 'lib/run.js': "exports.run = () => 'ok';\n", [s0]: lines.join('\n') + '\n', 'docs/benchmarks/demo/results/summary.json': '{"ok": true}\n', 'docs/benchmarks/demo/results/other.json': '{"n": 1}\n' });
+    const { plan, receipt } = both(repo, new Set([s0]));
+    expect(shape(plan)).toEqual(shape(receipt));
+    expect(plan.state === 'active' && plan.excerpt).toEqual([lit(s0)]);
+  }, 120_000);
+
+  // Value: protects=many cut files count toward the kept-file argument bound in the plan exactly as in the receipt;
+  //   fails_when=the plan leaves cut files out of KEEP_ARG_MAX_BYTES and applies the pattern while the receipt refuses it;
+  //   why_new=/ship's final review of #4556 (adversarial reader); seam=reviewExclude on a real repository
+  test('three hundred cut files reach the same verdict on the argument bound', () => {
+    const repo = branch({});
+    const files: Record<string, string> = { [`${TRIALS}/summary.json`]: '{"ok": true}\n' };
+    const tagged = new Set<string>();
+    for (let k = 0; k < 300; k++) {
+      const p = `${TRIALS}/a-rather-long-trial-folder-name-for-the-bound-${k}/session.jsonl`;
+      files[p] = JSON.stringify({ c: 'patched: // eslint-disable-next-line no-console' }) + '\n';
+      tagged.add(p);
+    }
+    commit(repo, files);
+    const { plan, receipt } = both(repo, tagged);
+    expect(shape(plan)).toEqual(shape(receipt));
+  }, 120_000);
+});
