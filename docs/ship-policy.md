@@ -1896,7 +1896,9 @@ finding as `kept` with `reason: owner disposition <id>: <reason>` and
 row as if the findings were kept, so /ship's gate rules (`--blocking-open`,
 `--gate-open`, the draft state, the `Gate edits:` counts) read them as kept once it
 reads the row again. As with rulings, a row derived from a findings file
-(`status_source: derived`) is not cleared. Nothing is hidden: finish prints each as
+(`status_source: derived`) is cleared only through the file's findings
+`gstack-review-read` shows on it, so a missing or changed file clears nothing
+(GST-3296). Nothing is hidden: finish prints each as
 `GATE_DISPOSITION: <fingerprint> [gate <gate_id>] at <head12> by <who> at <time>:
 <reason> — "<words>" (approval <id>)`, ending `(… not applied)` when no review row's
 range holds it; `gstack-approvals dispositions` prints one `Gate disposition: …`
