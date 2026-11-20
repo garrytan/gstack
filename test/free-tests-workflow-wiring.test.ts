@@ -82,9 +82,17 @@ describe('free-tests workflow wiring', () => {
     expect(keep.if).toBe('always()');
     expect(keep.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
     expect(keep.with).toEqual({ name: 'free-junit-${{ matrix.shard }}', path: '${{ runner.temp }}/free-junit/*.xml', 'if-no-files-found': 'ignore', 'retention-days': 7 });
+    const quick = jobs['quick-bun-default'].steps as any[];
+    const quickRun = quick.findIndex(step => step.name === 'Run the quick free tier on the install-default Bun');
+    expect(quick[quickRun].env).toEqual({ GSTACK_FREE_RETRY_FLAKY: '1', GSTACK_FLAKE_LEDGER: '${{ runner.temp }}/flake-ledger.jsonl' });
+    const quickLedger = quick.find(step => step.with?.name === 'flake-ledger-quick');
+    expect(quick.indexOf(quickLedger)).toBeGreaterThan(quickRun);
+    expect(quickLedger.if).toBe('always()');
+    expect(quickLedger.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
+    expect(quickLedger.with).toEqual({ name: 'flake-ledger-quick', path: '${{ runner.temp }}/flake-ledger.jsonl', 'if-no-files-found': 'ignore', 'retention-days': 90 });
     const flaky = jobs['trunk-flaky-tests'];
     expect(flaky.needs).toBe('free-suite');
-    expect(flaky.if).toBe("always() && needs.free-suite.result != 'skipped' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))");
+    expect(flaky.if).toBe("always() && needs.free-suite.result != 'skipped' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))");
     expect(flaky['runs-on']).toBe('ubuntu-24.04');
     expect(flaky.permissions).toEqual({});
     expect(flaky['continue-on-error']).toBe(true);

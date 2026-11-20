@@ -590,6 +590,18 @@ jobs:
           GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
         run: xvfb-run -a bun run test:quick
 
+      # The quick tier retries a failing file once too, so its flaky passes go
+      # in the same flake-ledger-* series the aggregate summarizes and
+      # test:health counts. Before GST-3303 this ledger was written and lost.
+      - name: Upload the quick tier's flake ledger
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: flake-ledger-quick
+          path: ${{ runner.temp }}/flake-ledger.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
+
   free-suite:
     name: free-suite (${{ matrix.shard }})
     needs: [free-plan, reuse, docs-scope]
@@ -889,13 +901,15 @@ jobs:
   # The CLI version is pinned and use-cache is off, so the binary always comes
   # from Trunk's checksummed release, never from an Actions cache entry that a
   # pull-request job could have written.
-  # Same-repository pull requests and main pushes only; a missing token skips
-  # both steps. Fail-open at step and job level. Review:
+  # Same-repository pull requests, main pushes and dispatch runs (the CI runs
+  # lanes dispatch on their own branches, which only someone with write access
+  # can start); a missing token skips both steps. Dispatch runs were left out
+  # until GST-3303 found a retried flake on one that Trunk never saw. Fail-open at step and job level. Review:
   # docs/TESTING_INTERNALS.md.
   trunk-flaky-tests:
     name: Trunk Flaky Tests (detection only)
     needs: free-suite
-    if: always() && needs.free-suite.result != 'skipped' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+    if: always() && needs.free-suite.result != 'skipped' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     continue-on-error: true
