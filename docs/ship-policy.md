@@ -1300,7 +1300,7 @@ an hour or hide an empty diff (GST-3019):
 
 | Code | When | Next |
 |---|---|---|
-| `SHIP_LANE_NOT_CARRIED` | `--tests-only` was given a lane `ship_lanes_from` maps, and no verified CI run carries it at this tree. Nothing runs, not even the other lanes. | Push, dispatch the workflow the `NEXT:` line names, `gstack-ci-carry wait`, rerun; or rerun with `--run-uncarried-here` to run it here. A full preflight still runs a lane that does not carry. [Troubleshooting](troubleshooting.md#ship-lane-not-carried) |
+| `SHIP_LANE_NOT_CARRIED` | A preflight, full or `--tests-only`, was given a lane `ship_lanes_from` maps, and no verified CI run carries it at this tree, whatever the `CI_CARRY: none` reason. Nothing runs, not even the other lanes. | Push and dispatch the workflow the `NEXT:` line names, or, when it cannot be dispatched, push a merge of the base (or ask the pull request's author to); `gstack-ci-carry wait`, rerun; or rerun with `--run-uncarried-here` to run it here. [Troubleshooting](troubleshooting.md#ship-lane-not-carried) |
 | `SHIP_BASE_UNKNOWN` | `--audit --base <base>` resolves to no commit: a sha-like value is tried as a commit first, then `origin/<base>`. | Fetch the base branch or the commit, then rerun. [Troubleshooting](troubleshooting.md#ship-base-unknown) |
 
 A lane carries from a run at an earlier commit when git reads that commit's tree as HEAD's (a base merge
