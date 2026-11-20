@@ -11,7 +11,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EXIT, attributionCallout, mergeBodySections, runPost, type PostEnv } from "../lib/gstack-post";
-import { extractReceipt, orderReceipt, placeReceipt, receiptRuns } from "../lib/ship-receipt";
+import { extractReceipt, orderReceipt, placeReceipt, receiptRuns, receiptSummaryLine } from "../lib/ship-receipt";
+import { runReceiptFields, type RunEvidence } from "../lib/run-evidence";
 import type { ShipReceipt } from "../lib/headless-artifacts";
 import { foldSections, unfoldSections } from "../lib/pr-body-shape";
 
@@ -347,6 +348,62 @@ describe("gstack-post owns the redaction scan", () => {
       ["malformed JSON block", forgedRun(JSON.stringify(valid, null, 2).replace(/\n}$/, ",\n}")), "14155552671"],
       ["unclosed block", forgedRun(JSON.stringify(valid, null, 2)).replace(/\n```\n$/, "\n"), "14155552671"],
     );
+    for (const [name, text, needle] of holds) {
+      const { code, phones, f } = post(text);
+      expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(foldSections(text), needle)} PART: body`], EXIT.confirm]);
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
+  // Value: protects=/ship's own receipt posts through pr-body without a pii.phone.e164 confirmation (gstack#4480): the writer-rendered block's
+  //   run field holding a gstack-skill-start session id (<pid>-<epoch>-<8 hex>), its pregate and requires_remote values naming all-digit 12-hex
+  //   shas, and the SHIP_RECEIPT:, CI_CARRY:, PREGATE: and READY_RECEIPT: lines the writers print (heads=, carried_from=, base_red=,
+  //   ci_carried=<lane>:<run>/<attempt>), while a phone number in prose, in a non-receipt code block, in another field, in a field holding another
+  //   shape, on a line without a receipt prefix or in a hand-written block still needs one; fails_when=every /ship body post with a 7-digit pid or
+  //   an all-digit head prefix needs --confirm, or the exemption reaches past those exact values; why_new=the GST-2047 test covers only run-id
+  //   fields, and the receipt lines' sha fields after heads=, carried_from= and base_red= were never allowlisted; seam=fake run; no_claim=real gh
+  test("a ship receipt's session id, its sha fields and the receipt lines /ship prints are not phone numbers; a phone number anywhere else still is", () => {
+    const HEAD = "2294465066182c2f99d64ba0016213463aaa0c14";
+    const carry = "remote-gate tree=704992822996 tests=37713 skipped=105 " + runReceiptFields([{ run_id: 44231639842, run_attempt: 1, profile: "ci-reuse/free-tests", head_sha: HEAD } as RunEvidence], new Date("2026-11-18T03:48:28.588Z"));
+    const receipt = (extra: Partial<ShipReceipt> = {}) => orderReceipt({
+      schema_version: 1, pr: 4480, head: HEAD, base: "main", run: "1234567-1794900000-0a1b2c3d",
+      pregate: "requires-remote cleared @704992822996 (8 checks, current for 229446506618)",
+      requires_remote: [`pregate.json/remote_gate: ${carry}`],
+      ci_carried: [{ lane: "free-tests", run: 44231639842, attempt: 1, tree: "704992822996ab" }],
+      ...extra,
+    });
+    const summary = receiptSummaryLine({ ...receipt(), predecessor: "381726354901aa", carry: { from: "381726354901ffee" }, base_red: { base: "381726354901ffee" }, ci_carried: [{ lane: "free-tests", run: 44231639842, attempt: 1, tree: "t" }, { lane: "windows-smoke", run: 44231645300, attempt: 2, tree: "t" }] } as ShipReceipt);
+    const lines = [summary, `CI_CARRY: accepted ${carry}`, `- CI_CARRY: cleared pregate.json/remote_gate ${carry}`, "PREGATE: requires-remote tree=704992822996 head=229446506618 checks=8 of 8", "READY_RECEIPT: .gstack/ready/acme-widget/4480-229446506618.json (ok)"];
+    expect(summary).toContain("carried_from=381726354901 ci_carried=free-tests:44231639842/1,windows-smoke:44231645300/2 base_red=381726354901");
+    const body = (r: ShipReceipt, prose = "Narrows one false positive.") => placeReceipt(`## What changed\n\n${prose}\n`, r);
+    const post = (text: string) => {
+      const f = fakeEnv({ files: { "/b": text }, visibility: "public" });
+      return { code: run(["pr-body", "4480", "--replace", "--body-file", "/b"], f), phones: f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.phone.e164 ")), f };
+    };
+    const lineOf = (text: string, needle: string) => text.split("\n").findIndex(l => l.includes(needle)) + 1;
+
+    for (const text of [body(receipt()), body(receipt(), lines.join("\n"))]) {
+      expect(extractReceipt(text)).toMatchObject({ found: true, errors: [] });
+      const { code, phones, f } = post(text);
+      expect([phones, code]).toEqual([[], EXIT.posted]);
+      expect(f.posts()).toHaveLength(1);
+    }
+
+    const holds: Array<[string, string, string]> = [
+      ["E.164 in prose", body(receipt(), "Call +14155552671 for the on-call."), "+14155552671"],
+      ["a session id in a json code block", body(receipt(), '```json\n{ "run": "1234567-1794900000-0a1b2c3d" }\n```'), '{ "run": "1234567'],
+      ["a number in a plain code block", body(receipt(), "```\ncall 14155552671\n```"), "call 14155552671"],
+      ["heads= on a line without a receipt prefix", body(receipt(), "heads=229446506618 ran"), "heads=229446506618"],
+      ["a phone on a receipt line", body(receipt(), "CI_CARRY: none (call +1 415 555 0123)"), "CI_CARRY: none"],
+      ["a 10-digit ci_carried run on a receipt line", body(receipt(), "SHIP_RECEIPT: pr=4480 ci_carried=free-tests:4155552671/1"), "SHIP_RECEIPT: pr=4480 ci_carried"],
+      ["a receipt line inside a plain code block", body(receipt(), "```text\nSHIP_RECEIPT: pr=4480 ci_carried=phone:14155552671/1\n```"), "SHIP_RECEIPT: pr=4480 ci_carried=phone"],
+      ["a receipt line inside a tilde code block", body(receipt(), "~~~\nCI_CARRY: accepted heads=229446506618\n~~~"), "CI_CARRY: accepted heads"],
+      ["a session id in the thread field", body(receipt({ thread: "1234567-1794900000-0a1b2c3d" })), '"thread": "1234567'],
+      ["a phone in the run field", body(receipt({ run: "+14155552671" })), '"run": "+14155552671"'],
+      ["a session id without its random suffix", body(receipt({ run: "1234567-1794900000" })), '"run": "1234567-1794900000"'],
+      ["a phone in the pregate field", body(receipt({ pregate: "requires-remote cleared, call 415-555-0100" })), "call 415-555-0100"],
+    ];
+    holds.push(["hand-written one-line block", "## What changed\n\nOne fix.\n\n```gstack-ship-receipt\n" + JSON.stringify(receipt({ pregate: undefined, requires_remote: undefined, ci_carried: undefined })) + "\n```\n", '"run":"1234567']);
     for (const [name, text, needle] of holds) {
       const { code, phones, f } = post(text);
       expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(foldSections(text), needle)} PART: body`], EXIT.confirm]);

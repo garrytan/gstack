@@ -60,6 +60,37 @@ describe('gstack-review-plan', () => {
     expect(r.stdout).toContain('REVIEW_PLAN: class=tests pass=1 next=full dispatches=1 numbers=no');
     expect(r.stdout.split('\n').filter(l => l.startsWith('DISPATCH: '))).toEqual(['DISPATCH: specialist batched effort=medium checklists=testing']);
   });
+  // Value: protects=an iOS UI change plans by risk instead of failing closed to the full panel, while Apple permissions still plan
+  //   full; fails_when=gstack-diff-scope prints SCOPE_ERROR=unmatched for .swift, or Info.plist reads as plain UI; why_new=GST-3041:
+  //   ghome#32, a 55-line SwiftUI copy change, got 5 readers and a coverage audit; seam=gstack-review-plan on a real repo;
+  //   no_claim=what the readers find
+  test('a SwiftUI change plans light, not the fail-closed panel; an Info.plist edit plans gate (GST-3041)', () => {
+    const view = 'import SwiftUI\nstruct ReviewView: View {\n  var body: some View { Text("Saved") }\n}\n';
+    const ui = { 'App/Review/ReviewView.swift': view, 'App/Home/SettingsView.swift': view, 'App/AppModel.swift': 'final class AppModel {}\n', 'Tests/GHomeTests/HealthSyncTests.swift': 'import XCTest\n' };
+    const light = run(repo(ui), []);
+    expect(light.stdout).not.toContain('DEPTH_ERROR');
+    expect(light.stdout).toMatch(/^REVIEW_DEPTH: light /m);
+    expect(light.stdout).toMatch(/^REVIEW_PLAN: class=code /m);
+    const plist = run(repo({ ...ui, 'App/Info.plist': '<plist><dict><key>NSAllowsArbitraryLoads</key><true/></dict></plist>\n' }), []);
+    expect(plist.stdout).toMatch(/^REVIEW_CLASS: gate .*auth paths/m);
+    expect(plist.stdout).toMatch(/^REVIEW_DEPTH: full /m);
+    const client = run(repo({ ...ui, 'App/Client.swift': 'final class Client {\n  func load(_ r: URLRequest) async throws -> Data { try await URLSession.shared.data(for: r).0 }\n}\n' }), []);
+    expect(client.stdout).toMatch(/^REVIEW_DEPTH: full .*risk:security/m);
+  });
+  // Value: protects=an iOS PR that writes or deletes users' files on the device, or reads their calendars, plans full even when it
+  //   also touches Markdown and tests, while a SwiftUI view that reads a UserDefaults setting stays light; fails_when=the Swift
+  //   user-data rules stop reaching gstack-review-plan; why_new=GST-3052: ghome#10 (spill files written and deleted) and ghome#31
+  //   (calendar choices, read through EventKit) planned light (GSTA-601); seam=gstack-review-plan on a real repo; no_claim=what the readers find
+  test('a Swift diff that writes and deletes spill files, or reads calendars, plans full; a SwiftUI settings view stays light (GST-3052)', () => {
+    const view = 'import SwiftUI\nstruct SettingsView: View {\n  @AppStorage("speaksAnswers") private var speaksAnswers = true\n  var body: some View { Toggle("Speak answers", isOn: $speaksAnswers) }\n}\n';
+    const shared = { 'DESIGN.md': '# Design\n', 'App/Home/SettingsView.swift': view, 'Tests/AppTests/SettingsTests.swift': 'import XCTest\n' };
+    const control = run(repo({ ...shared, 'App/Home/PickerModel.swift': 'final class PickerModel {\n  let defaults: UserDefaults\n  init(defaults: UserDefaults = .standard) { self.defaults = defaults }\n  var chosen: Data? { defaults.data(forKey: "picker.chosen") }\n  func save(_ blob: Data) { defaults.set(blob, forKey: "picker.chosen") }\n}\n' }), []);
+    expect(control.stdout).toMatch(/^REVIEW_DEPTH: light /m);
+    const spill = 'import Foundation\npublic struct DraftSpill {\n  public let file: URL\n  public func reserve(_ size: Int) throws {\n    guard FileManager.default.createFile(atPath: file.path, contents: Data(count: size)) else { throw CocoaError(.fileWriteUnknown) }\n  }\n  public func discard() { try? FileManager.default.removeItem(at: file) }\n}\n';
+    expect(run(repo({ ...shared, 'Packages/Core/Sources/Core/Capture/DraftSpill.swift': spill }), []).stdout).toMatch(/^REVIEW_DEPTH: full .*risk:data/m);
+    const agenda = 'import EventKit\nfinal class AgendaSource {\n  private let events = EKEventStore()\n  func calendarNames() -> [String] { events.calendars(for: .event).map(\\.title) }\n}\n';
+    expect(run(repo({ ...shared, 'App/Meeting/AgendaSource.swift': agenda }), []).stdout).toMatch(/^REVIEW_DEPTH: full .*risk:data/m);
+  });
   test('a docs diff that publishes numbers keeps the outside voice', () => {
     const r = run(repo({ 'docs/bench.md': 'Median latency fell 42% to 180 ms.\n' }), []);
     expect(r.stdout).toContain('DISPATCH: outside-voice outside-voice effort=host');

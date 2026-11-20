@@ -101,8 +101,8 @@ export const RESULT_CODES = {
   },
   ARTIFACT_GUARD_LINE_MISSING: {
     anchor: 'artifact-guard-line-missing',
-    summary: 'an unattended run’s review-record.md does not state that the publication guard was not enforced',
-    fix: 'start the run through gstack-skill-start so the GUARD_NOT_INSTALLED line is recorded',
+    summary: 'an unattended run’s review-record.md does not state whether the publication guard was enforced',
+    fix: 'start the run through gstack-skill-start so its GUARD_ENFORCED or GUARD_NOT_INSTALLED line is recorded',
   },
   GUARD_NOT_INSTALLED: {
     anchor: 'guard-not-installed',
@@ -411,7 +411,7 @@ export const RESULT_CODES = {
   },
   PREGATE_STALLED: {
     anchor: 'pregate-stalled',
-    summary: 'a test command printed nothing for the stall timeout while its process group used under a tenth of one CPU (log growth alone on Windows), so the group was killed; the check is incomplete, never pass',
+    summary: 'a test command printed nothing for the stall timeout while its process tree used under a tenth of one CPU (log growth alone on Windows), so the tree was killed; the check is incomplete, never pass',
     fix: 'read the lane log for the last file started, fix the hang, or raise `--stall-timeout` (`stall_timeout_s`; 0 disables) for a test that waits quietly for longer, then rerun `gstack-pregate --stage tests`',
   },
   PREGATE_RECEIPT_INVALID: {

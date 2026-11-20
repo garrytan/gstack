@@ -30,7 +30,7 @@ With `GSTACK_CAPY=1`, a workflow started in an unattended or spawned session che
 
 For Capy running GPT-6 Astra, read `${CODEX_HOME:-$HOME/.codex}/skills/gstack/SKILL.md` for routing, then `${CODEX_HOME:-$HOME/.codex}/skills/gstack-<skill>/SKILL.md` for the selected workflow. They are generated for GPT-6 Astra.
 
-For Claude Code, read `~/.claude/skills/gstack/SKILL.md` for routing and `~/.claude/skills/<skill>/SKILL.md` for the selected workflow. When launching a Claude Code session, tell it to load gstack and name the intended workflow. Capy on a Claude model reads the Claude files directly with the Capy adaptations below; that does not make Capy the Claude Code harness.
+For Claude Code, read `~/.claude/skills/gstack/SKILL.md` for routing and `~/.claude/skills/<skill>/SKILL.md` for the selected workflow. When launching a Claude Code session, start its prompt with the typed `/<skill>` command and put everything else after it (`docs/unattended.md`, "Starting a child agent"). Capy on a Claude model reads the Claude files directly with the Capy adaptations below; that does not make Capy the Claude Code harness.
 
 If no specific skill was requested, use the router's task-to-skill mapping. Read only the selected workflow and its referenced files. Other models use the closest profile, never claiming one was generated or evaluated for them.
 

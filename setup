@@ -60,6 +60,12 @@ Claude Code hooks (docs/skill-routing-and-contracts.md):
   --skill-contracts / --no-skill-contracts
                     Block once when a contract skill ends without its
                     required outputs (Stop). Saved as skill_contracts.
+  --destructive-guard / --no-destructive-guard
+                    Run /careful's destructive-command check before every
+                    Bash and PowerShell call (PreToolUse). Saved as
+                    destructive_guard.
+                    These three are on by default; the flag, env var or
+                    gstack-config set <name> off turns one off.
   --ceo-review-gate / --no-ceo-review-gate
                     After /plan-ceo-review loads, block its final stop (and a
                     review subagent's) until the output file ranks the top
@@ -201,6 +207,7 @@ PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = ex
 TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explicit (#2677)
 SKILL_ROUTING_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
 SKILL_CONTRACTS_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1088)
+DESTRUCTIVE_GUARD_MODE=""   # "" = resolve from env/config; "on"/"off" = explicit (GST-3110)
 CEO_REVIEW_GATE_MODE=""     # "" = resolve from env/config; "on"/"off" = explicit (GST-1461)
 AUTOPLAN_GATE_MODE=""       # "" = resolve from env/config; "on"/"off" = explicit (GST-1666)
 MODEL_OVERRIDE=""
@@ -216,7 +223,7 @@ _setup_unknown_option() {
   local bad="$1" next="${2:-}" best="" best_d=99 flag d value=""
   for flag in --host --model --claude-model --loadout --global --local --prefix --no-prefix --team --no-team \
     --plan-tune-hooks --no-plan-tune-hooks --timeline-stop-hook --no-timeline-stop-hook \
-    --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts \
+    --skill-routing --no-skill-routing --skill-contracts --no-skill-contracts --destructive-guard --no-destructive-guard \
     --ceo-review-gate --no-ceo-review-gate --autoplan-gate --no-autoplan-gate \
     --refresh-registered --status --no-browser --no-harness-auto --quiet --help; do
     d="$(awk -v a="${bad%%=*}" -v b="$flag" 'BEGIN {
@@ -266,6 +273,9 @@ while [ $# -gt 0 ]; do
     --skill-contracts)    SKILL_CONTRACTS_MODE="on"; shift ;;
     --no-skill-contracts) SKILL_CONTRACTS_MODE="off"; shift ;;
     --skill-contracts=*)  SKILL_CONTRACTS_MODE="${1#--skill-contracts=}"; shift ;;
+    --destructive-guard)    DESTRUCTIVE_GUARD_MODE="on"; shift ;;
+    --no-destructive-guard) DESTRUCTIVE_GUARD_MODE="off"; shift ;;
+    --destructive-guard=*)  DESTRUCTIVE_GUARD_MODE="${1#--destructive-guard=}"; shift ;;
     --ceo-review-gate)     CEO_REVIEW_GATE_MODE="on"; shift ;;
     --no-ceo-review-gate)  CEO_REVIEW_GATE_MODE="off"; shift ;;
     --ceo-review-gate=*)   CEO_REVIEW_GATE_MODE="${1#--ceo-review-gate=}"; shift ;;
@@ -842,6 +852,21 @@ _copy_runtime_skill_refs() {
     [ -f "$1/gstack-$s/SKILL.md" ] || continue
     mkdir -p "$2/$s"
     _copy_skill_md "$1/gstack-$s/SKILL.md" "$2/$s/SKILL.md"
+  done
+}
+
+# _link_codex_skill_refs RENDER_SKILLS ROOT — the Codex form of the two copies
+# above plus gstack-upgrade's, which the preamble's upgrade flow reads. Codex
+# lists every real SKILL.md under its skills directory, so a real copy here is a
+# second entry beside gstack-<skill>/SKILL.md, and naming the skill then injects
+# nothing (GEVA-555, Codex 0.170). Codex skips a symlinked SKILL.md, so these are
+# links: each skill is listed once and the paths other skills read still resolve.
+_link_codex_skill_refs() {
+  local s
+  for s in gstack-upgrade office-hours plan-design-review; do
+    [ -f "$1/gstack-${s#gstack-}/SKILL.md" ] || continue
+    mkdir -p "$2/$s"
+    _link_or_copy "$1/gstack-${s#gstack-}/SKILL.md" "$2/$s/SKILL.md"
   done
 }
 
@@ -3162,6 +3187,15 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/lib" ]; then
     _link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"
   fi
+  # Codex hook shims: ${CODEX_HOME}/hooks.json names this stable path (GST-3172).
+  # They import the Claude Code hooks beside them (../../claude/hooks), which
+  # a symlink reaches through the checkout but a Windows copy does not, so the
+  # Claude hooks come along too; without them all three shims fail open there.
+  if [ -d "$gstack_dir/hosts/codex/hooks" ]; then
+    mkdir -p "$codex_gstack/hosts/codex" "$codex_gstack/hosts/claude"
+    _link_or_copy "$gstack_dir/hosts/codex/hooks" "$codex_gstack/hosts/codex/hooks"
+    _link_or_copy "$gstack_dir/hosts/claude/hooks" "$codex_gstack/hosts/claude/hooks"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
@@ -3169,10 +3203,7 @@ create_codex_runtime_root() {
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
   fi
   _link_runtime_dists "$gstack_dir" "$codex_gstack"
-  if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    _copy_skill_md "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
-  fi
-  _copy_runtime_skill_refs "$agents_dir" "$codex_gstack"
+  _link_codex_skill_refs "$agents_dir" "$codex_gstack"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
@@ -3965,6 +3996,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   log "  codex skills: $CODEX_SKILLS"
   log "  model profile: $CODEX_GENERATION_MODEL ($CODEX_GENERATION_MODEL_SOURCE)"
   log "  model changes: rerun ./setup --host codex"
+  log "  reasoning effort: gstack's workflows do best at high; start Codex with codex -c model_reasoning_effort=high (setup leaves config.toml alone)"
   if [ "$MODEL_OVERRIDE_SET" -eq 1 ]; then
     log "  note: --model applies to this run only. To persist across upgrades,"
     log "  set model = \"$MODEL_OVERRIDE\" in \${CODEX_HOME:-~/.codex}/config.toml."
@@ -4337,16 +4369,18 @@ CANONICAL_GSTACK_ROOT="$(gstack_canonical_claude_root)"
 
 # Echo the canonical path for a hook (repo-relative arg); fails when the hook
 # is not executable at the canonical install — callers must skip + log.
-# A hook the parse gate below refused is never registered.
+# A hook the parse gate below refused is never registered. A second argument
+# names another stable root: the Codex runtime root for Codex's hooks.
 _HOOK_REFUSED=""
 _hook_refused() {
   case " $_HOOK_REFUSED " in *" $1 "*) return 0 ;; esac
   return 1
 }
 _hook_command_path() {
+  local root="${2:-$CANONICAL_GSTACK_ROOT}"
   _hook_refused "$1" && return 1
-  if [ -x "$CANONICAL_GSTACK_ROOT/$1" ]; then
-    printf '%s\n' "$CANONICAL_GSTACK_ROOT/$1"
+  if [ -x "$root/$1" ]; then
+    printf '%s\n' "$root/$1"
     return 0
   fi
   return 1
@@ -4992,6 +5026,7 @@ _skill_hook_gate() {
   if [ -n "$mode" ] && [ "$unrecognized" -eq 0 ]; then
     "$GSTACK_CONFIG" set "$key" "$decision" >/dev/null 2>&1 || true
   fi
+  if [ -n "${CODEX_HOOKS_FILE:-}" ]; then _codex_hook_gate "$key" "$decision" "$src"; fi
   [ -x "$SETTINGS_HOOK" ] || return 0
   if [ "$decision" = "off" ] || [ "$NO_TEAM_MODE" -eq 1 ]; then
     "$SETTINGS_HOOK" remove-source --source "$source" >/dev/null 2>&1 || true
@@ -5006,13 +5041,78 @@ _skill_hook_gate() {
       case "$out" in
         *unchanged*) : ;;
         *re-pointed*) log "  re-pointed $event hook to $cmd (previous registration held a stale path)" ;;
-        *) log "  registered $event hook: $what (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-}; backup: settings.json.bak.<ts>)" ;;
+        *) log "  registered $event hook: $what (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-}; backup: settings.json.bak.<ts>)"
+           if [ "$src" = "default" ]; then _HOOKS_ON_BY_DEFAULT="$_HOOKS_ON_BY_DEFAULT $key"; fi ;;
       esac
     else
       log "  warning: settings hook update failed: $(printf '%s\n' "$out" | head -1) — run $SETTINGS_HOOK manually"
     fi
   done
 }
+# ─── Codex hooks (GST-3172) ──────────────────────────────────────────────────
+# The same switches register three Codex hooks in ${CODEX_HOME:-~/.codex}/hooks.json
+# (docs/skill-routing-and-contracts.md#codex): skill_routing (UserPromptSubmit),
+# skill_contracts (Stop, GST-3173) and destructive_guard (PreToolUse on Bash), each in its own matcher group with
+# an explicit timeout (Codex's default is 600 s). gstack-settings-hook writes the
+# file in its Codex format: no tag keys (Codex skips a hooks.json with a key it
+# does not know, the user's hooks included), the user's groups left as they are,
+# a schema re-read before the rename, the usual lock, backup and rollback.
+# Commands point at the Codex runtime root, never a version folder: Codex asks
+# the user to trust a hook again whenever its command or timeout changes.
+# Setup never writes trust; Codex skips the hooks until the user trusts them.
+CODEX_HOOKS_FILE=""
+CODEX_HOOKS_READY=0
+CODEX_HOOKS_MIN="0.170.0"
+CODEX_SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
+_CODEX_HOOKS_CHANGED=0
+if [ "$INSTALL_CODEX" -eq 1 ] && [ "$CODEX_REPO_LOCAL" -eq 0 ] && [ -x "$CODEX_SETTINGS_HOOK" ]; then
+  CODEX_HOOKS_FILE="$(dirname "$CODEX_SKILLS")/hooks.json"
+  _CODEX_VERSION="$(codex --version 2>/dev/null | sed -n 's/^codex-cli \([0-9][0-9.]*\).*/\1/p' | head -1 || true)"
+  if [ -z "$_CODEX_VERSION" ]; then
+    log "  Codex hooks not registered: no codex on PATH to check (gstack's hooks need Codex $CODEX_HOOKS_MIN or newer). Install Codex, then re-run ./setup --host codex"
+  elif [ "$(printf '%s\n%s\n' "$CODEX_HOOKS_MIN" "$_CODEX_VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" != "$CODEX_HOOKS_MIN" ]; then
+    log "  Codex hooks not registered: Codex $_CODEX_VERSION is older than $CODEX_HOOKS_MIN, the first version they are tested on. Upgrade (npm install -g @openai/codex), then re-run ./setup --host codex"
+  else
+    CODEX_HOOKS_READY=1
+  fi
+fi
+CODEX_ROUTE_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-route-hook "$CODEX_GSTACK" || true)"
+CODEX_GUARD_HOOK="$(_hook_command_path hosts/codex/hooks/codex-destructive-guard-hook "$CODEX_GSTACK" || true)"
+CODEX_CONTRACT_HOOK="$(_hook_command_path hosts/codex/hooks/codex-skill-contract-stop-hook "$CODEX_GSTACK" || true)"
+# _codex_hook_gate KEY DECISION SOURCE_OF_DECISION — called from _skill_hook_gate
+# with the decision it resolved, so both hosts follow one switch (D1).
+_codex_hook_gate() {
+  local key="$1" decision="$2" src="$3" event cmd source timeout matcher out
+  case "$key" in
+    skill_routing) event=UserPromptSubmit; cmd="$CODEX_ROUTE_HOOK"; source=gstack-skill-route; timeout=5; matcher="" ;;
+    destructive_guard) event=PreToolUse; cmd="$CODEX_GUARD_HOOK"; source=gstack-destructive-guard; timeout=10; matcher=Bash ;;
+    skill_contracts) event=Stop; cmd="$CODEX_CONTRACT_HOOK"; source=gstack-skill-contract; timeout=10; matcher="" ;;
+    *) return 0 ;;
+  esac
+  if [ "$decision" = "off" ] || [ "$NO_TEAM_MODE" -eq 1 ]; then
+    [ -f "$CODEX_HOOKS_FILE" ] || return 0
+    GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$CODEX_HOOKS_FILE" "$CODEX_SETTINGS_HOOK" remove-source --source "$source" >/dev/null \
+      || log "  warning: could not remove gstack's Codex $event hook from $CODEX_HOOKS_FILE"
+    return 0
+  fi
+  [ "$CODEX_HOOKS_READY" -eq 1 ] || return 0
+  if [ -z "$cmd" ]; then
+    log "  Codex $event hook not registered: $CODEX_GSTACK/hosts/codex/hooks is missing or does not parse"
+    return 0
+  fi
+  if out=$(GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$CODEX_HOOKS_FILE" "$CODEX_SETTINGS_HOOK" ensure-event --event "$event" \
+        --command "$cmd" --source "$source" --timeout "$timeout" ${matcher:+--matcher "$matcher"} 2>&1); then
+    case "$out" in
+      *unchanged*) : ;;
+      *) _CODEX_HOOKS_CHANGED=1
+         log "  registered Codex $event hook in $CODEX_HOOKS_FILE (on via $src; turn off: gstack-config set $key off, or ./setup --no-${key//_/-})" ;;
+    esac
+  else
+    log "  warning: Codex hooks not registered: $(printf '%s\n' "$out" | head -1)"
+  fi
+}
+
+_HOOKS_ON_BY_DEFAULT=""
 SKILL_ROUTE_BIN="$SOURCE_GSTACK_DIR/bin/gstack-skill-route"
 SKILL_ROUTE_HOOK="$(_hook_command_path hosts/claude/hooks/skill-route-hook || true)"
 SKILL_CONTRACT_HOOK="$(_hook_command_path hosts/claude/hooks/skill-contract-stop-hook || true)"
@@ -5022,6 +5122,38 @@ _skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPr
 _skill_hook_gate skill_contracts "$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \
   "$SKILL_CONTRACT_HOOK" gstack-skill-contract 10 \
   "a contract skill that ends without its required outputs is blocked once"
+# /careful's destructive-command check in every session (GST-3110): the same
+# check-careful.sh, its ask and deny unchanged, without the model loading /careful.
+DESTRUCTIVE_GUARD_HOOK="$(_hook_command_path hosts/claude/hooks/destructive-guard-hook || true)"
+_skill_hook_gate destructive_guard "$DESTRUCTIVE_GUARD_MODE" GSTACK_DESTRUCTIVE_GUARD PreToolUse \
+  "$DESTRUCTIVE_GUARD_HOOK" gstack-destructive-guard 10 \
+  "destructive commands (rm -rf, DROP TABLE, force-push) ask before they run" 'Bash|PowerShell'
+# Codex skips a hook nobody trusted yet, silently, so say so once per run while
+# any of gstack's Codex hooks waits for trust; setup never writes trust itself.
+if [ "$CODEX_HOOKS_READY" -eq 1 ] && [ -f "$CODEX_HOOKS_FILE" ]; then
+  _CODEX_UNTRUSTED="$(GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$CODEX_HOOKS_FILE" "$CODEX_SETTINGS_HOOK" trust-status 2>/dev/null | grep -c 'untrusted$' || true)"
+  if [ "${_CODEX_UNTRUSTED:-0}" -gt 0 ]; then
+    if [ "$_CODEX_HOOKS_CHANGED" -eq 1 ]; then
+      log "gstack added $_CODEX_UNTRUSTED Codex hook(s); trust them at Codex's startup prompt or in /hooks (Codex skips them until you do)."
+    else
+      log "gstack's $_CODEX_UNTRUSTED Codex hook(s) are not trusted yet; trust them at Codex's startup prompt or in /hooks (Codex skips them until you do)."
+    fi
+  fi
+fi
+# One notice, the first time a default turns these hooks on (an install that
+# predates the default, or a new one). An off you set earlier is kept: the
+# gate reads it before the default.
+_HOOKS_NOTICE_MARKER="$GSTACK_STATE_ROOT/.hooks-on-by-default-notice"
+if [ -n "$_HOOKS_ON_BY_DEFAULT" ] && [ "$QUIET" -eq 0 ] && [ ! -e "$_HOOKS_NOTICE_MARKER" ]; then
+  log ""
+  log "gstack's helper hooks are now on by default. This run turned on:$_HOOKS_ON_BY_DEFAULT"
+  log "  skill_routing: a one-line hint naming the gstack skill a prompt fits"
+  log "  skill_contracts: a skill with required steps (/review's specialist reviewers) is held once if it stops without them"
+  log "  destructive_guard: rm -rf, DROP TABLE, force-push and the like ask before they run"
+  log "  Turn one off: gstack-config set <name> off (takes effect on the next prompt), or ./setup --no-skill-routing,"
+  log "  --no-skill-contracts, --no-destructive-guard. Docs: docs/skill-routing-and-contracts.md"
+  mkdir -p "$GSTACK_STATE_ROOT" 2>/dev/null && : > "$_HOOKS_NOTICE_MARKER" 2>/dev/null || true
+fi
 # Both skill gates register HOOK_TIMEOUT_S from lib/skill-gates.ts, the longest
 # gate deadline plus a margin (GST-1615): Claude Code kills a hook at its
 # timeout and lets the stop through unchecked. Empty if bun cannot run, which

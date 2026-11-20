@@ -18,7 +18,7 @@
  * environment and has no per-process opt-out, so there the land process's environment stays readable to the checks.
  */
 import { dlopen, FFIType } from 'bun:ffi';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

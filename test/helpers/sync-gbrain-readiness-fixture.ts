@@ -37,7 +37,7 @@ const args = process.argv.slice(2).join(' ');
 appendFileSync(${JSON.stringify(log)}, args + '\\n');
 if (args === 'sources list --json') console.log(${JSON.stringify(JSON.stringify({ sources: [{ id: 'client-fixture', local_path: workDir }] }))});
 else if (args === 'list --source client-fixture --limit 1') console.log('code/fixture/readme\\tcode\\t2026-09-24\\tReadme');
-else if (args === 'get code/fixture/readme --source client-fixture --json') ${kind === 'ready'
+else if (args.startsWith('get code/fixture/readme --source client-fixture --json')) ${kind === 'ready'
     ? `console.log(${JSON.stringify(JSON.stringify({ source_id: 'client-fixture', slug: 'code/fixture/readme', content: '# Readme' }))});`
     : "{ console.error('temporary read failure'); process.exit(2); }"}
 else { console.error('unsupported operation'); process.exit(3); }

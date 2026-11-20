@@ -28,6 +28,17 @@
 #        gstack-settings-hook prune-stale --repoint <root>    # re-point gstack items at <root>, prune still-dead
 #        gstack-settings-hook prune-stale --all               # remove ALL gstack hook items (uninstall sweep)
 #
+#   4. Codex format (GSTACK_HOOKS_FORMAT=codex): the same verbs (but not the
+#      legacy add/remove) on ${CODEX_HOME:-~/.codex}/hooks.json, plus
+#        gstack-settings-hook trust-status   # read-only: "<source>\t<event>\ttrusted|untrusted|disabled"
+#      Codex 0.170 skips the whole hooks.json when it holds a key it does not
+#      know, which would switch off the user's own hooks too. So this format
+#      never writes _gstack_source (identity is the KNOWN_HOOKS rows marked
+#      host codex), refuses a file that already fails the schema, re-reads the
+#      temp file against the schema before the rename, appends new groups after
+#      the user's (Codex keys trust by group index), and refuses ensure-event
+#      while config.toml declares a gstack hook under [hooks] (it would run twice).
+#
 # ensure-event is the update-in-place verb: same flags as add-event, but keyed
 # on (event, source) — any entry carrying our source tag for the event is THE
 # registration to compare/update, so a matcher change re-points in place
@@ -75,6 +86,16 @@ GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v 
 
 ACTION="${1:-}"
 SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json}"
+if [ "${GSTACK_HOOKS_FORMAT:-}" = codex ]; then
+  SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-${CODEX_HOME:-$HOME/.codex}/hooks.json}"
+  # Codex reads config.toml from CODEX_HOME, beside the hooks.json path it was
+  # given, so take its directory before the symlink-resolving step below.
+  GSTACK_CODEX_CONFIG="${GSTACK_CODEX_CONFIG:-$(dirname "$SETTINGS_FILE")/config.toml}"
+  export GSTACK_CODEX_CONFIG
+  case "$ACTION" in
+    add|remove) echo "gstack-settings-hook: $ACTION is the legacy settings.json verb; use ensure-event or remove-source with GSTACK_HOOKS_FORMAT=codex" >&2; exit 1 ;;
+  esac
+fi
 
 if [ -z "$ACTION" ]; then
   cat <<EOF >&2
@@ -89,6 +110,7 @@ Usage:
   gstack-settings-hook rollback
   gstack-settings-hook list-sources
   gstack-settings-hook list-items --event <name> [--owned-by <tag>] [--command-regex <js-re>]
+  GSTACK_HOOKS_FORMAT=codex gstack-settings-hook <verb> ...   # Codex hooks.json; adds trust-status
 EOF
   exit 1
 fi
@@ -132,6 +154,7 @@ var KNOWN_HOOKS = {
   "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" },
   "skill-route-hook":         { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/skill-route-hook" },
   "skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" },
+  "destructive-guard-hook":   { source: "gstack-destructive-guard", event: "PreToolUse", matcher: "Bash|PowerShell", relpath: "hosts/claude/hooks/destructive-guard-hook" },
   "investigate-gate-pre":     { source: "gstack-investigate-gate", event: "PreToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash", relpath: "hosts/claude/hooks/investigate-gate-pre" },
   "investigate-gate-post":    { source: "gstack-investigate-gate", event: "PostToolUse", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post" },
   "investigate-gate-post-failure": { source: "gstack-investigate-gate", event: "PostToolUseFailure", matcher: "Bash", relpath: "hosts/claude/hooks/investigate-gate-post-failure" },
@@ -139,8 +162,198 @@ var KNOWN_HOOKS = {
   "ceo-review-gate-stop":     { source: "gstack-ceo-review-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/ceo-review-gate-stop" },
   "ceo-review-gate-subagent-stop": { source: "gstack-ceo-review-gate", event: "SubagentStop", matcher: "", relpath: "hosts/claude/hooks/ceo-review-gate-subagent-stop" },
   "autoplan-stop-gate-stop":  { source: "gstack-autoplan-gate", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/autoplan-stop-gate-stop" },
-  "autoplan-stop-gate-publish": { source: "gstack-autoplan-gate", event: "PreToolUse", matcher: "Bash", relpath: "hosts/claude/hooks/autoplan-stop-gate-publish" }
+  "autoplan-stop-gate-publish": { source: "gstack-autoplan-gate", event: "PreToolUse", matcher: "Bash", relpath: "hosts/claude/hooks/autoplan-stop-gate-publish" },
+  "codex-skill-route-hook":   { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/codex/hooks/codex-skill-route-hook", host: "codex" },
+  "codex-destructive-guard-hook": { source: "gstack-destructive-guard", event: "PreToolUse", matcher: "Bash", relpath: "hosts/codex/hooks/codex-destructive-guard-hook", host: "codex" },
+  "codex-skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/codex/hooks/codex-skill-contract-stop-hook", host: "codex" }
 };
+// GSTACK_HOOKS_FORMAT=codex: the file is Codex hooks.json, and only rows with
+// host codex identify gstack items in it; every other row belongs to
+// settings.json. Codex skips the whole hooks.json when any key is unknown, so
+// in this format nothing writes a _gstack_source tag and every write is
+// checked against the Codex 0.170 schema (gsCodexProblem) before the rename.
+var GS_CODEX = process.env.GSTACK_HOOKS_FORMAT === "codex";
+var GS_CODEX_EVENTS = ["PreModelRequest", "PostModelRequest", "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart", "SessionEnd", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "Interrupt"];
+var GS_CODEX_HANDLER_KEYS = {
+  command: ["type", "command", "commandWindows", "command_windows", "timeout", "async", "statusMessage", "additionalContextLimit"],
+  mcp_tool: ["type", "server", "tool", "input", "timeout", "statusMessage"],
+  prompt: ["type"],
+  agent: ["type"]
+};
+function gsTag(entry, source) { if (!GS_CODEX) entry._gstack_source = source; }
+function gsCodexProblem(doc) {
+  var isObj = function (v) { return v !== null && typeof v === "object" && !Array.isArray(v); };
+  var isCount = function (v) { return typeof v === "number" && Number.isInteger(v) && v >= 0; };
+  // Codex 0.170 deserialize_mcp_tool_input: no null and no u64 past i64::MAX at
+  // any depth. JSON.parse cannot tell 2^63-1 from 2^63 or 1e19 from an integer,
+  // so integers from 2^63-1 up are refused too: refusing only leaves the file alone.
+  var tomlSafe = function (v) {
+    if (v === null) return false;
+    if (typeof v === "number") return !(Number.isInteger(v) && v >= 9223372036854775807);
+    if (Array.isArray(v)) return v.every(tomlSafe);
+    if (typeof v === "object") return Object.keys(v).every(function (k) { return tomlSafe(v[k]); });
+    return true;
+  };
+  var extra = function (o, allowed, at) {
+    var k = Object.keys(o).find(function (x) { return allowed.indexOf(x) < 0; });
+    return k === undefined ? null : at + " has the key " + JSON.stringify(k) + ", which Codex does not know";
+  };
+  if (!isObj(doc)) return "the top level is not an object";
+  var bad = extra(doc, ["description", "hooks"], "the top level");
+  if (bad) return bad;
+  if (doc.description !== undefined && doc.description !== null && typeof doc.description !== "string") return "description is not a string";
+  if (doc.hooks === undefined) return null;
+  if (!isObj(doc.hooks)) return "hooks is not an object";
+  bad = extra(doc.hooks, GS_CODEX_EVENTS, "hooks");
+  if (bad) return bad;
+  for (var ev of Object.keys(doc.hooks)) {
+    var groups = doc.hooks[ev];
+    if (!Array.isArray(groups)) return "hooks." + ev + " is not an array";
+    for (var gi = 0; gi < groups.length; gi++) {
+      var g = groups[gi], at = "hooks." + ev + "[" + gi + "]";
+      if (!isObj(g)) return at + " is not an object";
+      bad = extra(g, ["matcher", "hooks"], at);
+      if (bad) return bad;
+      if (g.matcher !== undefined && g.matcher !== null && typeof g.matcher !== "string") return at + ".matcher is not a string";
+      if (g.hooks === undefined) continue;
+      if (!Array.isArray(g.hooks)) return at + ".hooks is not an array";
+      for (var hi = 0; hi < g.hooks.length; hi++) {
+        var h = g.hooks[hi], hat = at + ".hooks[" + hi + "]";
+        if (!isObj(h)) return hat + " is not an object";
+        var keys = Object.prototype.hasOwnProperty.call(GS_CODEX_HANDLER_KEYS, h.type) ? GS_CODEX_HANDLER_KEYS[h.type] : null;
+        if (!keys) return hat + ".type is " + JSON.stringify(h.type) + ", which Codex does not know";
+        bad = extra(h, keys, hat);
+        if (bad) return bad;
+        if (h.type === "command" && typeof h.command !== "string") return hat + ".command is not a string";
+        if (h.type === "mcp_tool" && (typeof h.server !== "string" || typeof h.tool !== "string")) return hat + " needs string server and tool";
+        if (h.type === "mcp_tool" && h.input !== undefined && !isObj(h.input)) return hat + ".input is not an object";
+        if (h.type === "mcp_tool" && h.input !== undefined && !tomlSafe(h.input)) return hat + ".input holds a null or an integer too large for TOML, which Codex rejects (MCP hook input must be representable as TOML)";
+        if (h.timeout !== undefined && !isCount(h.timeout)) return hat + ".timeout is not a whole number of seconds";
+        if (h.additionalContextLimit !== undefined && !isCount(h.additionalContextLimit)) return hat + ".additionalContextLimit is not a whole number";
+        if (h.async !== undefined && typeof h.async !== "boolean") return hat + ".async is not true or false";
+        for (var sk of ["statusMessage", "commandWindows", "command_windows"]) {
+          if (h[sk] !== undefined && typeof h[sk] !== "string") return hat + "." + sk + " is not a string";
+        }
+      }
+    }
+  }
+  return null;
+}
+function gsCodexConfigClash() {
+  // config.toml [hooks] tables load beside hooks.json in the same layer, so a
+  // gstack hook declared in both runs twice. Refuse instead of adding it.
+  var fs = require("fs");
+  var file = process.env.GSTACK_CODEX_CONFIG;
+  var raw;
+  try { raw = fs.readFileSync(file, "utf8"); }
+  catch (e) { if (e && e.code === "ENOENT") return; throw e; }
+  var cfg;
+  try { cfg = Bun.TOML.parse(raw); }
+  catch (e) {
+    throw Object.assign(new Error(file + " does not parse (" + e.message + "), so gstack cannot check it for hooks it already declares -- fix it and re-run ./setup"), { gstackUnreadableSettings: true });
+  }
+  var hooks = cfg && cfg.hooks;
+  if (!hooks || typeof hooks !== "object") return;
+  for (var ev of Object.keys(hooks)) {
+    if (ev === "state" || !Array.isArray(hooks[ev])) continue;
+    for (var g of hooks[ev]) {
+      for (var h of (g && Array.isArray(g.hooks) ? g.hooks : [])) {
+        var row = h && typeof h.command === "string" ? gsOwnedRow(h.command, ev, g.matcher || "") || gsCodexClashRow(h.command, ev, g.matcher) : null;
+        if (row) {
+          throw Object.assign(new Error(file + " already declares gstack hook " + row.source + " under [hooks." + ev + "], and Codex would run it twice -- remove it from config.toml (gstack keeps its hooks in hooks.json) and re-run ./setup"), { gstackUnreadableSettings: true });
+        }
+      }
+    }
+  }
+}
+// A gstack command declared under another matcher still runs twice when that
+// matcher selects a tool the row names: Codex 0.170 matcher.rs treats empty
+// or "*" as every tool, [A-Za-z0-9_|] as exact names and anything else as an
+// unanchored regex (Rust syntax: a leading (?i), (?m) or (?s) group and \A / \z
+// are translated). A matcher JS still cannot compile counts as a clash
+// (refusal is the safe side). Bash, the only tool a Codex row names, has no matcher aliases.
+function gsCodexClashRow(cmd, event, matcher) {
+  var b = gsBaseOf(cmd);
+  var row = Object.prototype.hasOwnProperty.call(KNOWN_HOOKS, b) ? KNOWN_HOOKS[b] : null;
+  if (!row || !gsOwnedRow(cmd, event, row.matcher)) return null;
+  if (!row.matcher || matcher === undefined || matcher === null || matcher === "" || matcher === "*") return row;
+  var tools = row.matcher.split("|");
+  if (/^[A-Za-z0-9_|]+$/.test(matcher)) {
+    var names = matcher.split("|");
+    return tools.some(function (t) { return names.indexOf(t) >= 0; }) ? row : null;
+  }
+  var src = matcher, flags = "";
+  var lead = /^\(\?([a-zA-Z]+)\)/.exec(src);
+  if (lead) {
+    if (/[^ims]/.test(lead[1])) return row;
+    flags = lead[1];
+    src = src.slice(lead[0].length);
+  }
+  src = src.replace(/(^|[^\\])((?:\\\\)*)\\A/g, "$1$2^").replace(/(^|[^\\])((?:\\\\)*)\\z/g, "$1$2$$");
+  var re;
+  try { re = new RegExp(src, flags); } catch (e) {
+    try { re = new RegExp(src, flags + "u"); } catch (e2) { return row; }
+  }
+  return tools.some(function (t) { return re.test(t); }) ? row : null;
+}
+function gsCodexRefuse(path, problem) {
+  throw Object.assign(new Error(path + " does not match the Codex hooks.json schema (" + problem + "); Codex skips that whole file, so gstack will not write it -- fix the file (or move it aside) and re-run ./setup"), { gstackUnreadableSettings: true });
+}
+function gsCodexMovedUserHooks(beforeText, settings) {
+  var before;
+  try { before = JSON.parse(beforeText); } catch (e) { return []; }
+  var bh = (before && before.hooks) || {};
+  var ah = (settings && settings.hooks) || {};
+  var moved = [];
+  Object.keys(bh).forEach(function (ev) {
+    (Array.isArray(bh[ev]) ? bh[ev] : []).forEach(function (g, gi) {
+      (g && Array.isArray(g.hooks) ? g.hooks : []).forEach(function (h, hi) {
+        if (h && h.type === "command" && gsOwnedRow(h.command, ev, g.matcher || "")) return;
+        var ag = (Array.isArray(ah[ev]) ? ah[ev] : [])[gi];
+        var same = ag && Array.isArray(ag.hooks) && JSON.stringify(ag.hooks[hi]) === JSON.stringify(h) && (ag.matcher || "") === (g.matcher || "");
+        if (!same && moved.indexOf(ev) < 0) moved.push(ev);
+      });
+    });
+  });
+  return moved;
+}
+// The gstack handlers in beforeText that this change removes or moves, named by
+// position and command: the refusal below tells the user to delete only these,
+// never the group around them (a group can hold their own handlers too).
+function gsCodexGstackHandlers(beforeText, settings) {
+  var before;
+  try { before = JSON.parse(beforeText); } catch (e) { return []; }
+  var bh = (before && before.hooks) || {};
+  var ah = (settings && settings.hooks) || {};
+  var out = [];
+  Object.keys(bh).forEach(function (ev) {
+    (Array.isArray(bh[ev]) ? bh[ev] : []).forEach(function (g, gi) {
+      (g && Array.isArray(g.hooks) ? g.hooks : []).forEach(function (h, hi) {
+        if (!(h && h.type === "command" && gsOwnedRow(h.command, ev, g.matcher || ""))) return;
+        var ag = (Array.isArray(ah[ev]) ? ah[ev] : [])[gi];
+        if (ag && Array.isArray(ag.hooks) && JSON.stringify(ag.hooks[hi]) === JSON.stringify(h)) return;
+        out.push("hooks." + ev + "[" + gi + "].hooks[" + hi + "] (command " + JSON.stringify(h.command) + ")");
+      });
+    });
+  });
+  return out;
+}
+// Removing a Codex group shifts every later group of that event down one
+// index, and Codex keys trust by index. A group gstack empties therefore stays
+// as {"hooks": []} while any group follows it: Codex 0.170 enumerates empty
+// groups when it numbers them (discovery.rs append_matcher_groups), loads one
+// with no warning, and hashes only event, matcher and handler, so every later
+// key and hash stays the same. Slots gstack makes at the end are dropped; the
+// marker is not enumerable, so it never reaches the file.
+function gsCodexSlot() {
+  var slot = { hooks: [] };
+  Object.defineProperty(slot, "gsSlot", { value: true });
+  return slot;
+}
+function gsCodexTrimSlots(groups) {
+  while (groups.length > 0 && groups[groups.length - 1] && groups[groups.length - 1].gsSlot === true) groups.pop();
+  return groups;
+}
 function gsHadBashPrefix(c) { return String(c == null ? "" : c).trim().indexOf("bash ") === 0; }
 function gsStripWrap(c) {
   var s = String(c == null ? "" : c).trim();
@@ -168,6 +381,7 @@ function gsOwnedRow(cmd, event, matcher) {
   if (p !== row.relpath && p.slice(-(row.relpath.length + 1)) !== "/" + row.relpath) return null;
   if (row.event !== event) return null;
   if (row.matcher && (matcher || "") !== row.matcher) return null;
+  if ((row.host || "claude") !== (GS_CODEX ? "codex" : "claude")) return null;
   return row;
 }
 function gsWinPath(p) {
@@ -241,11 +455,13 @@ function gsIsAlive(cmd) {
   }
 }
 function gsQuoteCmd(target, hadBash) {
-  // Shell-metacharacter hardening: the command string is executed by a shell
-  // when Claude Code fires the hook, so a path containing $, backtick (x60 --
-  // written as an escape so the prelude itself stays backtick-free), or a
-  // quote must be neutralized, not just space-wrapped.
-  var needsQuote = /[\s$\x60"\\]/.test(target);
+  // Shell-metacharacter hardening: Claude Code and Codex both run the command
+  // string through a shell, so any path character outside the plain set
+  // (letters, digits, non-ASCII, and _ @ % + = : , . / -) is wrapped in double
+  // quotes, with $, backtick (x60 -- written as an escape so the prelude itself
+  // stays backtick-free), quote and backslash escaped. A bare ( or & is a
+  // syntax error, exit 2, which Codex reads as a block on every event.
+  var needsQuote = /[^A-Za-z0-9_@%+=:,.\/\x2d\u0080-\uffff]/.test(target);
   var quoted = needsQuote
     ? "\"" + target.replace(/[\\"$\x60]/g, function (ch) { return "\\" + ch; }) + "\""
     : target;
@@ -284,16 +500,29 @@ function gsLoadSettings(path) {
     process.stderr.write("gstack-settings-hook: cannot read " + path + ": " + e.message + " -- refusing to mutate\n");
     process.exit(3);
   }
-  try { return { settings: JSON.parse(raw), existed: true }; }
+  var parsed;
+  try { parsed = JSON.parse(raw); }
   catch (e) {
     process.stderr.write("gstack-settings-hook: " + path + " is not valid JSON (" + e.message + ") -- refusing to mutate; fix or restore it (.bak files / rollback)\n");
     process.exit(3);
   }
+  if (GS_CODEX) {
+    var problem = gsCodexProblem(parsed);
+    if (problem) gsCodexRefuse(path, problem);
+  }
+  return { settings: parsed, existed: true };
 }
 function gsWriteIfChanged(path, beforeText, settings, existed) {
   var fs = require("fs");
   var afterText = JSON.stringify(settings, null, 2);
   if (afterText === beforeText) return false;
+  if (GS_CODEX) {
+    var moved = gsCodexMovedUserHooks(beforeText, settings);
+    if (moved.length > 0) {
+      var ours = gsCodexGstackHandlers(beforeText, settings);
+      throw Object.assign(new Error("left " + path + " unchanged: this change would move your own " + moved.join(", ") + " hooks, which come after the gstack hook there, to new positions. Codex keys hook trust by position, so they would stop running until you trust them again, and codex exec would skip them without asking. To remove the gstack hook yourself, delete only the gstack handler" + (ours.length === 1 ? " " : "s ") + ours.join(", ") + " from " + path + ", keeping your own handlers and groups as they are, then re-trust your hooks in Codex with /hooks"), { gstackUnreadableSettings: true });
+    }
+  }
   gsAssertSettingsUnchanged(path);
   // Preserve the live file mode across the tmp+rename (settings.json can
   // carry API keys in its env block -- a user-tightened 0600 must never be
@@ -306,9 +535,17 @@ function gsWriteIfChanged(path, beforeText, settings, existed) {
     gsRotateBackups(path, 10);
   }
   var tmp = process.env.GSTACK_TMP_PATH;
+  if (GS_CODEX) {
+    var before = gsCodexProblem(settings);
+    if (before) gsCodexRefuse(path, "the new content: " + before);
+  }
   fs.writeFileSync(tmp, afterText + "\n", { mode: mode, flag: "wx" });
   try {
     fs.chmodSync(tmp, mode);
+    if (GS_CODEX) {
+      var reread = gsCodexProblem(JSON.parse(fs.readFileSync(tmp, "utf8")));
+      if (reread) gsCodexRefuse(path, "the written copy: " + reread);
+    }
     gsAssertSettingsUnchanged(path);
     fs.renameSync(tmp, path);
   } finally {
@@ -518,7 +755,7 @@ case "$ACTION" in
     GSTACK_TIMEOUT="$TIMEOUT" \
     GSTACK_DIFF_ONLY="$DIFF_ONLY" \
     GSTACK_ENSURE="$ENSURE" \
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+        bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
       const event = process.env.GSTACK_EVENT;
       const cmd = process.env.GSTACK_COMMAND;
@@ -531,6 +768,7 @@ case "$ACTION" in
       const loaded = gsLoadSettings(settingsPath);
       const settings = loaded.settings;
       const before = JSON.stringify(settings, null, 2);
+      if (GS_CODEX) gsCodexConfigClash();
 
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks[event]) settings.hooks[event] = [];
@@ -589,14 +827,14 @@ case "$ACTION" in
           // entry-level ownership (remove-source deletes the whole tagged
           // entry; add-event clobbers entry.hooks wholesale) -- a tag on a
           // mixed entry hands them permission to destroy the user items in it.
-          if (primary.entry.hooks.length === 1) primary.entry._gstack_source = source;
+          if (primary.entry.hooks.length === 1) gsTag(primary.entry, source);
           else delete primary.entry._gstack_source;
           placed = true;
         } else if (primary.entry.hooks.length === 1) {
           // Tagged single-item entry under a stale matcher: the entry is
           // exclusively ours, so re-point payload AND matcher in place.
           primary.entry.hooks = [hookEntry];
-          primary.entry._gstack_source = source;
+          gsTag(primary.entry, source);
           if (matcher) primary.entry.matcher = matcher;
           else delete primary.entry.matcher;
           placed = true;
@@ -616,12 +854,17 @@ case "$ACTION" in
         }
         // Drop only entries WE emptied; started-empty foreign entries are
         // never candidates, so they are preserved verbatim.
-        settings.hooks[event] = settings.hooks[event].filter(e =>
-          !(Array.isArray(e.hooks) && e.hooks.length === 0 && cands.some(c => c.entry === e)));
+        const emptied = e => Array.isArray(e.hooks) && e.hooks.length === 0 && cands.some(c => c.entry === e);
+        settings.hooks[event] = GS_CODEX
+          ? gsCodexTrimSlots(settings.hooks[event].map(e => (emptied(e) ? gsCodexSlot() : e)))
+          : settings.hooks[event].filter(e => !emptied(e));
       }
       if (!placed) {
-        const newEntry = { _gstack_source: source, hooks: [hookEntry] };
-        if (matcher) newEntry.matcher = matcher;
+        const newEntry = {};
+        gsTag(newEntry, source);
+        if (GS_CODEX && matcher) newEntry.matcher = matcher;
+        newEntry.hooks = [hookEntry];
+        if (!GS_CODEX && matcher) newEntry.matcher = matcher;
         settings.hooks[event].push(newEntry);
       }
 
@@ -719,12 +962,12 @@ case "$ACTION" in
             return true;
           });
           if (touched === 0) { kept.push(entry); continue; }
-          if (remain.length === 0) continue;
+          if (remain.length === 0) { if (GS_CODEX) kept.push(gsCodexSlot()); continue; }
           entry.hooks = remain;
           if (tagged) delete entry._gstack_source;
           kept.push(entry);
         }
-        settings.hooks[event] = kept;
+        settings.hooks[event] = GS_CODEX ? gsCodexTrimSlots(kept) : kept;
         if (settings.hooks[event].length === 0) delete settings.hooks[event];
       }
       if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
@@ -835,7 +1078,7 @@ case "$ACTION" in
                   // both would fire the hook twice per event, forever.
                   if (seenInEntry.has(newCmd)) { removed++; continue; }
                   seenInEntry.add(newCmd);
-                  if (wasSingle) entry._gstack_source = row.source;   // tag restore
+                  if (wasSingle) gsTag(entry, row.source);   // tag restore
                   remain.push(h);
                   continue;
                 }
@@ -843,7 +1086,7 @@ case "$ACTION" in
               // No re-point target (or plan-tune opt-out): keep live, prune dead.
               if (gsIsAlive(cmdRaw)) remain.push(h); else { removed++; }
             }
-            if (remain.length === 0) continue;   // entry emptied → dropped
+            if (remain.length === 0) { if (GS_CODEX) rebuilt.push(gsCodexSlot()); continue; }   // entry emptied → dropped (Codex: a slot)
             entry.hooks = remain;
             // Tag hygiene: a tag must never sit on an entry containing foreign
             // items (old gstack versions in sibling worktrees treat tags as
@@ -870,10 +1113,11 @@ case "$ACTION" in
             if (at === undefined) { seen.set(key, out.length); out.push(entry); }
             else {
               if (!out[at]._gstack_source && entry._gstack_source) out[at] = entry;
+              if (GS_CODEX) out.push(gsCodexSlot());
               removed++;
             }
           }
-          settings.hooks[event] = out;
+          settings.hooks[event] = GS_CODEX ? gsCodexTrimSlots(out) : out;
           if (out.length === 0) delete settings.hooks[event];
         }
         if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
@@ -922,6 +1166,17 @@ case "$ACTION" in
       var tmp = process.env.GSTACK_TMP_PATH;
       gsAssertSettingsTarget(target);
       gsLoadedIdentity = gsSettingsIdentity(target);
+      if (GS_CODEX) {
+        // Restoring a backup Codex would skip switches off every hook in the
+        // file, the user ones too, so the backup passes the same schema check
+        // as any write before it replaces the live file.
+        var problem;
+        try { problem = gsCodexProblem(JSON.parse(fs.readFileSync(backup, "utf8"))); }
+        catch (e) { problem = "it is not valid JSON (" + e.message + ")"; }
+        if (problem) {
+          throw Object.assign(new Error("left " + target + " unchanged: the backup " + backup + " does not match the Codex hooks.json schema (" + problem + "), and Codex would skip that whole file"), { gstackUnreadableSettings: true });
+        }
+      }
       try {
         fs.copyFileSync(backup, tmp, fs.constants.COPYFILE_EXCL);
         gsAssertSettingsUnchanged(target);
@@ -988,6 +1243,53 @@ case "$ACTION" in
           if (re && !re.test(cmd)) continue;
           console.log(JSON.stringify(cmd));
         }
+      }
+    });
+    '
+    ;;
+
+  trust-status)
+    # Read-only, Codex only: one line per gstack handler in hooks.json,
+    # "<source>\t<event>\t<state>", where state is trusted (config.toml holds a
+    # trusted_hash under [hooks.state."<hooks.json path>:<event>:<group>:<handler>"],
+    # the key Codex 0.170 builds in codex-rs/hooks/src/lib.rs hook_key, from the
+    # canonical CODEX_HOME when that is set, else $HOME/.codex as written),
+    # untrusted (no entry yet: Codex skips the hook until the user trusts it) or
+    # disabled (enabled = false). It never computes a hash, so a trusted line
+    # means an entry exists, not that it matches the current definition.
+    if [ "${GSTACK_HOOKS_FORMAT:-}" != codex ]; then
+      echo "trust-status needs GSTACK_HOOKS_FORMAT=codex" >&2
+      exit 1
+    fi
+    [ -f "$SETTINGS_FILE" ] || exit 0
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_CODEX_HOOKS_INPUT="$GSTACK_SETTINGS_INPUT" \
+        bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+      const fs = require("fs");
+      const path = require("path");
+      const loaded = gsLoadSettings(process.env.GSTACK_SETTINGS_PATH);
+      let state = {};
+      try {
+        const cfg = Bun.TOML.parse(fs.readFileSync(process.env.GSTACK_CODEX_CONFIG, "utf8"));
+        state = (cfg && cfg.hooks && cfg.hooks.state) || {};
+      } catch (e) {
+        if (!e || e.code !== "ENOENT") throw Object.assign(new Error(process.env.GSTACK_CODEX_CONFIG + " does not parse (" + (e && e.message) + ")"), { gstackUnreadableSettings: true });
+      }
+      const label = (ev) => ev.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+      // Codex 0.170 keys trust by the hooks.json path inside its home, never by
+      // where a symlinked hooks.json points: a CODEX_HOME that is set is
+      // canonicalized (utils/home-dir find_codex_home), the default
+      // $HOME/.codex is used as written.
+      const input = path.resolve(process.env.GSTACK_CODEX_HOOKS_INPUT);
+      const keyFile = process.env.CODEX_HOME ? path.join(fs.realpathSync(path.dirname(input)), path.basename(input)) : input;
+      const hooks = loaded.settings.hooks || {};
+      for (const ev of Object.keys(hooks)) {
+        hooks[ev].forEach((g, gi) => (g.hooks || []).forEach((h, hi) => {
+          const row = h && h.type === "command" ? gsOwnedRow(h.command, ev, g.matcher || "") : null;
+          if (!row) return;
+          const entry = state[keyFile + ":" + label(ev) + ":" + gi + ":" + hi];
+          const st = entry && entry.enabled === false ? "disabled" : entry && typeof entry.trusted_hash === "string" ? "trusted" : "untrusted";
+          console.log(row.source + "\t" + ev + "\t" + st);
+        }));
       }
     });
     '

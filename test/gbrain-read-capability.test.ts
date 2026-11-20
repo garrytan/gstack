@@ -7,7 +7,9 @@ import { spawnSync } from 'node:child_process';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function fixture(opts: { state?: unknown; pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; fail?: string; gitExecutable?: string } = {}) {
+const WINDOW = '--body window --max-bytes 4096';
+
+function fixture(opts: { state?: unknown | ((repo: string, sibling: string) => unknown); pin?: string; registration?: unknown | ((repo: string) => unknown); slug?: string; list?: string; get?: unknown; window?: unknown; pageBytes?: number; legacy?: boolean; fail?: string; gitExecutable?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'gbrain-read-'));
   roots.push(root);
   const repo = join(root, 'repo');
@@ -20,7 +22,9 @@ function fixture(opts: { state?: unknown; pin?: string; registration?: unknown |
   const slug = opts.slug ?? 'code/repo/readme';
   writeFileSync(join(repo, '.gbrain-source'), `${opts.pin ?? source}\n`);
   mkdirSync(join(home, '.gstack'));
-  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify(opts.state ?? {
+  const sibling = join(root, 'sibling');
+  mkdirSync(sibling);
+  writeFileSync(join(home, '.gstack', '.gbrain-sync-state.json'), JSON.stringify((typeof opts.state === 'function' ? opts.state(repo, sibling) : opts.state) ?? {
     schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: [
       { name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id: source, source_path: repo } },
     ],
@@ -31,10 +35,11 @@ function fixture(opts: { state?: unknown; pin?: string; registration?: unknown |
 import { appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
 const args = process.argv.slice(2).join(' ');
-if (args === ${JSON.stringify(opts.fail)}) process.exit(2);
+if (${JSON.stringify(opts.fail ?? null)} !== null && args.startsWith(${JSON.stringify(opts.fail ?? '')})) process.exit(2);
 if (args === 'sources list --json') console.log(${JSON.stringify(JSON.stringify(registration ?? { sources: [{ id: source, local_path: repo }] }))});
 else if (args === 'list --source client-repo --limit 1') console.log(${JSON.stringify(opts.list ?? `${slug}\tcode\t2026-09-24\tReadme`)});
-else if (args === ${JSON.stringify(`get ${slug} --source client-repo --json`)}) console.log(${JSON.stringify(JSON.stringify(opts.get ?? { source_id: source, slug }))});
+else if (args === ${JSON.stringify(`get ${slug} --source client-repo --json ${WINDOW}`)} && ${!opts.legacy}) console.log(${JSON.stringify(JSON.stringify(opts.window ?? opts.get ?? { source_id: source, slug, body: 'x'.repeat(Math.min(opts.pageBytes ?? 8, 4096)) }))});
+else if (args === ${JSON.stringify(`get ${slug} --source client-repo --json`)}) console.log(${JSON.stringify(JSON.stringify(opts.get ?? { source_id: source, slug, compiled_truth: 'x'.repeat(opts.pageBytes ?? 8) }))});
 else process.exit(3);
 `);
   chmodSync(join(bin, 'gbrain'), 0o755);
@@ -48,12 +53,53 @@ else process.exit(3);
   return { repo, root, run, log };
 }
 
+const syncState = (last: unknown, codeSources?: unknown) => ({
+  schema_version: 1, last_writer: 'gstack-gbrain-sync', last_stages: last ? [last] : [],
+  ...(codeSources === undefined ? {} : { code_sources: codeSources }),
+});
+const okCode = (source_id: string, source_path: string) => ({ name: 'code', ran: true, ok: true, detail: { status: 'ok', source_id, source_path } });
+const record = (path: unknown) => ({ path, remote: '', git_common_dir: null });
+
+test.each(['this repo', 'the other repo'])('two synced repos both read ready whichever synced last (%s last)', last => {
+  const result = fixture({ state: (repo: string, sibling: string) => syncState(
+    last === 'this repo' ? okCode('client-repo', repo) : okCode('sibling-repo', sibling),
+    { 'client-repo': record(repo), 'sibling-repo': record(sibling) },
+  ) }).run();
+  expect(result.value.status).toBe('ready');
+  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', `get code/repo/readme --source client-repo --json ${WINDOW}`]);
+});
+
+test.each([
+  ['a repo that never synced', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'sibling-repo': record(sibling) })],
+  ['an older state with no per-repo records', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling))],
+  ['a record pointing at another worktree', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(sibling) })],
+  ['a record whose worktree is gone', (repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(join(repo, 'gone')) })],
+  ['a record with no path', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': { remote: '' } })],
+  ['a record with a non-string path', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': record(7) })],
+  ['a null record', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), { 'client-repo': null })],
+  ['a records list instead of a map', (repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), [{ ...record(repo), id: 'client-repo' }])],
+  ['a records string', (_repo: string, sibling: string) => syncState(okCode('sibling-repo', sibling), 'client-repo')],
+  ['a record beside this source\'s latest failed sync', (repo: string) => syncState({ name: 'code', ran: true, ok: false, detail: { status: 'failed', source_id: 'client-repo', source_path: repo } }, { 'client-repo': record(repo) })],
+  ['a record beside this source\'s latest unverified sync', (repo: string) => syncState({ name: 'code', ran: true, ok: true, detail: { status: 'partial', source_id: 'client-repo', source_path: repo } }, { 'client-repo': record(repo) })],
+  ['a record beside a latest failed sync that names no source', (repo: string) => syncState({ name: 'code', ran: true, ok: false }, { 'client-repo': record(repo) })],
+])('%s still asks for a sync before any brain read', (_name, state) => {
+  const result = fixture({ state }).run();
+  expect(result.result.status).toBe(0);
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toEqual([]);
+});
+
+test('a skipped code stage keeps the earlier per-repo record', () => {
+  const result = fixture({ state: (repo: string) => syncState({ name: 'code', ran: false, ok: true }, { 'client-repo': record(repo) }) }).run();
+  expect(result.value.status).toBe('ready');
+});
+
 test('source-scoped read validates a pretty sync state, registration, and matching page', () => {
   const f = fixture();
   const result = f.run();
   expect(result.result.status).toBe(0);
   expect(result.value.status).toBe('ready');
-  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', 'get code/repo/readme --source client-repo --json']);
+  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', `get code/repo/readme --source client-repo --json ${WINDOW}`]);
 });
 
 test('symlink-equivalent registered worktree passes but another source path fails closed', () => {
@@ -70,7 +116,7 @@ test('symlink-equivalent registered worktree passes but another source path fail
   writeFileSync(join(f.repo, '.gbrain-source'), 'other-source\n');
   const result = f.run();
   expect(result.value.status).toBe('unknown');
-  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', 'get code/repo/readme --source client-repo --json']);
+  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', `get code/repo/readme --source client-repo --json ${WINDOW}`]);
 });
 
 test('rejects the former header-only and multi-row TSV response before get', () => {
@@ -95,13 +141,32 @@ test('accepts a bounded literal-Unicode code slug', () => {
   const slug = 'code/路径/mañana🌳.ts';
   const result = fixture({ slug }).run();
   expect(result.value.status).toBe('ready');
-  expect(result.calls.at(-1)).toBe(`get ${slug} --source client-repo --json`);
+  expect(result.calls.at(-1)).toBe(`get ${slug} --source client-repo --json ${WINDOW}`);
 });
 
 test.each(['--help', 'code/a/../b', 'code/./b', 'code/\u0007bad', 'a'.repeat(513)])('rejects unsafe slug %j before get', slug => {
   const result = fixture({ slug }).run();
   expect(result.value.status).toBe('unknown');
   expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1']);
+});
+
+test('a first page over 64 KB reads ready through a bounded window', () => {
+  const result = fixture({ pageBytes: 300_000 }).run();
+  expect(result.value.status).toBe('ready');
+  expect(result.calls).toEqual(['sources list --json', 'list --source client-repo --limit 1', `get code/repo/readme --source client-repo --json ${WINDOW}`]);
+});
+
+test('a window response over the read limit is unknown, never a truncated ready', () => {
+  const result = fixture({ pageBytes: 300_000, window: { source_id: 'client-repo', slug: 'code/repo/readme', body: 'x'.repeat(300_000) } }).run();
+  expect(result.value.status).toBe('unknown');
+  expect(result.calls).toHaveLength(4);
+});
+
+test('a gbrain without body windows falls back to the whole-page read under the same limit', () => {
+  const small = fixture({ legacy: true }).run();
+  expect(small.value.status).toBe('ready');
+  expect(small.calls.slice(2)).toEqual([`get code/repo/readme --source client-repo --json ${WINDOW}`, 'get code/repo/readme --source client-repo --json']);
+  expect(fixture({ legacy: true, pageBytes: 300_000 }).run().value.status).toBe('unknown');
 });
 
 test('rejects a JSON error envelope with matching source and slug', () => {

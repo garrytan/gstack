@@ -171,7 +171,8 @@ export function docsPreambleCommands(fixture: ReturnType<typeof fixtureDocs>): s
     'document-release/SKILL.md'), 'utf8');
   const [command, expected] = [source, generated].map(text => {
     if ((text.match(/^## Preamble \(run first\)[ \t]*\r?$/gm) ?? []).length !== 1) return undefined;
-    return /^## Preamble \(run first\)[ \t]*\r?\n(?:[ \t]*\r?\n)*```bash[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/m.exec(text)?.[1];
+    // A Claude render runs the start at load (GST-3157); its plain command stays below the injected line as the fallback.
+    return /^## Preamble \(run first\)[ \t]*\r?\n(?:[ \t]*\r?\n)*(?:!`[^`\r\n]+`[ \t]*\r?\n(?:[ \t]*\r?\n)*If the line above is not the start output, run this once; otherwise it already ran:[ \t]*\r?\n(?:[ \t]*\r?\n)*)?```bash[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/m.exec(text)?.[1];
   });
   if (!command || command !== expected) return [];
   return [command, command.replace(/(^|\n)("\$_SS" --skill|[^\s"]*\/gstack-skill-start --skill)/, '$1GSTACK_SESSION_KIND=spawned $2')];

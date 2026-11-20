@@ -169,13 +169,13 @@ describe('deferral rendering', () => {
   test('a deferred record keeps the collected label as its severity and the reviewer\'s stated severity and Blocks beside it (GST-766)', () => {
     expect(deferredRecord({ ...finding, stated: { severity: 'Low', blocks: 'no' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Severity: Low, Blocks: no' });
     expect(deferredRecord({ ...finding, stated: { blocks: 'yes\n- **Injected:** x' } })).toMatchObject({ severity: 'CRITICAL', stated: 'Blocks: yes - **Injected:** x' });
-    expect(deferredRecord(finding)).toEqual({ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete\nwithout a where clause' });
+    expect(deferredRecord(finding)).toEqual({ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete\nwithout a where clause', security: true });
   });
 
   test('deferred findings stay on the PR: the body section lists them, says no issue was filed, and never closes anything (R85)', () => {
     const section = renderDeferredSection(
       [{ fingerprint: 'lib/legacy.ts:7:data-loss', path: 'lib/legacy.ts:7', severity: 'CRITICAL', summary: 'Unbounded delete' },
-        { fingerprint: 'lib/old.ts:1:auth', path: 'lib/old.ts:1', severity: 'CRITICAL', stated: 'Blocks: no', summary: 'Missing owner\ncheck' }],
+        { fingerprint: 'lib/old.ts:1:correctness', path: 'lib/old.ts:1', severity: 'CRITICAL', stated: 'Blocks: no', summary: 'Missing owner\ncheck' }],
       [{ path: 'src/auth.ts', line: 42, severity: 'INFORMATIONAL', summary: 'rename b', advisory: true }]);
     expect(section).toContain('## Deferred findings');
     expect(section).toContain('not filed as issues');
@@ -381,16 +381,16 @@ describe('gstack-review-scope (bin)', () => {
       { skill: 'review', timestamp: '2026-10-26T10:40:00Z', findings: [{ fingerprint: 'e:1:v', blocking: true, action: 'fixed' }] },
     ];
     fs.writeFileSync(path.join(logDir, `${branch}-reviews.jsonl`), rows.map(r => JSON.stringify(r)).join('\n') + '\n{not json\n');
-    const expected = { passes: 2, blocking_found: 2, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', rounds: 2 };
+    const expected = { passes: 2, blocking_found: 3, deferred: 1, noted: 1, fixed: 1, scope: 'frozen', unrecorded: 1, rounds: 2 };
     const out = path.join(repo.root, 'review-loop.json');
     const r = runBin(repo, 'gstack-review-scope', ['summary', '--no-ledger', '--since', '2026-10-26T09:30:00Z', '--out', out, '--json']);
     expect(r.status).toBe(EXIT.ok);
-    expect(r.err).toContain('REVIEW_LOOP: passes=2 blocking_found=2 deferred=1 noted=1 fixed=1 scope=frozen');
+    expect(r.err).toContain('REVIEW_LOOP: passes=2 blocking_found=3 deferred=1 noted=1 fixed=1 scope=frozen unrecorded=1');
     expect(JSON.parse(r.out)).toEqual(expected);
     expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(expected);
     const plain = runBin(repo, 'gstack-review-scope', ['summary', '--no-ledger', '--since', '2026-10-26T08:00:00Z']);
     expect(plain.status).toBe(EXIT.ok);
-    expect(plain.out.trim()).toBe('REVIEW_LOOP: passes=3 blocking_found=3 deferred=1 noted=1 fixed=2 scope=frozen');
+    expect(plain.out.trim()).toBe('REVIEW_LOOP: passes=3 blocking_found=4 deferred=1 noted=1 fixed=2 scope=frozen unrecorded=1');
     const noSince = runBin(repo, 'gstack-review-scope', ['summary', '--json']);
     expect(noSince.status).toBe(EXIT.fail);
     expect(noSince.err).toContain('(REVIEW_SCOPE_INPUT;');

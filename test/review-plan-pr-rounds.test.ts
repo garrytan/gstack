@@ -63,20 +63,30 @@ describe('PR round cap', () => {
 
   // Value: protects=the read-only stop offers only what the Captain can do: a grant recorded after that review can't buy a
   //   fix round (GST-2706); fails_when=the stop lists a round grant as an option; seam=nextStep; no_claim=history's grant route
-  test('the read-only stop offers ship-with-the-note or park, and says a later round grant buys no fix round', () => {
+  // GST-2968 reverses GST-2706's "a later grant buys no fix round": PR_ROUND_CAP printed the grant command anyway, and two grants
+  //   on gstack#4272 bought nothing. The stop now names the fix-check grant that answers its stop record
+  //   (test/round-cap-granted-stop.test.ts covers what that grant buys).
+  test('the read-only stop offers ship-with-the-note, park, or a fix-check grant naming the stop', () => {
     for (const roundGrant of [undefined, 'a-000000000001']) {
       const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', fixedBlocking: true, roundGrant }), 'standard');
       expect(stop.step).toBe('stop');
-      expect(stop.reason).toContain('(ship with the note, or park;');
-      expect(stop.reason).not.toContain('a round grant, or park');
-      expect(stop.reason).toContain('does not buy a fix round');
+      expect(stop.reason).toContain('(ship with the note, park, or buy its fix round with a fix-check grant naming the stop gstack-ship-receipt stop records)');
+      expect(stop.reason).not.toContain('does not buy a fix round');
     }
   });
 
-  test('a round grant buys one more full round at its head, never two', () => {
+  // GST-2968 (matrix row G3): the granted round keeps its fix round (gstack#4272: the grant raised the cap by one, so a blocker the
+  //   granted pass fixed stopped again at PR_ROUND_CAP), and nothing past it.
+  test('a round grant buys one more full round at its head with its fix round, never two', () => {
     expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1' })).step).toBe('full');
     expect(nextStep(h({ priorFull: 3, roundGrant: 'a-1' }))).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review') });
-    expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1', fullPasses: 1, last: 'full', fixedBlocking: true }), 'standard').reason).toStartWith('PR_ROUND_CAP');
+    for (const depth of ['standard', 'full'] as const) {
+      const fix = nextStep(h({ priorFull: 2, roundGrant: 'a-1', fullPasses: 1, last: 'full', fixedBlocking: true }), depth);
+      expect(['full', 'scoped']).toContain(fix.step);
+      expect(fix.reason).toContain("round grant a-1 bought pass 1 as this PR's full round 3, and this is that round's fix round");
+    }
+    expect(nextStep(h({ priorFull: 2, roundGrant: 'a-1', fullPasses: 2, last: 'full', fixedBlocking: true }), 'standard').step).toBe('stop');
+    expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', fixedBlocking: true }), 'standard').reason).toStartWith('PR_ROUND_CAP');
   });
 
   test('gate class still runs Step 11\'s voices before the PR cap stop', () => {

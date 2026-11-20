@@ -189,4 +189,48 @@ describe('plan sections', () => {
     expect(res.status).toBe(3);
     expect(res.stderr).toMatch(/Implementation plan is empty.*\(PLAN_SECTIONS_INVALID\)$/m);
   });
+  const BARE = '# Retry backoff\n\nAdd exponential backoff to lib/worker.ts: base 500 ms, cap 30 s.\n';
+  test('a run whose first plan had no headings revises a plan that gained one heading, scaffolding the other', () => {
+    for (const [name, v2, added] of [
+      ['record', BARE.replace('30 s', '60 s') + '\n## Review record\n\nIncorporated the cap change.\n', '## Implementation plan'],
+      ['impl', '# Retry backoff\n\n## Implementation plan\n\nAdd exponential backoff, cap 60 s.\n', '## Review record'],
+    ] as const) {
+      const dir = path.join(r.host.base, `bare-${name}`);
+      const plan = writePlan(dir, BARE);
+      const out = path.join(dir, 'run');
+      expect(r.ap(['next', '--out', out, '--plan', plan, '--no-ui']).status).toBe(0);
+      fs.writeFileSync(plan, v2);
+      const rev = r.ap(['revise', '--out', out, '--plan', plan]);
+      expect(rev.status, rev.stderr).toBe(0);
+      expect(rev.stdout).toMatch(new RegExp(`^SCAFFOLDED: added "${added}" \\(the run's first plan had no section headings; .*plan-source\\.v1\\.md`, 'm'));
+      expect(rev.stdout).toMatch(/^REVISED: plan=[0-9a-f]{12} reopened=ceo$/m);
+      expect(fs.readFileSync(plan, 'utf8')).toBe(v2);
+      const active = fs.readFileSync(path.join(out, 'plan-active.md'), 'utf8');
+      expect(active).toContain('cap 60 s');
+      expect(active.slice(0, active.indexOf('## Review record'))).not.toContain('Incorporated');
+    }
+  });
+  test('a run that started with both headings still refuses a revision missing one, and says why', () => {
+    const s = start();
+    fs.writeFileSync(s.plan, V2.replace('## Review record\n', ''));
+    const res = r.ap(['revise', '--out', s.out, '--plan', s.plan]);
+    expect(res.status).toBe(3);
+    expect(res.stderr).toMatch(/no "## Review record"; this run's first plan had both headings, so its revisions keep both.*\(PLAN_SECTIONS_INVALID\)$/m);
+  });
+});
+
+describe('plan path', () => {
+  test('revise from another plan file says the run now follows it; the same file prints nothing', () => {
+    const s = start();
+    fs.writeFileSync(s.plan, V2);
+    const same = r.ap(['revise', '--out', s.out, '--plan', s.plan]);
+    expect(same.status, same.stderr).toBe(0);
+    expect(same.stdout).not.toContain('PLAN_INPUT:');
+    const v2 = v2File(s.dir, V2.replace('jitter 10%', 'jitter 20%'));
+    const moved = r.ap(['revise', '--out', s.out, '--plan', v2]);
+    expect(moved.status, moved.stderr).toBe(0);
+    expect(moved.stdout).toContain(`PLAN_INPUT: ${s.plan} -> ${v2} (drift checks and later revises read ${v2}; pass --plan ${s.plan} to go back)`);
+    expect(readRunJson(s.out).plan_input).toBe(v2);
+    expect(readJsonl(path.join(s.out, 'attempts.jsonl')).filter(e => e.event === 'plan_revised').map(e => e.plan_input_from ?? null)).toEqual([null, s.plan]);
+  });
 });

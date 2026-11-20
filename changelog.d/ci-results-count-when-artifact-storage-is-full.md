@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+- **A green CI run still counts when the repository's artifact storage is full.** When GitHub refuses `upload-artifact` with "Artifact storage quota has been hit", the run had no `tree.json` and `accept`, `record-ci`, `gstack-ci-carry` and the tests stage refused it as `artifact_missing`. A run profile can now set `tree_log_step` to the step that prints `GSTACK_TREE_JSON <artifact> <base64 of tree.json>`, and gstack reads that one line from the job's log, only when the run has no artifact, only when the runner stamped it inside that step, a second or more clear of the steps before and after it, and with every `tree.json` check unchanged. A line printed anywhere else, a test's included, refuses with `CI_CARRY_TREE_LOG_UNBOUND`. A run carried this way says `tree_source=job-log` on its `CI_CARRY:`, `LANE:` and `SHIP_RECEIPT:` lines and in the receipt. Profiles without the key behave exactly as before.

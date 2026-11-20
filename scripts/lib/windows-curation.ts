@@ -309,6 +309,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/gstack-ship-receipt.test.ts',
     reason: 'spawns bin/gstack-ship-receipt and bin/gstack-artifact (shebangs) plus a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts',
   },
+  {
+    file: 'test/ship-receipt-voice-blockers.test.ts',
+    reason: 'spawns bin/gstack-review-scope and bin/gstack-ship-receipt (shebangs) through test/helpers/restamp-fixture.ts runBin, like test/gstack-ship-receipt.test.ts',
+  },
   // Field list 2, W1 (shared merge queue): same fixture helpers, same shebang spawns.
   {
     file: 'test/gstack-ship-queue.test.ts',
@@ -447,6 +451,14 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-base-side-masks.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-rereview-triggers.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 41950236362)',
+  },
+  {
+    file: 'test/capy-host-publish.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-post, gstack-approvals and gstack-review-log (shebangs) plus a #!/bin/sh gh shim through test/helpers/ship-bin-fixture.ts and restamp-fixture.ts, like test/round-cap-granted-stop.test.ts',
+  },
+  {
+    file: 'test/round-cap-granted-stop.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-plan, gstack-review-log, gstack-review-scope and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-fixed-links.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
     file: 'test/ship-uid-sidecar.test.ts',

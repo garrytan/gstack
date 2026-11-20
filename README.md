@@ -79,7 +79,7 @@ installs and passes the conformance tests but has no certification run yet;
 | Agent | Tier | Install | First invocation | Safety skills | Outside review needs | Repair |
 |-------|------|---------|------------------|---------------|----------------------|--------|
 | Claude Code | full | `--host claude` (default) | `/office-hours` | enforced (hooks block) | Codex CLI, signed in | `./setup --host claude` |
-| OpenAI Codex CLI | experimental | `--host codex` → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Claude Code CLI, signed in | `./setup --host codex` |
+| OpenAI Codex CLI | experimental | `--host codex` → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` | `$office-hours` | destructive commands blocked once you trust gstack's hooks ([Codex hooks](docs/skill-routing-and-contracts.md#codex)); the rest advisory | Claude Code CLI, signed in | `./setup --host codex` |
 | OpenCode | experimental | `--host opencode` → `~/.config/opencode/skills/gstack-*/` + `/gstack-*` commands | `/gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host opencode` |
 | Cursor | experimental | `--host cursor` → `~/.cursor/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host cursor` |
 | Factory Droid | experimental | `--host factory` → `~/.factory/skills/gstack-*/` | ask for `gstack-office-hours` | advisory, not blocked | Codex CLI, signed in | `./setup --host factory` |
@@ -204,7 +204,7 @@ The same `/qa` and `/qa-only` commands test CLIs, APIs, jobs, workers and webhoo
 |-------|-------------|
 | `/codex` | **Second Opinion** — independent code review from OpenAI Codex CLI. Review, challenge, and consult modes. Available on every harness except Codex. |
 | `/claude-code` | **Second Opinion** — independent code review from Claude Code. Review, challenge, and consult modes, with session continuity for consultation. Available on every harness except Claude Code. |
-| `/careful` | **Safety Guardrails** — warns before destructive commands (rm -rf, DROP TABLE, force-push). Say "be careful" to activate. Override any MEDIUM warning; root/home recursive deletes and default-branch force-pushes are hard-denied. |
+| `/careful` | **Safety Guardrails** — warns before destructive commands (rm -rf, DROP TABLE, force-push). The check runs in every Claude Code session by default; `gstack-config set destructive_guard off` turns it off. Override any MEDIUM warning; root/home recursive deletes and default-branch force-pushes are hard-denied. |
 | `/freeze` | **Edit Lock** — restrict file edits to one directory. Prevents accidental changes outside scope while debugging. |
 | `/guard` | **Full Safety** — `/careful` + `/freeze` in one command. Maximum safety for prod work. |
 | `/unfreeze` | **Unlock** — remove the `/freeze` boundary. |
@@ -272,6 +272,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [First Production Deploy](docs/howto-bring-up-a-first-deploy.md) | What to do when `/setup-deploy` says nothing is deployed yet: hosting, env and secrets, DNS, checking it works, then back to `/setup-deploy` |
 | [Land a fix in someone else's repo](docs/howto-land-a-fix-in-someone-elses-repo.md) | Read their rules, search for the same fix, run every guard their CI runs before opening, keep it small, answer each review point in a new commit |
 | [Run a human playtest](docs/howto-run-human-playtests.md) | Ask about moments and where people would stop, and why a back-to-back pick between two builds measures the order, not the build |
+| [Check a build before its owner tries it](docs/first-use-check.md) | `gstack-first-use`: an agent from another model family plays the exact build cold, does the first five day-one actions with evidence, checks every link, and only then prints the "try this build" message |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
 | [GBrain quick tour](docs/gbrain-quick-tour.md) | The four setup paths, MCP registration, the per-repo trust policy, memory sync, Conductor env vars |
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |

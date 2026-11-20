@@ -9,8 +9,9 @@
  */
 import type { ShipReceipt } from './headless-artifacts';
 import { withAgentNotes, splitAgentNotes } from './agent-notes';
-import { extractReceipt, receiptRun, receiptRuns, RECEIPT_RUNS_KEPT, RUNS_FENCE, RUNS_RE, type ReceiptRun } from './ship-receipt';
+import { extractReceipt, keptRuns, receiptRun, receiptRuns, RUNS_FENCE, RUNS_RE, type ReceiptRun } from './ship-receipt';
 import { FULL_PASS_CAP } from './review-depth';
+import type { ReviewRoundGrant } from './review-round-grant';
 
 export interface PrReviewHistory {
   /** /ship runs that reviewed (stubs and carries excluded). */
@@ -39,7 +40,7 @@ function entries(body: string): ReceiptRun[] {
 }
 
 export function prReviewHistory(body: string): PrReviewHistory {
-  const all = entries(body);
+  const all = entries(body).filter(e => !e.mark);
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
@@ -69,7 +70,8 @@ export function prReviewHistory(body: string): PrReviewHistory {
  */
 export function placeRunEntry(body: string, entry: ReceiptRun): string {
   const runs = receiptRuns(body).filter(r => !(entry.status && r.status && r.run === entry.run));
-  const kept = [...runs, JSON.parse(JSON.stringify(entry)) as ReceiptRun].slice(-RECEIPT_RUNS_KEPT);
+  if (entry.mark && runs.some(r => JSON.stringify(r) === JSON.stringify(entry))) return body;
+  const kept = keptRuns([...runs, JSON.parse(JSON.stringify(entry)) as ReceiptRun]);
   const block = '```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n';
   if (RUNS_RE.test(body)) return body.replace(RUNS_RE, () => block);
   if (extractReceipt(body).found) {
@@ -85,7 +87,57 @@ export function placeRunEntry(body: string, entry: ReceiptRun): string {
 export const runStub = (o: { head: string; run: string; status: 'started' | 'voided'; loop: NonNullable<ShipReceipt['review_loop']> }): ReceiptRun =>
   ({ head: o.head, run: o.run, status: o.status, review_loop: o.loop });
 
-export type Route = { route: 'first' | 'final' | 'read-only'; reason: string };
+/**
+ * A stop record (GST-2968): the review a /ship run stopped on, written by gstack-ship-receipt stop when the plan prints NEXT: stop.
+ * head is the commit that review read, tree its tree; the review row bound to it (lib/ship-stop.ts). A grant marker records
+ * that a run claimed a round grant before dispatching the round it buys. Markers count no round and are never trimmed.
+ */
+export const stopMarker = (o: { head: string; tree: string; run: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'stop', tree: o.tree });
+export const grantMarker = (o: { head: string; run: string; grant: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'grant', grant: o.grant });
+
+/**
+ * The stop record for the newest via:ship review row of this run (at or after since), or why none binds: the row must be complete,
+ * bound to one tree from start to end (verified, or incomplete because it stopped) that is its commit's own tree, read on a clean
+ * worktree, and that commit must be HEAD or an ancestor of it. A read gstack can't tie to a commit gives a grant nothing to answer.
+ */
+export function stopFrom(rows: readonly Record<string, any>[], since: string, o: { treeOf: (commit: string) => string | undefined; onHead: (commit: string) => boolean }): { ok: true; head: string; tree: string } | { ok: false; why: string } {
+  const sinceMs = Date.parse(since);
+  const row = rows.filter(r => r && r.via === 'ship' && r.skill === 'review' && (!Number.isFinite(sinceMs) || Date.parse(r.timestamp) >= sinceMs)).at(-1);
+  if (!row) return { ok: false, why: `no via:ship review row at or after ${since}` };
+  const b = row.review_binding, head = typeof row.commit_full === 'string' ? row.commit_full.toLowerCase() : '';
+  if (row.completed !== true) return { ok: false, why: 'the stopping review is not complete (a reader is missing)' };
+  if (!b || (b.state !== 'verified' && b.state !== 'incomplete') || typeof row.tree !== 'string' || b.start_wtree !== row.tree || b.end_wtree !== row.tree || (row.wtree !== undefined && row.wtree !== row.tree)) return { ok: false, why: `the stopping review is not bound to one committed tree (binding ${b?.state ?? 'missing'})` };
+  if (!/^[0-9a-f]{40}$/.test(head) || o.treeOf(head) !== row.tree) return { ok: false, why: `the stopping review's commit ${head.slice(0, 12) || 'missing'} does not hold the tree it read` };
+  if (!o.onHead(head)) return { ok: false, why: `the stopping review's commit ${head.slice(0, 12)} is not HEAD or an ancestor of it` };
+  return { ok: true, head, tree: row.tree };
+}
+
+export type GrantedStop = { ok: true; grant: ReviewRoundGrant; stop: ReceiptRun } | { ok: false; why: string };
+
+/**
+ * The fix-check grant that answers this PR's stop (GST-2968, GHOM-1): the newest stop record in the body, a fix-check grant naming
+ * its run and head for this PR, not claimed by another run, and HEAD at or after the stop's head. A stop is stale once a later run
+ * reviewed (a stub after it with a full pass, or a current receipt past its head): a grant then answers nothing.
+ */
+export function grantedStop(body: string, grants: readonly ReviewRoundGrant[], o: { pr: number; head: string; run?: string; isAncestor: (a: string, d: string) => boolean }): GrantedStop | null {
+  const fixChecks = grants.filter(g => g.kind === 'fix-check' && g.pr === o.pr);
+  if (!fixChecks.length) return null;
+  const runs = receiptRuns(body);
+  const at = runs.map(r => r.mark).lastIndexOf('stop');
+  if (at < 0) return { ok: false, why: `no stop record in the PR body for grant ${fixChecks.at(-1)!.approval}; a fix-check grant answers the stop gstack-ship-receipt stop recorded` };
+  const stop = runs[at]!;
+  const current = extractReceipt(body).receipt;
+  const later = runs.slice(at + 1).find(r => !r.mark && r.run !== stop.run && (r.review_loop?.passes ?? 0) > 0);
+  if (later || (current && typeof current.head === 'string' && current.head !== stop.head && o.isAncestor(stop.head, current.head))) return { ok: false, why: `the stop at ${stop.head.slice(0, 12)} (run ${stop.run}) is stale: run ${later?.run ?? current?.run} reviewed after it` };
+  const g = [...fixChecks].reverse().find(x => x.head === stop.head && x.stop_run === stop.run);
+  if (!g) return { ok: false, why: `no fix-check grant names the newest stop (run ${stop.run} at ${stop.head.slice(0, 12)}): record one with gstack-approvals round-grant --kind fix-check --head ${stop.head} --stop-run ${stop.run}` };
+  const claimed = runs.find(r => r.mark === 'grant' && r.grant === g.approval && r.run !== o.run);
+  if (claimed) return { ok: false, why: `grant ${g.approval} was claimed by run ${claimed.run}: a grant buys one round` };
+  if (!o.isAncestor(stop.head, o.head)) return { ok: false, why: `HEAD ${o.head.slice(0, 12)} does not contain the stop's head ${stop.head.slice(0, 12)}: a head move voids grant ${g.approval}` };
+  return { ok: true, grant: g, stop };
+}
+
+export type Route = { route: 'first' | 'final' | 'read-only' | 'fix-check'; reason: string };
 
 /**
  * What review a head of the PR gets when carry can't keep its receipt (the PR's own lines changed; a head that only

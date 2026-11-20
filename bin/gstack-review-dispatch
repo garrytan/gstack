@@ -17,7 +17,7 @@
  * Logic: lib/review-brief.ts (rendering from the sections), lib/review-ledger.ts (ledger, collect, judge, verify),
  * lib/review-pass.ts (the staged manifest) and lib/capy-review-pass.js (the Capy program that runs it).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -133,7 +133,8 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
 ${exitTableHelp()}`;
 
 const args = process.argv.slice(2);
-const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const own = args.includes('--') ? args.slice(0, args.indexOf('--')) : args;
+const flag = (n: string) => { const i = own.indexOf(n); return i >= 0 ? own[i + 1] : undefined; };
 const readFile = (f: string | undefined, what: string) => {
   if (!f) return undefined;
   try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read ${what} file ${f}`); }
@@ -378,17 +379,17 @@ function pass(): number {
   if (fs.existsSync(file)) {
     const m = readManifest(file);
     if (m.pass !== id) throw new BriefError(`${file} belongs to pass ${m.pass}, not ${id}`);
-    if (m.voices_only && !args.includes('--voices')) throw new BriefError(`${file} holds only Step 11's voices (pass --voices); a reviewer pass needs its own --out`);
+    if (m.voices_only && !own.includes('--voices')) throw new BriefError(`${file} holds only Step 11's voices (pass --voices); a reviewer pass needs its own --out`);
     process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${m.pass} readers=${m.readers.length} resumed`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
   const planArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
-  if (args.includes('--audit-only')) {
+  if (own.includes('--audit-only')) {
     const extrasFile = flag('--extras');
     if (!extrasFile) { process.stderr.write('gstack-review-dispatch pass --audit-only: needs --extras (the audit readers, e.g. Step 14.5\'s docs reader)\n'); return EXIT.usage; }
     const { extras, lines } = withAuditModel(JSON.parse(readFile(extrasFile, 'extras')!) as Extra[]);
     const m = buildManifest({ pass: id, out, ledger: flag('--ledger') ?? path.join(out, 'review-ledger.jsonl'), base, diffBase: mergeBaseWith(base) ?? 'HEAD', root: git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd(),
-      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)', ...lines], extras, voices: args.includes('--voices') });
+      checklistRoot: flag('--checklist-root') ?? ROOT, dispatches: [], next: 'audit', planLines: ['PASS: audit-only (no reviewer plan; its extras run as one batch)', ...lines], extras, voices: own.includes('--voices') });
     fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
     const t = sectionTexts(ROOT);
     renderStage(m, 'first', t, branchDiff);
@@ -415,7 +416,7 @@ function pass(): number {
   const step = p.next.step;
   const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
   const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
-  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check' && step !== 'targeted' && !(step === 'voices' && args.includes('--voices'))) { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
+  if (step !== 'full' && step !== 'scoped' && step !== 'fix-check' && step !== 'targeted' && !(step === 'voices' && own.includes('--voices'))) { process.stdout.write([...planLines, `PASS: none next=${step} (no reviewer pass; follow NEXT)`].join('\n') + '\n'); return EXIT.ok; }
   const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
   if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
   const mergeBase = mergeBaseWith(base);
@@ -429,7 +430,7 @@ function pass(): number {
     dispatches: step === 'fix-check' ? p.dispatches : p.dispatches.filter(d => d.role !== 'fix-check'), next: step, planLines, learnings: readFile(flag('--learnings-file'), 'learnings') ?? null, extras,
     targetedClasses: p.targeted?.classes, mergeBase, rangeBase: flag('--diff-base') ? undefined : rangeBase,
     fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined,
-    ...planExclude(p.review_exclude), ...(p.readers ? { readers: p.readers } : {}), voices: args.includes('--voices') });
+    ...planExclude(p.review_exclude), ...(p.readers ? { readers: p.readers } : {}), voices: own.includes('--voices') });
   const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
@@ -505,7 +506,7 @@ function passStep(cmd: string): number {
     if (before) {
       const [tokens, credits] = before.split(',').map(Number);
       if (!Number.isFinite(tokens) || !Number.isFinite(credits)) { process.stderr.write('gstack-review-dispatch mark: --before <tokens>,<credits> [--voices]\n'); return EXIT.usage; }
-      const key = args.includes('--voices') ? 'before_voices' : 'before';
+      const key = own.includes('--voices') ? 'before_voices' : 'before';
       m[key] ??= { tokens: tokens!, credits: credits! };
       writeManifest(file, m);
       process.stdout.write(`BEFORE: ${key === 'before_voices' ? 'stage=voices ' : ''}tokens=${m[key]!.tokens} credits=${m[key]!.credits}\n`);

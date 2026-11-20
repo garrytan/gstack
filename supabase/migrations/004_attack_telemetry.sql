@@ -25,20 +25,23 @@
 --   * salt is per-device local file (~/.gstack/security/device-salt) —
 --     preventing cross-device rainbow table attacks
 
+-- IF NOT EXISTS: this migration was not applied to the live project until
+-- after 006 was written, so it must be safe to run twice. It must run before
+-- 006, whose view and function read these columns.
 ALTER TABLE telemetry_events
-  ADD COLUMN security_url_domain TEXT,
-  ADD COLUMN security_payload_hash TEXT,
-  ADD COLUMN security_confidence NUMERIC,
-  ADD COLUMN security_layer TEXT,
-  ADD COLUMN security_verdict TEXT;
+  ADD COLUMN IF NOT EXISTS security_url_domain TEXT,
+  ADD COLUMN IF NOT EXISTS security_payload_hash TEXT,
+  ADD COLUMN IF NOT EXISTS security_confidence NUMERIC,
+  ADD COLUMN IF NOT EXISTS security_layer TEXT,
+  ADD COLUMN IF NOT EXISTS security_verdict TEXT;
 
 -- Top-domains query: ORDER BY count DESC WHERE event_type='attack_attempt'
 -- AND event_timestamp > now() - interval '7 days'
-CREATE INDEX idx_telemetry_attack_domain
+CREATE INDEX IF NOT EXISTS idx_telemetry_attack_domain
   ON telemetry_events (security_url_domain, event_timestamp)
   WHERE event_type = 'attack_attempt';
 
 -- Layer-distribution query
-CREATE INDEX idx_telemetry_attack_layer
+CREATE INDEX IF NOT EXISTS idx_telemetry_attack_layer
   ON telemetry_events (security_layer, event_timestamp)
   WHERE event_type = 'attack_attempt';

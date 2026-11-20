@@ -7,7 +7,7 @@
  * runner-owned selection manifest `.gstack/pregate.json` declares for a
  * planner-computed matrix. Every uncertainty widens the selection.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import { GENERATED_PATH } from '../regen';
 import { runBashSync } from '../script-invocation';
 import { matchesAny } from '../ship-policy';

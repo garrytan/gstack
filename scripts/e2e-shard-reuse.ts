@@ -25,7 +25,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { buildEvalInputIdentity, lookupEvalInputCache, sourceDependencyClosure, storeEvalInputCache,
   type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from '../crew/scripts/eval-input-cache';
 import { matchGlob } from '../test/helpers/test-selection';

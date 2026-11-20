@@ -8,7 +8,7 @@
  * merge-base diff git did not finish. Files git calls binary are read too
  * (scannableReadings). Runs regardless of lint tools.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runScriptSync } from '../../script-invocation';

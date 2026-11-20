@@ -2,6 +2,10 @@
 
 frozen: 2026-11-17
 
+Amended 2026-11-17, before any paid call, on the owner's grant (GSTA-36): Cases rule 1 now allows hand-resolved
+revert conflicts in docs, tests and the plant's own file, because only 5 of the 10 hosts needed (and no large one)
+reverted cleanly onto the frozen main commit. No bar, arm, decision, scoring rule or stop rule changed.
+
 Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); runner GSTA-589. Paid runs start only
 after this file merges and the owner approves the budget below.
 
@@ -74,8 +78,11 @@ Ten cases, the same ten in every arm (fully paired, the strongest form of matchi
 sealing subagent picks them after this file merges, by these rules:
 
 1. **Host pull request.** A garrytan/gstack pull request merged on or after 2026-07-01 (after Opus 5.5's training
-   cutoff), whose revert applies cleanly to one frozen main commit, and whose reverted tree passes typecheck and the
-   host's own tests. Excluded: changes to docs, generated files, VERSION or CHANGELOG only, and changes to /ship or
+   cutoff), whose revert applies to one frozen main commit (88da124d) and whose reverted tree passes typecheck and
+   the host's own tests. A revert that conflicts with later main is resolved by hand, removing the host's lines as
+   they read at the frozen commit, only in docs, test files and the plant's own file; a conflict in any other code
+   file disqualifies the host. Conflicts in VERSION, CHANGELOG.md, package.json and generated files are ignored.
+   Every resolution is recorded in the label file. Excluded: changes to docs, generated files, VERSION or CHANGELOG only, and changes to /ship or
    review tooling itself (`ship/`, `lib/ship-*`, `bin/gstack-ship-*`, `bin/gstack-review-*`).
 2. **Size class**, by changed lines without generated files and lockfiles: 3 small (under 150), 4 medium (150 to
    600), 3 large (over 600). At least 3 of the 10 are hosts that `gstack-review-plan` sends to the full panel

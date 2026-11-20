@@ -5,12 +5,12 @@
  * gone), classifies the diff hunk by hunk with per-file-type rules, decides
  * per gate whether its evidence is reusable, and refuses `eligible` when the
  * recorded predecessor head moved. The repo's stamp rule wins: with
- * `stamp_files` set, only those files can be stamps, and `stamp_patterns`
+ * `stamp_files` set, only those files and the `release_outputs` can be stamps, and `stamp_patterns`
  * (literal `{version}` templates) join the built-in stamp forms. Tree identity alone is not gate evidence:
  * the receipt also compares the execution identity the gate ran under (from
  * a `gstack-evidence bundle`) with the current one.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { normalizeChangelog } from './changelog-check';
@@ -105,7 +105,7 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
   if (f.binary) return changed('binary', 'binary content differs');
   if (f.modeChanged) return changed('mode', 'file mode changed');
   if (f.status !== 'M') return changed('path', `${f.status === 'A' ? 'added' : f.status === 'D' ? 'deleted' : 'renamed'}`);
-  if (policy.stamp_files.length && !matchesAny(policy.stamp_files, f.path)) return changed('stamp_files', 'not in the repo\'s stamp_files allowlist');
+  if (policy.stamp_files.length && !matchesAny(policy.stamp_files, f.path) && !matchesAny(policy.release_outputs, f.path)) return changed('stamp_files', 'not in the repo\'s stamp_files allowlist');
   const before = blob(repoRoot, gated, f.path);
   const after = blob(repoRoot, current, f.path);
   const base = path.basename(f.path);
@@ -136,6 +136,25 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
     return bad ? changed(rule, bad.why, bad.line) : stamp(rule);
   }
   return changed('other', `${f.hunks.length} hunk(s) outside every stamp rule`);
+}
+
+/**
+ * GST-1176's rule for a release output that is more than version rewrites (a release tool that renders content) or
+ * that the stamp adds: it is a stamp, rule `release_tool`, when the policy's release_tool, rerun on `head` at its
+ * version, writes it byte for byte (the Version Gate's regeneratedAtBase). The tool is repo code, so callers set `run`
+ * only under --allow-repo-commands; `pending` names the release outputs that rule would have judged but did not run
+ * for, so the caller can say why. gstack-tree-receipt and gstack-pregate clear both apply it (GST-3067).
+ */
+export function regenerateReleaseOutputs(o: { repoRoot: string; files: FileVerdict[]; head: string; policy: ShipPolicy; version: string | null; run: boolean }): { files: FileVerdict[]; pending: string[] } {
+  const rendered = o.policy.release_tool && o.version ? o.files.filter(f => f.verdict === 'changed' && (f.rule === 'release_outputs' || (f.rule === 'path' && f.residual === 'added' && matchesAny(o.policy.release_outputs, f.path)))).map(f => f.path) : [];
+  if (!rendered.length || !o.run) return { files: o.files, pending: rendered };
+  const regen = regeneratedAtBase({ repoRoot: o.repoRoot, head: o.head, baseVersion: blob(o.repoRoot, o.head, 'VERSION') ?? o.version!, tool: o.policy.release_tool!, outputs: rendered });
+  const files = o.files.map((f): FileVerdict => {
+    if (!rendered.includes(f.path)) return f;
+    if (regen.kind === 'same' || (regen.kind === 'differs' && !regen.files.includes(f.path))) return { path: f.path, rule: 'release_tool', verdict: 'stamp' };
+    return { ...f, residual: `${f.residual}; ${regen.kind === 'error' ? regen.reason : `not what release_tool generates at ${o.version}`}` };
+  });
+  return { files, pending: [] };
 }
 
 export interface ReceiptOptions {
@@ -185,13 +204,7 @@ export function buildReceipt(o: ReceiptOptions): TreeReceipt | { error: string; 
   }
   const diffText = d.stdout.replace(/\n$/, '');
   const classified = classifyFiles(o.repoRoot, parseUnifiedDiff(diffText), gatedHead, currentHead, o.policy, versionRel, oldV, newV, o.baseRef && oldV ? branchSides(o.repoRoot, o.baseRef, gatedHead, oldV) : undefined);
-  const rendered = o.regenerate && o.policy.release_tool && newV ? classified.filter(f => f.verdict === 'changed' && (f.rule === 'release_outputs' || (f.rule === 'path' && f.residual === 'added' && matchesAny(o.policy.release_outputs, f.path) && (!o.policy.stamp_files.length || matchesAny(o.policy.stamp_files, f.path))))).map(f => f.path) : [];
-  const regen = rendered.length ? regeneratedAtBase({ repoRoot: o.repoRoot, head: currentHead, baseVersion: blob(o.repoRoot, currentHead, 'VERSION') ?? newV!, tool: o.policy.release_tool!, outputs: rendered }) : null;
-  const files = classified.map((f): FileVerdict => {
-    if (!regen || !rendered.includes(f.path)) return f;
-    if (regen.kind === 'same' || (regen.kind === 'differs' && !regen.files.includes(f.path))) return { path: f.path, rule: 'release_tool', verdict: 'stamp' };
-    return { ...f, residual: `${f.residual}; ${regen.kind === 'error' ? regen.reason : `not what release_tool generates at ${newV}`}` };
-  });
+  const files = regenerateReleaseOutputs({ repoRoot: o.repoRoot, files: classified, head: currentHead, policy: o.policy, version: newV, run: !!o.regenerate }).files;
   const residual = files.filter(f => f.verdict === 'changed').map(f => f.path);
   const stampFiles = files.filter(f => f.verdict === 'stamp').map(f => f.path);
   const stampDiff = stampFiles.length ? (git(o.repoRoot, ['diff', '--no-color', '--no-ext-diff', gatedHead, currentHead, '--', ...stampFiles]) ?? '') : '';

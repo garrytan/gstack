@@ -423,7 +423,7 @@ It runs an 80-item visual audit on your live site — in your Aside browser, so 
 
 The self-regulation heuristic is tuned for design work — CSS-only changes get a free pass (they are inherently safe and reversible), but changes to component JSX/TSX files count against the risk budget. Hard cap at 30 fixes. If the risk score exceeds 20%, it stops and asks.
 
-**Design detector.** When you have [impeccable](https://impeccable.style) installed, its engine runs first: on a URL the page's rendered DOM is dumped (linked styles inlined) and scanned; on a feature branch with no URL the changed frontend files are scanned (`.dart` files excepted: they count as frontend scope, but the engine reads web sources). Every mechanical finding arrives as a `FINDING-NNN` tagged with its rule id (`[nested-cards]`, `[low-contrast]`), and the report closes with `Detector: N → M`. gstack never runs impeccable's installer; when no engine is present it offers, once, to download the engine binary (checksum-pinned, logged in the egress ledger) and remembers the answer; without it the audit is unchanged. `gstack-config set design_detector off` disables the pre-pass.
+**Design detector.** When you have [impeccable](https://impeccable.style) installed, its engine runs first: on a URL the page's rendered DOM is dumped (linked styles inlined) and scanned; on a feature branch with no URL the changed frontend files are scanned (Dart, Swift, Interface Builder, string-catalog and asset-catalog files excepted: they count as frontend scope, but the engine reads web sources). Every mechanical finding arrives as a `FINDING-NNN` tagged with its rule id (`[nested-cards]`, `[low-contrast]`), and the report closes with `Detector: N → M`. gstack never runs impeccable's installer; when no engine is present it offers, once, to download the engine binary (checksum-pinned, logged in the egress ledger) and remembers the answer; without it the audit is unchanged. `gstack-config set design_detector off` disables the pre-pass.
 
 ### Example
 
@@ -633,7 +633,7 @@ Findings get action, not just listed. Obvious mechanical fixes (dead code, stale
 
 One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(dec-<id>)` marker whose decision id resolves in the decision ledger downgrades the finding to acknowledged debt. An orphan marker — one with no ledger entry behind it — doesn't suppress anything; the gap is reported normally and the marker itself gets flagged.
 
-**Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (`.dart` files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
+**Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (Dart, Swift, Interface Builder, string-catalog and asset-catalog files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
 
 **PR type.** The checklist starts by naming the kind of PR from the changed paths: docs-only, CI/infra, scripts/tooling, application or mixed, and the review's first line says which (`PR type: <type>`). Application and mixed diffs run every category as before. A CI/infra, scripts/tooling or docs-only diff always gets Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit; every other category with nothing to check is listed once, in one line, as not applicable, and never counts as passed. Repo Conventions & Platform Fit flags new files that don't match the languages and tools the repo already uses or the platforms its CI runs on, such as a `.bat` build script in a bash-and-Makefile repo.
 
@@ -671,6 +671,8 @@ The skill no longer installs, and `./setup` removes an existing gstack-owned `in
 `/verify` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/verify` predicts a green pre-gate. `/health` finds its tools with the same detector (`gstack-checks detect --for health`), which adds its test, knip, shellcheck and gbrain dimensions.
 
 It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and asks for a focused failing test and a root-cause trace before another fix to a stubborn red. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/ship`. It never reviews, bumps versions, pushes or opens a PR.
+
+Since Claude Code 2.1.286, any installed skill named `verify` makes Claude Code tell the model to run it right before each `git commit` (except docs-only and tests-only commits). When the model calls `/verify` that way, without you typing it or asking for checks, it gets a quick check-only pass instead of the loop: one `gstack-checks quick` call that runs the same checks and selected tests, edits nothing, adds no tests, asks nothing and skips gstack's startup steps, then ends with one line, `VERIFY PASS`, `VERIFY FAIL` or `VERIFY skipped: <reason>`. A check that runs out of time is a `FAIL` (`<check> TIMEOUT`). The checks share one `--timeout` budget, and the test stage starts with what is left. A skip (no `origin` to select tests against, commands you haven't trusted yet, nothing declared) lets the commit go ahead; a `FAIL` makes the model stop and ask you before committing. The arguments `quick` or `pre-commit` ask for the same pass. `gstack-config set verify_before_commit off` turns the pass into an immediate `VERIFY skipped`; installing with `./setup --prefix` (`/gstack-verify`) removes Claude Code's instruction altogether.
 
 ---
 
@@ -1423,7 +1425,7 @@ through `-c model=...`, overriding the CLI's configured model for that call.
 Native review also sets `-c review_model=...` to that selection, overriding any
 separate review-model pin.
 
-On Codex hosts, the Claude outside-voice skill is `gstack-claude-code`. Its
+On Codex hosts, the Claude outside-voice skill is `$claude-code`. Its
 review, challenge, and consult calls preserve Claude's configured model.
 `GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
 sessions; a model named in your request takes precedence. Harness routing is
@@ -1470,7 +1472,7 @@ Claude: Running independent Codex review...
 
 ## `/claude-code`
 
-Claude Code provides the outside reviewer when gstack runs in Codex. Other non-Claude harnesses also expose this skill for explicit requests; Claude Code itself omits it. External harnesses install it as `/gstack-claude-code`.
+Claude Code provides the outside reviewer when gstack runs in Codex. Other non-Claude harnesses also expose this skill for explicit requests; Claude Code itself omits it. External harnesses install it as `/gstack-claude-code`; Codex lists it as `claude-code`, so mention it as `$claude-code`.
 
 **Review** supplies the branch diff for a read-only pass/fail review. **Challenge** asks Claude Code to find concrete failure cases in the same diff. **Consult** supports read-only repository exploration and resumes the session saved in `.context/claude-session-id`. Review and challenge receive context from the parent workflow and run without tools; consultation can read and search files.
 
@@ -1486,25 +1488,27 @@ gstack can invoke a skill for you when your request matches one. By default (`pr
 
 ## Safety & Guardrails
 
-Four skills that add safety rails to any Claude Code session. They work via Claude Code's PreToolUse hooks — transparent, session-scoped, no configuration required.
+Four skills that add safety rails to any Claude Code session. They work via Claude Code's PreToolUse hooks — transparent, no configuration required. /careful's destructive-command check also runs in every session by default (`destructive_guard`; off: `gstack-config set destructive_guard off`); the others are session-scoped.
 
 ### `/careful`
 
 Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash and PowerShell command gets checked against known-dangerous patterns:
 
-- `rm -rf` / `rm -r` — recursive delete
-- `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` — data loss
-- `git push --force` / `git push -f` — history rewrite
-- `git reset --hard` — discard commits
-- `git checkout .` / `git restore .` — discard uncommitted work
+- `rm -rf` / `rm -r` of anything that isn't scratch — recursive delete
+- `rm`, `find -delete`, `rsync --delete`, `shred` or `unlink` outside the session folder, or through a variable that may be unset — files git can't bring back
+- SQL `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` run by a database client — data loss
+- `git push --force` / `-f` / `+ref` / `--force-with-lease` and remote branch deletes — history rewrite
+- `git reset --hard`, `checkout -- paths`, `checkout -f`, `switch -f`, `restore`, `clean -f` — only when the tree really has uncommitted work they would discard; `stash drop` and `worktree remove --force` always
+- `filter-branch`, `filter-repo`, BFG, `reflog expire --expire=now`, `gc --prune=now` — history you can't get back
+- database resets (`prisma migrate reset`, `supabase db reset`, `rails db:drop`, `dropdb`, `FLUSHALL`) and cloud deletes (`terraform destroy`, `aws` delete calls, `helm uninstall`, `gh repo delete`, `docker volume rm`)
 - `kubectl delete` — production resource deletion
 - `docker rm -f` / `docker system prune` — container/image loss
 
 On Windows the same hook checks Claude Code's PowerShell tool and any `pwsh`/`powershell`/`cmd` launched from Bash: `Remove-Item` and its aliases with `-Recurse`/`-Force` (any parameter prefix), cmd `rd /s` and `del /s`, `Format-Volume`, `Clear-Disk`, `Clear-Content` and .NET deletes ask, and encoded or dynamic PowerShell (`-EncodedCommand`, `iex`, `Start-Process` of a shell, `& $cmd`) asks because it can't be inspected. PowerShell coverage is best-effort; Claude Code permission deny rules such as `"PowerShell(Remove-Item *)"` are the hard stop.
 
-Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`) are whitelisted — no false alarms on routine operations.
+Deleting scratch never asks: anything under `/tmp/` or `/var/tmp/`, a `mktemp` folder, caches such as `~/.cache` and `~/.npm`, and build output (`node_modules`, `dist`, `.next`, `__pycache__`, `build`, `coverage`, `.venv`, `.pytest_cache` and the like). In a replay of 254,322 agent commands, `/tmp` deletes were 95% of the old check's false asks.
 
-You can override any MEDIUM warning. Two catastrophic shapes are hard-denied instead of asked: recursive deletes of the filesystem root or your home directory (including the `/*`, `~/`, and `$HOME/` forms), and force-pushes to the repo's default branch (`--force-with-lease` never triggers the deny; the escape hatch is ending the session-scoped `/careful` session). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
+You can override any MEDIUM warning. Three catastrophic shapes are hard-denied instead of asked, however the command is written: recursive deletes of the filesystem root, your home directory, a top-level system folder or a personal folder such as `~/.ssh` or `~/Documents`; force-pushes to `main`, `master` or the repo's default branch (`--force-with-lease` alone never triggers the deny); and raw writes, formats or wipes of a whole disk (to run one anyway, turn the every-session check off with `gstack-config set destructive_guard off` and don't load `/careful` or `/guard`). You can also add your own warn rules — one POSIX ERE per line — in `~/.gstack/careful-patterns.txt` (global) or `~/.gstack/projects/<slug>/careful-patterns.txt` (per-project); custom patterns only ever add warnings, never suppress the built-ins. The guardrails are accident prevention, not access control.
 
 ### `/freeze`
 

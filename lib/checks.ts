@@ -12,6 +12,13 @@
  * caller passes --allow-repo-commands.
  * status: reads the last run's ledger; READY_FOR_SHIP only when every check
  * passed at the current tree and command set. It runs nothing.
+ * quick: the pass /verify runs when the agent calls it right before a commit
+ * (GST-3150). Same checks and selection as run, but it never asks for consent:
+ * an untrusted command set, a missing policy source or the verify_before_commit
+ * switch ends it with one `VERIFY skipped: <reason>` line, and a not-run result
+ * (ENV, UNMAPPED, TOO_BROAD) is named, never a red. A TIMEOUT is a red: a check
+ * that never finished proved nothing. The checks share one deadline, and the
+ * test stage starts with what is left (its runner can still run past it).
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -250,7 +257,8 @@ export function testVerdict(r: CheckResult): Pick<Outcome, 'verdict' | 'detail' 
   return { verdict: 'INCOMPLETE', detail };
 }
 
-export interface RunOptions { root: string; only?: string[]; timeoutMs: number; env?: NodeJS.ProcessEnv }
+/** deadline (epoch ms) bounds the whole run: each check gets the time left, and one that cannot start before it is a TIMEOUT. */
+export interface RunOptions { root: string; only?: string[]; timeoutMs: number; deadline?: number; env?: NodeJS.ProcessEnv }
 export interface Loaded { ctx: PregateContext; checks: Check[]; set: string }
 const basisOf = (ctx: PregateContext) => sha256(JSON.stringify([ctx.baseRef, ctx.baseSha, ctx.configLabel, ctx.configDigest ?? '']));
 
@@ -297,8 +305,10 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   const dir = path.join(path.dirname(file), 'logs');
   fs.mkdirSync(dir, { recursive: true });
   const outcomes: Outcome[] = [];
-  for (const check of l.checks) if (want(check.name)) outcomes.push(await runCommand(l.ctx, check, dir, o.timeoutMs));
-  if (want(TESTS)) outcomes.push(await runTests(l.ctx));
+  const left = () => Math.min(o.timeoutMs, (o.deadline ?? Infinity) - Date.now());
+  const spent = (name: string): Outcome => ({ name, verdict: 'TIMEOUT', ms: 0, detail: 'not started: the run\'s time budget ran out', lines: [] });
+  for (const check of l.checks) if (want(check.name)) outcomes.push(left() > 0 ? await runCommand(l.ctx, check, dir, left()) : spent(check.name));
+  if (want(TESTS)) outcomes.push(left() > 0 ? await runTests({ ...l.ctx, timeoutMs: Math.min(l.ctx.timeoutMs, left()) }) : spent(TESTS));
   const after = wtreeFingerprint({ cwd: o.root, env: o.env });
   const moved = 'error' in after || after.tree !== l.ctx.wtree;
   const final = moved ? outcomes.map(x => (x.verdict === 'PASS' ? { ...x, verdict: 'INCOMPLETE' as Verdict, detail: 'the working tree changed during the run; rerun' } : x)) : outcomes;
@@ -312,6 +322,17 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
   return { outcomes: final, ledger };
+}
+
+/** The quick pass's last line: FAIL on a red, PASS when something passed and nothing is red, else skipped. */
+export function quickLine(outcomes: readonly Outcome[]): { line: string; red: Outcome[] } {
+  const red = outcomes.filter(o => o.verdict === 'FAIL' || o.verdict === 'ZERO_RUN' || o.verdict === 'INCOMPLETE' || o.verdict === 'TIMEOUT');
+  const passed = outcomes.filter(o => o.verdict === 'PASS');
+  const notRun = outcomes.filter(o => o.verdict !== 'PASS' && !red.includes(o)).map(o => `${o.name} ${o.verdict}`);
+  const secs = (outcomes.reduce((sum, o) => sum + o.ms, 0) / 1000).toFixed(1);
+  if (red.length) return { red, line: `VERIFY FAIL: ${red.map(o => `${o.name} ${o.verdict === 'FAIL' ? o.detail : o.verdict}`).join(', ')}${red[0].log ? `; log ${red[0].log}` : ''}` };
+  if (!passed.length) return { red, line: `VERIFY skipped: nothing ran to a result (${notRun.join(', ') || 'no checks'})` };
+  return { red, line: `VERIFY PASS: ${passed.map(o => o.name).join(', ')} in ${secs}s${notRun.length ? ` (not run: ${notRun.join(', ')})` : ''}` };
 }
 
 /** READY_FOR_SHIP only when the ledger is for this tree and command set and every check and the tests passed. */

@@ -18,7 +18,7 @@
  * Reads are bounded: only regular files whose real path stays inside the
  * root, at most `maxBytes`, and no file content ever appears in a result.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { RECEIPT_RE, type RealityLine } from './plan-reality';

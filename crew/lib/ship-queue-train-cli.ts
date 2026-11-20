@@ -167,7 +167,7 @@ export async function trainMain(ctx: QueueContext, args: string[]): Promise<numb
   return usage(`unknown train subcommand ${sub}`);
 }
 
-export async function readyMain(ctx: QueueContext, args: string[], base: { pr: string; pregate?: string; gateExit?: number; gateLog?: string }): Promise<number> {
+export async function readyMain(ctx: QueueContext, args: string[], base: { pr: string; pregate?: string; trail?: string; gateExit?: number; gateLog?: string }): Promise<number> {
   const screen = args.includes('--screen');
   const noScreen = args.includes('--no-screen');
   if (screen && noScreen) return usage('pass one of --screen or --no-screen');

@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bunIsolationArgs } from './bun-isolation';
 import { detectDocsOnly, readScopeMarker, scopeMarker, scopeTokens, type ScopeFlags, type UiEvidence } from './autoplan-scope';
+import { RESULT_FORMAT_HEADER } from './autoplan-reconcile';
 import { COORDINATOR_CONTRACT } from './coordinator-contract';
 import { capyBootstrapCommand } from './doctor-components';
 import { DX_ERROR_COMPACT } from './dx-error-contract';
@@ -117,7 +118,7 @@ export function extractHeading(text: string, heading: string): string | undefine
 
 export const RESULT_FORMAT = (phase: string, sha256: string, resultPath: string) => `
 ---
-RESULT FORMAT (required by gstack-autoplan; the parent binds your file by this contract):
+${RESULT_FORMAT_HEADER}
 1. The first line of your result is exactly: INPUT: ${phase} ${sha256}
 2. Write the complete review as prose, then END with one fenced block of canonical findings, one JSON object per line:
 \`\`\`gstack-findings

@@ -86,7 +86,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { spawnSync } from 'child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import {
   SENTINEL, TESTED_ENGINE_VERSIONS, ADVISORY_RULE_IDS, DETECT_LIMITS,
   UNTRUSTED_BEGIN, UNTRUSTED_END, neutralizeSentinels,
@@ -96,7 +96,7 @@ import {
 import { writeReceipt, writeOutcome } from '../lib/egress-receipt';
 import { readConfigKey, resolveStateRoot } from '../lib/state-root';
 import { DESIGN_SLOP_CATALOG, entryForImpeccableId } from '../lib/design-catalog';
-import { isFrontendPath } from '../lib/frontend-scope';
+import { isFrontendPath, isNativeUiPath } from '../lib/frontend-scope';
 import { baseArg } from '../lib/gate-diff/git';
 
 // ── Environment ──────────────────────────────────────────────────────────────
@@ -830,8 +830,8 @@ function resolveTargets(args: ScanArgs, p: Probe): { targets: string[]; refusedB
     runZ(['diff', '-z', '--name-only', '--diff-filter=ACMR', 'HEAD']);
     runZ(['ls-files', '-z', '--others', '--exclude-standard']);
     for (const rel of [...files].sort()) {
-      // impeccable reads web sources; a Dart file is frontend scope but not a scan target.
-      if (!isFrontendPath(rel) || rel.endsWith('.dart')) continue;
+      // impeccable reads web sources; a Dart or Swift file is frontend scope but not a scan target.
+      if (!isFrontendPath(rel) || isNativeUiPath(rel)) continue;
       const abs = path.join(top, rel);
       try { if (fs.lstatSync(abs).isSymbolicLink()) { refuse(rel, 'symlink named by git is never scanned'); continue; } } catch { continue; }
       const real = realpathOrNull(abs);
@@ -879,7 +879,7 @@ function runEngine(p: Probe, engine: string, batch: string[], cwd: string, timeo
     timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: DETECT_LIMITS.stdoutBytes + 1024,
   });
   const out = r.stdout ?? new Uint8Array();
-  const tooLarge = out.byteLength > DETECT_LIMITS.stdoutBytes;
+  const tooLarge = r.exitedDueToMaxBuffer === true || out.byteLength > DETECT_LIMITS.stdoutBytes;
   return {
     exit: r.exitCode ?? 1,
     stdout: tooLarge ? '' : Buffer.from(out).toString('utf-8'),

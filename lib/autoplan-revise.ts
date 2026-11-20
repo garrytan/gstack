@@ -26,6 +26,7 @@ import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
 import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
 import { diffStat, earlierRows, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
+import { sectionHeadings } from '../bin/gstack-autoplan-snapshot';
 import { normalizeRevision, reviewHash, scaffold } from './autoplan-plan-text';
 import { parseScopeTokens } from './autoplan-scope';
 import { PHASES, detectScope, extractHeading, phaseOrder, type Phase, type ScopeFlags } from './autoplan-prompts';
@@ -36,8 +37,17 @@ export interface ReviseResult { state: RunState; reopened: Phase[]; lines: strin
 
 const amendmentLine = (state: RunState) => `AMENDMENTS: pending=${pendingAmendments(state).map(a => a.decision).join(',') || 'none'}`;
 
-/** The revised plan's text as the run reviews it (cut to the run's heading; scaffolded when the run was). */
-function revisionText(state: RunState, file: string): string {
+/** Whether the run's first plan had no section headings, so init reviewed it whole: the restore point holds its exact bytes. */
+function firstPlanBare(state: RunState): boolean {
+  try { return !sectionHeadings(fs.readFileSync(state.restore, 'utf8')).length; } catch { return false; }
+}
+
+/**
+ * The revised plan's text as the run reviews it (cut to the run's heading). One missing heading is scaffolded
+ * when the first `next` accepted a plan without both (a scaffolded run, or a plan with no headings at all);
+ * a run that started with both headings keeps refusing a revision that drops one, as `next` does.
+ */
+function revisionText(state: RunState, file: string): { text: string; added?: string } {
   if (!fs.existsSync(file)) throw new RunError('PLAN_SECTIONS_INVALID', `${file}: not found`, 3);
   let text = fs.readFileSync(file, 'utf8');
   if (state.plan_heading) {
@@ -46,8 +56,9 @@ function revisionText(state: RunState, file: string): string {
     text = section;
   }
   const diag = scaffold(text);
-  if (diag.problem && !(state.scaffolded && diag.text)) throw new RunError('PLAN_SECTIONS_INVALID', `${file}: ${diag.problem}`, 3);
-  return diag.text ?? text;
+  if (diag.problem && !diag.text) throw new RunError('PLAN_SECTIONS_INVALID', `${file}: ${diag.problem}`, 3);
+  if (diag.problem && !state.scaffolded && !firstPlanBare(state)) throw new RunError('PLAN_SECTIONS_INVALID', `${file}: ${diag.problem}; this run's first plan had both headings, so its revisions keep both`, 3);
+  return { text: diag.text ?? text, added: diag.added };
 }
 
 function settleAmendments(state: RunState, ids: string[], status: 'incorporated' | 'withdrawn' | 'settled', at: string, extra: Record<string, unknown> = {}): Array<Record<string, unknown>> {
@@ -83,7 +94,7 @@ function settleEvidence(state: RunState, ids: string[], revised?: string): { pla
   }
   if (revised) return { plan_sha256: revised, changes };
   let input = '';
-  try { input = state.plan_input && fs.existsSync(state.plan_input) ? reviewHash(revisionText(state, state.plan_input)) : active; } catch { /* unreadable: refused below */ }
+  try { input = state.plan_input && fs.existsSync(state.plan_input) ? reviewHash(revisionText(state, state.plan_input).text) : active; } catch { /* unreadable: refused below */ }
   if (input !== active) throw new RunError('AMENDMENT_NOT_SETTLEABLE', `the plan file has edits the run has not reviewed (active ${active.slice(0, 12)}, plan file ${input.slice(0, 12) || 'unreadable'}); revise --plan <file> --incorporates <ids> --settle ${ids.join(',')} instead`, 3);
   return { plan_sha256: active, changes };
 }
@@ -147,7 +158,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
     return { state, reopened: [], lines };
   }
   const file = path.resolve(o.plan);
-  const text = revisionText(state, file);
+  const { text, added: scaffoldedHeading } = revisionText(state, file);
   let newHash: string;
   try { newHash = reviewHash(text); } catch (e: any) { throw new RunError('PLAN_SECTIONS_INVALID', `${file}: ${e.message}`, 3); }
   const oldHash = reviewHash(fs.readFileSync(state.active_plan, 'utf8'));
@@ -198,6 +209,7 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   state.phase_order = order; state.required_phases = order;
   state.scope = { ...detected, ui: detected.ui || state.scope.ui, dx: detected.dx || state.scope.dx };
   if (reopen.length || added.length) state.status = 'running';
+  const inputFrom = state.plan_input !== file ? state.plan_input : undefined;
   state.plan_input = file; state.plan_source = path.join(out, `plan-source.v${k}.md`); state.plan_revision = k;
   delete state.plan_reality;
   const settled = [...settleAmendments(state, incorporates, 'incorporated', at, { old_plan_sha256: oldHash, new_plan_sha256: newHash }), ...settleAmendments(state, withdraw, 'withdrawn', at, { by: 'owner' }),
@@ -206,11 +218,13 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   if (amending) state.status = pendingAmendments(state).length ? 'amend_pending' : state.phase_order.some(p => !state.phases[p]?.closed_at) ? 'running' : pendingDeltas(state).length ? 'gate_pending' : 'complete';
   // A quiet revise that ends at gate_pending still has an earlier capped delta waiting: the owner gets a new gate for it.
   const regate = (capped.length > 0 || quiet) && state.status === 'gate_pending';
-  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, at_gate_rev: atGate ?? null };
+  const committed = { event: 'plan_revised', k, plan: file, old_plan_sha256: oldHash, new_plan_sha256: newHash, source_file_sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), reopened: reopen, added, at_gate_rev: atGate ?? null, ...(inputFrom ? { plan_input_from: inputFrom } : {}) };
   fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify({ state, renames, committed, settled }, null, 2) + '\n');
   publish(state, staging, renames, committed, settled);
   keepPlanFile(state.out, file);
   const lines = [`REVISED: plan=${newHash.slice(0, 12)} reopened=${reopen.join(',') || 'none'}${added.length ? ` added=${added.join(',')}` : ''}${capped.length ? ` capped=${capped.join(',')}` : ''}`,
+    ...(scaffoldedHeading ? [`SCAFFOLDED: added "${scaffoldedHeading}" (${state.scaffolded ? 'the run was scaffolded' : "the run's first plan had no section headings"}; copy at ${state.plan_source}; ${file} unchanged)`] : []),
+    ...(inputFrom ? [`PLAN_INPUT: ${inputFrom} -> ${file} (drift checks and later revises read ${file}; pass --plan ${inputFrom} to go back)`] : []),
     ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (${state.lean ? 'lean run: one gate revision' : 'below High'}; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
   for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; the gate asks the owner about the unreviewed delta (+${delta.added} -${delta.removed} lines)`);
   if (regate) {

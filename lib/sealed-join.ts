@@ -13,7 +13,7 @@
  * over 4 MiB, one that does not parse, nests deeper than 64 or cannot be read
  * is `sealed.label_join_unchecked`. Findings carry field names, never values.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import type { SealedFinding } from './sealed-guard';
 

@@ -21,7 +21,7 @@
  * plain-title policy (lib/plain-title.ts); a refused title posts nothing.
  * The scan runs on the merged bytes, which are the bytes sent.
  *
- * Exit codes: 0 posted; 1 HIGH finding (or oversize input) refused;
+ * Exit codes: 0 posted; 1 HIGH finding, a raw security finding fingerprint (GST-3076) or oversize input refused;
  * 2 MEDIUM findings need confirmation, printed as `RULE:` lines plus a
  * `TOKEN:` that binds the bytes, destination, operation and findings;
  * 3 `gh`/`glab` failed; 4 the title breaks the plain-title policy, printed as
@@ -41,6 +41,7 @@ import type { ShipReceipt } from "./headless-artifacts";
 import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
+import { securityFingerprints } from "./security-findings";
 
 export const OPS = ["pr-comment", "issue-comment", "reply", "pr-title", "pr-body", "pr-create", "issue-create", "fold"] as const;
 export type Op = (typeof OPS)[number];
@@ -53,7 +54,14 @@ export interface PostEnv {
   readFile(path: string): string;
   out(text: string): void;
   err(text: string): void;
+  /** On Capy (GSTACK_CAPY=1): write the checked parts for the host's PR tool and return its HOST_PUBLISH: line; gh is never called to write (GST-3183). */
+  hostPublish?(op: Op, target: string | undefined, parts: Array<[Part, string]>, dest: HostDest): string;
+  /** GH_REPO: gh's PR and issue commands write there, but gh repo view ignores it, so the destination read names it. */
+  ghRepo?: string;
 }
+
+/** Where the gh write would have gone, so the host's PR tool can send the hand-off to the same place. */
+export interface HostDest { repo: string; host: string; to?: string; base?: string; head?: string; draft: boolean }
 
 export const EXIT = { posted: 0, refused: 1, confirm: 2, cliFailed: 3, plainTitle: 4, usage: 64 } as const;
 
@@ -83,7 +91,7 @@ export const USAGE = `usage: gstack-post <op> [<target>] [options]
   pr-title and pr-create check the title against ${PLAIN_TITLE_POLICY_PATH}
   (gstack-plain-title) first; a repository without that file is not checked.
 
-  Exit: 0 posted · 1 HIGH finding refused · 2 MEDIUM findings need
+  Exit: 0 posted · 1 HIGH finding or security fingerprint refused · 2 MEDIUM findings need
   confirmation (RULE:/TOKEN: lines on stdout) · 3 gh/glab failed ·
   4 the title is not plain words (PLAIN_TITLE: lines; rewrite the title file)
   or the body breaks the shape (PLAIN_BODY: lines; rewrite the body file), or
@@ -472,7 +480,7 @@ function visibility(env: PostEnv, req: Request, kind: HostKind, configBin: strin
   try { return norm(String(JSON.parse(gl.stdout).visibility ?? "")) ?? "unknown"; } catch { return "unknown"; }
 }
 
-type Part = "title" | "body";
+export type Part = "title" | "body";
 interface Located { part: Part; finding: Finding }
 
 /**
@@ -545,19 +553,43 @@ function receiptDigitTokens(texts: string[]): string[] {
   return [...tokens];
 }
 
+/** A gstack-skill-start session id (bin/gstack-skill-start _SESSION_ID): parent pid, epoch seconds, then 8 random hex or the pid fallback. */
+const SESSION_ID = /^\d{1,10}-\d{10}-(?:[0-9a-f]{8}|\d{1,10})$/;
+/** A line one of /ship's own tools prints (lib/ship-receipt.ts receiptSummaryLine, lib/pregate, lib/ship-queue), as pasted bare, in a list or a quote. */
+const RECEIPT_LINE = /^\s*(?:[-*>]\s+)?`?(?:SHIP_RECEIPT|CI_CARRY|PREGATE|READY_RECEIPT):/;
 /**
- * Where a ship receipt's run-id fields hold GitHub Actions run ids, which pii.phone.e164 reads as phone numbers
- * (GST-2047): the 1-based line and column span of each ci_carried[].run, flaky_exception[].runs[] and
- * issues.flakes[].run value that is a run id (11 to 20 digits, with an optional /attempt), bounded to that value, in
- * every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
- * renderReceiptBlock's rendering of it. Only the receipt writer's own output qualifies, so a
- * hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in prose, beside the
- * block or under any other key still reports.
+ * The writer fields of a receipt line that hold 12-hex sha prefixes or GitHub Actions run ids, each capture group one value: a sha list after
+ * heads=, head=, tree=, gated_tree=, predecessor=, carried_from= or base_red= (lib/run-evidence.ts runReceiptFields, receiptSummaryLine), the run id of
+ * each ci_carried=<lane>:<run>/<attempt> item, and the two shas of the receipt's pregate field (bin/gstack-ship-receipt: `@<tree> (<n> checks,
+ * current for <head>)`).
  */
-function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to: number }> {
+const RECEIPT_LINE_IDS = [
+  /(?<![\w-])(?:heads?|tree|gated_tree|predecessor|carried_from|base_red)=((?:[0-9a-f]{12},)*[0-9a-f]{12})(?![\w,])/dg,
+  /(?<=(?<![\w-])ci_carried=(?:[\w.\/-]+:\d{11,20}\/\d{1,4},)*[\w.\/-]+:)(\d{11,20})(?=\/\d{1,4}(?![\w\/]))/dg,
+  /@([0-9a-f]{12}) \(\d+ checks, current for ([0-9a-f]{12})\)/dg,
+];
+type Span = { line: number; from: number; to: number };
+const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.flatMap(re => [...text.matchAll(re)].flatMap(m => m.indices!.slice(1).flatMap(ix => ix ? [{ line, from: ix[0] + 1, to: ix[1] }] : [])));
+
+/**
+ * Where /ship's own receipt holds identifiers that pii.phone.e164 reads as phone numbers (GST-2047, gstack#4480): the 1-based line and column
+ * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
+ * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
+ * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
+ * pregate and requires_remote[] values. On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
+ * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
+ * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
+ */
+function receiptIdSpans(text: string): Span[] {
   const lines = text.split("\n");
   const rows = (v: unknown): number => v !== null && typeof v === "object" && Object.keys(v).length ? 2 + Object.values(v).reduce((n: number, c) => n + rows(c), 0) : 1;
-  const spans: Array<{ line: number; from: number; to: number }> = [];
+  let fence = "";
+  const spans: Span[] = lines.flatMap((l, i) => {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
+    if (f && !fence) { fence = f[1]!; return []; }
+    if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) { fence = ""; return []; }
+    return !fence && RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : [];
+  });
   for (let open = 0; open < lines.length; open++) {
     if (lines[open] !== "```" + RECEIPT_FENCE) continue;
     const close = lines.indexOf("```", open + 1);
@@ -566,20 +598,28 @@ function receiptRunIdSpans(text: string): Array<{ line: number; from: number; to
     let receipt: ShipReceipt;
     try { receipt = JSON.parse(raw); } catch { continue; }
     if (validateReceipt(receipt).length || renderReceiptBlock(receipt) !== "```" + RECEIPT_FENCE + "\n" + raw + "\n```\n") continue;
-    const span = (path: Array<string | number>) => {
-      let at = open + 1;
+    const at = (path: Array<string | number>) => {
+      let line = open + 1;
       let v: any = receipt;
       for (const key of path) {
-        at++;
-        for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; at += rows(c); }
+        line++;
+        for (const [k, c] of Object.entries(v)) { if (k === String(key)) break; line += rows(c); }
         v = v[key];
       }
-      if (!/^\d{11,20}(?:\/\d{1,4})?$/.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
-      const t = lines[at]!;
+      return { line, v };
+    };
+    const span = (path: Array<string | number>, shape = /^\d{11,20}(?:\/\d{1,4})?$/) => {
+      const { line, v } = at(path);
+      if (!shape.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
+      const t = lines[line]!;
       const key = path.at(-1);
       const from = t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1;
-      spans.push({ line: at + 1, from, to: from + JSON.stringify(v).length - 1 });
+      spans.push({ line: line + 1, from, to: from + JSON.stringify(v).length - 1 });
     };
+    const ids = (path: Array<string | number>) => { const { line } = at(path); spans.push(...lineIdSpans(lines[line]!, line + 1)); };
+    span(["run"], SESSION_ID);
+    if (typeof receipt.pregate === "string") ids(["pregate"]);
+    receipt.requires_remote?.forEach((_, i) => ids(["requires_remote", i]));
     receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
     receipt.flaky_exception?.forEach((e, i) => e.runs.forEach((_, j) => span(["flaky_exception", i, "runs", j])));
     receipt.issues?.flakes?.forEach((_, i) => span(["issues", "flakes", i, "run"]));
@@ -595,7 +635,7 @@ function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail:
   for (const [part, text] of parts) {
     const result = scan(text, { repoVisibility: vis, allowlist, ...(selfEmail ? { selfEmail } : {}) });
     oversize ||= result.oversize;
-    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptRunIdSpans(text) : [];
+    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptIdSpans(text) : [];
     for (const finding of result.findings) {
       if (finding.id === "pii.phone.e164" && runIds.some(s => s.line === finding.line && s.from <= finding.col && finding.col <= s.to)) continue;
       found.push({ part, finding });
@@ -763,6 +803,11 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
     const parts: Array<[Part, string]> = [];
     if (title !== undefined) parts.push(["title", title]);
     if (body !== undefined) parts.push(["body", body]);
+    const leaked = parts.flatMap(([, text]) => securityFingerprints(text));
+    if (leaked.length) {
+      env.err(`gstack-post: refused, the text names security finding ${[...new Set(leaked)].join(", ")}. GitHub text is public: write the security finding as the redacted line gstack prints (security finding, details recorded privately) and keep its location and reason in the private record (docs/troubleshooting.md#security-finding-in-body). Nothing was posted.\n`);
+      return EXIT.refused;
+    }
 
     const vis = visibility(env, req, remote.kind, configBin);
     const email = env.run("git", ["config", "user.email"]);
@@ -796,6 +841,32 @@ export function runPost(argv: string[], env: PostEnv, configBin = "gstack-config
           : "gstack-post: MEDIUM findings; nothing was posted. Ask the user about each finding; to post these exact bytes, rerun with --confirm <token>. Any edit needs a new scan.\n");
         return EXIT.confirm;
       }
+    }
+    if (env.hostPublish) {
+      let head = req.head;
+      if (req.op === "pr-create" && !head) {
+        const b = env.run("git", ["branch", "--show-current"]);
+        head = b.status === 0 ? b.stdout.trim() : "";
+        if (!head) throw new UsageError("pr-create on Capy needs --head <branch> when HEAD is detached: the host's PR tool cannot infer it");
+      }
+      let dest = { repo: remote.segments.join("/"), host: remote.host };
+      if (remote.kind === "github") {
+        const ghRepo = env.ghRepo?.trim();
+        const view = env.run("gh", ["repo", "view", ...(ghRepo ? [ghRepo] : []), "--json", "nameWithOwner,url"]);
+        try { const v = JSON.parse(view.stdout); dest = { repo: String(v.nameWithOwner ?? ""), host: new URL(String(v.url)).host }; } catch { dest = { repo: "", host: "" }; }
+        if (view.status !== 0 || !dest.repo) { env.err(`gstack-post: cannot resolve the repository gh would have written to (gh repo view${ghRepo ? ` ${ghRepo}` : ""} --json nameWithOwner,url: ${view.stderr.trim().split("\n")[0] || "no repository"}); nothing was handed off\n`); return EXIT.cliFailed; }
+        const origin = remote.segments.join("/");
+        if (req.target !== undefined && !/^[1-9][0-9]*$/.test(req.target) && origin.toLowerCase() !== dest.repo.toLowerCase()) { env.err(`gstack-post: target ${req.target} names ${origin}, but the hand-off goes to ${dest.repo}, the repository gh resolves (gh repo set-default or GH_REPO); pass the number of the ${dest.repo} pull request or issue; nothing was handed off\n`); return EXIT.usage; }
+        if (req.op === "pr-create" && head && !head.includes(":") && origin.toLowerCase() !== dest.repo.toLowerCase()) {
+          if (remote.host.toLowerCase() !== dest.host.toLowerCase() || remote.segments.length !== 2) { env.err(`gstack-post: pr-create from ${remote.host}/${origin} into ${dest.host}/${dest.repo}: the head branch is on another host or a nested namespace, so the host's PR tool cannot name it; pass --head <owner>:<branch>; nothing was handed off\n`); return EXIT.usage; }
+          head = `${remote.segments[0]}:${head}`;
+        }
+      }
+      let line: string;
+      try { line = env.hostPublish(req.op, n, parts, { ...dest, to: req.to, base: req.base, head, draft: req.draft }); }
+      catch (e) { env.err(`gstack-post: could not write the hand-off for the host's PR tool: ${(e as Error).message}; nothing was handed off\n`); return EXIT.cliFailed; }
+      env.out(line);
+      return EXIT.posted;
     }
     return send(env, remote.kind, req, n, title, body);
   } catch (e) {

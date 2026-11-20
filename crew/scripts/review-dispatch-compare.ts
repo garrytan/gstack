@@ -12,7 +12,7 @@
  * effort ({ "specialist": { "full": n, "light": n }, ... }); without it the script uses the shipped
  * defaults below and says so. Counts are exact for the modelled scenarios; tokens are estimates.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

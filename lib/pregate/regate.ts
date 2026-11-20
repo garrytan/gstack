@@ -7,7 +7,7 @@
  * numbers the branch adds are compared with the base branch and every open
  * PR; any lookup that cannot finish is `unknown`, which blocks `not-needed`.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as path from 'node:path';
 import type { ResultCodeName } from '../result-codes';
 import type { ShipPolicy } from '../ship-policy';

@@ -1,0 +1,164 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-owner-answers — the owner's record of answers and standing yeses, read before any ask to the
+ * owner (docs/owner-answers.md). Logic: lib/owner-answers.ts.
+ *
+ *   gstack-owner-answers add --action <token> --target <token> --words <their exact words> --thread <code> --event <id>
+ *                            --by <who records it> [--kind standing-yes|decision|preference|ruling-ref] [--scope all|repo:<o/n>|captain:<name>]
+ *                            [--limits <text>] [--words-by owner|agent:<id>] [--rule R<n>] [--asked <the ask it answered>] [--json]
+ *   gstack-owner-answers supersede <row id> (the add flags) | revoke <row id> --words <…> --thread <code> --event <id> --by <who>
+ *   gstack-owner-answers verify <row id> --event <the source event it read> --by <a second actor>
+ *   gstack-owner-answers check --ask-file <file> [--all] [--json]      related answers per ask line (advisory)
+ *   gstack-owner-answers screen --ask-file <file> [--json]             KEEP or PROPOSE_TAKE per line; never edits the ask
+ *   gstack-owner-answers log --thread <code> --line <letter> --decision taken|asked [--row <id>] --by <who>
+ *   gstack-owner-answers list [--all] [--json] | status
+ * Every command takes [--owner <name>] (on Capy: which user-<name> Drive folder, when more than one is mounted).
+ */
+import * as fs from 'node:fs';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine } from '../lib/result-codes';
+import {
+  addAnswer, buildAnswer, currentRows, isAnswerError, logDecision, notTakeable, parseAskFile, rankRows, readStore, resolveStore,
+  screenAsks, takenLine, verifyAnswer, type AnswerError, type NewAnswer, type OwnerAnswer, type Store,
+} from '../lib/owner-answers';
+
+const HELP = `gstack-owner-answers — the owner's answers and standing yeses, checked before any ask (docs/owner-answers.md)
+
+  add       --action <token> --target <token> --words <the owner's exact words> --thread <code> --event <id> --by <who records it>
+            [--kind standing-yes|decision|preference|ruling-ref] [--scope all|repo:<owner>/<name>|captain:<name>] [--limits <text>]
+            [--words-by owner|agent:<id>] [--rule R<n>] [--asked <the ask it answered>]
+            one row, written once; --words-by defaults to agent:<by>, and only owner rows can ever be taken
+  supersede <row id> (add's flags)   a new row that replaces <row id>
+  revoke    <row id> --words <the owner's words> --thread <code> --event <id> --by <who>   the row stops counting
+  verify    <row id> --event <id> --by <who>   a second actor reads the cited source event, names it, and confirms it
+            holds the row's words; the recorder cannot
+  check     --ask-file <file> [--all] related answers per ask line, ranked by shared words (advisory; never a take)
+  screen    --ask-file <file>        per line: KEEP <reason> or PROPOSE_TAKE <row id>, with the line the Captain adds when it
+            confirms the take; the ask file is never edited. A take needs origin "captain", a typed action, target and scope,
+            no fresh-ask class, and a verified, current, unlimited standing-yes row matching exactly
+  log       --thread <code> --line <letter> --decision taken|asked [--row <id>] --by <who>   the thread's own log line
+  list      [--all]                  current rows (--all adds superseded and revoked ones)
+  status                             where the record is, how many rows, how many can be taken, and any problem
+  Every command takes [--owner <name>] and [--json] where it prints rows.
+
+${exitTableHelp()}`;
+
+const VALUE_FLAGS = new Set(['--action', '--target', '--words', '--thread', '--event', '--by', '--kind', '--scope', '--limits', '--words-by', '--rule', '--asked', '--ask-file', '--line', '--decision', '--row', '--owner']);
+
+function parse(args: string[]): { pos: string[]; flags: Record<string, string>; bools: Set<string>; error?: string } {
+  const pos: string[] = []; const flags: Record<string, string> = {}; const bools = new Set<string>();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (VALUE_FLAGS.has(a)) {
+      const v = args[i + 1];
+      if (v === undefined) return { pos, flags, bools, error: `${a} needs a value` };
+      flags[a] = v; i++;
+    } else if (a === '--json' || a === '--all') bools.add(a);
+    else if (a.startsWith('--')) return { pos, flags, bools, error: `unknown argument ${a}` };
+    else pos.push(a);
+  }
+  return { pos, flags, bools };
+}
+
+function fail(cmd: string, e: AnswerError): number {
+  process.stderr.write(resultLine(`gstack-owner-answers ${cmd}`, e.code, e.message) + '\n');
+  if (e.code === 'OWNER_ANSWERS_INVALID') return EXIT.usage;
+  if (e.code === 'OWNER_ANSWERS_WRITE_FAILED') return EXIT.fail;
+  return EXIT.refused;
+}
+
+const newAnswer = (f: Record<string, string>, extra: Partial<NewAnswer> = {}): NewAnswer => ({
+  kind: f['--kind'], action: f['--action'], target: f['--target'], scope: f['--scope'], limits: f['--limits'], words: f['--words'],
+  words_by: f['--words-by'], thread: f['--thread'], event: f['--event'], rule: f['--rule'], asked: f['--asked'], by: f['--by'], ...extra,
+});
+
+const brief = (r: OwnerAnswer) => `${r.id} ${r.kind} ${r.action || '-'} ${r.target || '-'} ${r.scope} "${r.words.replace(/\s+/g, ' ').slice(0, 120)}" (${r.recorded_at.slice(0, 10)}, ${r.source.thread}, words_by=${r.words_by})`;
+
+function write(cmd: string, store: Store, input: NewAnswer, json: boolean): number {
+  const row = buildAnswer(store, input);
+  if (isAnswerError(row)) return fail(cmd, row);
+  const res = addAnswer(store, row);
+  if (isAnswerError(res)) return fail(cmd, res);
+  if (json) process.stdout.write(JSON.stringify({ id: row.id, status: res }) + '\n');
+  else process.stdout.write(`OWNER_ANSWER_RECORDED: ${row.id}${res === 'present' ? ' (already present)' : ''}\n`);
+  return EXIT.ok;
+}
+
+function askFile(cmd: string, file: string | undefined) {
+  if (!file) return { code: 'OWNER_ANSWERS_INVALID', message: '--ask-file <file> is required' } as AnswerError;
+  let text: string;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e: any) { return { code: 'OWNER_ANSWERS_INVALID', message: `--ask-file ${file}: ${e?.code ?? e?.message}` } as AnswerError; }
+  return parseAskFile(text);
+}
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  const { pos, flags, bools, error } = parse(rest);
+  if (error) { process.stderr.write(`gstack-owner-answers: ${error}\n`); return EXIT.usage; }
+  const json = bools.has('--json');
+  const store = resolveStore(process.env, flags['--owner']);
+  if (isAnswerError(store)) return fail(cmd, store);
+  switch (cmd) {
+    case 'add': return write(cmd, store, newAnswer(flags), json);
+    case 'supersede': return pos[0] ? write(cmd, store, newAnswer(flags, { supersedes: pos[0] }), json) : fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'supersede <row id>' });
+    case 'revoke': return pos[0] ? write(cmd, store, newAnswer(flags, { kind: 'revoke', supersedes: pos[0] }), json) : fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'revoke <row id>' });
+    case 'verify': {
+      if (!pos[0]) return fail(cmd, { code: 'OWNER_ANSWERS_INVALID', message: 'verify <row id> --event <id> --by <who>' });
+      const res = verifyAnswer(store, pos[0], flags['--by'] ?? '', flags['--event'] ?? '');
+      if (isAnswerError(res)) return fail(cmd, res);
+      process.stdout.write(`OWNER_ANSWER_VERIFIED: ${pos[0]}${res === 'present' ? ' (already present)' : ''}\n`);
+      return EXIT.ok;
+    }
+    case 'check': case 'screen': {
+      const asks = askFile(cmd, flags['--ask-file']);
+      if (isAnswerError(asks)) return fail(cmd, asks);
+      const read = readStore(store);
+      if (cmd === 'check') {
+        const rows = bools.has('--all') ? read.rows : currentRows(read);
+        const out = asks.map(a => ({ line: a.line, related: rankRows(rows, a, bools.has('--all') ? rows.length : 5).map(x => ({ id: x.row.id, score: x.score, takeable: !notTakeable(x.row, read), row: x.row })) }));
+        if (json) { process.stdout.write(JSON.stringify({ state: read.state, problems: read.problems, asks: out }) + '\n'); return EXIT.ok; }
+        process.stdout.write(`RECORD: ${read.state}${read.problems.length ? ` (${read.problems.length} problem(s); see status)` : ''}\n`);
+        for (const a of out) {
+          process.stdout.write(`LINE ${a.line}: ${a.related.length} related\n`);
+          for (const r of a.related) process.stdout.write(`  ${r.takeable ? 'TAKEABLE' : 'CONTEXT'} ${brief(r.row)}\n`);
+        }
+        return EXIT.ok;
+      }
+      const screened = screenAsks(asks, read);
+      if (json) { process.stdout.write(JSON.stringify({ state: read.state, problems: read.problems, lines: screened.map(s => ({ ...s, taken_line: s.take ? takenLine(s.take) : undefined })) }) + '\n'); return EXIT.ok; }
+      for (const s of screened) {
+        if (s.verdict === 'PROPOSE_TAKE') process.stdout.write(`PROPOSE_TAKE ${s.line} ${s.take!.id}: ${takenLine(s.take!)}\n`);
+        else process.stdout.write(`KEEP ${s.line}: ${s.reason}\n`);
+        for (const r of s.related.filter(r => r.id !== s.take?.id)) process.stdout.write(`  CONTEXT ${brief(r)}\n`);
+      }
+      process.stdout.write(`SCREENED: ${screened.length} line(s), ${screened.filter(s => s.verdict === 'PROPOSE_TAKE').length} proposed take(s); confirm each, then log it\n`);
+      return EXIT.ok;
+    }
+    case 'log': {
+      const res = logDecision(store, { thread: flags['--thread'] ?? '', line: flags['--line'] ?? '', decision: flags['--decision'] ?? '', row: flags['--row'], by: flags['--by'] ?? '' });
+      if (isAnswerError(res)) return fail(cmd, res);
+      process.stdout.write(`OWNER_ANSWER_LOGGED: ${flags['--decision']} ${flags['--line']}${flags['--row'] ? ` ${flags['--row']}` : ''}\n`);
+      return EXIT.ok;
+    }
+    case 'list': {
+      const read = readStore(store);
+      const rows = bools.has('--all') ? read.rows : currentRows(read);
+      if (json) process.stdout.write(JSON.stringify({ state: read.state, rows }) + '\n');
+      else for (const r of rows) process.stdout.write(`${notTakeable(r, read) ? 'CONTEXT ' : 'TAKEABLE'} ${brief(r)}\n`);
+      return EXIT.ok;
+    }
+    case 'status': {
+      const read = readStore(store);
+      const current = currentRows(read);
+      process.stdout.write(`RECORD: ${store.dir}\nOWNER: ${store.owner}\nSTATE: ${read.state}\nROWS: ${read.rows.length} current=${current.length} takeable=${current.filter(r => !notTakeable(r, read)).length} verifications=${read.verifications.length}\n`);
+      for (const p of read.problems) process.stdout.write(`PROBLEM: ${p}\n`);
+      return EXIT.ok;
+    }
+    default:
+      process.stderr.write(`gstack-owner-answers: unknown command ${cmd}\n`);
+      return EXIT.usage;
+  }
+}
+
+process.exitCode = main(process.argv.slice(2));

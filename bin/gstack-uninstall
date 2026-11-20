@@ -611,6 +611,25 @@ if [ -x "$SETTINGS_HOOK" ]; then
     REMOVED+=("stray gstack hook entries")
   fi
 fi
+
+# ─── Remove gstack hooks from Codex's hooks.json ────────────
+# Before the Claude and Codex skills go: SETTINGS_HOOK lives in the install
+# being removed (~/.claude/skills/gstack/bin on a global install), so after
+# that rm -rf this cleanup would silently skip. Only gstack's own matcher groups
+# go (the KNOWN_HOOKS rows marked host codex); the user's groups stay as they are.
+CODEX_HOOKS_FILE="${CODEX_HOME:-$HOME/.codex}/hooks.json"
+# A gstack group that the user's own groups follow becomes an empty group, so
+# their trust positions hold. When gstack-settings-hook still refuses (one of
+# the user's handlers sits inside gstack's group), say so: its message names
+# the exact handler to delete, and the hook would fail once this install is gone.
+if [ -x "$SETTINGS_HOOK" ] && [ -f "$CODEX_HOOKS_FILE" ]; then
+  if _CODEX_PRUNE=$(GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$CODEX_HOOKS_FILE" "$SETTINGS_HOOK" prune-stale --all 2>&1); then
+    case "$_CODEX_PRUNE" in *"removed "[1-9]*) REMOVED+=("gstack's Codex hooks in $CODEX_HOOKS_FILE") ;; esac
+  else
+    echo "WARNING: gstack's Codex hooks are still in $CODEX_HOOKS_FILE and will fail once gstack is removed. $(printf '%s\n' "$_CODEX_PRUNE" | sed -n 's/^gstack-settings-hook: //p' | head -1)" >&2
+  fi
+fi
+
 # The Memorable consent key must never outlive the hook, kept state or not, and
 # not only when the hook manager is present: gstack-config resolves its root
 # through GSTACK_STATE_ROOT/GSTACK_HOME, which can be a different directory

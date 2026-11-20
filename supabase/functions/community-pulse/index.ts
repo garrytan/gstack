@@ -1,6 +1,7 @@
 // gstack community-pulse edge function
-// Returns aggregated community stats for the dashboard:
-// weekly active count, top skills, crash clusters, version distribution.
+// Returns aggregated community stats for the dashboard: weekly active
+// community-tier installs, update checks, top skills, crash clusters, version
+// distribution and the prompt-injection aggregate, all from live traffic.
 // Uses server-side cache (community_pulse_cache table) to prevent DoS.
 //
 // Fail-closed contract (#1947): success responses carry `status: "ok"` so
@@ -40,7 +41,7 @@ Deno.serve(async () => {
     cached = null; // cache miss/failure is non-fatal — recompute decides
   }
 
-  if (cached?.refreshed_at) {
+  if (cached?.refreshed_at && cached.data && "weekly_update_checks" in cached.data) {
     const age = Date.now() - new Date(cached.refreshed_at).getTime();
     if (age < CACHE_MAX_AGE_MS) {
       // Serving the cache means this (new) backend is healthy; assert the
@@ -53,153 +54,15 @@ Deno.serve(async () => {
   }
 
   try {
-    // Cache is stale or missing — recompute
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    // Cache is stale or missing — recompute. community_pulse_summary()
+    // (migration 006) counts every live row of the last 7 days in SQL: test
+    // traffic, fixture-shaped session ids and probe versions are left out, and
+    // weekly_active is distinct community-tier installs, not update checks.
+    const { data: summary, error: summaryErr } = await supabase.rpc("community_pulse_summary");
+    if (summaryErr) throw summaryErr;
+    if (!summary || typeof summary !== "object") throw new Error("empty pulse summary");
 
-    // Weekly active (update checks this week)
-    const { count: thisWeek, error: thisWeekErr } = await supabase
-      .from("update_checks")
-      .select("*", { count: "exact", head: true })
-      .gte("checked_at", weekAgo);
-    if (thisWeekErr) throw thisWeekErr;
-
-    // Last week (for change %)
-    const { count: lastWeek, error: lastWeekErr } = await supabase
-      .from("update_checks")
-      .select("*", { count: "exact", head: true })
-      .gte("checked_at", twoWeeksAgo)
-      .lt("checked_at", weekAgo);
-    if (lastWeekErr) throw lastWeekErr;
-
-    const current = thisWeek ?? 0;
-    const previous = lastWeek ?? 0;
-    const changePct = previous > 0
-      ? Math.round(((current - previous) / previous) * 100)
-      : 0;
-
-    // Top skills (last 7 days)
-    const { data: skillRows, error: skillErr } = await supabase
-      .from("telemetry_events")
-      .select("skill")
-      .eq("event_type", "skill_run")
-      .gte("event_timestamp", weekAgo)
-      .not("skill", "is", null)
-      .limit(1000);
-    if (skillErr) throw skillErr;
-
-    const skillCounts: Record<string, number> = {};
-    for (const row of skillRows ?? []) {
-      if (row.skill) {
-        skillCounts[row.skill] = (skillCounts[row.skill] ?? 0) + 1;
-      }
-    }
-    const topSkills = Object.entries(skillCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([skill, count]) => ({ skill, count }));
-
-    // Crash clusters (top 5)
-    const { data: crashes, error: crashErr } = await supabase
-      .from("crash_clusters")
-      .select("error_class, gstack_version, total_occurrences, identified_users")
-      .limit(5);
-    if (crashErr) throw crashErr;
-
-    // Version distribution (last 7 days)
-    const versionCounts: Record<string, number> = {};
-    const { data: versionRows, error: versionErr } = await supabase
-      .from("telemetry_events")
-      .select("gstack_version")
-      .eq("event_type", "skill_run")
-      .gte("event_timestamp", weekAgo)
-      .limit(1000);
-    if (versionErr) throw versionErr;
-
-    for (const row of versionRows ?? []) {
-      if (row.gstack_version) {
-        versionCounts[row.gstack_version] = (versionCounts[row.gstack_version] ?? 0) + 1;
-      }
-    }
-    const topVersions = Object.entries(versionCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([version, count]) => ({ version, count }));
-
-    // Security events — aggregate attack_attempt events from the last 7 days.
-    // Fields emitted by gstack-telemetry-log --event-type attack_attempt:
-    //   security_url_domain, security_payload_hash, security_confidence,
-    //   security_layer, security_verdict.
-    const { data: attackRows, error: attackErr } = await supabase
-      .from("telemetry_events")
-      .select("security_url_domain, security_layer, security_verdict, installation_id")
-      .eq("event_type", "attack_attempt")
-      .gte("event_timestamp", weekAgo)
-      .limit(5000);
-    if (attackErr) throw attackErr;
-
-    // k-anonymity threshold. A domain (or layer) must be reported by at least
-    // K_ANON distinct installations to appear in the aggregate. Without this,
-    // a single user's attack log leaks their targeted domains to every other
-    // gstack user who polls /community-pulse. With it, the dashboard shows
-    // only community-wide patterns.
-    const K_ANON = 5;
-
-    const attacksTotal = attackRows?.length ?? 0;
-    const domainCounts: Record<string, number> = {};
-    const domainInstallations: Record<string, Set<string>> = {};
-    const layerCounts: Record<string, number> = {};
-    const layerInstallations: Record<string, Set<string>> = {};
-    const verdictCounts: Record<string, number> = {};
-    for (const row of attackRows ?? []) {
-      const iid = row.installation_id ?? "";
-      if (row.security_url_domain) {
-        domainCounts[row.security_url_domain] = (domainCounts[row.security_url_domain] ?? 0) + 1;
-        if (iid) {
-          (domainInstallations[row.security_url_domain] ??= new Set()).add(iid);
-        }
-      }
-      if (row.security_layer) {
-        layerCounts[row.security_layer] = (layerCounts[row.security_layer] ?? 0) + 1;
-        if (iid) {
-          (layerInstallations[row.security_layer] ??= new Set()).add(iid);
-        }
-      }
-      if (row.security_verdict) {
-        // Verdict distribution is low-cardinality (block/warn/log_only) and
-        // aggregates population-wide with no re-identification risk, so no
-        // k-anon filter.
-        verdictCounts[row.security_verdict] = (verdictCounts[row.security_verdict] ?? 0) + 1;
-      }
-    }
-    const topAttackDomains = Object.entries(domainCounts)
-      .filter(([domain]) => (domainInstallations[domain]?.size ?? 0) >= K_ANON)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([domain, count]) => ({ domain, count }));
-    const topAttackLayers = Object.entries(layerCounts)
-      .filter(([layer]) => (layerInstallations[layer]?.size ?? 0) >= K_ANON)
-      .sort(([, a], [, b]) => b - a)
-      .map(([layer, count]) => ({ layer, count }));
-    const attackVerdictDistribution = Object.entries(verdictCounts)
-      .sort(([, a], [, b]) => b - a)
-      .map(([verdict, count]) => ({ verdict, count }));
-
-    const result = {
-      status: "ok",
-      weekly_active: current,
-      change_pct: changePct,
-      top_skills: topSkills,
-      crashes: crashes ?? [],
-      versions: topVersions,
-      // Security aggregate for the /security-dashboard view
-      security: {
-        attacks_last_7_days: attacksTotal,
-        top_attack_domains: topAttackDomains,
-        top_attack_layers: topAttackLayers,
-        verdict_distribution: attackVerdictDistribution,
-      },
-    };
+    const result = { status: "ok", ...(summary as Record<string, unknown>) };
 
     // Upsert cache
     await supabase

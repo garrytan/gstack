@@ -377,8 +377,11 @@ test('CEO integrates completed native findings before its external-only comparis
       anchors.map(anchor => typeof anchor === 'string' ? review.indexOf(anchor) : review.search(anchor));
     expect(review.slice(externalStart, nativeStart)).toContain('**Integrate reviewer findings**');
     const bounded = review.slice(boundedStart, unavailableStart);
-    expect(bounded).toContain('**Integrate reviewer findings**');
-    expect(bounded).toMatch(/follow step 4/i);
+    if (host.name === 'codex') expect(bounded).toContain('take the unavailable path without launching');
+    else {
+      expect(bounded).toContain('**Integrate reviewer findings**');
+      expect(bounded).toMatch(/follow step 4/i);
+    }
     expect(bounded).not.toContain('continue to Cross-model tension');
     const unavailable = review.slice(unavailableStart, findingsStart);
     expect(unavailable).toContain('STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable"');

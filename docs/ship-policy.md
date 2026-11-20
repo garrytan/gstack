@@ -74,6 +74,7 @@ branch that changes the policy.
 | `full_e2e` | `true` \| `false` | `false` | `true`: every merge needs a passing full-gate result bound to a tree equal to the merging one modulo stamps; `gstack-ship-queue ready`, `stamp` and `verify` refuse without one (`QUEUE_GATE_MISSING`): a gate-ahead record, or the lane's `--gate-exit 0 --gate-log <file>` from its run on the gated head. Needs `min_gstack_version`. |
 | `review_scope` | `frozen` \| `diff-plus-blocking` \| `all` | `frozen` | The finding scope of `/ship`'s review loop; see [review_scope](#review-scope). `frozen` fixes the diff on pass 1, lists blocking findings in unchanged code as deferred in the PR body (never as issues), and later passes read only the range since the previous pass. `diff-plus-blocking` is the same but fixes a blocking finding in unchanged code in this PR instead of deferring it. `all` is the earlier loop: every finding is fixed on every pass. Needs `min_gstack_version` when not `frozen`. |
 | `review_exclude_paths` | git glob pathspecs | `[]` | Content files `/ship`'s reviewers leave out: data, docs, `.log`, and binaries under a content extension (images, fonts, archives and the like) that do not start with executable magic. Read from the base only. Code (native libraries and every other binary outside the content extensions included), gate paths, agent prose, config, executables, links, `.gstack/` and `.github/` files, gate-tagged, secret-line and named-by-code files stay in review. See [review_exclude_paths](#review-exclude-paths). Needs `min_gstack_version`. |
+| `review_content_patterns` | git glob pathspecs | `[]` | Files that `review_exclude_paths` also matches and that count as content whatever their extension (`.patch` files, `MANIFEST.sha256`, extension-less licence texts), so the exclusion leaves them out. Source code, agent prose, config and the other keep rules still keep a matched file in review. Explicit policy only; a pattern here with no `review_exclude_paths` pattern over the same files excludes nothing. Read from the base only. See [review_content_patterns](#review-content-patterns). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add `forbid_fetch` entries, never remove one. Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
@@ -1165,7 +1166,9 @@ to the base, with a name ending in `.test`, `_test`, `.spec` or `_spec` and a
 JS or TS extension, bun's own rule, so a helper or fixture under `test/` is not
 one) on the integrated prefix that includes it, T<k>, in a scratch worktree, and prints
 `STACK_TESTS: #<pr> T<k> <n> new test file(s) pass|FAIL (<files>)` or `no new
-test files`. A failure is `QUEUE_TRAIN_STACK_RED` (nothing written, pushed or
+test files`. When git cannot list the files a PR adds, the line is
+`STACK_TESTS: #<pr> T<k> FAIL: cannot list the test files it adds: <git error>`,
+since an unread list is not an empty one. A failure is `QUEUE_TRAIN_STACK_RED` (nothing written, pushed or
 dispatched): the tests pass on the PR head alone only because nothing before
 it in the train had changed what they read, so fix them against that prefix or
 reorder with `--order`. The default command is `bun --no-env-file
@@ -1494,7 +1497,7 @@ Everything else stays in every reader's diff with one reason code:
 | `gate-tagged` | the gate scan tagged one of its hunks |
 | `code` | it is code or a test, not content; a binary file outside the content extensions above, or one with executable magic, counts as code |
 | `secret-line` | an added line names a credential (the targeted pass's secret rule, or a key name given a value such as `OPENAI_API_KEY=`) and carries a value: the credential scan finds a secret on the line, or a run of 20 or more base64 or token characters mixing upper case, lower case and digits follows a name within 200 characters. A line that only names a variable or a credential store (`${OPENAI_API_KEY}`, `$GH_TOKEN`, `process.env.X`, `os.environ["X"]`, a keychain command) keeps nothing (GST-1967: harness-evals #333's captured prompts kept 2,610 files that way). For a file git calls binary only because of its attributes, the added lines come from `git diff --text`, which `.gitattributes` cannot change (readers' own diffs still follow the attributes and show the kept file as binary). When this is the only reason, pass readers get an excerpt, not the whole file ([secret-line excerpts](#secret-line-excerpts)) |
-| `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded) names its full repository path, at the head or the merge base |
+| `named-by-code` | a code or test file that stays in review (not docs, a data file, a `.log` or binary, and not itself excluded), or a [declared content](#review-content-patterns) file that stays in review, names its full repository path, at the head or the merge base |
 | `consumer-scan-unavailable` | the `git grep` for those names failed, so every candidate is kept; also a live binary file whose bytes could not be read, and a text file with changed lines the collector read no lines for |
 | `gate-scan-unavailable` | the gate scan failed or did not run at the head, so no hunk's tag is known and every candidate is kept |
 
@@ -1518,14 +1521,72 @@ kept files under an applied pattern come back through a second command,
 `DIFF_KEEP: <reader> git diff <diff-base> -- ':(top,literal)<path>' …`, which every
 brief names. That command is bounded by its argument bytes (24,000 across all
 patterns, under Windows' command-line limit): a pattern whose kept files would
-pass the bound is not applied, and the plan line says so as
-`skipped=<pattern>:kept=<n>:bytes=<b>`. Files that reach readers as
+pass the bound stops the plan with
+[`REVIEW_EXCLUDE_KEEP_TOO_LARGE`](troubleshooting.md#review-exclude-keep-too-large),
+which names the pattern, the kept count and why they are kept. A pattern is
+never dropped quietly: before GST-3158 it was left out with only a `skipped=`
+note, and the whole folder went to readers. Files that reach readers as
 [secret-line excerpts](#secret-line-excerpts) are not on that command, so they
 do not count toward the bound, and gstack reads them in git calls of at most
 24,000 argument bytes each (GST-1967). Every brief also gets one line:
 `Excluded by base policy <ref>@<sha12> (selection <digest>): <n> files, <bytes> bytes
 on this branch matching <patterns>. They are not in your diff; do not report on
 their absence.`
+
+<a id="review-content-patterns"></a>
+### `review_content_patterns`: published data with code-shaped names
+
+`review_exclude_paths` leaves out only files gstack recognizes as content by
+their names. Some published data looks like code to it: a `.patch` file, a
+`MANIFEST.sha256`, a licence text with no extension. Those files are kept as
+`code`, so a folder full of them can't be excluded however the pattern is
+written. `review_content_patterns` is the policy saying "these are data":
+
+```json
+{
+  "review_exclude_paths": ["results/*/sessions/**"],
+  "review_content_patterns": ["results/*/sessions/**"],
+  "min_gstack_version": "<the release that introduced review_content_patterns>"
+}
+```
+
+**Example.** gstack-evals' head-to-head results PR (#352) had a 13.8 MB diff,
+13.6 MB of it published session data in one folder: 1,319 `.patch` files, a
+`licences/` folder of extension-less files and a `MANIFEST.sha256`. With only
+`review_exclude_paths`, all 1,439 files were kept as code and the PR could not
+pass the 2 MB review ceiling. With the same folder in `review_content_patterns`
+too, `gstack-review-plan` excludes the folder and readers get the ~540 KB of
+code the PR actually changes.
+
+How it works:
+
+- **Both keys must match.** A file is declared content only when a
+  `review_exclude_paths` pattern and a `review_content_patterns` pattern both
+  match it. A content pattern on its own excludes nothing. Both use the same
+  git glob dialect (`:(top,glob)` pathspecs).
+- **Explicit only.** gstack never guesses that a file is data. The policy PR
+  that adds the pattern to the base branch is the reviewed act.
+- **Read from the base only**, the same way as `review_exclude_paths`: a branch
+  that adds or widens the key changes nothing until it lands on the base.
+- **The other keep rules still apply.** A declared file is still kept when it
+  is under `.gstack/` or `.github/`, a gate path, executable, a link, agent
+  prose, a config file, source code, gate-tagged, holds a secret line, or is
+  named by full path from kept code. Source code means a program extension in
+  any letter case (`.ts`, `.py`, `.java`, `.c`, `.php`, `.ps1`, `.sql`, `.html`
+  and about a hundred more, listed as `SOURCE` in `lib/review-exclude.ts`) or a
+  build file name (`Makefile`, `Dockerfile`, `BUILD` and the like). These rules
+  hold for binary files too: a declared binary is content only when none of
+  them keeps it and its bytes don't start with executable magic.
+- **Kept files still protect what they name.** A declared file that stays in
+  review (source, agent prose, config, an executable, a link, or any file kept
+  in this PR) counts as code for the named-by-code scan, so a data file it names
+  by full path stays in review too. A declared data file names nothing.
+- **Excluded from review, not from the guards.** The secrets scan and the
+  sealed-output guard read every changed file, excluded ones included
+  (`test/review-content-patterns.test.ts`).
+
+Excluded declared files count as `declared:<n>` in the `REVIEW_EXCLUDE:` line's
+`content=` field.
 
 <a id="secret-line-excerpts"></a>
 **Secret-line excerpts (GST-1447).** A kept file whose only reason is
@@ -1704,8 +1765,13 @@ and ask `ruled_note <fingerprint> at <head>: <reason>`, with the head's full sha
 two findings ruled with the same reason in one reply get two rows, and a ruling at
 a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
 `rule` refuses a `--head` that is not a commit in the repository, a reason with a
-newline or control character, a `--by` naming gstack, and any ruling while this
-checkout holds an open /ship run's marker (the lane's own runner). `add` refuses a
+newline or control character, a `--by` naming gstack, and a ruling while this
+checkout holds an open /ship run's marker (the lane's own runner) unless the lane
+relays the owner's words with `--owner-ref <thread code>:<message id or timestamp>`
+(on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
+source is `relayed:<owner ref>`, and its `RULED_NOTE:`, receipt entry and `Ruled note:`
+line say `(relayed from <owner ref>)`, so a reader can check the words against that
+message; without it the refusal is `APPROVAL_RULING_RUN_OPEN`. `add` refuses a
 `ruled_note` scope, so `rule` is the only path. A review-log field never makes a
 ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
@@ -1732,6 +1798,33 @@ findings. Nothing ruled is hidden:
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
+
+<a id="security-findings-stay-private"></a>
+**Security findings stay private (GST-3076).** A PR body keeps every earlier
+version in its edit history, and a ruled, dispositioned, deferred or noted
+security finding is often a live exposure outside the PR's change. So every line
+gstack renders for a finding whose category is `security`, `auth`, `secret` or
+`red-team` (by its category, its reviewer or its `path:line:category`
+fingerprint) names no location and no reason: a ruling prints
+`Ruled note: redacted at <head12> ruled by <who> at <time>: security finding,
+details recorded privately (approval <id>)`, a gate disposition drops its owner
+words the same way, and `gstack-review-scope render` lists a deferred finding or
+review note as `` `sf-<id>` security finding, details recorded privately ``. The
+receipt's `ruled_notes` and `gate_dispositions` hold the same redacted form. The
+fingerprint and reason stay in the private approval record (`gstack-approvals
+list`, mirrored to Drive on Capy) and in the local deferred and classified
+files. This holds on every repository, whatever its visibility: these lines are
+compared word for word at receipt write and at land, so they cannot depend on a
+visibility lookup that can fail or change, and a private repository can go
+public with its PR history. As a backstop, `gstack-ship-receipt write` refuses a
+`--body` and `gstack-post` refuses any text that names a raw security
+fingerprint such as `src/x.ts:12:security`. Other findings print as before.
+The red-team reviewer tags every finding `red-team`, a statistics or scoring
+fix included, so the owner can rule one not security class with `gstack-approvals
+rule --not-security` (only on a `path:line:red-team` fingerprint; a `security`,
+`auth` or `secret` finding stays security class, and the flag is refused while a
+/ship run is open on the checkout, so a run never lifts its own finding's redaction).
+That ruling's lines show its reason and its location as `<path>:<line> (red-team, ruled not security class)`.
 
 <a id="gate-dispositions"></a>
 **Gate dispositions (GST-2491).** A ruling never closes a gate finding (a loosened
@@ -2730,6 +2823,17 @@ body plain: they become main's history.
   A `pull_request` CI run tests GitHub's merge commit rather than your branch,
   so on a branch behind main `gstack-ci-carry` reports `tree_mismatch`:
   dispatch the workflow on the branch (`gh workflow run <workflow> --ref <branch>`).
+- <a id="ci-carry-rerun"></a>**A carried run that passed only after a re-run is marked, not refused.**
+  When only a run's failed jobs were re-run, its `tree.json` may list
+  `rerun_files` (the files whose newest result came from a re-run attempt) and
+  `attempts` (for example `[1, 2]`). The carry still accepts the run, but the
+  `CI_CARRY:` line, the `SHIP_RECEIPT:` line's `ci_carried=` field, and the
+  receipt line `ready` and `land` print all add `rerun=<files> attempts=<list>`,
+  so a pass on a re-run reads as flaky, never as a clean first-attempt pass. A
+  `tree.json` without `rerun_files`, or with an empty list, prints exactly as
+  before. A `rerun_files` that is not a list of paths, or `attempts` that is not
+  a list of attempt numbers, refuses that run
+  ([`CI_CARRY_RERUN_MALFORMED`](troubleshooting.md#ci-carry-rerun-malformed)).
 
 <a id="land-direct-contract"></a>
 #### Every check land makes
@@ -2980,9 +3084,12 @@ rule. The tool is repo code, so the receipt reruns it only with
 each stamped prefix; without the flag the file stays `changed`. The rerun is
 the Version Gate's: the stamped head (CHANGELOG folded, fragments deleted), a
 bare environment and a 120-second limit, so an output that depends on anything
-else fails closed as `changed`. With `stamp_files` set, a file outside it
-is `changed (stamp_files: not in the repo's stamp_files allowlist)` whatever
-its diff. Any other byte is a change. A diff git cannot produce between the two
+else fails closed as `changed`. `gstack-pregate clear --receipt
+--allow-repo-commands` applies the same rule to a remote gate receipt from a
+predecessor tree (GST-3067). With `stamp_files` set, a file outside it and
+outside `release_outputs` is `changed (stamp_files: not in the repo's
+stamp_files allowlist)` whatever its diff; a `release_outputs` path is judged
+by the release-output rule above. Any other byte is a change. A diff git cannot produce between the two
 heads fails closed with `EVIDENCE_IDENTITY_UNKNOWN` and git's reason; it never
 reads as no change.
 

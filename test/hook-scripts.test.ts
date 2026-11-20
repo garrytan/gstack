@@ -61,6 +61,20 @@ function withGitRepo(defaultBranch: string, currentBranch: string, fn: (repoDir:
   }
 }
 
+// Scratch repo with a tracked edit and an untracked file, so the
+// uncommitted-work checks (reset --hard, checkout -- paths, restore,
+// clean -f) see work they would discard.
+function withDirtyRepo(fn: (repoDir: string) => void) {
+  withGitRepo('main', 'feature', (repoDir) => {
+    fs.writeFileSync(path.join(repoDir, 'tracked.txt'), 'v1\n');
+    gitArgvIn(repoDir, ['add', 'tracked.txt']);
+    gitArgvIn(repoDir, ['commit', '-q', '-m', 'tracked']);
+    fs.writeFileSync(path.join(repoDir, 'tracked.txt'), 'v2\n');
+    fs.writeFileSync(path.join(repoDir, 'untracked.txt'), 'new\n');
+    fn(repoDir);
+  });
+}
+
 function runHookRaw(scriptPath: string, rawInput: string, env?: Record<string, string>): { exitCode: number; output: any; raw: string } {
   return spawnHook(scriptPath, rawInput, env);
 }
@@ -217,11 +231,11 @@ describe('check-careful.sh', () => {
     // The safe exception matches the COMPLETE command against an anchored
     // whitelist shape — anything else (chains, comments, substitution) falls
     // through to the destructive-pattern warning.
-    test('rm -rf /; rm -rf node_modules warns (semicolon chain, dangerous first)', () => {
+    test('rm -rf /; rm -rf node_modules denies (semicolon chain, dangerous first)', () => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /; rm -rf node_modules'));
       expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('HIGH');
     });
 
     test('rm -rf /etc/data && rm -rf dist warns (&& chain, dangerous first)', () => {
@@ -281,7 +295,8 @@ describe('check-careful.sh', () => {
 
     // The old grep extractor stopped at the first escaped quote in the JSON
     // string, so any quoted argument truncated the command BEFORE the pattern
-    // checks ran — hiding everything after it. (#2426)
+    // checks ran — hiding everything after it. (#2426) A root delete in any
+    // command shape is now a deny (GEVA-560).
     test.each([
       'git commit -m "wip" && rm -rf /',
       'bash -c "rm -rf /"',
@@ -290,8 +305,8 @@ describe('check-careful.sh', () => {
     ])('a quoted argument cannot hide a later destructive command: %s', (command) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('HIGH');
     });
 
     // JSON-escaped newline (literal two-char \n surviving the grep extraction
@@ -303,15 +318,13 @@ describe('check-careful.sh', () => {
       expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
     });
 
-    // Deliberate false positive, pinned: a safe-prefix chain ending in a safe rm
-    // is indistinguishable from the dangerous-first exploit shape without real
-    // shell parsing, so warn-on-all-chains is the designed fail-closed direction.
-    // A future per-segment parser must consciously change this test.
-    test('cd app && rm -rf node_modules asks (fail-closed on chains, by design)', () => {
+    // The per-statement scan (GEVA-560) reads every rm in a chain on its own,
+    // so a chain whose only delete is a build artifact no longer asks, while a
+    // dangerous rm anywhere in the chain still does (the next test).
+    test('cd app && rm -rf node_modules allows (every rm in the chain is read on its own)', () => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('cd app && rm -rf node_modules'));
       expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
     });
 
     test.each([
@@ -325,13 +338,13 @@ describe('check-careful.sh', () => {
     ])('never lets a safe-looking target hide a destructive command: %s', (command) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('HIGH');
     });
   });
 
   test.each([
-    ['rm -rf node_modules\nrm -rf /', 'recursive delete'],
+    ['rm -rf node_modules\nrm -rf /var/data', 'recursive delete'],
     ['rm${IFS}-rf${IFS}/', 'obfuscation'],
     ['psql -c "DROP DATABASE production"', 'SQL DROP'],
     ['psql -c "TRUNCATE users"', 'SQL TRUNCATE'],
@@ -341,10 +354,12 @@ describe('check-careful.sh', () => {
     ['kubectl delete pod app', 'kubectl delete'],
     ['docker system prune', 'Docker'],
   ])('keeps %s visible before large multiline content', (command, reason) => {
-    const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(`${command}\n# ${'x'.repeat(100_000)}`));
-    expect(exitCode).toBe(0);
-    expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(reason);
+    withDirtyRepo((repoDir) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(`${command}\n# ${'x'.repeat(100_000)}`), undefined, repoDir);
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(reason);
+    });
   });
 
   // --- Commit message false positives (#1060) ---
@@ -388,7 +403,7 @@ describe('check-careful.sh', () => {
     test('warns when rm follows a single-quoted message that embeds a double-quote', () => {
       const { exitCode, output } = runHook(
         CAREFUL_SCRIPT,
-        carefulInput(`git commit -m 'note -m "' && rm -rf build && echo '"'`),
+        carefulInput(`git commit -m 'note -m "' && rm -rf src && echo '"'`),
       );
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -400,7 +415,7 @@ describe('check-careful.sh', () => {
     test('warns when a commit message contains a command substitution with rm', () => {
       const { exitCode, output } = runHook(
         CAREFUL_SCRIPT,
-        carefulInput('git commit -m "$(rm -rf build)"'),
+        carefulInput('git commit -m "$(rm -rf src)"'),
       );
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -411,7 +426,7 @@ describe('check-careful.sh', () => {
     test('warns on force-push chained after git commit', () => {
       const { exitCode, output } = runHook(
         CAREFUL_SCRIPT,
-        carefulInput('git commit -m "x" && git push --force'),
+        carefulInput('git commit -m "x" && git push --force origin feature'),
       );
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -443,9 +458,9 @@ describe('check-careful.sh', () => {
     // per-line scanner joined lines (`-m xtruncate`) and restarted quote
     // state on every line, so a quoted line break could hide a real command.
     test.each([
-      ['git commit -m x\ntruncate -s 0 f', 'SQL TRUNCATE'],
-      ['git commit -m wip\nrm -rf build', 'recursive delete'],
-      ["git commit -m \"a\n-m 'x\" && rm -rf build && echo '", 'recursive delete'],
+      ["git commit -m x\npsql -c 'TRUNCATE t'", 'SQL TRUNCATE'],
+      ['git commit -m wip\nrm -rf src', 'recursive delete'],
+      ["git commit -m \"a\n-m 'x\" && rm -rf src && echo '", 'recursive delete'],
     ])('a command on the next line still asks: %j', (command, reason) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
@@ -463,11 +478,11 @@ describe('check-careful.sh', () => {
     // command in the chain, a commit whose output is piped into a shell, and
     // an escaped quote inside the message all stay visible.
     test.each([
-      ["git commit -m a && ls | parallel -m 'rm -rf build'", 'recursive delete'],
-      ["git commit -m 'rm -rf build' | sh", 'recursive delete'],
-      ["echo git commit -m 'drop table users'", 'SQL DROP'],
-      ['git commit -m "a\\"b" && rm -rf build', 'recursive delete'],
-      ["git commit -m wip \\\n&& rm -rf build", 'recursive delete'],
+      ["git commit -m a && ls | parallel -m 'rm -rf src'", 'recursive delete'],
+      ["git commit -m 'rm -rf src' | sh", 'recursive delete'],
+      ["echo git commit -m 'rm -rf src'", 'recursive delete'],
+      ['git commit -m "a\\"b" && rm -rf src', 'recursive delete'],
+      ["git commit -m wip \\\n&& rm -rf src", 'recursive delete'],
     ])('text outside commit\'s own message still asks: %j', (command, reason) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
@@ -502,12 +517,12 @@ describe('check-careful.sh', () => {
     });
 
     test.each([
-      [heredocMessage('docs: drop table notes') + ' && git push --force', 'force-push'],
-      [heredocMessage('drop table $(rm -rf build)', 'EOF'), 'recursive delete'],
-      [`git commit -m "$(echo " -m 'x" ; rm -rf build ; echo ')"`, 'recursive delete'],
-      ['git commit -m "\`rm -rf build\`"', 'recursive delete'],
-      ["git commit -F - <<'EOF'\ndocs: drop table notes\nEOF", 'SQL DROP'],
-      ["git commit -m $'drop table notes\\n'", 'SQL DROP'],
+      [heredocMessage('docs: drop table notes') + ' && git push --force origin feature', 'force-push'],
+      [heredocMessage('drop table $(rm -rf src)', 'EOF'), 'recursive delete'],
+      [`git commit -m "$(echo " -m 'x" ; rm -rf src ; echo ')"`, 'recursive delete'],
+      ['git commit -m "\`rm -rf src\`"', 'recursive delete'],
+      ["git commit -F - <<'EOF'\ndocs: rm -rf src\nEOF", 'recursive delete'],
+      ["git commit -m $'psql -c \"drop table notes\"\\n'", 'SQL DROP'],
     ])('other substitutions and heredocs stay unmasked: %j', (command, reason) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
@@ -519,10 +534,10 @@ describe('check-careful.sh', () => {
     // a process substitution or a parameter expansion leaves it unmasked; a
     // redirection's & is not a separator, and a comment's quote is not a quote.
     test.each([
-      "git commit -m 'rm -rf build' 2>&1 | sh",
-      "(git commit -m 'rm -rf build') | sh",
-      "git commit -m 'rm -rf build' > >(sh)",
-      'git commit -m "${MSG:-rm -rf build}"',
+      "git commit -m 'rm -rf src' 2>&1 | sh",
+      "(git commit -m 'rm -rf src') | sh",
+      "git commit -m 'rm -rf src' > >(sh)",
+      'git commit -m "${MSG:-rm -rf src}"',
     ])('a message that can reach a shell stays unmasked: %j', (command) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
@@ -546,10 +561,10 @@ describe('check-careful.sh', () => {
         for (const file of ['check-careful.sh', 'hook-extract.sh']) {
           fs.copyFileSync(path.join(path.dirname(CAREFUL_SCRIPT), file), path.join(dir, file));
         }
-        const { exitCode, output } = runHook(path.join(dir, 'check-careful.sh'), carefulInput('git commit -m "drop table notes"'));
+        const { exitCode, output } = runHook(path.join(dir, 'check-careful.sh'), carefulInput('git commit -m "rm -rf src"'));
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('SQL DROP');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -649,13 +664,13 @@ describe('check-careful.sh', () => {
   // --- Git destructive commands ---
 
   describe('git destructive commands', () => {
-    // Force-push to a NON-default branch is MEDIUM (ask). Force-push to the
-    // default branch is HIGH (deny) — covered in the HIGH tier describe. The
-    // fixture repo pins the default branch so the split is deterministic
-    // regardless of the host repo's origin/HEAD.
+    // Force-push to a NON-default branch is MEDIUM (ask). Force-push to main,
+    // master or the default branch is HIGH (deny) — covered in the HIGH tier
+    // describe. The fixture repo pins the default branch so the split is
+    // deterministic regardless of the host repo's origin/HEAD.
     test('git push --force warns with force-push (non-default target)', () => {
       withGitRepo('trunk', 'trunk', (repoDir) => {
-        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push --force origin main'), undefined, repoDir);
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push --force origin release'), undefined, repoDir);
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('force-push');
@@ -664,7 +679,7 @@ describe('check-careful.sh', () => {
 
     test('git push -f warns (non-default target)', () => {
       withGitRepo('trunk', 'trunk', (repoDir) => {
-        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push -f origin main'), undefined, repoDir);
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push -f origin release'), undefined, repoDir);
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('force-push');
@@ -672,24 +687,30 @@ describe('check-careful.sh', () => {
     });
 
     test('git reset --hard warns with uncommitted', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git reset --hard HEAD~3'));
-      expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      withDirtyRepo((repoDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git reset --hard HEAD~3'), undefined, repoDir);
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      });
     });
 
     test('git checkout . warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git checkout .'));
-      expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      withDirtyRepo((repoDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git checkout .'), undefined, repoDir);
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      });
     });
 
     test('git restore . warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git restore .'));
-      expect(exitCode).toBe(0);
-      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
-      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      withDirtyRepo((repoDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git restore .'), undefined, repoDir);
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('uncommitted');
+      });
     });
   });
 
@@ -767,7 +788,7 @@ describe('check-careful.sh', () => {
       // grep works line-by-line, so it cannot match "command"..."value" across lines.
       // This forces CMD to be empty, triggering the Python fallback which handles
       // the full JSON correctly.
-      const rawJson = '{"tool_input":{"command":\n"rm -rf /tmp/important"}}';
+      const rawJson = '{"tool_input":{"command":\n"rm -rf /var/important"}}';
       const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, rawJson);
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -833,11 +854,11 @@ describe('check-careful.sh', () => {
       });
     });
 
-    test('compound force-push falls through to ask, never deny (cannot resolve cwd)', () => {
+    test('compound force-push to main denies too (GEVA-560 decision A: any command shape)', () => {
       withGitRepo('main', 'main', (repoDir) => {
         const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('cd elsewhere && git push --force origin main'), undefined, repoDir);
         expect(exitCode).toBe(0);
-        expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
       });
     });
 
@@ -942,8 +963,8 @@ describe('check-careful.sh', () => {
     }
 
     test('a project pattern adds an ask rule', () => {
-      withPatternFile('# infra safety\nterraform\\s+destroy\n', (gstackHome) => {
-        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy -auto-approve'), { GSTACK_HOME: gstackHome });
+      withPatternFile('# infra safety\nflyway\\s+clean\n', (gstackHome) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('flyway clean -url=jdbc:x'), { GSTACK_HOME: gstackHome });
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
@@ -951,9 +972,9 @@ describe('check-careful.sh', () => {
     });
 
     test('a project pattern matches before large multiline content', () => {
-      withPatternFile('terraform\\s+destroy\n', (gstackHome) => {
+      withPatternFile('flyway\\s+clean\n', (gstackHome) => {
         const { exitCode, output } = runHook(CAREFUL_SCRIPT,
-          carefulInput(`terraform destroy\n# ${'x'.repeat(100_000)}`), { GSTACK_HOME: gstackHome });
+          carefulInput(`flyway clean\n# ${'x'.repeat(100_000)}`), { GSTACK_HOME: gstackHome });
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
@@ -970,8 +991,8 @@ describe('check-careful.sh', () => {
     });
 
     test('an invalid regex line is skipped without breaking the hook', () => {
-      withPatternFile('([unclosed\nterraform\\s+destroy\n', (gstackHome) => {
-        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy'), { GSTACK_HOME: gstackHome });
+      withPatternFile('([unclosed\nflyway\\s+clean\n', (gstackHome) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('flyway clean'), { GSTACK_HOME: gstackHome });
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
@@ -989,9 +1010,9 @@ describe('check-careful.sh', () => {
       fs.writeFileSync(path.join(carefulBin, 'hook-extract.sh'), helper.slice(0, start) + helper.slice(end));
       const fakeHome = path.join(base, 'home');
       fs.mkdirSync(path.join(fakeHome, '.gstack'), { recursive: true });
-      fs.writeFileSync(path.join(fakeHome, '.gstack', 'careful-patterns.txt'), 'terraform\\s+destroy\n');
+      fs.writeFileSync(path.join(fakeHome, '.gstack', 'careful-patterns.txt'), 'flyway\\s+clean\n');
       try {
-        const { exitCode, output } = runHook(path.join(carefulBin, 'check-careful.sh'), carefulInput('terraform destroy'), { HOME: fakeHome, GSTACK_HOME: '' });
+        const { exitCode, output } = runHook(path.join(carefulBin, 'check-careful.sh'), carefulInput('flyway clean'), { HOME: fakeHome, GSTACK_HOME: '' });
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
         expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
@@ -1001,9 +1022,9 @@ describe('check-careful.sh', () => {
     });
 
     test('plugin install: patterns under CLAUDE_PLUGIN_DATA load when CLAUDE_PLUGIN_ROOT names gstack (same root the writer uses)', () => {
-      withPatternFile('terraform\\s+destroy\n', (pluginData) => {
+      withPatternFile('flyway\\s+clean\n', (pluginData) => {
         withEmptyDir((fakeHome) => {
-          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy'),
+          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('flyway clean'),
             { HOME: fakeHome, GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: pluginData, CLAUDE_PLUGIN_ROOT: '/plugins/gstack' });
           expect(exitCode).toBe(0);
           expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -1013,9 +1034,9 @@ describe('check-careful.sh', () => {
     });
 
     test('GSTACK_HOME outranks CLAUDE_PLUGIN_DATA for careful patterns, exactly as for the freeze file', () => {
-      withPatternFile('terraform\\s+destroy\n', (gstackHome) => {
+      withPatternFile('flyway\\s+clean\n', (gstackHome) => {
         withEmptyDir((pluginData) => {
-          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy'),
+          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('flyway clean'),
             { GSTACK_HOME: gstackHome, CLAUDE_PLUGIN_DATA: pluginData, CLAUDE_PLUGIN_ROOT: '/plugins/gstack' });
           expect(exitCode).toBe(0);
           expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
@@ -1025,7 +1046,7 @@ describe('check-careful.sh', () => {
     });
 
     test('safe commands still allow with a pattern file present', () => {
-      withPatternFile('terraform\\s+destroy\n', (gstackHome) => {
+      withPatternFile('flyway\\s+clean\n', (gstackHome) => {
         const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('ls -la'), { GSTACK_HOME: gstackHome });
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
@@ -1194,9 +1215,9 @@ describe('check-careful.sh PowerShell and cmd coverage (#3067)', () => {
       ['echo hi; rm -rf ~'],
       ['echo $(rm -rf /)'],
       ['git commit -m "$(rm -rf ~)"'],
-    ])('%s asks', (cmd) => {
-      expect(carefulDecision(bashInput(cmd)).decision).toBe('ask');
-      expect(carefulDecision(carefulInput(cmd)).decision).toBe('ask');
+    ])('%s is caught (a root delete denies in any command shape)', (cmd) => {
+      expect(carefulDecision(bashInput(cmd)).decision).toBe('deny');
+      expect(carefulDecision(carefulInput(cmd)).decision).toBe('deny');
     });
   });
 

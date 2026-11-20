@@ -15,6 +15,11 @@ export const CAPY_RESULT_CODES = {
     summary: 'an approval row is missing a required field, holds a value outside its enum, or exceeds a length cap',
     fix: 'rerun gstack-approvals add with every required flag (--ask, --words, --scope, --by) inside the caps it names; nothing was written',
   },
+  APPROVAL_RULING_RUN_OPEN: {
+    anchor: 'approval-ruling-run-open',
+    summary: 'gstack-approvals rule ran on a checkout where a /ship run is open, with no --owner-ref, and a run\'s own runner never rules on its findings',
+    fix: 'relay the owner\'s ruling with --owner-ref <thread code>:<message id or timestamp> --by <the owner> --words <their exact words>, or record it after the run stops; nothing was written',
+  },
   APPROVAL_RECORD_SECRET: {
     anchor: 'approval-record-secret',
     summary: 'a field of the approval row matched the secret scanner, so the row was refused and nothing was written',
@@ -39,6 +44,51 @@ export const CAPY_RESULT_CODES = {
     anchor: 'approval-import-unanswered',
     summary: 'the autoplan run has no answered gate to import',
     fix: 'answer the gate first (gstack-autoplan answer ... --by human|agent:<id>), then rerun the import; it is idempotent, so a retry imports nothing twice',
+  },
+  OWNER_ANSWERS_NO_DRIVE: {
+    anchor: 'owner-answers-no-drive',
+    summary: 'no owner Drive folder (user-<owner>) is mounted on this Capy machine, so there is no record to read or write',
+    fix: 'run from a thread the owner owns, or pass --owner <name> for a mounted user-<name> folder; until then every ask goes to the owner',
+  },
+  OWNER_ANSWERS_AMBIGUOUS: {
+    anchor: 'owner-answers-ambiguous',
+    summary: 'more than one user-* Drive folder is mounted, so the owner is not known',
+    fix: 'pass --owner <name> naming the owner whose record this is; nothing was read or written',
+  },
+  OWNER_ANSWERS_INVALID: {
+    anchor: 'owner-answers-invalid',
+    summary: 'a row, an ask file or a flag is missing a required value, holds a value outside its format, or exceeds a length cap',
+    fix: 'rerun with the flags the help names (an action and target are one lower-case token each; scope is all, repo:<owner>/<name> or captain:<name>); nothing was written',
+  },
+  OWNER_ANSWERS_SECRET: {
+    anchor: 'owner-answers-secret',
+    summary: 'a field matched the secret scanner, so the row was not written',
+    fix: 'remove the key, token or personal data from that field (the error names the field and rule, never the text) and rerun',
+  },
+  OWNER_ANSWERS_WRITE_FAILED: {
+    anchor: 'owner-answers-write-failed',
+    summary: 'the record directory could not be written',
+    fix: 'check the path gstack-owner-answers status prints and its permissions, then rerun; a failed write removed its file, and an empty file left by a crash is named by status and must be removed',
+  },
+  OWNER_ANSWERS_NOT_FOUND: {
+    anchor: 'owner-answers-not-found',
+    summary: 'no row with that id is in the owner record',
+    fix: 'gstack-owner-answers list --all shows every row id; rerun with one of them',
+  },
+  OWNER_ANSWERS_CONFLICT: {
+    anchor: 'owner-answers-conflict',
+    summary: 'a row for the same source, action, target and scope already records different words, author or limits, or the row named to supersede is already replaced',
+    fix: 'check which words the owner actually said at that source; record a correction with supersede <row id> on the current row, never a second add',
+  },
+  OWNER_ANSWERS_SELF_VERIFY: {
+    anchor: 'owner-answers-self-verify',
+    summary: 'the actor that recorded a row tried to verify it',
+    fix: 'a second actor reads the cited thread event and runs verify --by <its own name>; a row its recorder verified is never takeable',
+  },
+  OWNER_ANSWERS_NOT_TAKEABLE: {
+    anchor: 'owner-answers-not-takeable',
+    summary: 'a taken decision was logged against a row that cannot be taken',
+    fix: 'send the ask to the owner instead (log it as asked); screen only proposes rows it can take, and the detail says why this one cannot',
   },
   CAPTAIN_BRIEF_INCOMPLETE: {
     anchor: 'captain-brief-incomplete',
@@ -154,5 +204,35 @@ export const CAPY_RESULT_CODES = {
     anchor: 'archive-policy-unreadable',
     summary: 'gstack-archive-check landed found no usable .gstack/plain-titles.json (missing, invalid or with no codes), so it cannot tell a tracker code from any other ref and closes nothing',
     fix: 'run it from the repository root, where .gstack/plain-titles.json lives; if the file is missing or invalid there, fix it on main (docs/ship-policy.md#plain-titles) and rerun; close nothing until then',
+  },
+  FIRST_USE_PLAN_UNREADY: {
+    anchor: 'first-use-plan-unready',
+    summary: 'the plan has no usable ### Day one table to freeze (missing, malformed, fewer than five complete rows, or a row still marked assumed)',
+    fix: 'add or fix the ### Day one table (action, frequency, source, feature, route, first build, check) and confirm every assumed row with the owner, then run start again',
+  },
+  FIRST_USE_PLAY_SPEC_INCOMPLETE: {
+    anchor: 'first-use-play-spec-incomplete',
+    summary: 'the play spec is missing one or more of the ten parts every ask to play or try a build carries',
+    fix: 'fill in the parts the line names in the play spec JSON (docs/first-use-check.md#play-spec), then run start again',
+  },
+  FIRST_USE_SAME_FAMILY: {
+    anchor: 'first-use-same-family',
+    summary: 'the checker is from the builder’s model family, its family is unknown, or a result was recorded by a model other than the run’s checker family',
+    fix: 'name the builder and checker as provider/model ids from different families (for example anthropic/… and openai/…), and record results only from the checker',
+  },
+  FIRST_USE_NO_PRIVATE_DRIVE: {
+    anchor: 'first-use-no-private-drive',
+    summary: 'on Capy, the first-use record needs exactly one user-level Capy Drive folder (~/.capy/drive/user-*) and found none or several',
+    fix: 'run it in a thread of the build’s owner, where his private user drive is mounted, or set GSTACK_FIRST_USE_DIR to his private folder; never fall back to the machine folder',
+  },
+  FIRST_USE_RECORD_INVALID: {
+    anchor: 'first-use-record-invalid',
+    summary: 'a first-use record input or file is invalid (bad flag value, unreadable manifest, a run outside the record root, bad evidence, or a write-once file that already exists)',
+    fix: 'correct the value the line names; never edit or delete files in a run directory, start a new run instead',
+  },
+  FIRST_USE_REFUSED: {
+    anchor: 'first-use-refused',
+    summary: 'the build has not cleared its first-use check, so no "try this build" message or "v1 is ready" report may go out',
+    fix: 'act on each reason the line lists: replay the failed or unplayed actions, rerun links within 15 minutes of sending, add the predicted score, or start a new run for a new build or changed day-one rows',
   },
 } satisfies Record<string, ResultCode>;

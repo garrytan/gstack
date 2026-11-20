@@ -16,7 +16,7 @@
  *     saw is not reviewed).
  * Any other `.uid` is refused with the reason and stays behavior; a `.import` file is never a candidate.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { touchedPaths, type PatchSides } from './ship-patch';
 
 export interface SidecarInput {

@@ -20,6 +20,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { isReviewedTreeLine } from './review-brief';
+import { parseVerdict } from './review-verdict';
 
 const SUBJECT = new Set(['proposal', 'proposals', 'propose', 'proposed', 'hold', 'holds', 'held', 'approval', 'approvals', 'pending']);
 const ACTION = new Set(['accept', 'accepted', 'accepts', 'approve', 'approved', 'approves', 'drop', 'dropped', 'drops', 'reject', 'rejected', 'rejects', 'deny', 'denied', 'dismiss', 'dismissed', 'withdraw', 'withdrawn', 'release', 'released']);
@@ -55,12 +57,17 @@ export interface Expectation { kinds: string[]; actions: string[]; untested: Arr
 export interface Gap { code: string; cell?: string; detail: string }
 export interface MatrixCheck { machines: Array<{ machine: string; kinds: number; actions: number; cells: number; tested: number; untested: number; reported: number }>; gaps: Gap[]; findings: number; noFindings: boolean }
 
-/** Matrix records, findings and whether the output is the literal `NO FINDINGS`; unparseable lines are gaps. */
+/**
+ * Matrix records, findings and whether the output is the literal `NO FINDINGS`; unparseable lines are gaps. The header a
+ * dispatched reader's brief requires (lib/review-brief.ts workspaceStep: a `REVIEWED_TREE` first line, then a well-formed
+ * `REVIEW_VERDICT` line) is read by the same parsers collect uses and skipped; anywhere else such a line is a gap.
+ */
 export function parseSpecialistOutput(text: string): { matrices: Matrix[]; findings: MatrixFinding[]; noFindings: boolean; gaps: Gap[] } {
   const matrices: Matrix[] = [];
   const findings: MatrixFinding[] = [];
   const gaps: Gap[] = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines[0] !== undefined && isReviewedTreeLine(lines[0])) lines = lines.slice(lines[1] !== undefined && parseVerdict(lines[1]).state === 'valid' ? 2 : 1);
   const noFindings = lines.length === 1 && lines[0] === 'NO FINDINGS';
   if (noFindings) return { matrices, findings, noFindings, gaps };
   for (const line of lines) {

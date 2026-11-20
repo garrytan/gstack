@@ -13,13 +13,14 @@
  * the store at the pin, never from the receipt or the PR body (docs/ship-policy.md#gate-dispositions).
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 import { GSTACK_ACTOR } from './ruled-notes';
+import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
 import { BIN_DIR, runScriptSync } from './script-invocation';
 
 export interface GateDisposition { finding: string; gate_id: string; head: string; by: string; reason: string; words: string; at: string; approval: string }
@@ -185,8 +186,11 @@ export function gateAcceptance(o: { cwd: string; branch: string; pin: string; bo
   return problems.length ? { lines, applied, failure: { code: 'QUEUE_GATE_DISPOSITION', message: problems.join('; '), fix } } : { lines, applied };
 }
 
-/** The one-line form finish prints after `GATE_DISPOSITION: ` and the PR body carries after `Gate disposition: `. */
-export const gateDispositionText = (d: GateDisposition) => `${d.finding} [gate ${d.gate_id}] at ${d.head.slice(0, 12)} by ${d.by} at ${d.at}: ${d.reason} — "${d.words}" (approval ${d.approval})`;
+/** The disposition as public text may carry it: a security-class finding's fingerprint, reason and owner words stay in the approval record (GST-3076). */
+export const publicGateDisposition = (d: GateDisposition): GateDisposition => isSecurityFinding(d.finding) ? { ...d, finding: REDACTED_FINDING, reason: REDACTED_REASON, words: REDACTED_WORDS } : d;
+
+/** The one-line form finish prints after `GATE_DISPOSITION: ` and the PR body carries after `Gate disposition: `, from publicGateDisposition. */
+export const gateDispositionText = (disposition: GateDisposition) => { const d = publicGateDisposition(disposition); return `${d.finding} [gate ${d.gate_id}] at ${d.head.slice(0, 12)} by ${d.by} at ${d.at}: ${d.reason} — "${d.words}" (approval ${d.approval})`; };
 
 /**
  * The dispositions that close a review row's gate findings: the same fingerprint and gate_id on a gate finding the logger left

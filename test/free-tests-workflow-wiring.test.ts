@@ -234,11 +234,48 @@ describe('free-tests workflow wiring', () => {
       expect(retry, name).toBe(install + 1);
       for (const step of [steps[install], steps[retry]]) {
         expect(step['timeout-minutes'], name).toBe(5);
-        expect(step.run, name).toBe('npx playwright install --with-deps chromium');
+        expect(step.run.trim(), name).toBe('if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi');
+        expect(step.env, name).toEqual({ SYSTEM_PACKAGES: '${{ steps.apt_offline.outcome }}' });
       }
       expect(steps[install]['continue-on-error'], name).toBe(true);
-      const failOpen = name === 'free-suite' ? [steps[install], steps.find((step: any) => step.name === 'Upload shard JUnit reports')] : [steps[install]];
+      const offline = steps.find((step: any) => step.id === 'apt_offline');
+      const failOpen = name === 'free-suite' ? [offline, steps[install], steps.find((step: any) => step.name === 'Upload shard JUnit reports')] : [offline, steps[install]];
       expect(steps.filter((step: any) => step['continue-on-error']), name).toEqual(failOpen);
+    }
+  });
+
+  test('system packages are cached per runner image and Playwright version, and apt waits for a killed attempt\'s lock (2026-11-19, run 44485949701)', () => {
+    const jobs = (Bun.YAML.parse(source) as any).jobs;
+    for (const name of ['free-suite', 'quick-bun-default']) {
+      const steps = jobs[name].steps;
+      const at = (pred: (step: any) => boolean) => steps.findIndex(pred);
+      const config = at((step: any) => step.run?.includes('/etc/apt/apt.conf.d/90gstack-ci'));
+      const base = at((step: any) => step.id === 'apt_base');
+      const restore = at((step: any) => step.id === 'apt_cache');
+      const offline = at((step: any) => step.id === 'apt_offline');
+      const install = at((step: any) => step.id === 'playwright_install');
+      const xvfb = at((step: any) => step.name === 'Install Xvfb + X11 utilities + gate tools');
+      const keep = at((step: any) => step.id === 'apt_keep');
+      const save = keep + 1;
+      expect(steps[config].run, name).toContain('DPkg::Lock::Timeout "240";');
+      expect(steps[config].run, name).toContain('APT::Keep-Downloaded-Packages "true";');
+      expect(steps[base].run, name).toContain("dpkg-query -W -f='${binary:Package}=${Version}\\n' | sha256sum");
+      expect(steps[restore].uses, name).toStartWith('actions/cache/restore@');
+      expect(steps[base].env, name).toEqual({ PLAYWRIGHT_VERSION: '${{ steps.playwright.outputs.version }}' });
+      expect(steps[base].run, name).toContain('echo "cache_key=linux-apt-debs-$(');
+      expect(steps[base].run, name).toContain(')-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"');
+      expect(steps[restore].with, name).toEqual({ path: '~/.cache/gstack-apt-debs', key: '${{ steps.apt_base.outputs.cache_key }}' });
+      expect(steps[offline].if, name).toBe("steps.apt_cache.outputs.cache-hit == 'true'");
+      expect(steps[offline].run, name).toBe('sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb');
+      expect(steps[keep].if, name).toBe("steps.apt_cache.outputs.cache-hit != 'true'");
+      expect(steps[keep].run, name).toContain('cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/');
+      expect(steps[save].uses, name).toStartWith('actions/cache/save@');
+      expect(steps[save].if, name).toBe("steps.apt_keep.outputs.save == 'true'");
+      expect(steps[save].with, name).toEqual({ path: '~/.cache/gstack-apt-debs', key: '${{ steps.apt_cache.outputs.cache-primary-key }}' });
+      expect([config, base, restore, offline, install], name).toEqual([config, base, restore, offline, install].sort((a, b) => a - b));
+      expect(config, name).toBeGreaterThan(-1);
+      expect(xvfb, name).toBeGreaterThan(install);
+      expect(keep, name).toBe(xvfb + 1);
     }
   });
 

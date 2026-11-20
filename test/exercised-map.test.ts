@@ -331,6 +331,7 @@ describe('parity with the measured prototype', () => {
     'lib/ship-receipt-docs.ts': 'bin/gstack-ship-receipt imports it (the docs audit record and doc caps), so it reaches every consumer of the receipt binary',
     'lib/ship-receipt-prose.ts': 'bin/gstack-ship-receipt imports it (read --check-prose), so it reaches every consumer of the receipt binary',
     'lib/ship-clock.ts': 'G2: bin/gstack-ship-receipt (write --budget-record), lib/ship-budget-cli.ts (note, resume) and lib/ship-phase.ts import it, so it reaches every consumer of the receipt and budget binaries',
+    'scripts/resolvers/load-injection.ts': 'GST-3157: the preamble resolvers (generate-preamble-bash, preamble-hoist) and scripts/gen-skill-docs.ts import it, so it reaches every consumer of the generated skills',
     'lib/default-base.ts': 'GST-511/GST-774: lib/ship-policy.ts (resolveBaseBranch), lib/gate-diff/git.ts, lib/pregate/context.ts, lib/ship-receipt-depth.ts and the review-plan, gate-diff, pregate, docs-candidate and diff-scope bins import or run it, so it reaches every consumer of those readers',
   };
 

@@ -407,3 +407,28 @@ describe('native journal roots: SessionStart preamble, resumed genesis and reaso
       });
   });
 });
+
+describe('skill text Claude Code loaded', () => {
+  test('keeps only scoped, timestamped skill expansions with their load-time output', () => {
+    const f = fixture();
+    const text = 'Base directory for this skill: /fixture/.claude/skills/plan-ceo-review\n\n## Preamble (run first)\n\nSKILL_START_PROTO: 1\n';
+    const other = (name: string) => text.replace('plan-ceo-review', name);
+    f.append(
+      f.record('user', [{ type: 'text', text: '<command-message>plan-ceo-review</command-message>' }]),
+      f.record('user', [{ type: 'text', text }], { isMeta: true }),
+      f.record('user', [{ type: 'text', text: other('typed-by-user') }]),
+      f.record('user', [{ type: 'text', text: other('sidechain') }], { isMeta: true, isSidechain: true }),
+      f.record('user', [{ type: 'text', text: other('untimed') }], { isMeta: true, timestamp: 'later' }),
+      f.record('user', [{ type: 'text', text: other('foreign') }], { isMeta: true, cwd: '/elsewhere' }),
+      f.record('user', [{ type: 'text', text: `Quoted: ${text}` }], { isMeta: true }),
+      f.record('assistant', [{ type: 'text', text: other('assistant') }], { isMeta: true }),
+    );
+    expect(f.read().skillLoads).toEqual([{ sessionId: 'session-a', skill: 'plan-ceo-review', text, timestamp: '2026-09-08T15:31:13.607Z' }]);
+  });
+
+  test('a transcript with no skill expansion reports none', () => {
+    const f = fixture();
+    f.append(f.ask('one'));
+    expect(f.read().skillLoads).toBeUndefined();
+  });
+});

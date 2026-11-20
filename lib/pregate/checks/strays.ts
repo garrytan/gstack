@@ -6,7 +6,7 @@
  * `tmp-watch.js`; editor leftovers). Incident p0-4-scratch-script: a `zz-probe.sh` shipped in a
  * release PR because nothing looked at the file list.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../spawn-sync';
 import { matchesAny } from '../../ship-policy';
 import { baseInputs } from '../context';
 import type { CheckDef, CheckResult, PregateContext } from '../types';

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# gstack-skill-load — what a gstack skill runs when Claude Code loads it (GST-3157).
+#
+# Claude Code runs a skill's `!\`<command>\`` lines while the skill loads and
+# puts their output into the skill text, so the model starts with the result
+# instead of an instruction it may skip. An injected command that exits
+# non-zero aborts the whole skill load, so this helper always exits 0 and turns
+# a failure into one line that tells the model to run the step itself.
+#
+#   gstack-skill-load preamble FILE   print the shared preamble file
+#   gstack-skill-load start ARGS...   run gstack-skill-start ARGS under a hard
+#                                     timeout (GSTACK_SKILL_LOAD_TIMEOUT
+#                                     seconds, default 15)
+#
+# Read-only except for what gstack-skill-start already writes; no network
+# beyond its update check. stdin is closed and the start's output goes to a
+# temp file, so nothing it leaves running can hold Claude Code's pipe open.
+
+exec 2>/dev/null
+_BIN=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+MODE=${1:-}
+[ $# -gt 0 ] && shift
+
+case "$MODE" in
+  preamble)
+    # Only a gstack shared preamble: the allowed-tools grant auto-approves this
+    # helper, so it prints a file only when its first line after the generated
+    # comments is `# gstack shared preamble <12-hex id>`. Renders served from
+    # another root (--link-root) keep their preambles outside the install root.
+    if [ -n "${1:-}" ] && [ -f "$1" ] && [ -r "$1" ] \
+      && awk '!/^<!--/ { print; exit }' "$1" 2>/dev/null | grep -Eqx '# gstack shared preamble [0-9a-f]{12}'; then
+      cat "$1" 2>/dev/null && exit 0
+    fi
+    echo "SHARED_PREAMBLE: not loaded (${1:-no file given} is missing, unreadable or not a gstack shared preamble); Read the file named above if it exists, else tell the user to run ./setup or /gstack-upgrade."
+    exit 0 ;;
+  start) ;;
+  *)
+    echo "SKILL_LOAD: unknown mode '$(printf '%s' "$MODE" | tr -cd 'a-z-')'; run the start command below yourself."
+    exit 0 ;;
+esac
+
+RETRY="run the start command below yourself with Bash, then continue"
+LIMIT=${GSTACK_SKILL_LOAD_TIMEOUT:-15}
+case "$LIMIT" in ''|*[!0-9]*) LIMIT=15 ;; esac
+LIMIT=$((10#$LIMIT))
+[ "$LIMIT" -gt 0 ] || LIMIT=15
+
+# The start keys its session on the harness pid. Run from here, its own walk
+# would stop at this script, so derive the pid the way a direct call would.
+HARNESS_PID=$PPID
+if . "$_BIN/gstack-harness-pid.sh" 2>/dev/null; then
+  HARNESS_PID=$(gstack_harness_pid "$PPID")
+fi
+
+OUT=$(mktemp "${TMPDIR:-/tmp}/gstack-skill-load.XXXXXX" 2>/dev/null) || {
+  echo "SKILL_START: not run at load (no temp file); $RETRY."
+  exit 0
+}
+trap 'rm -f "$OUT"' EXIT
+
+# Job control gives the start its own process group, so a timeout stops
+# everything it started.
+set -m
+"$_BIN/gstack-skill-start" "$@" --parent-pid "$HARNESS_PID" </dev/null >"$OUT" 2>&1 &
+PID=$!
+set +m
+TICKS=0
+while kill -0 "$PID" 2>/dev/null; do
+  if [ "$TICKS" -ge $((LIMIT * 10)) ]; then
+    kill -TERM -- "-$PID" 2>/dev/null || kill -TERM "$PID"
+    sleep 1
+    kill -KILL -- "-$PID" 2>/dev/null || kill -KILL "$PID"
+    cat "$OUT" 2>/dev/null
+    [ -n "$(tail -c 1 "$OUT" 2>/dev/null)" ] && echo
+    echo "SKILL_START: timed out after ${LIMIT}s at load; $RETRY."
+    exit 0
+  fi
+  sleep 0.1
+  TICKS=$((TICKS + 1))
+done
+wait "$PID"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  echo "SKILL_START: failed at load (exit $RC); $RETRY."
+  exit 0
+fi
+cat "$OUT"
+exit 0

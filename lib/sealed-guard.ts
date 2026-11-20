@@ -40,7 +40,7 @@
  * the whole file at the commit, which the base may never have held. No
  * combined-diff matching; any lookup failure scans everything.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

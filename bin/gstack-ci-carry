@@ -16,7 +16,7 @@
  * prints CI_WAIT: green|red|running|none, and on green runs find. Exit 0 green and carried, 1 red or not
  * carried, 3 still running or no run. Logic: lib/ci-carry.ts; the run checks are lib/run-evidence.ts.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { carriedFromLine, findCarry, laneMapping, mappingCoverage, treeTwins, waitForRun } from '../lib/ci-carry';
 import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from '../lib/pregate/config';
 import { buildRunCheck } from '../lib/pregate/run-check';

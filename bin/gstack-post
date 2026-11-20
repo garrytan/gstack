@@ -10,12 +10,15 @@
  * to gh/glab as an argv element or on stdin, never through a shell string.
  * Exit: 0 posted · 1 HIGH refused · 2 MEDIUM needs --confirm <token> ·
  * 3 gh/glab failed · 4 title not plain words (PLAIN_TITLE: lines) · 64 usage.
+ * On Capy (GSTACK_CAPY=1) a write that passes every check is not sent: exit 0
+ * prints HOST_PUBLISH: naming the files for the host's PR tool (lib/host-publish.ts).
  * Logic and full usage: lib/gstack-post.ts.
  */
 import * as fs from "fs";
 import * as path from "path";
-import { spawnSync } from "child_process";
-import { runPost } from "../lib/gstack-post";
+import { spawnSync } from "../lib/spawn-sync";
+import { runPost, type HostDest } from "../lib/gstack-post";
+import { handOff, hostPublishes } from "../lib/host-publish";
 
 const code = runPost(process.argv.slice(2), {
   run(cmd, args, input) {
@@ -31,5 +34,7 @@ const code = runPost(process.argv.slice(2), {
   readFile: (p) => fs.readFileSync(p, "utf8"),
   out: (t) => process.stdout.write(t),
   err: (t) => process.stderr.write(t),
+  ghRepo: process.env.GH_REPO,
+  ...(hostPublishes() ? { hostPublish: (op: string, target: string | undefined, parts: Array<["title" | "body", string]>, dest: HostDest) => handOff({ op, target, parts, ...dest }) } : {}),
 }, path.join(import.meta.dir, "gstack-config"));
 process.exitCode = code;

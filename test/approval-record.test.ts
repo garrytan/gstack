@@ -410,6 +410,38 @@ describe('Capy mirror', () => {
     expect(bin(['sync'], { cwd, env: { GSTACK_STATE_ROOT: fresh, GSTACK_APPROVALS_DIR: mirror } }).out).toMatch(/^APPROVAL_SYNCED: rows=1 /);
   });
 
+  test('a fixture never mirrors into a Drive outside its temp root, through a symlink either (GST-3027)', () => {
+    const base = tmp('appr-fixture-');
+    const fixtureTmp = path.join(base, 'tmp'); const real = path.join(base, 'real-home');
+    const realDrive = path.join(real, '.capy', 'drive', 'project-user-gstack-dana');
+    fs.mkdirSync(fixtureTmp, { recursive: true }); fs.mkdirSync(realDrive, { recursive: true });
+    const fixtureRepo = () => { const d = fs.mkdtempSync(path.join(fixtureTmp, 'fx-')); spawnSync('git', ['init', '-q', '-b', 'qa-fixture'], { cwd: d, timeout: 30_000 }); return d; };
+    const realFiles = () => fs.readdirSync(realDrive, { recursive: true }).filter(f => String(f).endsWith('.jsonl'));
+    const linkedHome = path.join(fixtureTmp, 'linked-home');
+    fs.mkdirSync(path.join(linkedHome, '.capy'), { recursive: true });
+    if (process.platform !== 'win32') fs.symlinkSync(path.join(real, '.capy', 'drive'), path.join(linkedHome, '.capy', 'drive'), 'dir');
+    const cases: Array<[string, Record<string, string>]> = [
+      ['fixture repository, real state root', { NODE_ENV: '', HOME: real, GSTACK_STATE_ROOT: path.join(real, '.gstack') }],
+      ['fixture state root', { NODE_ENV: '', HOME: real, GSTACK_STATE_ROOT: path.join(fixtureTmp, 'state') }],
+      ['explicit mirror directory', { NODE_ENV: '', HOME: path.join(fixtureTmp, 'home'), GSTACK_STATE_ROOT: path.join(fixtureTmp, 'state'), GSTACK_APPROVALS_DIR: path.join(realDrive, 'approvals') }],
+      ...(process.platform === 'win32' ? [] : [['Drive linked out of the fixture', { NODE_ENV: '', HOME: linkedHome, GSTACK_STATE_ROOT: path.join(fixtureTmp, 'state') }] as [string, Record<string, string>]]),
+    ];
+    for (const [name, env] of cases) {
+      const r = bin(['add', '--ask', 'Spend cap', '--words', 'do it', '--by', 'QA', '--scope', 'spend cap'], { cwd: fixtureRepo(), env: { TMPDIR: fixtureTmp, GSTACK_CAPY: '1', ...env } });
+      expect({ name, status: r.status }).toEqual({ name, status: 1 });
+      expect(r.err).toContain('(APPROVAL_RECORD_WRITE_FAILED)');
+      expect(r.err).toContain('outside the temp root');
+      expect({ name, written: realFiles() }).toEqual({ name, written: [] });
+    }
+    const underTest = bin(['add', '--ask', 'Spend cap', '--words', 'do it', '--by', 'QA', '--scope', 'spend cap'], { cwd: ROOT, env: { TMPDIR: fixtureTmp, NODE_ENV: 'test', GSTACK_CAPY: '1', HOME: real, GSTACK_STATE_ROOT: path.join(real, '.gstack'), GSTACK_PROJECT_SLUG: 'acme-widgets' } });
+    expect(underTest.err).toContain('outside the temp root');
+    expect(realFiles()).toEqual([]);
+    const inside = path.join(fixtureTmp, 'home'); fs.mkdirSync(path.join(inside, '.capy', 'drive', 'project-user-gstack-qa'), { recursive: true });
+    const ok = bin(['add', '--ask', 'Spend cap', '--words', 'do it', '--by', 'QA', '--scope', 'spend cap'], { cwd: fixtureRepo(), env: { TMPDIR: fixtureTmp, NODE_ENV: '', GSTACK_CAPY: '1', HOME: inside, GSTACK_STATE_ROOT: path.join(fixtureTmp, 'state') } });
+    expect(ok.status).toBe(0);
+    expect(ok.out).toContain(`mirror=${path.join(inside, '.capy', 'drive', 'project-user-gstack-qa', 'approvals', 'acme-widgets')}`);
+  });
+
   test('an ephemeral state root with no record and no mirror is unavailable, not empty', () => {
     const r = bin(['render'], { cwd: repo(), env: { GSTACK_STATE_ROOT: tmp('appr-state-'), GSTACK_EPHEMERAL: '1', HOME: tmp('appr-home-') } });
     expect(r.status).toBe(1);

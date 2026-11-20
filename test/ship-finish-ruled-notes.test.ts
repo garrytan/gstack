@@ -492,3 +492,34 @@ describe('a granted fix-check that found new CRITICALs the owner accepted (harne
     expect(r.stdout).toContain('STOP: behavior, tests or build inputs changed since review (src/x.ts)');
   });
 });
+
+// Value: protects=a ruling relayed into an open /ship run records the owner's words with a checkable source and says so in the
+//   row, the Ruled note line and the receipt, while a ruling with no owner reference still refuses under its own code;
+//   fails_when=the refusal reads APPROVAL_RECORD_INVALID and points at add (GBRA-108), or a relayed ruling cannot be recorded
+//   or is not marked relayed; seam=gstack-approvals rule|rulings|list and gstack-ship-receipt write
+describe('a ruling relayed into an open /ship run (GBRA-108, gbrain #9762)', () => {
+  test('without --owner-ref it refuses as APPROVAL_RULING_RUN_OPEN; with one it records and marks the ruling relayed', () => {
+    const { f, passHead } = grantedFixCheck(QM3122);
+    const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    fs.writeFileSync(marker, 'ship-9762-abc\n');
+    const bare = rule(f, RACE, passHead, 'GBrain Minder (GBRA-108)');
+    expect([bare.status, bare.stderr]).toEqual([EXIT.usage, expect.stringContaining('(APPROVAL_RULING_RUN_OPEN)')]);
+    expect(bare.stderr).not.toContain('APPROVAL_RECORD_INVALID');
+    expect(bare.stderr).not.toContain('gstack-approvals add');
+    const relay = (ref: string) => run(f, 'gstack-approvals', ['rule', '--finding', RACE, '--head', passHead, '--reason', 'ships as a disclosed note', '--words', 'B, note it', '--by', 'GBrain Minder (GBRA-108)', '--owner-ref', ref]);
+    expect(relay('just words').status).toBe(EXIT.usage);
+    const ok = relay('GBRA-108:2026-11-19T12:29:59Z');
+    expect(ok.status, ok.stderr).toBe(0);
+    const rows = JSON.parse(run(f, 'gstack-approvals', ['list', '--json']).stdout).rows as Array<{ source: string; words: string }>;
+    expect(rows.find(r => r.source === 'relayed:GBRA-108:2026-11-19T12:29:59Z')?.words).toBe('B, note it');
+    const line = run(f, 'gstack-approvals', ['rulings']).stdout.trim();
+    expect(line).toContain('ruled by GBrain Minder (GBRA-108) (relayed from GBRA-108:2026-11-19T12:29:59Z) at ');
+    fs.rmSync(marker);
+    const body = path.join(f.root, 'relayed-body.md');
+    fs.writeFileSync(body, `## Pre-Landing Review\n\n${line}\n`);
+    const write = f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { GSTACK_APPROVALS_MIRROR: '0' });
+    expect(write.status, write.stderr).toBe(0);
+    expect(fs.readFileSync(body, 'utf8')).toContain('"relayed": "GBRA-108:2026-11-19T12:29:59Z"');
+  });
+});
+

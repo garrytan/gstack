@@ -50,7 +50,7 @@
  * bind and are never listed, so they neither reuse nor are reused.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

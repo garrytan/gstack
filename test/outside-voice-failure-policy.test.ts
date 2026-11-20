@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
 import { outsideVoiceFailurePolicy, outsideVoiceFor, type OutsideVoiceFailurePolicyOptions } from '../scripts/resolvers/outside-voice';
 import { generateAdversarialStep } from '../scripts/resolvers/outside-voice-steps';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -193,5 +194,20 @@ describe('ratchet (d): outside-voice failure prose has one owner', () => {
     const allowlist = readAllowlist().map((e, i) => (i === 0 ? { file: e.file, text: e.text } : e));
     const problems = scanFailureProse(scannedFiles(), allowlist);
     expect(problems).toEqual([`${ALLOWLIST}  entry for codex/SKILL.md.tmpl has no reason: ${allowlist[0].text}`]);
+  });
+});
+
+describe('a 402 or quota stop is never reported as an auth failure', () => {
+  test('the validator\'s budget line does not itself trip the auth rule\'s keywords', () => {
+    const line = gateOutcomeLine('Codex outside review', 'budget_exhausted');
+    expect(line).not.toMatch(/auth|login|unauthorized|API key/i);
+    expect(line).toContain('HTTP 402');
+  });
+
+  test('the /codex skill\'s own error handling names the budget stop before its auth error', () => {
+    const text = fs.readFileSync(path.join(ROOT, 'codex/SKILL.md'), 'utf8');
+    const budget = text.indexOf('- **Budget or quota stop (HTTP 402, payment required, quota):**');
+    expect(budget).toBeGreaterThan(0);
+    expect(budget).toBeLessThan(text.indexOf('- **Auth error:**'));
   });
 });

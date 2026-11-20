@@ -28,6 +28,7 @@ import { ModuleError, excludedSkillDirs, selectModules } from './modules';
 import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
+import { addLoadGrant } from './resolvers/load-injection';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
 import { cutWords, frontmatterList, triggerList, triggerSentence, withTriggerLead } from '../lib/skill-triggers';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
@@ -863,7 +864,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   let symlinkLoop = false;
   let metadata: { outputPath: string; content: string } | undefined;
   if (host === 'claude') {
-    content = transformFrontmatter(content, host);
+    content = addLoadGrant(transformFrontmatter(content, host), ctx);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, options, extractedName || undefined);
     content = result.content;

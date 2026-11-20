@@ -1,0 +1,19 @@
+{
+  "run_id": 6,
+  "run_attempt": 2,
+  "event": "workflow_dispatch",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "files": [
+    "test/a.test.ts",
+    "test/b.test.ts",
+    "test/c.test.ts"
+  ],
+  "tests": 60,
+  "os": "Linux",
+  "rerun_files": "test/b.test.ts",
+  "attempts": [
+    1,
+    2
+  ]
+}

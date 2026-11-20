@@ -2,10 +2,10 @@
 name: ship
 description: |
   Ship it: merge the base, run tests, review the diff, bump VERSION and CHANGELOG,
-  push and create a PR. Use when asked to "ship", "deploy", "deploy this",
-  "push to main", "create a PR", "merge and push", or "get it deployed".
+  push and create a PR. Use when asked to "ship", "ship it", "push to main",
+  "create a PR" or "open a pull request". Deploying is /land-and-deploy.
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
-  is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
+  is ready, wants to push code up, or asks to create a PR. (gstack)
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -108,26 +108,26 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 
 ## Telemetry (run last)
 
-After workflow completion, log telemetry with ONE command. OUTCOME is
-success/error/abort/unknown; `SESSION_ID` and `TEL_START` are the values the
-preamble's skill-start output echoed. It also drains the artifacts-sync queue
-(the former skill-end sync step — do not run gstack-brain-sync separately).
+When done, make ONE call — it also drains the artifacts-sync
+queue (don't also run gstack-brain-sync).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
-`$GSTACK_STATE_ROOT/analytics/`, matching preamble analytics writes.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
 [ -d "${GSTACK_ROOT:-/-}/bin" ]&&[ -d "$GSTACK_ROOT/lib" ]||{ _r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack;[ -d "$_r/bin" ]||_r=${CODEX_HOME:-~/.codex}/skills/gstack;[ -d "$_r/bin" ]||{ echo "gstack: no install found (tried $_r). Fix: ./setup --host codex from your gstack checkout; ./setup --status shows it.">&2;exit 1;};GSTACK_ROOT=$_r;}
 GSTACK_BIN=$GSTACK_ROOT/bin
 $GSTACK_BIN/gstack-skill-end --skill "ship" --outcome OUTCOME \
   --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \
-  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" \
+  --exit-reason EXIT_REASON --invoked INVOKED --model-family MODEL_FAMILY --checks CHECKS 2>/dev/null || true
 ```
 
-Replace `OUTCOME` and `USED_BROWSE` (yes/no) before running; substitute
-`SESSION_ID`/`TEL_START` from the skill-start echoes. `ERROR_MESSAGE`/`FAILED_STEP`
-are "" unless outcome is error. If the command is missing (stale install), skip
-telemetry — it never blocks the workflow.
+OUTCOME: success/error/abort/unknown. USED_BROWSE: yes/no. SESSION_ID, TEL_START:
+skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
+completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
+INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
+claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No command
+(stale install) — skip.
 
 ## Third-Party Web Actions
 
@@ -873,16 +873,17 @@ A new PR or an existing draft needs no question: Step 19 creates or keeps the dr
 $GSTACK_ROOT/bin/gstack-ship-release push --branch <branch-name>
 ```
 
-It checks the branch, the offer, the gate above (`--gate-open <n>`; `--gate-open-approved` is B)
-`gstack-pregate sealed` and push guards, then `git ls-remote --heads origin refs/heads/<branch-name>` against HEAD: a failed lookup STOPs, a match prints
-`PUSH: ALREADY_PUSHED` (go to Step 18), else it runs `git push -u origin <branch-name>`.
+It checks the branch, the offer, the gate above (`--gate-open <n>`; `--gate-open-approved` is B),
+the sealed and push guards, then `git ls-remote --heads origin refs/heads/<branch-name>` against HEAD: a failed lookup STOPs,
+a match is `already_pushed` (Step 18), else `git push -u`. It ends with
+`PUSH: pushed|already_pushed|failed …`; quote it.
 
 **If the push fails, STOP.** No Step 19 or publication claim. Report the error:
 - **Non-fast-forward push:** fetch and inspect the remote, then merge under Step 3's
   conflict rules. Run Steps 5–16 before returning to Step 17. Never rewrite history.
 - **Authentication, hook or network failure:** repair the cause, then repeat Step 16
   even with unchanged content before returning to Step 17. Never bypass failed guards.
-Never force-push. Only a successful push or verified `ALREADY_PUSHED` proceeds.
+Never force-push. Only a successful push or `already_pushed` proceeds.
 
 After `EVIDENCE: DEFERRED`, run Step 5's `gstack-ship-release accept`; a `STOP:` there
 is a failed lane (stage 4). Continue to Step 18. No documentation writer runs after push.

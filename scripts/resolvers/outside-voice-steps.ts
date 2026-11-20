@@ -14,6 +14,7 @@
  */
 import { toShellPath, type TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
+import { CODEX_SUBAGENT_DISPATCH } from '../../hosts/codex';
 import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, OUTSIDE_VERDICT_REQUEST } from './outside-voice';
 import { runtimeRootPrelude } from './runtime-root';
 import { DEFENSIVE_REVIEW_FRAMING, fixtureSummaryMode } from './defensive-review';
@@ -72,7 +73,7 @@ On any ${outsideVoiceFor(ctx).label} error, fall back to the ${outsideVoiceFor(c
 
 **If preflight is not ready (or ${outsideVoiceFor(ctx).label} errored):**
 
-Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). ${BACKGROUND_RECOVERY} The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
+${ctx.host === 'codex' ? `Dispatch via ${CODEX_SUBAGENT_DISPATCH}.` : `Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). ${BACKGROUND_RECOVERY}`} The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 
 Subagent prompt: same mode-appropriate prompt as above (Startup or Builder variant).
 
@@ -127,7 +128,7 @@ reads, not when it saves its result. Include non-ignored untracked source in eac
 reviewer's context or read instructions (\`git ls-files --others --exclude-standard\`).
 Those files are part of the recorded content too.
 
-Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}); findings must arrive before review concludes. ${BACKGROUND_RECOVERY} Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
+${ctx.host === 'codex' ? `Dispatch via ${CODEX_SUBAGENT_DISPATCH}.` : `Dispatch via the Agent tool with ${FOREGROUND_IF_AVAILABLE} (background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}); findings must arrive before review concludes. ${BACKGROUND_RECOVERY}`} Fresh context avoids checklist bias, but this is the same harness, not an independent model unless runtime identity proves otherwise.
 
 Subagent prompt:
 "${DEFENSIVE_REVIEW_FRAMING}
@@ -208,7 +209,7 @@ its original token. If it never started because it was unavailable, disabled or
 size-gated, omit \`--finish PASS_START\` and set completed/converged false.
 Do not create or borrow a token just to save a result.
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review",${isShip ? '"via":"ship",' : ''}"timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED${isShip ? ',"findings":FINDINGS' : ''}}' --finish PASS_START
 \`\`\`
 PASS_START belongs to that attempt, not the parent's REVIEW_START. Each token is consumed once.
 Fill fields from this attempt, not the parent's ${isShip ? 'Step 9.4' : 'Step 5.8'} result:
@@ -222,7 +223,13 @@ Fill fields from this attempt, not the parent's ${isShip ? 'Step 9.4' : 'Step 5.
   a completed pass with findings, or "unavailable" for an incomplete pass.
 - GATE is "informational" for adversarial passes. For structured review, use
   "pass" or "fail" from its completed result, "skipped" when size-gated, or
-  "informational" with completed:false when coverage is missing.
+  "informational" with completed:false when coverage is missing.${isShip ? `
+- FINDINGS is a JSON array, one record per finding this attempt raised, in Step 9.4's
+  shape (\`fingerprint\`, \`severity\`, \`blocking\`, \`raised_by\`, \`ledger_id\`) with ACTION
+  \`"open"\` for a blocker (CRITICAL, High or \`Blocks: yes\`) and \`"noted"\` below the floor;
+  \`[]\` when it raised none. The receipt counts these rows' blockers, and one still
+  \`open\` when the run stops (no later Step 9 row fixed or deferred it) makes
+  \`gstack-ship-receipt write\` refuse (\`RECEIPT_BLOCKER_OPEN\`).` : ''}
 
 ---`;
 }
@@ -462,6 +469,21 @@ A native result never supplies outside coverage.`}`}`;
 }
 
 function codexPlanBoundedWait(ctx: TemplateContext, ceo: boolean, needsApprovalReadiness: boolean): string {
+  const unavailable = `**Unavailable path:** "Outside voice unavailable: <cause>. Fix: <fix>. Continuing to ${needsApprovalReadiness ? 'planning decisions and Approval readiness' : 'outputs'}. (OUTSIDE_VOICE_UNAVAILABLE)"
+The cause adds to the provider's diagnosis: ${ctx.host === 'codex' ? 'Codex has no read-only native subagent' : `Plan agent type not offered, TaskStop not offered,
+background tasks unavailable${ctx.host === 'claude' ? ' (fix: Claude Code 2.1.277+, background tasks on)' : ''}, no complete report within five minutes, or a failed status`}.
+Do not retry with a general-purpose agent. Report missing outside-voice coverage.
+Ignore partial or late results for critique, agreement, clean status or coverage.
+${ceo ? 'Skip Integrate reviewer findings and Cross-model tension.' : 'Skip Cross-model tension.'} Persist an unavailable result using the command below
+with STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable", adding \`"unavailable_reason":"<cause>"\`;
+then continue directly to ${needsApprovalReadiness ? 'the remaining planning decisions and Approval readiness' : 'outputs'}.
+Do not record a clean review when no reviewer completed.
+`;
+  if (ctx.host === 'codex') return `**Bounded outside-voice wait:** Codex offers no read-only Plan subagent type and no
+host timer to stop, so take the unavailable path without launching a native subagent.
+A native result never supplies outside coverage.
+
+${unavailable}`;
   return `**Bounded outside-voice wait — one five-minute host timer:**
 
 Before dispatch, check this session's tools for TaskStop, Bash's \`run_in_background\`
@@ -494,16 +516,7 @@ Execute the four steps once:
    Record each stop result; if one fails, cancellation is unconfirmed.
    For a completion after the timer or TaskStop, still give no late-result credit.
 
-**Unavailable path:** "Outside voice unavailable: <cause>. Fix: <fix>. Continuing to ${needsApprovalReadiness ? 'planning decisions and Approval readiness' : 'outputs'}. (OUTSIDE_VOICE_UNAVAILABLE)"
-The cause adds to the provider's diagnosis: Plan agent type not offered, TaskStop not offered,
-background tasks unavailable${ctx.host === 'claude' ? ' (fix: Claude Code 2.1.277+, background tasks on)' : ''}, no complete report within five minutes, or a failed status.
-Do not retry with a general-purpose agent. Report missing outside-voice coverage.
-Ignore partial or late results for critique, agreement, clean status or coverage.
-${ceo ? 'Skip Integrate reviewer findings and Cross-model tension.' : 'Skip Cross-model tension.'} Persist an unavailable result using the command below
-with STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable", adding \`"unavailable_reason":"<cause>"\`;
-then continue directly to ${needsApprovalReadiness ? 'the remaining planning decisions and Approval readiness' : 'outputs'}.
-Do not record a clean review when no reviewer completed.
-`;
+${unavailable}`;
 }
 
 function codexPlanCrossModelTension(ctx: TemplateContext): string {
@@ -734,7 +747,7 @@ On \`CODEX_MODE: ${outsideVoiceFor(ctx).id === 'codex' ? 'under_codex' : 'under_
 \`outside_status: unavailable\`, run no outside CLI, and use the native subagent below.
 A native result never supplies outside coverage.
 
-Dispatch via the Agent tool with the same prompt, passing ${FOREGROUND_IF_AVAILABLE} (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). ${BACKGROUND_RECOVERY} Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
+${ctx.host === 'codex' ? `Dispatch the same prompt via ${CODEX_SUBAGENT_DISPATCH}.` : `Dispatch via the Agent tool with the same prompt, passing ${FOREGROUND_IF_AVAILABLE} (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). ${BACKGROUND_RECOVERY}`} Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (${outsideVoiceFor(ctx).nativeLabel} subagent):\`. If it fails: "Doc review unavailable. Continuing to Step 9." Skip the apply gate, persist \`status: unavailable\`, \`outside_status: unavailable\`, and \`source: none\` below, then continue; unavailable is not a clean review.
 
 **Apply decision (informational, never auto-edit, but findings don't evaporate).**

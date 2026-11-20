@@ -10,7 +10,7 @@
  * check. `--full`, `--ceo-only` and every non-Capy or interactive session keep
  * today's run. The reviewer's receipt names the draft hash (`DRAFT:`), checked at submit.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

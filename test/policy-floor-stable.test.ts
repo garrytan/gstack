@@ -200,7 +200,7 @@ describe('gstack-doctor --check floor row', () => {
     const lagging = floorRow(f, project(f, known));
     expect(lagging.line).toBe(`PASS floor ${known} declared by ${dir}/.gstack/ship-policy.json (installed 1.0.0.0, reads policies as ${known})`);
     expect(validatePolicy({ min_gstack_version: known }, { gstackVersion: runningGstackVersion() })).toEqual([]);
-    const next = known.replace(/^(\d+)\.(\d+)\..*$/, (_, a, b) => `${a}.${Number(b) + 1}.0.0`);
+    const next = (newer(VERSION, known) ? VERSION : known).replace(/^(\d+)\.(\d+)\..*$/, (_, a, b) => `${a}.${Number(b) + 1}.0.0`);
     expect(validatePolicy({ min_gstack_version: next }).map(e => e.code)).toEqual(['POLICY_GSTACK_TOO_OLD']);
     expect(floorRow(f, project(f, next)).status).toBe('WARN');
   });

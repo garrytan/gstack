@@ -7,7 +7,7 @@
  * (bin/gstack-wtree) before a check runs and again after; a tree that moved
  * during a check makes its result `incomplete`, never `pass`.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

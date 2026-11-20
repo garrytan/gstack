@@ -20,6 +20,7 @@ describe('review round grants', () => {
   test('only an approved row that gstack did not write counts, and it binds only its head and PR', () => {
     expect(reviewRoundGrants([row({ outcome: 'pending' as any })])).toEqual([]);
     expect(reviewRoundGrants([row({ by: 'gstack' })])).toEqual([]);
+    expect(reviewRoundGrants([row({ by: 'gstack-evals Captain' })]).map(g => g.by)).toEqual(['gstack-evals Captain']);
     const gs = reviewRoundGrants([row({})]);
     expect(grantAt(gs, 12, head)).toBeDefined();
     expect(grantAt(gs, 13, head)).toBeUndefined();

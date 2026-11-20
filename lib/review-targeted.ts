@@ -17,7 +17,7 @@
  * loosened check), not GATE_PATH: over the last 100 non-release commits on main, GATE_PATH
  * alone hit 43 (the precision gate allows 25), and those paths already get full depth.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -84,7 +84,7 @@ export function targetedBriefSha(file = TARGETED_BRIEF_FILE): string {
  * or unreadable diff; neither proves what a reader read. Not the receipt's product_patch_id (that leaves tests out).
  */
 export function targetedPatchId(root: string, mergeBase: string): string {
-  const git = (args: string[], input?: string) => spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  const git = (args: string[], input?: string) => spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   if (git(['diff', '--quiet', 'HEAD', '--']).status !== 0 || git(['ls-files', '--others', '--exclude-standard']).stdout?.trim()) return 'uncommitted';
   const diff = git(['diff', '--no-color', '--no-ext-diff', mergeBase, 'HEAD']);
   if (diff.status !== 0 || !diff.stdout.trim()) return 'none';

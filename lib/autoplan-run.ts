@@ -26,6 +26,7 @@ import { GSTACK_VERSION } from './autoplan-migrate';
 import { driftLine, normalizeFindingFile, reviewHash, scaffold } from './autoplan-plan-text';
 import { PHASES, SNAPSHOT_TOOL, attemptFile, bindPromptResult, detectScope, driverFile, extractHeading, phaseOrder, reviewSkillFile, scopeLines, scopeSourceLabel, sectionLoadFor, snapshotTool, writePrompts, type Phase, type Scope, type ScopeFlags } from './autoplan-prompts';
 import { recoverRevise } from './autoplan-revise';
+import { autoplanGuardLine } from './autoplan-guard-status';
 import { FILES, RunError, journal, now, pendingAmendments, readDecisions, readJournal, readState, voiceTerminal, writeState, type AttemptState, type PhaseState, type RunState, type Voice, type VoiceState } from './autoplan-state';
 import { checkPlanReality, checkRealityRows, PLAN_REALITY_CHECKER } from './plan-reality';
 import type { RunStatus } from './headless-artifacts';
@@ -129,7 +130,7 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
     outside_enabled: (o.outsideEnabled ?? true) && !consentMissing && !lean, attempt_counter: 0, spend_cap_usd: o.spendCap ?? null,
     ...(consentMissing ? { outside_not_run: { reason: 'consent_missing', detail: consentMissing } } : {}),
     session_kind: sessionKind, host: 'gstack-autoplan', max_rounds: o.maxRounds ?? (lean ? 1 : sessionKind === 'unattended' ? DEFAULT_MAX_ROUNDS : null), history: [], created_at: now(), updated_at: now(),
-    deviations: ['autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)'],
+    deviations: [autoplanGuardLine(process.env, path.resolve(import.meta.dir, '..'))],
     ...(o.deadlineMin ? { deadline_at: new Date(Date.now() + o.deadlineMin * 60_000).toISOString() } : {}),
     ...(o.light ? { light: true } : {}),
     ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },

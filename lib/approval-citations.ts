@@ -26,7 +26,7 @@
  * the current scope, so a later effect change invalidates it.
  * Caller: bin/gstack-ship-receipt write (APPROVAL_CITATION_MISSING).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runApprovalScan, type ApprovalHit, type ApprovalScope } from './approval-classes';

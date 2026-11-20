@@ -2,7 +2,7 @@
 /**
  * gstack-artifact — validate, print and acknowledge the unattended artifact contract.
  *
- *   gstack-artifact validate <run.json> [--json]            completion check for a run directory
+ *   gstack-artifact validate <run.json> [--json]            completion check for a run directory gstack-autoplan wrote
  *   gstack-artifact validate --public <dir> [--private <run.json>] [--json]
  *                                                           a public run copy: provenance, recorded machine roots
  *   gstack-artifact validate <file> --as <name> [--run <id>] [--json]
@@ -17,12 +17,13 @@
 import * as path from 'node:path';
 import {
   ARTIFACT_NAMES, EXIT, ackRun, exitTableHelp, jsonSchema, readJsonl, renderUrgentBlock,
-  validateFile, validateRun, type ArtifactName, type ValidationError,
+  validateFile, type ArtifactName, type ValidationError,
 } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { resolveStateRoot } from '../lib/state-root';
 import { validatePublic } from '../lib/autoplan-public';
 import { validateShadow } from '../lib/autoplan-shadow-reader';
+import { validateAutoplanRun } from '../lib/autoplan-writer-check';
 
 const HELP = `gstack-artifact — the unattended artifact contract (docs/unattended.md)
 
@@ -88,7 +89,7 @@ function main(argv: string[]): number {
       else { printErrors(errors); process.stdout.write(errors.length ? `ARTIFACT_INVALID: ${errors.length} error(s)\n` : `ARTIFACT_VALID: ${as} ${path.basename(file)}\n`); }
       return errors.length ? EXIT.fail : EXIT.ok;
     }
-    const run = validateRun(file);
+    const run = validateAutoplanRun(file);
     const shadow = validateShadow(run.runDir);
     const result = { ...run, valid: run.valid && shadow.length === 0, errors: [...run.errors, ...shadow] };
     if (json) {
@@ -106,7 +107,7 @@ function main(argv: string[]): number {
     const file = rest.find(a => !a.startsWith('--') && a !== flag(rest, '--consumer'));
     const consumer = flag(rest, '--consumer');
     if (!file || !consumer) return usage('ack needs <run.json> --consumer <id>');
-    const validation = validateRun(file);
+    const validation = validateAutoplanRun(file);
     if (!validation.valid) {
       printErrors(validation.errors);
       process.stderr.write('gstack-artifact ack: refusing to acknowledge an invalid run; nothing written\n');

@@ -23,7 +23,7 @@
  * caller's `no lane` failure, not a pass. test/helpers/touchfile-closure.ts
  * (helpers and fixtures only, a lower bound by its own words) is the precedent.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { matchesAny } from '../ship-policy';
@@ -170,6 +170,7 @@ export function blankDartComments(source: string): string {
 
 export function listRepoFiles(repoRoot: string): string[] {
   const r = spawnSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  if (r.error) throw new Error(`git ls-files did not finish: ${r.error.message}`);
   return (r.stdout ?? '').split('\0').filter(p => p && !p.startsWith('node_modules/'));
 }
 

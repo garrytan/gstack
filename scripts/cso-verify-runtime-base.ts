@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /** Native trusted-CI verification for reviewed OCI build inputs. */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { committedImageBuildMatrix, type ImageBuildRow } from './cso-image-matrix';
 
 const MAX_OUTPUT = 1024 * 1024;

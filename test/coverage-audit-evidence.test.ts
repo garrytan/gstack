@@ -21,6 +21,7 @@ import captured_wc_anchor from './fixtures/coverage-audit-wc-anchor.json';
 import captured_separator from './fixtures/coverage-audit-separator-collision.json';
 import captured_two_file_grep from './fixtures/coverage-audit-two-file-grep.json';
 import captured_plan_eng_wc_bytes from './fixtures/coverage-audit-plan-eng-wc-bytes.json';
+import captured_relative_cd from './fixtures/coverage-audit-relative-cd.json';
 
 const clone = <T>(v:T):T => structuredClone(v);
 const diagram = '```text\nsrc/billing.ts\n├── processPayment: happy path [TESTED]\n└── refundPayment [UNTESTED]\n```';
@@ -1397,5 +1398,65 @@ describe('coverage audit native evidence: zsh abandons the line at an echo ==== 
     expect(reads(command, bash.output.replace(nonce, nonce.slice(1) + '0'))).toEqual(neither);
     expect(reads(command, bash.output.replace(/.*Unsupported currency.*\n/, ''))).toEqual(neither);
     expect(reads(command, 'src/billing.ts was read' + error)).toEqual(neither);
+  });
+});
+
+describe('coverage audit native evidence: cd .. back to the cwd after an earlier cd into review/ (census 44351657692 slice 15)', () => {
+  const capture = captured_relative_cd, [failed, listed, readBoth] = capture.calls;
+  const files = { cwd: capture.cwd, source: { path: capture.cwd + '/src/billing.ts', content: capture.files.source },
+    tests: { path: capture.cwd + '/test/billing.test.ts', content: capture.files.tests } };
+  const both = { sourceRead: true, testsRead: true }, neither = { sourceRead: false, testsRead: false };
+  type Call = { toolUseId: string; command: string; isError: boolean; output: string };
+  const event = (type: 'assistant' | 'user', content: unknown[], parent: string | null = null) =>
+    ({ type, session_id: capture.sessionId, parent_tool_use_id: parent, message: { role: type, content } });
+  const use = (call: Call) => ({ type: 'tool_use', id: call.toolUseId, name: 'Bash', input: { command: call.command } });
+  const result = (call: Call) => ({ type: 'tool_result', tool_use_id: call.toolUseId, is_error: call.isError, content: call.output });
+  const transcript = (calls: Call[]) => [{ type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+    ...calls.flatMap(call => [event('assistant', [use(call)]), event('user', [result(call)])])];
+  const reads = (calls: Call[]) => coverageAuditReadEvidence(transcript(calls), files);
+  const call = (id: string, command: string, output = '', isError = false): Call => ({ toolUseId: id, command, isError, output });
+  const nonce = capture.files.source.match(/coverage-read-evidence: (\S+)/)![1]!;
+
+  test('the recorded calls credit both reads and the recorded run passes', () => {
+    expect(capture.provenance.recordedPassed).toBe(false);
+    expect(capture.files.source).toBe(fixture.files.source + '\n// coverage-read-evidence: ' + nonce + '\n');
+    expect([failed!.isError, listed!.isError, readBoth!.isError]).toEqual([true, false, false]);
+    expect(listed!.command).toBe(`cd ${capture.cwd}/review; ls -R; wc -c SKILL.md sections/* specialists/* 2>&1`);
+    expect(readBoth!.command).toBe('cd .. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts');
+    expect(reads(capture.calls)).toEqual(both);
+    expect(coverageAuditVerdict({ exitReason: 'success', browseErrors: [], output: capture.finalOutput, transcript: transcript(capture.calls) } as any, files))
+      .toEqual({ ...both, diagram: true, passed: true, failures: [] });
+    const deeper = call('toolu_deeper', `cd ${capture.cwd}/review/sections; ls`, 'adversarial.md\n');
+    expect(reads([failed!, listed!, deeper, { ...readBoth!, command: readBoth!.command.replace('cd ..', 'cd ../..') }])).toEqual(both);
+  });
+
+  test('cd .. gets no credit unless the earlier calls prove the shell sat one level below the cwd', () => {
+    expect(reads([readBoth!])).toEqual(neither);
+    expect(reads([failed!, readBoth!])).toEqual(neither);
+    expect(reads([{ ...listed!, isError: true }, readBoth!])).toEqual(neither);
+    expect(reads([{ ...listed!, output: `(eval):cd:1: no such file or directory: ${capture.cwd}/review\n` + listed!.output }, readBoth!])).toEqual(neither);
+    for (const command of [`cd /foreign/review; ls -R`, `cd ${capture.cwd}/../review; ls -R`, `cd review; ls -R`, `cd ${capture.cwd}; ls -R`,
+      `cd ${capture.cwd}/review; ls -R; cd sections`, `cd ${capture.cwd}/review; pushd sections`, `cd ${capture.cwd}/review; source x.sh`,
+      `cd ${capture.cwd}/review; ls & cd sections`, `cd ${capture.cwd}/review; ls $(cd sections)`, `cd ${capture.cwd}/review; ls; python3 x.py`,
+      `cd ${capture.cwd}/review || ls`, `cd "${capture.cwd}/review"/sections/..; ls`]) {
+      expect(reads([{ ...listed!, command }, readBoth!]), command).toEqual(neither);
+    }
+    const moved = call('toolu_moved', `cd ${capture.cwd}/review/sections; ls`, 'adversarial.md\n');
+    expect(reads([failed!, listed!, moved, readBoth!])).toEqual(neither);
+    expect(reads([failed!, listed!, call('toolu_unknown', 'cd sections && ls', 'adversarial.md\n'), readBoth!])).toEqual(neither);
+  });
+
+  test('a concurrent or subagent Bash call voids the proved shell; the reads keep their own grammar', () => {
+    const parallel = [{ type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+      event('assistant', [use(listed!)]), event('assistant', [use(readBoth!)]), event('user', [result(listed!)]), event('user', [result(readBoth!)])];
+    expect(coverageAuditReadEvidence(parallel, files)).toEqual(neither);
+    const child = [...transcript([listed!]).slice(0, 3), event('assistant', [{ type: 'tool_use', id: 'toolu_child', name: 'Bash', input: { command: 'cd /tmp' } }], 'toolu_agent'),
+      ...transcript([readBoth!]).slice(1)];
+    expect(coverageAuditReadEvidence(child, files)).toEqual(neither);
+    for (const command of ['cd .. ; cat -n src/billing.ts; echo ----; cat -n test/billing.test.ts', 'cd ../src && cat -n billing.ts && echo ---- && cat -n ../test/billing.test.ts',
+      'cd ~/.. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts', 'cd .. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts; rm -f x']) {
+      expect(reads([listed!, { ...readBoth!, command }]), command).toEqual(neither);
+    }
+    expect(reads([listed!, { ...readBoth!, output: readBoth!.output.replace(nonce, nonce.slice(1) + '0') }])).toMatchObject({ sourceRead: false });
   });
 });

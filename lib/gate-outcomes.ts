@@ -93,6 +93,11 @@ export const GATE_OUTCOMES = {
     summary: "Codex refused the call for this account's usage limit",
     fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine. To re-check before gstack's 15-minute cache expires, set GSTACK_CODEX_PROBE_RETRY=1 (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#codex-quota-exhausted)",
   },
+  budget_exhausted: {
+    state: 'unavailable', anchor: 'outside-review-budget-exhausted',
+    summary: 'the provider refused the review with HTTP 402 (payment required) or a Claude Code usage limit: the budget, allowance or quota behind this key is used up',
+    fix: "check the allowance on the proxy or gateway in front of the provider, or the account's quota and credits, then re-run the review; signing in again will not help (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-budget-exhausted)",
+  },
   rate_limited: {
     state: 'unavailable', anchor: 'codex-rate-limited',
     summary: 'Codex rate-limited the review (HTTP 429), so it did not complete',
@@ -132,6 +137,11 @@ export const GATE_OUTCOMES = {
     state: 'unavailable', anchor: 'ship-version-source-broken',
     summary: 'the configured version file is missing, empty, unreadable or malformed',
     fix: 'fix that file, or correct --version-path / .gstack/version-path',
+  },
+  review_required_no_readers: {
+    state: 'not_run', anchor: 'review-required-no-readers',
+    summary: 'commits after the reviewed head would ship with no reviewer, because the plan was told the step applied no fix',
+    fix: 'pass the flags the step left (--fixed-blocking, --fixed-below, --touched-gate or --blocking-open) and plan again; the plan refuses rather than printing done (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#review-required-no-readers)',
   },
   no_plan_bound: {
     state: 'not_run', anchor: 'plan-audit-not-run',

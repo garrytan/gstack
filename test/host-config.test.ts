@@ -26,6 +26,7 @@ import {
   agy,
   gemini,
 } from '../hosts/index';
+import { CODEX_SUBAGENT_DISPATCH } from '../hosts/codex';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
 import { expectTokens } from './helpers/prompt-structure';
@@ -499,6 +500,61 @@ describe('golden-file regression', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'codex-ship-SKILL.md'), 'utf-8');
     const current = fs.readFileSync(path.join(GOLDEN_OUT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
+  });
+
+  test('Codex render names no Claude-only subagent call, and /ship starts its audits with spawn_agent and wait_agent (#4476)', () => {
+    const root = path.join(GOLDEN_OUT, '.agents', 'skills');
+    const claudeOnly = /subagent_type|run_in_background|TaskStop|task-notification|\bAgent tool\b/;
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else if (entry.name.endsWith('.md')) {
+          fs.readFileSync(file, 'utf-8').split('\n').forEach((line, i) => {
+            if (claudeOnly.test(line)) offenders.push(`${path.relative(root, file)}:${i + 1}: ${line.trim().slice(0, 120)}`);
+          });
+        }
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+
+    const coverage = fs.readFileSync(path.join(root, 'gstack-ship', 'sections', 'test-coverage.md'), 'utf-8');
+    expect(coverage).toContain('`spawn_agent`');
+    expect(coverage).toContain('`wait_agent`');
+    expect(coverage).toContain('Wait for its LAST-line JSON before applying the coverage gate.');
+    expect(fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'test-coverage.md'), 'utf-8')).toContain('`run_in_background: false`');
+  });
+
+  test('every Codex subagent start passes fork_turns: "none", so reviewers start without the parent conversation (GST-3091)', () => {
+    // Codex 0.170's spawn_agent defaults fork_turns to "all": a start that omits
+    // it hands the child the whole parent conversation. A start is fine when its
+    // line or the next names fork_turns, or when it defers to a shared dispatch
+    // rule (CODEX_SUBAGENT_DISPATCH, which names it) stated in the same file.
+    const root = path.join(GOLDEN_OUT, '.agents', 'skills');
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(file); continue; }
+        if (!entry.name.endsWith('.md')) continue;
+        const text = fs.readFileSync(file, 'utf-8');
+        const sharedRule = text.includes(CODEX_SUBAGENT_DISPATCH);
+        const lines = text.split('\n');
+        lines.forEach((line, i) => {
+          if (!line.includes('`spawn_agent`') || line.includes('Without `spawn_agent`')) return;
+          if ((line + lines[i + 1]).includes('fork_turns: "none"')) return;
+          if (sharedRule || /shared foreground-dispatch rule/.test(line)) return;
+          offenders.push(`${path.relative(root, file)}:${i + 1}: ${line.trim().slice(0, 120)}`);
+        });
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+    for (const skill of ['gstack-design-review/sections/outside-voices.md', 'gstack-plan-design-review/SKILL.md', 'gstack-autoplan/SKILL.md', 'gstack-context-restore/SKILL.md']) {
+      expect(fs.readFileSync(path.join(root, skill), 'utf-8'), skill).toContain('fork_turns: "none"');
+    }
   });
 
   test('Factory ship skill matches golden baseline', () => {

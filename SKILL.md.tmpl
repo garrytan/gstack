@@ -60,10 +60,8 @@ invoking it. A skill the user names is always invoked, whatever this setting say
 and a step inside a skill that is already running (a handoff, a review gate, a subagent it
 dispatches) is part of that skill, not a suggestion.
 
-If `PROACTIVE` is `all` (or `true`): **invoke the Skill tool** when the user's request
-matches any skill's purpose. Do NOT answer directly when a skill exists for the task.
-Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
-quality gates that produce better results than answering inline.
+If `PROACTIVE` is `all` (or `true`): **invoke the Skill tool** for the matching skill
+whenever a routing rule below matches, subject to "When to invoke, and when not to".
 
 **Routing rules — when you see these patterns, INVOKE the skill via the Skill tool** (under
 `core`, only the four core rules auto-invoke):
@@ -84,7 +82,7 @@ quality gates that produce better results than answering inline.
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
 - User asks to run the checks, make the tests pass, "verify my change", "check my work" while building → invoke `/verify`
-- User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
+- User asks to ship, push, create a PR, "let's land this", "send it" → invoke `/ship` (deploying is `/land-and-deploy`, below)
 - User asks to merge + deploy + verify as one flow → tell them to type `/land-and-deploy`; never merge or deploy by hand
 - User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → tell them to type `/modernize`
 - User asks to configure deployment for the project → invoke `/setup-deploy`

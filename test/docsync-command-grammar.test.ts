@@ -333,6 +333,32 @@ test.each(JOINED_READ_LINES)('captured joined read line from %s is a declared re
   } finally { owned.clean(); }
 });
 
+// Gate 44321344888 slice 7 @ 3ecd7168, ship-docsync-failure (claude-opus-5-5): after prepare for docs-a2 the parent checked
+// the new prompt and candidate with one grep whose double-quoted pattern ends in an escaped quote, then a tail. The shared
+// grammar rejected every escape inside double quotes, so this read failed the run as an undeclared command.
+test('captured grep with an escaped double quote inside its pattern is a declared read; other escapes and joins stay refused', () => {
+  const owned = fixtureDocs('current');
+  try {
+    const actor = path.join(import.meta.dir, 'helpers/docsync-fault-actor.ts');
+    const prompt = path.join(owned.home, 'prompt-docs-a2.md'), candidate = path.join(owned.home, 'candidate-docs-a2.json');
+    fs.writeFileSync(prompt, 'RETRY_NOTE: x\nAudit id docs-a2\n');
+    fs.writeFileSync(candidate, '{"handbook/reference/commands/widget.md.tmpl": "b64635c"}\n');
+    const captured = 'grep -n "RETRY_NOTE\\|Audit id\\|widget.md.tmpl\\"" {home}/prompt-docs-a2.md {home}/candidate-docs-a2.json; tail -n 3 {home}/prompt-docs-a2.md';
+    const command = captured.replaceAll('{home}', owned.home);
+    const run = spawnSync('bash', ['-c', command], { cwd: owned.repo, encoding: 'utf8', timeout: 10000 });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('widget.md.tmpl"');
+    expect(docsCommandAllowed(command, owned, [actor])).toBe(true);
+    expect(docsToolFailures(nativeResult(command, run.stdout), owned, [actor])).toEqual([]);
+    for (const denied of [
+      command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\$HOME'), command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\\\'),
+      command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\`id\\`'), `${command} > ${path.join(owned.home, 'out.md')}`, `${command}; rm -f ${prompt}`,
+      command.replace(candidate, path.join(owned.home, 'actor-state.json')), command.replace(candidate, '/etc/passwd'),
+      'grep -n "widget.md.tmpl\\" README.md', 'grep -n "x\\"" README.md; git add app.ts',
+    ]) expect(docsCommandAllowed(denied, owned, [actor]), denied).toBe(false);
+  } finally { owned.clean(); }
+});
+
 test('operand-free tag listings are reads, and every tag write stays refused', () => {
   for (const listing of ['git tag', 'git tag -l', 'git tag --list', 'git status; git tag; git log --oneline -3'])
     expect(docsCommandAllowed(listing, fixture), listing).toBe(true);

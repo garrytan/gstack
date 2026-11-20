@@ -244,7 +244,9 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
    remaining sub-cap instead (cap − used − reserved − unknown − its stop overhead).
 2. The child is a Capy subagent on the shared machine, or on Claude Code
    `gstack-ship-budget launch --in <brief>`: a background `claude -p` (resolved through lib/claude-bin.ts)
-   with explicit permission flags and the return file named.
+   with explicit permission flags and the return file named, whose prompt opens with the typed
+   `/ship --continue <brief>` (`/gstack-ship` under `skill_prefix: true`; see
+   [unattended.md](unattended.md#starting-a-child-agent-type-the-skill-first)).
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
    with child_used = its own counter's reading − its reading at `verify-handoff` (a parent-metered

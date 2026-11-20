@@ -20,7 +20,7 @@
  *   screen-summary (plan-slices, PR runs under a train policy) the screening
  *                  selection and its estimated cost; no paid case runs.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

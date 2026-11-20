@@ -24,7 +24,7 @@ neither does `./setup --local`.
 
 **What it writes.** Copies in the harness's own skills folder, never edits to
 `openclaw.json`, Hermes's `config.yaml` or any context file you did not name.
-The one exception is the [start hook](#start-hook), which you turn on yourself:
+The one exception is the [start hook](#start-hook), which is on by default for a new registration:
 it adds a plugin and enables it through the harness's own commands.
 A context block is opt-in: `gstack-harness register openclaw|hermes|generic
 --context <file>` writes the marked block into that file only, after printing
@@ -70,11 +70,11 @@ characters, the part of a description Hermes's skills index shows.
 | any other harness | the router in an Agent Skills folder you name, and/or a 600-byte routing block between `<!-- gstack:begin harness-routing -->` markers in a context file you name | `gstack-harness register generic --skills-dir <dir>` and/or `--context <file>`; `gstack-harness manifest generic` prints every skill as JSON | the harness's own skill list | `gstack-harness unregister generic` |
 
 <a id="start-hook"></a>
-### Start hook (OpenClaw and Hermes, opt-in)
+### Start hook (OpenClaw and Hermes, on by default for new registrations)
 
 Every gstack skill starts with a command in its Preamble (`gstack-skill-start`) that sets up the session: whether it runs unattended, questions, consent, upgrade checks. In OpenClaw and Hermes, agents read gstack's skills but almost never run that command (1 start in 29 chances, HARN-18). The start hook is a small `gstack-start` plugin that puts one note of about 210 characters on every user turn, telling the agent to run that command first, exactly as written, with no pipe.
 
-It is off unless you turn it on, because turning it on changes the harness's own settings:
+It is on by default (gstack-evals#369: a line on the prompt naming a skill got Opus 5.5 to load it in 58 of 60 sessions, where a skill relying on its description loaded in 0 of 60). Turning it on changes the harness's own settings:
 
 | | OpenClaw | Hermes |
 |---|---|---|
@@ -83,13 +83,13 @@ It is off unless you turn it on, because turning it on changes the harness's own
 | Settings it changes, through the harness's own CLI | `openclaw config set plugins.entries.gstack-start.hooks.allowConversationAccess true` and `...enabled true` in `openclaw.json`. OpenClaw runs `before_prompt_build` from a plugin it did not bundle only with that grant, which also lets the plugin's hooks see conversation content (the plugin reads only its own note.txt) | `hermes plugins enable gstack-start` adds it to `plugins.enabled` in `config.yaml` |
 | Check | `openclaw plugins inspect gstack-start --runtime --json` lists `before_prompt_build` under `typedHooks` | `hermes plugins list` shows `gstack-start` enabled |
 
-**Turn it on.** `gstack-harness register openclaw --start-hook` (or `hermes`), or `gstack-config set harness_start_hook on` followed by `./setup`, or `GSTACK_HARNESS_START_HOOK=1 ./setup --host openclaw`. The first of these that is set decides: the `--start-hook`/`--no-start-hook` flag, then `GSTACK_HARNESS_START_HOOK` (`1`/`on` or `0`/`off`), then `harness_start_hook`, then the choice saved in the registration's ledger. Whatever decides, the choice is saved, so refresh and upgrades keep it. The hook goes only into the harness profile's own plugin folder; a registration with a custom `--skills-dir`, or OpenClaw run with `OPENCLAW_CONFIG_PATH` pointing at another config, gets no hook (`HARNESS_HOOK_UNSUPPORTED` with `--start-hook`; with `GSTACK_HARNESS_START_HOOK` or `harness_start_hook`, `register` and `./setup --host` say why and exit 4). `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json`, by any path that resolves to it, is fine. A hook you already turned on stays on when a later run happens to have `OPENCLAW_CONFIG_PATH` set.
+**On by default, and how to choose.** A new registration with no choice gets the hook. The first of these that is set decides: the `--start-hook`/`--no-start-hook` flag, then `GSTACK_HARNESS_START_HOOK` (`1`/`on` or `0`/`off`), then `harness_start_hook` in gstack-config, then the choice saved in the registration's ledger, then the default. Every off a registration saved is kept, including one saved before the default changed: an upgrade never turns an existing start hook on. The first `./setup` or `/gstack-upgrade` after the change prints, once, `off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register <harness> --start-hook`. The only off the default overrides is one gstack recorded because it had to refuse the hook (a custom `--skills-dir` or a foreign `OPENCLAW_CONFIG_PATH`), so the hook comes on once that cause is gone. When the default turns the hook on and the harness cannot activate it yet, the skills are registered and the run does not fail; later refreshes try again. The hook goes only into the harness profile's own plugin folder; a registration with a custom `--skills-dir`, or OpenClaw run with `OPENCLAW_CONFIG_PATH` pointing at another config, gets no hook (`HARNESS_HOOK_UNSUPPORTED` with `--start-hook`; with `GSTACK_HARNESS_START_HOOK` or `harness_start_hook`, `register` and `./setup --host` say why and exit 4). `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json`, by any path that resolves to it, is fine. A hook you already turned on stays on when a later run happens to have `OPENCLAW_CONFIG_PATH` set.
 
 **Run the harness's own setup first.** gstack turns the hook on only in a harness that already has its config (`openclaw.json` from `openclaw onboard`, `config.yaml` from `hermes setup`). Without one, the harness CLI would create a config holding nothing but gstack's plugin setting, with no model, provider or terminal settings, so gstack runs no harness command: the plugin's files are written, the hook reports `written` with the setup to run, and `register` and `./setup --host` exit 4. Once the harness is set up, the next `./setup` or `gstack-harness refresh` turns the hook on, changing only the `gstack-start` plugin entry.
 
-**Check it.** The receipt and `gstack-harness status` show `start hook: active` (configured for new sessions; a running OpenClaw gateway or Hermes gateway picks it up when it reloads or restarts), `written` (files in place but not active, with the reason and the command that fixes it), `disabled` (you turned it off in the harness), `unknown` (the harness CLI is not on `PATH`, as inside OpenClaw's or Hermes's own terminal tool, and the config file cannot settle it; gstack reads `plugins.enabled` and `plugins.disabled` from Hermes's `config.yaml` and the plugin entry from `openclaw.json` instead), `unchecked` (a run that left a hook already on alone, or `status --no-check`; `gstack-harness status` checks it) or `off`. When the run that turns the hook on (or `--start-hook`) leaves it inactive, `gstack-harness register` and `./setup --host` exit 4 after registering the skills (`HARNESS_HOOK_INACTIVE`). Later refreshes and upgrades try once more each time, without failing, until the hook is active or you disable the plugin in the harness.
+**Check it.** The receipt and `gstack-harness status` show `start hook: active` (configured for new sessions; a running OpenClaw gateway or Hermes gateway picks it up when it reloads or restarts), `written` (files in place but not active, with the reason and the command that fixes it), `disabled` (you turned it off in the harness), `unknown` (the harness CLI is not on `PATH`, as inside OpenClaw's or Hermes's own terminal tool, and the config file cannot settle it; gstack reads `plugins.enabled` and `plugins.disabled` from Hermes's `config.yaml` and the plugin entry from `openclaw.json` instead), `unchecked` (a run that left a hook already on alone, or `status --no-check`; `gstack-harness status` checks it) or `off`. When `--start-hook`, `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` turns the hook on and the run leaves it inactive, `gstack-harness register` and `./setup --host` exit 4 after registering the skills (`HARNESS_HOOK_INACTIVE`); when only the default turned it on, the run does not fail. Later refreshes and upgrades try once more each time, without failing, until the hook is active or you disable the plugin in the harness.
 
-**Turn it off.** `gstack-harness register openclaw --no-start-hook` (or `hermes`), or `gstack-config set harness_start_hook off` followed by `./setup`. Either turns the plugin off through the harness's CLI and removes its folder. You can also switch it off in the harness (`openclaw config set plugins.entries.gstack-start.enabled false`, `hermes plugins disable gstack-start`); gstack then leaves it off and never turns it back on unless you pass `--start-hook` again. `gstack-harness unregister` and `gstack-uninstall` remove it with the rest (Hermes only disables it when its folder holds an edited file or a kept `.edited-*` copy, so your edit survives), and print the harness command to run when the harness CLI is not on `PATH`. In a profile with no harness config yet (no `openclaw.json` or `config.yaml`), the hook was never turned on, so turning it off or unregistering runs no harness command and leaves the config alone.
+**Turn it off.** `gstack-harness register openclaw --no-start-hook` (or `hermes`), which that registration keeps, or `gstack-config set harness_start_hook off` followed by `./setup`, which every registration keeps. Either turns the plugin off through the harness's CLI and removes its folder. You can also switch it off in the harness (`openclaw config set plugins.entries.gstack-start.enabled false`, `hermes plugins disable gstack-start`); gstack then leaves it off and never turns it back on unless you pass `--start-hook` again. `gstack-harness unregister` and `gstack-uninstall` remove it with the rest (Hermes only disables it when its folder holds an edited file or a kept `.edited-*` copy, so your edit survives), and print the harness command to run when the harness CLI is not on `PATH`. In a profile with no harness config yet (no `openclaw.json` or `config.yaml`), the hook was never turned on, so turning it off or unregistering runs no harness command and leaves the config alone.
 
 **What it costs.** The note is about 50 tokens and lands on every user turn, and each copy stays in the session's history, so a long session pays more (mostly cache reads). HARN-18's panel measures the added cost per trial. OpenClaw also logs that it cannot verify where the plugin came from, because gstack writes it instead of installing it from npm or ClawHub.
 
@@ -167,7 +167,7 @@ after you approve); ask for `gstack-office-hours`, or list them with
 Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
 load only in trusted folders (`/trust`).
 
-Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
+Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex` (Codex lists its one as `claude-code`: mention it as `$claude-code`); each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
 
@@ -196,6 +196,14 @@ override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
 
+**Reasoning effort and hooks.** gstack's workflows do best at high reasoning
+effort; setup never changes it, so start Codex with
+`codex -c model_reasoning_effort=high` when you run them. With Codex 0.170 or
+newer, setup also adds gstack's routing hook and destructive-command check to
+`${CODEX_HOME:-~/.codex}/hooks.json`, and Codex runs them once you trust them at
+its startup prompt or in `/hooks`: see
+[Codex hooks](skill-routing-and-contracts.md#codex).
+
 **Plan-review and implementation tiers.** Plan workflows use an independent
 `frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
 Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
@@ -218,11 +226,23 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`$claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#testing--evals)
 for capture, judge, and benchmark model selection.
+
+**Subagents on Codex.** Codex has no Agent tool, so the Codex skills start every
+audit and reviewer subagent (/ship's coverage, plan and docs audits, the native
+review voices) with Codex's `spawn_agent` and wait on `wait_agent` until it reports
+a final status. Turn multi-agent on first: `multi_agent = true` under `[features]`
+in `~/.codex/config.toml`. Without it the dispatch fails and the step takes its
+documented failure path. Codex has no read-only Plan subagent type, so when the
+plan reviews' outside voice is unavailable they report it unavailable instead of
+starting a native fallback. /ship's review record still only counts a reviewer
+whose brief gstack itself sent: a reviewer started some other way has no recorded
+send, so `gstack-review-dispatch verify` reports its brief `NOT_SENT` and prints
+`VERIFY: dirty` (exit 1) rather than trusting it.
 
 ## The design binary's models
 

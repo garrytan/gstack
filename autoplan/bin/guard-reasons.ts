@@ -18,8 +18,11 @@ interface Reason { disposition: Disposition; text: (d: Detail) => string }
 
 export const FALLBACK = 'Fallback: run /plan-ceo-review, then /plan-devex-review, then /plan-eng-review by hand; ' +
   'or run /context-save, start a new Claude Code session (not --resume), run /context-restore, then /autoplan <plan path>.';
-const PUBLISH_SEPARATELY = (d: Detail) => `Publish the filled Phase ${d.phase} report as your own parent assistant text in a message ` +
-  `whose only tool call is the Bash no-op \`true autoplan-published <phase>\`, then make this phase-entry call in a later message.`;
+const PHASE_NAME: Record<string, string> = { 1: 'ceo', 2: 'design', 2.5: 'dx', 3: 'eng' };
+const PUBLISH_SEPARATELY = (d: Detail) => `Next step: send one message whose visible text is the filled Phase ${d.phase} report, ` +
+  `starting with the line **Phase ${d.phase} complete.**, and whose only tool call is the Bash no-op ` +
+  `\`true autoplan-published ${PHASE_NAME[String(d.phase)] ?? '<phase>'}\`. A report written only in reasoning (thinking) is not visible ` +
+  'and does not count. Then make this phase-entry call in a later message.';
 
 export const REASONS = {
   // Journal ownership (lib/claude-public-transcript.ts OwnedTranscriptReason).
@@ -68,7 +71,9 @@ export const REASONS = {
   close_stale: { disposition: 'corrective', text: d => `${d.cause}. Finish the existing close procedure with a fresh packet.` },
   close_edits: { disposition: 'corrective', text: d => `${d.cause}. Repeat the existing close procedure.` },
   mutation_pending: { disposition: 'transient', text: () => 'An active-plan mutation is pending after the close Read. Wait for its result, then verify the current close input.' },
-  publication_missing: { disposition: 'corrective', text: d => `Publish the filled Phase ${d.phase} report as your own parent assistant text now. The close packet or a saved report does not publish it. ` + PUBLISH_SEPARATELY(d) },
+  publication_missing: { disposition: 'corrective', text: d => `Publish the filled Phase ${d.phase} report: none follows its close packet Read, and the close packet or a saved report does not publish it. ` + PUBLISH_SEPARATELY(d) },
+  publication_not_visible: { disposition: 'corrective', text: d => `The Phase ${d.phase} publish message (\`true autoplan-published\`) carried no visible text, ` +
+    'so no report was published. Text written in reasoning is visible to neither the user nor this guard. ' + PUBLISH_SEPARATELY(d) },
   publication_unflushed: { disposition: 'corrective', text: d => `The Phase ${d.phase} report is not yet followed by a journaled record, so Claude Code may not have written it. ` + PUBLISH_SEPARATELY(d) },
   publication_repeat: { disposition: 'fallback', text: d => `The Phase ${d.phase} report still cannot be verified after it was published separately once in this invocation.` },
 } satisfies Record<string, Reason>;

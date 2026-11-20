@@ -14,7 +14,7 @@
  * The ledger is a JSON array of {class, reason, evidence} under the checkout's git dir, one file per
  * branch, so `gstack-ship-receipt write --no-stop @<ledger>` takes it as it stands.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { branchKey } from './approval-record';

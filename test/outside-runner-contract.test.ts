@@ -12,6 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRunner, familyConflict, modelFamily, runnerTable, selectRunner, usageFromEvents } from '../lib/outside-voice-runner';
+import { RESULT_FORMAT } from '../lib/autoplan-prompts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-outside-voice');
@@ -19,6 +20,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-runner-'));
 afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
 const REVIEW = `INPUT: ceo abc\n\n[P2] The install check lies by omission.\n\nRecommendation: revise because the premise is unmeasured.\nVERDICT: FINDINGS\n`;
+const SHA = 'a'.repeat(64);
+const AUTOPLAN_REVIEW = `INPUT: ceo ${SHA}\n\nThe premise is unmeasured, so the plan may solve the wrong problem.\n\n\`\`\`gstack-findings\n{"id":"F1","severity":"High","title":"premise unmeasured","fix":"measure the install check first"}\n\`\`\`\n`;
 const promptFile = path.join(TMP, 'prompt.md');
 fs.writeFileSync(promptFile, 'You are the outside CEO reviewer.\n');
 
@@ -143,7 +146,12 @@ out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; esac; shift; d
 printf '%s\\n' "$FAKE_ARGV_SINK" >/dev/null
 cat >"$out.prompt"
 if [ -n "\${FAKE_CODEX_SLEEP:-}" ]; then sleep "$FAKE_CODEX_SLEEP"; fi
-cat "$FAKE_CODEX_REVIEW" >"$out"
+if [ -n "\${FAKE_CODEX_EVENTS:-}" ]; then cat "$FAKE_CODEX_EVENTS"; printf '%s\\n' "\${FAKE_CODEX_STDERR:-}" >&2; : >"$out"; exit 1; fi
+if [ -n "\${FAKE_CODEX_OWN:-}" ]; then
+  own=$(sed -n 's/^3\\. Write the whole result to this file: //p' "$out.prompt")
+  cat "$FAKE_CODEX_REVIEW" >"$own"
+  printf '%s\\n' "\${FAKE_CODEX_LAST:-Wrote the review to the result file.}" >"$out"
+else cat "$FAKE_CODEX_REVIEW" >"$out"; fi
 echo '{"type":"item.completed","item":{"type":"command_execution","status":"completed","exit_code":0}}'
 echo '{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":340}}'
 `, { mode: 0o755 });
@@ -158,9 +166,134 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":340}
     const result = await runner.run({ promptFile, outFile: out, model: 'gpt-5.5', timeoutMs: 30_000, cwd: ROOT, gate: 'review', env, binDir: gstackBin });
     expect(result).toMatchObject({ runner: 'codex-cli', status: 'completed', model: 'gpt-5.5', family: 'openai', exit: 0, usage: { input_tokens: 1200, output_tokens: 340, usd: 'unknown' } });
     expect(result.verdict!.verdict).toBe('clean');
-    expect(fs.readFileSync(`${out}.prompt`, 'utf8')).toBe(fs.readFileSync(promptFile, 'utf8'));
+    expect(fs.readFileSync(`${out}.last-message.prompt`, 'utf8')).toBe(fs.readFileSync(promptFile, 'utf8'));
     expect(fs.readFileSync(out, 'utf8')).toBe(REVIEW);
     expect(usageFromEvents('{"usage":{"input_tokens":5}}\nnot json\n')).toEqual({ input_tokens: 5, usd: 'unknown' });
+  });
+
+  test('the reviewer\'s own result file survives Codex\'s closing message (-o goes to a separate file)', async () => {
+    const review = path.join(TMP, 'own-review.md');
+    fs.writeFileSync(review, AUTOPLAN_REVIEW);
+    const out = path.join(TMP, 'own', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review, FAKE_CODEX_OWN: '1' }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(AUTOPLAN_REVIEW);
+    expect(fs.readFileSync(`${out}.last-message`, 'utf8')).toBe('Wrote the review to the result file.\n');
+    expect(result.reason).toBeUndefined();
+    expect(result.status).toBe('completed');
+  });
+
+  test('when the reviewer\'s own file lacks the gate\'s markers and the closing message has them, the closing message is the result', async () => {
+    const review = path.join(TMP, 'own-junk.md');
+    fs.writeFileSync(review, 'draft notes, not the result\n');
+    const out = path.join(TMP, 'own-junk', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-junk-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: AUTOPLAN_REVIEW.trimEnd() }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(AUTOPLAN_REVIEW);
+    expect(result.status).toBe('completed');
+  });
+
+  test('a reviewer file with no final verdict loses to a closing message that has one (GST-3188)', async () => {
+    const draft = path.join(TMP, 'own-draft.md');
+    fs.writeFileSync(draft, 'No issues found.\nRecommendation: ship because the change is small.\n');
+    const out = path.join(TMP, 'own-draft', 'review.md');
+    const prompt = path.join(TMP, 'own-draft-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: draft, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: REVIEW.trimEnd() }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(REVIEW);
+    expect(result.status).toBe('completed');
+  });
+
+  test('a reviewer file whose receipt names another snapshot loses to a closing message that names this one (GST-3188)', async () => {
+    const stale = path.join(TMP, 'own-stale.md');
+    fs.writeFileSync(stale, AUTOPLAN_REVIEW.replace(SHA, 'b'.repeat(64)));
+    const out = path.join(TMP, 'own-stale', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-stale-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: stale, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: AUTOPLAN_REVIEW.trimEnd() }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(AUTOPLAN_REVIEW);
+    expect(result.status).toBe('completed');
+  });
+
+  test('a reviewer file whose own verdict says it is not ready is kept over a clean closing message (GST-3188 review)', async () => {
+    const own = path.join(TMP, 'own-unready.md');
+    const ownText = 'Verdict: ready, but I could not run the test suite.\nRecommendation: run the suite because nothing was executed.\n';
+    fs.writeFileSync(own, ownText);
+    const out = path.join(TMP, 'own-unready', 'review.md');
+    const prompt = path.join(TMP, 'own-unready-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    const clean = 'No issues found.\nRecommendation: ship because the change is small.\nVERDICT: CLEAN';
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: own, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: clean }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(ownText);
+    expect(result.verdict!.verdict).not.toBe('clean');
+  });
+
+  test('a reviewer draft with a finding and no verdict is not replaced by a closing message with no verdict (GST-3188 review)', async () => {
+    const own = path.join(TMP, 'own-finding.md');
+    const ownText = '[P2] The rollback docs are missing.\nRecommendation: add them because operators need them.\n';
+    fs.writeFileSync(own, ownText);
+    const out = path.join(TMP, 'own-finding', 'review.md');
+    const prompt = path.join(TMP, 'own-finding-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside reviewer.\n3. Write the whole result to this file: ${out}\n`);
+    await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: own, FAKE_CODEX_OWN: '1', FAKE_CODEX_LAST: 'Recommendation: ship because everything looks fine.' }, binDir: gstackBin });
+    expect(fs.readFileSync(out, 'utf8')).toBe(ownText);
+  });
+
+  test('a reviewer file for another snapshot is never reported clean when the closing message is not a result (GST-3188 review)', async () => {
+    const stale = path.join(TMP, 'own-stale-only.md');
+    fs.writeFileSync(stale, AUTOPLAN_REVIEW.replace(SHA, 'b'.repeat(64)).replace(/\{"id":"F1".*\}\n/, ''));
+    const out = path.join(TMP, 'own-stale-only', 'ceo-outside.md');
+    const prompt = path.join(TMP, 'own-stale-only-prompt.md');
+    fs.writeFileSync(prompt, `You are the outside CEO reviewer.\n${RESULT_FORMAT('ceo', SHA, out)}`);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'autoplan', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: stale, FAKE_CODEX_OWN: '1' }, binDir: gstackBin });
+    expect(result.status).toBe('unavailable');
+  });
+
+  test('a prompt file that is one of the run\'s own output files is refused and left as it was (GST-3188)', async () => {
+    const review = path.join(TMP, 'clash-review.md');
+    fs.writeFileSync(review, REVIEW);
+    const out = path.join(TMP, 'clash', 'review.md');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    const prompt = `${out}.last-message`;
+    const original = 'You are the outside reviewer.\n';
+    fs.writeFileSync(prompt, original);
+    const result = await createRunner('codex-cli').run({ promptFile: prompt, outFile: out, timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review }, binDir: gstackBin });
+    expect(fs.readFileSync(prompt, 'utf8')).toBe(original);
+    expect([result.status, result.reason]).toEqual(['failed', 'prompt_is_output']);
+    const cli = run(['run', '--runner', 'codex-cli', '--prompt', prompt, '--out', out], { ...cleanEnv(fakeBin), FAKE_CODEX_REVIEW: review });
+    expect(cli.status).toBe(2);
+    expect(cli.stderr).toContain(`--prompt ${prompt}`);
+    expect(fs.readFileSync(prompt, 'utf8')).toBe(original);
+  });
+
+  // Captured from codex-cli 0.170.0 against a local stub answering 402 (application/problem+json, a metering proxy's allowance) and 401.
+  const REFUSAL_EVENTS = (status: string) => [
+    '{"type":"thread.started","thread_id":"01a1f2ae-a04c-7583-8012-638cc20a388d"}',
+    '{"type":"turn.started"}',
+    JSON.stringify({ type: 'error', message: status }),
+    JSON.stringify({ type: 'turn.failed', error: { message: status } }),
+  ].join('\n') + '\n';
+  const STATUS_402 = 'unexpected status 402 Payment Required: {"type":"https://meter.example/problems/allowance","title":"E_ALLOWANCE","status":402,"code":"E_ALLOWANCE","detail":"E_ALLOWANCE: metering proxy: the slot\'s allowance of $15 cannot hold this call\'s worst case"}, url: http://127.0.0.1:33037/v1/responses';
+  const STATUS_401 = 'unexpected status 401 Unauthorized: Incorrect API key provided, url: http://127.0.0.1:45349/v1/responses';
+  const STDERR = 'Reading additional input from stdin...';
+
+  test('a 402 in Codex\'s JSON failure events is recorded as budget_exhausted with the cause, not "exit 1"', async () => {
+    const events = path.join(TMP, 'refusal-402.jsonl');
+    fs.writeFileSync(events, REFUSAL_EVENTS(STATUS_402));
+    const result = await createRunner('codex-cli').run({ promptFile, outFile: path.join(TMP, 'r402', 'o.md'), timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_EVENTS: events, FAKE_CODEX_STDERR: STDERR }, binDir: gstackBin });
+    expect([result.status, result.exit, result.reason]).toEqual(['unavailable', 1, 'budget_exhausted']);
+    expect(result.detail).toStartWith('unexpected status 402 Payment Required');
+    expect(result.detail).toContain('E_ALLOWANCE');
+  });
+
+  test('a 401 in the same events stays execution_failed and keeps the 401 cause in its detail', async () => {
+    const events = path.join(TMP, 'refusal-401.jsonl');
+    fs.writeFileSync(events, REFUSAL_EVENTS(STATUS_401));
+    const result = await createRunner('codex-cli').run({ promptFile, outFile: path.join(TMP, 'r401', 'o.md'), timeoutMs: 30_000, cwd: ROOT, gate: 'review', env: { ...cleanEnv(fakeBin), FAKE_CODEX_EVENTS: events, FAKE_CODEX_STDERR: STDERR }, binDir: gstackBin });
+    expect([result.status, result.reason]).toEqual(['unavailable', 'execution_failed']);
+    expect(result.detail).toBe(`exit 1: ${STATUS_401}`);
   });
 
   test('cancel() terminates the child and reports cancelled', async () => {

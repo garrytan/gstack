@@ -50,6 +50,11 @@ for (const name of ['GBRAIN_DATABASE_URL', 'GBRAIN_DIRECT_DATABASE_URL', 'DATABA
   delete process.env[name];
   process.stderr.write(`test-setup: stripped inherited ${name}; tests must not reach a live gbrain\n`);
 }
+// Telemetry clients fall back to supabase/config.sh, the live project, when a
+// test leaves GSTACK_SUPABASE_URL unset; that is how about 554,000 test rows
+// reached it. With this set, config.sh yields no endpoint and nothing is sent.
+// test/telemetry-no-live-endpoint.test.ts holds the tripwire.
+process.env.GSTACK_TEST_BLOCK_LIVE_TELEMETRY = '1';
 // One fixture root per test process (GST-1695). TMPDIR (TMP and TEMP on Windows)
 // points at it, so os.tmpdir() here, and $TMPDIR in a child spawned through
 // node:child_process or with this process's env, put each fixture inside it; a

@@ -127,6 +127,7 @@ with its ruler and reason; each `Gate disposition: …` line `gstack-approvals d
 `UNAVAILABLE — ...`; never `none detected` for partial or UNAVAILABLE. Under it, each
 kept finding's `gate`, path and `reason`, and each open finding's `gate` and path.
 Identity and reason only; no hunk text.>
+<A security finding (category security, auth, secret or red-team) never appears anywhere in the body by path, line or reason, and on the gate line above a security gate finding shows only its `gate`: use the redacted line gstack prints ("security finding, details recorded privately") and put the details in your private report (docs/ship-policy.md#security-findings-stay-private).>
 <Outside review: its verdict; `unverified` or `unavailable` is listed as missing coverage with its reason, never as passed.>
 
 <Step 9.4's saved `## Deferred findings` and `## Review notes` sections, verbatim, as their own
@@ -274,7 +275,8 @@ files under `review_exclude_paths` changed it, which `--docs-post` binds (`REVIE
 
 The summary reads this branch's review log for the invocation's passes (its
 `REVIEW_LOOP:` line is the one the Pre-Landing Review section carries). Here every
-finding reaches a row through Step 9.4; a run whose readers were collected by
+finding reaches a row through Step 9.4 or Step 11's own row; a blocker still `open` there
+makes write refuse (`RECEIPT_BLOCKER_OPEN`). A run whose readers were collected by
 `gstack-review-dispatch` (ship/DRIVER.md) passes `--run <run dir>` instead. The `&&`
 matters: a summary that refuses (no pass matched `REVIEW_SINCE`) must not let `write`
 record a stale or empty loop file.
@@ -307,7 +309,7 @@ It updates the body, then the title, retries a retired-GraphQL edit through REST
 reads the title back. Then resolve the draft state from Step 9's gate findings:
 
 1. Step 6.5 opened this PR as an early draft, the user did not ask for a draft, and no
-   gate finding is `open`: mark it ready now with `gh pr ready <pr-number>`.
+   gate finding is `open`: mark it ready now with `gh pr ready <pr-number>` (on Capy, with the host's PR tool instead).
 2. Step 6.5 opened it as an early draft and any gate finding is `open`: leave it a
    draft; print `Draft kept: Gate edits: N open` and the open findings' `gate` and path.
 3. The PR was already ready (not a draft) and any gate finding is `open`: publish only

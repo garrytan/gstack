@@ -8,7 +8,7 @@ If gstack is installed on your machine:
 ~/.claude/skills/gstack/bin/gstack-uninstall
 ```
 
-This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the opt-in [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics; it also keeps the repo's `.gstack/` and `.gstack-worktrees/`. Use `--force` to skip confirmation.
+This handles skills, symlinks, harness registrations (the files `gstack-harness` wrote into OpenClaw, Hermes, a Dot or another harness, from their ledgers, plus the [start hook](hosts.md#start-hook), which it turns off through the harness's own CLI), gstack's entries in Codex's `${CODEX_HOME:-~/.codex}/hooks.json` (your own hooks there stay), global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics; it also keeps the repo's `.gstack/` and `.gstack-worktrees/`. Use `--force` to skip confirmation.
 
 A plain uninstall keeps the git-tracked files under `.gstack/` (such as ship policy) and removes only the ones git ignores. It stops with exit 2, before removing anything, when a checkout under `.gstack-worktrees/` has uncommitted changes, has commits no branch or tag holds, or is not a worktree this repo registered. Pass `--force-worktrees` to delete those checkouts anyway. Every checkout is checked, including a worktree created inside another checkout under `.gstack-worktrees/`. A git submodule inside a clean checkout is deleted with it only when every commit it holds is on a remote-tracking branch; otherwise it stops the uninstall. A locked worktree (`git worktree lock`) always stops the uninstall, even with `--force-worktrees`; unlock it with `git worktree unlock <path>` if you want it gone. If `git worktree list` fails, the uninstall stops too, even with `--force-worktrees`, and so it does on git older than 2.36, which cannot list worktrees with `-z`. The check runs again after you confirm, before anything is removed, so a checkout you edit while the confirmation prompt waits is kept: uninstall exits 2 and removes nothing. Run from inside the gstack install itself, a `.gstack/` that holds its own git repository also stops the uninstall, because deleting the install would take it along. A `.gstack/` that is its own git repository is kept, with a message saying so, because its commits may exist nowhere else. When `.gstack-worktrees` is a symlink, uninstall removes only the link and never follows it, so the folder it points at and the worktrees there are kept.
 
@@ -126,12 +126,31 @@ Manual removal leaves gstack's hook entries behind in `~/.claude/settings.json`
 `_gstack_source` tag was stripped). Edit that file and delete every hook whose
 command path points into `.claude/skills/gstack/`: the SessionStart auto-update
 hook, the AskUserQuestion PreToolUse/PostToolUse hooks, the Stop hooks
-(session timeline, plus verify-gate and skill contracts if you opted in), and
-the skill-routing UserPromptSubmit hook if you turned it on, and the
+(session timeline, skill contracts, which is on by default, and verify-gate if you opted in), and
+the skill-routing UserPromptSubmit hook and the destructive-command PreToolUse hook (both on by default), and the
 /plan-ceo-review and /autoplan skill-gate hooks if you turned those on. Left in place, they error
 on every matching event once the install directory is gone.
 
-If you turned on the OpenClaw or Hermes [start hook](hosts.md#start-hook),
+On Codex, manual removal also leaves gstack's hooks in
+`${CODEX_HOME:-~/.codex}/hooks.json`: the skill-routing `UserPromptSubmit`
+hook, the destructive-command `PreToolUse` hook and the skill-contract `Stop`
+hook. Delete only gstack's handlers, the entries in a group's `hooks` list
+whose `command` points into `skills/gstack/hosts/codex/hooks/`, and keep your
+own handlers and the rest of the file as they are. Codex remembers which hooks
+you trusted by their position, so:
+
+- If gstack's handler is the only one in its group and your own groups come
+  after it in the same event, leave the group in place as `{ "hooks": [] }`.
+  Your hooks keep their positions and stay trusted. (The uninstall script does
+  this for you.)
+- If gstack's group is the last one in that event and holds only gstack's
+  handlers, delete the whole group. If it also holds one of yours, delete only
+  gstack's handler.
+- If one of your handlers comes after gstack's inside the same group, deleting
+  gstack's handler moves yours up one place, so trust it again in Codex with
+  `/hooks`.
+
+If the OpenClaw or Hermes [start hook](hosts.md#start-hook) is on (the default for a new registration),
 manual removal also leaves its `gstack-start` plugin turned on. Turn it off
 with `openclaw config unset plugins.entries.gstack-start` or `hermes plugins
 disable gstack-start`, then delete

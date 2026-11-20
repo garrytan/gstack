@@ -67,7 +67,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
 import { KIND_LABEL, NOTES_CAP, changeSources, changelogEntries, compareVersions, releaseKind, releaseNotes } from './release-notes';
 import { bucketClass } from '../../lib/ci-gate';

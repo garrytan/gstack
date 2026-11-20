@@ -8,7 +8,7 @@
  * record is written locally before its note, and the note before any remote
  * effect that depends on it.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { redactFindingSpans } from '../../lib/redact-engine';

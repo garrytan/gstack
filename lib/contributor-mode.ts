@@ -9,7 +9,7 @@
  * two lines, not a section: the table (evidence value, risk surfaces,
  * accept / supersede / decline) and the credit-line rule.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { sha256Hex, writeReceipt } from './egress-receipt';
 import type { ResultCodeName } from './result-codes';
 

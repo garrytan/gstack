@@ -5,7 +5,7 @@
  * review, a review at another commit, one that requested changes or was dismissed, gh unavailable) is no evidence, and the
  * single light reader runs.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 
 export const PLATFORM_REVIEWER = 'capy-ai[bot]';
 export interface PlatformReview { id: string; head: string; reviewer: string }

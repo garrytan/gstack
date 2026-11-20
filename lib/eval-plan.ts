@@ -9,7 +9,7 @@
  * (lib/pricing.ts), so the spend table always shows `unknown` charges and the
  * worst-case overrun (one in-flight call per worker) beside `spent`.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

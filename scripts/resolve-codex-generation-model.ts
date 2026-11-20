@@ -145,9 +145,25 @@ export function resolveCodexRuntimeModel(opts: {
   };
   if (opts.explicit) return chosen('explicit request', opts.explicit);
   if (env.GSTACK_CODEX_MODEL) return chosen('GSTACK_CODEX_MODEL', env.GSTACK_CODEX_MODEL);
+  const named = codexConfigModel({ ...opts, env });
+  if (named.value === null) return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (${named.source})` };
+  return chosen(named.source, named.value);
+}
 
-  const home = opts.home ?? env.HOME ?? os.homedir();
-  const codexHome = opts.codexHome ?? env.CODEX_HOME ?? path.join(home, '.codex');
+/**
+ * The model Codex's own config.toml names for this invocation kind
+ * (`review_model` first for native review, then the legacy active profile's
+ * model, then `model`). `value` is null when it names none, and `source`
+ * then says what was missing. Shared by the runtime and plan-review records.
+ */
+function codexConfigModel(opts: {
+  kind: CodexInvocationKind;
+  env: Record<string, string | undefined>;
+  codexHome?: string;
+  home?: string;
+}): { value: string | null; source: string } {
+  const home = opts.home ?? opts.env.HOME ?? os.homedir();
+  const codexHome = opts.codexHome ?? opts.env.CODEX_HOME ?? path.join(home, '.codex');
   if (!path.isAbsolute(codexHome)) {
     throw new Error(`CODEX_HOME '${sanitize(codexHome)}' is not an absolute path, so its config.toml model cannot be read. ${REPAIR}`);
   }
@@ -156,9 +172,7 @@ export function resolveCodexRuntimeModel(opts: {
   try {
     raw = fs.readFileSync(configPath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (no ${stripControl(configPath)})` };
-    }
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { value: null, source: `no ${stripControl(configPath)}` };
     throw new Error(`Could not read ${sanitize(configPath)}. ${REPAIR}`);
   }
   let parsed: Record<string, unknown>;
@@ -178,9 +192,9 @@ export function resolveCodexRuntimeModel(opts: {
   for (const [source, value] of candidates) {
     if (value === undefined) continue;
     if (typeof value !== 'string') throw new Error(`${sanitize(source)} is not a string. ${REPAIR}`);
-    return chosen(source, value);
+    return { value, source };
   }
-  return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (no model in ${stripControl(configPath)})` };
+  return { value: null, source: `no model in ${stripControl(configPath)}` };
 }
 
 export interface CodexPlanReviewSelection extends CodexRuntimeModelSelection {
@@ -204,7 +218,11 @@ export function resolveCodexPlanReviewModel(opts: {
   cwd?: string;
 }): CodexPlanReviewSelection {
   const env = opts.env ?? process.env;
-  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd });
+  const nativeModel = () => {
+    const named = codexConfigModel({ ...opts, env });
+    return named.value === null ? null : { model: named.value.trim(), label: stripControl(named.source) };
+  };
+  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd, nativeModel });
   const repair = stripControl(selectionRepair(selection).join('; '));
   if (selection.status === 'selected') {
     const model = selection.requestedModel;
@@ -219,7 +237,7 @@ export function resolveCodexPlanReviewModel(opts: {
 
 function policyFailure(error: unknown): string {
   if (!(error instanceof ModelPolicyError)) return (error as Error).message;
-  return [`${error.problem} ${error.cause}`.trim(), ...error.repair.map(step => `Repair: ${step}`), `Docs: ${error.docs}`].join('\n');
+  return [`${error.problem} ${error.cause}`.trim(), ...error.repair.map(step => `Repair: ${step}`), `Docs: ${error.docs}`, `CODEX_MODEL_POLICY: ${error.reason}`].join('\n');
 }
 
 function readArg(name: string): string | undefined {

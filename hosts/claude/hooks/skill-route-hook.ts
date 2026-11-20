@@ -1,12 +1,13 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * skill-route-hook — UserPromptSubmit hook that names the gstack skill a prompt
- * fits (GST-1088, lane A). Off unless skill_routing is on (env
+ * skill-route-hook — UserPromptSubmit hook (Claude Code, and Codex through hosts/codex/hooks) that names the skill a prompt fits,
+ * or the two that fit best (GST-1088, lane A; installed skills, GST-3123). On unless skill_routing is off (env
  * GSTACK_SKILL_ROUTING, then config skill_routing, then SWITCH_DEFAULT).
  *
  *   stdin (<= 256 KiB, 500 ms) -> switch on? -> JSON object with a prompt?
- *     -> not a /command, not over 8000 chars -> score against installed triggers
- *     -> at or above ROUTE_THRESHOLD: one additionalContext line -> exit 0
+ *     -> not a /command -> score its head and tail windows against installed triggers
+ *     -> a bug report with a skill installed that claims bug reports: one line naming that skill alone -> exit 0
+ *     -> else at or above ROUTE_THRESHOLD: one additionalContext line naming up to MAX_ROUTES skills -> exit 0
  *
  * CONTRACT
  *   - Always exits 0 and never exits 2: it can never block a prompt. Any error
@@ -20,8 +21,8 @@
  */
 import * as fs from 'fs';
 import {
-  appendHookTrace, firstStep, hintLine, hintVariant, installedSkillsDir, readSkillSwitch, readStdinBounded, routePrompt,
-  scanInstalledSkills, type RouteCandidate,
+  appendHookTrace, codexSkillsDir, firstStep, hintLine, hintVariant, hookHost, installedSkillsDir, readSkillSwitch, readStdinBounded,
+  routePrompt, scanCodexSkills, scanInstalledSkills, type HookHost, type RouteCandidate,
 } from '../../../lib/skill-route';
 import { itemSummary, parseContract } from '../../../lib/skill-contract';
 
@@ -33,8 +34,10 @@ const SKILL_BODY_MAX_BYTES = 512 * 1024;
 let sessionId = '';
 const trace = (fields: Record<string, string | number | boolean>, failed = false) => appendHookTrace('skill-route', sessionId, fields, failed);
 
+/** The pilot's first-step or contract text, for gstack's own skills only: another skill's text is never quoted (GST-3142). */
 function variantExtra(route: RouteCandidate, frontmatter: string): string {
   const variant = hintVariant();
+  if (!route.gstack) return '';
   if (variant === 'step') {
     const fd = fs.openSync(route.file, 'r');
     try {
@@ -52,7 +55,7 @@ function variantExtra(route: RouteCandidate, frontmatter: string): string {
   return '';
 }
 
-async function main(): Promise<void> {
+async function main(host: HookHost): Promise<void> {
   setTimeout(() => { trace({ event: 'deadline', ms: DEADLINE_MS }, true); process.exit(0); }, DEADLINE_MS);
   const sw = readSkillSwitch('skill_routing');
   if (!sw.on) {
@@ -67,20 +70,31 @@ async function main(): Promise<void> {
   const p = payload as Record<string, unknown>;
   sessionId = typeof p.session_id === 'string' ? p.session_id : '';
   if (typeof p.prompt !== 'string') return trace({ event: 'no-prompt' }, true);
-  const { skills, problems } = scanInstalledSkills(installedSkillsDir());
-  if (problems.length) trace({ event: 'skill-problems', problems: problems.join('; ') }, true);
-  const decision = routePrompt(p.prompt, skills);
+  const hostField: Record<string, string> = host === 'codex' ? { host } : {};
+  const { skills, problems } = host === 'codex' ? scanCodexSkills(codexSkillsDir()) : scanInstalledSkills(installedSkillsDir());
+  if (problems.length) trace({ event: 'skill-problems', problems: problems.join('; '), ...hostField }, true);
+  const decision = routePrompt(p.prompt, skills, undefined, host);
   if (!decision.route) {
     const top = decision.candidates[0];
-    return trace({ event: 'no-route', reason: decision.reason, chars: p.prompt.length, top: top ? `${top.skill}:${top.score}` : '-' });
+    return trace({ event: 'no-route', reason: decision.reason, chars: p.prompt.length, top: top ? `${top.skill}:${top.score}` : '-', ...hostField });
   }
   const route = decision.route;
   const frontmatter = skills.find(s => s.file === route.file)?.frontmatter ?? '';
-  const out = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintLine(route, variantExtra(route, frontmatter)) } });
+  const also = decision.routes[1];
+  const out = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintLine(route, variantExtra(route, frontmatter), also, host) } });
   await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
-  trace({ event: 'routed', skill: route.skill, score: route.score, variant: hintVariant() });
+  trace({
+    event: 'routed', skill: route.skill, score: route.score, source: route.gstack ? 'gstack' : route.file, variant: hintVariant(),
+    ...(decision.bugReport ? { bug_report: true } : {}),
+    ...(also ? { also: also.skill, also_score: also.score, also_source: also.gstack ? 'gstack' : also.file } : {}), ...hostField,
+  });
 }
 
-main()
-  .catch(e => trace({ event: 'error', why: e instanceof Error ? e.message : String(e) }, true))
-  .finally(() => process.exit(0));
+/** Runs the hook for one host and exits 0; the Codex wrapper (hosts/codex/hooks/codex-skill-route-hook.ts) passes codex. */
+export function runSkillRouteHook(host: HookHost = hookHost()): void {
+  main(host)
+    .catch(e => trace({ event: 'error', why: e instanceof Error ? e.message : String(e) }, true))
+    .finally(() => process.exit(0));
+}
+
+if (import.meta.main) runSkillRouteHook();

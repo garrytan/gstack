@@ -6,7 +6,7 @@
  * (bin/gstack-release-stamp); classifyRelease is the one test of "this head is the release stamp of its merge base"
  * that land --pin and the Version Gate both apply.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

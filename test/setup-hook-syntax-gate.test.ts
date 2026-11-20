@@ -340,6 +340,7 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
       GSTACK_PLAN_TUNE_HOOKS: 'yes',
       GSTACK_SKILL_ROUTING: 'off',
       GSTACK_SKILL_CONTRACTS: 'off',
+      GSTACK_DESTRUCTIVE_GUARD: 'off',
       TMPDIR: fx.base,
     };
     // A file, not `bash -c`: the script is longer than Windows' 32,767-character command line.
