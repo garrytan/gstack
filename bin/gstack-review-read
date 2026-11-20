@@ -11,7 +11,8 @@
 # gate row closes reads `kept` with its `disposition`, and the row's `gate_dispositions` lists
 # those approval ids (lib/gate-dispositions.ts). review_freshness counts the owner's
 # gstack-approvals rule rows at a head in the row's range (ruledOn), and the row's `ruled_notes`
-# lists their approval ids; values the row itself carried are discarded.
+# lists their approval ids; values the row itself carried are discarded. When a stopped pass stays
+# UNVERIFIED, its reason names the findings no ruling covers yet (rulingGap, GST-3267).
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,7 +27,7 @@ GSTACK_HOME="$_gstack_sr_root"
 WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
   GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_GATE_LIB="$SCRIPT_DIR/../lib/gate-dispositions.ts" GSTACK_RULED_LIB="$SCRIPT_DIR/../lib/ruled-notes.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
-    const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
+    const { reviewFreshness, rulingGap } = await import(process.env.GSTACK_REVIEW_LIB);
     const { dispositionedOn, gateKey, readGateDispositions, ruledOn, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
     const { readRuledNotes } = await import(process.env.GSTACK_RULED_LIB);
     let dispositions = [];
@@ -44,8 +45,10 @@ if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
         for (const f of Array.isArray(rec.findings) ? rec.findings : []) if (f && typeof f === "object") delete f.disposition;
         const closed = dispositionedOn(process.cwd(), rec, dispositions);
         const ruled = ruledOn(process.cwd(), rec, rulings);
-        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE, new Set(ruled.map(n => n.finding)), new Set(closed.map(d => gateKey(d.finding, d.gate_id))));
-        if (freshness) rec.review_freshness = freshness;
+        const ruledSet = new Set(ruled.map(n => n.finding)), gatedSet = new Set(closed.map(d => gateKey(d.finding, d.gate_id)));
+        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE, ruledSet, gatedSet);
+        const gap = freshness?.status === "UNVERIFIED" ? rulingGap(rec, ruledSet, gatedSet) : undefined;
+        if (freshness) rec.review_freshness = gap ? { ...freshness, reason: freshness.reason + ": " + gap } : freshness;
         if (ruled.length) rec.ruled_notes = ruled.map(n => n.approval);
         showDispositioned(rec, closed);
         console.log(JSON.stringify(rec));

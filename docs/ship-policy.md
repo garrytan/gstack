@@ -1793,7 +1793,13 @@ once every blocking finding on it is ruled it binds at that tree as a clean read
 (harness-evals#361, GST-2251). A CRITICAL with no ruling stays open, and while one
 does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
 naming the `gstack-approvals rule` command for each
-([troubleshooting](troubleshooting.md#fix-check-open)). A review-loop exception is
+([troubleshooting](troubleshooting.md#fix-check-open)). On any stopped review row,
+the final review and the native reader included, `gstack-review-read` names them
+too: its UNVERIFIED reason ends `N finding(s) still need an owner ruling at this
+head: <fingerprint> (<severity>, <action>); …`, ten names at most. A `noted` or
+`deferred` CRITICAL is on that list, because neither action closes a CRITICAL,
+and a gate finding is listed with the `gate_id` its gate disposition needs, since a
+ruling never closes one (harness-evals#498, GST-3267). A review-loop exception is
 not a ruling: it accepts edits after a fix-check, never the fix-check's own
 findings. Nothing ruled is hidden:
 `gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the
