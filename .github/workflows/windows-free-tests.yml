@@ -334,6 +334,11 @@ jobs:
       # Records into this checkout's default seed path: GSTACK_FREE_TEST_DURATIONS
       # would leak into every timed test, and seed-reading tests would then read
       # the half-written recording instead of their fixtures.
+      # Two workers, not the four a windows-latest runner offers: at four, files
+      # that pass in the nightly run timed out under the recording load and the
+      # whole recording outran its 30-minute job (runs 43802987074 and
+      # 44830554276); at two it timed all 921 files cleanly in 38 minutes
+      # (44830546810). Solo timings under less load are also closer to the truth.
       - name: Time every Windows-safe file alone
         id: record
         shell: bash

@@ -77,10 +77,13 @@ test('both recorders list exactly the files the recorder reported red, and more 
   expect(script).toContain('Files that failed while recording (durations kept; this PR\'s own free checks decide): $failed_line');
 });
 
-test('the propose step touches only the two seeds, never the allowlist, on one bot branch', () => {
+test('the propose step reconciles the allowlist before the ratchet runs and commits it with the two seeds, on one bot branch', () => {
   const script: string = proposeStep.run;
-  expect(script).toContain('git add scripts/free-test-durations.json scripts/free-test-durations-windows.json\n');
-  expect(script).not.toContain('free-test-seed-allowlist.json');
+  expect(script).toContain('git add scripts/free-test-durations.json scripts/free-test-durations-windows.json scripts/free-test-seed-allowlist.json\n');
+  const reconcile = script.indexOf('bun --no-env-file --config=/dev/null run scripts/free-seed-allowlist.ts --reconcile --recording "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"');
+  expect(reconcile).toBeGreaterThan(script.indexOf('cp "$RUNNER_TEMP/linux/free-test-durations.json" scripts/free-test-durations.json'));
+  expect(reconcile).toBeLessThan(script.indexOf('bun test test/free-seed-ratchet.test.ts'));
+  expect(script).toContain('- Seed allowlist (each new file over 60 s is admitted with a todo to split it; files back under 60 s leave): $allowlist_line');
   expect(script).toContain('branch=bot/free-duration-seeds');
   expect(script).toContain('bun test test/free-seed-ratchet.test.ts');
   for (const workflow of ['free-tests.yml', 'windows-smoke.yml', 'quality-gate.yml']) {
@@ -146,6 +149,7 @@ test('a refresh keeps a maintainer\'s commits on the open seed PR and leases the
     spawnSync('mkdir', ['-p', path.join(work, 'scripts')], { timeout: 10_000 });
     writeFileSync(path.join(work, 'scripts/free-test-durations.json'), `{"run":${Date.now()}}`);
     writeFileSync(path.join(work, 'scripts/free-test-durations-windows.json'), '{}');
+    writeFileSync(path.join(work, 'scripts/free-test-seed-allowlist.json'), '{"entries": []}');
     const result = spawnSync('bash', ['-c', `set -euo pipefail\n${publish}`], { cwd: work, encoding: 'utf8', timeout: 20_000,
       env: { ...env, PATH: `${stub}:${process.env.PATH}`, GITHUB_STEP_SUMMARY: path.join(dir, 'summary.md') } });
     expect(result.status, result.stderr).toBe(0);
