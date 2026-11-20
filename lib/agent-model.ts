@@ -14,8 +14,8 @@ import { readConfigKeyWithRoot, type StateRootEnv } from './state-root';
 
 export const AGENT_MODEL_KEY = 'agent_model' as const;
 export const PREFERENCES_FILE_MAX_BYTES = 4096;
-/** Other keys gstack reads from the preferences file: bin/gstack-telemetry-tier reads telemetry_capy. */
-const OTHER_PREFERENCE_KEYS = new Set(['telemetry_capy']);
+/** Other keys gstack reads from the preferences file: bin/gstack-telemetry-tier reads the telemetry ones. */
+const OTHER_PREFERENCE_KEYS = new Set(['telemetry_capy', 'telemetry_capy_source']);
 const DOCS = 'https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference';
 
 /** Family names a preference may use. When gstack's tier catalog lists a family, its entry here is the same model (test/agent-model.test.ts). */

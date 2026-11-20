@@ -99,6 +99,28 @@ describe.skipIf(process.platform === 'win32')('Capy telemetry opt-in', () => {
     expect(sent().map(e => e.source)).toEqual(['ci']);
   });
 
+  test('telemetry_capy_source: gt labels the row gt; eval and CI still win over it', () => {
+    writePrefs('telemetry_capy: anonymous\ntelemetry_capy_source: gt\n');
+    skillEnd();
+    expect(sent().map(e => [e.source, e.installation_id])).toEqual([['gt', undefined]]);
+    for (const [extra, label] of [[{ EVALS_RUN_ID: 'r1' }, 'eval'], [{ GSTACK_EVAL_DIR: tmp }, 'eval'], [{ CI: 'true' }, 'ci']] as const) {
+      fs.rmSync(path.join(tmp, 'sent'));
+      fs.rmSync(path.join(tmp, 'analytics'), { recursive: true, force: true }); fs.mkdirSync(path.join(tmp, 'analytics'));
+      skillEnd(extra);
+      expect(sent().map(e => e.source)).toEqual([label]);
+    }
+  });
+
+  test('the label is a fixed-list pick: anything but one gt line falls back to capy', () => {
+    for (const label of ['live', 'GT', 'gt-x', 'other', '', 'gt\ntelemetry_capy_source: gt']) {
+      fs.rmSync(path.join(tmp, 'sent'), { force: true });
+      fs.rmSync(path.join(tmp, 'analytics'), { recursive: true, force: true }); fs.mkdirSync(path.join(tmp, 'analytics'));
+      writePrefs(`telemetry_capy: anonymous\ntelemetry_capy_source: ${label}\n`);
+      skillEnd();
+      expect([label, sent().map(e => e.source)]).toEqual([label, ['capy']]);
+    }
+  });
+
   test('an unattended session outside Capy still sends nothing, whatever the preferences file or machine tier says', () => {
     run(`${BIN}/gstack-config set telemetry anonymous`, { GSTACK_SESSION_KIND: 'interactive' });
     skillEnd({ GSTACK_CAPY: '' });

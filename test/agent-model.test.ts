@@ -168,9 +168,9 @@ describe('the preferences file', () => {
     expect(() => readPreferencesFile(f)).toThrow(/sets agent_model twice/);
   });
 
-  test('telemetry_capy is read by gstack-telemetry-tier, so it passes without a warning', () => {
+  test('the telemetry keys are read by gstack-telemetry-tier, so they pass without a warning', () => {
     const f = path.join(tmp(), 'preferences.yaml');
-    fs.writeFileSync(f, 'agent_model: opus\ntelemetry_capy: anonymous\n');
+    fs.writeFileSync(f, 'agent_model: opus\ntelemetry_capy: anonymous\ntelemetry_capy_source: gt\n');
     expect(readPreferencesFile(f)).toEqual({ value: 'opus', warnings: [] });
   });
 

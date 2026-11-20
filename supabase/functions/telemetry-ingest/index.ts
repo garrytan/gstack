@@ -80,9 +80,9 @@ function normalizeOutcome(outcome: unknown) {
 
 // bin/gstack-telemetry-log writes source from --source or
 // GSTACK_TELEMETRY_SOURCE (default "live"). Keep it so test, eval, CI and
-// gstack's own use on Capy ("capy") can be told apart from real use; anything
-// unexpected is "other", never "live".
-const SOURCES = ["live", "test", "eval", "ci", "capy"];
+// gstack's own use on Capy ("capy", or "gt" from its maintainer's machines)
+// can be told apart from real use; anything unexpected is "other", never "live".
+const SOURCES = ["live", "test", "eval", "ci", "capy", "gt"];
 function normalizeSource(source: unknown): string {
   if (source === undefined || source === null || source === "") return "live";
   return SOURCES.includes(String(source)) ? String(source) : "other";

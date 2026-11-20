@@ -36,7 +36,7 @@ drives still sets `GSTACK_SESSION_KIND=unattended` itself.
 - **No publishing or sync, enforced at the writers.** Usage analytics are not
   written (`TELEMETRY_WRITE: skipped (unattended session)`; the one exception
   is a Capy session the owner opted in with `telemetry_capy: anonymous`, which
-  sends one anonymous row per skill run labelled `capy`, see
+  sends one anonymous row per skill run labelled `capy` (or `gt`), see
   [privacy](privacy.md)), the artifacts
   repo is neither pulled nor pushed (`ARTIFACTS_SYNC: skipped (unattended
   session; mode=<m> queue=<n> retained)`), the sync spool is not fed
