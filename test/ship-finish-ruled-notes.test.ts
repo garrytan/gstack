@@ -701,8 +701,9 @@ const HE515_FINDINGS = [
 const HE515_STEP9 = { pass: 2, completed: true, converged: false, cycles: 1, critical: 9, informational: 5 };
 const HE515_NATIVE = { pass: 2, source: 'in-host', host: 'capy', phase: 'adversarial', gate: 'issues_found', status: 'issues_found', completed: true, converged: false,
   outside_provider: 'host-subagent', outside_status: 'completed' };
-function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Record<string, unknown> = {}, findingsArg?: string) {
-  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Record<string, unknown> = {}, findingsArg?: string,
+  files: [Record<string, string>, Record<string, string>] = [{ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' }]) {
+  const f = shipFixture(...files);
   ships.push(f);
   const file = path.join(path.dirname(f.state), 'p2-findings.jsonl');
   fs.writeFileSync(file, findings.map(x => JSON.stringify(x)).join('\n') + '\n');
@@ -786,3 +787,98 @@ describe('rulings close a stopped review whose findings are in its findings file
   });
 });
 
+
+// harness-evals#515 at 2d3ab19d (GST-3308): both rows read CURRENT at the reviewed head 630a9903, then the merge lane merged
+// origin/main in with no conflicts and the PR's patch byte-identical, and Step 11.5 read both STALE because it compared whole
+// trees. R51 counts that head as reviewed. Seven-line files put the base's edits next to the branch's own hunks.
+const seven = (tag: string, at: Record<number, string> = {}) => Array.from({ length: 7 }, (_, i) => at[i + 1] ?? `export const ${tag}${i + 1} = ${i + 1};`).join('\n') + '\n';
+const sevenTests = (at: Record<number, number> = {}) => ["import { expect, test } from 'bun:test';", ...Array.from({ length: 6 }, (_, i) => `test('t${i + 2}', () => { expect(${at[i + 2] ?? i + 2}).toBeGreaterThan(0); });`)].join('\n') + '\n';
+const HE515_MERGE_FILES: [Record<string, string>, Record<string, string>] = [
+  { 'src/x.ts': seven('x'), 'test/x.test.ts': sevenTests() },
+  { 'src/x.ts': seven('x', { 2: 'export const x2 = 20;' }), 'test/x.test.ts': sevenTests({ 2: 20 }) },
+];
+/** #515's stopped pass 2, every blocker ruled at the reviewed head, then the base moves by `base`. */
+function he515Merged(base: Record<string, string>) {
+  const { f, head } = he515(HE515_FINDINGS, {}, undefined, HE515_MERGE_FILES);
+  ruleAll(f, head, [...HE515_OPEN, ...HE515_PARTIAL]);
+  const reviewed = he515Rows(f)[0].review_binding.end_wtree as string;
+  const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
+  f.advanceBase(base);
+  expect(f.git('fetch', '-q', 'origin').status).toBe(0);
+  return { f, head, reviewed, reviewedBase, merge: () => f.git('merge', '-q', '--no-edit', 'origin/main') };
+}
+const freshness = (f: ShipFx) => he515Rows(f).map(r => r.review_freshness);
+const staleBecause = (why: string) => Array(2).fill({ status: 'STALE', reason: `working-tree content differs from reviewed content (${why})` });
+const MAIN_MOVES = { 'docs/main.md': '# main moved\n', 'src/main.ts': 'export const main = 1;\n' };
+
+// Value: protects=harness-evals#515 at 2d3ab19d: a head that only merges in the base, with the branch's patch unchanged, keeps
+//   both Step 11.5 rows CURRENT and finish binds the reviewed tree without a new review round; fails_when=gstack-review-read reads
+//   either row STALE after a clean base merge, or reads CURRENT after an own edit, a conflict resolution, an edit inside the merge,
+//   moved context beside the branch's product or test hunks, or uncommitted changes; seam=gstack-review-read's baseMergeOnly over
+//   the stored rows and finish --reviewed-base; no_claim=the receipt carry route
+describe('Step 11.5 keeps a reviewed head CURRENT across base-only merges (harness-evals#515, GST-3308)', () => {
+  test('#515: a clean merge of main keeps both rows CURRENT, names the reviewed base, and finish binds with no new review', () => {
+    const { f, head, reviewed, reviewedBase, merge } = he515Merged(MAIN_MOVES);
+    expect(merge().status).toBe(0);
+    const now = f.git('rev-parse', 'HEAD').stdout.trim();
+    const why = new RegExp(`^completed clean pass; HEAD ${now.slice(0, 12)} adds only 1 clean merge\\(s\\) of origin/main to the reviewed commit ${head.slice(0, 12)}, and the branch's patch is unchanged \\(product patch-id [0-9a-f]{12}\\); save the reviewed base ${reviewedBase} for finish's --reviewed-base$`);
+    expect(freshness(f)).toEqual(Array(2).fill({ status: 'CURRENT', reason: expect.stringMatching(why) }));
+    const r = finishAfterAudit(f, reviewed, reviewedBase);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 /)]);
+  });
+
+  test('an own edit after the merge stays STALE', () => {
+    const { f, merge } = he515Merged(MAIN_MOVES);
+    expect(merge().status).toBe(0);
+    f.write({ 'src/x.ts': seven('x', { 2: 'export const x2 = 21;' }) }); f.commit('edit after the merge');
+    expect(freshness(f)).toEqual(staleBecause(`commit ${f.git('rev-parse', 'HEAD').stdout.trim().slice(0, 12)} after the reviewed one is not a merge of origin/main`));
+  });
+
+  test('a conflict resolution stays STALE, even one that keeps the branch\'s side', () => {
+    const { f, merge } = he515Merged({ ...MAIN_MOVES, 'src/x.ts': seven('x', { 2: 'export const x2 = 30;' }) });
+    expect(merge().status).not.toBe(0);
+    f.write({ 'src/x.ts': seven('x', { 2: 'export const x2 = 20;' }) }); f.commit('merge origin/main: keep ours');
+    expect(freshness(f)).toEqual(staleBecause(`merge ${f.git('rev-parse', 'HEAD').stdout.trim().slice(0, 12)} had conflicts, so its resolution is unreviewed`));
+  });
+
+  test('an edit inside a clean merge to a protected path stays STALE', () => {
+    const { f, merge } = he515Merged(MAIN_MOVES);
+    expect(merge().status).toBe(0);
+    f.write({ '.github/workflows/ci.yml': 'name: ci\non: push\n' });
+    expect(f.git('add', '-A').status).toBe(0);
+    expect(f.git('commit', '-q', '--amend', '--no-edit').status).toBe(0);
+    expect(freshness(f)).toEqual(staleBecause(`merge ${f.git('rev-parse', 'HEAD').stdout.trim().slice(0, 12)} holds changes its clean merge does not (an edit inside the merge)`));
+  });
+
+  test('base context moved beside the branch\'s product hunk, or its test hunk, stays STALE', () => {
+    const product = he515Merged({ 'src/x.ts': seven('x', { 5: 'export const x5 = 50;' }) });
+    expect(product.merge().status).toBe(0);
+    expect(freshness(product.f)).toEqual(Array(2).fill({ status: 'STALE', reason: expect.stringMatching(/^working-tree content differs from reviewed content \(the branch's product patch changed \(patch-id [0-9a-f]{12} reviewed, [0-9a-f]{12} now\)\)$/) }));
+    const tests = he515Merged({ 'test/x.test.ts': sevenTests({ 2: 2, 5: 50 }) });
+    expect(tests.merge().status).toBe(0);
+    expect(freshness(tests.f)).toEqual(staleBecause('the branch\'s patch on a path the product patch-id leaves out (tests, release metadata) changed'));
+  });
+
+  test('uncommitted changes after the merge stay STALE', () => {
+    const { f, merge } = he515Merged(MAIN_MOVES);
+    expect(merge().status).toBe(0);
+    f.write({ 'docs/main.md': '# edited\n' });
+    expect(freshness(f)).toEqual(staleBecause('the working tree has changes HEAD does not hold'));
+  });
+
+  test('a clean merge of a branch the base does not hold stays STALE', () => {
+    const { f } = he515Merged(MAIN_MOVES);
+    expect(f.git('checkout', '-q', '-b', 'side', 'origin/main').status).toBe(0);
+    f.write({ 'src/side.ts': 'export const side = 1;\n' }); f.commit('side');
+    const side = f.git('rev-parse', 'HEAD').stdout.trim();
+    expect(f.git('checkout', '-q', 'feat').status).toBe(0);
+    expect(f.git('merge', '-q', '--no-edit', 'side').status).toBe(0);
+    expect(freshness(f)).toEqual(staleBecause(`merge ${f.git('rev-parse', 'HEAD').stdout.trim().slice(0, 12)} brings in ${side.slice(0, 12)}, which origin/main does not hold`));
+  });
+
+  test('a rebase onto the moved base stays STALE', () => {
+    const { f, head } = he515Merged(MAIN_MOVES);
+    expect(f.git('rebase', '-q', 'origin/main').status).toBe(0);
+    expect(freshness(f)).toEqual(staleBecause(`the reviewed commit ${head.slice(0, 12)} is not an ancestor of HEAD (rebased or force-pushed)`));
+  });
+});
