@@ -351,6 +351,15 @@ describe('a stack parent the reviewed base already held is no landed parent (qm#
     expect(receiptIn(body).head).toBe(reviewed);
   }, 90_000);
 
+  // Value: protects=the patch-id keeps three lines of context whatever the user's git config says; fails_when=diff.context=0
+  //   drops the moved context from both hashes and the carry passes unread base edits; seam=patchId; no_claim=-
+  test('diff.context=0 in the user\'s git config still routes moved context to a scoped review', () => {
+    const { repo, body } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
+    repo.git('config', 'diff.context', '0');
+    const out = carry(repo, body);
+    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)')]);
+  }, 90_000);
+
   test('an unrelated main change carries', () => {
     const { repo, body } = landedFirst({ 'docs/README.md': '# main moves on\n' });
     const out = carry(repo, body);

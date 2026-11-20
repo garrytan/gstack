@@ -23,7 +23,8 @@ function git(args: string[], cwd?: string): string | undefined {
  * One diff's patch-id over a pathspec; empty when the diff is empty. `--verbatim`
  * keeps whitespace in the hash (the default and `--stable` strip it, so a space
  * moved in a shell line would read as the same patch) while still ignoring the
- * hunk line numbers a base merge shifts.
+ * hunk line numbers a base merge shifts. `--unified=3` pins the context a user's
+ * diff.context could shrink, so base edits next to a hunk always reach the hash.
  */
 export function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
@@ -34,7 +35,7 @@ export function patchId(repoRoot: string, from: string, to: string, pathspec: st
   const file = path.join(dir, 'diff.patch');
   let fd: number | undefined;
   try {
-    const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', `--output=${file}`, from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000 });
+    const diff = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--full-index', '--unified=3', `--output=${file}`, from, to, '--', ...pathspec], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000 });
     if (diff.status !== 0) return { error: `git diff ${from.slice(0, 12)} ${to.slice(0, 12)}: ${firstLine(diff.stderr, diff.signal ? `killed by ${diff.signal}` : `exit ${diff.status}`)}` };
     fd = fs.openSync(file, 'r');
     const id = spawnSync('git', ['patch-id', '--verbatim'], { cwd: repoRoot, stdio: [fd, 'pipe', 'pipe'], encoding: 'utf8', timeout: 120_000 });
