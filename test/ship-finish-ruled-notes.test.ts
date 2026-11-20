@@ -701,7 +701,7 @@ const HE515_FINDINGS = [
 const HE515_STEP9 = { pass: 2, completed: true, converged: false, cycles: 1, critical: 9, informational: 5 };
 const HE515_NATIVE = { pass: 2, source: 'in-host', host: 'capy', phase: 'adversarial', gate: 'issues_found', status: 'issues_found', completed: true, converged: false,
   outside_provider: 'host-subagent', outside_status: 'completed' };
-function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Record<string, unknown> = {}) {
+function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Record<string, unknown> = {}, findingsArg?: string) {
   const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
   ships.push(f);
   const file = path.join(path.dirname(f.state), 'p2-findings.jsonl');
@@ -709,7 +709,7 @@ function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Reco
   const range_base = f.git('merge-base', 'main', 'HEAD').stdout.trim();
   const start = run(f, 'gstack-review-log', ['--start', 'review']);
   expect(start.status, start.stderr).toBe(0);
-  const logged = run(f, 'gstack-review-log', [JSON.stringify({ skill: 'review', timestamp: '2026-11-20T16:57:40Z', via: 'ship', review_scope: 'frozen', range_base, ...HE515_STEP9, ...step9 }), '--finish', start.stdout.trim(), '--findings', file]);
+  const logged = run(f, 'gstack-review-log', [JSON.stringify({ skill: 'review', timestamp: '2026-11-20T16:57:40Z', via: 'ship', review_scope: 'frozen', range_base, ...HE515_STEP9, ...step9 }), '--finish', start.stdout.trim(), '--findings', findingsArg ?? file]);
   expect(logged.status, logged.stderr).toBe(0);
   logRow(f, 'adversarial-review', HE515_NATIVE);
   return { f, file, head: f.git('rev-parse', 'HEAD').stdout.trim() };
@@ -768,6 +768,14 @@ describe('rulings close a stopped review whose findings are in its findings file
       `${FALLBACK}: it lists no findings (fcount 0) but claims 14 issue(s) and 9 CRITICAL, so no ruling can match it: ${unread}`,
       `${FALLBACK}: it lists no findings (fcount 0) but claims unspecified issue(s) and unspecified CRITICAL, so no ruling can match it: the pass 2 review row's findings are unavailable: ${unread}`,
     ]);
+  });
+
+  test('a relative --findings path still binds when the rows are read from another directory', () => {
+    const { f, file, head } = he515(HE515_FINDINGS, {}, '../p2-findings.jsonl');
+    ruleAll(f, head, HE515_OPEN);
+    const read = f.run('/bin/sh', ['-c', 'cd src && exec "$0"', path.join(BIN, 'gstack-review-read')], { GSTACK_APPROVALS_MIRROR: '0' });
+    const review = read.stdout.split('\n---CONFIG---')[0]!.split('\n').flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' ? [v] : []; } catch { return []; } }).at(-1);
+    expect([review.findings_file, review.review_freshness]).toEqual([file, { status: 'CURRENT', reason: 'completed clean pass on unchanged content' }]);
   });
 
   test('a claimed row that lists no findings says so', () => {

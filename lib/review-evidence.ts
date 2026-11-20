@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from './spawn-sync';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
@@ -260,7 +260,7 @@ export function deriveFromFindings(rec: Record<string, any>, findingsPath: strin
   if (mismatches.length) {
     throw new ReviewLogError('REVIEW_STATUS_MISMATCH', `review-log: status mismatch: ${mismatches.join('; ')} (${derived.findings_open} open of ${derived.findings_total}) (REVIEW_STATUS_MISMATCH)`);
   }
-  return { ...rec, ...derived, status_source: 'derived', findings_file: findingsPath };
+  return { ...rec, ...derived, status_source: 'derived', findings_file: resolve(findingsPath) };
 }
 
 export function bindReview(rec: Record<string, any>, token: string, env = process.env, findingsPath?: string): Record<string, any> {
