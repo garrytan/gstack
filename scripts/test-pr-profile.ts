@@ -288,6 +288,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/scorecard.yml',
   '.github/workflows/skill-docs.yml',
   '.github/workflows/test-health.yml',
+  '.github/workflows/trunk-flaky-tests.yml',
   '.github/workflows/eval-sweep.yml', // The weekly off-ship sweep on main; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/evals-main-backstop.yml', // The merge-train backstop on main: it dispatches evals.yml after a push to main; no PR-gate case reads it, and it never gates a PR.
   '.github/workflows/release-gate.yml', // The 8-hour release gate on main: it dispatches evals.yml on main's head; no PR-gate case reads it, and it never gates a PR.
