@@ -30,6 +30,13 @@ export const RANDOM_PORT_MIN = 10000;
 export const RANDOM_PORT_MAX = 49151; // last port BELOW the macOS ephemeral pool (49152-65535)
 export const RANDOM_PORT_RETRIES = 5;
 
+/**
+ * Ports inside the scan range that Chromium refuses to load (net::ERR_UNSAFE_PORT;
+ * kRestrictedPorts in chromium net/base/port_util.cc). A daemon bound to one
+ * serves pages its own browser can never open.
+ */
+export const CHROMIUM_UNSAFE_PORTS: ReadonlySet<number> = new Set([10080]);
+
 export function normalizePortError(err: unknown): Extract<PortCheckResult, { available: false }> {
   const maybeNodeError = err as NodeJS.ErrnoException | undefined;
   return {
@@ -129,7 +136,10 @@ export async function findAvailablePort(explicitPort?: number | null): Promise<n
 
   const attempts: FailedPortAttempt[] = [];
   for (let attempt = 0; attempt < RANDOM_PORT_RETRIES; attempt++) {
-    const port = RANDOM_PORT_MIN + Math.floor(Math.random() * (RANDOM_PORT_MAX - RANDOM_PORT_MIN));
+    let port: number;
+    do {
+      port = RANDOM_PORT_MIN + Math.floor(Math.random() * (RANDOM_PORT_MAX - RANDOM_PORT_MIN));
+    } while (CHROMIUM_UNSAFE_PORTS.has(port));
     const result = await checkPortAvailable(port);
     if (result.available) {
       return port;

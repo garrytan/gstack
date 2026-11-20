@@ -159,8 +159,8 @@ export function createBootstrapRetentionScope(temporaryRoot: string, durableRoot
       fs.readdirSync(`/proc/${pid}/fd`);
     } catch (error: any) {
       if (error.code === 'ENOENT' || error.code === 'ESRCH') continue;
-      if (native && (error.code === 'EACCES' || error.code === 'EPERM') && alive(native)) uninspectable.push(native);
-      else throw error;
+      if (!native || (error.code !== 'EACCES' && error.code !== 'EPERM')) throw error;
+      if (alive(native)) uninspectable.push(native);
     }
   }
   if (path.resolve(durableRoot) === temporary.path || inside(temporary.path, path.resolve(durableRoot))) throw new Error('artifact root must survive temporary cleanup');
