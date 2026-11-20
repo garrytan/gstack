@@ -2309,7 +2309,11 @@ difference refuses with `RECEIPT_CARRY_PRODUCT_CHANGED`. When merging the commit
 into the current base conflicts because the base edited the landed lines
 afterwards, the base commits since the fork that touched every path of its
 change are tried newest first (at most 200), so the squash itself still counts
-(GST-1399).
+(GST-1399). A commit the reviewed range's own base already held is no parent: it
+landed before the review, so the reviewed diff never held its hunks, and
+measuring from it would compare the wrong range and name the parent's files
+(yc-software/qm#3457, GST-3315). Step 11.5's base-merge check measures a
+reviewed range from a landed parent by the same rule.
 
 **finish after a stack parent lands (GST-1399).** A child reviewed against its
 parent branch passes the parent's head to `gstack-ship-release finish
