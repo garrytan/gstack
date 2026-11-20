@@ -865,4 +865,20 @@ describe('Step 11.5 keeps a reviewed head CURRENT across base-only merges (harne
     f.write({ 'docs/main.md': '# edited\n' });
     expect(freshness(f)).toEqual(staleBecause('the working tree has changes HEAD does not hold'));
   });
+
+  test('a clean merge of a branch the base does not hold stays STALE', () => {
+    const { f } = he515Merged(MAIN_MOVES);
+    expect(f.git('checkout', '-q', '-b', 'side', 'origin/main').status).toBe(0);
+    f.write({ 'src/side.ts': 'export const side = 1;\n' }); f.commit('side');
+    const side = f.git('rev-parse', 'HEAD').stdout.trim();
+    expect(f.git('checkout', '-q', 'feat').status).toBe(0);
+    expect(f.git('merge', '-q', '--no-edit', 'side').status).toBe(0);
+    expect(freshness(f)).toEqual(staleBecause(`merge ${f.git('rev-parse', 'HEAD').stdout.trim().slice(0, 12)} brings in ${side.slice(0, 12)}, which origin/main does not hold`));
+  });
+
+  test('a rebase onto the moved base stays STALE', () => {
+    const { f, head } = he515Merged(MAIN_MOVES);
+    expect(f.git('rebase', '-q', 'origin/main').status).toBe(0);
+    expect(freshness(f)).toEqual(staleBecause(`the reviewed commit ${head.slice(0, 12)} is not an ancestor of HEAD (rebased or force-pushed)`));
+  });
 });
