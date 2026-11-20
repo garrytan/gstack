@@ -1765,7 +1765,9 @@ and ask `ruled_note <fingerprint> at <head>: <reason>`, with the head's full sha
 two findings ruled with the same reason in one reply get two rows, and a ruling at
 a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
 `rule` refuses a `--head` that is not a commit in the repository, a reason with a
-newline or control character, a `--by` naming gstack, and a ruling while this
+newline or control character, a `--by` naming gstack (any `--by` that starts with
+`gstack`, except a crew named `GStack <Name>` such as `GStack Minder`, which is a
+person's crew; `gstack` and `gstack no-stop default (K1)` are always refused), and a ruling while this
 checkout holds an open /ship run's marker (the lane's own runner) unless the lane
 relays the owner's words with `--owner-ref <thread code>:<message id or timestamp>`
 (on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
@@ -1845,7 +1847,8 @@ The row is an approved `gstack-approvals` row with scope `gate_disposition
 <head>: <reason>` and the owner's words in `words` (`lib/gate-dispositions.ts`).
 `gate` refuses a missing `--gate-id` (or a literal `undefined` or `null`), empty
 `--words`, a reason, words or `--by` with a newline or control character (each is
-trimmed first), a `--head` that is not a commit, a `--by` naming gstack, a row that
+trimmed first), a `--head` that is not a commit, a `--by` naming gstack (as for
+`rule`: a `GStack <Name>` crew may record), a row that
 `dispositions` would not list (a head that is not 40 hex, for one), and any call
 while a /ship run is open on the branch in any worktree of the repository: its
 marker counts while its lease is open, the same test preflight uses, so a run parked
@@ -1939,7 +1942,8 @@ gstack-approvals lane-exception --head <pushed head> --files <f1,f2> \
 The row is an approved `gstack-approvals` row with scope `test_lane_exception <head>
 <files>` and ask `test_lane_exception at <head>: <files>: <reason>`
 (`lib/test-lane-exception.ts`). `lane-exception` refuses a head that is not a
-commit, a file with whitespace, a multi-line reason, a `--by` naming gstack and
+commit, a file with whitespace, a multi-line reason, a `--by` naming gstack (as
+for `rule`: a `GStack <Name>` crew may grant) and
 any grant while this checkout holds an open /ship run's marker, and `add` refuses
 the scope, so the lane's own runner cannot write one; a row by gstack is ignored
 wherever it came from. `gstack-evidence record-ci` binds a grant only when its

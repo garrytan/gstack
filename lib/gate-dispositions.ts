@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
-import { GSTACK_ACTOR } from './ruled-notes';
+import { isGstackActor } from './ruled-notes';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
 import { BIN_DIR, runScriptSync } from './script-invocation';
 
@@ -42,7 +42,7 @@ export const gateDispositionDigest = (r: Record<string, unknown>) => 'sha256:' +
 function writerShaped(r: Record<string, any>, branch: string): boolean {
   const str = (v: unknown) => typeof v === 'string' && v.trim() === v && v !== '';
   return r.schema_version === 1 && typeof r.id === 'string' && APPROVAL_ID.test(r.id) && r.source === GATE_SOURCE && r.outcome === 'approved' &&
-    r.pending === 'none' && str(r.by) && ONE_LINE.test(r.by) && !GSTACK_ACTOR.test(r.by) && str(r.words) && ONE_LINE.test(r.words) && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
+    r.pending === 'none' && str(r.by) && ONE_LINE.test(r.by) && !isGstackActor(r.by) && str(r.words) && ONE_LINE.test(r.words) && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
     typeof r.recorded_at === 'string' && ISO_TIME.test(r.recorded_at) && r.branch === branch && typeof r.ask === 'string' && typeof r.scope === 'string' &&
     r.id === 'a-' + createHash('sha256').update([r.source, r.date, r.ask, r.words, r.by].join('\u0000')).digest('hex').slice(0, 12) &&
     r.digest === gateDispositionDigest(r);

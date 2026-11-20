@@ -15,6 +15,8 @@ import { extractReceipt, orderReceipt, placeReceipt, receiptRuns, receiptSummary
 import { runReceiptFields, type RunEvidence } from "../lib/run-evidence";
 import type { ShipReceipt } from "../lib/headless-artifacts";
 import { foldSections, unfoldSections } from "../lib/pr-body-shape";
+import { buildRow, renderRecord, type ApprovalRow, type StoreLocation } from "../lib/approval-record";
+import { reviewRoundGrantRow } from "../lib/review-round-grant";
 
 interface Call { cmd: string; args: string[]; input?: string }
 
@@ -404,6 +406,43 @@ describe("gstack-post owns the redaction scan", () => {
       ["a phone in the pregate field", body(receipt({ pregate: "requires-remote cleared, call 415-555-0100" })), "call 415-555-0100"],
     ];
     holds.push(["hand-written one-line block", "## What changed\n\nOne fix.\n\n```gstack-ship-receipt\n" + JSON.stringify(receipt({ pregate: undefined, requires_remote: undefined, ci_carried: undefined })) + "\n```\n", '"run":"1234567']);
+    for (const [name, text, needle] of holds) {
+      const { code, phones, f } = post(text);
+      expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(foldSections(text), needle)} PART: body`], EXIT.confirm]);
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
+  // Value: protects=a private PR's Approvals table (renderRecord, full mode) posts through pr-body without a pii.phone.e164 confirmation when a
+  //   fix-check grant row's Covers cell names a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
+  //   Asked or Exact words cell, in prose, or in a table no Source footer closes still need one; fails_when=every private /ship body with such a
+  //   grant needs --confirm, or the exemption reaches past the stop= token of a renderer-shaped table; seam=fake run; no_claim=real gh
+  test("a fix-check grant's run id in a rendered Approvals table is no phone number; the same digits anywhere else still are", () => {
+    const HEAD = "2294465066182c2f99d64ba0016213463aaa0c14";
+    const loc: StoreLocation = { file: "/x", branch: "fix-undo-line", slug: "acme-widget", ephemeral: false };
+    const grant = (reason: string, words = "one fix round") => {
+      const row = buildRow({ ...reviewRoundGrantRow(HEAD, 507, "fix-check", reason, { run: "507-7192673", findings: ["p2/outside-voice#3"] }), words, by: "GStack Minder (GSTA-36)" }, loc.branch);
+      if ("code" in row) throw new Error(row.message);
+      return row;
+    };
+    const table = (rows: ApprovalRow[]) => renderRecord({ rows, state: "present", restored: false }, loc, { mode: "full" });
+    const post = (text: string) => {
+      const f = fakeEnv({ files: { "/b": text }, visibility: "private" });
+      return { code: run(["pr-body", "507", "--replace", "--body-file", "/b"], f), phones: f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.phone.e164 ")), f };
+    };
+    const lineOf = (text: string, needle: string) => text.split("\n").findIndex(l => l.includes(needle)) + 1;
+    const ok = `## What changed\n\nFixes the undo line.\n\n${table([grant("the undo line names the wrong migration")])}`;
+    expect(ok).toContain("stop=507-7192673 findings=p2/outside-voice#3 |");
+    const clean = post(ok);
+    expect([clean.phones, clean.code]).toEqual([[], EXIT.posted]);
+    expect(clean.f.posts()).toHaveLength(1);
+
+    const footerless = table([grant("the undo line names the wrong migration")]).replace(/\nSource: gstack-approvals record for .*\n/, "\n");
+    const holds: Array<[string, string, string]> = [
+      ["the digits in prose", ok + "\nCall 507-7192673 for the on-call.\n", "Call 507-7192673"],
+      ["the digits in the Asked cell", ok.replace("the undo line names the wrong migration", "call 507-7192673 later"), "call 507-7192673"],
+      ["a table no Source footer closes", `## What changed\n\n${footerless}`, "stop=507-7192673"],
+    ];
     for (const [name, text, needle] of holds) {
       const { code, phones, f } = post(text);
       expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(foldSections(text), needle)} PART: body`], EXIT.confirm]);
