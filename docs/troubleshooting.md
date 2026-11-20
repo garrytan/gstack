@@ -7477,6 +7477,9 @@ note:` line ([ship-policy.md](ship-policy.md#ruled-notes)). A ruling at a head
 outside the range is listed as `not applied`, and a path edited after the
 fix-check still routes by the post-review rules. When the owner wants the
 findings fixed instead, fix them and ask for a grant for one more fix-check.
+A stopped final review or native reader row works the same way: its
+`gstack-review-read` reason lists each finding still waiting for a ruling, a
+`noted` CRITICAL included, so rule each listed fingerprint at the head it names.
 
 <a id="receipt-blocker-open"></a>
 ### `RECEIPT_BLOCKER_OPEN`

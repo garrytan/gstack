@@ -606,3 +606,67 @@ describe('Step 11.5 binds a stopped review the owner ruled at its head (harness-
     expect(run(f, 'gstack-approvals', ['rulings']).stdout).not.toContain('ruled by gstack');
   });
 });
+
+// harness-evals#498 after a26529ac (GST-3267, 2026-11-20): all 22 rulings applied, yet both rows still read UNVERIFIED with the
+// fallback reason. The review row also held 7 duplicates logged `noted` at severity CRITICAL with blocking:false (3 of them on
+// the in-host native row too), and the review floor keeps a noted CRITICAL open, so each needs its own ruling. The reason
+// said "missing start capture or incomplete/nonconverged pass" and named none of them.
+const crit = (fp: string, action: string, raised_by: string) => ({ fingerprint: fp, severity: 'CRITICAL', action, blocking: action === 'open', gate: null, raised_by });
+const R22 = Array.from({ length: 22 }, (_, i) => `scripts/mcp/run.ts:${i + 1}:data-loss`);
+const DUP_T = Array.from({ length: 4 }, (_, i) => `scripts/mcp/audit.ts:${i + 1}:dup`);
+const DUP_N = Array.from({ length: 3 }, (_, i) => `analysis/interim.ts:${i + 1}:dup`);
+const INFO = Array.from({ length: 4 }, (_, i) => ({ fingerprint: `scripts/mcp/pins.ts:${i + 1}:parity`, severity: 'INFORMATIONAL', action: 'noted', blocking: false, gate: null, raised_by: 'outside-voice' }));
+const HE498_FINAL = {
+  pass: 2, range_base: null, completed: true, converged: false, status: 'issues_found', issues_found: 22, critical: 22, informational: 11,
+  findings: [...R22.map(x => crit(x, 'open', 'specialist')), ...DUP_T.map(x => crit(x, 'noted', 'targeted')), ...DUP_N.map(x => crit(x, 'noted', 'adversarial-native')), ...INFO],
+};
+const HE498_IN_HOST = { source: 'in-host', completed: true, converged: false, status: 'issues_found', issues_found: null, critical: null, informational: null,
+  findings: [crit(R22[21]!, 'open', 'adversarial-native'), ...DUP_N.map(x => crit(x, 'noted', 'adversarial-native'))] };
+const HE498_SUBAGENT = { source: 'host-subagent', completed: true, converged: false, status: 'issues_found', issues_found: null, critical: null, informational: null,
+  findings: [...R22.slice(18, 21).map(x => crit(x, 'open', 'adversarial-native')), ...INFO] };
+const FALLBACK = 'missing start capture or incomplete/nonconverged pass';
+const named = (fps: string[]) => `${fps.length} finding(s) still need an owner ruling at this head: ${fps.slice(0, 10).map(x => `${x} (CRITICAL, ${R22.includes(x) ? 'open' : 'noted'})`).join('; ')}${fps.length > 10 ? `; +${fps.length - 10} more` : ''} (a noted or deferred CRITICAL still counts as open)`;
+function finalRows() {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+  ships.push(f);
+  logRow(f, 'review', HE498_FINAL);
+  logRow(f, 'adversarial-review', HE498_IN_HOST);
+  logRow(f, 'adversarial-review', HE498_SUBAGENT);
+  return { f, head: f.git('rev-parse', 'HEAD').stdout.trim() };
+}
+const rowsAt = (f: ShipFx) => run(f, 'gstack-review-read', []).stdout.split('\n---CONFIG---')[0]!.split('\n')
+  .flatMap(l => { try { const v = JSON.parse(l); return v?.review_freshness ? [v] : []; } catch { return []; } });
+
+// Value: protects=harness-evals#498 after a26529ac: a stopped pass the owner's rulings leave open names every finding still
+//   unruled, noted CRITICALs included, and binds once those are ruled; fails_when=the reason stays the bare fallback, omits a
+//   noted CRITICAL, names a ruled finding, or a noted CRITICAL clears without its own ruling; seam=gstack-review-read over
+//   rows from gstack-review-log and rulings from gstack-approvals rule; no_claim=finish's FIX_CHECK lines, which keep their
+//   own FIX_CHECK_OPEN listing
+describe('a stopped review names the findings its rulings leave open (harness-evals#498 after a26529ac, GST-3267)', () => {
+  test('#498 final shape: 22 rulings leave the 7 noted CRITICAL duplicates named, and ruling them binds every row', () => {
+    const { f, head } = finalRows();
+    for (const x of R22) expect(rule(f, x, head, 'harness minder (HARN-1)').status).toBe(0);
+    const [review, inHost, subagent] = rowsAt(f);
+    expect([review.review_freshness, inHost.review_freshness, subagent.review_freshness.status]).toEqual([
+      { status: 'UNVERIFIED', reason: `${FALLBACK}: ${named([...DUP_T, ...DUP_N])}` },
+      { status: 'UNVERIFIED', reason: `${FALLBACK}: ${named(DUP_N)}` },
+      'CURRENT',
+    ]);
+    for (const x of [...DUP_T, ...DUP_N]) expect(rule(f, x, head, 'harness minder (HARN-1)').status).toBe(0);
+    expect(rowsAt(f).map(r => [r.review_freshness.status, r.review_freshness.reason])).toEqual(Array(3).fill(['CURRENT', 'completed clean pass on unchanged content']));
+  });
+
+  test('with no rulings every holding finding counts, capped at ten names', () => {
+    const { f } = finalRows();
+    expect(rowsAt(f)[0].review_freshness.reason).toBe(`${FALLBACK}: ${named([...R22, ...DUP_T, ...DUP_N])}`);
+  });
+
+  test('a pass that did not complete, or whose findings do not account for its claim, keeps or explains the plain reason', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    logRow(f, 'review', { ...HE498_FINAL, completed: false });
+    expect(rowsAt(f)[0].review_freshness).toEqual({ status: 'UNVERIFIED', reason: FALLBACK });
+    logRow(f, 'review', { ...HE498_FINAL, issues_found: 40 });
+    expect(rowsAt(f).at(-1).review_freshness.reason).toBe(`${FALLBACK}: its findings list 33 issue(s) and 29 CRITICAL, fewer than the 40 issue(s) and 22 CRITICAL it claims, so no ruling can cover the rest`);
+  });
+});

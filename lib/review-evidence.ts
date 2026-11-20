@@ -352,13 +352,38 @@ export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f
  * taken out the same way only when `gated` holds its `<fingerprint> <gate_id>` key (the owner's gate_disposition rows whose
  * head lies in this row's range, lib/gate-dispositions.ts, GST-2491); a ruling never closes a gate finding.
  */
+const isRuledBy = (ruled: ReadonlySet<string>, gated: ReadonlySet<string>) => (f: unknown) => record(f) && typeof f.fingerprint === 'string' &&
+  (f.gate ? (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`) : RULABLE.has(f.action) && ruled.has(f.fingerprint));
+
 function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): Record<string, any> {
-  const isRuled = (f: unknown) => record(f) && typeof f.fingerprint === 'string' && (f.gate ? (f.action === 'open' || f.action === 'kept') && gated.has(`${f.fingerprint} ${f.gate_id}`) : RULABLE.has(f.action) && ruled.has(f.fingerprint));
+  const isRuled = isRuledBy(ruled, gated);
   if ((!ruled.size && !gated.size) || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
       rec.findings.some(f => !isRuled(f) && holdsOpen(f))) return rec;
   return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
+}
+
+/**
+ * GST-3267 (harness-evals#498): why the rulings did not clear a completed pass that stopped (converged:false, bound
+ * `incomplete` on unchanged content). Names each finding that still holds the row open with no ruling, a `noted` or
+ * `deferred` CRITICAL included, or says the findings list fewer issues than the row claims; undefined for any other row.
+ */
+export function rulingGap(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): string | undefined {
+  const binding = rec.review_binding;
+  if (!DIFF_REVIEWS.has(rec.skill) || rec.skill === 'ship' || rec.scope === 'fix-range' || rec.status_source === 'derived' ||
+      rec.completed !== true || rec.converged !== false || binding?.state !== 'incomplete' || !binding.start_wtree ||
+      binding.start_wtree !== binding.end_wtree || !Array.isArray(rec.findings)) return;
+  const issues = Number(rec.issues_found ?? 0), critical = Number(rec.critical ?? 0);
+  const listedCritical = rec.findings.filter(f => record(f) && isCriticalFinding(f)).length;
+  if (rec.findings.length < issues || listedCritical < critical) {
+    return `its findings list ${rec.findings.length} issue(s) and ${listedCritical} CRITICAL, fewer than the ${issues} issue(s) and ${critical} CRITICAL it claims, so no ruling can cover the rest`;
+  }
+  const isRuled = isRuledBy(ruled, gated);
+  const left = rec.findings.filter(f => !isRuled(f) && holdsOpen(f))
+    .map(f => record(f) ? `${f.fingerprint ?? 'unfingerprinted'} (${f.severity ?? 'unknown'}, ${f.action ?? 'no action'})` : 'malformed finding');
+  if (!left.length) return;
+  return `${left.length} finding(s) still need an owner ruling at this head: ${left.slice(0, 10).join('; ')}${left.length > 10 ? `; +${left.length - 10} more` : ''} (a noted or deferred CRITICAL still counts as open)`;
 }
 
 export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set(), gated: ReadonlySet<string> = new Set()): { status: string; reason: string } | undefined {
