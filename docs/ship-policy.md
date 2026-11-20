@@ -1823,6 +1823,18 @@ Step 9 row of the same pass, commit and bound tree, because Step 9 carries Step
 that is missing or changed attaches nothing, and any row that claims issues but
 lists no findings reads `it lists no findings (fcount 0) but claims …` with the
 cause (harness-evals#515, GST-3296).
+A row read on other content still reads `CURRENT` when HEAD is the row's commit
+plus clean merges of `origin/<base>` and nothing else, the head R51 counts as
+already reviewed (harness-evals#515 at 2d3ab19d, GST-3308). Every commit after
+the reviewed one must be a two-parent merge whose second parent the base holds and
+whose tree is exactly what `git merge-tree --write-tree` writes for its parents,
+the working tree must be HEAD's, and the branch's patch against the base must be
+the reviewed one twice over: the product patch-id the receipt carry compares
+(`lib/ship-receipt-patch.ts`) and the patch-id over every path, so tests,
+release metadata and gate paths stay covered. The reason then names the reviewed
+base to save with the reviewed tree for finish's `--reviewed-base`.
+An own edit, a conflict resolution, an edit inside a merge, base context moved
+beside the branch's hunks or an uncommitted change reads `STALE` and says which.
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier

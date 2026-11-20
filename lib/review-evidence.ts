@@ -431,7 +431,13 @@ export function rulingGap(rec: Record<string, any>, ruled: ReadonlySet<string>, 
   return `${left.length} finding(s) still need an owner ruling at this head: ${left.slice(0, 10).join('; ')}${left.length > 10 ? `; +${left.length - 10} more` : ''} (a noted or deferred CRITICAL still counts as open)`;
 }
 
-export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set(), gated: ReadonlySet<string> = new Set()): { status: string; reason: string } | undefined {
+/**
+ * A row's freshness at the current content. A clean read of other content reads STALE, except a head `baseMerged` accepts
+ * (gstack-review-read passes baseMergeOnly, lib/ship-receipt-patch.ts): the reviewed commit plus clean merges of the base with
+ * the branch's patch unchanged, which R51 counts as already reviewed (GST-3308, harness-evals#515).
+ */
+export function reviewFreshness(rec: Record<string, any>, currentWtree: string, ruled: ReadonlySet<string> = new Set(), gated: ReadonlySet<string> = new Set(),
+  baseMerged?: (rec: Record<string, any>, reviewedWtree: string) => { ok: true; note: string } | { ok: false; why: string }): { status: string; reason: string } | undefined {
   if (!DIFF_REVIEWS.has(rec.skill)) return;
   if (rec.skill === 'ship') return { status: 'UNVERIFIED', reason: 'ship telemetry is not a review pass' };
   const binding = rec.review_binding;
@@ -447,8 +453,11 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string, 
       !wtree || binding.start_wtree !== wtree || binding.end_wtree !== wtree) {
     return { status: 'UNVERIFIED', reason: 'missing start capture or incomplete/nonconverged pass' };
   }
+  let merged: string | undefined;
   if (!currentWtree || currentWtree === 'unknown' || wtree !== currentWtree) {
-    return { status: 'STALE', reason: 'working-tree content differs from reviewed content' };
+    const carried = currentWtree && currentWtree !== 'unknown' ? baseMerged?.(rec, wtree) : undefined;
+    if (!carried?.ok) return { status: 'STALE', reason: `working-tree content differs from reviewed content${carried ? ` (${carried.why})` : ''}` };
+    merged = carried.note;
   }
   // B7: a derived row carries findings_open; a resolved critical finding no
   // longer counts against it. Claimed rows keep the conservative reading of
@@ -460,5 +469,5 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string, 
       (Array.isArray(rec.findings) && rec.findings.some(unresolvedFinding))) {
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
-  return { status: 'CURRENT', reason: 'completed clean pass on unchanged content' };
+  return { status: 'CURRENT', reason: merged ? `completed clean pass; ${merged}` : 'completed clean pass on unchanged content' };
 }
