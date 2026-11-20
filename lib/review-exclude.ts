@@ -18,10 +18,13 @@
  * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
  * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
  * get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead of the whole file, readSelection counts
- * only that excerpt, and no reader's command names it, so it does not count toward the bound (GST-1967).
+ * only that excerpt, and no reader's command names it, so it does not count toward the bound (GST-1967). A data file kept
+ * only because the gate scan tagged it (gateData: a .jsonl, .ndjson, .csv, .tsv or .log file, or a .json under a results
+ * tree, off every gate floor, not renamed, kept for no other reason, and every tag instance one added line's own tag) is
+ * excerpted the same way, its tagged lines in context (GST-3273, harness-evals#494); anything else stays whole.
  *
  * readSelection reads one reader's diff once, with a timeout, and counts its bytes;
- * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES and
+ * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES, naming the largest files, and
  * with REVIEW_DIFF_UNREADABLE when git fails, before it writes a manifest or a brief.
  */
 import { spawnSync } from './spawn-sync';
@@ -30,10 +33,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
+import { classifyPath as gateFloor, parseGateIntegrityBlock } from './gate-diff/classify';
+import { readClaudeMd, splitDiffGitLine } from './gate-diff/git';
+import { lineTags, swallowsAcrossLines, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
-import { KEY_NAME, SECRET_LINE, secretPath } from './review-risk';
+import { KEY_NAME, RESULTS_TREE, SECRET_LINE, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -58,7 +64,7 @@ export interface ExcludeRecord {
 }
 export interface ActiveExclusion {
   state: 'active'; record: ExcludeRecord; excluded: Set<string>; specs: string[]; keep: string[];
-  /** The kept files (a subset of keep, as `:(top,literal)` items) whose only reason is a secret line: pass readers get an excerpt. */
+  /** The kept files (a subset of keep, as `:(top,literal)` items) whose only reason is a secret line, or gate tags on data lines: pass readers get an excerpt. */
   excerpt: string[];
   kept: Array<{ path: string; reason: KeptReason }>; content: Record<ContentKind, number>; references: Array<{ prefix: string; files: string[] }>;
 }
@@ -100,8 +106,18 @@ const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').m
  * `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
  */
 export function secretValueLine(p: string, line: string): boolean {
-  const ends = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => m.index + m[0].length));
-  return ends.length > 0 && (ends.some(e => valueToken(line.slice(e, e + 200))) || scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW'));
+  return secretValueSpans(p, line) !== null;
+}
+/**
+ * Where secretValueLine finds a credential value on a line: for each name a credential-shaped run follows, the name and the
+ * 200 characters the run may start in; [] when only the credential scan finds the value; null when the line holds none.
+ */
+export function secretValueSpans(p: string, line: string): Array<[number, number]> | null {
+  const names = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => [m.index, m.index + m[0].length] as [number, number]));
+  if (!names.length) return null;
+  const valued = names.filter(([, e]) => valueToken(line.slice(e, e + 200)));
+  if (valued.length) return valued.map(([s, e]) => [s, e + 200]);
+  return scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW') ? [] : null;
 }
 /** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
 export const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
@@ -110,6 +126,31 @@ export const recordedList = (r: Partial<Pick<ExcludeRecord, 'patterns_sha256' | 
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
+/** The data files a gate-tagged file may be cut on (GST-3273), beside a .json under a results tree; a review_content_patterns declaration alone never qualifies one. */
+const GATE_DATA = /\.(?:jsonl|ndjson|csv|tsv|log)$/i;
+
+/**
+ * Whether every gate tag in a file's added lines is one line's own tag (lineTags), so an excerpt of those lines shows every
+ * instance (GST-3273): at least one line is tagged, the multi-line detector finds nothing across the added lines, and the
+ * untagged lines, scanned together as one hunk, tag nothing. Its caller has already ruled out renames and floor paths, where
+ * removed lines and floor-only rules can tag a file.
+ */
+function singleLineTags(p: string, added: readonly string[]): boolean {
+  const adds = added.map(l => l.replace(/\r$/, ''));
+  const rest = adds.filter(l => !lineTags(l, p).tags.length);
+  return rest.length < adds.length && !swallowsAcrossLines(adds) && !tagHunk({ header: '', lines: rest.map(text => ({ kind: 'add' as const, text })) }, { floor: null, path: p, allPaths: new Set([p]) }).tags.length;
+}
+
+/** The paths the range renames into, as the gate scan's `git diff -M` pairs them; null when git cannot list them. */
+function renamedPaths(i: ExcludeInput): Set<string> | null {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '-M', '--name-status', '-z', '--diff-filter=R', i.mergeBase, ...(i.head ? [i.head] : [])], { cwd: i.root, encoding: 'utf8', timeout: 120_000, maxBuffer: MAX_BUFFER });
+  if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+  const parts = r.stdout.split('\0');
+  const out = new Set<string>();
+  for (let k = 0; k + 2 < parts.length; k += 3) out.add(parts[k + 2]!);
+  return out;
+}
+
 /** `paths` in order, split so each chunk's literal pathspecs (`size` bytes each) stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
 function argChunks(paths: readonly string[], size = (p: string) => argBytes([p])): string[][] {
   const chunks: string[][] = [];
@@ -417,21 +458,28 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native) ?? (unseen(p) ? 'consumer-scan-unavailable' : null));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
+  const tagOnly = [...reasons].filter(([p, r]) => r === 'gate-tagged' && !p.includes('\n') && (GATE_DATA.test(p) || (/\.json$/i.test(p) && RESULTS_TREE.test(p)))
+    && !binary.has(p) && !unseen(p) && pathReason({ ...text, gateTagged: null }, p, sel.files.get(p)!, binary, native) === null).map(([p]) => p);
+  const renamed = tagOnly.length ? renamedPaths(i) : null;
+  const floorCtx = { project: parseGateIntegrityBlock(readClaudeMd(i.root)), specIsTestPath: true };
+  const gateData = renamed ? tagOnly.filter(p => !renamed.has(p) && gateFloor(p, floorCtx) === null && singleLineTags(p, text.added[p] ?? [])) : [];
   const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
   const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase]) : new Map<string, Set<string>>();
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
     else if (named.has(p)) reasons.set(p, 'named-by-code');
   }
-  const excerptable = new Set(i.gateTagged === null || named === null ? [] : secretOnly.filter(p => !named.has(p)));
+  const secretExcerptable = new Set(i.gateTagged === null || named === null ? [] : secretOnly.filter(p => !named.has(p)));
+  const excerptable = new Set(i.gateTagged === null || named === null || gateNamed === null ? [...secretExcerptable] : [...secretExcerptable, ...gateData.filter(p => !gateNamed.has(p))]);
   const applied: string[] = [];
   const keep = new Set<string>();
   for (const p of patterns) {
     const hit = sel.byPattern.get(p) ?? [];
     if (!hit.some(f => reasons.get(f) === null)) continue;
     const kept = hit.filter(f => reasons.get(f) !== null);
-    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !excerptable.has(f)));
+    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !secretExcerptable.has(f)));
     if (bytes > KEEP_ARG_MAX_BYTES) {
       const why = new Map<string, number>();
       for (const f of kept) why.set(reasons.get(f)!, (why.get(reasons.get(f)!) ?? 0) + 1);
@@ -479,7 +527,8 @@ export function excludeLines(x: Exclusion, base: string): string[] {
   const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
   if (x.kept.length > 20) out.push(`REVIEW_EXCLUDE_KEPT: +${x.kept.length - 20} more (gstack-review-plan --json lists every kept file)`);
-  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files, and DIFF_KEEP leaves them out`);
+  const gated = x.excerpt.filter(s => x.kept.some(k => k.reason === 'gate-tagged' && literal(k.path) === s)).length;
+  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line${gated ? ` or gate tags on data lines (${gated} gate-tagged)` : ''}; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files, and DIFF_KEEP leaves them out`);
   for (const ref of x.references) out.push(`REVIEW_EXCLUDE_REFERENCE: ${ref.prefix} is named by ${ref.files.slice(0, 3).join(', ')}${ref.files.length > 3 ? ` (+${ref.files.length - 3} more)` : ''}; the files stay excluded, so readers see that code without the files it reads (REVIEW_EXCLUDE_REFERENCE)`);
   return out;
 }
@@ -499,7 +548,7 @@ export function parseTail(tail: string | undefined): string[] {
 }
 
 export type ReaderDiff =
-  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; excerpt?: string; whole?: string[] }
+  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; byFile: Array<[string, number]>; excerpt?: string; whole?: string[] }
   | { ok: false; reason: 'timeout' | 'git-exit'; exit: number | null; stderr: string; timeoutMs: number };
 
 /** The excerpt of one `git diff --text` over the excerpt files; any throw sends every file whole (fail closed). */
@@ -507,7 +556,7 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
   const paths = specs.map(s => s.replace(/^:\(top,literal\)/, ''));
   try {
     if (specs.some(s => !s.startsWith(':(top,literal)'))) throw new Error('an excerpt item is not a literal pathspec');
-    const x = secretExcerpt(out, paths);
+    const x = secretExcerpt(out, paths, secretValueSpans);
     return { text: x.text, files: x.files, whole: x.whole.map(literal), wholeText: x.wholeText };
   } catch { return { text: '', files: [], whole: [...specs], wholeText: out }; }
 }
@@ -539,12 +588,13 @@ export function readSelection(root: string, diffBase: string, pathspecs: readonl
   const ex = excerpt.length && !full ? excerptOf(raw, excerpt) : undefined;
   if (ex) text += ex.wholeText;
   const byDir = new Map<string, number>();
-  const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); };
-  const starts = [...text.matchAll(/^diff --git a\/(\S+)/gm)];
-  starts.forEach((m, k) => add(m[1]!, Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
+  const byFile = new Map<string, number>();
+  const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); byFile.set(file, (byFile.get(file) ?? 0) + bytes); };
+  const starts = [...text.matchAll(/^diff --git (.*)$/gm)];
+  starts.forEach((m, k) => add(splitDiffGitLine(m[1]!)[1], Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
   for (const f of ex?.files ?? []) add(f.path, Buffer.byteLength(f.text));
   const all = ex?.text ? `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ex.text}` : text;
-  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
+  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), byFile: [...byFile].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
 }
 
 /** Credential-bearing remote URLs and scp-style remotes out of git's stderr. */
@@ -572,16 +622,19 @@ function suggest(byDir: ReadonlyArray<[string, number]>, bytes: number): string[
   return out;
 }
 
-/** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and a fix chosen by where the policy stands. */
-export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
+/** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and files, and a fix chosen by where the policy stands. */
+export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
   const top = d.byDir.slice(0, 5).map(([dir, n]) => `${dir}:${n}`).join(',') || 'none';
-  const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, split the PR`;
+  const largest = (d.byFile ?? []).slice(0, 5);
+  const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${f} (${n} bytes)`).join(', ')})` : 'split the PR';
+  const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
   const dirs = suggest(d.byDir, d.bytes);
   const fix = c.state === 'head-only' ? `this branch declares review_exclude_paths, but only the copy on ${c.base} applies: ${land(c.headPatterns ?? [])}`
-    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${dirs.length ? land([...(c.record?.patterns ?? []), ...dirs.filter(p => !c.record?.patterns.includes(p))]) : 'split the PR'}`
-    : dirs.length ? land(dirs) : 'split the PR';
-  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
-  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), policy: c.source, state: c.state, fix, side_effects: 'none' } };
+    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${dirs.length ? land([...(c.record?.patterns ?? []), ...dirs.filter(p => !c.record?.patterns.includes(p))]) : split}`
+    : dirs.length ? land(dirs) : split;
+  const files = largest.length ? ` files=${largest.map(([f, n]) => `${/[\s,:"]/.test(f) ? JSON.stringify(f) : f}:${n}`).join(',')}` : '';
+  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top}${files} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
+  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), files: largest.map(([file, bytes]) => ({ file, bytes })), policy: c.source, state: c.state, fix, side_effects: 'none' } };
 }
 
 /** The REVIEW_DIFF_UNREADABLE line: timeout or git exit, the timeout, the base, a redacted first stderr line, and the whole (redacted) stderr written under `logDir`. */

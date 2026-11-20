@@ -4164,9 +4164,13 @@ the base policy commit.
   split the PR. When published data under a pattern is kept as `code`
   (`REVIEW_EXCLUDE_KEPT: code …` on `.patch`, `.sha256` or extension-less files),
   add [`review_content_patterns`](ship-policy.md#review-content-patterns) for it. Files kept only for a secret line already count as their
-  excerpts ([secret-line excerpts](ship-policy.md#secret-line-excerpts)); one in
-  `DIFF_KEEP:` is kept for another reason, and one the excerpt could not be
-  built for moves to the reader's keep command and counts whole.
+  excerpts ([secret-line excerpts](ship-policy.md#secret-line-excerpts)), and so
+  do allowlisted data files kept only for gate tags ([gate-tagged data
+  excerpts](ship-policy.md#gate-tagged-data-excerpts)); one in `DIFF_KEEP:` is
+  kept for another reason, and one the excerpt could not be built for moves to
+  the reader's keep command and counts whole. The line's `files=` field and the
+  fix name the largest files left; a name holding a space, a comma or a colon is
+  quoted in `files=`.
 
 There is no override flag. See [the review ceiling](ship-policy.md#review-diff-ceiling).
 
