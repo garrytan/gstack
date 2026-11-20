@@ -1607,6 +1607,32 @@ whole through its keep command. Results PRs that capture model requests need
 this: their system prompts name `${…_API_KEY}` variables and keychain commands
 (harness-evals #269: 75 such files, 12.9 MB whole).
 
+<a id="gate-tagged-data-excerpts"></a>
+**Gate-tagged data excerpts (GST-3273).** A kept file whose only reason is
+`gate-tagged` gets the same excerpt, under its own `## Gate-tagged data
+excerpts` heading, only when all of these hold; anything else goes to readers
+whole:
+
+1. It is a `.jsonl`, `.ndjson`, `.csv`, `.tsv` or `.log` file, or a `.json`
+   file under a docs, results or reports tree. A
+   [`review_content_patterns`](#review-content-patterns) declaration alone never
+   qualifies a file.
+2. No gate floor covers its path (test, CI, config, snapshot or golden), and it
+   was not renamed, so no tag can come from the floor or the old path.
+3. It is kept for no other reason (not source, agent prose, config, a gate path,
+   executable, binary or a secret line).
+4. Every tag instance in it is one added line's own tag: the multi-line rule
+   (an empty `catch` or `except: pass` across lines) finds nothing in its added
+   lines, and its untagged added lines, scanned together, tag nothing.
+
+The excerpt shows every changed line the gate scan's line rules tag (and every
+secret-line or secret-shaped line) and names the tags. The plan and the receipt
+apply the same rule to the same input, so they build the same selection. The
+gate class and the record's `gate_tagged` list are unchanged: only how much of
+the data file a reader sees changes. Results PRs that commit captured agent
+sessions need this: the sessions quote lint pragmas, env checks and
+`--no-verify` pushes (harness-evals #494: 25 transcripts, 11.4 MB whole).
+
 <a id="one-selection-every-reader"></a>
 **One selection for every reader (GST-1476).** Every path that renders a
 reader's brief builds its diff from the same selection: the policy's

@@ -140,7 +140,7 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
   for (const k of keys) held[k] = `\u0000${nonce}:${k}\u0000`;
   const rendered = renderRole(role, held, t);
   const keep = slots.keep ? ` Read the files kept despite a match as well: \`git diff ${slots.diff_base} -- ${slots.keep}\`.` : '';
-  const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files have no keep reason but a changed line that reads a credential, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
+  const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files are in review only for a changed line that reads a credential or a changed line the gate scan tagged in a data file, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
   const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}${excerpt}` : rendered;
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);

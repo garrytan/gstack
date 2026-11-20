@@ -330,7 +330,7 @@ function ceiling(context: string, base: string, outDir: string, readers: Readonl
 }
 
 /**
- * Each reader's secret-line excerpt, written once beside the briefs under its sha256 (the brief names the file, its bytes and
+ * Each reader's excerpt (secret-line and gate-tagged data files), written once beside the briefs under its sha256 (the brief names the file, its bytes and
  * hash); a file the excerpt could not be built for moves to the reader's keep list, so its whole diff reaches the reader.
  */
 function settleExcerpts(m: Manifest): void {
@@ -339,13 +339,13 @@ function settleExcerpts(m: Manifest): void {
 function settleExcerpt(r: Pick<PassReader, 'reader' | 'exclude' | 'keep' | 'excerpt' | 'excerpt_file'>, diffBase: string, dir: string): void {
   if (!r.excerpt?.length) return;
   const d = selectionOf(diffBase, r.exclude, r.keep, r.excerpt);
-  if (!d.ok) throw new BriefError(`git diff ${diffBase} failed for ${r.reader}'s secret-line excerpt`);
+  if (!d.ok) throw new BriefError(`git diff ${diffBase} failed for ${r.reader}'s excerpt`);
   const whole = r.excerpt.filter(s => d.whole?.includes(s));
   if (whole.length) r.keep = [...(r.keep ?? []), ...whole];
   r.excerpt = r.excerpt.filter(s => !whole.includes(s));
   if (!r.excerpt.length || !d.excerpt) { delete r.excerpt; return; }
   const sha256 = createHash('sha256').update(d.excerpt).digest('hex');
-  const file = path.join(dir, `secret-excerpt-${sha256.slice(0, 16)}.md`);
+  const file = path.join(dir, `excerpt-${sha256.slice(0, 16)}.md`);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, d.excerpt, { mode: 0o600 });
   r.excerpt_file = { file, sha256, bytes: Buffer.byteLength(d.excerpt), files: r.excerpt.length };

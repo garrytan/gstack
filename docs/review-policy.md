@@ -751,7 +751,9 @@ targeted reader) reads the same selection: its `DIFF_CMD:` with one
 same items, and the `DIFF_KEEP:` command for the kept files under those
 patterns. A kept file whose only reason is a secret line reaches pass readers as
 an excerpt of its matched lines in context instead ([secret-line
-excerpts](ship-policy.md#secret-line-excerpts)). The outside voice's embedded diff is that selection. Each brief says
+excerpts](ship-policy.md#secret-line-excerpts)), and so does an allowlisted data
+file kept only for single-line gate tags ([gate-tagged data
+excerpts](ship-policy.md#gate-tagged-data-excerpts)). The outside voice's embedded diff is that selection. Each brief says
 how many files and bytes were left out and that the reader must not report on
 their absence. Excluded paths count as docs for the depth and never trigger the
 numeric-claim scan or a targeted class; kept files keep their own class.
