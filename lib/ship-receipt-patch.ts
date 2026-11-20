@@ -12,7 +12,7 @@ import { isRegistryUnavailable, loadRegistryFromBase } from './regen';
 import { readPregateFile } from './pregate/index';
 import { isUnavailable, loadPolicyFromBase, matchesAny, type ShipPolicy } from './ship-policy';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
-import { CARRY_METADATA_GLOBS, CARRY_TEST_GLOBS, classifyCarryPath } from './ship-receipt';
+import { CARRY_METADATA_GLOBS, CARRY_TEST_GLOBS, classifyCarryPath, landedStackParent } from './ship-receipt';
 
 function git(args: string[], cwd?: string): string | undefined {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000, maxBuffer: 256 * 1024 * 1024 });
@@ -156,7 +156,8 @@ export type BaseMergeOnly = { ok: true; note: string } | { ok: false; why: strin
  * it is a two-parent merge whose second parent the base holds and whose tree is exactly what `git merge-tree` writes for
  * its parents (no conflict resolution, no edit inside the merge), the working tree is HEAD's, and the branch's patch
  * against the base is the reviewed one: the product patch-id the carry compares, and the patch-id over every path, so a
- * test, release-metadata or gate path the product patch-id leaves out stays covered too.
+ * test, release-metadata or gate path the product patch-id leaves out stays covered too. A reviewed range that held a stack
+ * parent which has since landed on the base is measured from that parent, as the carry measures it (landedStackParent).
  */
 export function baseMergeOnly(cwd: string, base: string, reviewed: unknown, reviewedTree: string, currentWtree: string): BaseMergeOnly {
   const no = (why: string): BaseMergeOnly => ({ ok: false, why });
@@ -183,13 +184,25 @@ export function baseMergeOnly(cwd: string, base: string, reviewed: unknown, revi
     if (replay.stdout.split('\n')[0]!.trim() !== git(['rev-parse', `${commit}^{tree}`], repoRoot)) return no(`merge ${c} holds changes its clean merge does not (an edit inside the merge)`);
   }
   const rules = productRules(repoRoot, base, []);
-  const product = [productPatchAgainstBase(repoRoot, rules, baseRef, reviewed), productPatchAgainstBase(repoRoot, rules, baseRef, head)];
-  for (const id of product) if (typeof id !== 'string') return no(`git could not compute the product patch-id: ${id.error}`);
-  if (product[0] !== product[1]) return no(`the branch's product patch changed (patch-id ${(product[0] as string).slice(0, 12) || 'none'} reviewed, ${(product[1] as string).slice(0, 12) || 'none'} now)`);
-  const bases = [git(['merge-base', baseRef, reviewed], repoRoot), git(['merge-base', baseRef, head], repoRoot)];
-  if (!bases[0] || !bases[1]) return no(`cannot resolve the merge base with ${baseRef}`);
-  const whole = [patchId(repoRoot, bases[0], reviewed, ['.']), patchId(repoRoot, bases[1], head, ['.'])];
-  for (const id of whole) if (typeof id !== 'string') return no(`git could not compute the branch's patch-id: ${id.error}`);
-  if (whole[0] !== whole[1]) return no('the branch\'s patch on a path the product patch-id leaves out (tests, release metadata) changed');
-  return { ok: true, note: `HEAD ${head.slice(0, 12)} adds only ${chain.length} clean merge(s) of ${baseRef} to the reviewed commit ${reviewed.slice(0, 12)}, and the branch's patch is unchanged (product patch-id ${(product[1] as string).slice(0, 12) || 'none'}); save the reviewed base ${bases[0]} for finish's --reviewed-base` };
+  const [reviewedBase, headBase] = [git(['merge-base', baseRef, reviewed], repoRoot), git(['merge-base', baseRef, head], repoRoot)];
+  if (!reviewedBase || !headBase) return no(`cannot resolve the merge base with ${baseRef}`);
+  const patches = (from: string, to: string): { product: string; whole: string; spec: string[] } | string => {
+    const spec = productSpec(repoRoot, rules, from, to);
+    if (!spec) return `git diff ${from.slice(0, 12)} ${to.slice(0, 12)} failed`;
+    const product = patchId(repoRoot, from, to, spec.product), whole = patchId(repoRoot, from, to, ['.']);
+    if (typeof product !== 'string') return product.error;
+    return typeof whole === 'string' ? { product, whole, spec: spec.product } : whole.error;
+  };
+  const now = patches(headBase, head);
+  let rangeBase = reviewedBase;
+  let then = patches(rangeBase, reviewed);
+  if (typeof then !== 'string' && typeof now !== 'string' && (then.product !== now.product || then.whole !== now.whole)) {
+    const parent = landedStackParent(repoRoot, { rangeBase, reviewed, currentBase: headBase }, then.spec);
+    if (parent) { rangeBase = parent; then = patches(parent, reviewed); }
+  }
+  if (typeof then === 'string' || typeof now === 'string') return no(`git could not compute the branch's patch-id: ${typeof then === 'string' ? then : now}`);
+  if (then.product !== now.product) return no(`the branch's product patch changed (patch-id ${then.product.slice(0, 12) || 'none'} reviewed, ${now.product.slice(0, 12) || 'none'} now)`);
+  if (then.whole !== now.whole) return no('the branch\'s patch on a path the product patch-id leaves out (tests, release metadata) changed');
+  const landed = rangeBase === reviewedBase ? '' : `, its stack parent ${rangeBase.slice(0, 12)} having landed on ${baseRef}`;
+  return { ok: true, note: `HEAD ${head.slice(0, 12)} adds only ${chain.length} clean merge(s) of ${baseRef} to the reviewed commit ${reviewed.slice(0, 12)}${landed}, and the branch's patch is unchanged (product patch-id ${now.product.slice(0, 12) || 'none'}); save the reviewed base ${rangeBase} for finish's --reviewed-base` };
 }
