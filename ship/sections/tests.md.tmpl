@@ -30,7 +30,7 @@ merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
 (`gstack-post pr-create --base <base> --draft --title-file <f> --body-file <f>`), then `gstack-ci-carry wait` in
 the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
 run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
-label=<l> (<reason>)` names why a mapped lane did not carry; under `--tests-only` that is `STOP: SHIP_LANE_NOT_CARRIED` before
+label=<l> (<reason>)` names why a mapped lane did not carry; any preflight then stops with `STOP: SHIP_LANE_NOT_CARRIED` before
 any lane runs: dispatch CI and wait as its `NEXT:` lines say, or rerun with `--run-uncarried-here` to run the lane here. A docs-only change ([docs/pregate.md#docs-only](../../docs/pregate.md#docs-only)) owes no test lane: pregate runs
 the docs lane, and a mapped lane prints `LANE: <label> not owed: docs-only change …` from CI's skipped run. Any other lane that already passed at this
 tree, command and runtime is reused (`reused=<time>`). In Step 16, `finish` defers a mapped

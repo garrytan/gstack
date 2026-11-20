@@ -774,7 +774,7 @@ describe('GST-3019: --tests-only never starts a lane on its own when its carry r
     const held = preflight(f);
     expect(held.status).toBe(3);
     expect(held.stdout).toContain('CI_CARRY: none label=free (no_run: ');
-    expect(lineOf(held.stdout, 'STOP')).toBe('STOP: SHIP_LANE_NOT_CARRIED: lane free did not carry from a verified CI run at this tree, and --tests-only never starts a lane on its own: nothing ran here (docs/troubleshooting.md#ship-lane-not-carried)');
+    expect(lineOf(held.stdout, 'STOP')).toBe('STOP: SHIP_LANE_NOT_CARRIED: lane free did not carry from a verified CI run at this tree, and preflight never starts a mapped lane on its own: nothing ran here (docs/troubleshooting.md#ship-lane-not-carried)');
     expect(held.stdout).toContain(`NEXT: commit and push this tree, then gh workflow run free.yml --ref ${branch} and gstack-ci-carry wait --base main; once it prints CI_WAIT: green, rerun this command`);
     expect(held.stdout).toContain('NEXT: or rerun this command with --run-uncarried-here to run lane free on this machine');
     expect([runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual([0, 0]);
@@ -783,7 +783,7 @@ describe('GST-3019: --tests-only never starts a lane on its own when its carry r
     expect(here.stdout).toContain('CI_CARRY: none label=free (no_run: ');
     expect(lane(here.stdout, 'free')).toMatch(/^LANE: free pass exit=0 tests_ran=3 /);
     expect([runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual([1, 1]);
-    expect(f.run(PREFLIGHT, ['--base', 'main', '--run-uncarried-here', '--lane', `free=${FREE}`]).status).toBe(2);
+    expect(f.run(PREFLIGHT, ['--base', 'main', '--run-uncarried-here', '--lane', `free=${FREE}`]).status).toBe(0);
   });
 });
 

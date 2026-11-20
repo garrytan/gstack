@@ -227,6 +227,11 @@ export function workflowCallers(repoRoot: string, tree: string, workflow: string
   return { dispatch, jobName, callers };
 }
 
+/** Whether a workflow_dispatch run of `profile.workflow` could carry: the workflow at git `ref` has the trigger and the run profile accepts the event. */
+export function canDispatch(repoRoot: string, ref: string, profile: { workflow: string; events: string[] }): boolean {
+  return profile.events.includes('workflow_dispatch') && workflowCallers(repoRoot, ref, profile.workflow, '').dispatch;
+}
+
 /** A regex source matching a display name GitHub renders from `name`: each `${{ … }}` expression matches any text without ` / `. */
 export function displayNamePattern(name: string): string {
   return name.split(/\$\{\{.*?\}\}/).map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(?:(?! / ).)+?');

@@ -81,7 +81,7 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, heads
   const refusals: string[] = [];
   const docsOnly = src.docsOnly && ((sha: string) => src.docsOnly!(sha) && (sha === heads[0] || src.docsOnly!(heads[0]!)));
   for (const run of listed) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly, dispatchable: src.dispatchable?.(profile) });
     if (v.ok) return v;
     refusals.push(`run ${run.id}: ${v.reason}${v.reason === 'rerun_malformed' || v.reason === 'tree_log_unbound' || (v.reason === 'artifact_missing' && profile.tree_log_step) ? ` (${v.detail})` : ''}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
   }
@@ -120,7 +120,7 @@ export function findCarry(src: RunSource, o: { profiles: string[]; head: string;
     if (other) return no('tree_mismatch', `run ${other.run_id} tested tree ${other.tree.slice(0, 12)}, not ${o.tree.slice(0, 12)}`);
     const docsOnly = runs.every(e => e.docs_only);
     const empty = jobs.length || docsOnly ? undefined : runs.find(e => !e.files.length || e.tests === 0);
-    if (empty) return no('no_tests', `run ${empty.run_id}'s tree.json ${empty.files.length ? 'records 0 tests' : `lists no test files (a rerun of only the failed jobs records none): dispatch a fresh full run of ${src.profiles[empty.profile]?.workflow ?? empty.profile} (gh workflow run ${src.profiles[empty.profile]?.workflow ?? '<workflow>'} --ref <branch>) and carry from that`}`);
+    if (empty) return no('no_tests', `run ${empty.run_id}'s tree.json ${empty.files.length ? 'records 0 tests' : `lists no test files (a rerun of only the failed jobs records none): ${src.profiles[empty.profile] && src.dispatchable?.(src.profiles[empty.profile]!) === false ? `push a commit that starts a fresh full run of ${src.profiles[empty.profile]!.workflow} (it cannot be dispatched for this run profile)` : `dispatch a fresh full run of ${src.profiles[empty.profile]?.workflow ?? empty.profile} (gh workflow run ${src.profiles[empty.profile]?.workflow ?? '<workflow>'} --ref <branch>)`} and carry from that`}`);
     if (o.inventory && !docsOnly) {
       const listed = o.inventory();
       if ('error' in listed) return no('inventory_failed', listed.error);

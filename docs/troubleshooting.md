@@ -755,16 +755,17 @@ before the fetch instead of going on unprotected.
 process holding `<git dir>/gstack-leases/.lock`), then rerun.
 
 <a id="ship-lane-not-carried"></a>
-### `STOP: SHIP_LANE_NOT_CARRIED: lane <label> did not carry from a verified CI run at this tree, and --tests-only never starts a lane on its own ...`
+### `STOP: SHIP_LANE_NOT_CARRIED: lane <label> did not carry from a verified CI run at this tree, and preflight never starts a mapped lane on its own ...`
 
-**Meaning.** `gstack-ship-preflight --tests-only` was given a lane whose exact
+**Meaning.** `gstack-ship-preflight`, full or `--tests-only`, was given a lane whose exact
 command `origin/<base>`'s `.gstack/pregate.json` maps in `ship_lanes_from`,
 and no verified CI run carries it at this tree: the `CI_CARRY: none
 label=<label> (<reason>)` line above the STOP says why (`no_run`: CI has not
-run this tree yet; `dirty_tree`: uncommitted work). A mapped lane is the full
-suite, which can take most of an hour on a small machine (gbrain #9662: a
-50-minute unit lane on 4 CPUs), so `--tests-only` no longer starts it on its
-own (GST-3019).
+run this tree yet; `dirty_tree`: uncommitted work; `tree_mismatch`: the run
+tested a merge with an older base). A mapped lane is the full suite, which can
+take most of an hour on a small machine (gbrain #9662: a 50-minute unit lane on
+4 CPUs), so preflight never starts it on its own, whatever the reason (GST-3019;
+a full preflight did until GST-3277).
 
 **What is kept.** Nothing ran: no lane, mapped or not, started. The pregate
 line above it is the pregate's own verdict.
@@ -772,8 +773,12 @@ line above it is the pregate's own verdict.
 **Fix.** Follow the `NEXT:` lines. Commit and push the tree, dispatch the
 workflow they name (`gh workflow run <workflow> --ref <branch>`), wait with
 `gstack-ci-carry wait --base <base>`, and once it prints `CI_WAIT: green`
-rerun the same `--tests-only` command, which then carries the lane. To run the
-lane on this machine instead, rerun with `--run-uncarried-here`.
+rerun the same command, which then carries the lane. A workflow with no
+`workflow_dispatch` trigger, or a run profile that accepts no dispatched run,
+cannot be dispatched, so the `NEXT:` line says so: merge `origin/<base>` into
+the branch and push it, or, on a pull request you cannot push to, ask its
+author to. To run the lane on this machine instead, rerun with
+`--run-uncarried-here`.
 
 **Expected result.** `LANE: <label> carried run=<id>/<attempt> …`, or with
 `--run-uncarried-here`, `LANE: <label> pass …` from the run here.
