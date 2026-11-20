@@ -53,7 +53,9 @@ describe('GST-3277: a refused CI carry stops every preflight unless --run-uncarr
     expect(held.status, held.stdout + held.stderr).toBe(3);
     expect(held.stdout).toMatch(/^CI_CARRY: none label=free \(no_verified_run: ci\/free: run 7: tree_mismatch \(the pull request's base moved after the run; fix: gh workflow run free\.yml --ref /m);
     expect(lineOf(held.stdout, 'STOP')).toBe(STOP);
-    expect(held.stdout).toContain('NEXT: or rerun this command with --run-uncarried-here to run lane free on this machine');
+    expect(held.stdout).toContain('once it prints CI_WAIT: green, rerun with --tests-only --base main and the same --lane flags');
+    expect(held.stdout).toContain('NEXT: or rerun with --tests-only --base main and the same --lane flags, adding --run-uncarried-here to run lane free on this machine');
+    expect(held.stdout).not.toContain('rerun this command');
     expect(freeRuns(f)).toBe(0);
     const tests = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--lane', `free=${FREE}`]);
     expect([tests.status, lineOf(tests.stdout, 'STOP'), freeRuns(f)]).toEqual([3, STOP, 0]);

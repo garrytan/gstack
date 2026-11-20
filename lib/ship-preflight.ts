@@ -202,7 +202,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
-async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string; hold: boolean }, r: Report): Promise<void> {
+async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string; hold: boolean; testsOnly: boolean }, r: Report): Promise<void> {
   const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], step.seconds * 1000);
   if (pg.timedOut) {
     r.add(`PREGATE: time limit hit (Step 5's whole pregate ran past its ${step.seconds} s budget, ${step.source}, and was stopped with exit ${pg.status ?? 'none'}; no verdict)`);
@@ -233,10 +233,11 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
     const workflows = [...new Set(profiles.filter((_, i) => dispatch[i]).map(p => p.workflow))];
     const pushOnly = [...new Set(profiles.filter((_, i) => !dispatch[i]).map(p => p.workflow))].filter(w => !workflows.includes(w));
     const branch = git(cwd, ['branch', '--show-current']).stdout.trim() || '<branch>';
+    const rerun = run.testsOnly ? 'rerun this command' : `rerun with --tests-only --base ${base} and the same --lane flags`;
     r.stop(`SHIP_LANE_NOT_CARRIED: ${lane} did not carry from a verified CI run at this tree, and preflight never starts a mapped lane on its own: nothing ran here (docs/troubleshooting.md#ship-lane-not-carried)`);
-    if (workflows.length || !pushOnly.length) r.next(`commit and push this tree, then ${workflows.length ? workflows.map(w => `gh workflow run ${w} --ref ${branch}`).join(' and ') : 'run its CI workflow on the branch'} and gstack-ci-carry wait --base ${base}; once it prints CI_WAIT: green, rerun this command`);
-    if (pushOnly.length) r.next(`${pushOnly.join(' and ')} cannot be dispatched for this run profile: merge origin/${base} into ${branch} and push it, or ask the pull request's author to; then gstack-ci-carry wait --base ${base}; once it prints CI_WAIT: green, rerun this command`);
-    r.next(`or rerun this command with --run-uncarried-here to run ${lane} on this machine`);
+    if (workflows.length || !pushOnly.length) r.next(`commit and push this tree, then ${workflows.length ? workflows.map(w => `gh workflow run ${w} --ref ${branch}`).join(' and ') : 'run its CI workflow on the branch'} and gstack-ci-carry wait --base ${base}; once it prints CI_WAIT: green, ${rerun}`);
+    if (pushOnly.length) r.next(`${pushOnly.join(' and ')} cannot be dispatched for this run profile: merge origin/${base} into ${branch} and push it, or ask the pull request's author to; then gstack-ci-carry wait --base ${base}; once it prints CI_WAIT: green, ${rerun}`);
+    r.next(`or ${rerun}${run.testsOnly ? ' with' : ', adding'} --run-uncarried-here to run ${lane} on this machine`);
     return;
   }
   const bad = results.filter(l => !l.ok);
@@ -306,7 +307,7 @@ export async function preflight(argv: readonly string[], cwd: string): Promise<{
   if (typeof concurrency === 'string') return { text: `gstack-ship-preflight: ${concurrency}\n`, exit: 2 };
   const r = new Report();
   if (has('--tests-only') || integrate(cwd, base, run, r)) {
-    if (list.length) await tests(cwd, base, list, policyFrom, timeout, step, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})`, hold: !has('--run-uncarried-here') }, r);
+    if (list.length) await tests(cwd, base, list, policyFrom, timeout, step, { concurrency, line: `LANES: ${concurrency === 1 ? 'serial' : 'parallel'} (${mode ? '--lanes' : `${os.availableParallelism()} cores`})`, hold: !has('--run-uncarried-here'), testsOnly: has('--tests-only') }, r);
     else if (r.exit === 0) r.next('Step 4: confirm the test framework, then rerun with --tests-only --lane <label>=<command> per suite (Step 5)');
   }
   return { text: r.render(), exit: r.exit };

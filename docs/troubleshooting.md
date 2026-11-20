@@ -773,12 +773,13 @@ line above it is the pregate's own verdict.
 **Fix.** Follow the `NEXT:` lines. Commit and push the tree, dispatch the
 workflow they name (`gh workflow run <workflow> --ref <branch>`), wait with
 `gstack-ci-carry wait --base <base>`, and once it prints `CI_WAIT: green`
-rerun the same command, which then carries the lane. A workflow with no
+rerun with `--tests-only` and the same `--lane` flags, which then carries the
+lane (a full preflight rerun with the same `--run` would stop on its open run). A workflow with no
 `workflow_dispatch` trigger, or a run profile that accepts no dispatched run,
 cannot be dispatched, so the `NEXT:` line says so: merge `origin/<base>` into
 the branch and push it, or, on a pull request you cannot push to, ask its
-author to. To run the lane on this machine instead, rerun with
-`--run-uncarried-here`.
+author to. To run the lane on this machine instead, rerun with `--tests-only`
+and `--run-uncarried-here`.
 
 **Expected result.** `LANE: <label> carried run=<id>/<attempt> …`, or with
 `--run-uncarried-here`, `LANE: <label> pass …` from the run here.
