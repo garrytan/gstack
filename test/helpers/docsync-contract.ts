@@ -103,5 +103,26 @@ export function docsDispatchIndex(calls: Array<{ tool: string; input: unknown }>
 export function docsDispatchIndices(calls: Array<{ tool: string; input: unknown }>): number[] {
   return calls.flatMap((call, index) => ['Agent', 'Task'].includes(call.tool) &&
     /document-release\/SKILL\.md|executing the \/document-release workflow/i.test(JSON.stringify(call.input)) &&
-    !/Parent processing:|## Step 19: Create PR\/MR/.test(JSON.stringify(call.input)) ? [index] : []);
+    !/Parent processing:|## Step 19: Create PR\/MR|<<<AUDIT_OUTPUT/.test(JSON.stringify(call.input)) ? [index] : []);
+}
+
+/**
+ * Each dispatch's completion as the parent accepted it. Step 14.5 re-asks one fresh agent for a line whose only fault is its
+ * shape (FORMAT_REPAIR:, no attempt spent), and that reply stands for the attempt once `result --repair-of` prints
+ * `FORMAT_REPAIR: applied` (census 44432023197: the child dropped documentation_section and the fixture had no repair command).
+ */
+export function docsAttemptOutputs(calls: Array<{ tool: string; input: any; output: string }>, dispatches: number[]): string[] {
+  return dispatches.map((index, position) => {
+    const window = calls.slice(index + 1, dispatches[position + 1] ?? calls.length);
+    const repair = window.findLastIndex(call => ['Agent', 'Task'].includes(call.tool) && /<<<AUDIT_OUTPUT/.test(JSON.stringify(call.input)));
+    if (repair < 0) return calls[index].output;
+    const dispatchInput = JSON.stringify(calls[index].input);
+    const applied = window.slice(repair + 1).some(call => {
+      const args = [...String(call.input?.command).matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(token => token[1] ?? token[2] ?? token[3]);
+      const auditId = args[args.indexOf('--audit-id') + 1];
+      return call.tool === 'Bash' && /(^|\/)gstack-docs-candidate$/.test(args[0] ?? '') && args[1] === 'result' && args.includes('--repair-of') &&
+        args.includes('--audit-id') && !!auditId && dispatchInput.includes(auditId) && /^FORMAT_REPAIR: applied/m.test(call.output);
+    });
+    return applied ? window[repair].output : calls[index].output;
+  });
 }

@@ -281,6 +281,41 @@ test('the docs-candidate attempt command is admitted only with a private child o
   expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate attempt <a saved private .md or .json child output> --state <a private .json under ${fixture.home}> and attempt --help`);
 });
 
+// Census 44432023197 (ship-docsync-current): result printed FORMAT_REPAIR: format-only for a line that dropped
+// documentation_section, and this interface declared neither repair-prompt nor result --repair-of, so the parent correctly stopped.
+test('the docs-candidate format repair is admitted only with private output files and a plain audit id', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const reply = path.join(fixture.home, 'audit-1-repair.md');
+  const dir = path.join(fixture.home, 'docs-record');
+  for (const command of [
+    `${helper} repair-prompt ${output} --audit-id audit-1`,
+    `${helper} repair-prompt --help`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${output}`,
+    `${helper} result ${reply} --repair-of ${output} --out-dir ${fixture.home} --audit-id audit-1`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} repair-prompt ${output}`,
+    `${helper} repair-prompt ${output} --audit-id ../audit-1`,
+    `${helper} repair-prompt ${output} --audit-id audit-1 --out ${reply}`,
+    `${helper} repair-prompt --audit-id audit-1 ${output}`,
+    `${helper} repair-prompt ${path.join(fixture.repo, 'out.md')} --audit-id audit-1`,
+    `${helper} repair-prompt audit-1-output.md --audit-id audit-1`,
+    `${helper} repair-prompt --help extra`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${path.join(fixture.repo, 'out.md')}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${path.join(fixture.skills, 'bin/out.md')}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of audit-1-output.md`,
+    `${helper} result ${reply} --audit-id audit-1 --repair-of ${output}`,
+    `${helper} result ${reply} --audit-id audit-1 --audit-id audit-2 --out-dir ${dir}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${output} --repair-of ${output}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --exec ${output}`,
+    `~/.claude/skills/gstack/bin/gstack-docs-candidate repair-prompt ${output} --audit-id audit-1`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  const skills = fixture.skills.split(path.sep).join('/');
+  expect(docsNativeInterface(fixture)).toContain('optionally followed by --repair-of <the saved output that result rejected with FORMAT_REPAIR:>');
+  expect(docsNativeInterface(fixture)).toContain(`${skills}/bin/gstack-docs-candidate repair-prompt <that rejected output> --audit-id <the audit id> and repair-prompt --help`);
+});
+
 // Train gate 39904966815 and GSTA-63's focused run joined the candidate's --help onto a line of reads; v1.91.185.0 moved the
 // own-call rule into the sentence naming --help and the slip came back four times (JOINED_READ_LINES below). The --help only
 // prints usage, so it now joins a line of reads like a Git read; every other own-call command stays alone.

@@ -415,17 +415,24 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
   if (commandName === candidate) {
     const privateJson = (file: string | undefined) => !!file && path.isAbsolute(file) && /\.json$/i.test(file) && docsPrivateArtifact(file, fixture, scripts);
     if (rest.length === 1 && rest[0] === '--help') return true;
-    if (rest.length === 2 && ['snapshot', 'compare', 'result', 'attempt'].includes(rest[0]) && rest[1] === '--help') return true;
+    if (rest.length === 2 && ['snapshot', 'compare', 'result', 'attempt', 'repair-prompt'].includes(rest[0]) && rest[1] === '--help') return true;
+    const auditIdOk = (id: string) => /^[A-Za-z0-9._-]+$/.test(id) && !id.includes('..');
+    const privateOutput = (file: string | undefined) => !!file && path.isAbsolute(file) && docsPrivateArtifact(file, fixture, scripts);
     if (rest[0] === 'compare') return rest.length === 2 && privateJson(rest[1]);
     if (rest[0] === 'attempt') return rest.length === 4 && path.isAbsolute(rest[1]) && docsPrivateArtifact(rest[1], fixture, scripts) &&
       rest[2] === '--state' && privateJson(rest[3]);
+    if (rest[0] === 'repair-prompt') return rest.length === 4 && privateOutput(rest[1]) && rest[2] === '--audit-id' && auditIdOk(rest[3]);
     if (rest[0] === 'result') {
-      if (rest.length !== 6 || !path.isAbsolute(rest[1]) || !docsPrivateArtifact(rest[1], fixture, scripts)) return false;
-      const flags = [rest[2], rest[4]];
-      if (!flags.includes('--audit-id') || !flags.includes('--out-dir')) return false;
-      const auditId = rest[flags.indexOf('--audit-id') * 2 + 3];
-      const outDir = rest[flags.indexOf('--out-dir') * 2 + 3];
-      return /^[A-Za-z0-9._-]+$/.test(auditId) && !auditId.includes('..') && (outDir === fixture.home || docsPrivateDirectory(outDir, fixture));
+      if ((rest.length !== 6 && rest.length !== 8) || !privateOutput(rest[1])) return false;
+      const options = new Map<string, string>();
+      for (let i = 2; i < rest.length; i += 2) {
+        if (!['--audit-id', '--out-dir', '--repair-of'].includes(rest[i]) || options.has(rest[i])) return false;
+        options.set(rest[i], rest[i + 1]);
+      }
+      const auditId = options.get('--audit-id');
+      const outDir = options.get('--out-dir');
+      if (auditId === undefined || outDir === undefined || (options.has('--repair-of') && !privateOutput(options.get('--repair-of')))) return false;
+      return auditIdOk(auditId) && (outDir === fixture.home || docsPrivateDirectory(outDir, fixture));
     }
     if (rest[0] !== 'snapshot' || rest.length % 2 !== 1) return false;
     const flags = rest.slice(1).filter((_, i) => i % 2 === 0);
