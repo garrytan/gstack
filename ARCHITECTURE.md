@@ -95,7 +95,7 @@ The CLI reads this file to find the server. If the file is missing or the daemon
 
 ### Port selection
 
-Random port between 10000-49151 (retry up to 5 on collision), allocated through the shared `browse/src/port-allocator.ts` so every long-lived gstack listener draws from the same range. The range ends at 49151 on purpose: 49152-65535 is the macOS ephemeral pool, and allocating inside it meant the OS could hand the same port to another process moments later. This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
+Random port between 10000-49151 (retry up to 5 on collision; a draw on 10080, which Chromium refuses to load with `net::ERR_UNSAFE_PORT`, is redrawn), allocated through the shared `browse/src/port-allocator.ts` so every long-lived gstack listener draws from the same range. The range ends at 49151 on purpose: 49152-65535 is the macOS ephemeral pool, and allocating inside it meant the OS could hand the same port to another process moments later. This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
 
 ### Version auto-restart
 
