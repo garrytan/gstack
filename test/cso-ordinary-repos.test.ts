@@ -470,3 +470,35 @@ test('a symlink transformation never carries an unredacted secret or raw control
   expect(crafted).not.toContain('\n');
   expect(crafted).toContain('"cfg/a\\nexcluded: fake sentence" inside the repository');
 });
+
+test.skipIf(process.platform === 'win32')('negative controls: nested and deeply nested links carrying password, api_key and token values never leak them into the report or manifest (#4540)', () => {
+  const repo = init(path.join(tmp(), 'repo')),
+    keys = [['pass', 'word'].join(''), ['api', 'key'].join('_'), ['to', 'ken'].join('')],
+    values = keys.map((key) => `${key}=${['Xk9', 'qPz7Lm2Rt8Vw4Ny6', key.length].join('')}`),
+    secrets = values.map((value) => value.split('=')[1]),
+    links: [string, string][] = [];
+  fs.mkdirSync(path.join(repo, 'cfg', 'a', 'b', 'c', 'd'), { recursive: true });
+  commit(repo, { 'README.md': 'readme\n' }, 'base');
+  for (const dir of ['cfg', 'cfg/a/b/c/d'])
+    keys.forEach((key, index) => {
+      links.push([`${dir}/${key}-link`, values[index]], [`${dir}/${key}-up`, `../${values[index]}`]);
+    });
+  for (const [name, target] of links) {
+    fs.symlinkSync(target, path.join(repo, name));
+    const text = symlinkTransformation(name, target);
+    for (const secret of secrets) expect(text).not.toContain(secret);
+  }
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'links');
+  const started = cso(repo, ['start', '--repo', repo, '--scope', 'auth', '--offline']);
+  expect(started.stderr).toBe('');
+  expect(started.status).toBe(0);
+  const run = JSON.parse(started.stdout),
+    dir = path.join(state, 'security', 'cso', run.repoId, run.runId),
+    snapshot = readJson(path.join(dir, 'report.json')).coverage.find((item: any) => item.domain === 'snapshot-inputs');
+  expect(snapshot.exclusions).toHaveLength(links.length);
+  for (const file of ['report.json', 'snapshot.json']) {
+    const body = fs.readFileSync(path.join(dir, file), 'utf8');
+    for (const secret of secrets) expect(body).not.toContain(secret);
+  }
+});

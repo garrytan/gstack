@@ -189,12 +189,12 @@ Left open by the iPad and route-drop release, each with its reason.
 
 Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
 
-- **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
+- **Tracked symlinks refuse the whole /cso run** — `capture()` failed closed on
   any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
-  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
-  vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
-  exclusions in the manifest, like dependency trees, is a security design call
-  for Garry. **Effort:** M. **Priority:** P1.
+  repos measured for v1.91.42.0 stopped there (django, rails, terraform, grafana,
+  vscode; 1-10 symlinks each, mostly test fixtures). Decided on 2026-11-20 by
+  GStack Minder in #4567: /cso records each link by its target string and never
+  dereferences it. **Effort:** M. **Priority:** P1.
 - **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
   the audit but still read and counted. Stream-hash them without counting
   toward the cap, report them as unread coverage, and add an admission estimate
