@@ -167,7 +167,7 @@ describe.skipIf(process.platform === 'win32')('CSO on a repository that tracks s
     'CLAUDE.md': 'README.md',
     handbook: 'docs',
     'web/guide.md': '../docs/guide.md',
-    passwd: '/etc/passwd',
+    'host-users': '/etc/passwd',
     'null-device': '/dev/null',
     escape: '../outside.txt',
     'docs/deep-escape': '../../outside.txt',
@@ -203,7 +203,7 @@ describe.skipIf(process.platform === 'win32')('CSO on a repository that tracks s
         .sort(),
     );
     expect(snapshot.gaps).toEqual([]);
-    expect(symlinkTransformation('passwd', '/etc/passwd')).toContain('"/etc/passwd"');
+    expect(symlinkTransformation('host-users', '/etc/passwd')).toContain('"/etc/passwd"');
     expect(symlinkTransformation('escape', '../outside.txt')).toContain('escapes the repository');
     expect(symlinkTransformation('handbook', 'docs')).toContain('docs inside the repository');
     const retained = runFiles(path.join(dir, 'snapshot')).map((file) => path.relative(path.join(dir, 'snapshot'), file)).sort();
@@ -276,7 +276,7 @@ describe.skipIf(process.platform === 'win32')('CSO on a repository that tracks s
     expect(spawnSync('/usr/bin/mkfifo', [path.join(repo, 'request.pipe')], { timeout: 10_000 }).status).toBe(0);
     const manifest = await capture(repo, newRun(repo).dir, undefined, undefined, {}, ['web']);
     expect(manifest.entries.find((item) => item.path === 'web/guide.md')?.transformation).toBe(symlinkTransformation('web/guide.md', '../docs/guide.md'));
-    expect(manifest.entries.find((item) => item.path === 'passwd')?.transformation).toBe(OUTSIDE_AUDIT_PATHS);
+    expect(manifest.entries.find((item) => item.path === 'host-users')?.transformation).toBe(OUTSIDE_AUDIT_PATHS);
     expect(spawnSync('/usr/bin/mkfifo', [path.join(repo, 'web', 'request.pipe')], { timeout: 10_000 }).status).toBe(0);
     await expect(capture(repo, newRun(repo).dir, undefined, undefined, {}, ['web'])).rejects.toMatchObject({ code: 'UNSAFE_PATH', message: 'Symlink or special source file: web/request.pipe' });
   });
