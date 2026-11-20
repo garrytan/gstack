@@ -396,14 +396,15 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
 export type FixCheckGrant = { kind: string; head: string; findings?: readonly string[] };
 
 /**
- * The fix-checks that confirm a grant's fixes (GST-2968, gstack #4537): a complete review-fix-check row of this run that read
+ * The fix-checks that confirm a grant's fixes (GST-2968, gstack #4537): a complete, converged review-fix-check row whose
+ * review_binding the logger bound (verified or fix-range, never changed, incomplete or uncaptured), of this run, that read
  * the PR's change since the grant's stop head (its range_base is that head), names every finding the grant names in
  * `covers`, and holds no blocking finding of its own left unfixed. Each yields the grant's findings, exactly, and when the
  * row's read started. A row covering fewer of them, or one that found a blocker, confirms nothing.
  */
 function grantedFixes(loopRows: readonly Record<string, any>[], grants: readonly FixCheckGrant[]): Array<{ at: number; findings: readonly string[] }> {
   const stops = (r: Record<string, any>) => typeof r.range_base === 'string' && /^[0-9a-f]{7,40}$/i.test(r.range_base) ? (h: string) => h.startsWith(r.range_base.toLowerCase()) : () => false;
-  const clean = (r: Record<string, any>) => r.completed === true && Array.isArray(r.covers)
+  const clean = (r: Record<string, any>) => r.completed === true && r.converged === true && ['verified', 'fix-range'].includes(r.review_binding?.state) && Array.isArray(r.covers)
     && !(Array.isArray(r.findings) ? r.findings : []).some((f: any) => f && typeof f === 'object' && rowBlocks(f) && f.action !== 'fixed' && f.action !== 'auto-fixed');
   return loopRows.filter(r => r.skill === FIX_CHECK_SKILL && clean(r)).flatMap(r => grants
     .filter(g => g.kind === 'fix-check' && g.findings?.length && stops(r)(g.head.toLowerCase()) && g.findings.every(f => r.covers.includes(f)))

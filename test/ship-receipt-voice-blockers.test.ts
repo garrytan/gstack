@@ -113,7 +113,7 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
   const NO_MIRROR = { GSTACK_APPROVALS_MIRROR: '0' };
   const open = (id: string, fp: string) => ({ ...blocker, fingerprint: fp, ledger_id: id });
   const fixCheck = (min: number, rangeBase: string, covers: string[], findings: object[] = []) =>
-    ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), status: findings.length ? 'issues_found' : 'clean', completed: true, converged: !findings.length, range_base: rangeBase, covers, findings });
+    ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), status: findings.length ? 'issues_found' : 'clean', completed: true, converged: !findings.length, review_binding: { state: findings.length ? 'incomplete' : 'verified' }, range_base: rangeBase, covers, findings });
 
   function granted(rows: (stop: string) => object[], findings = [ID]) {
     const repo = branchWith([]);
@@ -159,11 +159,14 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
     expect(w.err).toContain(OTHER);
   });
 
-  test('a fix-check of another range, one with no covers, or one that ran before the stop closes nothing', () => {
+  test('a fix-check of another range, one with no covers, one that ran before the stop, or one the logger did not bind clean closes nothing', () => {
     for (const rows of [
       (_: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, 'f'.repeat(40), [ID])],
       (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, []), covers: undefined }],
       (stop: string) => [review(0, 2, []), fixCheck(10, stop, [ID]), voices(20, [open(ID, FP)])],
+      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: { state: 'changed' } }],
+      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: undefined }],
+      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), converged: false }],
     ]) {
       const { loop, w } = granted(rows);
       expect(loop.open).toEqual([{ id: ID, fingerprint: FP }]);

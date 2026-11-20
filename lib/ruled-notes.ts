@@ -24,10 +24,10 @@ const GSTACK_ACTOR = /^gstack\b/i;
  * (GSTACK_ACTOR_NAMES, bin/gstack-no-stop), so this exemption on top of the catch admits none of them.
  */
 const GSTACK_NAMED_CREW = /^GStack [A-Z]/;
-export const isGstackActor = (by: string) => GSTACK_ACTOR.test(by.trim()) && !GSTACK_NAMED_CREW.test(by.trim());
 /** The names gstack itself writes as `by`, matched whole: `gstack-evals Captain` or `GStack Minder` is a person's crew, not gstack. */
 export const GSTACK_ACTOR_NAMES: readonly string[] = ['gstack', 'gstack no-stop default (K1)'];
 export const isGstackActorName = (by: string) => GSTACK_ACTOR_NAMES.some(n => n.toLowerCase() === by.trim().toLowerCase());
+export const isGstackActor = (by: string) => GSTACK_ACTOR.test(by.trim()) && !(GSTACK_NAMED_CREW.test(by.trim()) && !isGstackActorName(by));
 export const RULED_NOTE_SCOPE = /^\s*ruled_note\b/;
 
 export const ruledNoteRow = (finding: string, head: string, reason: string) => ({ scope: `ruled_note ${finding} ${head}`, ask: `ruled_note ${finding} at ${head}: ${reason}` });

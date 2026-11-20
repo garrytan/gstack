@@ -119,7 +119,7 @@ describe('GST-3246: round grants on a stopped run, run ids, and GStack-named cre
   test('rule takes --by "GStack Minder (GSTA-36)" and rulings lists it, while gstack\'s own names stay refused', () => {
     const r = repo();
     const rule = (by: string) => r.run('gstack-approvals', ['rule', '--finding', 'src/a.ts:1:correctness', '--head', r.head, '--reason', 'ships as a disclosed note', '--words', 'note it', '--by', by]);
-    for (const by of ['gstack', 'gstack no-stop default (K1)', 'gstack ship lane', 'GStack ship lane', 'GSTACK Minder']) expect(rule(by).status).toBe(2);
+    for (const by of ['gstack', 'gstack no-stop default (K1)', 'GStack No-stop default (K1)', 'GStack No-Stop Default (K1)', 'gstack ship lane', 'GStack ship lane', 'GSTACK Minder']) expect(rule(by).status).toBe(2);
     const ok = rule('GStack Minder (GSTA-36)');
     expect([ok.status, ok.stderr]).toEqual([0, '']);
     expect(r.run('gstack-approvals', ['rulings']).stdout).toContain('ruled by GStack Minder (GSTA-36) at ');
