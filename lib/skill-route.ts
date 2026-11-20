@@ -270,13 +270,14 @@ export function contentTokens(text: string): string[] {
 
 /** A fence line (CommonMark): up to three spaces, then three or more backticks or tildes, then its info string. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-/** An inline code span (CommonMark): a backtick run closed by the next run of the same length, within one paragraph. */
-const CODE_SPAN = /(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])*?)(?<!`)\1(?!`)/g;
+/** A blank line: an inline code span never crosses one. */
+const PARAGRAPH_BREAK = /(\n[ \t]*\n)/;
 
 /**
  * A prompt split into its prose and its Markdown code, as CommonMark reads them: fenced code blocks (an unclosed fence
- * runs to the end) and inline code spans (an unmatched backtick run is prose). A command quoted in backticks names the
- * command; it does not ask for anything, so triggers match the prose only (#4564).
+ * runs to the end) and inline code spans (a backtick run closed by the next run of the same length in its paragraph; an
+ * unmatched run is prose). A command quoted in backticks names the command; it does not ask for anything, so triggers
+ * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear.
  */
 export function splitCode(prompt: string): { prose: string; code: string } {
   const prose: string[] = [];
@@ -293,7 +294,27 @@ export function splitCode(prompt: string): { prose: string; code: string } {
       prose.push('');
     } else prose.push(line);
   }
-  const text = prose.join('\n').replace(CODE_SPAN, (_, _run, inner: string) => { code.push(inner); return ' '; });
+  const text = prose.join('\n').split(PARAGRAPH_BREAK).map(part => {
+    const runs = [...part.matchAll(/`+/g)];
+    const closer: (number | undefined)[] = [];
+    const nextOfLength = new Map<number, number>();
+    for (let i = runs.length - 1; i >= 0; i--) {
+      closer[i] = nextOfLength.get(runs[i][0].length);
+      nextOfLength.set(runs[i][0].length, i);
+    }
+    let out = '';
+    let at = 0;
+    for (let i = 0; i < runs.length; i++) {
+      const close = closer[i];
+      if (close === undefined) continue;
+      const open = runs[i];
+      code.push(part.slice(open.index + open[0].length, runs[close].index));
+      out += `${part.slice(at, open.index)} `;
+      at = runs[close].index + runs[close][0].length;
+      i = close;
+    }
+    return out + part.slice(at);
+  }).join('');
   return { prose: text, code: code.join('\n') };
 }
 

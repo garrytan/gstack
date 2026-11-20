@@ -295,6 +295,7 @@ describe('installed skills beside gstack (GST-3123)', () => {
       'Pasted from CI:\n```\n$ make check\nall tests pass\n```\nWhat does this output mean?',
       'What does this print?\n~~~sh\nrun the checks || echo broken\n~~~',
       'What does this print?\n```\nrun the checks\n````\nmore\n````',
+      'rename `handleError` to `onError`',
     ]) {
       expect([text, names(text)]).toEqual([text, []]);
       expect([text, names(text, 'codex')]).toEqual([text, []]);
@@ -306,10 +307,21 @@ describe('installed skills beside gstack (GST-3123)', () => {
       ['Saving a draft raises `KeyError: title` when the title is empty', 'prove-it'],
       ['The upload fails on large files; I ran `make check` and it passed', 'prove-it'],
       ['the export crashes on empty input, see `export.ts`', 'prove-it'],
+      ['What happened?\n```\nTraceback (most recent call last):\nValueError: bad input\n```', 'prove-it'],
     ]) {
       expect([text, names(text)]).toEqual([text, [skill]]);
       expect([text, names(text, 'codex')]).toEqual([text, [skill]]);
     }
+  });
+
+  test('a prompt at the hook\'s stdin cap full of unmatched backtick runs is split in one linear pass (#4564)', () => {
+    let text = '';
+    for (let i = 1; i <= 60; i++) text += `${'`'.repeat(i)} x `;
+    text += 'y '.repeat(120000);
+    const t0 = performance.now();
+    expect(routePrompt(text, routed).route).toBeNull();
+    // gstack-timing-ok: the bound is the hook's own 1.5 s DEADLINE_MS; a rescan per unmatched run took about 5 s on this prompt, one pass takes milliseconds
+    expect(performance.now() - t0).toBeLessThan(1500);
   });
 
   test('a trigger that names its own target claims no bug report; a full /review or /qa trigger keeps a request to find bugs', () => {
