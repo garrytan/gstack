@@ -42,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       free_runner:
-        description: 'Runner-sizing experiments only: Ubicloud runner for the free-suite shards (ubicloud-standard-2, -4 or -8; empty keeps FREE_SUITE_RUNNER). Never cite such a run as a PR or train Free Tests result.'
+        description: 'Runner-sizing experiments only: Ubicloud runner for the free-suite shards (ubicloud-standard-2, -4, -8 or -16; empty keeps FREE_SUITE_RUNNER). Never cite such a run as a PR or train Free Tests result.'
         type: string
         default: ''
       free_shards:
@@ -245,8 +245,8 @@ jobs:
           shards="${SHARDS_OVERRIDE:-$FREE_SUITE_SHARDS}"
           jobs="${JOBS_OVERRIDE:-$FREE_SUITE_JOBS}"
           case "$runner" in
-            ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8) ;;
-            *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4 or -8"; exit 1 ;;
+            ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8|ubicloud-standard-16) ;;
+            *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4, -8 or -16"; exit 1 ;;
           esac
           case "$shards" in
             ''|*[!0-9]*) echo "::error::free_shards '$shards' is not a whole number"; exit 1 ;;

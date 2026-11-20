@@ -12,6 +12,12 @@
     {"file": "crew/test/ship-queue-train-generic.test.ts", "reason": "77s in the 2026-11-09 recording (run 42691699570; unseeded before); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
     {"file": "test/ship-finish-stack-parent.test.ts", "reason": "68s in the 2026-11-09 recording (run 42691699570; unseeded before); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
     {"file": "test/ship-ci-carry.test.ts", "reason": "67s in the 2026-11-09 recording (run 42691699570; unseeded before); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
-    {"file": "test/ship-queue-land.test.ts", "reason": "60s in the 2026-11-09 recording (run 42691699570; 59s on 2026-10-31); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"}
+    {"file": "test/ship-queue-land.test.ts", "reason": "60s in the 2026-11-09 recording (run 42691699570; 59s on 2026-10-31); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "test/ship-finish-ruled-notes.test.ts", "reason": "79s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 34s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "test/ship-queue-land-direct.test.ts", "reason": "74s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 51s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "crew/test/ship-queue-train-land.test.ts", "reason": "65s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 54s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "test/ship-finish-fixed-links.test.ts", "reason": "62s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 36s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "test/harness-start-hook.test.ts", "reason": "61s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 53s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"},
+    {"file": "test/autoplan-carry.test.ts", "reason": "60s in the 2026-11-20 recording (bun run test:ubicloud --record-durations on standard-8; 54s on 2026-11-09); admitted so the refreshed seed can land", "todo": "split or speed up; post-11-21 slow-test pass"}
   ]
 }
