@@ -705,7 +705,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (ciModes > 1 || (ciModes && (quick || listOnly || dryRun || recordDurations || attributeHome))) throw new Error('CI modes cannot be combined with other selection modes');
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
-  if (junitDir !== undefined && !paths.ciRun) throw new Error('--junit-dir applies only to --ci-run');
+  if (junitDir !== undefined && !paths.ciRun && !quick) throw new Error('--junit-dir applies only to --ci-run or --quick');
   if (jobs !== undefined && !paths.ciRun) rejectJobsWithoutCiRun();
   if (shardJobs !== undefined && !paths.ciPlan) rejectShardJobsWithoutCiPlan();
   if (jobSetupSeconds !== undefined && !paths.ciPlan) throw new Error('--job-setup-seconds applies only to --ci-plan');
@@ -2206,6 +2206,7 @@ async function main(): Promise<number> {
         ? wallTimeoutForPackedShard(packed.predictedMs[index], options.wallTimeoutMs, shardFiles.length)
         : shardTimeout(shardFiles.length),
       verbose: options.verbose,
+      ...(options.junitDir ? { junitDir: options.junitDir } : {}),
     })),
   );
   const homeChange = phaseHome.verify();
@@ -2216,6 +2217,7 @@ async function main(): Promise<number> {
     const exclusiveOutcome = await runFreeShard(exclusive, totalShards, totalShards, {
       wallTimeoutMs: shardTimeout(exclusive.length),
       verbose: options.verbose,
+      ...(options.junitDir ? { junitDir: options.junitDir } : {}),
     });
     if (exclusiveOutcome.status !== 'passed') {
       // Fixture safety rests on each test restoring default state itself; a

@@ -480,7 +480,8 @@ describe('per-file test and expect() counts from bun JUnit', () => {
       const base = ['--ci-run', 'plan.json', '--shard', '1', '--result', 'r.json'];
       expect(parseCliOptions([...base, '--junit-dir', 'junit']).junitDir).toBe('junit');
       expect('junitDir' in parseCliOptions(base)).toBe(false);
-      expect(() => parseCliOptions(['--junit-dir', 'junit'])).toThrow('--junit-dir applies only to --ci-run');
+      expect(() => parseCliOptions(['--junit-dir', 'junit'])).toThrow('--junit-dir applies only to --ci-run or --quick');
+      expect(parseCliOptions(['--quick', '--junit-dir', 'junit']).junitDir).toBe('junit');
       expect(() => parseCliOptions([...base, '--junit-dir'])).toThrow('Missing path for --junit-dir');
     } finally { errors.mockRestore(); fs.rmSync(root, { recursive: true, force: true }); }
   }, 60_000);
