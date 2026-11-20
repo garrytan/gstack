@@ -90,7 +90,7 @@ live quarantined test, and nothing else is wrong with that attempt (no kill, no
 failure outside the report, no first-run test missing), the whole command may
 run again, up to 3 attempts in total. The run is green only when one of those
 attempts is fully green. A quarantined test that fails all 3 is a **hard
-break**, and the run is red. A test that is not quarantined keeps its one
+break**, and the run is red. A quarantined test that is skipped on the final attempt is a **quarantined-fail**, and the run is red: a skip is not a run, so it never counts toward the clean streak. A test that is not quarantined keeps its one
 rerun. A red attempt never turns green because its only reported failure is a
 quarantined test, because the runner's exit status can come from things the
 report does not show (a coverage threshold, a fail-on-flaky policy, a global

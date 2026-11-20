@@ -297,10 +297,12 @@ function mayRunAgain(again: Ran, first: JunitReport, quarantined: ReadonlySet<st
 const history = (t: JunitTest, runs: Ran[]): Attempt[] =>
   [...t.attempts, ...runs.flatMap(r => r.report?.tests.find(x => x.id === t.id)?.attempts ?? ['fail' as const])];
 
-/** A quarantined test passes only when it never failed or an attempt with the runner's full verdict cleared it. */
+/** A quarantined test passes only when its final attempt passed and it never failed, or an attempt with the runner's full verdict cleared it. A skip on the final attempt is not a run, so it fails; a test that failed every attempt is a hard break. */
 const quarantinedStatus = (attempts: string[], cleared: boolean): 'quarantined-pass' | 'quarantined-fail' | 'hard-break' =>
-  cleared || !attempts.includes('fail') ? 'quarantined-pass'
-    : attempts.length >= QUARANTINE_ATTEMPTS && attempts.every(a => a === 'fail') ? 'hard-break' : 'quarantined-fail';
+  attempts.length >= QUARANTINE_ATTEMPTS && attempts.every(a => a === 'fail') ? 'hard-break'
+    : attempts.at(-1) !== 'pass' ? 'quarantined-fail'
+    : cleared || !attempts.includes('fail') ? 'quarantined-pass'
+    : 'quarantined-fail';
 
 export async function runFlaky(opts: RunOptions): Promise<RunResult> {
   const cwd = opts.cwd ?? process.cwd();
@@ -363,7 +365,8 @@ export async function runFlaky(opts: RunOptions): Promise<RunResult> {
     if (why) settle(t, t.attempts, why);
     else eligible.push(t);
   }
-  const passedQ = report.tests.filter(t => isQ(t) && finalAttempt(t) !== 'fail' && t.attempts.some(a => a !== 'skip'));
+  // A quarantined test whose final attempt is a skip never ran on the attempt that decided the run; it is settled below as a quarantined-fail, not dropped silently.
+  const settledQ = report.tests.filter(t => isQ(t) && finalAttempt(t) !== 'fail');
   const wholeRerun = !eligible.length ? undefined
     : opts.rerunScope !== 'test' ? 'the default; --rerun-scope test reruns the failed test alone'
     : incompleteRun(report.runner, first.output, first.exit, opts.command, runnerFlaky.length) ?? undefined;
@@ -409,7 +412,13 @@ export async function runFlaky(opts: RunOptions): Promise<RunResult> {
     if (reruns) fs.writeFileSync(junit, firstXml);
   }
   const green = runs.length ? fullGreen(runs.at(-1)!, report) : reruns > 0 || first.exit === 0;
-  for (const t of passedQ) settleQ(t, history(t, runs), green, 'the attempt that decided the run was not a full green run', runs.length ? 'command' : undefined);
+  for (const t of settledQ) {
+    const attempts = history(t, runs);
+    const reason = attempts.at(-1) === 'skip'
+      ? 'quarantined, and skipped on the final attempt instead of running'
+      : 'the attempt that decided the run was not a full green run';
+    settleQ(t, attempts, green, reason, runs.length ? 'command' : undefined);
+  }
   const red = !green || outcomes.some(o => !PASSING.has(o.status));
   const q = outcomes.filter(o => o.status === 'quarantined-pass' || o.status === 'quarantined-fail' || o.status === 'hard-break').length;
   return { exitCode: red ? 1 : 0, tests: report.tests.length, commandExit: first.exit, outcomes, reruns, quarantined: q, ...(wholeRerun && reruns ? { wholeRerun } : {}), ledger };

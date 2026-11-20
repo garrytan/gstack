@@ -219,6 +219,7 @@ function fakeRun(reports: (n: number, argv: string[]) => string | null, exits: (
 const suite = (cases: string, file = 'a.test.ts') => `<testsuites name="bun test"><testsuite name="${file}" file="${file}">${cases}</testsuite></testsuites>`;
 const pass = (name: string) => `<testcase name="${name}" classname="" file="a.test.ts"/>`;
 const fail = (name: string) => `<testcase name="${name}" classname="" file="a.test.ts"><failure message="boom"/></testcase>`;
+const skip = (name: string) => `<testcase name="${name}" classname="" file="a.test.ts"><skipped/></testcase>`;
 const Q = new Set(['a.test.ts::::q']);
 const run = (f: ReturnType<typeof fakeRun>, extra: Partial<Parameters<typeof runFlaky>[0]> = {}) =>
   runFlaky({ command: ['bun', 'test'], junit: 'r.xml', maxReruns: 3, cwd: tmp(), spawn: f.spawn, env: {}, now: () => NOW, quarantined: Q, ...extra });
@@ -305,6 +306,34 @@ describe('the quarantine attempt budget under the full green verdict', () => {
     expect(r).toMatchObject({ exitCode: 0, reruns: 0, quarantined: 1 });
     expect(r.ledger.map(l => [l.kind, l.attempts])).toEqual([['quarantined-pass', ['pass']]]);
     expect(renderResult(r, '/l').at(-1)).toContain('failed=0 flaky=0 quarantined=1');
+  });
+
+  test('a quarantined test that never runs is a quarantined-fail, not a silent pass', async () => {
+    const f = fakeRun(() => suite(skip('q') + pass('a')), () => 0);
+    const r = await run(f);
+    expect(f.calls).toHaveLength(1);
+    expect(r.exitCode).toBe(1);
+    expect(r.outcomes).toMatchObject([{ status: 'quarantined-fail', attempts: ['skip'], reason: 'quarantined, and skipped on the final attempt instead of running' }]);
+    expect(r.ledger).toMatchObject([{ kind: 'quarantined-fail', id: 'a.test.ts::::q', attempts: ['skip'] }]);
+    expect(renderResult(r, '/l').at(-1)).toBe('FLAKY_RESULT: tests=2 failed=1 flaky=0 quarantined=1 reruns=0 command_exit=0 verdict=fail ledger=/l');
+  });
+
+  test('a quarantined test skipped on the whole-command retry is not a clean pass', async () => {
+    const f = fakeRun(n => n === 1 ? suite(pass('q') + fail('a')) : suite(skip('q') + pass('a')), n => n === 1 ? 1 : 0);
+    const r = await run(f);
+    expect(f.calls).toHaveLength(2);
+    expect(r.exitCode).toBe(1);
+    expect(r.outcomes.find(o => o.test.id.endsWith('::q'))).toMatchObject({ status: 'quarantined-fail', attempts: ['pass', 'skip'] });
+    expect(r.ledger.find(l => l.id.endsWith('::q'))).toMatchObject({ kind: 'quarantined-fail', attempts: ['pass', 'skip'] });
+    expect(r.outcomes.find(o => o.test.id.endsWith('::a'))).toMatchObject({ status: 'flaky-pass', attempts: ['fail', 'pass'] });
+  });
+
+  test('a quarantined test skipped first but passing on the whole-command retry counts as a pass', async () => {
+    const f = fakeRun(n => n === 1 ? suite(skip('q') + fail('a')) : suite(pass('q') + pass('a')), n => n === 1 ? 1 : 0);
+    const r = await run(f);
+    expect(f.calls).toHaveLength(2);
+    expect(r.exitCode).toBe(0);
+    expect(r.outcomes.find(o => o.test.id.endsWith('::q'))).toMatchObject({ status: 'quarantined-pass', attempts: ['skip', 'pass'] });
   });
 
   test('quarantined failures do not count against --max-reruns', async () => {

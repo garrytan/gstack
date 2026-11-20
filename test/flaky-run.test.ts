@@ -119,6 +119,7 @@ function fakeRun(reports: (argv: string[], n: number) => string | null, exits: (
 const suite = (cases: string) => `<testsuites name="bun test"><testsuite name="a.test.ts" file="a.test.ts">${cases}</testsuite></testsuites>`;
 const pass = (name: string) => `<testcase name="${name}" classname="" file="a.test.ts"/>`;
 const fail = (name: string, msg = 'boom') => `<testcase name="${name}" classname="" file="a.test.ts"><failure message="${msg}"/></testcase>`;
+const skip = (name: string) => `<testcase name="${name}" classname="" file="a.test.ts"><skipped/></testcase>`;
 
 describe('runFlaky', () => {
   const base = (spawn: ReturnType<typeof fakeRun>, dir: string, extra: Partial<Parameters<typeof runFlaky>[0]> = {}) =>
@@ -128,6 +129,14 @@ describe('runFlaky', () => {
     const dir = tmp();
     const f = fakeRun(() => suite(pass('a') + pass('b')), () => 0);
     expect(await base(f, dir)).toMatchObject({ exitCode: 0, reruns: 0, ledger: [] });
+    expect(f.calls).toHaveLength(1);
+  });
+
+  test('an ordinary skipped test still follows the runner verdict', async () => {
+    const dir = tmp();
+    const f = fakeRun(() => suite(skip('s') + pass('a')), () => 0);
+    const r = await base(f, dir);
+    expect(r).toMatchObject({ exitCode: 0, quarantined: 0, reruns: 0, ledger: [], outcomes: [] });
     expect(f.calls).toHaveLength(1);
   });
 
