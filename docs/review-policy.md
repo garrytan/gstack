@@ -219,7 +219,8 @@ caught on another crew's PRs.
      finding in `covers` closes exactly those findings in the receipt's loop
      record (GST-3246). Inside the stopped run itself, `round-grant` refuses
      every grant except this one, `--stop-run` naming that open run; a run
-     marker whose lease has closed blocks nothing.
+     marker stops counting once its run is released or its holder is gone,
+     never on age alone or an unreadable lease (`gstack-lease open --any-age`).
    - **`--kind extra-round`, before review.** One round past the cap, with its fix
      round, at a head no review has stopped at: instead of the read-only review.
      Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names

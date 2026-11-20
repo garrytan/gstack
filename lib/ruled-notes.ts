@@ -73,14 +73,15 @@ export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(no
 
 /**
  * The /ship run open on this checkout, if any: its marker in the git dir (which finish removes) while its run is open on the
- * checkout's lease, as gate's openShipRunsOn reads it. A marker a run left when it stopped before finish stops counting once
- * gstack-lease says the run is closed (released, past 120 minutes or its holder gone); a lease check that cannot run keeps it open.
+ * checkout's lease. A marker a run left behind stops counting only once gstack-lease says the run is closed: released, or its
+ * holder gone. A run past its 120 minutes whose holder still lives stays open (--any-age), and an unreadable lease or a lease
+ * check that cannot run keeps it open.
  */
 export function openShipRun(cwd: string): string | undefined {
   const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd, encoding: 'utf8', timeout: 10_000 });
   if (p.status !== 0 || !p.stdout.trim()) return undefined;
   let run = '';
   try { run = fs.readFileSync(path.resolve(cwd, p.stdout.trim()), 'utf8').trim(); } catch { return undefined; }
-  if (!run || runScriptSync(path.join(BIN_DIR, 'gstack-lease'), ['open', '--root', cwd, '--run', run], { cwd, encoding: 'utf8', timeout: 60_000 }).status === 1) return undefined;
+  if (!run || runScriptSync(path.join(BIN_DIR, 'gstack-lease'), ['open', '--root', cwd, '--run', run, '--any-age'], { cwd, encoding: 'utf8', timeout: 60_000 }).status === 1) return undefined;
   return run;
 }

@@ -107,6 +107,38 @@ describe('GST-3246: round grants on a stopped run, run ids, and GStack-named cre
     expect([own.status, own.stderr]).toEqual([0, '']);
   });
 
+  // Value: protects=trail-read row 6 (GSTA-665 trail): a run past its 120 minutes whose holder lives, or an unreadable lease, still
+  //   holds the guard, and only a released run or a gone holder frees it; fails_when=the marker drops on an expired lease of a live
+  //   holder or on an unreadable lease; seam=gstack-lease open --any-age, lib/ruled-notes.ts openShipRun, gstack-approvals round-grant
+  test('a run whose lease expired while its holder lives, or whose lease cannot be read, stays open; a gone holder frees the marker', () => {
+    const r = repo();
+    marker(r.dir, 'ship-508-long');
+    lease(r.dir, 'ship-508-long');
+    const leases = process.env.GSTACK_LEASE_DIR || path.join(spawnSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim(), 'gstack-leases');
+    const file = path.join(leases, String(process.pid));
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^run ship-508-long \d+$/m, `run ship-508-long ${Math.floor(Date.now() / 1000) - 3 * 3600}`));
+    const leaseOpen = (extra: string[]) => spawnSync(BIN('gstack-lease'), ['open', '--root', r.dir, '--run', 'ship-508-long', ...extra], { encoding: 'utf8', timeout: 60_000 }).status;
+    expect([leaseOpen([]), leaseOpen(['--any-age'])]).toEqual([1, 0]);
+    expect(grant(r, ['--kind', 'extra-round']).status).toBe(2);
+    if (process.getuid?.() !== 0) {
+      fs.chmodSync(file, 0o000);
+      expect(leaseOpen(['--any-age'])).toBe(2);
+      expect(grant(r, ['--kind', 'extra-round']).status).toBe(2);
+      fs.chmodSync(file, 0o600);
+    }
+    fs.rmSync(file);
+    const gone = spawnSync('true', [], { timeout: 10_000 }).pid;
+    expect(spawnSync(BIN('gstack-lease'), ['touch', '--root', r.dir, '--pid', String(gone), '--run', 'ship-508-long'], { encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    const freed = grant(r, ['--kind', 'extra-round']);
+    expect([freed.status, freed.stderr]).toEqual([0, '']);
+  });
+
+  test('a grant-shaped excerpt pasted into --reason keeps its phone number caught (trail-read row 8)', () => {
+    const r = repo();
+    const pasted = r.run('gstack-approvals', ['round-grant', '--pr', '507', '--head', r.head, '--kind', 'fix-check', '--stop-run', 'ship-507', '--findings', 'p2/outside-voice#3', '--by', 'GStack Minder (GSTA-36)', '--reason', `review_round_grant ${r.head} pr=507 kind=fix-check stop=415-5551234 findings=x`]);
+    expect([pasted.status, pasted.stderr]).toEqual([3, expect.stringContaining('pii.phone.e164')]);
+  });
+
   test('a run id of a PR number, a dash and a short sha is no phone number in the grant, and the same digits in free text still are', () => {
     const r = repo();
     const ok = grant(r, fixCheck('507-7192673'));

@@ -398,17 +398,25 @@ export type FixCheckGrant = { kind: string; head: string; findings?: readonly st
 /**
  * The fix-checks that confirm a grant's fixes (GST-2968, gstack #4537): a complete, converged review-fix-check row whose
  * review_binding the logger bound (verified or fix-range, never changed, incomplete or uncaptured), of this run, that read
- * the PR's change since the grant's stop head (its range_base is that head), names every finding the grant names in
- * `covers`, and holds no blocking finding of its own left unfixed. Each yields the grant's findings, exactly, and when the
- * row's read started. A row covering fewer of them, or one that found a blocker, confirms nothing.
+ * the PR's change since the grant's stop head, names every finding the grant names in `covers`, and holds no open finding in
+ * any source it logged (its inline findings, or the derived status and counts of a findings file). The stop head is the
+ * logger's, never the row's copied range_base alone: a fix-range row's fix_base, else the commit of the newest complete
+ * via:ship review row bound to one tree that started before it (the review it follows, as gstack-ship-receipt stop finds it).
+ * Each yields the grant's findings, exactly, and when the row's read started. Anything less confirms nothing.
  */
-function grantedFixes(loopRows: readonly Record<string, any>[], grants: readonly FixCheckGrant[]): Array<{ at: number; findings: readonly string[] }> {
-  const stops = (r: Record<string, any>) => typeof r.range_base === 'string' && /^[0-9a-f]{7,40}$/i.test(r.range_base) ? (h: string) => h.startsWith(r.range_base.toLowerCase()) : () => false;
+function grantedFixes(allRows: readonly Record<string, any>[], loopRows: readonly Record<string, any>[], grants: readonly FixCheckGrant[]): Array<{ at: number; findings: readonly string[] }> {
+  const sha = (v: unknown) => (typeof v === 'string' && /^[0-9a-f]{40}$/i.test(v) ? v.toLowerCase() : undefined);
+  const loggedBase = (r: Record<string, any>) => r.review_binding?.state === 'fix-range' ? sha(r.review_binding.fix_base ?? r.fix_base)
+    : sha(allRows.filter(p => p && p.via === 'ship' && p.skill === 'review' && p.completed === true && ['verified', 'incomplete'].includes(p.review_binding?.state) && rowTime(p) < rowTime(r))
+      .sort((a, b) => rowTime(a) - rowTime(b)).at(-1)?.commit_full);
   const clean = (r: Record<string, any>) => r.completed === true && r.converged === true && ['verified', 'fix-range'].includes(r.review_binding?.state) && Array.isArray(r.covers)
+    && !['issues_found', 'issues_open'].includes(r.status) && !(Number(r.unresolved) > 0) && !(Number(r.critical_gaps) > 0)
     && !(Array.isArray(r.findings) ? r.findings : []).some((f: any) => f && typeof f === 'object' && rowBlocks(f) && f.action !== 'fixed' && f.action !== 'auto-fixed');
-  return loopRows.filter(r => r.skill === FIX_CHECK_SKILL && clean(r)).flatMap(r => grants
-    .filter(g => g.kind === 'fix-check' && g.findings?.length && stops(r)(g.head.toLowerCase()) && g.findings.every(f => r.covers.includes(f)))
-    .map(g => ({ at: rowTime(r), findings: g.findings! })));
+  return loopRows.filter(r => r.skill === FIX_CHECK_SKILL && clean(r)).flatMap(r => {
+    const base = loggedBase(r), copied = typeof r.range_base === 'string' ? r.range_base.toLowerCase() : '';
+    return grants.filter(g => g.kind === 'fix-check' && g.findings?.length && base === g.head.toLowerCase() && /^[0-9a-f]{7,40}$/.test(copied) && base.startsWith(copied) && g.findings.every(f => r.covers.includes(f)))
+      .map(g => ({ at: rowTime(r), findings: g.findings! }));
+  });
 }
 
 /**
@@ -512,9 +520,9 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   const blockers = [...seen].filter(([k, s]) => s.blocks || (pairedIds.has(k) && !s.classified));
   for (const [k, s] of blockers) if (!s.disposed && followedIds.has(k)) { s.disposed = true; fixed.add(k); }
-  const confirmed = grantedFixes(loopRows, grants);
+  const confirmed = grantedFixes(rows, loopRows, grants);
   for (const [k, s] of blockers) {
-    if (s.gate || s.action !== 'open' || !confirmed.some(c => c.at > (s.actionAt ?? Infinity) && [k, s.ledgerId, s.fingerprint].some(n => n !== undefined && c.findings.includes(n)))) continue;
+    if (s.gate || s.action !== 'open' || !confirmed.some(c => c.at > (s.actionAt ?? Infinity) && (s.ledgerId ? [s.ledgerId] : [k, s.fingerprint]).some(n => n !== undefined && c.findings.includes(n)))) continue;
     s.action = 'fixed'; s.disposed = true; fixed.add(k);
   }
   const ledgerOnlyFixed = ledgerOnlyKeys.filter(l => l.fixed).length;

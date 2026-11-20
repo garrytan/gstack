@@ -192,6 +192,14 @@ const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
 const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?\d{14}$/;
 
 /**
+ * A fix-check round grant's scope as gstack-approvals round-grant writes it (lib/review-round-grant.ts): its stop= token is the
+ * /ship run id, often a PR number, a dash and a short sha (`507-7192673`), which pii.phone.e164 reads as a phone number
+ * (harness-evals #507). Only a phone finding that starts inside that token of the scope field is skipped; the reason, the words
+ * and every other field, a grant-shaped excerpt pasted into them included, are scanned as usual.
+ */
+const GRANT_STOP_SCOPE = /^review_round_grant [0-9a-f]{40} pr=[1-9]\d* kind=fix-check stop=([\w.:-]{1,120}) findings=\S+$/;
+
+/**
  * Validate and secret-scan one row; the error names the field and rule, never the text. `runId` (import only) is a
  * minted autoplan run id and the offset where the importer placed it in each field: pii.phone.e164 and pii.cc read its
  * stamp, alone or with the thread-code digits of the directory name before it, as a phone or card number (GST-2047), so
@@ -214,7 +222,10 @@ export function buildRow(input: NewRow, branch: string, now = new Date(), runId?
     const at = runId && MINTED_RUN_ID.test(runId.id) ? runId.at[k as 'ask' | 'source'] : undefined;
     const stamp = at === undefined ? 0 : RUN_ID_STAMP.exec(runId!.id)![0].length;
     const inRunId = (f: Finding) => at !== undefined && (f.id === 'pii.phone.e164' || f.id === 'pii.cc') && f.line === 1 && f.col - 1 >= at + runId!.id.length - stamp && f.col - 1 < at + runId!.id.length;
-    const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f));
+    const stop = k === 'scope' ? GRANT_STOP_SCOPE.exec(v) : null;
+    const stopAt = stop ? v.indexOf(' stop=') + ' stop='.length : -1;
+    const inStopRun = (f: Finding) => !!stop && f.id === 'pii.phone.e164' && f.line === 1 && f.col - 1 >= stopAt && f.col - 1 < stopAt + stop[1]!.length;
+    const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f) && !inStopRun(f));
     if (s.oversize || hits.length) return { code: 'APPROVAL_RECORD_SECRET', message: `field ${k}: ${s.oversize ? 'oversize input' : [...new Set(hits.map(f => f.id))].join(', ')}` };
   }
   const id = 'a-' + createHash('sha256').update([fields.source, date, fields.ask, fields.words, fields.by].join('\u0000')).digest('hex').slice(0, 12);

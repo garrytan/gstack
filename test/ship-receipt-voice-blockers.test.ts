@@ -114,6 +114,8 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
   const open = (id: string, fp: string) => ({ ...blocker, fingerprint: fp, ledger_id: id });
   const fixCheck = (min: number, rangeBase: string, covers: string[], findings: object[] = []) =>
     ({ skill: 'review-fix-check', via: 'ship', timestamp: at(min), status: findings.length ? 'issues_found' : 'clean', completed: true, converged: !findings.length, review_binding: { state: findings.length ? 'incomplete' : 'verified' }, range_base: rangeBase, covers, findings });
+  /** The stopping Step 9 pass as the logger binds it: complete, one tree, its commit the stop head. */
+  const stopReview = (stop: string, min = 0) => ({ ...review(min, 2, []), commit_full: stop, completed: true, review_binding: { state: 'incomplete' } });
 
   function granted(rows: (stop: string) => object[], findings = [ID]) {
     const repo = branchWith([]);
@@ -132,7 +134,7 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
   }
 
   test('a clean fix-check of the stop that covers the grant\'s finding marks it fixed, and the receipt writes without a ruling', () => {
-    const { loop, w } = granted(stop => [review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, stop.slice(0, 12), [ID])]);
+    const { loop, w } = granted(stop => [stopReview(stop), voices(20, [open(ID, FP)]), fixCheck(40, stop.slice(0, 12), [ID])]);
     expect(loop).toMatchObject({ passes: 1, fix_checks: 1, blocking_found: 1, fixed: 1 });
     expect(loop.open).toBeUndefined();
     expect(w.status, w.err).toBe(EXIT.ok);
@@ -140,20 +142,20 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
   });
 
   test('a fix-check that found a blocker leaves the finding open and write refuses', () => {
-    const { loop, w } = granted(stop => [review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, stop, [ID], [{ fingerprint: 'src/b.ts:9:correctness', severity: 'CRITICAL', blocking: true, raised_by: 'fix-check', action: 'open' }])]);
+    const { loop, w } = granted(stop => [stopReview(stop), voices(20, [open(ID, FP)]), fixCheck(40, stop, [ID], [{ fingerprint: 'src/b.ts:9:correctness', severity: 'CRITICAL', blocking: true, raised_by: 'fix-check', action: 'open' }])]);
     expect(loop.open).toContainEqual({ id: ID, fingerprint: FP });
     expect(w.status).toBe(EXIT.refused);
     expect(w.err).toContain('RECEIPT_BLOCKER_OPEN');
   });
 
   test('a fix-check covering fewer findings than its grant names closes none of them', () => {
-    const { loop, w } = granted(stop => [review(0, 2, []), voices(20, [open(ID, FP), open(OTHER, 'src/c.ts:3:correctness')]), fixCheck(40, stop, [ID])], [ID, OTHER]);
+    const { loop, w } = granted(stop => [stopReview(stop), voices(20, [open(ID, FP), open(OTHER, 'src/c.ts:3:correctness')]), fixCheck(40, stop, [ID])], [ID, OTHER]);
     expect(loop.open).toEqual([{ id: ID, fingerprint: FP }, { id: OTHER, fingerprint: 'src/c.ts:3:correctness' }]);
     expect(w.status).toBe(EXIT.refused);
   });
 
   test('only the grant\'s findings close: another open blocker stays open', () => {
-    const { loop, w } = granted(stop => [review(0, 2, []), voices(20, [open(ID, FP), open(OTHER, 'src/c.ts:3:correctness')]), fixCheck(40, stop, [ID, OTHER])]);
+    const { loop, w } = granted(stop => [stopReview(stop), voices(20, [open(ID, FP), open(OTHER, 'src/c.ts:3:correctness')]), fixCheck(40, stop, [ID, OTHER])]);
     expect(loop.open).toEqual([{ id: OTHER, fingerprint: 'src/c.ts:3:correctness' }]);
     expect(w.status).toBe(EXIT.refused);
     expect(w.err).toContain(OTHER);
@@ -161,12 +163,12 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
 
   test('a fix-check of another range, one with no covers, one that ran before the stop, or one the logger did not bind clean closes nothing', () => {
     for (const rows of [
-      (_: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, 'f'.repeat(40), [ID])],
-      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, []), covers: undefined }],
-      (stop: string) => [review(0, 2, []), fixCheck(10, stop, [ID]), voices(20, [open(ID, FP)])],
-      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: { state: 'changed' } }],
-      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: undefined }],
-      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), converged: false }],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), fixCheck(40, 'f'.repeat(40), [ID])],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, []), covers: undefined }],
+      (stop: string) => [stopReview(stop), fixCheck(10, stop, [ID]), voices(20, [open(ID, FP)])],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: { state: 'changed' } }],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: undefined }],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), converged: false }],
     ]) {
       const { loop, w } = granted(rows);
       expect(loop.open).toEqual([{ id: ID, fingerprint: FP }]);
@@ -175,10 +177,40 @@ describe('GST-3246: a granted fix-check closes the findings its grant names', ()
   });
 
   test('negative control: with no fix-check grant the clean fix-check row closes nothing', () => {
-    const s = summarizeReviewLoop([review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE);
+    const s = summarizeReviewLoop([stopReview('a'.repeat(40)), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE);
     expect(s.open).toEqual([{ id: ID, fingerprint: FP }]);
     const g = { kind: 'fix-check', head: 'a'.repeat(40), findings: [ID] };
-    expect(summarizeReviewLoop([review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE, [], [], [], [g]).open).toBeUndefined();
-    expect(summarizeReviewLoop([review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE, [], [], [], [{ ...g, kind: 'extra-round' }]).open).toEqual([{ id: ID, fingerprint: FP }]);
+    expect(summarizeReviewLoop([stopReview('a'.repeat(40)), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE, [], [], [], [g]).open).toBeUndefined();
+    expect(summarizeReviewLoop([stopReview('a'.repeat(40)), voices(20, [open(ID, FP)]), fixCheck(40, 'a'.repeat(40), [ID])], SINCE, [], [], [], [{ ...g, kind: 'extra-round' }]).open).toEqual([{ id: ID, fingerprint: FP }]);
+  });
+
+  // Value: protects=trail-read rows 1-3 (GSTA-665 trail): a fix-check clears findings only on the logger's own evidence;
+  //   fails_when=an open finding in a findings file, a stop head only the row copied, or a fingerprint two ledger ids share
+  //   clears a blocker; seam=summarizeReviewLoop via gstack-review-scope summary and gstack-ship-receipt write
+  test('an open finding in a findings file, a stop head only the row copied, or another reviewed commit closes nothing', () => {
+    for (const rows of [
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), findings: undefined, findings_file: 'fc-findings.jsonl', status: 'issues_open', unresolved: 1, issues_found: 1, critical_gaps: 1 }],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), findings: undefined, findings_file: 'fc-findings.jsonl', unresolved: 1 }],
+      (stop: string) => [review(0, 2, []), voices(20, [open(ID, FP)]), fixCheck(40, stop, [ID])],
+      (stop: string) => [stopReview('e'.repeat(40)), voices(20, [open(ID, FP)]), fixCheck(40, stop, [ID])],
+      (stop: string) => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: { state: 'fix-range', fix_base: 'e'.repeat(40) } }],
+    ]) {
+      const { loop, w } = granted(rows);
+      expect(loop.open).toEqual([{ id: ID, fingerprint: FP }]);
+      expect(w.status).toBe(EXIT.refused);
+    }
+  });
+
+  test('a fix-range fix-check whose logger fix_base is the stop head closes the grant\'s finding', () => {
+    const { loop, w } = granted(stop => [stopReview(stop), voices(20, [open(ID, FP)]), { ...fixCheck(40, stop, [ID]), review_binding: { state: 'fix-range', fix_base: stop } }]);
+    expect(loop.open).toBeUndefined();
+    expect(w.status, w.err).toBe(EXIT.ok);
+  });
+
+  test('a grant naming a fingerprint closes no blocker that carries a ledger id, and one naming a ledger id closes only that one', () => {
+    const rows = [stopReview('a'.repeat(40)), voices(20, [open(ID, FP), open('p2/red-team#1', FP)]), fixCheck(40, 'a'.repeat(40), [FP, ID])];
+    const g = (findings: string[]) => [{ kind: 'fix-check', head: 'a'.repeat(40), findings }];
+    expect(summarizeReviewLoop(rows, SINCE, [], [], [], g([FP])).open).toEqual([{ id: ID, fingerprint: FP }, { id: 'p2/red-team#1', fingerprint: FP }]);
+    expect(summarizeReviewLoop(rows, SINCE, [], [], [], g([ID])).open).toEqual([{ id: 'p2/red-team#1', fingerprint: FP }]);
   });
 });

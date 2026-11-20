@@ -7486,10 +7486,13 @@ run's Step 9 row records it `fixed`. If it should ship unfixed, take the stop
 to the owner: their ruled note (`gstack-approvals rule`) closes it, or their
 grant buys one fix-check. A granted fix-check closes exactly the findings its
 grant names once its `review-fix-check` row is complete and converged, has its
-`review_binding` bound (`verified` or `fix-range`), has `range_base` at
-the grant's stop head, lists every one of those findings in `covers`, and holds
-no blocking finding of its own; a row that covers fewer, or found a blocker,
-closes none (GST-3246). `gstack-ship-receipt claim` prints both fields on its
+`review_binding` bound (`verified` or `fix-range`), follows the stop head by the
+logger's own record (its `fix_base`, or the commit of the bound Step 9 row it
+follows) as well as by its `range_base`, lists every one of those findings in
+`covers`, and holds no open finding in any source it logged (inline findings, or
+a findings file's derived status and counts). A finding that carries a ledger id
+closes only by that id. A row that covers fewer, or found a blocker, closes none
+(GST-3246). `gstack-ship-receipt claim` prints both fields on its
 `FIX_CHECK_ROW:` line when the run claims the grant. Never edit the review-log row or the loop file to
 drop the finding, and never write the receipt by hand
 ([ship-policy.md](ship-policy.md#ship-receipt)).
