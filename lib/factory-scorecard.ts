@@ -26,7 +26,7 @@
  *                        that failed once and passed its one rerun) and flake-ledger-* artifacts
  *                        of <free workflow> runs on <base> (free-suite serial retries); the same
  *                        two sources the daily flaky pass reads; a main push that reused its PR's
- *                        run (no artifacts, `reuse` job green; reuseChecker) is left out
+ *                        run (no shard artifacts, `reuse` job green; reuseChecker) is left out
  *   issues               search/issues created / closed inside the window
  *   releases             releases published inside the window (drafts excluded)
  *

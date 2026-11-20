@@ -207,9 +207,14 @@ jobs:
           read -ra tests <<< "$DOCS_TESTS"
           bun --no-env-file test --timeout=30000 "${tests[@]}"
 
+  # The planner runs beside reuse and docs-scope instead of after them, so the
+  # shards wait for one round of small jobs, not two (GST-3303: the second
+  # round cost 21 s at p50 and 363 s at p95 of GitHub queue). It only plans:
+  # free-suite and the aggregate still read reuse and docs-scope, so a reused
+  # main push or a docs-only pull request runs no shard. On those runs the
+  # plan and its artifact are unused; scripts/lib/ci-history.ts reads a run
+  # whose only artifact is free-plan as one that ran no shard.
   free-plan:
-    needs: [reuse, docs-scope]
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -587,8 +592,8 @@ jobs:
 
   free-suite:
     name: free-suite (${{ matrix.shard }})
-    needs: [free-plan, reuse]
-    if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [free-plan, reuse, docs-scope]
+    if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ${{ needs.free-plan.outputs.runner }}
     # Per shard, from the plan: runner wall + flaky retry + setup (#3850).
     timeout-minutes: ${{ matrix.timeout_minutes }}

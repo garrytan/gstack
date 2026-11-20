@@ -120,12 +120,14 @@ describe('W7a flake ledger reader', () => {
     expect(client.calls[0]).toContain('branch=main');
   });
 
-  // A reused main push (#3709) uploads no artifact and its reuse job succeeds; a real run uploads free-plan and free-result-*.
+  // A reused main push (#3709) uploads nothing but the planner's free-plan (none before GST-3303) and its reuse job succeeds; a real run uploads free-plan and free-result-*.
   const reuseClient = (runs: ReturnType<typeof run>[], kind: (id: number) => 'reused' | 'real' | 'flaky', jobs?: () => unknown) => fakeClient([
     [/workflows\/free-tests\.yml\/runs/, () => ({ workflow_runs: runs })],
     [/runs\/\d+\/artifacts/, apiPath => {
       const k = kind(Number(/runs\/(\d+)\/artifacts/.exec(apiPath)![1]));
-      return { artifacts: k === 'reused' ? [] : [{ id: 8, name: 'free-plan', size_in_bytes: 10 },
+      const plan = { id: 8, name: 'free-plan', size_in_bytes: 10 };
+      if (k === 'reused') return { artifacts: Number(/runs\/(\d+)\/artifacts/.exec(apiPath)![1]) % 2 ? [plan] : [] };
+      return { artifacts: [plan, { id: 7, name: 'free-result-1', size_in_bytes: 10 },
         ...(k === 'flaky' ? [{ id: 9, name: 'flake-ledger-3', size_in_bytes: 10 }] : [])] };
     }],
     [/runs\/\d+\/attempts\/1\/jobs/, jobs ?? (() => ({ jobs: [{ id: 1, name: 'reuse', conclusion: 'success' }, { id: 2, name: 'free-plan', conclusion: 'skipped' },
@@ -155,7 +157,7 @@ describe('W7a flake ledger reader', () => {
     const window = readCiFlakeLedgers({ client, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
     expect(window).toMatchObject({ runs: 20, flakyRuns: 1, skipped: 40, enforceable: true, since: day(8 + 39 * 0.5),
       files: [{ file: 'test/a.test.ts', rate: 0.05, failing: false }] });
-    expect(window.note).toBe('18 run(s) with no artifacts not checked for main-push reuse (cap of 40 job listings reached); counted as before #3725');
+    expect(window.note).toBe('18 run(s) with no shard artifacts not checked for main-push reuse (cap of 40 job listings reached); counted as before #3725');
     expect(client.calls.filter(call => call.includes('/jobs')).length).toBe(40);
     expect(client.calls.filter(call => call.includes('/artifacts')).length).toBe(60);
     expect(flakeCheck(window).detail).toBe('no file above 5% over 20 main runs; 40 reused main push(es) left out; ' + window.note);
@@ -163,7 +165,7 @@ describe('W7a flake ledger reader', () => {
     const failing = reuseClient(runs, kind, () => { throw new Error('gh api failed: HTTP 502: Bad Gateway'); });
     const unchecked = readCiFlakeLedgers({ client: failing, repo: 'o/r', sinceDays: 7, now: NOW, cacheDir: tmp('health-cache-') });
     expect(unchecked).toMatchObject({ runs: 20, skipped: 0, since: day(1 + 19 * 0.1), files: [{ file: 'test/a.test.ts', rate: 0.05 }] });
-    expect(unchecked.note).toStartWith('18 run(s) with no artifacts not checked for main-push reuse (GitHub API server error');
+    expect(unchecked.note).toStartWith('18 run(s) with no shard artifacts not checked for main-push reuse (GitHub API server error');
   });
 
   test('the job-summary table names files, counts and shards', () => {
