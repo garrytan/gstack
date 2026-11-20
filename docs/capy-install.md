@@ -538,7 +538,8 @@ When the session starts from the Drive skill (a bootstrapper outside the
 checkout), the file also exports `GSTACK_PREFERENCES_FILE`, the path of
 `preferences.yaml` beside that skill's SKILL.md, which the `GSTACK_LAUNCH` line
 leaves out; `gstack-models resolve --role agent` reads it
-([your model preference](model-policy.md#your-model-preference)).
+([your model preference](model-policy.md#your-model-preference)), and
+`gstack-telemetry-tier` reads its Capy telemetry opt-in ([privacy](privacy.md)).
 The file is part of the ok verdict: a passing run that cannot write it exits 1
 with `gstack: fail launch-file — could not write the launch file <path>; fix:
 make <dir> writable, or set GSTACK_STATE_ROOT to a writable directory
