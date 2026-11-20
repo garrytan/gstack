@@ -669,4 +669,15 @@ describe('a stopped review names the findings its rulings leave open (harness-ev
     logRow(f, 'review', { ...HE498_FINAL, issues_found: 40 });
     expect(rowsAt(f).at(-1).review_freshness.reason).toBe(`${FALLBACK}: its findings list 33 issue(s) and 29 CRITICAL, fewer than the 40 issue(s) and 22 CRITICAL it claims, so no ruling can cover the rest`);
   });
+
+  test('a deferred CRITICAL is named, and a ruled gate finding is named with the gate_id its disposition needs', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    const gate = { fingerprint: 'test/x.test.ts:3:gate-integrity', severity: 'CRITICAL', action: 'open', blocking: true, gate: 'RH-15', gate_id: 'g-x3', raised_by: 'core' };
+    logRow(f, 'review', { completed: true, converged: false, status: 'issues_found', issues_found: 2, critical: 2, informational: 0,
+      findings: [crit('src/x.ts:1:dup', 'deferred', 'specialist'), gate] });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    expect(rule(f, gate.fingerprint, head, 'harness minder (HARN-1)').status).toBe(0);
+    expect(rowsAt(f)[0].review_freshness.reason).toBe(`${FALLBACK}: 2 finding(s) still need an owner ruling at this head: src/x.ts:1:dup (CRITICAL, deferred); ${gate.fingerprint} (CRITICAL, open; gate g-x3 needs a gate disposition, not a ruling) (a noted or deferred CRITICAL still counts as open)`);
+  });
 });

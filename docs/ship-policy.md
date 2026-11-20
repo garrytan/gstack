@@ -1797,8 +1797,9 @@ naming the `gstack-approvals rule` command for each
 the final review and the native reader included, `gstack-review-read` names them
 too: its UNVERIFIED reason ends `N finding(s) still need an owner ruling at this
 head: <fingerprint> (<severity>, <action>); …`, ten names at most. A `noted` or
-`deferred` CRITICAL is on that list, because neither action closes a CRITICAL
-(harness-evals#498, GST-3267). A review-loop exception is
+`deferred` CRITICAL is on that list, because neither action closes a CRITICAL,
+and a gate finding is listed with the `gate_id` its gate disposition needs, since a
+ruling never closes one (harness-evals#498, GST-3267). A review-loop exception is
 not a ruling: it accepts edits after a fix-check, never the fix-check's own
 findings. Nothing ruled is hidden:
 `gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the

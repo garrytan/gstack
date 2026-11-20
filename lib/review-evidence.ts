@@ -367,7 +367,8 @@ function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>,
 /**
  * GST-3267 (harness-evals#498): why the rulings did not clear a completed pass that stopped (converged:false, bound
  * `incomplete` on unchanged content). Names each finding that still holds the row open with no ruling, a `noted` or
- * `deferred` CRITICAL included, or says the findings list fewer issues than the row claims; undefined for any other row.
+ * `deferred` CRITICAL included, and a gate finding with the gate_id its disposition needs, or says the findings list
+ * fewer issues than the row claims; undefined for any other row.
  */
 export function rulingGap(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): string | undefined {
   const binding = rec.review_binding;
@@ -381,7 +382,7 @@ export function rulingGap(rec: Record<string, any>, ruled: ReadonlySet<string>, 
   }
   const isRuled = isRuledBy(ruled, gated);
   const left = rec.findings.filter(f => !isRuled(f) && holdsOpen(f))
-    .map(f => record(f) ? `${f.fingerprint ?? 'unfingerprinted'} (${f.severity ?? 'unknown'}, ${f.action ?? 'no action'})` : 'malformed finding');
+    .map(f => !record(f) ? 'malformed finding' : `${f.fingerprint ?? 'unfingerprinted'} (${f.severity ?? 'unknown'}, ${f.action ?? 'no action'}${f.gate ? `; gate ${f.gate_id ?? 'with no gate_id'} needs a gate disposition, not a ruling` : ''})`);
   if (!left.length) return;
   return `${left.length} finding(s) still need an owner ruling at this head: ${left.slice(0, 10).join('; ')}${left.length > 10 ? `; +${left.length - 10} more` : ''} (a noted or deferred CRITICAL still counts as open)`;
 }
