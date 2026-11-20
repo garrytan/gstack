@@ -703,7 +703,7 @@ describe('format-only repair of a documentation audit line', () => {
   };
   const repair = (quoted: string) => ({ tool: 'Agent', input: { description: 'Repair docs result line', subagent_type: 'general-purpose', run_in_background: false,
     prompt: docsRepairPrompt(quoted, auditId, problemsOf(quoted)) }, output: reply });
-  const result = (repairOf: boolean, printed: string) => ({ tool: 'Bash', input: { command: `${candidate} result ${home}/ship-run2/repair-reply.md --audit-id ${auditId} --out-dir ${home}/ship-run2${repairOf ? ` --repair-of ${output}` : ''}` }, output: printed });
+  const result = (repairOf: boolean, printed: string, id = auditId) => ({ tool: 'Bash', input: { command: `${candidate} result ${home}/ship-run2/repair-reply.md --audit-id ${id} --out-dir ${home}/ship-run2${repairOf ? ` --repair-of ${output}` : ''}` }, output: printed });
   const applied = 'FORMAT_REPAIR: applied (the reply kept every value the repair had to keep)\nDOCS_RESULT: ok status=current files_updated=0';
 
   test('the captured red is the dropped section, and the product classes it as a format-only repair', () => {
@@ -734,6 +734,7 @@ describe('format-only repair of a documentation audit line', () => {
       [...calls, repair(writer), result(true, refused)],
       [...calls, repair(writer), result(false, applied)],
       [...calls, result(true, applied), repair(writer)],
+      [...calls, repair(writer), result(true, applied, 'other-audit')],
     ]) expect(() => docsAttemptContracts(docsAttemptOutputs(repaired, dispatches))).toThrow('completion fields: missing documentation_section');
     const second = [...calls, repair(writer), result(true, applied), calls[dispatches[0]]];
     const indices = docsDispatchIndices(second);

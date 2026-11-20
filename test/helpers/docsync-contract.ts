@@ -116,8 +116,13 @@ export function docsAttemptOutputs(calls: Array<{ tool: string; input: any; outp
     const window = calls.slice(index + 1, dispatches[position + 1] ?? calls.length);
     const repair = window.findLastIndex(call => ['Agent', 'Task'].includes(call.tool) && /<<<AUDIT_OUTPUT/.test(JSON.stringify(call.input)));
     if (repair < 0) return calls[index].output;
-    const applied = window.slice(repair + 1).some(call => call.tool === 'Bash' &&
-      /gstack-docs-candidate result \S+ .*--repair-of /.test(String(call.input?.command)) && /^FORMAT_REPAIR: applied/m.test(call.output));
+    const dispatchInput = JSON.stringify(calls[index].input);
+    const applied = window.slice(repair + 1).some(call => {
+      const command = String(call.input?.command);
+      const auditId = /--audit-id (\S+)/.exec(command)?.[1];
+      return call.tool === 'Bash' && /gstack-docs-candidate result \S+ .*--repair-of /.test(command) && !!auditId &&
+        dispatchInput.includes(auditId) && /^FORMAT_REPAIR: applied/m.test(call.output);
+    });
     return applied ? window[repair].output : calls[index].output;
   });
 }
