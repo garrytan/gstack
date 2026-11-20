@@ -1216,13 +1216,19 @@ const COMMENT_MARKER_BEFORE = /(?:^|[ \t"'`([])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)
  * GST-3297: a name that starts after a `/` can be the start of a regex
  * literal (`content.match(/authtoken:\s*(.+)/)`), whose "value" is pattern
  * text. It is one only when the `/` follows an operator or opening bracket
- * (never a path segment) and the value carries the closing `/`. Matches from
- * the line start or a comment marker never qualify.
+ * (never a path segment) and the body before the closing `/` holds regex
+ * syntax (an escape, a character class, a group or a {n,m} quantifier), so a
+ * Markdown link or a YAML value whose path holds a key=value secret still
+ * reports.
+ * Matches from the line start or a comment marker never qualify.
  */
 const REGEX_LITERAL_OPENER = /(?:[(,=:[!&|?{};]|\breturn)[ \t]*\/$/;
+const REGEX_LITERAL_SYNTAX = /\\|\[[^\]]*\]|\([^)]*\)|\{\d+(?:,\d*)?\}/;
 function isRegexLiteralBody(span: string, match: RegExpExecArray): boolean {
+  const close = span.indexOf("/");
+  if (close < 0 || !REGEX_LITERAL_SYNTAX.test(span.slice(0, close))) return false;
   const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
-  return span.includes("/") && REGEX_LITERAL_OPENER.test(match.input.slice(lineStart, match.index));
+  return REGEX_LITERAL_OPENER.test(match.input.slice(lineStart, match.index));
 }
 function isCommentText(span: string, match: RegExpExecArray): boolean {
   const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;

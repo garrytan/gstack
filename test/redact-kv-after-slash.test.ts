@@ -47,6 +47,10 @@ describe("env.kv after a path separator (GST-3297)", () => {
     ["bracketed path, no closing slash", `(/${kv(TOKEN)})`],
     ["doubled slash in a path", `+..//${kv(PASSWORD)}`],
     ["quoted comment marker with a secret run", `x = "//${kv(TOKEN)}"`],
+    ["YAML value with a later slash", `link: /${kv(API_KEY)}/rest`],
+    ["assignment value with a later slash", `cfg=/db_${kv(PASSWORD)}/x`],
+    ["Markdown link with a later slash", `[cb](/${kv(API_KEY)}/rest)`],
+    ["single-slash URL with a later slash", `file:/${kv(TOKEN)}/x`],
   ];
 
   for (const [name, text] of leaks) {
@@ -112,6 +116,7 @@ describe("env.kv after a path separator (GST-3297)", () => {
     "const re = /token=([A-Za-z0-9]+)/g;",
     `["//     signal_key: 'test-discipline',", "hooks/preference.ts"],`,
     "if (!/api_key=[A-Za-z0-9]{20,}/.test(line)) return;",
+    "return /token=([A-Za-z0-9]{8,})/;",
   ];
 
   for (const text of clean) {
