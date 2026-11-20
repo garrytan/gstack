@@ -205,7 +205,7 @@ describe.skipIf(process.platform === 'win32')('CSO on a repository that tracks s
     expect(snapshot.gaps).toEqual([]);
     expect(symlinkTransformation('host-users', '/etc/passwd')).toContain('"/etc/passwd"');
     expect(symlinkTransformation('escape', '../outside.txt')).toContain('escapes the repository');
-    expect(symlinkTransformation('handbook', 'docs')).toContain('docs inside the repository');
+    expect(symlinkTransformation('handbook', 'docs')).toContain('"docs" inside the repository');
     const retained = runFiles(path.join(dir, 'snapshot')).map((file) => path.relative(path.join(dir, 'snapshot'), file)).sort();
     expect(retained).toEqual(['README.md', 'docs/guide.md', 'web/app.ts']);
     for (const file of runFiles(dir)) {
@@ -460,4 +460,13 @@ describe.skipIf(process.platform === 'win32' || !dockerInstalled)('CSO Docker en
     await expect(admit(`unix://${root}/../${path.basename(root)}/docker.sock`)).rejects.toMatchObject({ code: 'ISOLATION_FAILED' });
     await expect(admit('tcp://127.0.0.1:2375')).rejects.toMatchObject({ code: 'ISOLATION_FAILED' });
   });
+});
+
+test('a symlink transformation never carries an unredacted secret or raw control text from its target (#4540)', () => {
+  const inside = symlinkTransformation('cfg/link', `keys/${CREDENTIAL_CANARY}`),
+    crafted = symlinkTransformation('cfg/link', 'a\nexcluded: fake sentence');
+  expect(inside).not.toContain(CREDENTIAL_CANARY);
+  expect(inside).toContain('inside the repository');
+  expect(crafted).not.toContain('\n');
+  expect(crafted).toContain('"cfg/a\\nexcluded: fake sentence" inside the repository');
 });

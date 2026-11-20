@@ -91,7 +91,7 @@ export function symlinkTransformation(path: string, target: string): string {
       ? 'an absolute path, never resolved'
       : normalized === '..' || normalized.startsWith('../')
         ? 'a relative path that escapes the repository, never resolved'
-        : `resolves lexically to ${normalized === '.' ? 'the repository root' : normalized} inside the repository`;
+        : `resolves lexically to ${normalized === '.' ? 'the repository root' : JSON.stringify(redact(normalized))} inside the repository`;
   return `excluded: symlink to ${JSON.stringify(redact(target))} (${where}); the link is recorded by its target string and never followed, and a target inside the repository is audited only under its own path`;
 }
 export function inAuditPaths(path: string, prefixes: readonly string[]): boolean {
