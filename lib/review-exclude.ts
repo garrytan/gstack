@@ -106,8 +106,18 @@ const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').m
  * `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
  */
 export function secretValueLine(p: string, line: string): boolean {
-  const ends = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => m.index + m[0].length));
-  return ends.length > 0 && (ends.some(e => valueToken(line.slice(e, e + 200))) || scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW'));
+  return secretValueSpans(p, line) !== null;
+}
+/**
+ * Where secretValueLine finds a credential value on a line: for each name a credential-shaped run follows, the name and the
+ * 200 characters the run may start in; [] when only the credential scan finds the value; null when the line holds none.
+ */
+export function secretValueSpans(p: string, line: string): Array<[number, number]> | null {
+  const names = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => [m.index, m.index + m[0].length] as [number, number]));
+  if (!names.length) return null;
+  const valued = names.filter(([, e]) => valueToken(line.slice(e, e + 200)));
+  if (valued.length) return valued.map(([s, e]) => [s, e + 200]);
+  return scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW') ? [] : null;
 }
 /** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
 export const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
@@ -538,7 +548,7 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
   const paths = specs.map(s => s.replace(/^:\(top,literal\)/, ''));
   try {
     if (specs.some(s => !s.startsWith(':(top,literal)'))) throw new Error('an excerpt item is not a literal pathspec');
-    const x = secretExcerpt(out, paths, secretValueLine);
+    const x = secretExcerpt(out, paths, secretValueSpans);
     return { text: x.text, files: x.files, whole: x.whole.map(literal), wholeText: x.wholeText };
   } catch { return { text: '', files: [], whole: [...specs], wholeText: out }; }
 }

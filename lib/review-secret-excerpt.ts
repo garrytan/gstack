@@ -13,9 +13,10 @@
  * captured agent sessions quoting lint pragmas or env checks, harness-evals#494: 25 files, 12.3 MB) gets the same excerpt,
  * plus every changed line lineTags tags, under its own heading that names the tags. Such a file with no tagged line here
  * goes whole, and so does one whose tagged line runs past EXCERPT_LINE_MAX with no idiom span to show. Every changed line
- * the caller's secretLine rule reads as a credential value (lib/review-exclude.ts secretValueLine, the secret-line keep reason)
- * is shown too, so an excerpt never leaves out the line a file was kept for; one past EXCERPT_LINE_MAX with no match to
- * show sends its file whole.
+ * holding a credential value by the caller's secretLine rule (lib/review-exclude.ts secretValueSpans, the secret-line keep
+ * reason) is shown too, with a window around each credential name and the 200 characters its value may start in, so an
+ * excerpt never leaves out the value a file was kept for; a line past EXCERPT_LINE_MAX whose value only the credential scan
+ * finds, and that the scan here does not place, sends its file whole.
  */
 import { lineTags } from './gate-diff/tags';
 import { scan } from './redact-engine';
@@ -62,7 +63,7 @@ function hunkLines(body: readonly string[]): Line[] {
 }
 
 /** Each changed line SECRET_LINE matches, the scanner finds a secret-shaped value (not LOW) on, or lineTags tags or secretLine reads as a credential value (added lines), with the spans to show. */
-function hits(lines: readonly Line[], file: string, secretLine?: (file: string, line: string) => boolean): Map<number, Hit> {
+function hits(lines: readonly Line[], file: string, secretLine?: (file: string, line: string) => Array<[number, number]> | null): Map<number, Hit> {
   const out = new Map<number, Hit>();
   const at = (k: number) => out.get(k) ?? out.set(k, { rule: false, shaped: false, gate: [], spans: [] }).get(k)!;
   const changed = lines.flatMap((l, k) => (l.kind === ' ' ? [] : [k]));
@@ -108,10 +109,13 @@ function hits(lines: readonly Line[], file: string, secretLine?: (file: string, 
     from = back;
   }
   for (const k of changed) {
-    if (lines[k]!.kind !== '+' || !secretLine?.(file, lines[k]!.text)) continue;
+    const spans = lines[k]!.kind === '+' ? secretLine?.(file, lines[k]!.text) : null;
+    if (!spans) continue;
+    const scanned = out.get(k)?.shaped === true;
     const h = at(k);
     h.shaped = true;
-    if (lines[k]!.text.length > EXCERPT_LINE_MAX && !h.spans.length) throw new Error(`a credential line in ${file} has no match to show`);
+    h.spans.push(...spans.map(([a, b]) => [a - EXCERPT_WINDOW, b + EXCERPT_WINDOW] as [number, number]));
+    if (lines[k]!.text.length > EXCERPT_LINE_MAX && !spans.length && !scanned) throw new Error(`a credential line in ${file} has no match to show`);
   }
   return out;
 }
@@ -130,7 +134,7 @@ function shown(text: string, h: Hit | undefined): string {
 }
 
 /** One file's excerpt block and whether gate tags earned it, or null when no added line matches the secret-line rule or carries a gate tag (the reasons the file was kept). */
-function block(file: string, lines: readonly Line[], secretLine?: (file: string, line: string) => boolean): { text: string; gate: boolean } | null {
+function block(file: string, lines: readonly Line[], secretLine?: (file: string, line: string) => Array<[number, number]> | null): { text: string; gate: boolean } | null {
   const found = hits(lines, file, secretLine);
   if (![...found].some(([k, h]) => (h.rule || h.gate.length > 0) && lines[k]!.kind === '+')) return null;
   const rows = [...found.keys()].sort((a, b) => a - b);
@@ -159,7 +163,7 @@ function block(file: string, lines: readonly Line[], secretLine?: (file: string,
  * git quoted, that names no expected path or repeats one, that has no matched added line, or whose hunk header or scanner
  * result cannot be read goes whole, and so does any expected path no section was excerpted for.
  */
-export function secretExcerpt(diff: string, paths: readonly string[], secretLine?: (file: string, line: string) => boolean): SecretExcerpt {
+export function secretExcerpt(diff: string, paths: readonly string[], secretLine?: (file: string, line: string) => Array<[number, number]> | null): SecretExcerpt {
   const want = new Set(paths);
   const unattributed: string[] = [];
   const byFile = new Map<string, { sections: string[]; text: string | null; gate?: boolean }>();

@@ -9,7 +9,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { REVIEW_DIFF_MAX_BYTES, gateScanPaths } from '../lib/review-exclude';
+import { REVIEW_DIFF_MAX_BYTES, gateScanPaths, secretValueLine, secretValueSpans } from '../lib/review-exclude';
+import { secretExcerpt } from '../lib/review-secret-excerpt';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -169,5 +170,30 @@ describe('a credential line in an excerpted file always reaches readers', () => 
       expect({ reader: reader.reader, reaches: whole || shown }).toEqual({ reader: reader.reader, reaches: true });
     }
   }, 300_000);
+});
+
+
+describe('a long credential line keeps its value in the excerpt', () => {
+  const blob = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
+  const diffOf = (file: string, line: string) => [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`, '@@ -1,1 +1,2 @@', ' ok', '+' + line, ''].join('\n');
+  // Value: protects=a credential value on a line past EXCERPT_LINE_MAX reaches readers (or its file goes whole) when another
+  //   match already gave the line a window; fails_when=only the window around a gate tag is shown; why_new=/ship pass 2 on
+  //   #4556 (security reader); seam=secretExcerpt with the predicate excerptOf passes
+  test('a gate tag far from the credential does not hide it', () => {
+    const line = '// eslint-disable-next-line ' + 'x'.repeat(900) + ' GH_TOKEN=' + blob + ' (cred-mark)';
+    expect(secretValueLine('r/a.jsonl', line)).toBe(true);
+    const x = secretExcerpt(diffOf('r/a.jsonl', line), ['r/a.jsonl'], secretValueSpans);
+    expect({ whole: x.whole, shown: x.text.includes(blob) }).toEqual({ whole: [], shown: true });
+  });
+  // Value: protects=a value starting past the name's own 160-character window but inside secretValueLine's 200-character
+  //   lookahead is shown; fails_when=the excerpt shows the name and cuts the value; why_new=/ship pass 2 on #4556 (red team);
+  //   seam=secretExcerpt with the predicate excerptOf passes
+  test('a value past the name window but inside the lookahead is shown', () => {
+    const tok = 'Zq9Lm3Xv7Rt2Bn8Kp4Wd6Hs1Fg5';
+    const line = 'x'.repeat(500) + ' k = process.env.DEMO_API_KEY || "' + 'y '.repeat(80) + tok + '"';
+    expect(secretValueLine('r/a.jsonl', line)).toBe(true);
+    const x = secretExcerpt(diffOf('r/a.jsonl', line), ['r/a.jsonl'], secretValueSpans);
+    expect({ whole: x.whole, shown: x.text.includes(tok) }).toEqual({ whole: [], shown: true });
+  });
 });
 
