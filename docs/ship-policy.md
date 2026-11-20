@@ -1814,6 +1814,15 @@ closed. So a final review or native reader that stopped on findings the owner th
 ruled reads `CURRENT` at the one tree its `incomplete` binding names, while a ruling
 on another branch, at another head, for another finding or by gstack itself
 closes nothing (harness-evals#498).
+A stopped Step 9 row logged with `--findings <file>` carries its findings in that
+file, not on the row, so `gstack-review-read` shows the file's findings on the row
+(`findings_from` names the file) while the file still derives the counts the row
+recorded. A Step 11 native row that lists no findings shows the findings of the
+Step 9 row of the same pass, commit and bound tree, because Step 9 carries Step
+11's queued findings; rulings must then cover every blocker of that pass. A file
+that is missing or changed attaches nothing, and any row that claims issues but
+lists no findings reads `it lists no findings (fcount 0) but claims …` with the
+cause (harness-evals#515, GST-3296).
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier

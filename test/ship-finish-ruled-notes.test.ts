@@ -681,3 +681,100 @@ describe('a stopped review names the findings its rulings leave open (harness-ev
     expect(rowsAt(f)[0].review_freshness.reason).toBe(`${FALLBACK}: 2 finding(s) still need an owner ruling at this head: src/x.ts:1:dup (CRITICAL, deferred); ${gate.fingerprint} (CRITICAL, open; gate g-x3 needs a gate disposition, not a ruling) (a noted or deferred CRITICAL still counts as open)`);
   });
 });
+
+
+// harness-evals#515 (HARN-108, 2026-11-20, 630a9903): round 2 stopped on 9 CRITICALs. The final Step 9 row was logged with
+// `--findings p2/findings.jsonl` (status_source derived, no inline findings) and the in-host native row with no findings at
+// all, so the 12 rulings (9 blockers plus 3 partial fixes from round 1) had nothing to match: both rows read UNVERIFIED with
+// ruled_notes 0 and the bare fallback reason, and no supported command could attach the collected findings.
+const HE515_OPEN = ['scripts/mcp-at-scale/run.ts:383:testing', 'scripts/mcp-at-scale/run.ts:699:state-matrix', 'scripts/mcp-at-scale/run-shard-vm.sh:175:testing',
+  'scripts/mcp-at-scale/analysis/analyze.ts:92:red-team', 'scripts/mcp-at-scale/run-shard-vm.sh:144:red-team', 'scripts/mcp-at-scale/run.ts:812:red-team',
+  'scripts/mcp-at-scale/run-shard-vm.sh:115:money', 'scripts/mcp-at-scale/run-shard-vm.sh:123:money', 'scripts/mcp-at-scale/run.ts:636:money'];
+const HE515_RAISED = ['specialist-batched', 'specialist-batched', 'specialist-batched', 'red-team', 'red-team', 'red-team', 'targeted', 'targeted', 'adversarial-native'];
+const HE515_NOTED = ['scripts/mcp-at-scale/run-shard-vm.sh:73:testing', 'scripts/mcp-at-scale/run-shard-vm.sh:124:data-loss', 'scripts/mcp-at-scale/analysis/interim.ts:137:functional-contract',
+  'scripts/mcp-at-scale/run.ts:380:functional-contract', 'scripts/mcp-at-scale/grade.py:88:functional-contract'];
+const HE515_PARTIAL = ['scripts/mcp-at-scale/run-shard-vm.sh:56:money', 'scripts/mcp-at-scale/run-shard-vm.sh:56:red-team', 'scripts/mcp-at-scale/run-shard-vm.sh:59:gate'];
+const HE515_FINDINGS = [
+  ...HE515_OPEN.map((fingerprint, i) => ({ fingerprint, severity: 'CRITICAL', blocking: true, action: 'open', raised_by: HE515_RAISED[i], locus: 'diff' })),
+  ...HE515_NOTED.map(fingerprint => ({ fingerprint, severity: 'INFORMATIONAL', blocking: false, action: 'noted', raised_by: 'outside-voice', locus: 'diff' })),
+];
+const HE515_STEP9 = { pass: 2, completed: true, converged: false, cycles: 1, critical: 9, informational: 5 };
+const HE515_NATIVE = { pass: 2, source: 'in-host', host: 'capy', phase: 'adversarial', gate: 'issues_found', status: 'issues_found', completed: true, converged: false,
+  outside_provider: 'host-subagent', outside_status: 'completed' };
+function he515(findings: Record<string, unknown>[] = HE515_FINDINGS, step9: Record<string, unknown> = {}) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+  ships.push(f);
+  const file = path.join(path.dirname(f.state), 'p2-findings.jsonl');
+  fs.writeFileSync(file, findings.map(x => JSON.stringify(x)).join('\n') + '\n');
+  const range_base = f.git('merge-base', 'main', 'HEAD').stdout.trim();
+  const start = run(f, 'gstack-review-log', ['--start', 'review']);
+  expect(start.status, start.stderr).toBe(0);
+  const logged = run(f, 'gstack-review-log', [JSON.stringify({ skill: 'review', timestamp: '2026-11-20T16:57:40Z', via: 'ship', review_scope: 'frozen', range_base, ...HE515_STEP9, ...step9 }), '--finish', start.stdout.trim(), '--findings', file]);
+  expect(logged.status, logged.stderr).toBe(0);
+  logRow(f, 'adversarial-review', HE515_NATIVE);
+  return { f, file, head: f.git('rev-parse', 'HEAD').stdout.trim() };
+}
+const he515Rows = (f: ShipFx) => ['review', 'adversarial-review'].map(s => readRow(f, s));
+const ruleAll = (f: ShipFx, head: string, fps: string[]) => fps.map(x => { const r = rule(f, x, head, 'HARN-1, 2026-11-20'); expect(r.status, r.stderr).toBe(0); return JSON.parse(r.stdout).added[0] as string; });
+
+// Value: protects=harness-evals#515: the owner's rulings close a stopped Step 9 row whose findings live in its --findings file
+//   and the native row that lists none, and only when every blocker of that pass is ruled; fails_when=either row stays
+//   UNVERIFIED after all 9 rulings, reads CURRENT with a blocker unruled, a noted CRITICAL clears unruled, a completed:false
+//   row clears, a changed findings file still binds, or a findings-less row's reason does not say it lists no findings;
+//   seam=gstack-review-log --findings, gstack-approvals rule and gstack-review-read on the stored rows; no_claim=finish's
+//   fix-check chain and the receipt write
+describe('rulings close a stopped review whose findings are in its findings file (harness-evals#515, GST-3296)', () => {
+  test('#515: both rows read UNVERIFIED with no ruling, then CURRENT on the tree they read once the 9 blockers are ruled', () => {
+    const { f, head } = he515();
+    const before = he515Rows(f);
+    expect(before.map(r => [r.review_freshness.status, r.review_binding.state, r.status_source])).toEqual([['UNVERIFIED', 'incomplete', 'derived'], ['UNVERIFIED', 'incomplete', 'claimed']]);
+    expect(before[0].review_freshness.reason).toStartWith(`${FALLBACK}: 9 finding(s) still need an owner ruling at this head: ${HE515_OPEN[0]} (CRITICAL, open)`);
+    const approvals = ruleAll(f, head, [...HE515_OPEN, ...HE515_PARTIAL]);
+    const [review, native] = he515Rows(f);
+    expect([review.review_freshness, native.review_freshness]).toEqual(Array(2).fill({ status: 'CURRENT', reason: 'completed clean pass on unchanged content' }));
+    expect([review.ruled_notes, native.ruled_notes]).toEqual([approvals.slice(0, 9), approvals.slice(0, 9)]);
+    expect([review.findings.length, native.findings.length, native.findings_from]).toEqual([14, 14, `the pass 2 review row (${review.findings_file})`]);
+    expect(review.review_binding.start_wtree).toBe(native.review_binding.end_wtree);
+  });
+
+  test('one blocker left unruled keeps both rows UNVERIFIED and names it', () => {
+    const { f, head } = he515();
+    ruleAll(f, head, HE515_OPEN.slice(0, 8));
+    const left = `${FALLBACK}: 1 finding(s) still need an owner ruling at this head: ${HE515_OPEN[8]} (CRITICAL, open) (a noted or deferred CRITICAL still counts as open)`;
+    expect(he515Rows(f).map(r => r.review_freshness)).toEqual(Array(2).fill({ status: 'UNVERIFIED', reason: left }));
+  });
+
+  test('a noted CRITICAL in the findings file still needs its own ruling', () => {
+    const dup = { fingerprint: 'scripts/mcp-at-scale/run.ts:637:money', severity: 'CRITICAL', blocking: false, action: 'noted', raised_by: 'adversarial-native', locus: 'diff' };
+    const { f, head } = he515([...HE515_FINDINGS, dup]);
+    ruleAll(f, head, HE515_OPEN);
+    expect(he515Rows(f)[0].review_freshness.reason).toBe(`${FALLBACK}: 1 finding(s) still need an owner ruling at this head: ${dup.fingerprint} (CRITICAL, noted) (a noted or deferred CRITICAL still counts as open)`);
+  });
+
+  test('a pass that did not complete stays UNVERIFIED after every ruling', () => {
+    const { f, head } = he515(HE515_FINDINGS, { completed: false });
+    ruleAll(f, head, HE515_OPEN);
+    expect(he515Rows(f)[0].review_freshness).toEqual({ status: 'UNVERIFIED', reason: FALLBACK });
+  });
+
+  test('a findings file changed after logging binds nothing, and both reasons say the rows list no findings', () => {
+    const { f, file, head } = he515();
+    fs.writeFileSync(file, HE515_FINDINGS.slice(1).map(x => JSON.stringify(x)).join('\n') + '\n');
+    ruleAll(f, head, HE515_OPEN);
+    const [review, native] = he515Rows(f);
+    const unread = `its findings file ${file} no longer holds what the row recorded (8 open of 13 now, 9 of 14 logged)`;
+    expect([review.ruled_notes, review.findings, native.findings]).toEqual([undefined, undefined, undefined]);
+    expect([review.review_freshness.reason, native.review_freshness.reason]).toEqual([
+      `${FALLBACK}: it lists no findings (fcount 0) but claims 14 issue(s) and 9 CRITICAL, so no ruling can match it: ${unread}`,
+      `${FALLBACK}: it lists no findings (fcount 0) but claims unspecified issue(s) and unspecified CRITICAL, so no ruling can match it: the pass 2 review row's findings are unavailable: ${unread}`,
+    ]);
+  });
+
+  test('a claimed row that lists no findings says so', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    logRow(f, 'review', { ...HE515_STEP9, status: 'issues_found', issues_found: 14 });
+    expect(rowsAt(f)[0].review_freshness.reason).toBe(`${FALLBACK}: it lists no findings (fcount 0) but claims 14 issue(s) and 9 CRITICAL, so no ruling can match it: its findings were logged neither inline nor with --findings`);
+  });
+});
+
