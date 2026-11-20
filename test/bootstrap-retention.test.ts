@@ -126,6 +126,31 @@ describe.skipIf(process.platform !== 'linux')('bootstrap attempt retention bound
     expect(() => process.kill(child.pid!, 0)).not.toThrow();
   });
 
+  // Value: protects=scope creation survives a same-uid process that denies its fd table and exits mid-census (the
+  //   flaky free test on 2026-11-20); fails_when=that denial throws again or the exited process is recorded as
+  //   uninspectable; why_new=only live denials were covered; seam=fs.readdirSync and fs.readFileSync on that pid's /proc
+  test('scope creation skips an owned process that exits after denying its fd table', () => {
+    const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+    children.push(child);
+    const realDir = fs.readdirSync;
+    const realFile = fs.readFileSync;
+    let stats = 0;
+    const dir = spyOn(fs, 'readdirSync').mockImplementation(((file: any, ...args: any[]) => {
+      if (file === `/proc/${child.pid}/fd`) throw Object.assign(new Error('fd table denied'), { code: 'EACCES' });
+      return (realDir as any)(file, ...args);
+    }) as any);
+    const read = spyOn(fs, 'readFileSync').mockImplementation(((file: any, ...args: any[]) => {
+      if (file === `/proc/${child.pid}/stat` && ++stats > 1) throw Object.assign(new Error('exited'), { code: 'ENOENT' });
+      return (realFile as any)(file, ...args);
+    }) as any);
+    try {
+      const { scope } = fixture();
+      const census = JSON.parse(Object.values(scope.env)[0]!);
+      expect(stats).toBe(2);
+      expect(census.uninspectable.some((native: any) => native.pid === child.pid)).toBe(false);
+    } finally { dir.mockRestore(); read.mockRestore(); }
+  });
+
   test.each(['new process', 'new denial', 'different lifetime'])('%s cannot inherit an unrelated process census exclusion', async scenario => {
     const child = scenario === 'new process' ? undefined : await censusProcess(scenario === 'different lifetime'
       ? 'dumpable(0);'
