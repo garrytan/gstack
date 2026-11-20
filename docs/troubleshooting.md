@@ -1633,7 +1633,7 @@ or too large. Each message names the cap that applied:
 - **Special files.** A nonignored FIFO, socket or device inside the audit
   scope (the whole repository, or the `--paths` directories) stops the run.
   Symlinks do not: since the first release after v1.102.0.0 (#4540), each
-  tracked or nonignored symlink is listed in the report with its target string
+  tracked or nonignored symlink is listed in the report with its target string, or notes that the target was withheld when it matches a secret pattern
   and is never followed, so a link to `/etc/passwd` or out through `..` is
   reported, not read.
 
