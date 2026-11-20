@@ -19,7 +19,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const MAIN_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const FILES = {
-  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: ['trunk-dynamic-ci', 'trunk-flaky-tests', 'docs-scope', 'docs-lane'], observer: 'trunk-dynamic-ci', uploader: 'trunk-flaky-tests', manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true, docsScope: true, skip: "steps.route.outputs.skip != 'true'" },
+  'free-tests.yml': { aggregate: 'free-tests', profile: 'ci-reuse/free-tests', plan: 'free-plan', exempt: ['trunk-dynamic-ci', 'trunk-flaky-tests', 'docs-scope', 'docs-lane', 'free-plan'], observer: 'trunk-dynamic-ci', uploader: 'trunk-flaky-tests', manual: false, reuseIf: `(${MAIN_PUSH}) || github.event_name == 'pull_request'`, pullRequest: true, docsScope: true, skip: "steps.route.outputs.skip != 'true'" },
   'windows-free-tests.yml': { aggregate: 'windows-free-tests', profile: 'ci-reuse/windows-free-tests', plan: 'windows-plan', exempt: ['windows-record-durations'], observer: null, uploader: null, manual: true, reuseIf: MAIN_PUSH, pullRequest: false, docsScope: false, skip: "steps.route.outputs.reused != 'true'" },
 };
 const PROFILES = JSON.parse(read('.gstack/pregate.json')).run_profiles as Record<string, { workflow: string; jobs: string[]; artifact: string; events: string[]; os: string }>;
@@ -166,6 +166,29 @@ for (const [file, spec] of Object.entries(FILES)) {
     });
   });
 }
+
+test('free-tests.yml plans beside reuse and docs-scope, and every job that reads the plan still waits for both and skips on a reuse or a docs-only pull request (GST-3303)', () => {
+  const jobs = (Bun.YAML.parse(read('.github/workflows/free-tests.yml')) as any).jobs as Record<string, any>;
+  expect([jobs['free-plan'].needs, jobs['free-plan'].if]).toEqual([undefined, undefined]);
+  const readers = Object.keys(jobs).filter(n => n !== 'free-tests' && JSON.stringify(jobs[n]).includes('needs.free-plan'));
+  expect(readers).toEqual(['free-suite']);
+  for (const name of readers) {
+    expect([name, [jobs[name].needs].flat()]).toEqual([name, expect.arrayContaining(['free-plan', 'reuse', 'docs-scope'])]);
+    expect(runs(jobs[name].if, { result: 'success', reused: 'true' })).toBe(false);
+    expect(runs(jobs[name].if, { result: 'skipped', reused: '', docsScope: 'success', docsOnly: 'true' })).toBe(false);
+    expect(runs(jobs[name].if, { result: 'skipped', reused: '', plan: 'failure' })).toBe(false);
+    expect(runs(jobs[name].if, { result: 'success', reused: 'false', docsScope: 'success', docsOnly: 'false' })).toBe(true);
+  }
+});
+
+test('every skippable job in the ci-reuse/free-tests profile skips on a docs-only pull request, so a docs-only run still carries as not owed (GST-3303)', () => {
+  const jobs = (Bun.YAML.parse(read('.github/workflows/free-tests.yml')) as any).jobs as Record<string, any>;
+  const skippable = (JSON.parse(read('.gstack/pregate.json')).run_profiles['ci-reuse/free-tests'].skippable.jobs) as string[];
+  for (const name of skippable) {
+    expect([name, [jobs[name].needs].flat()]).toEqual([name, expect.arrayContaining(['docs-scope'])]);
+    expect([name, String(jobs[name].if ?? '')]).toEqual([name, expect.stringContaining("needs.docs-scope.outputs.docs_only == 'true'")]);
+  }
+});
 
 test('every workflow that calls one of these grants the calling job actions: read, which the reuse job needs even when it is skipped', () => {
   const dir = path.join(ROOT, '.github/workflows');

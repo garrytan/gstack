@@ -292,7 +292,7 @@ export function collectHealth(inputs: HealthInputs): HealthReport {
   metrics.push(...censusMetrics(inputs, artifactDirs));
 
   const flakes = attempt(() => readCiFlakeLedgers({ client, repo, sinceDays, now, cacheDir }));
-  metrics.push(metric('free-flaky-pass-rate', 'Free-suite flaky-pass rate', 'share of main free-tests runs (success or failure) with at least one flaky-pass ledger entry; per-file rate = runs with that file / runs; a main push that reused its pull request\'s run (no artifacts, `reuse` job green) is left out', () => {
+  metrics.push(metric('free-flaky-pass-rate', 'Free-suite flaky-pass rate', 'share of main free-tests runs (success or failure) with at least one flaky-pass ledger entry; per-file rate = runs with that file / runs; a main push that reused its pull request\'s run (no shard artifacts, `reuse` job green) is left out', () => {
     const window = need(flakes);
     return { value: `${pct(window.runs ? window.flakyRuns / window.runs : 0)} (${window.flakyRuns}/${window.runs} main runs since ${window.since.slice(0, 10)} needed the retry pass; ${window.files.length} file(s)${flakeWindowNotes(window)})`,
       detail: window.files.slice(0, 15).map(file => `${file.file}: ${file.flakyRuns}/${window.runs} runs (${pct(file.rate)})${file.failing ? ' FAIL > 5%' : ''}`) };

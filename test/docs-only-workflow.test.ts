@@ -35,7 +35,7 @@ describe('docs-scope', () => {
 });
 
 describe('free-tests', () => {
-  const suites = ['free-plan', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration'];
+  const suites = ['free-suite', 'typecheck', 'quick-bun-default', 'cso-macos-launcher', 'macos-named-regressions', 'cso-windows-launcher', 'cso-docker-integration'];
   test('every suite job skips only when docs-scope succeeded and said docs-only', () => {
     for (const name of suites) {
       expect([name, needs(free[name])]).toEqual([name, expect.arrayContaining(['reuse', 'docs-scope'])]);

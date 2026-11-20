@@ -267,10 +267,11 @@ export const REUSE_LOOKUPS_MAX = 40;
 
 /**
  * Finds runs that reused their merged pull request's verified run (#3709): such
- * a run uploads no artifact and its `reuse` job succeeds, because every suite
+ * a run uploads no artifact but the planner's `free-plan` (the planner runs
+ * beside `reuse`, GST-3303) and its `reuse` job succeeds, because every suite
  * job was skipped. It holds no flake evidence, so flake counts leave it out of
- * their runs and their denominator (#3725). A run with any artifact costs no
- * call. A run with none costs one job listing, at most REUSE_LOOKUPS_MAX per
+ * their runs and their denominator (#3725). A run with any other artifact costs
+ * no call. A run with none costs one job listing, at most REUSE_LOOKUPS_MAX per
  * checker; past the cap, or when the listing fails, the run counts as it did
  * before #3725 and note() says so.
  */
@@ -280,7 +281,7 @@ export function reuseChecker(client: GhClient, repo: string) {
   let reason = '';
   return {
     reused(run: Pick<CiRun, 'id' | 'attempt'>, artifactNames: string[]): boolean {
-      if (artifactNames.length) return false;
+      if (artifactNames.some(name => name !== 'free-plan')) return false;
       if (lookups >= REUSE_LOOKUPS_MAX) { unchecked++; reason ||= `cap of ${REUSE_LOOKUPS_MAX} job listings reached`; return false; }
       lookups++;
       try {
@@ -288,7 +289,7 @@ export function reuseChecker(client: GhClient, repo: string) {
       } catch (error) { unchecked++; reason ||= unavailableReason(error); return false; }
     },
     note: (): string | undefined => (unchecked
-      ? `${unchecked} run(s) with no artifacts not checked for main-push reuse (${reason}); counted as before #3725` : undefined),
+      ? `${unchecked} run(s) with no shard artifacts not checked for main-push reuse (${reason}); counted as before #3725` : undefined),
   };
 }
 
