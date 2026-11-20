@@ -10,7 +10,7 @@
  * lane that needs the exception cannot write it for itself.
  */
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
-import { GSTACK_ACTOR } from './ruled-notes';
+import { isGstackActor } from './ruled-notes';
 
 export interface TestLaneException { head: string; files: string[]; by: string; reason: string; at: string; approval: string }
 /** What the ledger's CI row and the receipt's ci_carried entry keep: the grant plus the preflight that backed it. */
@@ -28,7 +28,7 @@ export function testLaneExceptions(rows: readonly ApprovalRow[]): TestLaneExcept
   const byGrant = new Map<string, TestLaneException>();
   for (const r of rows) {
     const scope = SCOPE.exec(r.scope), ask = ASK.exec(r.ask);
-    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || GSTACK_ACTOR.test(r.by)) continue;
+    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || isGstackActor(r.by)) continue;
     const files = scope[2]!.split(',').filter(Boolean).sort(), key = `${scope[1]} ${files.join(',')}`;
     byGrant.delete(key);
     byGrant.set(key, { head: scope[1]!, files, by: r.by, reason: ask[3]!, at: r.recorded_at, approval: r.id });

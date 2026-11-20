@@ -192,6 +192,16 @@ const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
 const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?\d{14}$/;
 
 /**
+ * A fix-check round grant's scope as gstack-approvals round-grant writes it (lib/review-round-grant.ts): its stop= token is the
+ * /ship run id, often a PR number, a dash and a short sha (`507-7192673`), which pii.phone.e164 reads as a phone number
+ * (harness-evals #507). Only a phone finding that starts inside that token of the scope field is skipped; the reason, the words
+ * and every other field, a grant-shaped excerpt pasted into them included, are scanned as usual.
+ */
+const GRANT_STOP_SCOPE = /^review_round_grant [0-9a-f]{40} pr=[1-9]\d* kind=fix-check stop=([\w.:-]{1,120}) findings=\S+$/;
+/** A rendered table row whose Covers cell, the one before Still pending, is a whole GRANT_STOP_SCOPE. */
+const GRANT_STOP_ROW = /^\| .* \| (review_round_grant [0-9a-f]{40} pr=[1-9]\d* kind=fix-check stop=)([\w.:-]{1,120}) findings=[^\s|]+ \| (?:[^|\\]|\\.)* \|$/d;
+
+/**
  * Validate and secret-scan one row; the error names the field and rule, never the text. `runId` (import only) is a
  * minted autoplan run id and the offset where the importer placed it in each field: pii.phone.e164 and pii.cc read its
  * stamp, alone or with the thread-code digits of the directory name before it, as a phone or card number (GST-2047), so
@@ -214,7 +224,10 @@ export function buildRow(input: NewRow, branch: string, now = new Date(), runId?
     const at = runId && MINTED_RUN_ID.test(runId.id) ? runId.at[k as 'ask' | 'source'] : undefined;
     const stamp = at === undefined ? 0 : RUN_ID_STAMP.exec(runId!.id)![0].length;
     const inRunId = (f: Finding) => at !== undefined && (f.id === 'pii.phone.e164' || f.id === 'pii.cc') && f.line === 1 && f.col - 1 >= at + runId!.id.length - stamp && f.col - 1 < at + runId!.id.length;
-    const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f));
+    const stop = k === 'scope' ? GRANT_STOP_SCOPE.exec(v) : null;
+    const stopAt = stop ? v.indexOf(' stop=') + ' stop='.length : -1;
+    const inStopRun = (f: Finding) => !!stop && f.id === 'pii.phone.e164' && f.line === 1 && f.col - 1 >= stopAt && f.col - 1 < stopAt + stop[1]!.length;
+    const hits = s.findings.filter(f => (f.severity === 'HIGH' || f.severity === 'MEDIUM') && !inRunId(f) && !inStopRun(f));
     if (s.oversize || hits.length) return { code: 'APPROVAL_RECORD_SECRET', message: `field ${k}: ${s.oversize ? 'oversize input' : [...new Set(hits.map(f => f.id))].join(', ')}` };
   }
   const id = 'a-' + createHash('sha256').update([fields.source, date, fields.ask, fields.words, fields.by].join('\u0000')).digest('hex').slice(0, 12);
@@ -350,6 +363,30 @@ export function renderRecord(read: ReadResult, loc: StoreLocation, o: { heading?
     lines.push(`| ${r.date} | ${cell(pathLabels(r.ask))} | “${cell(r.words, 280)}” (${cell(r.by)}) | ${outcome} | ${cell(pathLabels(r.scope))} | ${cell(pathLabels(r.pending))} |`);
   }
   return [...head, ...lines, '', `Source: gstack-approvals record for ${cell(loc.branch)} ${APPROVALS_FOOTER_END}`, ''].join('\n');
+}
+
+/**
+ * Where a rendered Approvals table shows a fix-check grant's stop= run id (GST-3246): the 1-based line and column span of that token in
+ * each row whose Covers cell is a whole GRANT_STOP_SCOPE, inside a table that opens with APPROVALS_TABLE_HEADER and its rule line and
+ * closes on renderRecord's Source footer. gstack-post skips a pii.phone.e164 finding only inside such a span, so the same digits in any
+ * other cell, in prose or in a table without that footer still report.
+ */
+export function approvalsGrantStopSpans(text: string): Array<{ line: number; from: number; to: number }> {
+  const lines = text.split('\n');
+  const spans: Array<{ line: number; from: number; to: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== APPROVALS_TABLE_HEADER || lines[i + 1] !== '|---|---|---|---|---|---|') continue;
+    let end = i + 2;
+    while (end < lines.length && lines[end]!.startsWith('| ')) end++;
+    const footer = lines[end + 1] ?? '';
+    if (lines[end] !== '' || !footer.startsWith('Source: gstack-approvals record for ') || !footer.endsWith(APPROVALS_FOOTER_END)) continue;
+    for (let j = i + 2; j < end; j++) {
+      const m = GRANT_STOP_ROW.exec(lines[j]!);
+      if (m) spans.push({ line: j + 1, from: m.indices![2]![0] + 1, to: m.indices![2]![1] });
+    }
+    i = end + 1;
+  }
+  return spans;
 }
 
 interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;

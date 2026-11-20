@@ -16,10 +16,17 @@ export interface RuledNote { finding: string; head: string; by: string; reason: 
 const SCOPE = /^ruled_note (\S+) ([0-9a-f]{40})$/;
 const ASK = /^ruled_note (\S+) at ([0-9a-f]{40}): (\S(?:.*\S)?)$/;
 /** A ruler gstack names for itself (the no-stop default's `gstack no-stop default (K1)`) is no owner. */
-export const GSTACK_ACTOR = /^gstack\b/i;
+const GSTACK_ACTOR = /^gstack\b/i;
+/**
+ * A crew named after gstack, in its brand capitals with a capitalised word after it (`GStack Minder (GSTA-36)`), is a person's
+ * crew: GSTACK_ACTOR's prefix match refused it as --by on every owner record. gstack writes each name of its own in lower case
+ * (GSTACK_ACTOR_NAMES, bin/gstack-no-stop), so this exemption on top of the catch admits none of them.
+ */
+const GSTACK_NAMED_CREW = /^GStack [A-Z]/;
 /** The names gstack itself writes as `by`, matched whole: `gstack-evals Captain` or `GStack Minder` is a person's crew, not gstack. */
 export const GSTACK_ACTOR_NAMES: readonly string[] = ['gstack', 'gstack no-stop default (K1)'];
 export const isGstackActorName = (by: string) => GSTACK_ACTOR_NAMES.some(n => n.toLowerCase() === by.trim().toLowerCase());
+export const isGstackActor = (by: string) => GSTACK_ACTOR.test(by.trim()) && !(GSTACK_NAMED_CREW.test(by.trim()) && !isGstackActorName(by));
 export const RULED_NOTE_SCOPE = /^\s*ruled_note\b/;
 
 export const ruledNoteRow = (finding: string, head: string, reason: string) => ({ scope: `ruled_note ${finding} ${head}`, ask: `ruled_note ${finding} at ${head}: ${reason}` });
@@ -34,7 +41,7 @@ export function ruledNotes(rows: readonly ApprovalRow[]): RuledNote[] {
   const byFinding = new Map<string, RuledNote>();
   for (const r of rows) {
     const scope = SCOPE.exec(r.scope), ask = ASK.exec(r.ask);
-    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || GSTACK_ACTOR.test(r.by)) continue;
+    if (r.outcome !== 'approved' || !scope || !ask || ask[1] !== scope[1] || ask[2] !== scope[2] || isGstackActor(r.by)) continue;
     const finding = scope[1]!, head = scope[2]!, key = `${finding} ${head}`;
     byFinding.delete(key);
     const source = r.source.split(' ');

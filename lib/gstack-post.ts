@@ -42,6 +42,7 @@ import { canonicalRemote } from "./remote-identity";
 import { parseChangelog } from "./changelog-check";
 import { versionWidth } from "./version-source";
 import { securityFingerprints } from "./security-findings";
+import { approvalsGrantStopSpans } from "./approval-record";
 
 export const OPS = ["pr-comment", "issue-comment", "reply", "pr-title", "pr-body", "pr-create", "issue-create", "fold"] as const;
 export type Op = (typeof OPS)[number];
@@ -635,7 +636,7 @@ function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail:
   for (const [part, text] of parts) {
     const result = scan(text, { repoVisibility: vis, allowlist, ...(selfEmail ? { selfEmail } : {}) });
     oversize ||= result.oversize;
-    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? receiptIdSpans(text) : [];
+    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? [...receiptIdSpans(text), ...approvalsGrantStopSpans(text)] : [];
     for (const finding of result.findings) {
       if (finding.id === "pii.phone.e164" && runIds.some(s => s.line === finding.line && s.from <= finding.col && finding.col <= s.to)) continue;
       found.push({ part, finding });
