@@ -146,3 +146,28 @@ describe('gateScanPaths', () => {
     expect([...g.content]).toEqual(['r/a.jsonl']);
   });
 });
+
+describe('a credential line in an excerpted file always reaches readers', () => {
+  // Value: protects=a kept file whose changed lines carry a credential value (secretValueLine: a key name given a
+  //   credential-shaped run, with no SECRET_LINE or scanner match) never reaches readers as an excerpt without that line;
+  //   fails_when=the gate-tagged excerpt shows only the tagged lines and drops the credential line, which before GST-3273
+  //   sent the file whole; why_new=/ship review of #4556 (security reader, reproduced); seam=gstack-review-dispatch pass on a
+  //   real repository; no_claim=credential lines in files kept for another reason
+  test('a gate-tagged session with a credential line shows that line or goes whole', () => {
+    const blob = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
+    const file = `${TRIALS}/t0/session.jsonl`;
+    const lines = session(0).text.split('\n');
+    lines[500] = JSON.stringify({ role: 'tool', content: `GH_TOKEN=${blob} (cred-mark-t0)` });
+    const repo = branch({ [file]: lines.join('\n'), [`${TRIALS}/t0/summary.json`]: '{"trial": 0}\n' });
+    const { r, m } = pass(repo);
+    expect(r.status).toBe(EXIT.ok);
+    const readers = m.readers.filter((x: any) => !x.prompt_file);
+    expect(readers.length).toBeGreaterThan(0);
+    for (const reader of readers) {
+      const whole = (reader.keep ?? []).includes(lit(file));
+      const shown = reader.excerpt_file ? fs.readFileSync(reader.excerpt_file.file, 'utf8').includes('cred-mark-t0') : false;
+      expect({ reader: reader.reader, reaches: whole || shown }).toEqual({ reader: reader.reader, reaches: true });
+    }
+  }, 300_000);
+});
+

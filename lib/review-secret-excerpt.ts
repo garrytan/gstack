@@ -12,7 +12,10 @@
  * A data file kept only because the gate scan tagged its lines by content (lib/review-exclude.ts gateScanPaths, GST-3273:
  * captured agent sessions quoting lint pragmas or env checks, harness-evals#494: 25 files, 12.3 MB) gets the same excerpt,
  * plus every changed line lineTags tags, under its own heading that names the tags. Such a file with no tagged line here
- * goes whole, and so does one whose tagged line runs past EXCERPT_LINE_MAX with no idiom span to show.
+ * goes whole, and so does one whose tagged line runs past EXCERPT_LINE_MAX with no idiom span to show. Every changed line
+ * the caller's secretLine rule reads as a credential value (lib/review-exclude.ts secretValueLine, the secret-line keep reason)
+ * is shown too, so an excerpt never leaves out the line a file was kept for; one past EXCERPT_LINE_MAX with no match to
+ * show sends its file whole.
  */
 import { lineTags } from './gate-diff/tags';
 import { scan } from './redact-engine';
@@ -58,8 +61,8 @@ function hunkLines(body: readonly string[]): Line[] {
   return out;
 }
 
-/** Each changed line SECRET_LINE matches, the scanner finds a secret-shaped value (not LOW) on, or lineTags tags (added lines), with the spans to show. */
-function hits(lines: readonly Line[], file: string): Map<number, Hit> {
+/** Each changed line SECRET_LINE matches, the scanner finds a secret-shaped value (not LOW) on, or lineTags tags or secretLine reads as a credential value (added lines), with the spans to show. */
+function hits(lines: readonly Line[], file: string, secretLine?: (file: string, line: string) => boolean): Map<number, Hit> {
   const out = new Map<number, Hit>();
   const at = (k: number) => out.get(k) ?? out.set(k, { rule: false, shaped: false, gate: [], spans: [] }).get(k)!;
   const changed = lines.flatMap((l, k) => (l.kind === ' ' ? [] : [k]));
@@ -104,6 +107,12 @@ function hits(lines: readonly Line[], file: string): Map<number, Hit> {
     while (back - 1 > from && overlap < SCAN_OVERLAP_BYTES) overlap += size(--back);
     from = back;
   }
+  for (const k of changed) {
+    if (lines[k]!.kind !== '+' || !secretLine?.(file, lines[k]!.text)) continue;
+    const h = at(k);
+    h.shaped = true;
+    if (lines[k]!.text.length > EXCERPT_LINE_MAX && !h.spans.length) throw new Error(`a credential line in ${file} has no match to show`);
+  }
   return out;
 }
 
@@ -121,8 +130,8 @@ function shown(text: string, h: Hit | undefined): string {
 }
 
 /** One file's excerpt block and whether gate tags earned it, or null when no added line matches the secret-line rule or carries a gate tag (the reasons the file was kept). */
-function block(file: string, lines: readonly Line[]): { text: string; gate: boolean } | null {
-  const found = hits(lines, file);
+function block(file: string, lines: readonly Line[], secretLine?: (file: string, line: string) => boolean): { text: string; gate: boolean } | null {
+  const found = hits(lines, file, secretLine);
   if (![...found].some(([k, h]) => (h.rule || h.gate.length > 0) && lines[k]!.kind === '+')) return null;
   const rows = [...found.keys()].sort((a, b) => a - b);
   const windows: Array<[number, number]> = [];
@@ -150,7 +159,7 @@ function block(file: string, lines: readonly Line[]): { text: string; gate: bool
  * git quoted, that names no expected path or repeats one, that has no matched added line, or whose hunk header or scanner
  * result cannot be read goes whole, and so does any expected path no section was excerpted for.
  */
-export function secretExcerpt(diff: string, paths: readonly string[]): SecretExcerpt {
+export function secretExcerpt(diff: string, paths: readonly string[], secretLine?: (file: string, line: string) => boolean): SecretExcerpt {
   const want = new Set(paths);
   const unattributed: string[] = [];
   const byFile = new Map<string, { sections: string[]; text: string | null; gate?: boolean }>();
@@ -162,7 +171,7 @@ export function secretExcerpt(diff: string, paths: readonly string[]): SecretExc
     const prior = byFile.get(file);
     if (prior) { prior.sections.push(section); prior.text = null; continue; }
     let b: { text: string; gate: boolean } | null = null;
-    try { b = h < 0 ? null : block(file, hunkLines(lines.slice(h))); } catch { b = null; }
+    try { b = h < 0 ? null : block(file, hunkLines(lines.slice(h)), secretLine); } catch { b = null; }
     byFile.set(file, { sections: [section], text: b?.text ?? null, gate: b?.gate });
   }
   const files = paths.flatMap(p => { const text = byFile.get(p)?.text; return text ? [{ path: p, text }] : []; });

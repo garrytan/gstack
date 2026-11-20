@@ -538,7 +538,7 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
   const paths = specs.map(s => s.replace(/^:\(top,literal\)/, ''));
   try {
     if (specs.some(s => !s.startsWith(':(top,literal)'))) throw new Error('an excerpt item is not a literal pathspec');
-    const x = secretExcerpt(out, paths);
+    const x = secretExcerpt(out, paths, secretValueLine);
     return { text: x.text, files: x.files, whole: x.whole.map(literal), wholeText: x.wholeText };
   } catch { return { text: '', files: [], whole: [...specs], wholeText: out }; }
 }
