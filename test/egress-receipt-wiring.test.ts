@@ -179,6 +179,8 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'served-page JS talking to its own loopback server (relative ./api fetch)',
   'crew/scripts/gate-cost-replay.ts':
     'developer-invoked read-only measurement (GSTA-49 T0): git fetch of gstack\'s own origin by SHA (old PR heads and tested merge commits) so past PR gates can be replayed; a download only, no gstack or user state leaves the machine',
+  'scripts/windows-held-install-fixture.sh':
+    'CI-only fixture for the Windows Setup E2E held-install jobs: fetches one pinned release commit of gstack\'s own public repo from the workflow checkout\'s origin (a download only) and pushes to a bare repo under $RUNNER_TEMP; never runs on a user machine, and no gstack or user state leaves the runner',
   'scripts/ubicloud':
     'developer-invoked test infrastructure: Ubicloud API calls (VM create/show/destroy) with the developer\'s own token, the checkout streamed over SSH to that developer\'s own ephemeral VM, and toolchain downloads run on the VM; no installed-gstack user state is sent',
   // Skill prose templates: these render agent-executed instructions (the

@@ -5,6 +5,7 @@
 # trial form, and $RUNNER_TEMP/held/lib.sh, which every held-install step sources.
 # Run from the checkout root on the Windows runner (Git Bash).
 set -euo pipefail
+BASH_COMPAT=50
 OLD_RELEASE=47d639abffa882b8cbb641d7d1dedf08ecada9ec # v1.91.101.0
 T="$RUNNER_TEMP/held"
 rm -rf "$T" && mkdir -p "$T"
