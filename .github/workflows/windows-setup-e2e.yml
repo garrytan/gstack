@@ -51,6 +51,7 @@ on:
       - 'scripts/build-cso.sh'
       - 'scripts/build-cso-windows.ps1'
       - 'scripts/write-version-files.sh'
+      - 'scripts/windows-held-install-fixture.sh'
       - 'setup'
       - 'setup.ps1'
       - 'test/setup-ps1.test.ts'
@@ -120,7 +121,7 @@ jobs:
     env:
       TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
     steps:
-      - name: Record Trunk's verdicts for windows-setup and held-install-journey (nothing reads them)
+      - name: Record Trunk's verdicts for the Windows setup and held-install jobs (nothing reads them)
         if: env.TRUNK_API_TOKEN != ''
         timeout-minutes: 3
         continue-on-error: true
@@ -129,7 +130,7 @@ jobs:
           TRUNK_DISABLE_TELEMETRY: 'true'
         with:
           token: ${{ env.TRUNK_API_TOKEN }}
-          job-keys: windows-setup,held-install-journey
+          job-keys: windows-setup,windows-setup-recovery,windows-setup-cso,held-install-journey,held-install-trial,held-install-later-release
           github-token: ''
           enable-annotation: 'true'
 
@@ -171,6 +172,7 @@ jobs:
           scripts/build-cso.sh
           scripts/build-cso-windows.ps1
           scripts/write-version-files.sh
+          scripts/windows-held-install-fixture.sh
           setup
           setup.ps1
           test/setup-ps1.test.ts
@@ -231,9 +233,6 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
-
-      # No bun install cache, as in windows-free-tests.yml: a cold install is
-      # faster on windows-latest than restoring the ~450 MB cache entry.
 
       - name: Configure git identity
         run: |
@@ -427,6 +426,36 @@ jobs:
           fi
         shell: bash
 
+      - name: Every setup.ps1 case ran
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/setup-cases"
+          test "$(cat "$RUNNER_TEMP/setup-cases")" = "$(printf 'ps51\nsetup-ps1-cases\nsetup-ps1-install')" || (echo "a setup.ps1 case did not run" && exit 1)
+        shell: bash
+
+  windows-setup-recovery:
+    # The false-positive recovery runs on its own runner beside windows-setup
+    # (GST-3303): it clones this checkout and runs ./setup there, so it needs
+    # nothing windows-setup builds.
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "windows-setup-e2e@gstack.test"
+          git config --global user.name "Windows Setup E2E"
+          git config --global init.defaultBranch main
+        shell: bash
+
       - name: An install stuck on the false positive recovers with the documented command (#3088, #3100)
         # A release whose bin/gstack-hook-check had the Git Bash false positive
         # (v1.91.83.0's checker on this tree), then this revision on top. The
@@ -467,6 +496,43 @@ jobs:
           test "$(git -C "$INSTALL" rev-parse HEAD)" != "$STUCK" || (echo "the recovery did not move the checkout" && exit 1)
         shell: bash
 
+  windows-setup-cso:
+    # The two forced-CSO-failure cases run on their own runner beside
+    # windows-setup (GST-3303), after the same strict build they followed there.
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "windows-setup-e2e@gstack.test"
+          git config --global user.name "Windows Setup E2E"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        shell: bash
+
+      - name: Run bun run build (the previously-broken path)
+        # This is the regression gate. Bun's Windows shell parser rejected
+        # multiple constructs the old inline build chain used; the wave
+        # moved the build to scripts/build.sh. If this step fails on
+        # Windows, the build chain regressed.
+        run: bun run build
+        shell: bash
+        env:
+          GSTACK_SKIP_PLAYWRIGHT: '1'
+          GSTACK_STRICT_BUILD: '1'
+
       - name: A forced CSO failure is fatal under GSTACK_STRICT_BUILD=1 (#3071)
         run: |
           set -uo pipefail
@@ -500,13 +566,6 @@ jobs:
           DOCTOR=$(HOME="$E2E_HOME" bash bin/gstack-doctor 2>&1 || true)
           echo "$DOCTOR"
           echo "$DOCTOR" | grep -qE '^warn +cso +' || (echo "doctor did not report the CSO failure" && exit 1)
-        shell: bash
-
-      - name: Every setup.ps1 case ran
-        run: |
-          set -euo pipefail
-          cat "$RUNNER_TEMP/setup-cases"
-          test "$(cat "$RUNNER_TEMP/setup-cases")" = "$(printf 'ps51\nsetup-ps1-cases\nsetup-ps1-install')" || (echo "a setup.ps1 case did not run" && exit 1)
         shell: bash
 
   held-install-journey:
@@ -544,112 +603,7 @@ jobs:
         # release tree (commits built from the two trees, so the shallow
         # checkout's history is never needed); fix-branch adds one file for
         # the trial form.
-        run: |
-          set -euo pipefail
-          OLD_RELEASE=47d639abffa882b8cbb641d7d1dedf08ecada9ec # v1.91.101.0
-          T="$RUNNER_TEMP/held"
-          rm -rf "$T" && mkdir -p "$T"
-          git cat-file -e "$OLD_RELEASE^{commit}" 2>/dev/null || git fetch -q --no-tags --depth=1 origin "$OLD_RELEASE"
-          c() { git commit-tree "$@"; }
-          HELD=$(c -m "v1.91.101.0" "$OLD_RELEASE^{tree}")
-          MAIN=$(c -p "$HELD" -m "this PR's tree" 'HEAD^{tree}')
-          export GIT_INDEX_FILE="$T/fix.index"
-          git read-tree "$MAIN"
-          git update-index --add --cacheinfo "100644,$(printf 'trial\n' | git hash-object -w --stdin),e2e-trial-marker"
-          FIX=$(c -p "$MAIN" -m "a fix branch to try" "$(git write-tree)")
-          unset GIT_INDEX_FILE
-          test "$(git show "$HELD:VERSION")" = 1.91.101.0 || (echo "the held tree is not v1.91.101.0" && exit 1)
-          git ls-tree "$MAIN" connect-chrome | grep -q '^120000 ' || (echo "this PR's tree has no connect-chrome symlink to reproduce the hold" && exit 1)
-          git init -q --bare -b main "$T/origin.git"
-          git push -q "$T/origin.git" "$MAIN:refs/heads/main" "$FIX:refs/heads/fix-branch"
-          printf 'HELD=%s\nMAIN=%s\nFIX=%s\n' "$HELD" "$MAIN" "$FIX" > "$T/vars"
-          : > "$T/cases"
-          cat > "$T/lib.sh" <<'LIB'
-          T="$RUNNER_TEMP/held"
-          . "$T/vars"
-          INSTALL="$HOME/.claude/skills/gstack"
-          STATE="$HOME/.gstack"
-          LOG="$STATE/analytics/session-update.log"
-          PS="${GSTACK_E2E_POWERSHELL:-powershell.exe}"
-          w() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
-          die() { echo "FAIL: $*" >&2; [ ! -f "$LOG" ] || { echo "--- updater log" && cat "$LOG"; } >&2; exit 1; }
-          case_ok() { echo "$1" >> "$T/cases"; echo "CASE OK: $1"; }
-          # The command docs/troubleshooting.md publishes under <!-- form:NAME -->.
-          form() { awk -v m="<!-- form:$1 -->" '$0 == m { f = 1; next } f && /^```/ { if (o) exit; o = 1; next } f && o { print }' "$GITHUB_WORKSPACE/docs/troubleshooting.md"; }
-          # run_ps_form NAME [REPLACEMENT-FOR-.\setup.ps1] [BRANCH]: the form,
-          # verbatim, as a script under powershell.exe; prints its output.
-          run_ps_form() {
-            f=$(form "$1")
-            case "$f" in *'{ .\setup.ps1 }') ;; *) die "form $1 is missing or does not end in .\setup.ps1: $f" ;; esac
-            [ -z "${2:-}" ] || f="${f%'.\setup.ps1 }'}$2 }"
-            [ -z "${3:-}" ] || f=${f//'<branch>'/$3}
-            printf '%s\r\nexit $LASTEXITCODE\r\n' "$f" > "$T/form.ps1"
-            "$PS" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(w "$T/form.ps1")" 2>&1
-          }
-          # run_updater PATTERN [SECONDS]: one session-start check with the
-          # throttle cleared, waiting for its background run to log PATTERN.
-          run_updater() {
-            rm -f "$STATE/.last-session-update"
-            n0=$( { cat "$LOG" 2>/dev/null || true; } | wc -l)
-            ( cd "$T" && PATH="${GSTACK_E2E_UPDATER_PATH_PREFIX:+$GSTACK_E2E_UPDATER_PATH_PREFIX:}$PATH" bash "$INSTALL/bin/gstack-session-update" ) || die "the updater exited $?"
-            i=0
-            until tail -n +"$((n0 + 1))" "$LOG" 2>/dev/null | grep -E "$1" > "$T/updater-line"; do
-              i=$((i + 1)); [ "$i" -le "${2:-180}" ] || die "no updater log line matching '$1' within ${2:-180}s"
-              sleep 1
-            done
-            cat "$T/updater-line"
-            i=0; while [ -d "$STATE/.setup-lock" ] && [ "$i" -lt 120 ]; do i=$((i + 1)); sleep 1; done
-          }
-          # install_state clean|dirty|unmerged: a prefix-mode v1.91.101.0
-          # install one release behind origin's main.
-          install_state() {
-            rm -rf "$INSTALL" "$STATE"
-            mkdir -p "$(dirname "$INSTALL")"
-            git clone -q "$T/origin.git" "$INSTALL"
-            git -C "$INSTALL" reset -q --hard "$HELD"
-            GSTACK_SETUP_RUNNING=1 bash "$INSTALL/bin/gstack-config" set auto_upgrade true
-            GSTACK_SETUP_RUNNING=1 bash "$INSTALL/bin/gstack-config" set skill_prefix true
-            bash "$INSTALL/bin/gstack-patch-names" "$INSTALL" true >/dev/null
-            ! git -C "$INSTALL" diff --quiet -- SKILL.md '*/SKILL.md' || die "prefix mode left no footprint"
-            case "$1" in
-              dirty)
-                git -C "$INSTALL" diff -U0 "$HELD" "$MAIN" -- docs/troubleshooting.md > "$T/upstream.diff"
-                L=$(sed -n 's/^-\([^-]\)/\1/p' "$T/upstream.diff" | sed -n 1p)
-                [ -n "$L" ] || die "docs/troubleshooting.md has no upstream change to conflict with"
-                L="$L" awk '!d && $0 == ENVIRON["L"] { print $0 " LOCAL-EDIT"; d = 1; next } { print }' "$INSTALL/docs/troubleshooting.md" > "$T/edited"
-                cat "$T/edited" > "$INSTALL/docs/troubleshooting.md"
-                grep -q 'LOCAL-EDIT' "$INSTALL/docs/troubleshooting.md" || die "the local edit did not apply"
-                ;;
-              unmerged)
-                b=$(printf 'base\n' | git -C "$INSTALL" hash-object -w --stdin)
-                o=$(printf 'ours LOCAL-EDIT\n' | git -C "$INSTALL" hash-object -w --stdin)
-                t=$(printf 'theirs\n' | git -C "$INSTALL" hash-object -w --stdin)
-                git -C "$INSTALL" update-index --force-remove README.md
-                printf '100644 %s 1\tREADME.md\n100644 %s 2\tREADME.md\n100644 %s 3\tREADME.md\n' "$b" "$o" "$t" | git -C "$INSTALL" update-index --index-info
-                printf '<<<<<<< ours\nours LOCAL-EDIT\n=======\ntheirs\n>>>>>>> theirs\n' > "$INSTALL/README.md"
-                [ -n "$(git -C "$INSTALL" ls-files -u)" ] || die "the install has no unmerged files"
-                ;;
-            esac
-          }
-          # check_recovered STATE: at origin's main, nothing unmerged, and
-          # every local edit (only those) in one rescue ref.
-          check_recovered() {
-            [ "$(git -C "$INSTALL" rev-parse HEAD)" = "$MAIN" ] || die "$1: the install is at $(git -C "$INSTALL" rev-parse HEAD), not $MAIN"
-            [ -z "$(git -C "$INSTALL" ls-files -u)" ] || die "$1: unmerged files remain"
-            [ -f "$INSTALL/bin/gstack-ff-update" ] || die "$1: bin/gstack-ff-update is missing"
-            refs=$(git -C "$INSTALL" for-each-ref --format='%(refname)' refs/gstack/rescue)
-            if [ "$1" = clean ]; then
-              [ -z "$refs" ] || die "clean: a rescue ref was made: $refs"
-              return 0
-            fi
-            [ "$(printf '%s\n' "$refs" | grep -c .)" = 1 ] || die "$1: expected one rescue ref, got: $refs"
-            file=docs/troubleshooting.md; [ "$1" != unmerged ] || file=README.md
-            git -C "$INSTALL" show "$refs:$file" > "$T/rescued"
-            grep -q 'LOCAL-EDIT' "$T/rescued" || die "$1: the rescue ref lacks the local edit to $file"
-            [ "$(git -C "$INSTALL" diff --name-only "$refs^" "$refs")" = "$file" ] || die "$1: the rescue ref holds more than the user's edit"
-          }
-          LIB
-          bash -n "$T/lib.sh"
+        run: bash scripts/windows-held-install-fixture.sh
         shell: bash
 
       - name: 'Held clean and already-unmerged installs: v1.91.101.0 holds, the PowerShell recovery form recovers'
@@ -670,6 +624,50 @@ jobs:
             check_recovered "$state"
             case_ok "$state/recovered"
           done
+        shell: bash
+
+      - name: Every held-install case ran
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/held/cases"
+          EXPECTED='clean/v1.91.101.0-held
+          clean/recovered
+          unmerged/v1.91.101.0-held
+          unmerged/recovered'
+          test "$(cat "$RUNNER_TEMP/held/cases")" = "$(printf '%s\n' "$EXPECTED" | sed 's/^ *//')" || (echo "a held-install case did not run" && exit 1)
+        shell: bash
+
+  held-install-trial:
+    # held-install-journey's dirty-conflicting recovery, then the trial and
+    # go-back forms on the install it leaves, on their own runner (GST-3303).
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      GSTACK_SKIP_PLAYWRIGHT: '1'
+      GSTACK_STRICT_BUILD: '0'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "windows-setup-e2e@gstack.test"
+          git config --global user.name "Windows Setup E2E"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Build the held-install fixture (v1.91.101.0 behind this PR's tree)
+        # origin's main carries this PR's tree on top of the v1.91.101.0
+        # release tree (commits built from the two trees, so the shallow
+        # checkout's history is never needed); fix-branch adds one file for
+        # the trial form.
+        run: bash scripts/windows-held-install-fixture.sh
         shell: bash
 
       - name: 'Held dirty-conflicting install: the PowerShell recovery form, verbatim with .\setup.ps1'
@@ -713,6 +711,67 @@ jobs:
           case_ok goback
         shell: bash
 
+      - name: Every held-install case ran
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/held/cases"
+          EXPECTED='dirty/v1.91.101.0-held
+          dirty/recovered-and-set-up
+          trial
+          goback'
+          test "$(cat "$RUNNER_TEMP/held/cases")" = "$(printf '%s\n' "$EXPECTED" | sed 's/^ *//')" || (echo "a held-install case did not run" && exit 1)
+        shell: bash
+
+  held-install-later-release:
+    # held-install-journey's dirty-conflicting recovery, then the later release
+    # the new updater must take, on their own runner (GST-3303).
+    needs: windows-scope
+    if: needs.windows-scope.outputs.install == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      GSTACK_SKIP_PLAYWRIGHT: '1'
+      GSTACK_STRICT_BUILD: '0'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "windows-setup-e2e@gstack.test"
+          git config --global user.name "Windows Setup E2E"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Build the held-install fixture (v1.91.101.0 behind this PR's tree)
+        # origin's main carries this PR's tree on top of the v1.91.101.0
+        # release tree (commits built from the two trees, so the shallow
+        # checkout's history is never needed); fix-branch adds one file for
+        # the trial form.
+        run: bash scripts/windows-held-install-fixture.sh
+        shell: bash
+
+      - name: 'Held dirty-conflicting install: the PowerShell recovery form, verbatim with .\setup.ps1'
+        run: |
+          set -euo pipefail
+          . "$RUNNER_TEMP/held/lib.sh"
+          install_state dirty
+          run_updater '^[^ ]+ HELD hook-check-unavailable'
+          case_ok dirty/v1.91.101.0-held
+          set +e
+          OUT=$(run_ps_form recovery-powershell)
+          CODE=$?
+          set -e
+          echo "$OUT" | tail -n 60
+          [ "$CODE" -eq 0 ] || die "dirty: the recovery form exited $CODE"
+          check_recovered dirty
+          case_ok dirty/recovered-and-set-up
+        shell: bash
+
       - name: The new updater takes a later release whose symlink sorts before its target
         # Pushed only now (after recovery), so the hold above is
         # connect-chrome's alone. The old updater's archive | tar extraction is
@@ -738,14 +797,8 @@ jobs:
         run: |
           set -euo pipefail
           cat "$RUNNER_TEMP/held/cases"
-          EXPECTED='clean/v1.91.101.0-held
-          clean/recovered
-          unmerged/v1.91.101.0-held
-          unmerged/recovered
-          dirty/v1.91.101.0-held
+          EXPECTED='dirty/v1.91.101.0-held
           dirty/recovered-and-set-up
-          trial
-          goback
           later-release/updated'
           test "$(cat "$RUNNER_TEMP/held/cases")" = "$(printf '%s\n' "$EXPECTED" | sed 's/^ *//')" || (echo "a held-install case did not run" && exit 1)
         shell: bash

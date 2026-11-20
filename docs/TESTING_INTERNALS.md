@@ -1726,7 +1726,7 @@ only, <workflow>)":
 | `free-tests.yml` | `free-suite`, `macos-named-regressions` |
 | `windows-smoke.yml` | `windows-smoke` |
 | `windows-scoped-tests.yml` | `windows-scoped-shard` |
-| `windows-setup-e2e.yml` | `windows-setup`, `held-install-journey` |
+| `windows-setup-e2e.yml` | `windows-setup`, `windows-setup-recovery`, `windows-setup-cso`, `held-install-journey`, `held-install-trial`, `held-install-later-release` |
 | `quality-gate.yml` | `quality` |
 | `evals.yml` | `build-image`, `eval-slices` |
 
