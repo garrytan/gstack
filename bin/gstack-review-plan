@@ -32,7 +32,7 @@ import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { runScriptSync } from '../lib/script-invocation';
 import { baseNote } from '../lib/gate-diff/git';
 import { collectCommit, collectLive, reviewPlanTimeoutMs } from '../lib/review-collect';
-import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
+import { excludeLines, gateScanPaths, reviewExclude, type Exclusion } from '../lib/review-exclude';
 import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
 import { platformReviewAt } from '../lib/review-platform';
@@ -239,15 +239,18 @@ function main(): number {
   const riskPaths = review.risk_paths.length ? { riskPaths: review.risk_paths } : {};
   const platform = review.platform === 'on' ? platformReviewAt(root, head, { pr: flag('--pr') }) : null;
   let tagged: Set<string> | null = null;
+  let gateContent: Set<string> | null = null;
   let gateTagged: number | null;
   if (declares) {
     const g = runGateDiff([diffBase, '--format', 'jsonl']);
     gateTagged = tagCount(g.stdout, g.status);
-    tagged = gateTagged === null ? null : new Set((g.stdout ?? '').split('\n').slice(1).flatMap(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return h.path && h.tags?.length ? [h.path] : []; } catch { return []; } }));
+    const scanned = gateTagged === null ? null : gateScanPaths(g.stdout ?? '');
+    tagged = scanned?.tagged ?? null;
+    gateContent = scanned?.content ?? null;
     if (flag('--gate-tagged') !== undefined) gateTagged = Number(flag('--gate-tagged'));
   } else gateTagged = flag('--gate-tagged') !== undefined ? Number(flag('--gate-tagged')) : gateTagsOf([diffBase]);
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
-  const exclusion: Exclusion = !baseSha || !collected.mergeBase ? { state: 'none' } : reviewExclude({ root, baseSha, ref, mergeBase: collected.mergeBase, perPath: collected.perPath, added: collected.added, classRoot: root, gateTagged: tagged, context: 'gstack-review-plan' });
+  const exclusion: Exclusion = !baseSha || !collected.mergeBase ? { state: 'none' } : reviewExclude({ root, baseSha, ref, mergeBase: collected.mergeBase, perPath: collected.perPath, added: collected.added, classRoot: root, gateTagged: tagged, gateContent, context: 'gstack-review-plan' });
   if (exclusion.state === 'refused') { for (const l of exclusion.lines) process.stderr.write(l + '\n'); return exclusion.code === 'REVIEW_DIFF_UNREADABLE' ? EXIT.fail : EXIT.refused; }
   const active = exclusion.state === 'active' ? exclusion : null;
   const kept = <T,>(rec: Record<string, T>) => (active ? Object.fromEntries(Object.entries(rec).filter(([p]) => !active.excluded.has(p))) : rec);

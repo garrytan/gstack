@@ -1607,6 +1607,26 @@ whole through its keep command. Results PRs that capture model requests need
 this: their system prompts name `${…_API_KEY}` variables and keychain commands
 (harness-evals #269: 75 such files, 12.9 MB whole).
 
+<a id="gate-tagged-data-excerpts"></a>
+**Gate-tagged data excerpts (GST-3273).** A kept file whose reason is
+`gate-tagged` gets the same excerpt when it is data the gate scan tagged by its
+content alone: row data (`.jsonl`, `.ndjson`, `.csv`, `.tsv`), JSON under a
+docs, results, reports or preregistration path, a `.log`, or a file
+[`review_content_patterns`](#review-content-patterns) declares; kept for no
+other reason (not source, agent prose, config, a gate path, executable or
+binary); not renamed; and every tag on it carried by one added line outside the
+gate floor. Its excerpt shows every changed line the gate scan's line rules tag
+(and every secret-line or secret-shaped line), names the tags, and sits under
+its own `## Gate-tagged data excerpts` heading. A file whose tag comes from its
+path (RH-3 on a snapshot or golden file, RH-15 on a CI or config file, RH-1's
+test-only skip statements) or that no single line carries (RH-1's removed
+declarations, RH-16 across lines) stays whole, and so does code that holds the
+same words. The gate class and the record's `gate_tagged`
+list are unchanged: only how much of the data file a reader sees changes.
+Results PRs that commit captured agent sessions need this: the sessions quote
+lint pragmas, env checks and `--no-verify` pushes (harness-evals #494: 25
+transcripts, 11.4 MB whole).
+
 <a id="one-selection-every-reader"></a>
 **One selection for every reader (GST-1476).** Every path that renders a
 reader's brief builds its diff from the same selection: the policy's

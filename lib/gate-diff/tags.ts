@@ -274,6 +274,22 @@ export function tagHunk(h: Hunk, ctx: TagContext): TagResult {
   return { tags: sorted, notes, citation: sorted.length ? findCitation(adds) : null };
 }
 
+/** Every idiom one added line can carry a tag by on its own (the floor-free part of tagHunk): where a tagged line's matches sit. */
+const LINE_IDIOMS = [...SKIP_IDIOMS, ...PLACEHOLDER_IDIOMS, ...ENV_SNIFF_IDIOMS, ...SUPPRESSION_IDIOMS, ...BYPASS_IDIOMS, ...SWALLOW_SINGLE_LINE].map((r) => new RegExp(r.source, r.flags.includes('g') ? r.flags : r.flags + 'g'));
+
+/**
+ * The tags one added line carries alone, outside the floor (tagHunk on a one-line hunk), and the spans its idioms matched:
+ * what a gate-tagged data excerpt shows (lib/review-secret-excerpt.ts, GST-3273). A tag no single line carries (RH-1's
+ * removed declarations, RH-3, RH-15, RH-16 across lines) never appears here, so a file holding one is never cut.
+ */
+export function lineTags(text: string, path: string): { tags: string[]; spans: Array<[number, number]> } {
+  const tags = tagHunk({ header: '', lines: [{ kind: 'add', text }] }, { floor: null, path, allPaths: new Set([path]) }).tags;
+  if (!tags.length) return { tags, spans: [] };
+  const spans: Array<[number, number]> = [];
+  for (const r of LINE_IDIOMS) for (const m of text.matchAll(r)) if (m[0]) spans.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  return { tags, spans };
+}
+
 /** RH ids in numeric order; a `?` variant follows its base. */
 export function compareTags(a: string, b: string): number {
   const num = (t: string) => Number.parseInt(t.replace(/^RH-/, ''), 10);
