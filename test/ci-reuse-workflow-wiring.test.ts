@@ -181,6 +181,15 @@ test('free-tests.yml plans beside reuse and docs-scope, and every job that reads
   }
 });
 
+test('every skippable job in the ci-reuse/free-tests profile skips on a docs-only pull request, so a docs-only run still carries as not owed (GST-3303)', () => {
+  const jobs = (Bun.YAML.parse(read('.github/workflows/free-tests.yml')) as any).jobs as Record<string, any>;
+  const skippable = (JSON.parse(read('.gstack/pregate.json')).run_profiles['ci-reuse/free-tests'].skippable.jobs) as string[];
+  for (const name of skippable) {
+    expect([name, [jobs[name].needs].flat()]).toEqual([name, expect.arrayContaining(['docs-scope'])]);
+    expect([name, String(jobs[name].if ?? '')]).toEqual([name, expect.stringContaining("needs.docs-scope.outputs.docs_only == 'true'")]);
+  }
+});
+
 test('every workflow that calls one of these grants the calling job actions: read, which the reuse job needs even when it is skipped', () => {
   const dir = path.join(ROOT, '.github/workflows');
   const callers: string[] = [];
