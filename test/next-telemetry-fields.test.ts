@@ -65,13 +65,14 @@ describe.skipIf(process.platform === 'win32')('gstack-telemetry-log next fields'
     expect([b.harness_session_id, b.from_version]).toEqual([null, null]);
   });
 
-  test('source: flag > GSTACK_TELEMETRY_SOURCE > eval run > CI > live, so CI never relabels a test row', () => {
+  test('source: flag > GSTACK_TELEMETRY_SOURCE > eval run > CI > Capy > live, so CI never relabels a test row', () => {
     run('gstack-telemetry-log', ['--outcome', 'success', '--source', 'test'], { CI: 'true', EVALS_RUN_ID: 'r1' });
     run('gstack-telemetry-log', ['--outcome', 'success'], { CI: 'true', GSTACK_TELEMETRY_SOURCE: 'test' });
-    run('gstack-telemetry-log', ['--outcome', 'success'], { CI: 'true', EVALS_RUN_ID: 'r1' });
-    run('gstack-telemetry-log', ['--outcome', 'success'], { CI: 'true' });
+    run('gstack-telemetry-log', ['--outcome', 'success'], { CI: 'true', EVALS_RUN_ID: 'r1', GSTACK_CAPY: '1' });
+    run('gstack-telemetry-log', ['--outcome', 'success'], { CI: 'true', GSTACK_CAPY: '1' });
+    run('gstack-telemetry-log', ['--outcome', 'success'], { GSTACK_CAPY: '1' });
     run('gstack-telemetry-log', ['--outcome', 'success']);
-    expect(events().map(e => e.source)).toEqual(['test', 'test', 'eval', 'ci', 'live']);
+    expect(events().map(e => e.source)).toEqual(['test', 'test', 'eval', 'ci', 'capy', 'live']);
   });
 });
 

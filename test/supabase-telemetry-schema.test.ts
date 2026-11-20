@@ -41,6 +41,7 @@ describe('telemetry-ingest accepts what the client sends', () => {
 
   test('ingest stores source, so test and eval traffic stay separable', () => {
     expect(INGEST).toContain('source: normalizeSource(event.source)');
+    expect(INGEST).toContain('const SOURCES = ["live", "test", "eval", "ci", "capy"];');
   });
 
   test('ingest writes with the service role key, the only write path once 008 drops the anon policies', () => {

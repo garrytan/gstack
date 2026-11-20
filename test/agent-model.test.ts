@@ -168,6 +168,12 @@ describe('the preferences file', () => {
     expect(() => readPreferencesFile(f)).toThrow(/sets agent_model twice/);
   });
 
+  test('telemetry_capy is read by gstack-telemetry-tier, so it passes without a warning', () => {
+    const f = path.join(tmp(), 'preferences.yaml');
+    fs.writeFileSync(f, 'agent_model: opus\ntelemetry_capy: anonymous\n');
+    expect(readPreferencesFile(f)).toEqual({ value: 'opus', warnings: [] });
+  });
+
   test('CRLF line endings, a byte-order mark and a trailing comment still read the value', () => {
     const f = path.join(tmp(), 'preferences.yaml');
     fs.writeFileSync(f, '\ufeff# owner preferences\r\nagent_model: opus   # my pick\r\n');
