@@ -6,9 +6,10 @@
 # bun-default variant, since the same files also run on the pinned Bun.
 #
 # It runs from workflow_run instead of as a free-tests.yml job (GST-3303), so a
-# pull request's checks no longer wait on it; it was the last job to finish on
-# about one pull request head in nine. A workflow_run workflow runs from the
-# default branch's copy of this file, never from the pull request's.
+# pull request's checks no longer wait on it; it was the last job to finish in
+# about one Free Tests run in four (61 of 223, 11-06 to 11-20). A workflow_run
+# workflow runs from the default branch's copy of this file, never from the
+# pull request's.
 #
 # Nothing is quarantined or skipped: the uploader runs with quarantine off, the
 # collection has quarantining off, and nothing reads this workflow's result, so

@@ -595,6 +595,8 @@ jobs:
       # as well as the flake ledger (GST-3303).
       - name: Upload the quick tier's JUnit reports
         if: always()
+        timeout-minutes: 3
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: quick-junit

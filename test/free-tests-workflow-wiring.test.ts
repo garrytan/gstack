@@ -267,7 +267,7 @@ describe('free-tests workflow wiring', () => {
       }
       expect(steps[install]['continue-on-error'], name).toBe(true);
       const offline = steps.find((step: any) => step.id === 'apt_offline');
-      const failOpen = name === 'free-suite' ? [offline, steps[install], steps.find((step: any) => step.name === 'Upload shard JUnit reports')] : [offline, steps[install]];
+      const failOpen = [offline, steps[install], steps.find((step: any) => step.name === (name === 'free-suite' ? 'Upload shard JUnit reports' : "Upload the quick tier's JUnit reports"))];
       expect(steps.filter((step: any) => step['continue-on-error']), name).toEqual(failOpen);
     }
   });
