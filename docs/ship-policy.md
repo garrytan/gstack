@@ -1800,6 +1800,14 @@ findings. Nothing ruled is hidden:
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word, and the READY block prints each as `RULED_NOTE:`.
+Step 11.5 reads the same rulings: `gstack-review-read` applies a ruling to a Step 9
+or Step 11 row that carries the finding and whose `range_base..commit` holds the
+ruling's head (a first pass, with no `range_base`: its own commit), lists its
+approval id in the row's `ruled_notes`, and grades the row with those findings
+closed. So a final review or native reader that stopped on findings the owner then
+ruled reads `CURRENT` at the one tree its `incomplete` binding names, while a ruling
+on another branch, at another head, for another finding or by gstack itself
+closes nothing (harness-evals#498).
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
