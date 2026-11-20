@@ -7,11 +7,12 @@
  * their traffic as phantom 404s across every Node test suite on the machine.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
 import {
+  CHROMIUM_UNSAFE_PORTS,
   findAvailablePort,
   RANDOM_PORT_MIN,
   RANDOM_PORT_MAX,
@@ -31,6 +32,24 @@ describe('shared port allocator (#2314)', () => {
       // pool this allocator exists to avoid.
       expect(RANDOM_PORT_MAX).toBeLessThan(49152);
       expect(RANDOM_PORT_MIN).toBeGreaterThanOrEqual(1024);
+    }
+  });
+
+  // Value: protects=a random pick never lands on a port Chromium refuses to load (Free Tests 44539190714: the daemon took
+  //   10080 and the welcome page failed with net::ERR_UNSAFE_PORT); fails_when=the allocator returns a draw from
+  //   CHROMIUM_UNSAFE_PORTS; why_new=nothing excluded browser-blocked ports; seam=Math.random; no_claim=explicit BROWSE_PORT values
+  test('a random draw on a Chromium-blocked port is redrawn', async () => {
+    expect(CHROMIUM_UNSAFE_PORTS.has(10080)).toBe(true);
+    const span = RANDOM_PORT_MAX - RANDOM_PORT_MIN;
+    const draws = [(10080 - RANDOM_PORT_MIN + 0.5) / span];
+    const real = Math.random;
+    const random = spyOn(Math, 'random').mockImplementation(() => draws.shift() ?? real());
+    try {
+      const port = await findAvailablePort();
+      expect(port).not.toBe(10080);
+      expect(random.mock.calls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      random.mockRestore();
     }
   });
 
