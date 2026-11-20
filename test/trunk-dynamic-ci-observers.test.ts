@@ -52,7 +52,7 @@ describe('Trunk Dynamic CI observers', () => {
       for (const [name, job] of Object.entries(wf.jobs as Record<string, any>).filter(([n]) => n !== 'trunk-dynamic-ci')) {
         expect([name, [job.needs ?? []].flat().includes('trunk-dynamic-ci')]).toEqual([name, false]);
         const text = JSON.stringify(job);
-        const mentions = name === 'trunk-flaky-tests' && file === 'free-tests.yml' ? /dynamic-ci|TRUNK_API_TOKEN/i.test(text) : /trunk|dynamic-ci|TRUNK_API_TOKEN/i.test(text);
+        const mentions = /trunk|dynamic-ci|TRUNK_API_TOKEN/i.test(text);
         expect([name, mentions]).toEqual([name, false]);
       }
       const trunkRefs = (JSON.stringify(wf.jobs).match(SECRET_REF) ?? []).filter(ref => ref === 'secrets.TRUNK_API_TOKEN');

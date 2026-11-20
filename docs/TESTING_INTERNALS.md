@@ -1751,8 +1751,8 @@ or commit disappears), the observer's own check reports failure, and
 if it fails again, delete the job. Fork pull requests, pushes and dispatches
 skip the job. A missing token skips only its step, so the job still fetches
 the action. Its only secret is `TRUNK_API_TOKEN` (in free-tests.yml only it
-and the trunk-flaky-tests uploader, with `TRUNK_ORG_API_TOKEN`, see a secret;
-evals.yml's other jobs hold their own), so
+sees a secret; the Trunk Flaky Tests uploader in trunk-flaky-tests.yml holds
+`TRUNK_ORG_API_TOKEN`, and evals.yml's other jobs hold their own), so
 it checks out nothing and runs none of the pull request's code. It holds no GITHUB_TOKEN scopes (`permissions: {}`). At the
 pinned commit (`src/config.ts`, `src/changed-files.ts`), the action makes one
 network call: a request for verdicts to
@@ -1783,26 +1783,33 @@ skipping is a separate decision for Garry, made after that review.
 ### Trunk Flaky Tests (detection only)
 
 Since GST-1859, every free-suite shard keeps bun's JUnit report from each of
-its children, the flaky retry included (`--junit-dir`), and the
-`trunk-flaky-tests` job uploads them, failures included, to the Trunk test
-collection `7yDVXXE3` ("gstack free suite") on same-repository pull requests,
-main pushes and dispatch runs (dispatch runs joined in GST-3303). Trunk flags a test as flaky when it fails and then passes on
-the same code, or keeps failing on main, and lists it under Flaky Tests at
-app.trunk.io/garry-tan. That job is detection only: quarantine is off in the
-uploader and in the collection, nothing skips a test, no job needs or reads it,
-and an upload failure can't turn a check red. A child killed at its wall
-timeout, or one that crashes, writes no report, so Trunk sees none of that
-child's results, its passing files included. Such a child also skips the
-flaky retry, so the flake ledger has no entry for it; the red shard result is
-the only record. The quick tier on the install-default Bun
-(`quick-bun-default`) retries the same way and uploads its ledger as
-`flake-ledger-quick`, but keeps no JUnit report, so its flaky passes reach the
-ledger and not Trunk. The uploader job is the only one that sees
-`TRUNK_ORG_API_TOKEN` (Trunk's v1 organization token, which the uploader
-needs), and it checks out and runs nothing of the pull request's. The [flake
+its children, the flaky retry included (`--junit-dir`), and so does the quick
+tier on the install-default Bun (`quick-bun-default`, artifact `quick-junit`).
+After each Free Tests run completes, `trunk-flaky-tests.yml` (a `workflow_run`
+workflow) uploads them, failures included, to the Trunk test collection
+`7yDVXXE3` ("gstack free suite") for same-repository pull requests, main pushes
+and dispatch runs (dispatch runs joined in GST-3303). The quick tier's reports
+go up as the `bun-default` variant, because the same files also run on the
+pinned Bun. Trunk flags a test as flaky when it fails and then passes on the
+same code, or keeps failing on main, and lists it under Flaky Tests at
+app.trunk.io/garry-tan.
+
+The uploader is detection only: quarantine is off in the uploader and in the
+collection, nothing skips a test, and nothing reads its result, so an upload
+failure can't turn a check red. Since GST-3303 it is no longer a free-tests.yml
+job, so a pull request's checks don't wait on it; a `workflow_run` workflow runs
+from the default branch's copy of its file, so a change to it takes effect only
+once it is on main. It is the only job that sees `TRUNK_ORG_API_TOKEN` (Trunk's
+v1 organization token, which the uploader needs). It checks out and runs
+nothing, downloads only the triggering run's XML artifacts with a GITHUB_TOKEN
+limited to `actions: read`, and skips fork pull requests, whose artifacts must
+never meet that token. A child killed at its wall timeout, or one that crashes,
+writes no report, so Trunk sees none of that child's results, its passing files
+included. Such a child also skips the flaky retry, so the flake ledger has no
+entry for it; the red shard result is the only record. The [flake
 ledger](#flake-ledger), its one-rerun rule and the daily flaky pass are
 unchanged and stay the source of record.
-`test/free-tests-workflow-wiring.test.ts` locks the job's shape.
+`test/free-tests-workflow-wiring.test.ts` locks both workflows' shape.
 
 ### Windows free lane
 
