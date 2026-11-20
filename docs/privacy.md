@@ -38,8 +38,16 @@ no, and `gstack-config set telemetry off` turns it off at any time.
     `other`) and the version you came from. `--check` and unattended
     sessions send nothing.
   - `source` is set to `ci` under CI and `eval` inside gstack's eval runs,
-    so lab traffic stays out of real-use numbers. A duration gstack can't
+    so lab traffic stays out of real-use numbers. gstack's own use on Capy is
+    labelled `capy` (or `gt`, below) and kept out of them too. A duration gstack can't
     measure is sent empty instead of 0.
+- **On Capy:** sessions an agent drives there send nothing unless the owner's
+  `preferences.yaml` beside the Capy gstack skill holds the line
+  `telemetry_capy: anonymous`. Then each skill run sends one row at the
+  `anonymous` tier (no device ID, even on a machine set to `community`),
+  labelled `capy`. Any other value, or two such lines, is off. A second line,
+  `telemetry_capy_source: gt`, labels the rows `gt` instead (gstack's
+  maintainer's own machines); any other label is `capy`.
 - **What's never sent:** code, file paths, repo names, branch names, prompts,
   or any other content you write.
 - **What stays on your machine:** opted in, each run is also logged to

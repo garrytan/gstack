@@ -169,7 +169,10 @@ A value gstack can't use stops only the agent role, naming the file and the fix.
 **On Capy.** Each cloud machine starts fresh, so config.yaml does not carry
 over. Keep the preference in `preferences.yaml` next to the gstack skill's
 SKILL.md in your Drive: one `agent_model: <value>` line, with `#` comments
-allowed (any other key is ignored with a warning). The session start puts the
+allowed. The file may also hold `telemetry_capy: anonymous`, which opts gstack's
+own Capy sessions in to anonymous telemetry, and `telemetry_capy_source: gt`,
+which labels those rows `gt` ([privacy](privacy.md)); any other key is ignored
+with a warning. The session start puts the
 file's path in the launch file as `GSTACK_PREFERENCES_FILE` and gstack reads it
 where it is: nothing is copied, and `--check` never writes the skill folder. Agents write that
 file only when you ask them to remember a preference. To change or clear it for

@@ -46,11 +46,13 @@ _GH="$_gstack_sr_root"
 _TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || echo off)
 # Plan B1: an unattended session writes no usage, sends no telemetry and never
 # drains or pushes the artifacts queue, whatever the inherited settings say. The
-# upgrade offer it skipped at start becomes one line here, read from the
+# one exception is gstack's own use on Capy: the owner's preferences file can
+# opt Capy sessions in at the anonymous tier (gstack-telemetry-tier --capy).
+# The upgrade offer it skipped at start becomes one line here, read from the
 # update-check cache (no network) so the parent can act on it.
 _SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
 if [ "$_SESSION_KIND" = "unattended" ]; then
-  _TEL="off"
+  _TEL=$("$_BIN/gstack-telemetry-tier" --capy 2>/dev/null || echo off)
   _CACHED_UPD=$(head -1 "$_GH/last-update-check" 2>/dev/null | tr -cd 'A-Za-z0-9._+ ' || true)
   case "$_CACHED_UPD" in
     UPGRADE_AVAILABLE*) echo "UPGRADE_AVAILABLE: $(printf '%s\n' "$_CACHED_UPD" | awk '{ print $3 (NF >= 4 ? " (main at " $4 ")" : "") }'); run /gstack-upgrade"
@@ -79,8 +81,9 @@ if [ "$_SESSION_KIND" != "unattended" ]; then
   "$_BIN/gstack-brain-sync" --once 2>/dev/null || true
 fi
 
-# Local analytics (gated on telemetry setting).
-if [ "$_TEL" != "off" ]; then
+# Local analytics (gated on telemetry setting; an opted-in Capy session sends
+# its one telemetry row below and still records no usage of its own).
+if [ "$_TEL" != "off" ] && [ "$_SESSION_KIND" != "unattended" ]; then
   echo '{"skill":"'"$SKILL_NAME"'","duration_s":"'"$_TEL_DUR"'","outcome":"'"$OUTCOME"'","browse":"'"$USED_BROWSE"'","session":"'"$SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_GH/analytics/skill-usage.jsonl" 2>/dev/null || true
 fi
 

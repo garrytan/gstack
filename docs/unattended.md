@@ -34,7 +34,10 @@ drives still sets `GSTACK_SESSION_KIND=unattended` itself.
   onboarding tips and routing blocks are suppressed exactly as they are for
   `spawned`. An unanswered consent is `off`.
 - **No publishing or sync, enforced at the writers.** Usage analytics are not
-  written (`TELEMETRY_WRITE: skipped (unattended session)`), the artifacts
+  written (`TELEMETRY_WRITE: skipped (unattended session)`; the one exception
+  is a Capy session the owner opted in with `telemetry_capy: anonymous`, which
+  sends one anonymous row per skill run labelled `capy` (or `gt`), see
+  [privacy](privacy.md)), the artifacts
   repo is neither pulled nor pushed (`ARTIFACTS_SYNC: skipped (unattended
   session; mode=<m> queue=<n> retained)`), the sync spool is not fed
   (`gstack-brain-enqueue` is a no-op, and `gstack-review-log` says `review-log:

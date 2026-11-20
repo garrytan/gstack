@@ -94,17 +94,21 @@ while [ $# -gt 0 ]; do
 done
 
 # Source: flag > GSTACK_TELEMETRY_SOURCE > an eval run (the eval harness sets
-# EVALS_RUN_ID or GSTACK_EVAL_DIR) > CI > live. An explicit value always wins,
-# so CI=true never relabels a row a test marked source=test.
+# EVALS_RUN_ID or GSTACK_EVAL_DIR) > CI > Capy (GSTACK_CAPY=1, gstack's own
+# use on Capy: capy, or gt from the owner's preferences file, never free text)
+# > live. An explicit value always wins, so CI=true never relabels a row a test
+# marked source=test, and an eval lane on Capy stays eval.
 if [ -z "$SOURCE" ]; then
   if [ -n "${GSTACK_TELEMETRY_SOURCE:-}" ]; then SOURCE="$GSTACK_TELEMETRY_SOURCE"
   elif [ -n "${EVALS_RUN_ID:-}" ] || [ -n "${GSTACK_EVAL_DIR:-}" ]; then SOURCE="eval"
   elif [ "${CI:-}" = "true" ]; then SOURCE="ci"
+  elif [ "${GSTACK_CAPY:-}" = "1" ]; then SOURCE="$("$GSTACK_DIR/bin/gstack-telemetry-tier" --source 2>/dev/null || echo capy)"
   else SOURCE="live"; fi
 fi
 
 # ─── Read telemetry tier ─────────────────────────────────────
-TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
+# gstack-telemetry-tier adds the Capy opt-in to this machine's setting.
+TIER="$("$GSTACK_DIR/bin/gstack-telemetry-tier" 2>/dev/null || "$CONFIG_CMD" get telemetry 2>/dev/null || true)"
 TIER="${TIER:-off}"
 
 # Validate tier
