@@ -502,3 +502,19 @@ test.skipIf(process.platform === 'win32')('negative controls: nested and deeply 
     for (const secret of secrets) expect(body).not.toContain(secret);
   }
 });
+
+test('fail closed: a link target that matches a secret pattern, whole or per segment, is withheld with its resolved path (#4540)', () => {
+  const value = ['Xk9', 'qPz7Lm2Rt8Vw4Ny6'].join(''),
+    halves = [['c3Hd6Ty8Qp2Z', 'x7Lm4Nb9'].join(''), ['Vw1Rk5Js0Gh3', 'Fd8Ks2Pq'].join('')],
+    cases: [string, string, string[]][] = [
+      ['cfg/db', ['postgres://alice:', value, '@localhost/db'].join(''), [value]],
+      ['cfg/aws', [['AWS', 'SECRET', 'ACCESS', 'KEY'].join('_'), '=', halves[0], '/', halves[1]].join(''), halves],
+      ['cfg/a/b/up', ['../', ['pass', 'word'].join(''), '=', value].join(''), [value]],
+    ];
+  for (const [name, target, secrets] of cases) {
+    const text = symlinkTransformation(name, target);
+    for (const secret of secrets) expect(text).not.toContain(secret);
+    expect(text).toContain('a target withheld because it matches a secret pattern');
+    expect(text).not.toContain('resolves lexically');
+  }
+});

@@ -81,22 +81,23 @@ export const NESTED_REPOSITORY =
  * Transformation recorded for a symlink. Git tracks only its target string, so
  * that string is the whole input: it is reported verbatim and the link is never
  * followed. Where it points is classified lexically, without touching the
- * filesystem, so the classification cannot be raced or redirected. Each path
- * segment is redacted on its own, because the redactor does not match a
- * key=value secret that follows a slash.
+ * filesystem, so the classification cannot be raced or redirected. A target
+ * that matches any secret pattern, as a whole or in any path segment (the
+ * redactor misses key=value after a slash, and per-segment checks miss a URL),
+ * fails closed: it is withheld and no path derived from it is shown.
  */
 export function symlinkTransformation(path: string, target: string): string {
-  const shown = target
-      .split(/([\\/])/)
-      .map((part) => (part === '/' || part === '\\' ? part : redact(part)))
-      .join(''),
-    normalized = posix.normalize(posix.join(posix.dirname(relativePath(path)), shown.replace(/\\/g, '/'))),
+  const unix = target.replace(/\\/g, '/'),
+    secret = redact(target) !== target || unix.split('/').some((part) => redact(part) !== part),
+    normalized = posix.normalize(posix.join(posix.dirname(relativePath(path)), unix)),
     where = /^(?:[A-Za-z]:)?[\\/]/.test(target)
       ? 'an absolute path, never resolved'
       : normalized === '..' || normalized.startsWith('../')
         ? 'a relative path that escapes the repository, never resolved'
-        : `resolves lexically to ${normalized === '.' ? 'the repository root' : JSON.stringify(normalized)} inside the repository`;
-  return `excluded: symlink to ${JSON.stringify(shown)} (${where}); the link is recorded by its target string and never followed, and a target inside the repository is audited only under its own path`;
+        : secret
+          ? 'a relative path inside the repository'
+          : `resolves lexically to ${normalized === '.' ? 'the repository root' : JSON.stringify(normalized)} inside the repository`;
+  return `excluded: symlink to ${secret ? 'a target withheld because it matches a secret pattern' : JSON.stringify(target)} (${where}); the link is recorded by its target string and never followed, and a target inside the repository is audited only under its own path`;
 }
 export function inAuditPaths(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
