@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from './spawn-sync';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
 
@@ -260,7 +260,7 @@ export function deriveFromFindings(rec: Record<string, any>, findingsPath: strin
   if (mismatches.length) {
     throw new ReviewLogError('REVIEW_STATUS_MISMATCH', `review-log: status mismatch: ${mismatches.join('; ')} (${derived.findings_open} open of ${derived.findings_total}) (REVIEW_STATUS_MISMATCH)`);
   }
-  return { ...rec, ...derived, status_source: 'derived', findings_file: findingsPath };
+  return { ...rec, ...derived, status_source: 'derived', findings_file: resolve(findingsPath) };
 }
 
 export function bindReview(rec: Record<string, any>, token: string, env = process.env, findingsPath?: string): Record<string, any> {
@@ -343,7 +343,7 @@ export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);
 export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f.blocking === true;
 
 /**
- * GST-1537: the claimed row with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
+ * GST-1537: the row (claimed, or derived with its file's findings shown, GST-3296) with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
  * `gstack-approvals rule` rows, lib/ruled-notes.ts, never from the row itself) taken out, and recorded clean when the
  * rest leave nothing unresolved and the findings account for every claimed issue and critical; otherwise unchanged. An open
  * finding is rulable too: a fix-check that finds a CRITICAL stops for the owner (review-army decision 3.5 sends it to decision 2)
@@ -357,25 +357,69 @@ const isRuledBy = (ruled: ReadonlySet<string>, gated: ReadonlySet<string>) => (f
 
 function withoutRuledNotes(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): Record<string, any> {
   const isRuled = isRuledBy(ruled, gated);
-  if ((!ruled.size && !gated.size) || rec.status_source === 'derived' || rec.completed !== true || !Array.isArray(rec.findings) ||
+  if ((!ruled.size && !gated.size) || rec.completed !== true || !Array.isArray(rec.findings) ||
       !rec.findings.some(isRuled) || rec.findings.length < Number(rec.issues_found ?? 0) ||
       rec.findings.filter(f => record(f) && isCriticalFinding(f)).length < Number(rec.critical ?? 0) ||
       rec.findings.some(f => !isRuled(f) && holdsOpen(f))) return rec;
-  return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)) };
+  return { ...rec, status: 'clean', issues_found: 0, critical: 0, informational: 0, findings: rec.findings.filter(f => !isRuled(f)),
+    ...(rec.status_source === 'derived' ? { unresolved: 0, critical_gaps: 0, findings_open: 0 } : {}) };
+}
+
+const listsNone = (rec: Record<string, any>) => !Array.isArray(rec.findings) || rec.findings.length === 0;
+const same = (a: unknown, b: unknown) => typeof a === 'string' && a === b;
+
+/**
+ * GST-3296 (harness-evals#515): gstack-review-read's view of the findings rulings match on a stopped row that lists none
+ * inline. A Step 9 row logged with `--findings <file>` (status_source derived) takes that file's findings while the file still
+ * derives the counts the row recorded. An adversarial-review row that lists none takes the findings of the review row of the
+ * same pass, commit and bound tree, which carries Step 11's queued findings, so its rulings must cover that whole pass. A
+ * clean row is left alone, and a file that cannot be read or no longer matches attaches nothing and sets `findings_unread`.
+ */
+export function withCollectedFindings(rows: Record<string, any>[]): void {
+  for (const rec of rows) {
+    delete rec.findings_from;
+    delete rec.findings_unread;
+    if (rec.status_source !== 'derived' || rec.status === 'clean' || typeof rec.findings_file !== 'string' || !listsNone(rec)) continue;
+    let read;
+    try { read = readJsonl(rec.findings_file); }
+    catch (e: any) { rec.findings_unread = `its findings file ${rec.findings_file} is unreadable (${e.code ?? e.message})`; continue; }
+    stampGateFindings(read.rows, 'unattended');
+    const derived: Record<string, any> = deriveReviewStatus(read.rows);
+    if (read.errors.length || ([...DERIVED_KEYS, 'findings_total', 'findings_open'] as const).some(key => rec[key] !== derived[key])) {
+      rec.findings_unread = `its findings file ${rec.findings_file} no longer holds what the row recorded (${read.errors.length ? 'malformed' : `${derived.findings_open} open of ${derived.findings_total} now, ${rec.findings_open} of ${rec.findings_total} logged`})`;
+      continue;
+    }
+    rec.findings = read.rows;
+    rec.findings_from = rec.findings_file;
+  }
+  for (const rec of rows) {
+    if (rec.skill !== 'adversarial-review' || rec.status === 'clean' || !listsNone(rec)) continue;
+    const pass = rows.findLast(r => r.skill === 'review' && r.via === rec.via && r.pass === rec.pass && same(r.commit_full, rec.commit_full) &&
+      same(r.review_binding?.end_wtree, rec.review_binding?.end_wtree));
+    if (pass && !listsNone(pass)) {
+      rec.findings = structuredClone(pass.findings);
+      rec.findings_from = `the pass ${pass.pass} review row${pass.findings_from ? ` (${pass.findings_from})` : ''}`;
+    } else if (pass?.findings_unread) rec.findings_unread = `the pass ${pass.pass} review row's findings are unavailable: ${pass.findings_unread}`;
+  }
 }
 
 /**
  * GST-3267 (harness-evals#498): why the rulings did not clear a completed pass that stopped (converged:false, bound
  * `incomplete` on unchanged content). Names each finding that still holds the row open with no ruling, a `noted` or
  * `deferred` CRITICAL included, and a gate finding with the gate_id its disposition needs, or says the findings list
- * fewer issues than the row claims; undefined for any other row.
+ * fewer issues than the row claims; undefined for any other row. Any diff review row that claims issues but lists no
+ * findings says so, with why none were collected (GST-3296, harness-evals#515).
  */
 export function rulingGap(rec: Record<string, any>, ruled: ReadonlySet<string>, gated: ReadonlySet<string>): string | undefined {
   const binding = rec.review_binding;
-  if (!DIFF_REVIEWS.has(rec.skill) || rec.skill === 'ship' || rec.scope === 'fix-range' || rec.status_source === 'derived' ||
-      rec.completed !== true || rec.converged !== false || binding?.state !== 'incomplete' || !binding.start_wtree ||
-      binding.start_wtree !== binding.end_wtree || !Array.isArray(rec.findings)) return;
+  if (!DIFF_REVIEWS.has(rec.skill) || rec.skill === 'ship' || rec.skill === 'codex-review') return;
   const issues = Number(rec.issues_found ?? 0), critical = Number(rec.critical ?? 0);
+  if (listsNone(rec) && (issues > 0 || critical > 0 || rec.status === 'issues_found' || rec.status === 'issues_open')) {
+    return `it lists no findings (fcount 0) but claims ${rec.issues_found ?? 'unspecified'} issue(s) and ${rec.critical ?? 'unspecified'} CRITICAL, so no ruling can match it: ${rec.findings_unread
+      ?? (rec.skill === 'adversarial-review' ? 'no review row of the same pass, commit and tree lists that pass\'s findings either' : 'its findings were logged neither inline nor with --findings')}`;
+  }
+  if (rec.scope === 'fix-range' || rec.completed !== true || rec.converged !== false || binding?.state !== 'incomplete' || !binding.start_wtree ||
+      binding.start_wtree !== binding.end_wtree || !Array.isArray(rec.findings)) return;
   const listedCritical = rec.findings.filter(f => record(f) && isCriticalFinding(f)).length;
   if (rec.findings.length < issues || listedCritical < critical) {
     return `its findings list ${rec.findings.length} issue(s) and ${listedCritical} CRITICAL, fewer than the ${issues} issue(s) and ${critical} CRITICAL it claims, so no ruling can cover the rest`;

@@ -12,7 +12,10 @@
 # those approval ids (lib/gate-dispositions.ts). review_freshness counts the owner's
 # gstack-approvals rule rows at a head in the row's range (ruledOn), and the row's `ruled_notes`
 # lists their approval ids; values the row itself carried are discarded. When a stopped pass stays
-# UNVERIFIED, its reason names the findings no ruling covers yet (rulingGap, GST-3267).
+# UNVERIFIED, its reason names the findings no ruling covers yet (rulingGap, GST-3267), or says the row
+# lists no findings at all. A stopped row logged with --findings shows that file's findings, and a native
+# row that lists none shows its pass's review-row findings, with `findings_from` naming the source
+# (withCollectedFindings, GST-3296).
 set -euo pipefail
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,7 +30,7 @@ GSTACK_HOME="$_gstack_sr_root"
 WTREE=$("$SCRIPT_DIR/gstack-wtree" --review 2>/dev/null || echo "unknown")
 if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
   GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_GATE_LIB="$SCRIPT_DIR/../lib/gate-dispositions.ts" GSTACK_RULED_LIB="$SCRIPT_DIR/../lib/ruled-notes.ts" GSTACK_REVIEW_WTREE="$WTREE" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
-    const { reviewFreshness, rulingGap } = await import(process.env.GSTACK_REVIEW_LIB);
+    const { reviewFreshness, rulingGap, withCollectedFindings } = await import(process.env.GSTACK_REVIEW_LIB);
     const { dispositionedOn, gateKey, readGateDispositions, ruledOn, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
     const { readRuledNotes } = await import(process.env.GSTACK_RULED_LIB);
     let dispositions = [];
@@ -36,9 +39,13 @@ if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
     let rulings = [];
     try { rulings = readRuledNotes(process.cwd()); }
     catch (e) { console.error("gstack-review-read: rulings unreadable, none applied: " + e.message); }
-    for (const line of (await Bun.stdin.text()).split("\n").filter(Boolean)) {
+    const recs = (await Bun.stdin.text()).split("\n").filter(Boolean).map(line => {
+      try { const rec = JSON.parse(line); return rec && typeof rec === "object" && !Array.isArray(rec) ? rec : null; } catch { return null; }
+    });
+    withCollectedFindings(recs.filter(Boolean));
+    for (const rec of recs) {
       try {
-        const rec = JSON.parse(line);
+        if (!rec) throw new Error("malformed");
         delete rec.review_freshness;
         delete rec.gate_dispositions;
         delete rec.ruled_notes;
