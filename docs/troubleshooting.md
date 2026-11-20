@@ -2240,7 +2240,8 @@ a `--date` that is not a real `YYYY-MM-DD` day) or exceeds a length cap (ask, sc
 pending 300 characters, words 2,000). Exit 2. Nothing was written.
 `rule` and `lane-exception` refuse with this code too: a `--head` that is not
 a commit in the repository, a reason that is missing or holds a newline or
-control character, a `--by` naming gstack, any record while this checkout
+control character, a `--by` naming gstack (a crew named `GStack <Name>`, such as
+`GStack Minder`, is not gstack and may record), any record while this checkout
 holds an open /ship run, and for `lane-exception` a `--files` list that is
 empty or holds whitespace. `add` refuses a `ruled_note` or
 `test_lane_exception` scope ([ruled notes](ship-policy.md#ruled-notes),
@@ -2277,6 +2278,10 @@ the id has the minted shape `<name>-<14 digits>` (GST-2047; since GST-3015 the
 name ends in six random letters); a phone number in
 the rest of the directory name, the same id anywhere else, and every other
 finding in the row still refuse.
+Likewise a `pii.phone.e164` finding that starts inside the `stop=` run id of a
+fix-check round grant's scope (`review_round_grant <sha> pr=<n> kind=fix-check
+stop=507-7192673 findings=…`) is skipped (GST-3246); the same digits in the
+reason, the words or any other field still refuse.
 
 **Fix.** Record the words with the secret replaced by `[redacted]`, or ask the person to
 restate them. Rotate the secret if it was real.
@@ -3305,6 +3310,11 @@ exact tokens it finds in these positions:
   shape above (#4480). The same value on a line without that prefix, on a
   receipt-prefixed line inside a hand-written or non-receipt code block, or a
   phone number elsewhere on a receipt line still reports.
+- in a rendered `## Approvals` table (the header, its rule line and the
+  closing `Source: gstack-approvals record for …` footer `render` writes),
+  the `stop=` run id of a row whose Covers cell is a whole fix-check round
+  grant scope (GST-3246). The same digits in another cell, in prose or in a
+  table without that footer still report.
 
 A bare 11-digit number with none of that context, a 10-digit national number
 and an E.164 `+14155551234` still report, so the finding means the id stands
