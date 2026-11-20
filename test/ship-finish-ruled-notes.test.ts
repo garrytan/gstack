@@ -523,3 +523,86 @@ describe('a ruling relayed into an open /ship run (GBRA-108, gbrain #9762)', () 
   });
 });
 
+
+// harness-evals#498 (HARN-1, 2026-11-20, b48a1c11bc5a): round 2 of 2 stopped on 22 blocking findings across the final full
+// review and the native reader, each logged open with converged:false, so both rows bind `incomplete` on the tree they read.
+// The owner accepted every one as an open note with gstack-approvals rule at that head, yet gstack-review-read applied no
+// ruling, so Step 11.5 read both rows UNVERIFIED and no supported command could clear them.
+const HE498_REVIEW = {
+  pass: 1, range_base: null, completed: true, converged: false, status: 'issues_found', issues_found: 3, critical: 1, informational: 1,
+  findings: [
+    { fingerprint: RACE, severity: 'CRITICAL', action: 'open', locus: 'diff', blocking: true, raised_by: 'red-team' },
+    { fingerprint: AMBIENT, severity: 'HIGH', action: 'open', locus: 'diff', blocking: true, raised_by: 'specialist' },
+    { fingerprint: 'src/x.ts:1:naming', severity: 'INFORMATIONAL', action: 'noted', locus: 'diff', blocking: false, raised_by: 'targeted' },
+  ],
+};
+const PARTIAL = 'src/x.ts:1:partial-interim-input';
+const HE498_NATIVE = {
+  completed: true, converged: false, status: 'issues_found', issues_found: 1, critical: 0, informational: 0,
+  findings: [{ fingerprint: PARTIAL, severity: 'HIGH', action: 'open', locus: 'diff', blocking: true, raised_by: 'native' }],
+};
+const logRow = (f: ShipFx, skill: string, row: Record<string, unknown>) => {
+  const start = run(f, 'gstack-review-log', ['--start', skill]);
+  expect(start.status, start.stderr).toBe(0);
+  const logged = run(f, 'gstack-review-log', [JSON.stringify({ skill, timestamp: '2026-11-20T05:58:00Z', via: 'ship', review_scope: 'frozen', ...row }), '--finish', start.stdout.trim()]);
+  expect(logged.status, logged.stderr).toBe(0);
+};
+/** The newest row of a skill as gstack-review-read prints it. */
+const readRow = (f: ShipFx, skill: string) => run(f, 'gstack-review-read', []).stdout.split('\n---CONFIG---')[0]!.split('\n')
+  .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === skill ? [v] : []; } catch { return []; } }).at(-1);
+function stoppedRound2() {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+  ships.push(f);
+  logRow(f, 'review', HE498_REVIEW);
+  logRow(f, 'adversarial-review', HE498_NATIVE);
+  return { f, head: f.git('rev-parse', 'HEAD').stdout.trim(), tree: f.git('rev-parse', 'HEAD^{tree}').stdout.trim() };
+}
+const BLOCKING = [RACE, AMBIENT, PARTIAL];
+const bound = (f: ShipFx) => ['review', 'adversarial-review'].map(s => readRow(f, s)).map(r => [r.review_freshness.status, r.review_binding.state]);
+
+// Value: protects=harness-evals#498: Step 11.5 binds the stopped final review and native reader once the owner's rulings at
+//   that head cover every blocking finding on them, and only then; fails_when=gstack-review-read reads either row UNVERIFIED
+//   after every ruling, or CURRENT with a finding unruled, or applies a ruling for another branch, head or finding, or one
+//   the approvals reader rejects; seam=gstack-approvals rule and gstack-review-read on the stored rows; no_claim=finish's
+//   fix-check chain (the cases above) and the receipt write
+describe('Step 11.5 binds a stopped review the owner ruled at its head (harness-evals#498, HARN-1)', () => {
+  test('#498: both rows read UNVERIFIED on an incomplete binding, then CURRENT on the tree they read once every blocking finding is ruled', () => {
+    const { f, head, tree } = stoppedRound2();
+    expect(bound(f)).toEqual([['UNVERIFIED', 'incomplete'], ['UNVERIFIED', 'incomplete']]);
+    const approvals = BLOCKING.map(x => { const r = rule(f, x, head, 'harness minder (HARN-1)'); expect(r.status, r.stderr).toBe(0); return JSON.parse(r.stdout).added[0] as string; });
+    expect(bound(f)).toEqual([['CURRENT', 'incomplete'], ['CURRENT', 'incomplete']]);
+    const [review, native] = [readRow(f, 'review'), readRow(f, 'adversarial-review')];
+    expect([review.ruled_notes, native.ruled_notes]).toEqual([approvals.slice(0, 2), approvals.slice(2)]);
+    expect([review.review_binding.start_wtree, review.review_binding.end_wtree, native.review_binding.end_wtree, review.tree, native.tree])
+      .toEqual([review.review_binding.end_wtree, native.review_binding.start_wtree, native.review_binding.start_wtree, tree, tree]);
+    expect(review.findings.map((x: any) => x.action)).toEqual(['open', 'open', 'noted']);
+  });
+
+  test('one blocking finding left unruled keeps its row UNVERIFIED and binds the other', () => {
+    const { f, head } = stoppedRound2();
+    for (const x of [RACE, PARTIAL]) expect(rule(f, x, head, 'harness minder (HARN-1)').status).toBe(0);
+    expect(bound(f)).toEqual([['UNVERIFIED', 'incomplete'], ['CURRENT', 'incomplete']]);
+    expect(readRow(f, 'review').ruled_notes).toEqual([expect.stringMatching(/^a-[0-9a-f]{12}$/)]);
+  });
+
+  test('a ruling for another branch, another head or another finding, or one the approvals reader rejects, binds nothing', () => {
+    const { f, head } = stoppedRound2();
+    const none = () => { expect(bound(f)).toEqual([['UNVERIFIED', 'incomplete'], ['UNVERIFIED', 'incomplete']]); expect(readRow(f, 'review').ruled_notes).toBeUndefined(); };
+    expect(f.git('branch', 'other-pr', 'HEAD').status).toBe(0);
+    for (const x of BLOCKING) expect(run(f, 'gstack-approvals', ['rule', '--branch', 'other-pr', '--finding', x, '--head', head, '--reason', 'ships as a note', '--words', 'accept as open notes', '--by', 'harness minder (HARN-1)']).status).toBe(0);
+    none();
+    const mergeBase = f.git('merge-base', 'main', 'HEAD').stdout.trim();
+    for (const x of BLOCKING) expect(rule(f, x, mergeBase, 'harness minder (HARN-1)').status).toBe(0);
+    none();
+    for (const x of BLOCKING) expect(rule(f, x.replace(':1:', ':2:'), head, 'harness minder (HARN-1)').status).toBe(0);
+    none();
+    const store = path.join(f.state, 'projects');
+    const files = fs.readdirSync(store, { recursive: true }).map(String).filter(p => p.endsWith('.jsonl') && p.includes('approvals') && !p.includes('other-pr'));
+    expect(files.length).toBe(1);
+    const file = path.join(store, files[0]!);
+    const gstackRows = BLOCKING.map(x => buildRow({ ask: `ruled_note ${x} at ${head}: ships as a note`, scope: `ruled_note ${x} ${head}`, words: 'accept as open notes', by: 'gstack no-stop default (K1)' }, 'feat'));
+    for (const r of gstackRows) { if ('code' in r) throw new Error(r.message); fs.appendFileSync(file, JSON.stringify(r) + '\n'); }
+    none();
+    expect(run(f, 'gstack-approvals', ['rulings']).stdout).not.toContain('ruled by gstack');
+  });
+});
