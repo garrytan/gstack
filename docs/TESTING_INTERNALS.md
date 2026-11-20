@@ -1539,7 +1539,9 @@ from this file-level ledger.
 
 The aggregate job of `free-tests.yml` downloads every `flake-ledger-*` artifact
 of the run and appends `bun run scripts/test-health-report.ts flake-summary <dir>`
-to its job summary. The Windows lane uploads `flake-ledger-windows-<shard>`.
+to its job summary. The Windows lane uploads `flake-ledger-windows-<shard>`,
+and the quick tier on the install-default Bun (`quick-bun-default`) uploads
+`flake-ledger-quick`.
 
 Free-suite flake rules:
 
