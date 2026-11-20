@@ -696,8 +696,13 @@ describe('format-only repair of a documentation audit line', () => {
     const line = JSON.parse(writer.trimEnd().split('\n').at(-1)!);
     return JSON.stringify({ ...line, documentation_section: 'Audited the widget command template, README.md and AGENTS.md against the one committed change; all current, no edits. Debt: none.' });
   })();
+  const problemsOf = (text: string) => {
+    const check = checkDocsResult(text, auditId, () => true);
+    if (check.ok) throw new Error('expected a rejected result line');
+    return check.problems;
+  };
   const repair = (quoted: string) => ({ tool: 'Agent', input: { description: 'Repair docs result line', subagent_type: 'general-purpose', run_in_background: false,
-    prompt: docsRepairPrompt(quoted, auditId, checkDocsResult(quoted, auditId, () => true).problems) }, output: reply });
+    prompt: docsRepairPrompt(quoted, auditId, problemsOf(quoted)) }, output: reply });
   const result = (repairOf: boolean, printed: string) => ({ tool: 'Bash', input: { command: `${candidate} result ${home}/ship-run2/repair-reply.md --audit-id ${auditId} --out-dir ${home}/ship-run2${repairOf ? ` --repair-of ${output}` : ''}` }, output: printed });
   const applied = 'FORMAT_REPAIR: applied (the reply kept every value the repair had to keep)\nDOCS_RESULT: ok status=current files_updated=0';
 
@@ -707,7 +712,7 @@ describe('format-only repair of a documentation audit line', () => {
     expect(calls.some(call => call.tool === 'Bash' && /^FORMAT_REPAIR: format-only/m.test(call.output))).toBe(true);
     const check = checkDocsResult(writer, auditId, () => true);
     expect(check.ok).toBe(false);
-    expect(check.repairable).toBe(true);
+    expect(!check.ok && check.repairable).toBe(true);
     expect(checkDocsRepair(reply, writer, auditId, () => true).ok).toBe(true);
   });
 
