@@ -73,9 +73,11 @@ describe('gate-tagged data files go to readers as their tagged lines', () => {
     const code = 'docs/benchmarks/demo/harness/score.ts';
     const snapshot = 'docs/benchmarks/demo/results/__snapshots__/expected.json';
     const spanning = `${TRIALS}/t99/run.log`;
+    const hidden = `${TRIALS}/t98/run.log`;
     files[code] = '// eslint-disable-next-line no-console\nexport const score = (n: number) => n * 2;\n';
     files[snapshot] = '{"score": 2}\n';
     files[spanning] = 'step 1\ntry { run() } catch (e) {\n}\nstep 2\n';
+    files[hidden] = `step 1\nif (process.env.CI) try { realGate() } catch (e) {\n}\nrun(); try { a() } catch (e) {}\nstep 2\n`;
     const repo = branch(files);
     const total = Object.values(files).reduce((n, t) => n + Buffer.byteLength(t), 0);
     expect(total).toBeGreaterThan(REVIEW_DIFF_MAX_BYTES);
@@ -92,7 +94,7 @@ describe('gate-tagged data files go to readers as their tagged lines', () => {
     expect(readers.length).toBeGreaterThan(0);
     for (const reader of readers) {
       expect(reader.excerpt).toEqual(Object.keys(markers).sort().map(lit));
-      expect([...(reader.keep ?? [])].sort()).toEqual([code, snapshot, spanning].sort().map(lit));
+      expect([...(reader.keep ?? [])].sort()).toEqual([code, snapshot, spanning, hidden].sort().map(lit));
       expect(reader.excerpt_file.files).toBe(12);
       expect(reader.excerpt_file.bytes).toBeLessThan(REVIEW_DIFF_MAX_BYTES / 4);
     }
@@ -144,10 +146,15 @@ describe('gateScanPaths', () => {
       rec({ path: 'r/both.jsonl', tags: ['RH-13'], new: ['// eslint-disable-line'] }),
       rec({ path: 'r/both.jsonl', tags: ['RH-16'], new: ['catch (e) {', '}'] }),
       rec({ path: 'r/mixed.log', tags: ['RH-16'], new: ['run(); try { a() } catch (e) {}', 'try { b() } catch (e) {', '}'] }),
+      rec({ path: 'r/hidden.log', tags: ['RH-12', 'RH-16'], new: ['if (process.env.CI) try { realGate() } catch (e) {', '}', 'run(); try { a() } catch (e) {}'] }),
+      rec({ path: 'r/untagged-span.log', tags: [], new: ['x'] }),
+      rec({ path: 'r/untagged-span.log', tags: ['RH-13'], new: ['// eslint-disable-line'] }),
+      rec({ path: 'r/untagged-span.log', tags: [], new: ['try { c() } catch (e) {', '}'] }),
       ''].join('\n');
     const g = gateScanPaths(out);
-    expect([...g.tagged].sort()).toEqual(['r/__snapshots__/s.json', 'r/a.jsonl', 'r/both.jsonl', 'r/mixed.log', 'r/moved.jsonl', 'r/span.log']);
+    expect([...g.tagged].sort()).toEqual(['r/__snapshots__/s.json', 'r/a.jsonl', 'r/both.jsonl', 'r/hidden.log', 'r/mixed.log', 'r/moved.jsonl', 'r/span.log', 'r/untagged-span.log']);
     expect([...g.content]).toEqual(['r/a.jsonl']);
+    expect([...gateScanPaths(out.replace(/\n$/, '\nnot json\n')).content]).toEqual([]);
   });
 });
 

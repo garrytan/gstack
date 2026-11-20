@@ -290,6 +290,14 @@ export function lineTags(text: string, path: string): { tags: string[]; spans: A
   return { tags, spans };
 }
 
+/**
+ * The hunk-level detectors run on every line of a hunk, ignoring floor and file type (RH-1's removed test declarations,
+ * RH-16 across lines): true when either fires anywhere. A gate-tagged data excerpt never cuts such a file (GST-3273).
+ */
+export function hunkLevelTagFires(old: readonly string[], adds: readonly string[]): boolean {
+  return old.filter((l) => TEST_DECLARATION.test(l)).length > adds.filter((l) => TEST_DECLARATION.test(l)).length || swallowsAcrossLines([...adds]);
+}
+
 /** RH ids in numeric order; a `?` variant follows its base. */
 export function compareTags(a: string, b: string): number {
   const num = (t: string) => Number.parseInt(t.replace(/^RH-/, ''), 10);

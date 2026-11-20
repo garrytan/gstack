@@ -33,7 +33,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
-import { lineTags, tagHunk } from './gate-diff/tags';
+import { hunkLevelTagFires, lineTags } from './gate-diff/tags';
 import { DATA_PATH, DATA_ROWS, PREREG_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
@@ -128,30 +128,30 @@ const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
 /**
  * The gate scan's jsonl (`gstack-gate-diff --format jsonl`: a summary line, then one record per listed hunk): every path
- * with a tagged hunk, and those whose every tagged hunk sits on an unrenamed path, carries only tags some one of its added
- * lines carries alone outside the floor (lineTags), and tags nothing once those lines are taken out (tagHunk on the rest). A
- * path tag (RH-3), a floor-only tag (RH-15) or a hunk-level instance (RH-1's removed declarations, RH-16 across lines),
- * even beside a one-line instance of the same tag, keeps its path out of `content`, so an excerpt of tagged lines shows
- * every tagged instance.
+ * with a tagged hunk, and those whose every tag sits on one added line alone outside the floor (lineTags), on an unrenamed
+ * path, where no hunk-level detector (hunkLevelTagFires, run on all of each listed hunk's lines before anything is taken
+ * out) fires in any of its hunks. A path tag (RH-3), a floor-only tag (RH-15) or any multi-line instance keeps its path out
+ * of `content`; so does every path when a record cannot be read. It fails closed: a file in doubt stays whole.
  */
 export function gateScanPaths(jsonl: string): { tagged: Set<string>; content: Set<string> } {
   const tagged = new Set<string>();
   const whole = new Set<string>();
+  let unreadable = false;
+  const strings = (v: unknown) => (Array.isArray(v) && v.every(t => typeof t === 'string') ? (v as string[]) : null);
   for (const l of jsonl.split('\n').slice(1)) {
+    if (!l.trim()) continue;
     let h: { path?: unknown; old_path?: unknown; tags?: unknown; new?: unknown; old?: unknown };
-    try { h = JSON.parse(l); } catch { continue; }
-    if (typeof h.path !== 'string' || !Array.isArray(h.tags) || !h.tags.length) continue;
+    try { h = JSON.parse(l); } catch { unreadable = true; continue; }
+    const tags = strings(h.tags), added = strings(h.new), old = strings(h.old);
+    if (typeof h.path !== 'string' || !tags || !added || !old) { unreadable = true; continue; }
     const p = h.path;
-    tagged.add(p);
-    const added = Array.isArray(h.new) ? h.new.filter((t): t is string => typeof t === 'string') : [];
-    const old = Array.isArray(h.old) ? h.old.filter((t): t is string => typeof t === 'string') : [];
-    const carried = new Set<unknown>();
-    const rest: string[] = [];
-    for (const t of added) { const g = lineTags(t, p).tags; if (g.length) g.forEach(x => carried.add(x)); else rest.push(t); }
-    const left = tagHunk({ header: '', lines: [...old.map(text => ({ kind: 'del' as const, text })), ...rest.map(text => ({ kind: 'add' as const, text }))] }, { floor: null, path: p, allPaths: new Set([p]) }).tags;
-    if (h.old_path !== undefined || !h.tags.every(t => carried.has(t)) || left.length) whole.add(p);
+    if (tags.length) tagged.add(p);
+    if (hunkLevelTagFires(old, added)) { whole.add(p); continue; }
+    if (!tags.length) continue;
+    const carried = new Set(added.flatMap(t => lineTags(t, p).tags));
+    if (h.old_path !== undefined || !tags.every(t => carried.has(t))) whole.add(p);
   }
-  return { tagged, content: new Set([...tagged].filter(p => !whole.has(p))) };
+  return { tagged, content: unreadable ? new Set() : new Set([...tagged].filter(p => !whole.has(p))) };
 }
 
 /** `paths` in order, split so each chunk's literal pathspecs (`size` bytes each) stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
