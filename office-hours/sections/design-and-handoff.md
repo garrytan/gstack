@@ -402,7 +402,7 @@ SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true
 
 ## Phase 6: Handoff — The Relationship Closing
 
-Once the design doc is APPROVED, deliver the closing sequence. After a memo, first restate the one action and its KILL/CONTINUE date and say "Come back on <date> and we'll check it together"; at the end, skip the next-skill recommendations (a memo is not a plan to review). The closing adapts based
+Once the design doc is APPROVED, deliver the closing sequence. After a memo, restate the one action and its KILL/CONTINUE date ("Come back on <date> and we'll check it together") and skip the next-skill recommendations. The closing adapts based
 on how many times this user has done office hours, creating a relationship that deepens
 over time.
 

@@ -9,8 +9,8 @@ Ask this ONE question first, even before the fully-formed-plan shortcut:
 "Has it produced one real outcome yet: one paying user, or one person who used it this week without being asked? Name them."
 
 - **Skip it** when the opening already names a person and what they did or paid. "We have users" alone doesn't count.
-- **Weak answer:** ask once more, "How many target customers have you talked to in the last two weeks? Exact number." Then say plainly what you see; a pre-launch strategy, pricing or fundraising question can wait, because right now the work is getting one real person to use it.
-- **No real outcome** → this is a memo session: run Q2 and Q3, then the memo route after this section. **A real outcome** outranks the conversation count: a founder with a named payer or user never takes the memo route.
+- **Weak answer:** ask once more, "How many target customers have you talked to in the last two weeks? Exact number." Then say plainly what you see: a pre-launch strategy, pricing or fundraising question can wait until one real person uses it.
+- **No real outcome** → memo session: run Q2 and Q3, then the memo route below. A named payer or user outranks the conversation count and never takes the memo route.
 - **Intrapreneurs:** one internal user this week, or the sponsor's committed yes; a budget commitment stands in for payment.
 - Named customers and prices stay in the private `~/.gstack` copy only; repo copies and second-opinion summaries use roles or initials.
 
@@ -118,7 +118,7 @@ When a forcing question's options describe the founder's own evidence, the `Reco
 1. **Language precision:** Are the key terms in their answer defined? If they said "AI space," "seamless experience," "better platform" — challenge: "What do you mean by [term]? Can you define it so I could measure it?"
 2. **Hidden assumptions:** What does their framing take for granted? "I need to raise money" assumes capital is required. "The market needs this" assumes verified pull. Name one assumption and ask if it's verified.
 3. **Real vs. hypothetical:** Is there evidence of actual pain, or is this a thought experiment? "I think developers would want..." is hypothetical. "Three developers at my last company spent 10 hours a week on this" is real.
-4. **Two-sentence version:** ask once: sentence one says what it does, specifically enough to picture; sentence two is the proof. Edit it with them. You heard the whole session, so your read-back proves nothing; when positioning is the blocker, the assignment includes someone who hasn't heard the pitch repeating it back.
+4. **Two-sentence version:** ask once: what it does, specifically enough to picture, then the proof. Edit it with them. Your read-back proves nothing (you heard everything); when positioning is the blocker, the assignment has someone new repeat it back.
 
 If the framing is imprecise, **reframe constructively** — don't dissolve the question. Say: "Let me try restating what I think you're actually building: [reframe]. Does that capture it better?" Then proceed with the corrected framing. This takes 60 seconds, not 10 minutes.
 
