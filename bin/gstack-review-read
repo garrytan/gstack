@@ -34,15 +34,6 @@ if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
     const { reviewFreshness, rulingGap, withCollectedFindings } = await import(process.env.GSTACK_REVIEW_LIB);
     const { dispositionedOn, gateKey, readGateDispositions, ruledOn, showDispositioned } = await import(process.env.GSTACK_GATE_LIB);
     const { readRuledNotes } = await import(process.env.GSTACK_RULED_LIB);
-    const { baseMergeOnly } = await import(process.env.GSTACK_PATCH_LIB);
-    const { resolveBaseBranch } = await import(process.env.GSTACK_POLICY_LIB);
-    const merges = new Map();
-    let base;
-    const baseMerged = (rec, wtree) => {
-      const key = rec.commit_full + " " + wtree;
-      if (!merges.has(key)) merges.set(key, baseMergeOnly(process.cwd(), base ??= resolveBaseBranch(process.cwd()), rec.commit_full, wtree, process.env.GSTACK_REVIEW_WTREE));
-      return merges.get(key);
-    };
     let dispositions = [];
     try { dispositions = readGateDispositions(process.cwd()); }
     catch (e) { console.error("gstack-review-read: gate dispositions unreadable, none applied: " + e.message); }
@@ -53,6 +44,21 @@ if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
       try { const rec = JSON.parse(line); return rec && typeof rec === "object" && !Array.isArray(rec) ? rec : null; } catch { return null; }
     });
     withCollectedFindings(recs.filter(Boolean));
+    const now = process.env.GSTACK_REVIEW_WTREE;
+    let baseMerged;
+    if (now && now !== "unknown" && recs.some(rec => rec && [rec.wtree, rec.review_binding?.end_wtree].some(w => typeof w === "string" && w !== now))) {
+      try {
+        const { baseMergeOnly } = await import(process.env.GSTACK_PATCH_LIB);
+        const { resolveBaseBranch } = await import(process.env.GSTACK_POLICY_LIB);
+        const merges = new Map();
+        let base;
+        baseMerged = (rec, wtree) => {
+          const key = rec.commit_full + " " + wtree;
+          if (!merges.has(key)) merges.set(key, baseMergeOnly(process.cwd(), base ??= resolveBaseBranch(process.cwd()), rec.commit_full, wtree, now));
+          return merges.get(key);
+        };
+      } catch (e) { console.error("gstack-review-read: base-merge check unavailable, rows read on other content stay STALE: " + e.message); }
+    }
     for (const rec of recs) {
       try {
         if (!rec) throw new Error("malformed");
