@@ -284,6 +284,34 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(traceLog()).toMatch(/event=routed skill=prove-it score=1 source=\S+prove-it\/SKILL\.md variant=name bug_report=true\n$/);
   });
 
+  test('words inside inline code or a fenced code block never match a trigger or make a bug report; the prose around them still routes (#4564)', () => {
+    const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
+    const names = (text: string, host?: 'claude' | 'codex') => { const d = routePrompt(text, [...routed, proveIt], undefined, host); return d.route ? d.routes.map(r => r.skill) : []; };
+    for (const text of [
+      'You have 1 orchestration message. Run `orca orchestration check --run run_<run-id> --terminal term_<terminal-id>`.',
+      'Run `gh pr review 123 --approve` once CI is done.',
+      'Run ``tool lint check --fix`` and paste the output.',
+      'Run `mycli check` now',
+      'Pasted from CI:\n```\n$ make check\nall tests pass\n```\nWhat does this output mean?',
+      'What does this print?\n~~~sh\nrun the checks || echo broken\n~~~',
+      'What does this print?\n```\nrun the checks\n````\nmore\n````',
+    ]) {
+      expect([text, names(text)]).toEqual([text, []]);
+      expect([text, names(text, 'codex')]).toEqual([text, []]);
+    }
+    for (const [text, skill] of [
+      ['run the checks', 'verify'], ['verify my change in `src/app.ts`', 'verify'], ['run the checks, then `git push`', 'verify'],
+      ['an unclosed ` backtick: run the checks', 'verify'], ['```\nmake check\n```\nrun the checks on that', 'verify'],
+      ['review this pr before I merge `feature/login`', 'review'], ['please review my changes to `lib/auth.ts`', 'review'],
+      ['Saving a draft raises `KeyError: title` when the title is empty', 'prove-it'],
+      ['The upload fails on large files; I ran `make check` and it passed', 'prove-it'],
+      ['the export crashes on empty input, see `export.ts`', 'prove-it'],
+    ]) {
+      expect([text, names(text)]).toEqual([text, [skill]]);
+      expect([text, names(text, 'codex')]).toEqual([text, [skill]]);
+    }
+  });
+
   test('a trigger that names its own target claims no bug report; a full /review or /qa trigger keeps a request to find bugs', () => {
     const proveIt = other('prove-it', ['fix this bug']);
     const lint = other('auto-fix-lint', ['fix lint errors', 'fix broken links', 'fix postgres bugs']);

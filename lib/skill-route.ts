@@ -268,6 +268,35 @@ export function contentTokens(text: string): string[] {
   return [...new Set(words(text).filter(w => !STOPWORDS.has(w)).map(w => concept(stem(w))))];
 }
 
+/** A fence line (CommonMark): up to three spaces, then three or more backticks or tildes, then its info string. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** An inline code span (CommonMark): a backtick run closed by the next run of the same length, within one paragraph. */
+const CODE_SPAN = /(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])*?)(?<!`)\1(?!`)/g;
+
+/**
+ * A prompt split into its prose and its Markdown code, as CommonMark reads them: fenced code blocks (an unclosed fence
+ * runs to the end) and inline code spans (an unmatched backtick run is prose). A command quoted in backticks names the
+ * command; it does not ask for anything, so triggers match the prose only (#4564).
+ */
+export function splitCode(prompt: string): { prose: string; code: string } {
+  const prose: string[] = [];
+  const code: string[] = [];
+  let fence = '';
+  for (const line of prompt.split('\n')) {
+    const m = FENCE.exec(line);
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) fence = '';
+      else code.push(line);
+      prose.push('');
+    } else if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
+      fence = m[1];
+      prose.push('');
+    } else prose.push(line);
+  }
+  const text = prose.join('\n').replace(CODE_SPAN, (_, _run, inner: string) => { code.push(inner); return ' '; });
+  return { prose: text, code: code.join('\n') };
+}
+
 /** The text a prompt is scored on: all of it, or its head and tail windows when it is longer than both. */
 export function promptWindow(prompt: string): string {
   if (prompt.length <= PROMPT_HEAD_CHARS + PROMPT_TAIL_CHARS) return prompt;
@@ -292,7 +321,7 @@ function within(seq: string[], want: string[], span: number): boolean {
 }
 
 /**
- * Every skill whose best trigger shares a content word with the prompt's window (promptWindow), best first
+ * Every skill whose best trigger shares a content word with the window (promptWindow) of the prompt's prose (splitCode), best first
  * (score, matched words, name). A trigger's score is 1 when its whole phrase appears in the prompt, else the
  * share of its content words (stopwords dropped, lightly stemmed, defect words read as "bug") that the prompt
  * contains. A trigger with one content word scores only on its whole phrase unless that word is specific
@@ -302,7 +331,7 @@ function within(seq: string[], want: string[], span: number): boolean {
  * EVERYDAY_SPAN words of each other.
  */
 export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCandidate[] {
-  const scored = promptWindow(prompt);
+  const scored = promptWindow(splitCode(prompt).prose);
   const seq = tokens(scored);
   const promptSeq = ` ${seq.join(' ')} `;
   const promptSet = new Set(contentTokens(scored));
@@ -360,9 +389,18 @@ const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:doe
 /** The verb fix, as a prompt asks for one. */
 const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
 
-/** True when the prompt's window (promptWindow) reads as a bug report: one strong sign, or two different weak ones. */
+/** An exception name as code writes it (ValueError, KeyError, NullPointerException); a helper such as handleError is not one. */
+const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
+
+/**
+ * True when the window (promptWindow) of the prompt's prose (splitCode) reads as a bug report: one strong sign, or two
+ * different weak ones. Its code counts only for an exception name, since a pasted traceback or a quoted `KeyError` reports
+ * one; a flag such as `--fix` or the word broken in a log does not.
+ */
 export function bugReport(prompt: string): boolean {
-  const text = promptWindow(prompt).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
+  const { prose, code } = splitCode(prompt);
+  if (EXCEPTION_NAME.test(promptWindow(code))) return true;
+  const text = promptWindow(prose).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
   if (words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || FIX_WORD.test(w) || /^[a-z]{3,}(?:error|exception)$/.test(w))) return true;
   return STRONG_SIGN.test(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2;
 }
@@ -399,7 +437,8 @@ export type RouteDecision =
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
  * it holds the whole phrase of one of /review's or /qa's own triggers ("review this pr for bugs") and never asks for a
- * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold.
+ * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold. All of
+ * this reads the prompt's prose, never its Markdown code (splitCode), except that an exception name in code reports a bug.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
@@ -408,7 +447,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
-  const window = promptWindow(prompt);
+  const window = promptWindow(splitCode(prompt).prose);
   const seq = ` ${tokens(window).join(' ')} `;
   const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
     && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => seq.includes(` ${tokens(t).join(' ')} `)));
