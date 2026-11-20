@@ -1626,8 +1626,8 @@ refresh to a maintainer.
   dispatch) records the Linux seed on `ubicloud-standard-8` with
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
   `windows-free-tests.yml`'s `record_durations` path, at two workers
-  (`GSTACK_FREE_JOBS=2`, 60-minute job): at four, files that pass nightly timed
-  out under the load and the recording outran its old 30-minute job. The recorder stays on
+  (`GSTACK_FREE_JOBS=2`, 60-minute job): at four, files that pass nightly failed
+  under the load and the recording outran its old 30-minute job. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
   (`ubicloud-standard-8`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
