@@ -204,7 +204,7 @@ constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
 side), which `free-plan` resolves into the shards' runner, shard count and plan.
 GSTA-203 chose them by a 3-run A/B against 20 × `ubicloud-standard-4` at k = 1
 (the PR that set them has the table). A `workflow_dispatch` run may
-override them with `free_runner` (`ubicloud-standard-2`, `-4` or `-8`),
+override them with `free_runner` (`ubicloud-standard-2`, `-4`, `-8` or `-16`),
 `free_shards` (1–40) and `free_jobs` (1–8) for runner-sizing experiments only;
 its job summary says so, and it is never cited as a PR or train Free Tests result.
 Each `free-suite` job's GitHub timeout comes from the plan, not a fixed number
