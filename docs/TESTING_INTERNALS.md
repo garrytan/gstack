@@ -1782,8 +1782,8 @@ skipping is a separate decision for Garry, made after that review.
 Since GST-1859, every free-suite shard keeps bun's JUnit report from each of
 its children, the flaky retry included (`--junit-dir`), and the
 `trunk-flaky-tests` job uploads them, failures included, to the Trunk test
-collection `7yDVXXE3` ("gstack free suite") on same-repository pull requests
-and main pushes. Trunk flags a test as flaky when it fails and then passes on
+collection `7yDVXXE3` ("gstack free suite") on same-repository pull requests,
+main pushes and dispatch runs (dispatch runs joined in GST-3303). Trunk flags a test as flaky when it fails and then passes on
 the same code, or keeps failing on main, and lists it under Flaky Tests at
 app.trunk.io/garry-tan. That job is detection only: quarantine is off in the
 uploader and in the collection, nothing skips a test, no job needs or reads it,
@@ -1791,7 +1791,10 @@ and an upload failure can't turn a check red. A child killed at its wall
 timeout, or one that crashes, writes no report, so Trunk sees none of that
 child's results, its passing files included. Such a child also skips the
 flaky retry, so the flake ledger has no entry for it; the red shard result is
-the only record. The uploader job is the only one that sees
+the only record. The quick tier on the install-default Bun
+(`quick-bun-default`) retries the same way and uploads its ledger as
+`flake-ledger-quick`, but keeps no JUnit report, so its flaky passes reach the
+ledger and not Trunk. The uploader job is the only one that sees
 `TRUNK_ORG_API_TOKEN` (Trunk's v1 organization token, which the uploader
 needs), and it checks out and runs nothing of the pull request's. The [flake
 ledger](#flake-ledger), its one-rerun rule and the daily flaky pass are
