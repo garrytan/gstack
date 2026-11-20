@@ -1205,11 +1205,30 @@ function concatenationHoldsSecret(match: RegExpExecArray): boolean {
  * match that starts after other text on its line is a comment's, and its value,
  * less trailing punctuation, reports only when it is a secret run by
  * isSecretRun. Code before the comment is matched from the line start and
- * checked as before.
+ * checked as before. GST-3297: a match that starts after a path's `/` is not
+ * a comment's (`a/token=…`), so it is checked like a line-start match; one
+ * after a comment marker that opens a quoted string or bracket (`"// key: …"`)
+ * is still a comment's.
  */
+const COMMENT_MARKER_BEFORE = /(?:^|[ \t"'`([])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)$/;
+
+/**
+ * GST-3297: a name that starts after a `/` can be the start of a regex
+ * literal (`content.match(/authtoken:\s*(.+)/)`), whose "value" is pattern
+ * text. It is one only when the `/` follows an operator or opening bracket
+ * (never a path segment) and the value carries the closing `/`. Matches from
+ * the line start or a comment marker never qualify.
+ */
+const REGEX_LITERAL_OPENER = /(?:[(,=:[!&|?{};]|\breturn)[ \t]*\/$/;
+function isRegexLiteralBody(span: string, match: RegExpExecArray): boolean {
+  const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
+  return span.includes("/") && REGEX_LITERAL_OPENER.test(match.input.slice(lineStart, match.index));
+}
 function isCommentText(span: string, match: RegExpExecArray): boolean {
   const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
-  if (/^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*$/.test(match.input.slice(lineStart, match.index))) return false;
+  const before = match.input.slice(lineStart, match.index);
+  if (/^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*$/.test(before)) return false;
+  if (!COMMENT_MARKER_BEFORE.test(before)) return false;
   return !isSecretRun(span.replace(/[,;.)]+$/, ""));
 }
 
@@ -1695,7 +1714,12 @@ export const PATTERNS: RedactPattern[] = [
     // matched on its own from the line start. A short first piece followed by
     // `+` is captured so concatenationHoldsSecret can read the rest of the
     // chain.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)))[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
+    // GST-3297: a name may also start right after a `/`, so a key=value
+    // secret at the end of a path (`../password=…`, `cfg/api_key=…`) reports
+    // wherever it sits: a symlink target in `git log -p`, a diff header, a
+    // quoted string, mid-line. The name class excludes `/`, so each attempt
+    // ends at the next separator and the scan stays linear.
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--))|(?<=\/))[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,
@@ -1710,7 +1734,8 @@ export const PATTERNS: RedactPattern[] = [
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
     // GST-3004: so is a dotted field path (isDottedFieldPath, #4289), and so
     // is key-naming text in a comment
-    // (isCommentText). A secret literal in a `+` chain reports first,
+    // (isCommentText). GST-3297: so is a regex literal's body after its
+    // opening `/` (isRegexLiteralBody). A secret literal in a `+` chain reports first,
     // whatever the exemptions say about the chain's first piece
     // (concatenationHoldsSecret).
     validate: (span, match, opts) =>
@@ -1724,6 +1749,7 @@ export const PATTERNS: RedactPattern[] = [
           !isAttributeReference(span, match, opts?.sourcePath) &&
           !isDottedFieldPath(span, match, opts?.sourcePath) &&
           !isCommentText(span, match) &&
+          !isRegexLiteralBody(span, match) &&
           !isSchemaFieldIdentifier(span, match) &&
           !isTestFixtureLabel(span, opts?.sourcePath) &&
           shannonEntropy(span) >= 3.0)),
