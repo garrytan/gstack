@@ -107,6 +107,17 @@ describe.skipIf(process.platform === 'win32')('Capy telemetry opt-in', () => {
     expect(skillEnd({ GSTACK_CAPY: '' })).toContain('ARTIFACTS_SYNC: skipped (unattended session)');
   });
 
+  test('gstack-telemetry-tier prints the Capy opt-in alone with --capy, else the machine setting', () => {
+    const tier = (args = '', extra: Record<string, string> = {}) => run(`${path.join(BIN, 'gstack-telemetry-tier')} ${args}`, extra);
+    run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });
+    expect([tier('--capy'), tier()]).toEqual(['anonymous', 'anonymous']);
+    expect([tier('--capy', { GSTACK_CAPY: '' }), tier('', { GSTACK_CAPY: '' })]).toEqual(['off', 'community']);
+    writePrefs('telemetry_capy: "anonymous"\r\n');
+    expect(tier('--capy')).toBe('anonymous');
+    writePrefs('telemetry_capy: anonymous\n' + '#'.repeat(4096));
+    expect([tier('--capy'), tier()]).toEqual(['off', 'community']);
+  });
+
   test('outside an unattended session the label is still capy under GSTACK_CAPY=1', () => {
     run(`${BIN}/gstack-config set telemetry anonymous`, { GSTACK_SESSION_KIND: 'interactive' });
     run(`${BIN}/gstack-telemetry-log --skill qa --outcome success --session-id 9-capy`, { GSTACK_PREFERENCES_FILE: '' });
