@@ -78,7 +78,7 @@ describe("env.kv after a path separator (GST-3297)", () => {
       ` a/${kv(TOKEN)}`,
       "",
     ].join("\n");
-    const out = redactFindingSpans(hunk);
+    const out = redactFindingSpans(hunk) ?? "";
     expect(out).not.toContain(VALUE);
     expect(out.split("\n")).toHaveLength(hunk.split("\n").length);
     expect(out).toContain("+../password=<REDACTED-env.kv>");
