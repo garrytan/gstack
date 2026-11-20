@@ -1636,7 +1636,12 @@ or too large. Each message names the cap that applied:
 - **64 MiB source cap.** The full size of every such file outside dependency
   and VCS directories counts, including files over 1 MiB whose contents are
   withheld from the audit.
-- **Symlinks.** A tracked symlink anywhere in the repository stops the run.
+- **Special files.** A nonignored FIFO, socket or device inside the audit
+  scope (the whole repository, or the `--paths` directories) stops the run.
+  Symlinks do not: since the first release after v1.102.0.0 (#4540), each
+  tracked or nonignored symlink is listed in the report with its target string, or notes that the target was withheld when it matches a secret pattern
+  and is never followed, so a link to `/etc/passwd` or out through `..` is
+  reported, not read.
 
 **Fix.** No setting raises these caps. For the 64 MiB source cap, rerun with
 `--paths` set to the comma-separated repo-relative directories you want audited
@@ -1648,7 +1653,8 @@ With `--diff`, every changed path outside dependency directories must be inside
 `--paths`, or the run is refused. Do not audit a hand-trimmed copy: /cso would treat it as the whole
 repository and report nothing as skipped. `--paths` does not lower the
 manifest cap or the 100,000-entry limit, because every skipped path still has a
-manifest entry (about 50,000 files fit). Symlinks must be removed. Add your
+manifest entry (about 50,000 files fit). Remove or ignore a FIFO, socket or
+device, or narrow `--paths` past it. Add your
 file count or size to
 [#2993](https://github.com/garrytan/gstack/issues/2993).
 
