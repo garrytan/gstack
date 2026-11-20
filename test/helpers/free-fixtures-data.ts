@@ -119,6 +119,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/disabled-prior-clock-36903600510.json': ['test/disabled-dated-record-at.test.ts'],
   'test/fixtures/docsync-branch-listing-public.json': ['test/docsync-command-grammar.test.ts'],
   'test/fixtures/docsync-followup-echo-37188668421.json': ['test/docsync-child-marker.test.ts'],
+  'test/fixtures/docsync-format-repair-public.json': ['test/ship-document-release-dispatch.test.ts'],
   'test/fixtures/docsync-invalid-first-attempt-public.json': ['test/ship-document-release-dispatch.test.ts'],
   'test/fixtures/docsync-observer-commands.json': ['test/docsync-lifecycle-interface.test.ts'],
   'test/fixtures/docsync-phase-read-aborted-public.json': ['test/docsync-authority.test.ts'],
