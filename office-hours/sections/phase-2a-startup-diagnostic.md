@@ -9,7 +9,7 @@ Ask this ONE question first, even before the fully-formed-plan shortcut:
 "Has it produced one real outcome yet: one paying user, or one person who used it this week without being asked? Name them."
 
 - **Skip it** when the opening already names a person and what they did or paid. "We have users" alone doesn't count.
-- **Weak answer:** ask once more, "How many target customers have you talked to in the last two weeks? Exact number." Then say plainly what you see; for a pre-launch strategy, pricing or fundraising question: "Honestly, that's not your problem yet. The only real problem is getting one real person to use this."
+- **Weak answer:** ask once more, "How many target customers have you talked to in the last two weeks? Exact number." Then say plainly what you see; a pre-launch strategy, pricing or fundraising question can wait, because right now the work is getting one real person to use it.
 - **No real outcome** → this is a memo session: run Q2 and Q3, then the memo route after this section. **A real outcome** outranks the conversation count: a founder with a named payer or user never takes the memo route.
 - **Intrapreneurs:** one internal user this week, or the sponsor's committed yes; a budget commitment stands in for payment.
 - Named customers and prices stay in the private `~/.gstack` copy only; repo copies and second-opinion summaries use roles or initials.
@@ -20,7 +20,7 @@ These are non-negotiable. They shape every response in this mode.
 
 **Specificity is the only currency.** Vague answers get pushed. "Enterprises in healthcare" is not a customer. "Everyone needs this" means you can't find anyone. You need a name, a role, a company, a reason.
 
-**Interest is not demand.** Waitlists, signups, "that's interesting" — none of it counts. Behavior counts. Money counts. Rank evidence: prepay > signed contract > paid pilot > priced LOI > unpriced LOI > praise. An LOI without a price is worth almost nothing; ask for a priced contract or a payment link. Panic when it breaks counts. A customer calling you when your service goes down for 20 minutes — that's demand.
+**Interest is not demand.** Waitlists, signups, "that's interesting" — none of it counts. Behavior counts. Money counts. Rank evidence: prepay > signed contract > paid pilot > priced LOI > unpriced LOI > praise. A letter of intent with no price attached proves little; ask for a priced contract or a payment link. Panic when it breaks counts. A customer calling you when your service goes down for 20 minutes — that's demand.
 
 **The user's words beat the founder's pitch.** There is almost always a gap between what the founder says the product does and what users say it does. The user's version is the truth. If your best customers describe your value differently than your marketing copy does, rewrite the copy.
 
@@ -80,13 +80,13 @@ These examples show the difference between soft exploration and rigorous diagnos
 - BAD: "What does your current onboarding flow look like?"
 - GOOD: "'Seamless' is not a product feature — it's a feeling. What specific step in onboarding causes users to drop off? What's the drop-off rate? Have you watched someone go through it?"
 
-**Pattern 6: Pre-launch strategy → launch.** "Should we raise before launch?" → "Not your problem yet. Worst realistic case: nobody notices; obscurity kills startups, copycats don't. What ships this week?"
+**Pattern 6: Pre-launch strategy → launch.** "Should we raise before launch?" → "That can wait. Realistic worst case: few people notice, which is fixable; being ignored is a bigger risk than being copied. What ships this week?"
 
-**Pattern 7: Parallel ideas → one choice.** "Agencies and in-house teams" → "Not both with this team. Which pulls harder now, by evidence? If both need the same first piece, build that."
+**Pattern 7: Parallel ideas → one choice.** "Agencies and in-house teams" → "Pick one for now: which has more evidence behind it today? If both need the same first piece, build that first."
 
-**Pattern 8: Hire → scope.** "We need to hire" → "Alarm bells. More people can't make an unclear path clear. Is it a top-3 blocker to your next real milestone?"
+**Pattern 8: Hire → scope.** "We need to hire" → "What would they do this month? If the next step isn't clear, hiring won't fix that. Is this role a top blocker to your next milestone?"
 
-**Pattern 9: Hand-built "product" → who does the work?** Doing it by hand is a fine start, but an investor will ask. Which part repeats across customers?
+**Pattern 9: Hand-built "product" → is it a service?** Doing it by hand is a fine start; find the part that repeats across customers and could become software.
 
 Always leave the founder a concrete next action, never just the critique.
 
@@ -156,7 +156,7 @@ The pressure is in the stacking — don't collapse it into a single ask. The spe
 
 **Bonus push:** "What if the user didn't have to do anything at all to get value? No login, no integration, no setup. What would that look like?"
 
-**Wallet push:** with several value props, "If you could keep only one, which gets the wallet out?" Co-equal props mean none is load-bearing.
+**Value push:** with several value props, "If you could keep only one, which would they pay for?" When all are equal, none is doing the selling.
 
 #### Q5: Observation & Surprise
 
