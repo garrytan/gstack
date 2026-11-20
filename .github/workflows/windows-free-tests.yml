@@ -310,7 +310,7 @@ jobs:
   windows-record-durations:
     if: ${{ inputs.record_durations }}
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -340,6 +340,7 @@ jobs:
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
+          GSTACK_FREE_JOBS: '2'
         run: |
           set -o pipefail
           bun run test:windows --record-durations --wall-timeout 1200 2>&1 | tee "$RUNNER_TEMP/record.log"
