@@ -118,10 +118,10 @@ export function docsAttemptOutputs(calls: Array<{ tool: string; input: any; outp
     if (repair < 0) return calls[index].output;
     const dispatchInput = JSON.stringify(calls[index].input);
     const applied = window.slice(repair + 1).some(call => {
-      const command = String(call.input?.command);
-      const auditId = /--audit-id (\S+)/.exec(command)?.[1];
-      return call.tool === 'Bash' && /gstack-docs-candidate result \S+ .*--repair-of /.test(command) && !!auditId &&
-        dispatchInput.includes(auditId) && /^FORMAT_REPAIR: applied/m.test(call.output);
+      const args = [...String(call.input?.command).matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(token => token[1] ?? token[2] ?? token[3]);
+      const auditId = args[args.indexOf('--audit-id') + 1];
+      return call.tool === 'Bash' && /(^|\/)gstack-docs-candidate$/.test(args[0] ?? '') && args[1] === 'result' && args.includes('--repair-of') &&
+        args.includes('--audit-id') && !!auditId && dispatchInput.includes(auditId) && /^FORMAT_REPAIR: applied/m.test(call.output);
     });
     return applied ? window[repair].output : calls[index].output;
   });

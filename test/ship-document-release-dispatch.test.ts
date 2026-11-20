@@ -718,7 +718,8 @@ describe('format-only repair of a documentation audit line', () => {
 
   test('an applied repair stands for the attempt; the repair agent is not a dispatch even when it quotes the skill path', () => {
     const quoted = writer.replace(/\n(?=[^\n]*$)/, '\nI followed document-release/SKILL.md for this audit.\n');
-    for (const repaired of [[...calls, repair(writer), result(true, applied)], [...calls, repair(quoted), result(true, applied)]]) {
+    const quotedResult = { tool: 'Bash', input: { command: `'${candidate}' result "${home}/ship-run2/repair-reply.md" --audit-id '${auditId}' --out-dir ${home}/ship-run2 --repair-of '${output}'` }, output: applied };
+    for (const repaired of [[...calls, repair(writer), result(true, applied)], [...calls, repair(quoted), result(true, applied)], [...calls, repair(writer), quotedResult]]) {
       expect(docsDispatchIndices(repaired)).toEqual(dispatches);
       const { accepted, attempts } = docsAttemptContracts(docsAttemptOutputs(repaired, dispatches));
       expect(attempts).toHaveLength(1);
