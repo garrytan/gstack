@@ -263,6 +263,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 | [Why gstack](docs/why-gstack.md) | The story, the productivity numbers and their caveats, Karpathy's failure modes, parallel sprints |
 | [Install details](docs/install.md) | Setup timing, requirements in detail, team mode, the hooks setup registers, agent harness registration |
 | [Other agents](docs/hosts.md) | Agent harnesses (OpenClaw, Hermes, dots, QM, Muse Code, Grok, any other), OpenClaw native skills, per-host notes, the Codex profile and model tiers, outside-review providers, the design binary's models |
+| [Working across agent systems](docs/working-across-agent-systems.md) | Running gstack work when more than one agent system touches a repo: one sender per boundary, answers on the pull request, filtered wake-ups instead of polling, every message as a paid turn, pinning the other harness's version and model |
 | [QA without a webpage](docs/qa-without-a-webpage.md) | `/qa` and `/qa-only` on CLIs, APIs, jobs, workers and webhooks |
 | [Standalone binaries](docs/standalone-binaries.md) | The standalone `gstack-*` CLIs (egress auditor, context bill, model benchmark, the review and evidence ledgers, the iOS QA daemon), and the CSO evaluation producer contract |
 | [Privacy & Telemetry](docs/privacy.md) | What is sent, what never is, the update check, outside reviews, egress receipts |
