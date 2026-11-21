@@ -1,0 +1,1 @@
+- Clarify in `/verify` that `CHECKS: none` cannot produce `READY_FOR_SHIP`, specify the exact report wording, distinguish self-run checks from gstack results, and offer adding `gstack:verify: <command>` to `CLAUDE.md`.
