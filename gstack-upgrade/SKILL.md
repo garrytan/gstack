@@ -64,7 +64,7 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-Note: `{line}` is the whole `UPGRADE_AVAILABLE` line from the update check, pasted exactly as printed. The snippet keys the snooze on the same field `gstack-update-check` reads: the SHA (fourth field) on a four-field line, so the snooze ends when main moves, otherwise the new version (third field). Never substitute one field by hand.
+Note: `{line}` is the whole `UPGRADE_AVAILABLE` line, exactly as printed; the snippet picks the field `gstack-update-check` reads.
 
 Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
 
