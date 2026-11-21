@@ -43,7 +43,7 @@ function sliceFunction(source: string, name: string): string {
 /** install_runtime_deps and the helpers it calls, sliced out of setup in definition order, after the lock helper setup sources. */
 function depsFunctions(setup: string): string {
   const names = ['bun_cmd', '_deps_role', '_deps_has_dev', '_deps_verified', '_deps_lock', '_deps_unlock', '_deps_recover',
-    '_deps_migration_start', '_deps_migration_finish', 'install_runtime_deps'];
+    '_deps_wait_migration', '_deps_migration_start', '_deps_migration_finish', 'install_runtime_deps'];
   return `. ${JSON.stringify(path.join(ROOT, 'bin', 'gstack-lock.sh'))}\n` + names.map((n) => (n === '_deps_unlock' ? setup.split('\n').find((l) => l.startsWith('_deps_unlock() {'))! + '\n' : sliceFunction(setup, n))).join('\n');
 }
 
@@ -425,6 +425,25 @@ exit 0
     expect(run(stale, migrateBun(stale).bun).status).toBe(0);
     expect(has(stale, 'typescript')).toBe(false);
     expect(leftovers(stale)).toEqual([]);
+  });
+
+  // Value: protects=a second ./setup never installs into the node_modules a live migration moved aside;
+  //   fails_when=install_runtime_deps falls through to an install while another setup holds the lock with its backup in place;
+  //   why_new=a review reproduced the second install being replaced by the first setup's rollback; seam=none; no_claim=real Bun (stub bun)
+  test('a setup that finds another setup mid-migration waits for it before installing', () => {
+    const mid = oldInstall();
+    const lock = path.join(mid, 'node_modules.gstack-migrate.lock');
+    fs.renameSync(path.join(mid, 'node_modules'), path.join(mid, 'node_modules.gstack-migrate'));
+    fs.mkdirSync(lock);
+    const holder = spawnSync('sh', ['-c', `(sleep 2; rm -rf ${JSON.stringify(lock)}) >/dev/null 2>&1 & echo $!`], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    fs.writeFileSync(path.join(lock, 'pid'), holder);
+    const { bun, calls } = migrateBun(mid);
+    const r = run(mid, bun);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(`waiting for another ./setup (pid ${holder})`);
+    expect(calls()).toEqual(['install --production --frozen-lockfile']);
+    expect([has(mid, 'typescript'), has(mid, 'runtime-pkg')]).toEqual([false, true]);
+    expect(leftovers(mid)).toEqual([]);
   });
 
   // Value: protects=another project's install that reads the Agent SDK out of Bun's shared cache (Bun's symlink

@@ -73,7 +73,7 @@ function codexExec(args: string[], env: NodeJS.ProcessEnv, cwd: string, scratch:
       for (const dir of [codexHome, repo, tmp]) fs.mkdirSync(dir, { recursive: true });
       const ciHome = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
       if (fs.existsSync(path.join(ciHome, 'auth.json'))) fs.copyFileSync(path.join(ciHome, 'auth.json'), path.join(codexHome, 'auth.json'));
-      const env = hermeticChildEnv({ HOME: home, CODEX_HOME: codexHome, TMPDIR: tmp }, { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] });
+      const env = hermeticChildEnv({ HOME: home, CODEX_HOME: codexHome, TMPDIR: tmp, GSTACK_CONTRIBUTOR: '1' }, { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] });
 
       const setupStarted = Date.now();
       const setup = spawnSync('./setup', ['--host', 'codex'], { cwd: ROOT, env, encoding: 'utf8', timeout: SETUP_MS });

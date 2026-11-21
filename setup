@@ -1860,14 +1860,27 @@ _deps_lock() {
 
 _deps_unlock() { rm -rf node_modules.gstack-migrate.lock; }
 
-# A backup left by an interrupted migration: keep whichever copy is usable.
+# A backup left by an interrupted migration is the complete install it moved
+# aside in one rename, so it goes back and the migration runs again; a partial
+# production install can pass _deps_verified, so it never replaces the backup.
 _deps_recover() {
   [ -d node_modules.gstack-migrate ] || return 0
-  if _deps_verified; then
-    rm -rf node_modules.gstack-migrate
-  else
-    rm -rf node_modules && mv node_modules.gstack-migrate node_modules
-  fi
+  rm -rf node_modules && mv node_modules.gstack-migrate node_modules
+}
+
+# Another ./setup is moving this checkout's dependencies (its backup exists and
+# its lock holder is alive): wait for it instead of installing into the
+# directory it moved aside, which its rollback would replace.
+_deps_wait_migration() {
+  local holder i=0
+  while [ -d node_modules.gstack-migrate ] && [ "$i" -lt 300 ]; do
+    holder="$(cat node_modules.gstack-migrate.lock/pid 2>/dev/null || true)"
+    case "$holder" in ''|*[!0-9]*|0|"$$") return 0 ;; esac
+    kill -0 "$holder" 2>/dev/null || return 0
+    [ "$i" -eq 0 ] && echo "gstack: waiting for another ./setup (pid $holder) to finish moving this checkout's dependencies" >&2
+    sleep 2
+    i=$((i + 1))
+  done
 }
 
 # Installs made before v1.91.231.0 carry the dev toolchain. Locks, recovers, and
@@ -1913,6 +1926,7 @@ _deps_migration_finish() {
 install_runtime_deps() {
   local role out rc=0
   role="$(_deps_role)"
+  _deps_wait_migration
   if [ "$role" = "user" ] && _deps_migration_start; then
     out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
     _deps_migration_finish "$rc" "$out" && return 0

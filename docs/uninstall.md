@@ -88,7 +88,13 @@ gstack_rm_checked "${HERMES_HOME:-$HOME/.hermes}/skills/gstack"
 gstack_rm_checked ~/.cursor/skills/gstack*
 gstack_rm_checked ~/.config/opencode/skills/gstack*
 gstack_rm_checked ~/.gemini/antigravity-cli/skills/gstack*
-gstack_rm_checked ~/.gemini/skills/gstack*
+# Gemini CLI's ~/.gemini/skills also holds your own skills: remove only the
+# links setup made and the directories whose SKILL.md carries gstack's generated banner
+for d in ~/.gemini/skills/gstack*; do
+  if [ -L "$d" ]; then rm -f -- "$d"
+  elif grep -qs '<!-- AUTO-GENERATED from' "$d/SKILL.md"; then gstack_rm_checked "$d"
+  fi
+done
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

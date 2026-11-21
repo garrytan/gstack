@@ -1448,5 +1448,25 @@ describe('the manual removal in docs/uninstall.md checks each folder before dele
     expect(r.stderr).toContain(`kept ${repo}: ${repo} has uncommitted changes, unpushed commits or a locked worktree`);
     expect(fs.existsSync(path.join(repo, 'notes.md'))).toBe(true);
   });
+
+  // Value: protects=the manual uninstall keeps the user's own gstack-named skills in ~/.gemini/skills, a folder Gemini CLI shares;
+  //   fails_when=the documented Gemini step deletes every gstack* entry; why_new=a review deleted an unmanaged gstack-my-notes
+  //   with the documented step; seam=none; no_claim=the other hosts' manual steps
+  test('the manual Gemini CLI step removes only gstack-managed entries', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs', 'uninstall.md'), 'utf-8');
+    const helper = doc.slice(doc.indexOf('# 0. A delete that stops for unsaved git work'), doc.indexOf('# 1. Stop browse daemons'));
+    const start = doc.indexOf("# Gemini CLI's ~/.gemini/skills also holds your own skills");
+    expect(start).toBeGreaterThan(-1);
+    const block = doc.slice(start, doc.indexOf('\ndone\n', start) + 6);
+    const skills = path.join(tmp, '.gemini', 'skills');
+    for (const [name, body] of [['gstack', '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\n'], ['gstack-review', '<!-- AUTO-GENERATED from SKILL.md.tmpl -->\n'], ['gstack-my-notes', '# my notes\n']]) {
+      fs.mkdirSync(path.join(skills, name), { recursive: true });
+      fs.writeFileSync(path.join(skills, name, 'SKILL.md'), body);
+    }
+    fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(skills, 'gstack-ship'));
+    const r = spawnSync('bash', ['-c', `${helper}\n${block}`], { cwd: tmp, encoding: 'utf-8', timeout: 30_000, env: { ...gitEnv, HOME: tmp } });
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readdirSync(skills)).toEqual(['gstack-my-notes']);
+  });
 });
 
