@@ -120,9 +120,10 @@ publish cookie values, passwords, profile/account text, or session details.
 
 ## Fallback command reference
 
-The table in the Browser fallback section covers what the cookbook covers. Everything
-else `$B` can do — extraction, tabs, dialogs, uploads, meta/server commands, and the
-full snapshot-flag reference — lives in the generated section below. Read it before
-reaching for a `$B` command that is not in the table.
+Read the section below before using a `$B` command the table lacks.
+
+- `$B eval <file>` reads only files under the temp dir or the daemon's working dir.
+- Each git root gets its own daemon: after a `cd` into another repo (nested too), `$B`
+  starts a new one without your session. Run `$B` from the project dir.
 
 {{SECTION:command-list}}

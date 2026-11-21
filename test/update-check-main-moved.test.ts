@@ -171,7 +171,8 @@ describe('equal VERSION, main moved past the checkout', () => {
     expect(run().stdout).toBe('UPGRADE_AVAILABLE 1.0.0 1.0.0+2 ' + short(next));
   });
 
-  test("gstack-upgrade's Not-now block, with the fourth field substituted for {new}, snoozes exactly that SHA", () => {
+  // #4561: the block takes the whole line and derives the key itself, so an agent never picks the field by hand.
+  test("gstack-upgrade's Not-now block, given the whole four-field line, snoozes exactly that SHA", () => {
     const local = head();
     const main = pushUpstream('c2');
     serveCompare(local, main, 'ahead', 1);
@@ -180,14 +181,14 @@ describe('equal VERSION, main moved past the checkout', () => {
     expect(fields).toHaveLength(4);
     const skill = fs.readFileSync(path.join(ROOT, 'gstack-upgrade', 'SKILL.md'), 'utf8');
     const block = /```bash\n(GSTACK_STATE_ROOT=\$\(~\/\.claude\/skills\/gstack\/bin\/gstack-paths[^\n]*\n_SNOOZE_FILE=[\s\S]*?)```/.exec(skill)![1]!;
-    expect(block).toContain('_REMOTE_VER="{new}"');
-    expect(skill).toContain('On a four-field line use the SHA (fourth field) as `{new}`');
+    expect(block).toContain('_UPGRADE_LINE="{line}"');
+    expect(block).not.toContain('{new}');
     const bin = path.join(fx.root, '.claude', 'skills', 'gstack', 'bin');
     fs.mkdirSync(bin, { recursive: true });
     fs.mkdirSync(path.join(path.dirname(bin), 'lib'), { recursive: true });
     for (const name of ['gstack-paths', 'gstack-state-root.sh']) fs.copyFileSync(path.join(ROOT, 'bin', name), path.join(bin, name));
     for (const name of ['gstack-paths', 'gstack-state-root.sh']) fs.chmodSync(path.join(bin, name), 0o755);
-    const r = spawnSync('bash', ['-c', block.replace('{new}', fields[3]!)], { encoding: 'utf8', timeout: 15_000, env: { ...process.env, HOME: fx.root, GSTACK_STATE_ROOT: fx.state, GSTACK_ROOT: path.dirname(bin) } });
+    const r = spawnSync('bash', ['-c', block.replace('{line}', line.trim())], { encoding: 'utf8', timeout: 15_000, env: { ...process.env, HOME: fx.root, GSTACK_STATE_ROOT: fx.state, GSTACK_ROOT: path.dirname(bin) } });
     expect(r.status).toBe(0);
     expect(fs.readFileSync(path.join(fx.state, 'update-snoozed'), 'utf8')).toMatch(new RegExp('^' + short(main) + ' 1 \\d+\\n$'));
     expect(run().stdout).toBe('');

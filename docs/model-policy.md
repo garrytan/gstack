@@ -113,9 +113,10 @@ because you already route that ID to your endpoint. Any other name there, such
 as a smart-tier model or a deployment alias, is refused
 (`custom_provider_model_not_tier`): it could be any model, so name it with the
 tier setting or the environment override if you want it as your plan reviewer.
-`gstack-codex-probe role-ready` and `gstack-outside-voice run --runner codex-cli`
-(for the `autoplan` and `spec` gates) share this selection, so the readiness
-check and the review never pick different models. A model identifier passing syntax validation
+`gstack-codex-probe role-ready`, `gstack-outside-voice run --runner codex-cli`
+(for the `autoplan` and `spec` gates), and `gstack-models resolve` and `list`
+share this selection, so the readiness check, the review and the listing never
+pick different models. A model identifier passing syntax validation
 is not proof of account availability. See [provider recovery](troubleshooting.md#model-policy-provider).
 
 Detection is conservative, not a replacement for the CLI's settings engine.

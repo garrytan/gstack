@@ -1,7 +1,10 @@
 import * as path from 'node:path';
 import { CODEX_EFFORT_LEVELS, MODEL_CATALOG, MODEL_CATALOG_VERSION, MODEL_PROVIDERS, MODEL_TIERS, modelCatalogSha256, type ModelProvider } from './model-catalog';
 import {
+  CODEX_MODEL_REPAIR,
+  codexNativeModel,
   CUSTOM_PROVIDER_UNSCANNED,
+  DOCS_PROVIDER,
   describeSelection,
   MODEL_OVERRIDE_KEYS,
   ModelPolicyError,
@@ -319,13 +322,22 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
       : { code: 1, stdout: '', stderr: errors.map(renderError).join('') };
   }
 
+  const codexModel = codexNativeModel({ kind: 'exec', env });
+  const nativeModel = () => {
+    try {
+      return codexModel();
+    } catch (error) {
+      if (error instanceof ModelPolicyError) throw error;
+      throw new ModelPolicyError({ reason: 'native_provider_unresolved', problem: 'gstack cannot read the model your Codex config.toml names', cause: (error as Error).message, key: null, source: 'native', repair: [CODEX_MODEL_REPAIR], docs: DOCS_PROVIDER });
+    }
+  };
   const selections: ModelSelection[] = [];
   const errors: CliError[] = [];
   const roles: ModelRole[] = command === 'list' ? ['plan-review', 'implementation'] : [role === 'eval-arms' ? 'implementation' : role as ModelRole];
   for (const r of roles) {
     for (const p of provider ? [provider] : MODEL_PROVIDERS) {
       attempt(r, p, () => r === 'plan-review'
-        ? [resolvePlanReviewModel({ provider: p, env, platform, cwd, config })]
+        ? [resolvePlanReviewModel({ provider: p, env, platform, cwd, config, ...(p === 'openai' ? { nativeModel } : {}) })]
         : resolveImplementationModels({ provider: p, env, platform, cwd, config }), selections, errors);
     }
   }
