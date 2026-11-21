@@ -22,6 +22,16 @@ with no drive mounted) and gains bun and the installed dependencies, so it can r
 Every counted C and F trial gets an exposure audit with a sensitivity analysis (Blinding). The Budget replaces the
 pilot estimate with its measured cost and adds the second pilot. No bar, arm, decision or catch rule changed.
 
+Amended 2026-11-21 a third time, after the second uncounted pilot and before any counted trial, on the owner's grant
+(GSTA-36). One C trial stopped at Step 5, before any review, when the preflight refused the remote gate, because the
+brief's stop line did not say it meant finish only; the stop line now names finish's Step 16. Both briefs gain one
+identical line saying the owner has exempted the branch from the team rules on how /ship is run, because the F brief
+contradicts the team's one-/ship-subagent rule and F threads went looking for context: one F trial in each pilot read
+this file. The zero-score rule for reading this file already covers both arms; Blinding now says why that is
+symmetric and adds a per-arm count and a sensitivity analysis. The no-gstack arm's final report is every report the
+SDK returns, because one run reported twice. The Budget adds the measured second pilot and a third pilot of C and F
+only. No bar, arm, decision or catch rule changed.
+
 Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); runner GSTA-589. Paid runs start only
 after this file merges and the owner approves the budget below.
 
@@ -68,8 +78,10 @@ the procedure differs. GPT-6.1 Sol is not an arm: the decision concerns Capy thr
 
 Briefs, frozen. Shared part: "You own branch `<branch>` on garrytan/gstack; its base is `<base>`. Install gstack for
 ship, then run /ship at the branch head against `<base>`. Stop at `SHIP_RECEIPT:` or wherever /ship stops, skip
-`gstack-ship-queue ready`, and never merge. If finish refuses `pregate.json/remote_gate` with `base_mismatch` or
-`paid_only`, stop there and report it. Report the receipt line, the `CALLS:` line and the stop reason if any."
+`gstack-ship-queue ready`, and never merge. The owner has exempted this branch from the team rules on how /ship is
+run; follow this brief. Only finish's refusal of `pregate.json/remote_gate` at Step 16 with `base_mismatch` or
+`paid_only` ends the run there: stop and report it. A remote-gate refusal earlier in /ship does not end the run.
+Report the receipt line, the `CALLS:` line and the stop reason if any."
 C adds: "Run /ship the usual way: one fresh /ship subagent (machine: fresh) runs it." F adds: "Run /ship yourself in
 this thread: follow ship/DRIVER.md phase by phase with gstack-ship-phase, and start its reviewers as your own
 subagents. Do not start a subagent to run /ship."
@@ -85,6 +97,7 @@ C and F load gstack by design; the question is about gstack's /ship procedure.
 - prompt: "Review this PR (branch `<branch>` against `<base>`, checked out here) for bugs that would fail a test, break production or lose data. List each as path:line and the cause." No SKILL.md, preamble, hooks, installed skills or routing lines
 - panel: the same kind (`behavior`, 3 independent trials per case), the same catch rule and the same real-problem judge
 - harness: the Claude Agent SDK with the `claude_code` preset, reasoning effort high, Bash, Read and Grep tools; cost from the SDK's reported total at list price. This differs from C and F (Capy threads), because a Capy thread cannot hide the owner's drives; its cost is comparable to theirs in size, not to the cent
+- final report: every report the SDK returns during the run, in order (a run that starts a background command can report again when it finishes)
 - report: its row sits beside C and F in every results table and verdict, including when it wins
 - masking: a container on the runner's Capy machine with no Capy drive mounted, holding only the case checkout (its base and head branches) and the installed dependencies, with bun available so the arm can run tests
 - install: `test ! -e ~/.local/share/gstack && test ! -e ~/.claude/skills` inside the container before each run
@@ -144,7 +157,7 @@ Scoring). If they hold fewer than 48 findings, or fewer than 24 from C and F, C 
 case 4, then case 5, until both counts are met or this stage reaches $150. These trials never enter a counted
 comparison.
 
-**End of a trial.** A C or F trial ends at `SHIP_RECEIPT:`, at finish's refusal of `pregate.json/remote_gate` with
+**End of a trial.** A C or F trial ends at `SHIP_RECEIPT:`, at finish's Step 16 refusal of `pregate.json/remote_gate` with
 `base_mismatch` or `paid_only` (the case bases are not main, so that gate cannot clear; it is the same wall for both
 arms and is not a harness failure), or wherever else /ship stops. Cost, wall time and `calls=` are measured to that
 end. Work an arm does to get around the refusal (a VM gate, repointing `origin/HEAD`) is counted in its cost and
@@ -214,7 +227,12 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
   the host's own commit title. No branch, file, commit message, prompt or label the trial controls carries an eval word.
 - This file and its results file are removed from every case base, and the label file never enters the repository.
   The installed gstack copy (`~/.local/share/gstack`) still holds this file, so every C and F transcript is scanned
-  for reads of it or of the label file's path, and a trial that read either scores zero.
+  for reads of it or of the label file's path, and a trial that read either scores zero. The rule is the same for C
+  and F: both arms install the same gstack copy and fetch the same `origin/main`, so both can read this file the same
+  way, and both briefs carry the same text, including the exemption line that removed the F-only reason to look for
+  context. Each arm's count of such reads is reported, and the sensitivity analysis below also repeats the
+  comparisons with those trials left out instead of scored zero, so a difference in how often the arms read this file
+  cannot alone decide a bar.
 - Each arm's checkout keeps git history, where the original fix commit lives. Lookups of the planted path's history
   (`git log -S`, `git log -p`, `git blame` on that file) are counted per trial, and catches made after one are
   reported separately as well as in the totals.
@@ -244,16 +262,17 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 | N trials | 30 | $6 | $180 |
 | Sealing: picking hosts and plants, proving each plant | 1 | $60 | $60 |
 | Pilot, uncounted: one trial of cases 1 to 3 in each arm (measured) | 1 | $83 | $83 |
-| Second pilot, uncounted, after the 2026-11-21 amendment | 1 | $85 | $85 |
+| Second pilot, uncounted, after the 2026-11-21 amendment (measured) | 1 | $73 | $73 |
+| Third pilot, uncounted, C and F only, after the third 2026-11-21 amendment | 1 | $75 | $75 |
 | Judge stage, uncounted: N on cases 4 to 10 | 7 | $6 | $42 |
 | Judge: 48 labels plus about 300 findings on GPT-6 Astra | 1 | $80 | $80 |
 | Runner: waves, audits, scoring, results write-up | 1 | $150 | $150 |
 | /ship of the results pull request | 1 | $35 | $35 |
-| **Estimate** | | | **$2,995** |
+| **Estimate** | | | **$3,058** |
 | Cap (approved by GSTA-36) | | | $3,250 |
 
-If the judge stage needs its extra C and F trials, its $150 limit holds them to $108 (worst case $3,103), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
-(about $10 a run), the actual total is near $2,695. Machines, CI minutes and the runner VM are not in cost.dollars and
+If the judge stage needs its extra C and F trials, its $150 limit holds them to $108 (worst case $3,166), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
+(about $10 a run), the actual total is near $2,758. Machines, CI minutes and the runner VM are not in cost.dollars and
 are reported separately. Each case gets 3 trials because AGENTS.md gives a `behavior` case a panel of 3, and because
 one trial each would let noise decide the "misses nothing" bar (see Bars).
 

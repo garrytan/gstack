@@ -1,0 +1,1 @@
+The /ship conductor trial plan now stops a trial only at the final remote-gate refusal, gives both arms the same note that the brief overrides team rules, and counts every report the no-gstack arm returns (GST-3003).
