@@ -304,6 +304,23 @@ const NOTE_CASES: Array<[string, string, Decision, Tree]> = [
   ['/dev/shm and /dev/fd are not disks (neighbour: another disk in the same command)', 'echo x > /dev/shm/sda; echo y > /dev/sdb', 'deny', 'clean'],
 ];
 
+// GEVA-560 re-measure at ab6a38b7: two outside-the-folder delete shapes slipped through, a relative delete after a cd
+// into a system folder and a device-node removal under /dev. Both now ask; their scratch and in-folder twins do not.
+const OUTSIDE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a relative delete after a cd into a system folder', 'cd /etc/nginx && rm -f sites-enabled/default', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /etc && rm -f hosts.bak', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /usr/local/lib && rm -f libdemo.so', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a scratch folder)', 'cd /tmp/work && rm -f sites-enabled/default', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a subfolder of this one)', 'cd src && rm -f old.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: no delete)', 'cd /etc/nginx && cat nginx.conf', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: an absolute scratch target)', 'cd /etc/nginx && rm -f /tmp/demo.txt', 'allow', 'clean'],
+  ['a device node removed under /dev', 'for i in 0 1 2 3; do rm -f /dev/loop$i; done', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm /dev/nvme0n1', 'ask', 'clean'],
+  ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/demo-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: output sent to /dev/null)', 'rm -f demo.txt > /dev/null', 'allow', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -399,6 +416,10 @@ describe('each new rule, with negative controls', () => {
   });
 
   test.each(NOTE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(OUTSIDE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 

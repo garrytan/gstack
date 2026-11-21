@@ -140,6 +140,9 @@ _RX_CACHE="^${_RX_HOME}/(\.cache|\.npm|\.bun/install/cache|\.cargo/registry|\.lo
 _RX_ARTIFACT="^([^[:space:];&|#(${_BT}\$]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.nox|htmlcov|\.eggs|\.venv|venv|[^/[:space:]]+\.egg-info)(/|/\*)?\$"
 _RX_ROOT="^(/+|/+\*|${_RX_HOME}(/+|/+\*)?|/(usr|etc|var|home|opt|bin|sbin|lib|lib64|boot|root|srv|System|Users|Library|Applications|private|mnt/c|c)(/+|/+\*)?|${_RX_HOME}/(Documents|Desktop|Downloads|Library|Pictures|Movies|Music|\.ssh|\.config|\.aws|\.gnupg|\.kube)(/+|/+\*)?)\$"
 
+# A device node under /dev, and a system folder a cd can lead a relative delete into.
+_RX_DEV_NODE='^/dev/(sd|nvme|hd|vd|xvd|mmcblk|loop|disk|rdisk|md|dm-|nbd|sr|mapper/)'
+_RX_SYSDIR='^/(etc|usr|boot|bin|sbin|lib|lib32|lib64|root|System|Library|private/etc)/'
 _CAREFUL_CWD="${GSTACK_HOOK_CWD:-}"
 [ -n "$_CAREFUL_CWD" ] || _CAREFUL_CWD="$PWD"
 if command -v gstack_hook_normalize_path >/dev/null 2>&1; then
@@ -237,6 +240,7 @@ _careful_outside() {
   local t="$1"
   [ -n "$t" ] || return 1
   case "/$t/" in */../*) return 0 ;; esac
+  [[ $t =~ $_RX_DEV_NODE ]] && return 0
   case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 1
   [[ $t =~ $_RX_CACHE ]] && return 1
@@ -254,7 +258,7 @@ _careful_outside() {
     '~'|'~/'*) t="${HOME:-}${t#\~}" ;;
     '~'*) return 0 ;;
     /*) ;;
-    *) return 1 ;;
+    *) [ "$_SCRATCH" -eq 0 ] && [[ $_CUR_DIR/ =~ $_RX_SYSDIR ]] || return 1; t="$_CUR_DIR/$t" ;;
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
