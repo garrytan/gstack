@@ -1349,7 +1349,7 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
     fx.repo.git('checkout', '-q', '--detach', 'origin/main');
     const elsewhere = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
-    const landAt = (env: NodeJS.ProcessEnv, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', ...extra], env);
+    const landAt = (env: Record<string, string>, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', ...extra], env);
     expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-44', pin: head, env: { ...storeEnv(fx), GSTACK_STATE_ROOT: elsewhere.GSTACK_STATE_ROOT } }).applied).toEqual([]);
     const bare = landAt(elsewhere);
     expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);

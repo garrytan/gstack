@@ -10,7 +10,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { trailReadRow, trialMergeLines } from '../lib/ship-queue';
-import { readyTailLines, type ShipReceipt } from '../lib/ship-receipt';
+import type { ShipReceipt } from '../lib/headless-artifacts';
+import { readyTailLines } from '../lib/ship-receipt';
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
