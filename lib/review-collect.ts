@@ -138,11 +138,11 @@ export const CONSUMER_SCAN_CAP = 2000;
 export const CONSUMER_SCAN_DEPTH = 4;
 /**
  * One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails
- * closed. One scan stays a minute under the 180 s gstack-review-dispatch and gstack-ship-preflight give all of gstack-review-plan;
+ * closed. One scan stays a minute under the default 180 s (REVIEW_PLAN_TIMEOUT_MS) every caller gives all of gstack-review-plan;
  * a plan that also scans a fix range (--range-base) runs a second scan and can still reach that limit, which fails the plan.
  */
 export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
-/** How long one gstack-review-plan run may take, by itself or under gstack-review-dispatch pass (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the run stops with REVIEW_PLAN_STOPPED. */
+/** How long one gstack-review-plan run may take, by itself or under gstack-review-dispatch pass and render or gstack-ship-preflight (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it through reviewPlanTimeoutMs, which every caller reads); past it the run stops with REVIEW_PLAN_STOPPED. */
 export const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 /** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;

@@ -13,6 +13,7 @@ import { defaultBaseBranch } from './default-base';
 import { isConfigUnavailable, loadConfigFromBase, loadConfigFromHead } from './pregate/config';
 import { canDispatch } from './pregate/workflows';
 import { buildRunCheck } from './pregate/run-check';
+import { reviewPlanTimeoutMs } from './review-collect';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
@@ -191,7 +192,7 @@ function merge(cwd: string, base: string, r: Report): boolean {
       .next('Step 2: read each candidate (and manifests for new binaries or exports); a new distributable without a pipeline needs Step 2\'s question');
   }
   r.add(`POLICY: ${['bump', 'queue_mode', 'review_scope', 'history'].map(k => `${k}=${policy?.[k] ?? '?'}`).join(' ')} (binds Steps 12-16 and history)`);
-  const plan = bin(cwd, 'gstack-review-plan', ['--base', base, '--json'], 180_000);
+  const plan = bin(cwd, 'gstack-review-plan', ['--base', base, '--json'], reviewPlanTimeoutMs());
   let runtime = 'unknown';
   try {
     const j = JSON.parse(plan.stdout);

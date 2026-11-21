@@ -4228,16 +4228,37 @@ and ask a person with the log file.
 ### `REVIEW_PLAN_STOPPED`
 
 **Meaning.** `gstack-review-plan` did not finish inside its limit, so it printed
-no plan, or `gstack-review-dispatch pass`, which runs it before it writes a
-manifest, stopped without dispatching a reader (exit 1 either way). The line
-names the step (the plan command), `reason=timeout` with `timeout_ms` (180,000
-ms; `GSTACK_REVIEW_PLAN_TIMEOUT_MS` sets it in milliseconds), `reason=signal` with the signal when something else
-killed it, or `reason=spawn` when it could not start. Before this line existed, a
-plan that ran past the limit was killed with no output (GST-1442).
+no plan, or `gstack-review-dispatch pass` (which runs it before it writes a
+manifest) or `gstack-review-dispatch render` (which runs it for the base
+policy's `review_exclude_paths` before it writes a brief) stopped without
+dispatching a reader (exit 1 either way). The line names the step (the plan
+command), `reason=timeout` with `timeout_ms`, `reason=signal` with the signal
+when something else killed it, or `reason=spawn` when it could not start. Before
+this line existed, a plan that ran past the limit was killed with no output
+(GST-1442).
 
-**Fix.** Rerun once unchanged. If it stops again, report the line and the
-repository's file count (`git ls-files | wc -l`) to your Captain. For
-`reason=signal`, check the machine's free memory first.
+**The limit.** 180,000 ms (3 minutes) by default. Set
+`GSTACK_REVIEW_PLAN_TIMEOUT_MS` to a whole number of milliseconds to change it,
+for example `GSTACK_REVIEW_PLAN_TIMEOUT_MS=600000` for 10 minutes. The plan run
+by itself, `gstack-review-dispatch pass` and `render`, and
+`gstack-ship-preflight` all read the same variable, so set it once in the
+environment /ship runs in. An empty value, `0`, a negative number or anything
+that is not a number is ignored and the 180,000 ms default applies; a fraction
+is rounded down. `timeout_ms` in the line shows the limit that was actually used,
+so `timeout_ms=180000` after you set the variable means it did not reach the
+process.
+
+**Large repositories should set it.** The plan's time grows with the number of
+tracked files: on a 301,669-file repository it took 255 to 316 seconds on a
+2-core machine, so every /ship there stopped at the default before any reviewer
+ran (GST-3398). If `git ls-files | wc -l` is in the hundreds of thousands, set
+the limit to about twice the plan's measured time (`time gstack-review-plan
+--base <base>` with the variable set high) before running /ship.
+
+**Fix.** Rerun once unchanged. If it stops again with `reason=timeout` on a large
+repository, set `GSTACK_REVIEW_PLAN_TIMEOUT_MS` as above and rerun; otherwise
+report the line and the repository's file count (`git ls-files | wc -l`) to your
+Captain. For `reason=signal`, check the machine's free memory first.
 
 <a id="review-required-no-readers"></a>
 ### `gstack-review-plan: not run (commits after the reviewed head would ship with no reviewer ...) (review_required_no_readers)`
