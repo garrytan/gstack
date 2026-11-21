@@ -49,7 +49,7 @@ import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '..
 /** The runner a `.py`-only selection gets; it needs the pytest module importable by python3 (`pytestMissing`). */
 const PYTEST = 'python3 -m pytest {files}';
 
-/** The test command with `{files}`; detected from the repo when the config does not name one. The repo's bun, vitest or jest claims JS/TS files only. */
+/** The test command with `{files}`; detected from the repo when the config does not name one. The repo's bun, vitest or jest claims JS/TS files only; JS files that all load `node:test` get `node --test` ahead of vitest and jest, which find no suite in them, while bun runs them itself. */
 export function detectRunner(ctx: Pick<PregateContext, 'config' | 'repoRoot'>, files: readonly string[]): string | null {
   if (ctx.config.runner) return ctx.config.runner;
   const has = (f: string) => fs.existsSync(path.join(ctx.repoRoot, f));
@@ -58,6 +58,7 @@ export function detectRunner(ctx: Pick<PregateContext, 'config' | 'repoRoot'>, f
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   const jsts = files.every(f => /\.[cm]?[jt]sx?$/.test(f));
   if (jsts && (has('bunfig.toml') || has('bun.lock') || has('bun.lockb'))) return 'bun test {files}';
+  if (files.length && files.every(f => /\.[cm]?js$/.test(f) && importsNodeTest(readRepoFile(ctx.repoRoot, f) ?? ''))) return 'node --test {files}';
   if (jsts && deps.vitest) return 'npx vitest run {files}';
   if (jsts && deps.jest) return 'npx jest {files}';
   if (files.every(f => /\.py$/.test(f)) && files.length) return PYTEST;
@@ -196,6 +197,11 @@ function importsPlaywright(text: string): boolean {
   }
   return false;
 }
+/** Whether a JS test loads `node:test` in a statement that starts a line: `import … from 'node:test'`, a bare import, or `require`. Text that mentions it mid-line or in a comment does not count. */
+function importsNodeTest(text: string): boolean {
+  const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+  return /^[\t ]*(?:import(?=[\s{*'"])[^'"`;]*?|(?:const|let|var)\b[^=\n]*=[\t ]*require\([\t ]*)['"]node:test['"]/m.test(code);
+}
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
 
@@ -216,6 +222,7 @@ function declaredRunnerFiles(runner: string): RegExp | null {
  * from the crate's workspace root; JS/TS tests owned by a nested package that
  * declares vitest or jest run from that package; a JS/TS test that imports
  * `@playwright/test` runs through `playwright test` from its nearest package;
+ * a `.js`, `.mjs` or `.cjs` test that loads `node:test` runs from the repo root with the runner `detectRunner` gives node:test files;
  * the rest go to the detected runner from the repo root, split by language
  * when no one runner fits them all (`.mjs` + `.py` runs both), and pytest only
  * when python3 can import it. Files no runner claims (a tool missing from PATH,
@@ -239,6 +246,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
   let model: CargoModel | null = null;
   const pkgRunners = new Map<string, ReturnType<typeof packageRunner>>();
   const rest: string[] = [];
+  const nodeTests: string[] = [];
   const noPubspec: string[] = [];
   const unclaimed: string[] = [];
   const missing = new Set<string>();
@@ -257,6 +265,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     }
     const pkg = /\.[cm]?[jt]sx?$/.test(f) ? nearestRoot(ctx.repoRoot, f, 'package.json', seenPackage) : null;
     if (pkg !== null && importsPlaywright(readRepoFile(ctx.repoRoot, f) ?? '')) { add(playwright, pkg, under(pkg, f)); continue; }
+    if (/\.[cm]?js$/.test(f) && importsNodeTest(readRepoFile(ctx.repoRoot, f) ?? '')) { nodeTests.push(f); continue; }
     if (pkg) {
       if (!pkgRunners.has(pkg)) pkgRunners.set(pkg, packageRunner(ctx.repoRoot, pkg, ctx.env));
       const r = pkgRunners.get(pkg);
@@ -279,7 +288,7 @@ export function planRuns(ctx: PregateContext, files: readonly string[]): RunPlan
     unclaimed.push(...c.files.map(f => (c.cwd ? `${c.cwd}/${f}` : f)));
   }
   const language = (f: string) => (/\.py$/.test(f) ? 'py' : /\.[cm]?js$/.test(f) ? 'js' : /\.[cm]?[jt]sx?$/.test(f) ? 'ts' : f);
-  const parts = !rest.length ? [] : detectRunner(ctx, rest) ? [rest] : [...Map.groupBy(rest, language).values()];
+  const parts = [...(!rest.length ? [] : detectRunner(ctx, rest) ? [rest] : Map.groupBy(rest, language).values()), ...(nodeTests.length ? [nodeTests] : [])];
   const byRunner = new Map<string, string[]>();
   for (const part of parts) {
     const runner = detectRunner(ctx, part);
