@@ -106,8 +106,11 @@ reads one full gate, stamps versions at merge, and merges each PR with
 finding blocks only when it "would fail a test, break production, or lose data
 or secrets" (Garry's floor); the rest goes in the PR body.
 
-**Fix waves.** When main goes red, lanes hold `/ship`, one owner finds the root
-cause, and everyone merges main once. Deferred review findings and test-only
+**Go forward, don't stop and fix.** When one item goes bad (a page, a file, a
+test case), a lane sets it aside, keeps the rest moving, says what it set aside
+and repairs it afterwards. When main goes red, the change that broke it is
+reverted instead of every lane waiting on a root cause, and a blocking finding
+still stops the PR it is found in. Deferred review findings and test-only
 follow-ups get folded into one wave PR instead of one PR each. On one crew a
 single audit-pin fix cleared a main-wide red and ten PRs landed within the hour.
 

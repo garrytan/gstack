@@ -14,6 +14,11 @@ and the Captain's drive) is the `/captain` skill and `crew/docs/captain.md` in t
   question to the person. The Captain relays it in plain language and sends back the person's exact words.
   A thread with no Captain asks the person directly with a Capy question. Either way, never use a bare
   question, gate codes or slot numbers.
+- **Every relay quotes its source.** The person's answer is one case of a wider rule: whatever an agent
+  passes on (an answer, another crew's finding, a report from another agent system, a summary it was given)
+  goes out in the source's own words, unchanged and marked as a quote, with who wrote them, when, and what the
+  relayer checked ("checked: nothing" when it checked nothing). A summary may sit beside the quote, never in
+  place of it, because a summary repeated unchecked is how a wrong claim reaches the owner.
 - **Scope.** An answer covers the thread and scope it was asked for. It is not a blanket approval for
   later work.
 - **Standing approvals** are the ones the Captain lists in its own rules, for example "merge when green,
@@ -166,7 +171,7 @@ warm price. The merge lane reports to the Captain only a landing, a decision or 
 A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
 `ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
 take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
-`--reading-from task`, so it caps at 100M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
+`--reading-from task`, so it caps at 50M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

@@ -1027,23 +1027,24 @@ sets the defaults that keep it from coming back.
 
 - **Detect.** One program fetches each crew thread (`tools.thread.get`, with its transcript) to files, then
   `gstack-runaway scan --dir <dir>` prints a `RUNAWAY:` line per thread and a `FLAG:` line per limit crossed:
-  own tokens past 500M or active past 3 days (rotate, for a standing thread that wakes on every event; a crew
-  thread keeps its PR until it merges or closes and checks in with its Captain once past 1B, and no thread holding an
-  open PR rotates), a subagent past 100M (stop), empty wakes past 25% of the
+  own tokens past 250M or active past 3 days (rotate, for a standing thread that wakes on every event; a crew
+  thread keeps its PR until it merges or closes and checks in with its Captain once past 500M, and no thread holding an
+  open PR rotates), a subagent past 50M (stop), empty wakes past 25% of the
   last 40 turns (warm-wait check-ins are left out), and review rounds past 2 per PR. Captains are reported, never rotated.
   The `RUNAWAY:` line also prices the wakes it read: `cold_wakes` and `empty_wakes` are their shares by count,
   `cold_extra_spend` the share of spend that cold model calls add over warm ones (a wake that starts after the
   5-minute prompt cache lapsed, or a call after a tool that ran that long), and `empty_spend` the share the empty wakes cost. `scan --wakes` prints one `WAKE:` line per wake with its cost in warm model calls.
-- **Stop.** A live subagent past 100M is stopped with its reason. A standing thread is rotated at a clean point through
+- **Stop.** A live subagent past 50M is stopped with its reason. A standing thread is rotated at a clean point through
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain once none of
   its PRs is open (R91), through `gstack-archive-check thread`. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
 - **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
-  PR head (metering its own row with a 100M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
+  PR head (metering its own row with a 50M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
   thread per automation run.
 
-Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03, before R70's 2026-11-09 amendment (today only a thread
-marked standing gets `ROTATE`, a crew thread past 1B gets `CHECK_IN`, and a thread holding an open PR never rotates) (excerpt):
+Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03, before R70's 2026-11-09 amendment and the 2026-11-15 halving of
+its token lines (today only a thread marked standing gets `ROTATE`, past 250M; a crew thread past 500M gets `CHECK_IN`; a
+subagent past 50M gets `STOP` or `LOOK`; and a thread holding an open PR never rotates) (excerpt):
 
 ```
 RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B credits=2299398 age_days=13.1 active=yes ...

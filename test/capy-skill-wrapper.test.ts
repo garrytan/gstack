@@ -689,7 +689,10 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     // 4,200 for point 12's keep-the-PR-to-the-end and standing-thread rotation clause and point 14's cap of 10 finished PRs before a new fix thread (Garry's "do it" 2026-11-09, relayed by FOUN-32).
     // 4,400 for point 10's report shape, Failed or skipped / Unverified / Also changed lines first, and its pointer to ETHOS.md section 8 for
     // findings write-ups (GST-1455, Garry's "do it" 2026-11-05 on R73; the clause is the wording GEVA-2's dev climb measured, so it is not trimmed).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4400);
+    // 4,875 for the token lines halved (500M check-in, 250M standing rotation, 50M subagent look; Capy's token counts read about
+    // half since 2026-11-15), point 4's go-forward rule, point 6's relay clause and point 15's subagent rule (crew rules R70, R104,
+    // R105 and R109, each the owner's standing rule).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4875);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
