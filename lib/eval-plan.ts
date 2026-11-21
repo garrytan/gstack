@@ -65,6 +65,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 
 ## Held-out exposure
 <!-- Every held-out set this plan touches: | set | prior exposure (which runs, which models) | reservation (what this run may read) | -->
+<!-- Answers on the task machine: how each unit's machine was checked, before any session, for answers the agent could read there (other git refs such as \`git log --all\`, build and package caches, archives and the task's own work tree; never a sweep of \`/\`, runner state or \`~/.ssh\`). -->
 <!-- Optional: a \`## Diagnostics\` section declares the summarizer (\`summarizer: <command naming {fixture}>\`), its synthetic records (\`fixture: <path>\`) and one | diagnostic | expected | row per diagnostic; \`prereg --check --allow-repo-commands\` runs it. A count reported as zero needs its diagnostic declared here with a planted case (expected 1 or more). -->
 `;
 }
