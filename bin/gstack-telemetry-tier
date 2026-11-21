@@ -40,6 +40,14 @@ if [ "${1:-}" = "--capy" ] || [ "$capy" != off ]; then
   echo "$capy"
   exit 0
 fi
+# On a Capy install (gstack-capy-install's state file in this checkout's git
+# dir) only the opt-in above sends: a shell that never sourced the launch file,
+# such as a /ship reader subagent's, is off, never the machine setting.
+_root=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+if [ -n "$_root" ] && [ -f "$(git -C "$_root" rev-parse --absolute-git-dir 2>/dev/null)/gstack-capy-install.state" ]; then
+  echo off
+  exit 0
+fi
 tier=$("$(dirname "$0")/gstack-config" get telemetry 2>/dev/null || true)
 case "$tier" in
   anonymous|community) echo "$tier" ;;

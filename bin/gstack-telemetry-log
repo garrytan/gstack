@@ -123,6 +123,15 @@ if [ "$TIER" = "off" ]; then
   exit 0
 fi
 
+# One row per onboarding step per install a day: setup sends its step on every
+# run, so anything rerunning ./setup in a loop repeated it hundreds of times an hour.
+if [ "$EVENT_TYPE" = "onboarding" ]; then
+  OB_MARKER="$ANALYTICS_DIR/.onboarding-$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')"
+  TODAY="$(date -u +%Y-%m-%d)"
+  [ "$(cat "$OB_MARKER" 2>/dev/null)" = "$TODAY" ] && exit 0
+  mkdir -p "$ANALYTICS_DIR" && printf '%s\n' "$TODAY" > "$OB_MARKER" 2>/dev/null || true
+fi
+
 # ─── Finalize stale .pending markers ────────────────────────
 # Each session gets its own .pending-$SESSION_ID file to avoid races
 # between concurrent sessions. Finalize any that don't match our session.

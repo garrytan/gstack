@@ -181,11 +181,12 @@ describe('launch-env echo ratchet', () => {
     const installer = fs.readFileSync(path.join(ROOT, 'bin/gstack-capy-install'), 'utf8');
     expect(installer).toContain('LAUNCH_FILE="${VERDICT%.json}.env"');
     expect(installer).toContain('chmod 0600 "$tmp"');
-    for (const name of CAPY_LAUNCH_MARKERS) expect(installer, name).toMatch(new RegExp(`^\\s*echo "export ${name}=`, 'm'));
+    for (const name of CAPY_LAUNCH_MARKERS) expect(installer, name).toMatch(new RegExp(`echo "export ${name}=`));
     // Both directions: every `export NAME=` line the launch file writes is either a marker the shard
     // sandbox and the test preload strip, or GSTACK_STATE_ROOT, which they keep on purpose (GSTA-99).
-    // The PATH prepend is a separate `case` line this regex ignores; PATH is kept too.
-    const exported = [...installer.matchAll(/^\s*echo "export ([A-Z_]+)=/gm)].map(m => m[1]).sort();
+    // The PATH prepend is a separate `case` line this regex ignores; PATH is kept too. Not anchored to the line
+    // start: the preferences file and the loadout root are written by conditional lines (GSTA-666).
+    const exported = [...installer.matchAll(/echo "export ([A-Z_]+)=/g)].map(m => m[1]).sort();
     expect(exported).toEqual([...CAPY_LAUNCH_MARKERS, 'GSTACK_STATE_ROOT'].sort());
     expect(installer).toContain('echo "GSTACK_LAUNCH_FILE: $LAUNCH_FILE"');
     for (const file of ['ship/sections/documentation.md', 'document-release/SKILL.md', 'autoplan/DRIVER.md', 'capy/skill/gstack/SKILL.md']) {

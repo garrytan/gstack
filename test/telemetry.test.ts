@@ -395,6 +395,14 @@ describe('.pending marker', () => {
     expect(events[0].outcome).toBe('chromium-install');
   });
 
+  test('each onboarding step is recorded at most once a day, however often setup reruns', () => {
+    setConfig('telemetry', 'community');
+    for (let i = 0; i < 3; i++) run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_welcome --outcome shown --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_welcome --outcome shown --no-sweep`);
+    expect(parseJsonl().map(e => e.skill)).toEqual(['_setup_playwright', '_setup_welcome']);
+  });
+
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
 

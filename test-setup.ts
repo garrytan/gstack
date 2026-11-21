@@ -23,7 +23,7 @@ import { FIXTURE_MARKER } from './lib/fixture-marker';
 import { CAPY_LAUNCH_MARKERS } from './scripts/lib/shard-engine';
 
 // State-root hermeticity (docs/state-root.md). Tests isolate state with
-// GSTACK_HOME, but GSTACK_STATE_ROOT and GSTACK_STATE_DIR outrank or join it
+// GSTACK_HOME, but GSTACK_STATE_ROOT, GSTACK_STATE_DIR and CLAUDE_PLUGIN_DATA outrank or join it
 // in the chain, so an ambient value from the parent shell would redirect
 // every test's state. Strip them before any test module loads. The merged
 // privacy keys also read $HOME/.gstack; point that second root at a
@@ -36,6 +36,8 @@ for (const name of ['GSTACK_STATE_ROOT', 'GSTACK_STATE_DIR']) {
   delete process.env[name];
   process.stderr.write(`test-setup: stripped inherited ${name}; tests isolate state via GSTACK_HOME\n`);
 }
+// The chain's plugin link (CLAUDE_PLUGIN_DATA) goes too; no test runs as a Claude plugin.
+delete process.env.CLAUDE_PLUGIN_DATA;
 // The Capy installer's launch markers (GSTA-99, GSTA-104): a focused `bun test`
 // run from a shell that sourced the launch file would hand every product child
 // an unattended Capy session it never set up. The shard engine strips the same
