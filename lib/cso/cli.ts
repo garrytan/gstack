@@ -545,13 +545,16 @@ function historyCoverage(status: any, scope: string, auditPaths?: string[]): Cov
     ? {
         domain: 'history-inputs',
         scope,
-        status: auditPaths ? 'partial' : 'assessed',
+        status: auditPaths || status.truncated ? 'partial' : 'assessed',
         method: 'bounded helper-retained Git history',
-        gaps: auditPaths
-          ? [
-              `History outside the --paths audit scope (${auditPaths.join(', ')}) was not retained or assessed`,
-            ]
-          : [],
+        gaps: [
+          ...(auditPaths
+            ? [
+                `History outside the --paths audit scope (${auditPaths.join(', ')}) was not retained or assessed`,
+              ]
+            : []),
+          ...(typeof status.truncated === 'string' ? [`History truncated: ${status.truncated}`] : []),
+        ],
         exclusions: [],
         evidence: [
           `Captured ${String(status.commits ?? 'bounded commits')} from ${String(status.range ?? 'the pinned source range')}`,
