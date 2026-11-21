@@ -1,4 +1,4 @@
 {
-  "bytes": 88,
+  "bytes": 105,
   "why": "Codex-safe temp cleanup: rm without -f (GST-3364)"
 }

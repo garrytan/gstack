@@ -368,7 +368,7 @@ Write the text into each printed file with your file-write tool (Claude Code's W
    while IFS= read -r f; do
      [ -n "$f" ] || continue
      case "$f" in /*|..|../*|*/..|*/../*) echo "SKIPPED (outside repo): $f"; continue ;; esac
-     if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then echo "REVERT_HUNK: $f"; else { [ ! -e "$f" ] || rm -- "$f"; } && echo "REMOVED: $f"; fi
+     if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then echo "REVERT_HUNK: $f"; else { [ ! -e "$f" ] && [ ! -L "$f" ] || rm -- "$f"; } && echo "REMOVED: $f"; fi
    done < "$REJECTED_FILE"
    rm -- "$REJECTED_FILE"
    ```
