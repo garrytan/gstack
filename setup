@@ -1870,7 +1870,8 @@ _deps_recover() {
   fi
 }
 
-# Installs made before v1.91.231.0 carry the dev toolchain. Locks, recovers, and
+# An unmarked checkout with the dev toolchain (an install made before v1.91.231.0,
+# or a plain bun install) migrates. Locks, recovers, and
 # moves node_modules aside; succeeds only when it moved, so the caller installs
 # production-only and calls _deps_migration_finish.
 _deps_migration_start() {

@@ -172,7 +172,7 @@ export const RESULT_CODES = {
   },
   SETUP_DEPS_MIGRATE_FAILED: {
     anchor: 'setup-deps-migrate-failed',
-    summary: 'setup tried to move an install made before v1.91.231.0 to production-only dependencies, the production install failed, and setup put the full install back',
+    summary: 'setup tried to move a checkout that has the dev toolchain but is not marked as a contributor\'s (git config gstack.contributor) to production-only dependencies, the production install failed, and setup put the full install back',
     fix: 'read the cause on the warning line (offline, proxy, disk full), fix it, then re-run ./setup; the full install keeps working meanwhile',
   },
   // C-stamp (plan C1, C2, C3, C5, C7): ship policy, restamp, tree receipt, ship receipt.

@@ -88,7 +88,11 @@ gstack_rm_checked "${HERMES_HOME:-$HOME/.hermes}/skills/gstack"
 gstack_rm_checked ~/.cursor/skills/gstack*
 gstack_rm_checked ~/.config/opencode/skills/gstack*
 gstack_rm_checked ~/.gemini/antigravity-cli/skills/gstack*
-gstack_rm_checked ~/.gemini/skills/gstack*
+# ~/.gemini/skills also holds your own skills: remove only links and the
+# folders gstack generated, as gstack-uninstall does
+for item in ~/.gemini/skills/gstack*; do
+  { [ -L "$item" ] || grep -q '<!-- AUTO-GENERATED from' "$item/SKILL.md" 2>/dev/null; } && gstack_rm_checked "$item"
+done
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

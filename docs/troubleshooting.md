@@ -2671,8 +2671,10 @@ anything.
 <a id="setup-deps-migrate-failed"></a>
 ### `gstack: WARN kept the full dependency install (SETUP_DEPS_MIGRATE_FAILED; ...): <cause>`
 
-**Meaning.** Your install was made before v1.91.231.0, so it still carries the
-test and eval packages (about 520 MB, mostly the Claude Agent SDK). setup moved
+**Meaning.** This checkout has the test and eval packages (about 520 MB, mostly
+the Claude Agent SDK) but isn't marked as a contributor's
+(`git config gstack.contributor`). Installs made before v1.91.231.0 look like
+this, and so does a clone where someone ran plain `bun install`. setup moved
 `node_modules` aside to install production dependencies only, that install
 failed, and setup put the full `node_modules` back. Nothing was removed, and
 gstack keeps working on the full install.
