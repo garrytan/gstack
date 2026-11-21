@@ -429,15 +429,34 @@ verdict_kept() {
   [ "$PROFILE" -eq 1 ] && [ -f "$VERDICT" ] && [ "$(gstack_install_verdict_field "$VERDICT" ok)" = true ] \
      && [ "$(gstack_install_verdict_field "$VERDICT" head)" = "$HEAD_SHA" ] && ! gstack_doctor_install_profile "$(gstack_install_verdict_field "$VERDICT" for)"
 }
+# An ok run keeps what an earlier ok install certified for this checkout, project, HEAD and Bun,
+# so one machine serving /ship and its docs step stays admitted for both (#3561): required is
+# the union, pins count as planning-only only when both runs skipped them, and for= lists every
+# workflow (comma-separated). A failing run, another HEAD or another Bun replaces the verdict, so
+# each run also records its own workflow's verdict at <verdict>.for/<workflow>.json, which admission
+# falls back to: a later install for another workflow never drops this one (GST-1233).
 record_verdict() { # TRAILER OK — --check keeps the recorded resolution (drift is reported, never re-recorded)
+  local v_for="${FOR:-}" v_req v_plan e_for id
   if verdict_kept; then
     say "kept the install verdict for=$(gstack_install_verdict_field "$VERDICT" for) at $VERDICT (it covers more than $FOR; the trailer below is this check's)"
     return 0
   fi
   if [ "$CHECK_ONLY" -eq 1 ] && [ -n "$REC_BUN" ]; then set -- "$1" "$2" "$REC_BUN" "$REC_VER" "$REC_RULE" "$REC_BUN_INSTALL"
   else set -- "$1" "$2" "$RES_BIN" "$RES_VER" "$RES_RULE" "${BUN_INSTALL:-}"; fi
-  gstack_install_verdict_write "$VERDICT" "$ROOT_REAL" "$HEAD_SHA" "${FOR:-}" "$(printf '%s\n' "${OUT:-}" | sed -n 's/^required: //p' | head -1)" \
-    "$(printf '%s\n' "${OUT:-}" | grep -q '^SKIP pins (planning-only' && echo 1 || echo 0)" "$2" "$1" "${MIN_REVISION:-}" "$LAUNCH_DIR" \
+  v_req=$(printf '%s\n' "${OUT:-}" | sed -n 's/^required: //p' | head -1)
+  v_plan=$(printf '%s\n' "${OUT:-}" | grep -q '^SKIP pins (planning-only' && echo 1 || echo 0)
+  if [ "$2" = 1 ] && [ "$PROFILE" -eq 0 ] && [ -f "$VERDICT" ] && [ "$(gstack_install_verdict_field "$VERDICT" ok)" = true ] \
+     && [ "$(gstack_install_verdict_field "$VERDICT" head)" = "$HEAD_SHA" ] && [ "$(gstack_install_verdict_field "$VERDICT" checkout)" = "$ROOT_REAL" ] \
+     && [ "$(gstack_install_verdict_field "$VERDICT" bun_path)" = "$3" ] && e_for=$(gstack_install_verdict_field "$VERDICT" for) \
+     && ! gstack_doctor_install_profile "$e_for"; then
+    for id in $(gstack_install_verdict_field "$VERDICT" required); do
+      case " $v_req " in *" $id "*) ;; *) v_req="$v_req $id" ;; esac
+    done
+    [ "$(gstack_install_verdict_field "$VERDICT" pins_planning_only)" = true ] || v_plan=0
+    case ",$e_for," in *",$v_for,"*) v_for="$e_for" ;; *) v_for="${e_for:+$e_for${v_for:+,}}$v_for" ;; esac
+    [ "$v_for" = "$e_for" ] || [ -z "$e_for" ] || say "the install verdict at $VERDICT keeps for=$e_for and adds ${FOR:-$REQUIRE} (for=$v_for)"
+  fi
+  gstack_install_verdict_write "$VERDICT" "$ROOT_REAL" "$HEAD_SHA" "$v_for" "$v_req" "$v_plan" "$2" "$1" "${MIN_REVISION:-}" "$LAUNCH_DIR" \
     "$PROJECT_REAL" "$PIN_EXACT" "$3" "$4" "$5" "$6" "$NODE_BIN" "$NODE_VER" "$NODE_RULE" \
     || say "could not write the install verdict $VERDICT"
 }

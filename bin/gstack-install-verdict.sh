@@ -8,7 +8,9 @@
 # one checkout and one project (the caller's git toplevel, or none):
 #   <state root>/install-verdicts/<sha256(checkout realpath)>/<sha256(project realpath | "none")>.json
 # written atomically by bin/gstack-capy-install (install and --check) with
-#   schema_version 2, checkout, head, for, required[], pins_planning_only, ok,
+#   schema_version 2, checkout, head, for (comma-separated: an ok run at the same
+#   HEAD and Bun keeps the workflows an earlier ok install certified, #3561),
+#   required[] (their union), pins_planning_only, ok,
 #   trailer, min_revision, launch_path, time, project, pin (the exact Bun pin),
 #   bun_path (realpath), bun_version, bun_rule (gstack_bun_resolve), bun_install,
 #   node_path (realpath), node_version, node_rule (gstack_node_resolve; empty

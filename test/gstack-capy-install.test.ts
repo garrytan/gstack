@@ -13,6 +13,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { verdictProblem } from '../lib/install-verdict';
 
 const REPO = path.resolve(import.meta.dir, '..');
 const BUN_DEFAULT = fs.readFileSync(path.join(REPO, 'bin/gstack-bun-version.sh'), 'utf8').match(/^GSTACK_BUN_DEFAULT="([^"]+)"$/m)![1];
@@ -58,7 +59,7 @@ function fixture(opts: { bun?: string; jq?: boolean } = {}) {
   script(path.join(root, 'setup'), ['echo "setup $*" >> "$CAPY_LOG"', 'echo "gstack ready ($2)"', 'echo "env GSTACK_SKIP_PLAYWRIGHT=${GSTACK_SKIP_PLAYWRIGHT:-} GSTACK_SKIP_FONTS=${GSTACK_SKIP_FONTS:-} bun=$(bun --version)" >> "$CAPY_LOG"', 'exit "${STUB_SETUP_EXIT:-0}"']);
   script(path.join(root, 'bin/gstack-doctor'), [
     'echo "doctor $* GSTACK_EPHEMERAL=${GSTACK_EPHEMERAL:-}" >> "$CAPY_LOG"', 'echo "doctor-cwd $(pwd -P)" >> "$CAPY_LOG"', 'echo "doctor-node $(node --version 2>/dev/null)" >> "$CAPY_LOG"',
-    'echo "required: claude codex patch"', 'echo "PASS claude ok"', 'echo "SKIP browser (lazy)"', '[ -n "${STUB_PINS_SKIP:-}" ] && echo "SKIP pins ($STUB_PINS_SKIP)"', '[ -n "${STUB_DOCTOR_EXTRA:-}" ] && echo "$STUB_DOCTOR_EXTRA"',
+    'echo "required: ${STUB_REQUIRED:-claude codex patch}"', 'echo "PASS claude ok"', 'echo "SKIP browser (lazy)"', '[ -n "${STUB_PINS_SKIP:-}" ] && echo "SKIP pins ($STUB_PINS_SKIP)"', '[ -n "${STUB_DOCTOR_EXTRA:-}" ] && echo "$STUB_DOCTOR_EXTRA"',
     '[ "${STUB_DOCTOR_FAIL:-}" = 1 ] && { echo "FAIL codex — missing; fix: x (COMPONENT_MISSING; d)"; echo "gstack: fail codex"; exit 1; }',
     '[ -n "${GSTACK_DOCTOR_RUNTIME_DRIFT:-}" ] && { echo "FAIL runtime — bun resolution drifted: $GSTACK_DOCTOR_RUNTIME_DRIFT; fix: $GSTACK_DOCTOR_RUNTIME_DRIFT_FIX (BUN_RESOLUTION_DRIFT; d)"; echo "gstack: fail runtime"; exit 1; }',
     'echo "gstack: ok $(cat "$(dirname "$0")/../VERSION") for=autoplan"',
@@ -404,6 +405,40 @@ describe('gstack-capy-install', () => {
     expect(run(f, ['--check', '--for', 'autoplan', '--project', project]).stdout).not.toMatch(upgrading);
     expect(run(f, ['--for', 'review-voice', '--project', project]).stdout).not.toMatch(upgrading);
   });
+
+  // #3561: on a shared machine /ship's docs step runs the installer --for document-release, whose
+  // narrower verdict replaced the --for ship one, so /ship lost admission mid-run.
+  test('--for ship then --for document-release: the verdict keeps both and admits both workflows; another HEAD replaces it', () => {
+    const f = fixture();
+    const env = { HOME: f.home, GSTACK_HOME: path.join(f.home, '.gstack-state') };
+    const admits = (skill: string) => verdictProblem(skill, f.root, env, '', '1.4.2', f.home);
+    const ship = run(f, ['--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(ship.status, ship.stdout + ship.stderr).toBe(0);
+    const file = ship.stdout.match(/GSTACK_INSTALL_VERDICT=(\S+)/)![1]!;
+    expect(admits('ship')).toBeNull();
+    const docs = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime pins' });
+    expect(docs.status, docs.stdout + docs.stderr).toBe(0);
+    expect(docs.stdout).toContain(`gstack-capy-install: the install verdict at ${file} keeps for=ship and adds document-release (for=ship,document-release)`);
+    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(v).toMatchObject({ ok: true, for: 'ship,document-release', pins_planning_only: false });
+    expect([...v.required].sort()).toEqual(['claude', 'codex', 'patch', 'pins', 'runtime']);
+    expect(admits('ship')).toBeNull();
+    expect(admits('document-release')).toBeNull();
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(v);
+    const again = run(f, ['--check', '--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' });
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(again.stdout).not.toContain('keeps for=');
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'ship,document-release' });
+    sh('git -c user.email=t@t -c user.name=t commit -q --allow-empty -m next', f.root);
+    const moved = run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime pins' });
+    expect(moved.status, moved.stdout + moved.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ for: 'document-release', required: ['claude', 'runtime', 'pins'] });
+    expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
+  });
+
+  // GST-1233 (TRUT-26): the union above needs the same Bun and an ok run, so a child whose shell
+  // resolves another Bun, or whose install fails, still replaced the shared verdict and /ship's
+  // finish pregate reported INSTALL_UNVERIFIED. Each workflow keeps its own verdict as well.
 
   test('--root clones when the directory is absent and refuses a non-gstack directory', () => {
     const f = fixture();
