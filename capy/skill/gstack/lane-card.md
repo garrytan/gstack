@@ -10,6 +10,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 - Every subagent runs its own `--check` and puts its trailer in its first report; a read-only reviewer uses `--for review-voice`. One machine's install never covers another.
 - A workflow that prints `INSTALL: fail …` and exits 3 refuses this install: run its fix and start again. A planning-only install does not admit `review`, `ship` or `qa`; run `--for <that skill>` first.
 - Run directories and scratch live under `~/.capy/work/<name>`, never `/tmp`, which Capy wipes when a machine sleeps.
+- A write into a drive mount can succeed locally while the drive never keeps it: before you delete a source because the copy is in the drive, find that copy in the drive's version history (`tools.drive.history`).
 
 ## Plan, approve, ship
 
