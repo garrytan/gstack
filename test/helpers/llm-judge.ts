@@ -88,7 +88,7 @@ export interface RecommendationScore {
  * Call an Anthropic model with a prompt, extract JSON response.
  * Jittered exponential backoff over three 429 retries. Model resolves via
  * lib/eval-model's `judge` kind (CLAUDE_JUDGE_EVAL_MODEL); pass a model id
- * (e.g. claude-haiku-4-5-20251001) for cheaper bounded judgments like
+ * (e.g. claude-haiku-5-5) for cheaper bounded judgments like
  * judgeRecommendation.
  */
 // Default judge model: CLAUDE_JUDGE_EVAL_MODEL, kept apart from the model under
@@ -582,7 +582,7 @@ Respond with ONLY valid JSON:
 
   const out = await callJudge<{ reason_substance: number; reasoning: string }>(
     prompt,
-    'claude-haiku-4-5-20251001',
+    'claude-haiku-5-5',
     { signal, jsonSchema: RECOMMENDATION_JUDGE_SCHEMA },
   );
 
