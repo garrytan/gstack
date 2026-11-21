@@ -2125,7 +2125,7 @@ checks. Logic in `checkLoop` and `checkQuickLook` (`lib/eval-plan-checks.ts`):
 | `## Interim look` when `paid:` is above $500: `at: 50%`, `looks: 1`, `bounds:` O'Brien-Fleming, `futility:` | `PREREG_INCOMPLETE` |
 | An arm or bar asking for a smaller change or less code has a `regression test` bar beside it | `PREREG_INCOMPLETE` |
 | `## Held-out exposure` has an `answers:` line: how each task machine was checked for answers the agent could read there | `PREREG_INCOMPLETE` |
-| With `per-arm: yes`, `judge --check` needs an `arm` on every label row and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
+| With `per-arm: yes`, `judge --check` needs an `arm` on every label row, rows from every arm in `## Arms`, and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
 | A quick look (`kind: quick look`; `question:`, `decision:`, `stop:`, `cap:` of $100 or less) publishes no number | `results --check`: `EVAL_QUICK_LOOK_NO_NUMBER` |
 
 Why: of $28,836 spent on our last 30 evals, 23.7% settled nothing, and most of

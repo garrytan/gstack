@@ -34,7 +34,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, quickLookTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
+import { armIdentities, armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, quickLookTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
 import { checkResults } from '../lib/eval-plan-report';
 import { checkJudgeLabels, renderJudgeLabels } from '../lib/eval-plan-checks';
 import { checkModelRules, EVAL_SCOPES, type EvalScope, type ModelRulesCheck } from '../lib/eval-models';
@@ -167,9 +167,10 @@ function doJudge(rest: string[]): number {
   const prereg = flag(rest, '--check');
   const labels = flag(rest, '--labels');
   if (!prereg || !labels || !fs.existsSync(prereg) || !fs.existsSync(labels)) return usage('judge needs --check <existing prereg> --labels <existing labels file>');
-  const { scoring } = checkPrereg(fs.readFileSync(prereg, 'utf8'));
+  const preregText = fs.readFileSync(prereg, 'utf8');
+  const { scoring } = checkPrereg(preregText);
   if (!scoring.judge || scoring.judge.toLowerCase() === 'none') return usage('judge --check needs a preregistration whose ## Scoring names a judge model');
-  const r = checkJudgeLabels(scoring, fs.readFileSync(labels, 'utf8'));
+  const r = checkJudgeLabels(scoring, fs.readFileSync(labels, 'utf8'), armIdentities(preregText));
   process.stdout.write(rest.includes('--json') ? JSON.stringify({ prereg, labels, ...r }) + '\n' : renderJudgeLabels(r));
   if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan judge', 'EVAL_JUDGE_UNCHECKED', r.problems.join('; ')) + '\n'); return EXIT.fail; }
   return EXIT.ok;

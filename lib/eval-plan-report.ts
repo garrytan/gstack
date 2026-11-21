@@ -63,7 +63,7 @@ export function checkResults(preregText: string, resultsText: string, labelsText
       for (const e of errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${section}: ${e}` });
     }
     if (prereg.scoring.judge && prereg.scoring.judge.toLowerCase() !== 'none') {
-      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText);
+      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText, arms);
       if (!judge) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: `the preregistration names judge ${prereg.scoring.judge}; pass --labels <hand labels.jsonl>` });
       else if (!judge.ok) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: judge.problems.join('; ') });
     }

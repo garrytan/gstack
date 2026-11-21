@@ -52,8 +52,8 @@ export const INTERIM_LOOK_ABOVE_USD = 500;
 export const QUICK_LOOK_MAX_USD = 100;
 export const loopGrandfathered = (text: string) => { const d = frozenDate(text); return d !== null && d < LOOP_CHECKS_SINCE; };
 export const isQuickLook = (text: string) => /^\s*kind:\s*quick[- ]look\s*$/im.test(text);
-const filled = (v: string | undefined) => v !== undefined && !PLACEHOLDER.test(v.trim());
-const dollars = (v: string | undefined) => { const m = /\$?\s*(\d[\d,]*(?:\.\d+)?)/.exec(v ?? ''); return m ? Number(m[1]!.replace(/,/g, '')) : null; };
+const filled = (v: string | undefined) => v !== undefined && !PLACEHOLDER.test(v.trim()) && !/^<.*>$/.test(v.trim());
+const dollars = (v: string | undefined) => { const m = /\$?\s*(\d[\d,]*(?:\.\d+)?)\s*([km])?(?![a-z])/i.exec(v ?? ''); return m ? Number(m[1]!.replace(/,/g, '')) * ({ k: 1e3, m: 1e6 }[(m[2] ?? '').toLowerCase()] ?? 1) : null; };
 const SMALLER = /\b(smaller (?:change|diff|patch)|less code|fewer lines|shorter diff|minimal diff|diff size)\b/i;
 
 export interface QuickLookCheck { cap: number | null; errors: string[] }
@@ -170,7 +170,7 @@ export function cohensKappa(pairs: Array<[string, string]>): number | null {
 }
 
 /** Score the preregistered judge against a JSONL file of `{"id", "human", "judge"}` rows. */
-export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string): JudgeLabelCheck {
+export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, planArms: string[] = []): JudgeLabelCheck {
   const need_n = Math.max(JUDGE_MIN_LABELS, scoring.labels ?? 0);
   const need_kappa = Math.max(JUDGE_MIN_KAPPA, scoring.agreement ?? 0);
   const problems: string[] = [];
@@ -195,6 +195,8 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string): Jud
   else if (kappa !== null && kappa < need_kappa) problems.push(`kappa ${kappa.toFixed(2)} is below the bar ${need_kappa}`);
   const arms = [...byArm].map(([arm, p]) => ({ arm, n: p.length, kappa: cohensKappa(p) }));
   if (scoring.per_arm && unarmed) problems.push(`per-arm: yes needs an "arm" on every label row; ${unarmed} have none`);
+  const planned = [...new Set(planArms)];
+  if (scoring.per_arm && byArm.size < planned.length) problems.push(`per-arm: yes needs labels from every arm; the rows name ${byArm.size} of the ${planned.length} arms in ## Arms (no rows for ${planned.filter(a => !byArm.has(a)).join(', ')})`);
   for (const a of arms) if (a.kappa === null || a.kappa < need_kappa) problems.push(`arm ${a.arm}: kappa ${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} on its ${a.n} labels is below the bar ${need_kappa}; the judge does not pass on this arm's outputs`);
   return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms };
 }

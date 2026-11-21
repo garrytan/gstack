@@ -64,6 +64,7 @@ describe('## Scoring per arm and effort (R78, G14)', () => {
     const pooledOk = checkJudgeLabels(scoring, rows(i => (i < 10 ? 'a' : 'b'), i => i < 4));
     expect(pooledOk.kappa).toBeGreaterThanOrEqual(0.6);
     expect(pooledOk.problems.map(p => p.split(':')[0])).toEqual(['arm a']);
+    expect(checkJudgeLabels(scoring, rows(() => 'a', () => false), ['a', 'b']).problems).toEqual(['per-arm: yes needs labels from every arm; the rows name 1 of the 2 arms in ## Arms (no rows for b)']);
   });
 });
 
@@ -76,6 +77,7 @@ describe('## Cost and ## Interim look (R113)', () => {
     expect(checkPrereg(plan({ cost: { ...COST, paid: '$500' } })).ok).toBe(true);
     const big = { ...COST, paid: '$1,200' };
     expect(messages(plan({ cost: big }))).toEqual(['Interim look: missing:']);
+    expect(checkPrereg(plan({ cost: { ...COST, paid: '$2k' } })).loop).toMatchObject({ paid: 2000, interim_required: true });
     expect(checkPrereg(plan({ cost: big, interim: INTERIM }))).toMatchObject({ ok: true, loop: { paid: 1200, interim_required: true } });
     expect(messages(plan({ cost: big, interim: { ...INTERIM, at: '30%' } }))).toEqual(['Interim look: at:']);
     expect(messages(plan({ cost: big, interim: { ...INTERIM, looks: '3' } }))).toEqual(['Interim look: looks:']);
@@ -114,6 +116,8 @@ describe('quick look (R112)', () => {
 
   test('a cap above $100 or a missing line fails', () => {
     expect(checkPrereg(quick('$150')).quick!.errors[0]).toContain('at most $100');
+    expect(checkPrereg(quick('$100k')).quick!.errors[0]).toContain('at most $100');
+    expect(checkPrereg(quickLookTemplate('q')).quick!.errors.map(e => e.split(':')[0])).toEqual(['no question', 'no decision', 'no stop']);
     for (const k of ['question', 'decision', 'stop']) expect(checkPrereg(quick('$100', k)).quick!.errors).toEqual([`no ${k}: line (a quick look is three lines: question, decision, stop rule)`]);
   });
 
