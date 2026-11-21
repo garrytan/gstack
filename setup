@@ -1950,6 +1950,38 @@ install_runtime_deps() {
   bun_cmd install --production --frozen-lockfile 2>/dev/null || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }
 }
 
+# A user install leaves test/fixtures/ out of its working tree (GST-3402). The
+# fixtures are test and eval data (real issues from other repositories,
+# held-out prompts) that nothing setup, the build or an installed skill reads,
+# and an install in a person's home would carry them into every agent session
+# and eval run there. Git's sparse checkout keeps them out across later
+# fast-forwards. The same signal as the dependency install decides: a
+# contributor's checkout, CI, a checkout of unknown role, or one that has the
+# dev toolchain keeps the full tree, and marking a trimmed clone as a
+# contributor's brings the files back on the next ./setup. Only the top of
+# gstack's own checkout is changed, never an enclosing project's repository,
+# and sparse patterns someone else set are left alone.
+_trim_install_fixtures() {
+  local role patterns want='/*
+!/test/fixtures/'
+  [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ] && [ -z "$(git rev-parse --show-prefix 2>/dev/null)" ] || return 0
+  git cat-file -e HEAD:setup 2>/dev/null && git cat-file -e HEAD:VERSION 2>/dev/null || return 0
+  role="$(_deps_role)"
+  patterns=""
+  [ "$(git config --bool --get core.sparseCheckout 2>/dev/null)" = true ] && patterns="$(git sparse-checkout list 2>/dev/null)"
+  if [ "$role" = "contributor" ]; then
+    [ "$patterns" = "$want" ] && git sparse-checkout disable >/dev/null 2>&1 && log "gstack: restored test/fixtures/ in this contributor checkout."
+    return 0
+  fi
+  [ "$role" = "user" ] && [ -z "$patterns" ] && ! _deps_has_dev && git cat-file -e HEAD:test/fixtures 2>/dev/null || return 0
+  if git sparse-checkout set --no-cone '/*' '!/test/fixtures/' >/dev/null 2>&1; then
+    log "gstack: left test/fixtures/ (test and eval data) out of this install. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
+  else
+    echo "gstack: WARN could not leave test/fixtures/ out of this install ($(git --version 2>/dev/null)); gstack works the same, and the next ./setup tries again." >&2
+  fi
+  return 0
+}
+
 cleanup_copied_bun() {
   local rc=$?
   if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
@@ -2303,6 +2335,8 @@ if [ ! -x "$BROWSE_BIN" ]; then
   echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
   exit 1
 fi
+
+(cd "$SOURCE_GSTACK_DIR" && _trim_install_fixtures)
 
 # 1b. Generate .agents/ Codex skill docs whenever this checkout serves Codex.
 # .agents/ is no longer committed — generated at setup time from .tmpl templates.
