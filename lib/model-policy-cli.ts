@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { CODEX_EFFORT_LEVELS, MODEL_CATALOG, MODEL_CATALOG_VERSION, MODEL_PROVIDERS, MODEL_TIERS, modelCatalogSha256, type ModelProvider } from './model-catalog';
 import {
+  codexNativeModel,
   CUSTOM_PROVIDER_UNSCANNED,
   describeSelection,
   MODEL_OVERRIDE_KEYS,
@@ -325,7 +326,7 @@ export function modelsMain(args: string[], env: StateRootEnv = process.env, plat
   for (const r of roles) {
     for (const p of provider ? [provider] : MODEL_PROVIDERS) {
       attempt(r, p, () => r === 'plan-review'
-        ? [resolvePlanReviewModel({ provider: p, env, platform, cwd, config })]
+        ? [resolvePlanReviewModel({ provider: p, env, platform, cwd, config, ...(p === 'openai' ? { nativeModel: codexNativeModel({ kind: 'exec', env }) } : {}) })]
         : resolveImplementationModels({ provider: p, env, platform, cwd, config }), selections, errors);
     }
   }

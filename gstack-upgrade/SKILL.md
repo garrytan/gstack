@@ -50,7 +50,8 @@ Tell user: "Auto-upgrade enabled. Future updates will install automatically." Th
 ```bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 _SNOOZE_FILE="$GSTACK_STATE_ROOT/update-snoozed"
-_REMOTE_VER="{new}"
+_UPGRADE_LINE="{line}"
+_REMOTE_VER=$(printf '%s\n' "$_UPGRADE_LINE" | awk '{print (NF >= 4 ? $(4) : $(3))}')
 _CUR_LEVEL=0
 if [ -f "$_SNOOZE_FILE" ]; then
   _SNOOZED_VER=$(awk '{print $(1)}' "$_SNOOZE_FILE")
@@ -63,7 +64,7 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result. On a four-field line use the SHA (fourth field) as `{new}`, so the snooze ends when main moves.
+Note: `{line}` is the whole `UPGRADE_AVAILABLE` line from the update check, pasted exactly as printed. The snippet keys the snooze on the same field `gstack-update-check` reads: the SHA (fourth field) on a four-field line, so the snooze ends when main moves, otherwise the new version (third field). Never substitute one field by hand.
 
 Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
 
