@@ -29,7 +29,6 @@ import { classifyOutsideReview } from '../lib/outside-review-result';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { diffCommand, type Dispatch } from '../lib/review-depth';
 import { mayExclude, policySelection, selectFor } from '../lib/review-selection';
-import { REVIEW_PLAN_TIMEOUT_MS } from '../lib/review-collect';
 import { reviewPlanTimeoutMs } from '../lib/review-collect';
 import { resultLine } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
@@ -352,6 +351,18 @@ function settleExcerpt(r: Pick<PassReader, 'reader' | 'exclude' | 'keep' | 'exce
 }
 
 /**
+ * One gstack-review-plan run under the limit every plan caller shares (reviewPlanTimeoutMs: GSTACK_REVIEW_PLAN_TIMEOUT_MS, else
+ * 180 s; GST-3398), and stopLine, the plan's stderr and the REVIEW_PLAN_STOPPED line, when the run did not finish.
+ */
+function runPlan(context: string, base: string, tail: string[], json: boolean) {
+  const timeoutMs = reviewPlanTimeoutMs();
+  const r = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...tail, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
+  if (r.status !== null || (!r.signal && !r.error)) return { ...r, stopLine: undefined };
+  const reason = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? 'timeout' : r.signal ? 'signal' : 'spawn';
+  return { ...r, stopLine: `${r.stderr ?? ''}${resultLine(context, 'REVIEW_PLAN_STOPPED', `step="gstack-review-plan --base ${base}${json ? ' --json' : ''}" reason=${reason} timeout_ms=${timeoutMs} signal=${r.signal ?? 'none'}`)}` };
+}
+
+/**
  * A standalone render's reader with the selection the pass gives its readers (GST-1476): the base policy's review_exclude
  * from gstack-review-plan --json (only when the base may declare one), merged into --exclude and --keep by selectFor, and its
  * disclosure line unless --disclosure names one. A plan that fails stops the render: no brief without its selection.
@@ -360,7 +371,8 @@ function standaloneSelection(reader: string, base: string, diffBase: string, rea
   let x: (Record<string, unknown> & { state: string }) | null = null;
   if (mayExclude(process.cwd(), base)) {
     const tail = args.includes('--') ? args.slice(args.indexOf('--') + 1) : [];
-    const p = runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...tail, '--json'], { encoding: 'utf8', timeout: REVIEW_PLAN_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
+    const p = runPlan('gstack-review-dispatch render', base, tail, true);
+    if (p.stopLine) { process.stderr.write(p.stopLine + '\n'); throw new BriefError(`gstack-review-plan --base ${base} --json did not finish, so the base policy's review selection is unknown and no brief is rendered without it`); }
     if (p.status !== 0) throw new BriefError(`gstack-review-plan --base ${base} --json exited ${p.status ?? p.signal}, so the base policy's review selection is unknown and no brief is rendered without it: ${(p.stderr ?? '').trim().slice(-400)}`);
     x = (JSON.parse(p.stdout) as { review_exclude?: Record<string, unknown> & { state: string } }).review_exclude ?? null;
   }
@@ -398,19 +410,11 @@ function pass(): number {
     process.stdout.write([...m.plan_lines, `MANIFEST: file=${file} pass=${id} readers=${m.readers.length} audit-only`, ...m.readers.map(r => readerLine(m, r))].join('\n') + '\n');
     return EXIT.ok;
   }
-  const timeoutMs = reviewPlanTimeoutMs();
-  const plan = (json: boolean) => runScriptSync(path.join(ROOT, 'bin', 'gstack-review-plan'), ['--base', base, ...planArgs, ...(json ? ['--json'] : [])], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GSTACK_REVIEW_PLAN_BOUNDED: '1' } });
-  const stopped = (r: ReturnType<typeof plan>, json: boolean) => {
-    if (r.status !== null || (!r.signal && !r.error)) return false;
-    const reason = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' ? 'timeout' : r.signal ? 'signal' : 'spawn';
-    process.stderr.write(`${r.stderr ?? ''}${resultLine('gstack-review-dispatch pass', 'REVIEW_PLAN_STOPPED', `step="gstack-review-plan --base ${base}${json ? ' --json' : ''}" reason=${reason} timeout_ms=${timeoutMs} signal=${r.signal ?? 'none'}`)}\n`);
-    return true;
-  };
-  const text = plan(false);
-  if (stopped(text, false)) return EXIT.fail;
+  const text = runPlan('gstack-review-dispatch pass', base, planArgs, false);
+  if (text.stopLine) { process.stderr.write(text.stopLine + '\n'); return EXIT.fail; }
   if (text.status !== 0) { process.stdout.write(text.stdout ?? ''); process.stderr.write(text.stderr ?? ''); return EXIT.fail; }
-  const j = plan(true);
-  if (stopped(j, true)) return EXIT.fail;
+  const j = runPlan('gstack-review-dispatch pass', base, planArgs, true);
+  if (j.stopLine) { process.stderr.write(j.stopLine + '\n'); return EXIT.fail; }
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
   const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown }; readers?: EffectiveReaders };
   const step = p.next.step;
