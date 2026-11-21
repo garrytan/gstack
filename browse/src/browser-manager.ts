@@ -1995,6 +1995,16 @@ export class BrowserManager {
 
     // If no pages were saved, create a blank one
     if (this.pages.size === 0) await this.newTab();
+
+    // A persistent context (the headed handoff window) opens with a blank tab
+    // of its own that no saved page maps to. Close it, so the window the user
+    // signs in to shows only the restored tabs, not a stray about:blank.
+    // Only untracked tabs still on about:blank: anything else is left alone.
+    const tracked = new Set(this.pages.values());
+    for (const stray of this.context.pages()) {
+      if (!tracked.has(stray) && stray.url() === 'about:blank') await stray.close().catch(() => {});
+    }
+
     this.activeTabId = activeId ?? [...this.pages.keys()][0];
     const scope = this.tabScope.getStore();
     if (scope && !this.pages.has(this.resolveScopeTab(scope))) scope.tabId = scope.picked = this.activeTabId;
