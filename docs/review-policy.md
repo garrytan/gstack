@@ -1225,6 +1225,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    machine starts in the machine's working directory, so it is told to `cd` there on every
    command, to give every file tool an absolute path under it, and to start its reply with
    the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   paragraph also tells the reader never to stop or signal a process it did not start (no
+   `pkill`, `killall` or kill by name, pattern or foreign pid), because other runs share the
+   machine (`PROCESS_RULE`, GST-3360). The
    step comes first because a reader following a findings-only format skipped the request
    when it only closed the brief (GST-897). The section's render sits between the two,
    byte for byte. `collect` and `mark --state collected`
