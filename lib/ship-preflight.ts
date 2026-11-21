@@ -205,13 +205,14 @@ function merge(cwd: string, base: string, r: Report): boolean {
 /**
  * GST-3360: Step 5's pregate and lanes run the repository's own tools, which a fresh worktree lacks until its packages are
  * installed (tsc exits 127, bun test cannot resolve imports). The install command for the checkout's lockfile, or null when
- * package.json declares no packages or node_modules exists. Preflight names the command and never runs it.
+ * package.json declares no packages, node_modules exists, or Yarn Plug'n'Play's .pnp.cjs / .pnp.loader.mjs marks an install that
+ * never creates node_modules. Preflight names the command and never runs it.
  */
 function depsInstall(root: string): string | null {
   let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
   try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; }
-  if (!Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).length || fs.existsSync(path.join(root, 'node_modules'))) return null;
   const has = (f: string) => fs.existsSync(path.join(root, f));
+  if (!Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).length || has('node_modules') || has('.pnp.cjs') || has('.pnp.loader.mjs')) return null;
   return has('bun.lock') || has('bun.lockb') ? 'bun install --frozen-lockfile' : has('pnpm-lock.yaml') ? 'pnpm install --frozen-lockfile' : has('yarn.lock') ? 'yarn install --frozen-lockfile' : has('package-lock.json') ? 'npm ci' : 'bun install';
 }
 

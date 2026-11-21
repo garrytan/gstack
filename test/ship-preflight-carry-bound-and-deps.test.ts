@@ -87,4 +87,14 @@ describe('preflight Step 5: a worktree with no installed packages stops with the
     fixtures.push(plain);
     expect(testsOnly(plain).stdout).not.toContain('DEPS_MISSING');
   });
+
+  // Value: protects=an installed Yarn Plug'n'Play checkout, which never has node_modules, runs Step 5 instead of stopping on an
+  //   install that cannot clear the stop; fails_when=depsInstall checks node_modules alone; seam=bin/gstack-ship-preflight --tests-only
+  test('a Yarn PnP checkout (.pnp.cjs, no node_modules) never stops on DEPS_MISSING', () => {
+    const f = shipFixture({ 'package.json': '{"name":"fx","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n', 'yarn.lock': '\n', '.pnp.cjs': '\n' });
+    fixtures.push(f);
+    const out = testsOnly(f);
+    expect(out.stdout).not.toContain('DEPS_MISSING');
+    expect(out.stdout).toMatch(/^PREGATE: /m);
+  });
 });
