@@ -177,7 +177,7 @@ describe.skipIf(process.platform === 'win32')('a user install leaves test/fixtur
     const o = origin();
     const dir = install(o);
     const shim = path.join(o.base, 'shim');
-    write(shim, 'git', '#!/usr/bin/env bash\nreal="$(PATH="${PATH#*:}" command -v git)"\nif [ "$1 $2" = "sparse-checkout set" ]; then cat >/dev/null; exec "$real" sparse-checkout set --no-cone \'/*\' \'!C:/Program Files/Git/test/fixtures/\'; fi\nexec "$real" "$@"\n');
+    write(shim, 'git', '#!/usr/bin/env bash\nreal=' + JSON.stringify(path.join(git(dir, '--exec-path').trim(), 'git')) + '\nif [ "$1 $2" = "sparse-checkout set" ]; then cat >/dev/null; exec "$real" sparse-checkout set --no-cone \'/*\' \'!C:/Program Files/Git/test/fixtures/\'; fi\nexec "$real" "$@"\n');
     fs.chmodSync(path.join(shim, 'git'), 0o755);
     const r = trim(dir, { PATH: shim + path.delimiter + (GIT_ENV.PATH ?? '') });
     expect(r.status, r.stderr).toBe(0);
