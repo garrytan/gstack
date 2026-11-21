@@ -66,9 +66,9 @@ on:
 # before the runner can name a hung file. Measured over 110 free-suite jobs in
 # PR runs 41467261350..41478988224: p50 60 s, p90 80 s, max 142 s.
 env:
-  FREE_SUITE_RUNNER: ubicloud-standard-8
+  FREE_SUITE_RUNNER: ubicloud-standard-16
   FREE_SUITE_SHARDS: '10'
-  FREE_SUITE_JOBS: '4'
+  FREE_SUITE_JOBS: '8'
   FREE_SUITE_SETUP_SECONDS: '300'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
