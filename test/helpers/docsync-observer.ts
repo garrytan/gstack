@@ -5,7 +5,7 @@ import { observeQAWrites, type QAWriteObservation } from './qa-functional-observ
 import { nativeCalls } from './qa-checkpoint-evidence';
 import type { SkillTestResult } from './session-runner';
 import { DOC_PATH, type DocsScenario, type fixtureDocs } from './docsync-fixture';
-import { docsNativeInterface, DOCS_AUDIT_RECORD, DOCS_AUDIT_RECORD_PATHS, DOCS_AUDIT_RESET, DOCS_TMP_EXCLUDE, docsCapsCommand } from './docsync-interface';
+import { docsNativeInterface, DOCS_AUDIT_RECORD, DOCS_AUDIT_RECORD_PATHS, DOCS_AUDIT_RESET, DOCS_AUDIT_RESET_FORCED, DOCS_TMP_EXCLUDE, docsCapsCommand } from './docsync-interface';
 import { sliceBetween } from './skill-fixture';
 import { readOnlyCommandAllowed } from './read-only-commands';
 
@@ -253,7 +253,7 @@ export function docsCommandAllowed(command: string, fixture: ReturnType<typeof f
   const text = command.trim();
   if (docsPreambleCommands(fixture).some(block => block.trim() === text)) return true;
   // The section prints the cap gate with the ~/.claude/skills/gstack prefix; in the fixture HOME is fixture.home, so that form names the same installed binary.
-  if (text === DOCS_TMP_EXCLUDE || text === DOCS_AUDIT_RESET || text === docsCapsCommand(fixture.skills.split(path.sep).join('/')) ||
+  if (text === DOCS_TMP_EXCLUDE || text === DOCS_AUDIT_RESET || text === DOCS_AUDIT_RESET_FORCED || text === docsCapsCommand(fixture.skills.split(path.sep).join('/')) ||
     (text === docsCapsCommand('~/.claude/skills/gstack') && fixture.skills === path.join(fixture.home, '.claude/skills/gstack'))) return true;
   if (readOnlyCommandAllowed(text, docsReadOnlyScope(fixture)) || docsComposedReadAllowed(text, fixture)) return true;
   const insert = /^cat (['"]?)([^\s'"]+)\1 >> (['"]?)([^\s'"]+)\3$/.exec(text);

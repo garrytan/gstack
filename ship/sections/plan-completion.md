@@ -209,7 +209,7 @@ else
 fi
 if [ -n "$_BASE_REF" ]; then
   echo "ACCEPTANCE_BASELINE: $_BASE_KIND"
-  _ACC_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-acceptance.XXXXXX") && trap 'rm -rf "$_ACC_TMP"' EXIT
+  _ACC_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-acceptance.XXXXXX") && trap 'rm -r "$_ACC_TMP"' EXIT
   _acc_sections() { awk 'BEGIN{keep=0} /^#+ /{keep = (tolower($0) ~ /^#+ *[0-9.]* *(testable )?(acceptance|success criteria|verification|test plan|testing|done when|definition of done)/)} keep{print}'; }
   git show "$_BASE_REF:$_REL" | _acc_sections > "$_ACC_TMP/base"
   _acc_sections < "$PLAN_FILE" > "$_ACC_TMP/wtree"

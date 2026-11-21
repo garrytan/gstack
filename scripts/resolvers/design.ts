@@ -245,9 +245,9 @@ Persist it into this run's directory, size-capped and redaction-checked: a HIGH 
 \`\`\`bash
 _D="<ASIDE_DIR or $_TMP>/{page}.dom.html"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"
 if [ ! -s "$_D" ]; then echo "${SENTINEL.DOM_DUMP_MISSING}: {page} (the dump script wrote nothing)"
-elif [ "$(wc -c < "$_D")" -gt ${DETECT_LIMITS.domDumpBytes} ]; then echo "${SENTINEL.DOM_DUMP_TOO_LARGE}: {page} $(wc -c < "$_D")"; rm -f "$_D"
-elif ${toShellPath(ctx.paths.binDir)}/gstack-redact --from-file "$_D" --max-bytes ${DETECT_LIMITS.domDumpBytes} >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "${SENTINEL.DOM_DUMP_REDACTION_BLOCKED}: {page} redact-exit=$_RC"; rm -f "$_D"
-else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 600 "$_REPORT/dom/$_RUN/{page}.dom.html" && rm -f "$_D" && echo "${SENTINEL.DOM_DUMP_OK}: {page}"; fi
+elif [ "$(wc -c < "$_D")" -gt ${DETECT_LIMITS.domDumpBytes} ]; then echo "${SENTINEL.DOM_DUMP_TOO_LARGE}: {page} $(wc -c < "$_D")"; rm "$_D"
+elif ${toShellPath(ctx.paths.binDir)}/gstack-redact --from-file "$_D" --max-bytes ${DETECT_LIMITS.domDumpBytes} >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "${SENTINEL.DOM_DUMP_REDACTION_BLOCKED}: {page} redact-exit=$_RC"; rm "$_D"
+else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 600 "$_REPORT/dom/$_RUN/{page}.dom.html" && rm "$_D" && echo "${SENTINEL.DOM_DUMP_OK}: {page}"; fi
 \`\`\`
 
 After the LAST page's dump, scan the run directory once (source mode scanned in Setup instead):
@@ -1117,7 +1117,7 @@ _IMG=$(jq -r --arg v "<VARIANT>" '.[($v | explode[0]) - 65] // empty' "$_DESIGN_
 if [ -n "$_IMG" ]; then
   FEEDBACK_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<feedback-file-name>"
   [ -s "$FEEDBACK_FILE" ] || { echo "Not saved: $FEEDBACK_FILE is missing or empty. Write the feedback, then rerun this block." >&2; exit 1; }
-  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "${screen}" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\\n")' > "$_DESIGN_DIR/approved.json" && rm -f "$FEEDBACK_FILE"
+  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "${screen}" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\\n")' > "$_DESIGN_DIR/approved.json" && rm "$FEEDBACK_FILE"
   echo "APPROVED_IMAGE: $_IMG"
 else
   echo "NO_BOARD_IMAGE: <VARIANT> is not on this board; reselect from the board"

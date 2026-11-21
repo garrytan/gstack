@@ -346,7 +346,7 @@ fi
 
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
-trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
@@ -565,7 +565,7 @@ python3 -c 'import pathlib,subprocess,sys; subprocess.run(["glab","mr","update",
 5. Clean up the tempfile:
 
 ```bash
-rm -f "<run-dir>/body.md" "<run-dir>/body-original.md"
+rm "<run-dir>/body.md" "<run-dir>/body-original.md" 2>/dev/null || true
 rmdir "<run-dir>"
 ```
 

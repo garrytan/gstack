@@ -97,7 +97,7 @@ set -e
 PROMPT_SOURCE='<prepared-prompt-file>'
 RUNTIME_ROOT='<gstack-runtime-root>'
 CLAUDE_TMP=''
-trap 'rm -f "$PROMPT_SOURCE"; [ -z "$CLAUDE_TMP" ] || rm -rf "$CLAUDE_TMP"' EXIT
+trap 'rm "$PROMPT_SOURCE" 2>/dev/null || true; [ -z "$CLAUDE_TMP" ] || rm -r "$CLAUDE_TMP"' EXIT
 {{OUTSIDE_SELF_GUARD:claude-code}}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
@@ -165,7 +165,7 @@ set -e
 PROMPT_SOURCE='<prepared-prompt-file>'
 RUNTIME_ROOT='<gstack-runtime-root>'
 CLAUDE_TMP=''
-trap 'rm -f "$PROMPT_SOURCE"; [ -z "$CLAUDE_TMP" ] || rm -rf "$CLAUDE_TMP"' EXIT
+trap 'rm "$PROMPT_SOURCE" 2>/dev/null || true; [ -z "$CLAUDE_TMP" ] || rm -r "$CLAUDE_TMP"' EXIT
 {{OUTSIDE_SELF_GUARD:claude-code}}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
@@ -236,7 +236,7 @@ set -e
 PROMPT_SOURCE='<prepared-prompt-file>'
 RUNTIME_ROOT='<gstack-runtime-root>'
 CLAUDE_TMP=''
-trap 'rm -f "$PROMPT_SOURCE"; [ -z "$CLAUDE_TMP" ] || rm -rf "$CLAUDE_TMP"' EXIT
+trap 'rm "$PROMPT_SOURCE" 2>/dev/null || true; [ -z "$CLAUDE_TMP" ] || rm -r "$CLAUDE_TMP"' EXIT
 {{OUTSIDE_SELF_GUARD:claude-code}}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"

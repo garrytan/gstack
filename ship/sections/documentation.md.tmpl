@@ -12,7 +12,7 @@ Save the child handle. An exited child with missing output is stopped, but its a
 
 **Entry:** First entry runs
 `_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }`
-(the shared `.gstack/tmp` exclude), then `rm -f .gstack/tmp/docs-audit.json` (an
+(the shared `.gstack/tmp` exclude), then `rm .gstack/tmp/docs-audit.json 2>/dev/null || true` (an
 earlier run's record would pass as this run's) and launches the initial audit. On reentry, reuse only this invocation's validated audit or named-risk decision whose accepted
 base/input hashes still match; retain its actual status and scope. Otherwise use
 Blocked recovery, not an unconditional launch.

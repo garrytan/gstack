@@ -36,7 +36,7 @@ if command -v jq >/dev/null 2>&1; then
         "$ALL_JSONL" > "$ALL_JSONL.phase" 2>/dev/null || true
       jq -c --arg phase "$phase" 'select(.phase != $phase)' "$ALL_JSONL" > "$ALL_JSONL.other" 2>/dev/null || true
       cat "$ALL_JSONL.other" "$ALL_JSONL.phase" > "$ALL_JSONL"
-      rm -f "$ALL_JSONL.phase" "$ALL_JSONL.other"
+      rm "$ALL_JSONL.phase" "$ALL_JSONL.other"
     fi
   done
 
@@ -51,7 +51,7 @@ if command -v jq >/dev/null 2>&1; then
      | if length == 0 then "_No actionable tasks emitted from any phase._" else
          map("- [ ] **\(.id) (\(.priority), human: \(.effort_human) / CC: \(.effort_cc)) — \(.component)** — \(.title)\n  - Surfaced by: \(.phase) — \(.source_finding)\n  - Files: \(.files | join(", "))") | join("\n")
        end' "$ALL_JSONL" 2>/dev/null | sed 's/^"//;s/"$//;s/\\n/\n/g')
-  rm -f "$ALL_JSONL"
+  rm "$ALL_JSONL"
 else
   AGGREGATED_TASKS="_jq not installed — install jq to aggregate per-phase task lists. Skipping._"
 fi

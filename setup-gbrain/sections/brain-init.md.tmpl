@@ -226,7 +226,7 @@ if [ -n "${VOYAGE_API_KEY:-}" ]; then
 fi
 if ! gbrain init --pglite --json "$@"; then
   if [ -n "${BACKUP:-}" ] && [ -f "$BACKUP" ]; then mv "$BACKUP" "$HOME/.gbrain/config.json"; fi
-  echo "gbrain init failed. Existing config (if any) was restored. PGLite at ~/.gbrain/pglite/ may be in a partial state — \`rm -rf ~/.gbrain/pglite\` to reset." >&2
+  echo "gbrain init failed. Existing config (if any) was restored. PGLite at ~/.gbrain/pglite/ may be in a partial state — \`rm -r ~/.gbrain/pglite\` to reset." >&2
   echo "Continuing setup without local code search; you can re-run /setup-gbrain to retry." >&2
 fi
 ```

@@ -612,7 +612,7 @@ _IMG=$(jq -r --arg v "<VARIANT>" '.[($v | explode[0]) - 65] // empty' "$_DESIGN_
 if [ -n "$_IMG" ]; then
   FEEDBACK_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<feedback-file-name>"
   [ -s "$FEEDBACK_FILE" ] || { echo "Not saved: $FEEDBACK_FILE is missing or empty. Write the feedback, then rerun this block." >&2; exit 1; }
-  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "<SCREEN>" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\n")' > "$_DESIGN_DIR/approved.json" && rm -f "$FEEDBACK_FILE"
+  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "<SCREEN>" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\n")' > "$_DESIGN_DIR/approved.json" && rm "$FEEDBACK_FILE"
   echo "APPROVED_IMAGE: $_IMG"
 else
   echo "NO_BOARD_IMAGE: <VARIANT> is not on this board; reselect from the board"

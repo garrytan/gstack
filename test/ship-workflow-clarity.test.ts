@@ -218,7 +218,7 @@ test('a repository without a version source or CHANGELOG ships with one skipped 
 
 test('Step 14.5 runs the doc caps before the verification gate and records the audit for the receipt, with the owner exception shape (E11)', () => {
   // The caps come from origin/<base>'s policy (a branch cannot raise its own cap), and the per-invocation record is cleared before the first launch.
-  expectOrdered(docsTemplate, ['rm -f .gstack/tmp/docs-audit.json', '### Continue or recover', 'gstack-ship-receipt docs-caps --base <base>', 'never the\nbranch\'s copy', '`DOCS_CAP: <path> <bytes>/<max> ok|over`', 'write the receipt\'s record to `.gstack/tmp/docs-audit.json`', '## Blocked recovery'], 'ship documentation section');
+  expectOrdered(docsTemplate, ['rm .gstack/tmp/docs-audit.json 2>/dev/null || true', '### Continue or recover', 'gstack-ship-receipt docs-caps --base <base>', 'never the\nbranch\'s copy', '`DOCS_CAP: <path> <bytes>/<max> ok|over`', 'write the receipt\'s record to `.gstack/tmp/docs-audit.json`', '## Blocked recovery'], 'ship documentation section');
   expectAbsent(docsTemplate, ['docs-caps --policy .gstack/ship-policy.json'], 'ship documentation section cap source');
   expectTokens(docs, ['`DOCS_CAP: none declared`', '"status":"updated|current"', '"status":"blocked"', '"exception":{"accepted_by"', '`DOCS_AUDIT_BLOCKED`', 'An unattended run has no owner to accept: it stops here.'], 'ship documentation section');
   const compose = between(prTemplate, 'Handoff record first', '**Existing open PR/MR**');

@@ -154,7 +154,7 @@ function asideExecSend(ctx: TemplateContext, request: string): string {
   return `${asideExecPrelude(ctx)}
 PROMPT_FILE=${FREE_TEXT_DIR.slice(0, -1)}/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not sent: $PROMPT_FILE is missing or empty. Write the prompt, then rerun this block." >&2; exit 1; }
-_aside_exec "${request}" && rm -f "$PROMPT_FILE"`;
+_aside_exec "${request}" && rm "$PROMPT_FILE"`;
 }
 
 /** {{ASIDE_RESEARCH_SEND}} — sends a research query the agent wrote into PROMPT_FILE. */
