@@ -220,3 +220,34 @@ describe('the receipt and the lane line say a tree.json came from a job log (rul
     expect(recordCiResult(`gstack-evidence: recorded label=tests exit=0 tests_ran=2 log=- source=ci runs=${RUN_ID}/1 policy=p`).treeSource).toBeUndefined();
   });
 });
+
+describe('the documented print step binds on a real runner, whose output stamps trail the echo (GST-3339)', () => {
+  const RUN_STEP = 'Tested tree record in the log';
+  const real = { ...PROFILE, tree_log_step: RUN_STEP };
+  const at = (ms: number) => new Date(ms).toISOString();
+  const sec = (ms: number) => at(Math.floor(ms / 1000) * 1000).replace('.000Z', 'Z');
+  const shaped = (s: Array<[string, string, string]>): ApiStep[] => s.map(([name, started_at, completed_at], i) => ({ number: i + 1, name, conclusion: 'success', started_at, completed_at }));
+  const bind = (stamp: string, s: ApiStep[], profile: RunProfile = real) => refusal({ jobs: [job({ steps: s })], logs: { [JOB_ID]: log(treeLine(stamp)) } }, profile)[0];
+
+  // Value: protects=the regression record: the API times steps by flooring the runner's own clock, and run 44845717681's line (sleep 1 / sleep 2) refused as tree_log_unbound only because the step ended 1.65 s after its stamp; fails_when=the fixture drifts from the run it records
+  test('run 44845717681 (sleep 1 / sleep 2) refuses and run 44857547577 (sleep 3 / sleep 5) binds, exactly as they did on GitHub', () => {
+    expect(bind('2026-11-19T11:19:39.3384245Z', shaped([['Set up job', '2026-11-19T11:00:00Z', '2026-11-19T11:00:02Z'], ['Run tests', '2026-11-19T11:00:02Z', '2026-11-19T11:19:37Z'], ['Tested tree record (tree.json)', '2026-11-19T11:19:37Z', '2026-11-19T11:19:37Z'], [RUN_STEP, '2026-11-19T11:19:37Z', '2026-11-19T11:19:40Z'], ['Upload the tested tree', '2026-11-19T11:19:40Z', '2026-11-19T11:19:42Z'], ['Complete job', '2026-11-19T11:19:44Z', '2026-11-19T11:19:44Z']]))).toBe('tree_log_unbound');
+    expect(bind('2026-11-19T11:19:41.4347497Z', shaped([['Set up job', '2026-11-19T11:00:00Z', '2026-11-19T11:00:02Z'], ['Run tests', '2026-11-19T11:00:02Z', '2026-11-19T11:19:37Z'], ['Tested tree record (tree.json)', '2026-11-19T11:19:37Z', '2026-11-19T11:19:38Z'], [RUN_STEP, '2026-11-19T11:19:38Z', '2026-11-19T11:19:46Z'], ['Upload the tested tree', '2026-11-19T11:19:46Z', '2026-11-19T11:19:47Z'], ['Complete job', '2026-11-19T11:19:49Z', '2026-11-19T11:19:49Z']]))).toBe('ok');
+  });
+
+  // Value: protects=the sleeps docs/pregate.md recommends bind whatever fraction of a second the test step ends on, with up to 2.5 s between the echo and the runner's stamp; fails_when=the docs recommend sleeps a stamping delay or the API's whole-second times can push outside the binding window
+  test('the sleeps in docs/pregate.md bind at every sub-second offset and stamping delay up to 2.5 s', () => {
+    const doc = require('fs').readFileSync(require('path').join(import.meta.dir, '..', 'docs', 'pregate.md'), 'utf8') as string;
+    const m = /run: sleep (\d+) && echo "GSTACK_TREE_JSON checks-tree \$\(base64 -w0 tree\.json\)" && sleep (\d+)/.exec(doc);
+    expect(m).not.toBeNull();
+    const [before, after] = [Number(m![1]) * 1000, Number(m![2]) * 1000];
+    const base = Date.parse('2026-11-19T11:19:37Z');
+    for (const frac of [0, 1, 250, 500, 750, 999]) for (const delay of [0, 400, 1500, 2500]) {
+      const ended = base + frac;
+      const echoed = ended + before + 10;
+      const closed = echoed + after + 10;
+      const s = shaped([['Set up job', '2026-11-19T11:00:00Z', '2026-11-19T11:00:02Z'], ['Run tests', '2026-11-19T11:00:02Z', sec(ended)], [RUN_STEP, sec(ended), sec(closed)], ['Complete job', sec(closed + 5), sec(closed + 900)]]);
+      expect([frac, delay, bind(at(echoed + delay), s)]).toEqual([frac, delay, 'ok']);
+    }
+  });
+});

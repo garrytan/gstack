@@ -7552,7 +7552,8 @@ or `no_verified_run` detail) and the lane runs here instead
 ([pregate.md](pregate.md#tree-log-step)).
 
 **Fix.** Print the line only from the named step, after the test step, with
-`sleep 1` before it and `sleep 2` after it, and make sure no test prints `GSTACK_TREE_JSON`. Then
+`sleep 1` before it and `sleep 5` after it (`sleep 2` after it is too short on
+runners that stamp output late), and make sure no test prints `GSTACK_TREE_JSON`. Then
 dispatch a fresh run at the same head and rerun `gstack-ci-carry wait`.
 
 <a id="ci-carry-rerun-malformed"></a>
