@@ -403,6 +403,14 @@ describe('.pending marker', () => {
     expect(parseJsonl().map(e => e.skill)).toEqual(['_setup_playwright', '_setup_welcome']);
   });
 
+  test('a different onboarding outcome for the same step on the same day is still recorded', () => {
+    setConfig('telemetry', 'community');
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome deps-missing --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome deps-missing --no-sweep`);
+    expect(parseJsonl().map(e => e.outcome)).toEqual(['chromium-install', 'deps-missing']);
+  });
+
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
 

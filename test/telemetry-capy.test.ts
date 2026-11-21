@@ -149,6 +149,19 @@ describe.skipIf(process.platform === 'win32')('Capy telemetry opt-in', () => {
     expect(run(`${install}/bin/gstack-telemetry-tier`, { GSTACK_DIR: install })).toBe('anonymous');
   });
 
+  test('a host directory that links only bin/ to a Capy install (Codex) still sees the install and sends nothing', () => {
+    const install = path.join(tmp, 'install');
+    fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    execSync('git init -q', { cwd: install, timeout: 20_000 });
+    for (const f of fs.readdirSync(BIN)) fs.symlinkSync(path.join(BIN, f), path.join(install, 'bin', f));
+    fs.writeFileSync(path.join(install, '.git', 'gstack-capy-install.state'), 'fixture\n');
+    const host = path.join(tmp, 'codex-skill');
+    fs.mkdirSync(host);
+    fs.symlinkSync(path.join(install, 'bin'), path.join(host, 'bin'));
+    run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });
+    expect(run(`${host}/bin/gstack-telemetry-tier`, { GSTACK_SESSION_KIND: 'interactive', GSTACK_CAPY: '' })).toBe('off');
+  });
+
   test('gstack-telemetry-tier prints the Capy opt-in alone with --capy, else the machine setting', () => {
     const tier = (args = '', extra: Record<string, string> = {}) => run(`${path.join(BIN, 'gstack-telemetry-tier')} ${args}`, extra);
     run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });
