@@ -140,6 +140,9 @@ _RX_CACHE="^${_RX_HOME}/(\.cache|\.npm|\.bun/install/cache|\.cargo/registry|\.lo
 _RX_ARTIFACT="^([^[:space:];&|#(${_BT}\$]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.nox|htmlcov|\.eggs|\.venv|venv|[^/[:space:]]+\.egg-info)(/|/\*)?\$"
 _RX_ROOT="^(/+|/+\*|${_RX_HOME}(/+|/+\*)?|/(usr|etc|var|home|opt|bin|sbin|lib|lib64|boot|root|srv|System|Users|Library|Applications|private|mnt/c|c)(/+|/+\*)?|${_RX_HOME}/(Documents|Desktop|Downloads|Library|Pictures|Movies|Music|\.ssh|\.config|\.aws|\.gnupg|\.kube)(/+|/+\*)?)\$"
 
+# A device node under /dev, and a system folder a cd can lead a relative delete into.
+_RX_DEV_NODE='^/dev/(sd|nvme|hd|vd|xvd|mmcblk|loop|disk|rdisk|md|dm-|nbd|sr|mapper/)'
+_RX_SYSDIR='^/(etc|usr|boot|bin|sbin|lib|lib32|lib64|root|opt|var/(lib|log|db|spool)|System|Library|private/etc)/'
 _CAREFUL_CWD="${GSTACK_HOOK_CWD:-}"
 [ -n "$_CAREFUL_CWD" ] || _CAREFUL_CWD="$PWD"
 if command -v gstack_hook_normalize_path >/dev/null 2>&1; then
@@ -230,6 +233,12 @@ _careful_rm_safe() {
   return 1
 }
 
+# _SQ is $1 with doubled slashes and /./ folded, the way the kernel reads it.
+_careful_squash() {
+  _SQ="$1"
+  while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ=${_SQ//\/\//\/}; _SQ=${_SQ//\/.\//\/}; done
+}
+
 # A delete target outside the session's folder: an absolute or ~ path that is
 # not scratch or a cache, a path climbing out with .., or a word led by a
 # variable that may be unset.
@@ -237,6 +246,8 @@ _careful_outside() {
   local t="$1"
   [ -n "$t" ] || return 1
   case "/$t/" in */../*) return 0 ;; esac
+  [[ $t =~ $_RX_DEV_NODE ]] && return 0
+  _careful_squash "$t"; [[ $_SQ =~ $_RX_DEV_NODE ]] && return 0
   case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 1
   [[ $t =~ $_RX_CACHE ]] && return 1
@@ -254,7 +265,13 @@ _careful_outside() {
     '~'|'~/'*) t="${HOME:-}${t#\~}" ;;
     '~'*) return 0 ;;
     /*) ;;
-    *) return 1 ;;
+    *)
+      [ "$_SCRATCH" -eq 0 ] && [ -n "$_CUR_DIR" ] || return 1
+      _careful_squash "$_CUR_DIR/$t"
+      if [[ $_CUR_DIR/ =~ $_RX_SYSDIR ]]; then t="$_CUR_DIR/$t"
+      elif [[ $_SQ =~ $_RX_DEV_NODE ]]; then return 0
+      elif [[ $_SQ =~ $_RX_SYSDIR ]]; then t="$_SQ"
+      else return 1; fi ;;
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
@@ -451,18 +468,27 @@ _careful_push_default() {
 }
 
 _careful_push() {
-  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0
+  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0 pov=0 pw=0 d0=0
   local refs=()
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
+    # git reads the word after -o as its push-option value, so it never undoes -n.
+    pw=0
+    if [ "$pov" -eq 1 ]; then
+      pov=0
+      case "$t" in --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) continue ;; esac
+      # Nor does it start a dry run: the value keeps the dry-run state before it.
+      pw=1; d0=$dry
+    fi
     case "$t" in
       --force-with-lease*|--force-if-includes) lease=1 ;;
       -f|--force) force=1 ;;
       --mirror) force=1; all=1 ;;
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
-      --no-dry-run) dry=0 ;;
+      --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0 ;;
+      --pu|--pus|--push|--push-|--push-o|--push-op|--push-opt|--push-opti|--push-optio|--push-option) pov=1 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
       --repo) repo=1; val=1 ;;
@@ -471,8 +497,16 @@ _careful_push() {
         # In a short-option group, letters after o are its push-option value.
         c="${t#-}"
         case "$c" in
-          *[!a-zA-Z]*) ;;
+          *[!a-zA-Z]*)
+            # A group with a digit (-f4, -4f, -fo-n) still forces; it never starts a dry run here.
+            case "${c%%o*}" in
+              ''|*[!a-zA-Z0-9]*) ;;
+              *)
+                [ "${c%%o*}o" != "$c" ] || pov=1
+                case "${c%%o*}" in *f*) force=1 ;; esac ;;
+            esac ;;
           *)
+            [ "${c%%o*}o" != "$c" ] || pov=1
             c="${c%%o*}"
             case "$c" in *f*) force=1 ;; esac
             case "$c" in *n*) dry=1 ;; esac ;;
@@ -487,6 +521,7 @@ _careful_push() {
           refs[$nr]="$r"; nr=$((nr + 1))
         fi ;;
     esac
+    if [ "$pw" -eq 1 ]; then pov=0; [ "$d0" -eq 1 ] || dry=0; fi
   done
   [ "$dry" -eq 0 ] || return 0
   if [ "$force" -eq 1 ] && [ -z "$_PUSH_DENY" ]; then _careful_push_default; fi
