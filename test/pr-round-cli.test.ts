@@ -121,9 +121,9 @@ describe('gstack-ship-receipt history and stub', () => {
     expect(h.stdout).toMatch(/^PR_REVIEW_ROUTE: final \(the PR had 1 full review round; this head gets a fresh full review/m);
     expect(h.stdout).not.toMatch(/drift|recheck_blocked/);
     const s = r.run('gstack-ship-receipt', ['stub', '--body', body, '--run', 'r2', '--review-loop', JSON.stringify({ ...loop, fix_checks: 1, rounds: 2 })]);
-    expect(s.stdout).toContain('RUN_STUB: run=r2 status=started rounds=2');
+    expect(s.stdout).toContain('RUN_STUB: run=r2 status=started rounds=1');
     const after = r.run('gstack-ship-receipt', ['history', '--body', body, '--pr', '5']).stdout;
-    expect(after).toContain('PR_REVIEW_FLAGS: --prior-rounds 3 --prior-full 2\n');
+    expect(after).toContain('PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2\n');
     expect(after).toMatch(/^PR_REVIEW_ROUTE: read-only \(.*no fix round/m);
     expect(fs.readFileSync(body, 'utf8').startsWith('## Summary\nprose\n')).toBe(true);
     expect(r.run('gstack-ship-receipt', ['stub', '--body', body]).status).toBe(2);

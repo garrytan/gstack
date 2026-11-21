@@ -289,7 +289,7 @@ export interface ReviewLoopSummary {
   fix_checks?: number;
   /** Passes that were scoped repeats (`"scope":"scoped"` rows): rounds, not full rounds (GST-2673). */
   scoped?: number;
-  /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
+  /** Review rounds (R51): full and scoped passes. A fix-check reads only a round's fixes, so like any re-check of what changed it is no round; fix_checks counts it. */
   rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
@@ -504,7 +504,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   if (voided.length) out.voided = voided;
   const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
-  out.rounds = passes.length + fixChecks;
+  out.rounds = passes.length;
   const scopedPasses = passes.filter(r => r.scope === 'scoped').length;
   if (scopedPasses) out.scoped = scopedPasses;
   const byRole: Record<string, number> = {};

@@ -61,6 +61,8 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
   dispositions                    the "Gate disposition: …" lines the Pre-Landing Review and the PR body carry
   round-grant --pr <n> --head <the head that needs the round> --kind extra-round|fix-check --reason <why, one line>
           --by <the lane or its Captain> [--words <their words; default the reason>]
+          [--owner-ref <thread code>:<message id or timestamp>: relays the grant from the lane's or Captain's message, so it
+          records while a stopped /ship run is still open on this checkout; needs --words]
           [--stop-run <run> --findings <ids>: fix-check only, the stop gstack-ship-receipt stop recorded and the findings
           its fix round is for; it buys one scoped fix-check of the PR's own change since that stop's head]
           a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): extra-round is
@@ -180,12 +182,14 @@ function main(argv: string[]): number {
       const head = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${flags['--head'] ?? ''}^{commit}`], { encoding: 'utf8', timeout: 10_000 });
       if (!flags['--head'] || head.status !== 0) return invalid('round-grant needs --head <the head that needs the round, a commit in this repository>');
       if (!by || isGstackActorName(by)) return invalid('round-grant needs --by <the lane or its Captain>: gstack never grants itself a round');
+      const ownerRef = flags['--owner-ref']?.trim();
+      if (ownerRef !== undefined && (!OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim())) return invalid('--owner-ref relays the lane\'s or Captain\'s grant: <thread code>:<message id or timestamp> (GSTA-36:2026-11-19T12:29:59Z), with --words <their exact words>');
       const open = openShipRun(process.cwd());
-      if (open) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; record it from the lane after the run stops`);
+      if (open && ownerRef === undefined) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it from the lane after the run stops`);
       const stopRun = (flags['--stop-run'] ?? '').trim(), findings = [...new Set((flags['--findings'] ?? '').split(',').map(f => f.trim()).filter(Boolean))];
       if (kind === 'fix-check' && (!STOP_RUN.test(stopRun) || !findings.length || !findings.every(f => FINDING_ID.test(f)))) return invalid('round-grant --kind fix-check needs --stop-run <the run gstack-ship-receipt stop named> and --findings <the open finding ids it is for, comma-separated>: it buys the fix round of that one stop');
       if (kind !== 'fix-check' && (flags['--stop-run'] !== undefined || flags['--findings'] !== undefined)) return invalid('--stop-run and --findings belong to --kind fix-check: an extra-round grant names no stop');
-      const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'] }, loc.branch);
+      const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'], source: ruledNoteSource({ ownerRef }) }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
     } else if (cmd === 'lane-exception') {

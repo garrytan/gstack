@@ -90,3 +90,53 @@ describe('a reader\'s scope and passed-checks bullets under a blocking=0 verdict
     expect(lowered('red-team', reply(ZERO, '- P0: the gate drops a HIGH finding.'))).toMatchObject({ ok: false, downgraded: ['red-team#1'] });
   });
 });
+
+/**
+ * #4553 (GSTA-666, 2026-11-20): the native reader's Scope bullets named findings the run already had by their status, "the 7 noted
+ * CRITICAL duplicates" and "a deferred CRITICAL", and #4519's Red Team bullet named severities as a list with no "findings" after it.
+ * Each collected as a blocker the lead could not lower, so two owner rulings cleared them. The captured output stayed on that run's
+ * machine; this reply rebuilds its shape from the run's decision trail (rows 22-23) and the lane's report.
+ */
+const REBUILT_4553_P1_ADVERSARIAL = [
+  'REVIEWED_TREE: f680df6d0000000000000000000000000000beef /workspace/gstack',
+  'REVIEW_VERDICT: blocking=0',
+  '',
+  'I found no blocking findings.',
+  '',
+  '**Scope.** I read the full diff of gstack-review-read and its tests. The tests cover:',
+  '- 22 rulings leave the 7 noted CRITICAL duplicates named;',
+  '- a row listing fewer findings than it claims;',
+  '- ruling every finding makes all three rows CURRENT;',
+  '- a deferred CRITICAL and a gate finding.',
+  '',
+  'Recommendation: Ship as-is.',
+].join('\n');
+
+describe('a scope bullet naming a finding by its status or a list of severities (#4553, #4519)', () => {
+  // Value: protects=a bullet that names findings by a status they already have (noted, deferred) or names severities as a list, in a
+  //   reply declaring blocking=0, is a summary candidate the lead may lower with a reason; fails_when=#4553's Scope bullets or the
+  //   bare "P0 or P1" passed check need an owner ruling again, or a bullet stating a blocker loses its label; why_new=GSTA-666 needed two
+  //   Captain rulings for them; seam=parseReply with the verdict ask and judge, as collect and the lead use them; no_claim=-
+  test('#4553: the noted and deferred CRITICAL bullets keep CRITICAL as summary candidates the lead can lower', () => {
+    expect(rows('adversarial-native', REBUILT_4553_P1_ADVERSARIAL)).toEqual([
+      ['CRITICAL', '- 22 rulings leave the 7 noted CRITICAL ', true],
+      ['CRITICAL', '- a deferred CRITICAL and a gate finding', true],
+    ]);
+    expect(lowered('adversarial-native', REBUILT_4553_P1_ADVERSARIAL)).toMatchObject({ ok: true, dismissed: ['adversarial-native#1', 'adversarial-native#2'], downgraded: [] });
+  });
+
+  test('#4519: a passed check naming "P0 or P1" with no noun after it is a summary candidate too', () => {
+    const line = '- `missing_verdict` cannot occur alongside P0 or P1';
+    expect(rows('red-team', reply(ZERO, line))).toEqual([['P0', line.slice(0, 40), true]]);
+    expect(lowered('red-team', reply(ZERO, line))).toMatchObject({ ok: true, dismissed: ['red-team#1'] });
+  });
+
+  test('negative controls: a status or list that leads a claim, a located line and a reply with no blocking=0 still block', () => {
+    expect(rows('red-team', reply(ZERO, '- a deferred CRITICAL: the gate drops rows.'))[0]![2]).toBe(false);
+    expect(rows('red-team', reply(ZERO, '- a deferred CRITICAL in lib/gate.ts:12 drops rows.'))[0]![2]).toBe(false);
+    expect(rows('red-team', reply(ZERO, '- the CRITICAL path drops rows.'))[0]![2]).toBe(false);
+    expect(rows('red-team', reply('REVIEW_VERDICT: blocking=1', '- a deferred CRITICAL and a gate finding.'))[0]).toEqual(['CRITICAL', '- a deferred CRITICAL and a gate finding', false]);
+    expect(parseReply('red-team', '- `missing_verdict` cannot occur alongside P0 or P1', true, false).findings.map(f => [f.label, !!f.summary])).toEqual([['P0', false]]);
+    expect(lowered('red-team', reply(ZERO, '- a deferred CRITICAL: the gate drops rows.'))).toMatchObject({ ok: false, downgraded: ['red-team#1'] });
+  });
+});
