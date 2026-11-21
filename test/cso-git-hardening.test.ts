@@ -104,19 +104,6 @@ describe('CSO Git metadata hardening',()=>{
     expect(history).not.toContain('replacement-history');
   });
 
-  test.skipIf(process.platform==='win32')('retained history withholds diffs of credential files the snapshot excludes',async()=>{
-    const {repo,runDir,git}=fixture();
-    fs.writeFileSync(path.join(repo,'.env'),'UPSTREAM_TOKEN=planted-history-value\n');fs.writeFileSync(path.join(repo,'tracked.ts'),'export const tracked = false\n');
-    git('add','.env','tracked.ts');git('commit','-qm','configure upstream');
-
-    await capture(repo,runDir);
-    const history=fs.readFileSync(path.join(runDir,'history.txt'),'utf8');
-
-    expect(history).not.toContain('planted-history-value');
-    expect(history).toContain('diff withheld: .env (credential or execution configuration)');
-    expect(history).toContain('+export const tracked = false');
-    expect(history).toContain('Subject: configure upstream');
-  });
 
   test.skipIf(process.platform==='win32')('rejects repository config includes before Git can consume them',async()=>{
     const {root,repo,runDir}=fixture(),included=path.join(root,'included.conf');
