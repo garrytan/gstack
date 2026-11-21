@@ -337,6 +337,18 @@ const OUTSIDE_CASES: Array<[string, string, Decision, Tree]> = [
   ['a device node removed under /dev', 'rm /dev/nvme0n1', 'ask', 'clean'],
   ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/demo-lock', 'allow', 'clean'],
   ['a device node removed under /dev (twin: output sent to /dev/null)', 'rm -f demo.txt > /dev/null', 'allow', 'clean'],
+  ['a device node removed under /dev, spelled with a doubled slash', 'rm -f /dev//sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev, spelled with a dot folder', 'rm -f /dev/./sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev', 'cd /dev && rm -f sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev (twin: shared memory)', 'cd /dev/shm && rm -f sdx-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: shared memory with a doubled slash)', 'rm -f /dev//shm/x', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: a project folder named dev)', 'rm -f dev/sdcard.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/lib && rm -f dpkg/status', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/log && rm -f syslog', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /opt/homebrew && rm -f bin/brew', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder, reached from /', 'cd / && rm -f etc/hosts', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/tmp is scratch)', 'cd /var/tmp/w && rm -f x', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/www is not a system folder)', 'cd /var/www && rm -f index.html', 'allow', 'clean'],
 ];
 
 let base = '';

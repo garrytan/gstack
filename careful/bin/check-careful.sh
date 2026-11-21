@@ -142,7 +142,7 @@ _RX_ROOT="^(/+|/+\*|${_RX_HOME}(/+|/+\*)?|/(usr|etc|var|home|opt|bin|sbin|lib|li
 
 # A device node under /dev, and a system folder a cd can lead a relative delete into.
 _RX_DEV_NODE='^/dev/(sd|nvme|hd|vd|xvd|mmcblk|loop|disk|rdisk|md|dm-|nbd|sr|mapper/)'
-_RX_SYSDIR='^/(etc|usr|boot|bin|sbin|lib|lib32|lib64|root|System|Library|private/etc)/'
+_RX_SYSDIR='^/(etc|usr|boot|bin|sbin|lib|lib32|lib64|root|opt|var/(lib|log|db|spool)|System|Library|private/etc)/'
 _CAREFUL_CWD="${GSTACK_HOOK_CWD:-}"
 [ -n "$_CAREFUL_CWD" ] || _CAREFUL_CWD="$PWD"
 if command -v gstack_hook_normalize_path >/dev/null 2>&1; then
@@ -233,6 +233,12 @@ _careful_rm_safe() {
   return 1
 }
 
+# _SQ is $1 with doubled slashes and /./ folded, the way the kernel reads it.
+_careful_squash() {
+  _SQ="$1"
+  while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ="${_SQ//\/\//\/}"; _SQ="${_SQ//\/.\//\/}"; done
+}
+
 # A delete target outside the session's folder: an absolute or ~ path that is
 # not scratch or a cache, a path climbing out with .., or a word led by a
 # variable that may be unset.
@@ -241,6 +247,7 @@ _careful_outside() {
   [ -n "$t" ] || return 1
   case "/$t/" in */../*) return 0 ;; esac
   [[ $t =~ $_RX_DEV_NODE ]] && return 0
+  _careful_squash "$t"; [[ $_SQ =~ $_RX_DEV_NODE ]] && return 0
   case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 1
   [[ $t =~ $_RX_CACHE ]] && return 1
@@ -258,7 +265,13 @@ _careful_outside() {
     '~'|'~/'*) t="${HOME:-}${t#\~}" ;;
     '~'*) return 0 ;;
     /*) ;;
-    *) [ "$_SCRATCH" -eq 0 ] && [[ $_CUR_DIR/ =~ $_RX_SYSDIR ]] || return 1; t="$_CUR_DIR/$t" ;;
+    *)
+      [ "$_SCRATCH" -eq 0 ] && [ -n "$_CUR_DIR" ] || return 1
+      _careful_squash "$_CUR_DIR/$t"
+      if [[ $_CUR_DIR/ =~ $_RX_SYSDIR ]]; then t="$_CUR_DIR/$t"
+      elif [[ $_SQ =~ $_RX_DEV_NODE ]]; then return 0
+      elif [[ $_SQ =~ $_RX_SYSDIR ]]; then t="$_SQ"
+      else return 1; fi ;;
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
