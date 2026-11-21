@@ -308,7 +308,7 @@ describe('checkContract on Codex with the real /review contract', () => {
     const item = (tr: Transcript) => checkContract(tr, 'gstack-review', realReview(t)).items.find(i => i.id === 'adversarial-pass');
     expect(item(t)).toMatchObject({
       detail: 'no spawn_agent call matches /Think like an attacker and a chaos engineer/',
-      fix: 'start the subagent pass matching /Think like an attacker and a chaos engineer/ with spawn_agent, then wait_agent for its result',
+      fix: 'start the subagent pass with spawn_agent (task_name "adversarial", its message matching /Think like an attacker and a chaos engineer/), then wait_agent for its result',
     });
     expect(item({ events: t.events, sessionId: t.sessionId })).toMatchObject({
       detail: 'no Agent dispatch matches /Think like an attacker and a chaos engineer/',
@@ -320,6 +320,92 @@ describe('checkContract on Codex with the real /review contract', () => {
     const suppressed = new Set(codex.suppressedResolvers ?? []);
     const expected = ITEM_KINDS.filter(k => { const b = BACKED_BY[k]; return !!b && suppressed.has(b.resolver); });
     expect([...CODEX_SKIPPED_KINDS]).toEqual(expected);
+  });
+});
+
+describe('encrypted spawn messages: Codex multi-agent v2 with OpenAI models (GST-3375)', () => {
+  // Codex encrypts the spawn_agent message for OpenAI models (openai/codex#26210), so the brief's marker never reaches
+  // either rollout. These fixtures are synthetic (README): Sol's collaboration spawn with its message swapped for ciphertext.
+  const enc = lines('exec-sol-encrypted-spawn.jsonl');
+  const spawnCall = () => enc.map(l => JSON.parse(l).payload).find(p => p?.type === 'function_call' && p.name === 'spawn_agent');
+  const edit = (fn: (p: Record<string, any>) => Record<string, any> | null) => parseTranscript(enc.flatMap(l => {
+    const rec = JSON.parse(l);
+    const p = rec.payload?.type ? fn({ ...rec.payload }) : rec.payload;
+    return p === null ? [] : [JSON.stringify({ ...rec, payload: p })];
+  }).join('\n'));
+  const withArgs = (change: Record<string, unknown>) => (p: Record<string, any>) =>
+    p.type === 'function_call' && p.name === 'spawn_agent' ? { ...p, arguments: JSON.stringify({ ...JSON.parse(p.arguments), ...change }) } : p;
+
+  test('the fixtures carry ciphertext where the brief was, and the marker is in neither rollout\'s dispatch', () => {
+    const args = JSON.parse(spawnCall().arguments);
+    expect(args.task_name).toBe('adversarial');
+    expect(args.message).toMatch(/^gAAAAAB[A-Za-z0-9_-]+=*$/);
+    expect(spawnCall().arguments).not.toContain('Think like an attacker');
+    expect(read('exec-sol-encrypted-subagent.jsonl')).not.toContain('Think like an attacker');
+    const sub = rollout('exec-sol-encrypted-subagent.jsonl');
+    expect(sub.subagent).toBe(true);
+    expect(JSON.parse(lines('exec-sol-encrypted-subagent.jsonl')[0]).payload.source.subagent.thread_spawn.agent_path).toBe('/root/adversarial');
+  });
+
+  test('a started spawn named adversarial with an encrypted message meets the adversarial pass', () => {
+    const t = rollout('exec-sol-encrypted-spawn.jsonl');
+    expect(status(t, realReview(t))).toEqual({ 'adversarial-pass': 'met', 'review-report': 'met' });
+    expect(checkContract(t, 'gstack-review', realReview(t)).met).toBe(true);
+  });
+
+  test('negative control: no adversarial spawn is still missing', () => {
+    const t = edit(p => (p.call_id === 'call_spawn_1' ? null : p));
+    expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('negative control: an encrypted spawn of a differently named agent is still missing', () => {
+    for (const name of ['red-team', 'adversarial-2', 'worker']) {
+      const t = edit(p => {
+        const q = withArgs({ task_name: name })(p);
+        return q.type === 'function_call_output' && q.call_id === 'call_spawn_1' ? { ...q, output: JSON.stringify({ task_name: `/root/${name}` }) } : q;
+      });
+      expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+    }
+  });
+
+  test('negative control: a spawn that never started is still missing, whatever it was named', () => {
+    const t = edit(p => (p.type === 'function_call_output' && p.call_id === 'call_spawn_1' ? { ...p, output: 'spawn_agent failed: agent limit reached' } : p));
+    expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('negative control: a plaintext message is still held to the marker, even when the agent is named adversarial', () => {
+    const t = edit(withArgs({ message: 'Look over the diff and say if it looks fine.' }));
+    expect(status(t, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('Claude Code is unchanged: the same events read as a Claude transcript still need the marker', () => {
+    const t = rollout('exec-sol-encrypted-spawn.jsonl');
+    const asClaude: Transcript = { events: t.events, sessionId: t.sessionId };
+    expect(status(asClaude, realReview(t))['adversarial-pass']).toBe('missing');
+  });
+
+  test('the review report has no such blind spot: it is the parent\'s own text, which Codex does not encrypt', () => {
+    const t = rollout('exec-sol-encrypted-spawn.jsonl');
+    expect(status(t, realReview(t))['review-report']).toBe('met');
+    const noReport = edit(p => (p.type === 'message' && p.role === 'assistant' ? null : p));
+    expect(status(noReport, realReview(noReport))['review-report']).toBe('missing');
+  });
+
+  test('on Codex the block text names the task name the check looks for', () => {
+    const t = edit(p => (p.call_id === 'call_spawn_1' ? null : p));
+    const item = checkContract(t, 'gstack-review', realReview(t)).items.find(i => i.id === 'adversarial-pass');
+    expect(item?.fix).toBe('start the subagent pass with spawn_agent (task_name "adversarial", its message matching /Think like an attacker and a chaos engineer/), then wait_agent for its result');
+  });
+
+  test('gstack-skill-contract check passes the encrypted run', () => {
+    const work = tmpDir('gstack-codex-enc-');
+    try {
+      const r = spawnSync(BIN, ['check', '--transcript', path.join(DIR, 'exec-sol-encrypted-spawn.jsonl'), '--skill', 'gstack-review'], { env: hookEnv(work, work, { GSTACK_INSTALLED_SKILLS_DIR: '', HOME: work }), encoding: 'utf8', timeout: 20_000 });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toStartWith('SKILL_CONTRACT_MET gstack-review');
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
   });
 });
 

@@ -45,6 +45,8 @@ describe('schema v1', () => {
       ['contract:\n  version: 1\n  items: [{id: Bad_ID, kind: agent_dispatch, match: x}]', 'id must match'],
       ['contract:\n  version: 1\n  items: [{id: a, kind: check_after_last_edit}]', 'every item uses a removed kind'],
       ['contract: [unclosed', 'not valid YAML'],
+      ['contract:\n  version: 1\n  items: [{id: a, kind: report_labels, heading: X, labels: [Y], task_name: z}]', 'task_name applies only to agent_dispatch'],
+      ['contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch, match: x, task_name: "two words"}]', 'task_name must match'],
     ];
     for (const [fm, msg] of bad) {
       const r = parseContract(fm);
@@ -130,6 +132,12 @@ describe('checkContract is a pure function of the transcript', () => {
     expect(run(say(item.marker), ...agent('r', 'Think like an attacker and a chaos engineer.'))).toMatchObject({ status: 'met', detail: 'an Agent dispatch matches /Think like an attacker/' });
     expect(parseContract('contract:\n  version: 1\n  items: [{id: a, kind: agent_dispatch, marker: "Dispatching x", match: y}]')).toEqual({ error: 'a: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)' });
     expect(parseContract('contract:\n  version: 1\n  items: [{id: a, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:"}]')).toHaveProperty('contract');
+  });
+
+  test('GST-3375: on Claude Code a task name never stands in for the marker, whatever the Agent call carries', () => {
+    const item = { id: 'adversarial', kind: 'agent_dispatch' as const, match: 'Think like an attacker', task_name: 'adversarial' };
+    const t = parseTranscript([slash('review'), tool('s', 'Agent', { description: 'adversarial', prompt: 'gAAAAABnot-a-brief-at-all-just-a-token', task_name: 'adversarial', sealed: true }), result('s', '[]')].join('\n'));
+    expect(checkContract(t, 'review', { version: 1, items: [item] }).items[0]).toMatchObject({ status: 'missing', detail: 'no Agent dispatch matches /Think like an attacker/' });
   });
 
   test('GST-1242: the waive command in the block text is a literal path to bash, and the transcript reader counts it', () => {
