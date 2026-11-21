@@ -1638,7 +1638,8 @@ apply the same rule to the same input, so they build the same selection. The
 gate class and the record's `gate_tagged` list are unchanged: only how much of
 the data file a reader sees changes. Results PRs that commit captured agent
 sessions need this: the sessions quote lint pragmas, env checks and
-`--no-verify` pushes (harness-evals #494: 25 transcripts, 11.4 MB whole).
+`--no-verify` pushes (harness-evals #494: 25 transcripts, 11.3 MB (11,320,357
+bytes) whole).
 
 <a id="one-selection-every-reader"></a>
 **One selection for every reader (GST-1476).** Every path that renders a

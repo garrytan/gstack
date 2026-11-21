@@ -1,0 +1,4 @@
+{
+  "bytes": 225,
+  "why": "On Capy the test-failure triage block no longer files a GitHub issue through gh, which signs in as the owner (GSTA-643 list)"
+}

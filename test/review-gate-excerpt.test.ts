@@ -59,7 +59,7 @@ const pass = (repo: FixtureRepo) => {
 describe('gate-tagged data files go to readers as their tagged lines', () => {
   // Value: protects=a results PR whose captured agent sessions quote lint pragmas or env checks reaches review instead of
   //   stopping at the ceiling, every tagged line still reaches readers, and the gate still fires; fails_when=a gate-tagged
-  //   data file is sent whole (REVIEW_DIFF_TOO_LARGE, harness-evals#494: 25 files, 12.3 MB), a tagged line is missing, or
+  //   data file is sent whole (REVIEW_DIFF_TOO_LARGE; on harness-evals#494 main's whole reader diff was 12.26 MB), a tagged line is missing, or
   //   a code file, a path-tagged snapshot or a file whose tag spans lines is cut; why_new=GST-3273;
   //   seam=gstack-review-plan and gstack-review-dispatch pass on a real repository, real gate scan; no_claim=what a model
   //   does with the excerpt
@@ -271,5 +271,14 @@ describe('REVIEW_DIFF_TOO_LARGE names files with spaces whole', () => {
     const x = tooLargeLine('t', 'r', { bytes: 3_000_000, byDir: [['docs', 3_000_000]], byFile: [[p, 3_000_000], ['docs/b.jsonl', 10]] }, { state: 'none', base: 'main', source: 's' });
     expect(x.line).toContain(`files="${p}":3000000,docs/b.jsonl:10 `);
     expect(x.line).toContain(`largest files: ${p} (3000000 bytes)`);
+  });
+
+  // #4574 follow-up: a control character in a file or folder name must not break the one-line REVIEW_DIFF_TOO_LARGE output.
+  test('a newline in a file or folder name is quoted everywhere the line names it', () => {
+    const p = 'docs/run\n2/session.jsonl';
+    const x = tooLargeLine('t', 'r', { bytes: 3_000_000, byDir: [['docs/run\n2', 3_000_000]], byFile: [[p, 3_000_000]] }, { state: 'none', base: 'main', source: 's' });
+    expect(x.line).not.toContain('\n');
+    expect(x.line).toContain(`top="docs/run\\n2":3000000 `);
+    expect(x.line).toContain(`largest files: ${JSON.stringify(p)} (3000000 bytes)`);
   });
 });

@@ -92,6 +92,7 @@ Then post with your platform from Step 0 (\`github\` or \`gitlab\`). Substitute 
 
 \`\`\`bash
 ${freeTextFileUse([{ variable: 'TITLE_FILE', placeholder: '<title-file-name>' }, { variable: 'BODY_FILE', placeholder: '<body-file-name>' }], 'gh issue create --title \\"\\$(cat $TITLE_FILE)\\" --body-file $BODY_FILE')}
+[ "\${GSTACK_CAPY:-}" = 1 ] && { echo "Not sent: on Capy, gh signs in as the owner's own GitHub account. Hand $TITLE_FILE and $BODY_FILE to whoever owns the work instead (docs/troubleshooting.md#host-publish)." >&2; exit 0; }
 case "<platform>" in
   github) gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$BODY_FILE" --assignee "<github-username>" ;;
   gitlab) glab issue create -t "$(cat "$TITLE_FILE")" -d "$(cat "$BODY_FILE")" -a "<gitlab-username>" ;;
