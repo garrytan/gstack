@@ -10,7 +10,8 @@ Amended 2026-11-21, before any paid call, on the owner's grant (GSTA-36), to mee
 that cover plans whose counted runs have not started: R111 (an uncounted pilot per arm that shows the part under test
 ran and the judge works on that arm's outputs) and R113 (one planned look at half the cases, with fixed stop bounds).
 It changes the Procedure, the judge's labels, the Stop rules, the Budget and Held-out exposure, and adds the Halfway
-look. No bar, arm or decision line changed.
+look. No bar, arm or decision line changed. Later the same day, also on the owner's grant, the Halfway look was
+narrowed so that an early stop can only keep the conductor.
 
 Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); runner GSTA-589. Paid runs start only
 after this file merges and the owner approves the budget below.
@@ -172,16 +173,18 @@ or of catch rates, with a 95% t interval over the 10 cases. Every trial is repor
 ## Halfway look
 One look at the primary comparisons (cost and planted-bug catch rate, F minus C), taken once cases 1 to 5 in seed
 order have all 3 counted trials in C and F. No other look at a primary comparison counts. Bounds are R113's two-look
-O'Brien-Fleming bounds for a two-sided 0.05 test: z of 2.80 or more either way at the look, 1.98 at the end. With 5
-and then 10 paired cases, each bound is applied as its two-sided nominal p-value (0.0051 at the look, 0.0477 at the
-end) to the paired t statistic over the cases, so the small sample keeps the error rate this plan froze.
-- Stop for a difference: if either primary crosses the look's bound either way, the counted trials stop, and the
-  decision is taken by the Decisions lines on cases 1 to 5, with the structural-loss rule read over those cases and
-  reader fidelity read as every reviewer started and collected in all 15 F trials so far.
-- Stop for futility: if the conditional power that the final cost interval lies wholly below $0, under the planned
-  saving of $10 a run and the spread measured so far, falls below 10%, the counted trials stop and the decision is
-  taken the same way, on cases 1 to 5.
-- Otherwise cases 6 to 10 run, and the final comparisons use the end bound.
+O'Brien-Fleming bounds for a two-sided 0.05 test: z of 2.80 at the look, 1.98 at the end. With 5 and then 10 paired
+cases, each bound is applied as its two-sided nominal p-value (0.0051 at the look, 0.0477 at the end) to the paired t
+statistic over the cases, so the small sample keeps the error rate this plan froze. An early stop can only keep the
+conductor, because removing it needs the no-loss evidence of all 10 cases.
+- Stop for harm: if F clearly costs more (the cost statistic crosses the look's bound with F above C) or clearly
+  catches less (the planted-bug catch statistic crosses it with F below C), the counted trials stop and the conductor
+  stays.
+- Stop for futility: if the chance that the finished run ends with the conductor removed (every bar in Bars passes)
+  falls below 10%, the counted trials stop and the conductor stays. The chance is computed by simulating cases 6 to 10
+  from the spread measured on cases 1 to 5, under the planned effect: F saving $10 a run and catching as much as C.
+- A crossing in F's favour does not stop the run: cases 6 to 10 run anyway, and the final comparisons use the end
+  bound.
 A run that stops early says so in its first line, and its estimates are reported as possibly overstated.
 
 ## Decoys
