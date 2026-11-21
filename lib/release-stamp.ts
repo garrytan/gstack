@@ -121,7 +121,7 @@ const defaultGh = (args: string[], cwd: string) => {
 /**
  * Stamp a fresh worktree of origin/<base> with gstack-restamp --release, commit only the stamped files (detached, so no
  * local branch is left behind), force-push the commit to release/<version> (a reopen after RELEASE_STAMP_INVALID
- * replaces the old release branch) and open the release PR. The Captain lands it with gstack-ship-queue land --pr <n> --pin <head> once its
+ * replaces the old release branch) and open the release PR, or on a reopen rewrite the open PR's body to the new stamp's. The Captain lands it with gstack-ship-queue land --pr <n> --pin <head> once its
  * checks are green; the stable cut then tags the new version. --dry-run stamps and prints the diff, and creates nothing.
  */
 export function openRelease(o: OpenOptions): OpenResult {
@@ -166,8 +166,13 @@ export function openRelease(o: OpenOptions): OpenResult {
     ].join('\n'));
     const posted = foldSections(body);
     const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository | not)][0].url // ""'], dir);
-    const pr = open.ok && open.out.trim() ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', posted], dir);
+    const reopened = open.ok && !!open.out.trim();
+    const pr = reopened ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', posted], dir);
     if (!pr.ok) return fail('RELEASE_STAMP_INVALID', `gh pr create failed (${pr.err.trim().split('\n')[0]}); ${branch} is pushed, so open its PR by hand`);
+    if (reopened) {
+      const edit = gh(['pr', 'edit', pr.out.trim().split('\n').pop() ?? '', '--body', posted], dir);
+      if (!edit.ok) return fail('RELEASE_STAMP_INVALID', `gh pr edit failed (${edit.err.trim().split('\n')[0]}); ${branch} is pushed with the new stamp, but its PR still has the old body, so replace the body by hand`);
+    }
     const url = pr.out.trim().split('\n').pop() ?? '';
     const n = /\/pull\/(\d+)/.exec(url)?.[1];
     lines.push(`RELEASE_PR: ${n ? `#${n} ` : ''}${url}`, `NEXT: gstack-ship-queue land --pr ${n ?? '<n>'} --pin ${head} once its checks are green`);

@@ -1097,9 +1097,11 @@ opening line is not. The reader's read is a trail row with phase `trail-read`
 whose decision names the reader (`gstack-decision-trail <file> trail-read
 "openai/gpt-6.2-sol (Subagent 4)" <why> <evidence> <flags>`).
 `gstack-ship-queue ready --trail <file>` prints the opening line from that row
-for a risk-class receipt, or `MISSING: cross-family trail read` when the trail
+for a risk-class receipt, then that row's flags (`Flags (trail row <n>): …`, or
+`No flags (trail row <n>)`), or `MISSING: cross-family trail read` when the trail
 has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
-`git merge-tree` at both heads. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+`git merge-tree` at both heads. A PR from a fork is labelled as an outside PR
+and never fetched or merged. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 

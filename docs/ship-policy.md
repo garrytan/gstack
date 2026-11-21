@@ -1960,8 +1960,16 @@ merges one only when the lander passes `--accept-gate-disposition <approval id>`
 for it.
 
 Land works the dispositions out again at the pin from the PR branch's approval
-store: the local record and its mirror. A lander on another machine reads the
-mirror the owner recorded into, so set `GSTACK_APPROVALS_DIR` to that directory
+store: the local record and its mirror, plus the rows `ready` copied into the
+READY note. The store lives on the machine that recorded the row, often the
+/ship machine, so `ready` copies each disposition it applies at the head into the
+READY note on `refs/notes/gstack-trains`, signed and whole, and land on any
+machine reads those rows beside its own store under the same checks: the
+writer's fields, the digest, the PR's branch and the head in the pin's history.
+An edited note row counts for nothing, and the lander still accepts each one
+explicitly (#4581). A security-class disposition stays out of the note, because
+the notes ref is public, so for one of those a lander on another machine reads
+the mirror the owner recorded into: set `GSTACK_APPROVALS_DIR` to that directory
 when it isn't the default. Land counts every disposition whose head the pin
 contains. In a full clone, a row whose head commit is gone (the branch was
 rewritten and garbage-collected, or the name reused) doesn't apply, because the

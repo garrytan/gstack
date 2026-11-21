@@ -37,14 +37,16 @@ export interface DirectOptions { pr: string; pin: string; body?: string; dryRun?
 
 /**
  * The pin's /ship receipt bound to it, and every owner gate disposition the approval store applies at the pin accepted by the
- * lander (lib/gate-dispositions.ts gateAcceptance, re-derived from the store, never from the receipt or the body): the one
- * check land --pin and verify --pin share, so the two cannot drift (docs/ship-policy.md#gate-dispositions).
+ * lander (lib/gate-dispositions.ts gateAcceptance, re-derived from the store and the signed rows ready copied into the READY note at
+ * the pin, never from the receipt or the body): the one check land --pin and verify --pin share, so the two cannot drift
+ * (docs/ship-policy.md#gate-dispositions).
  */
 export function pinAcceptance(ctx: QueueContext, info: Pick<DirectPr, 'body' | 'headRefName'>, pr: string, pin: string, accepted: readonly string[]): { lines: string[]; failure?: QueueFailure } {
   const receipt = bindShippedReceipt(ctx.repoRoot, `origin/${ctx.base}`, info.body ?? '', pr, [pin]);
   const lines = [receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : [])];
   if (!receipt.ok) return { lines, failure: { code: receipt.code, message: receipt.message, fix: `run /ship at the pin, then gstack-ship-queue ready --pr ${pr}` } };
-  const gates = gateAcceptance({ cwd: ctx.repoRoot, branch: info.headRefName, pin, body: info.body ?? '', receipt: receipt.receipt, accepted });
+  const noted = loadReady(repoIdentity(ctx.repoRoot).keys, pr, pin)?.gate_dispositions;
+  const gates = gateAcceptance({ cwd: ctx.repoRoot, branch: info.headRefName, pin, body: info.body ?? '', receipt: receipt.receipt, accepted, noted });
   return { lines: [...lines, ...gates.lines], ...(gates.failure ? { failure: gates.failure } : {}) };
 }
 
@@ -64,6 +66,7 @@ export function verifyPin(ctx: QueueContext, o: { pr: string; pin: string; accep
   if (info.state !== 'OPEN') return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} is ${info.state}` });
   if (info.headRefOid !== o.pin) return fail(lines, { code: 'QUEUE_LAND_PIN_MOVED', message: `#${o.pr}'s head is ${info.headRefOid.slice(0, 12)}, not the pin ${o.pin.slice(0, 12)}` });
   if (!havePin(root, o.pr, o.pin, info.headRefName)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `cannot fetch the pin ${o.pin.slice(0, 12)} from ${info.headRefName} or refs/pull/${o.pr}/head`, fix: 'fix the fetch, then rerun verify' });
+  rebuildFromNotes(root, ctx.remote ?? 'origin');
   const accepted = pinAcceptance(ctx, info, o.pr, o.pin, o.acceptGateDispositions);
   lines.push(...accepted.lines);
   if (accepted.failure) return fail(lines, accepted.failure);

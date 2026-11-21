@@ -182,6 +182,22 @@ describe('gstack-release-stamp open', () => {
     expect(repo.git('branch', '--list', 'release/*')).toBe('');
   });
 
+  // Value: protects=a reopen that force-pushes a new stamp also rewrites the open release PR's body, so its change count, notes, base and
+  //   land pin match the pushed head; fails_when=the open PR keeps the old body (GSTA-677 on #4573); seam=openRelease with a gh stub
+  test('reopening at a moved base rewrites the open release PR\'s body to the new stamp', () => {
+    const repo = landed();
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' }; } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 3))).toEqual([['pr', 'list', '--head'], ['pr', 'edit', 'https://github.com/o/r/pull/44']]);
+    const body = calls[1]![calls[1]!.indexOf('--body') + 1]!;
+    expect(body).toContain(`--pin ${r.head}`);
+    expect(sectionText(body, 'Release notes')).toBe('- a change\n- b feature');
+    const refused = openRelease({ repoRoot: repo.work, base: 'main', now: new Date('2030-01-02T00:00:00Z'), gh: (args) => (args[1] === 'edit' ? { ok: false, out: '', err: 'HTTP 502' } : { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' }) });
+    expect(refused).toMatchObject({ ok: false, code: 'RELEASE_STAMP_INVALID' });
+  });
+
   test('--dry-run creates nothing; an empty base is refused', () => {
     const repo = landed();
     const dry = openRelease({ repoRoot: repo.work, base: 'main', dryRun: true, gh: () => { throw new Error('no gh in a dry run'); } });

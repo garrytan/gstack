@@ -246,7 +246,14 @@ export function readyPlan(o: { cwd: string; env: Env; body: string; policyValue?
   const own = parsePlanLine(o.body);
   const fromFinish = !own && o.finishLine ? parsePlanLine(o.finishLine) : null;
   const decl = own ?? fromFinish;
-  const mark = (res: PlanResolution): PlanResolution => (fromFinish && res.ok ? { ok: true, record: { ...res.record, from: 'finish' }, summary: `${res.summary} (from /ship finish's plan record; the PR body has no Plan: line)` } : res);
+  const mark = (res: PlanResolution): PlanResolution => {
+    if (!fromFinish || !res.ok) return res;
+    const { row_id, ...rest } = res.record;
+    const record: PlanRecord = rest.state === 'approved'
+      ? { ...rest, line: publicPlanLine(fromFinish, res), ref: RECORD_ID.test(rest.ref ?? '') ? rest.ref : planRecordId(row_id!), from: 'finish' }
+      : { ...rest, line: `Plan: exempt: ${rest.reason}`, from: 'finish' };
+    return { ok: true, record, summary: `${res.summary} (from /ship finish's plan record; the PR body has no Plan: line)` };
+  };
   if (mode.mode === 'off') {
     const note = offNote(mode);
     const line = note ? { line: note } : {};
