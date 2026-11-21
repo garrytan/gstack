@@ -4276,6 +4276,8 @@ returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
 path through `url.<base>.insteadOf`) print `FETCH_IGNORED:` and never count.
+Capy's `~/.capy/drive` and `~/.capy/drive-engine` (the drive sync database) are
+never walked, so that database growing past 100 MB is not a violation.
 
 **Fix.** Nothing to rerun by hand: the pass plans one fresh attempt per slot
 (`RERUN:`, readers named `<reader>#2`; not a review round) and the pass program

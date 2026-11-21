@@ -46,7 +46,8 @@ export interface StageSweep {
 
 /** The workspace (the checkout's parent), home and the temp dir, or GSTACK_SWEEP_ROOTS (path-delimited; tests); drives are never walked. */
 export const defaultRoots = (checkout: string) => process.env.GSTACK_SWEEP_ROOTS?.split(path.delimiter).filter(Boolean) ?? [path.dirname(checkout), os.homedir(), os.tmpdir()];
-export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive')];
+/** Capy's mounted drives and the drive sync engine's own state (its database grows on its own, GST-3359); ~/.capy/work is still walked. */
+export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive'), path.join(os.homedir(), '.capy', 'drive-engine')];
 
 /**
  * A remote URL with nothing that can carry a credential: userinfo removed and a query read as `?<redacted>`
