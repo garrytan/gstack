@@ -56,6 +56,9 @@ const NAMED = new RegExp(`\\((?:${NAMED_PART.source})(?:[,;]\\s*(?:${NAMED_PART.
 /** Words that open a reference in parentheses without naming a repository. */
 const NOT_A_NAME = /^(?:fix(?:es|ed|ing)?|clos(?:e[sd]?|ing)|resolv(?:e[sd]?|ing)|address(?:es|ed|ing)?|implement(?:s|ed|ing)?|supersed(?:es|ed|ing)|replac(?:es|ed|ing)|track(?:s|ed|ing)?|block(?:s|ed|ing)?|dup|duplicates?|bugs?|upstream|refs?|see|related|partial(?:ly)?|part|context|follow-?up|defer(?:red)?|prs?|issues?|gh|via|from|after|since|with|in|by|for|also|cf\.?|e\.?g\.?|i\.?e\.?|and|or|per|of|to|on|at|as|is|was|the|an?|this|that|not|no|vs\.?|like|v\d[\w.-]*)$/i;
 
+/** /ship's fixed-finding trailer: its `<pass>/<reader>#<n>` ledger id names a local review entry, never an issue. */
+const REVIEW_FINDING = /^\s*Review-Finding\s*:/i;
+
 /** Mentions in one commit message: trailer lines carry closure intent, everything else is a reference. */
 export function mentionsIn(message: string, source = 'commit'): IssueMention[] {
   const out: IssueMention[] = [];
@@ -63,6 +66,7 @@ export function mentionsIn(message: string, source = 'commit'): IssueMention[] {
   const add = (m: IssueMention) => { const k = `${m.repo ?? ''}#${m.issue}:${m.intent}`; if (!seen.has(k)) { seen.add(k); out.push(m); } };
   for (const raw of message.split('\n')) {
     const line = raw.replace(/\s+$/, '');
+    if (REVIEW_FINDING.test(line)) continue;
     const trailer = CLOSURE.exec(line);
     if (trailer && !PARTIAL.test(line)) { add({ issue: Number(trailer[2]), intent: 'fixes', ...(trailer[1] ? { repo: trailer[1] } : {}), source: `${source}: ${line.trim()}` }); continue; }
     const rest = line.replace(NAMED, whole => whole.replace(NAMED_PART, (part, name: string, numbers: string) => {
