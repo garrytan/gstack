@@ -1464,9 +1464,21 @@ whose content files `/ship`'s reviewers leave out:
 the base commit it already resolved (`origin/<base>`, or `<base>`), never
 the branch's copy, so a branch cannot exclude its own files. A branch that adds
 the key gets `REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies
-after it lands on <base>)` and a normal review. A base policy that does not
-validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
-(`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
+after it lands on <base>)` and a normal review. A base policy whose only errors
+are in `review_exclude_paths` or `review_content_patterns` (65 patterns, say,
+past the limit of 64) does not stop the plan: both keys are set aside, every
+file is reviewed as if the base excluded nothing, and every other key, the
+readers' `forbid_paths` included, applies as committed. The plan prints
+`REVIEW_EXCLUDE: fallback (WARNING: …)` naming each error and the fix, on
+stdout and stderr, `--json` carries `review_exclude.state: "fallback"`, the
+ship receipt records it as `review_exclude_fallback`, and every other step that
+reads the base policy (`gstack-ship-policy show-effective`, which prints the
+same warning on stderr, the pregate, the receipts, the merge step) reads it the
+same way, so the PR that corrects the list can be reviewed and land.
+`gstack-ship-policy validate` still reports the list as invalid. The PR's own
+list still doesn't count until it lands (GST-3399). Any other
+error in a base policy stops the plan (`POLICY_INVALID`), and a base git cannot
+read stops it (`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
 
 **Land the setting first.** Because the branch's copy doesn't count, a PR that adds bulk
 data lands its `review_exclude_paths` entry, and any secrets `allowlist` entries it needs
