@@ -674,6 +674,15 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
   });
 
 
+  test('a plain uninstall removes a clean registered worktree and prunes its registration', () => {
+    addWorktree(false);
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('not a registered worktree');
+    expect(fs.existsSync(path.join(repo, worktree))).toBe(false);
+    expect(git(['worktree', 'list', '--porcelain'])).not.toContain(path.join(repo, worktree));
+  });
+
   test('--force-worktrees removes a dirty worktree and prunes its registration', () => {
     addWorktree(true);
     const r = uninstall(['--force', '--force-worktrees']);
