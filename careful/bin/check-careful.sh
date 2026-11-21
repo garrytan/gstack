@@ -831,7 +831,7 @@ case "$CMD_MEDIUM" in
     _RX_DEV_LINE=$'(^|\n)>[|]?[[:space:]]*/dev/'
     # /dev/shm and /dev/fd are never disks: a disk name straight inside one skips
     # this pre-scan and is still looked up on disk below.
-    _RX_DEV_NOT_DISK='^>[|]?[[:space:]]*/dev/(shm|fd)/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)[a-z0-9]*([^[:alnum:]_./-]|$)'
+    _RX_DEV_NOT_DISK='^>[|]?[[:space:]]*/dev/(shm|fd)/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)[a-z0-9]*([^[:alnum:]_./<>|-]|$)'
     _dev_rest="$_rest"
     case "$_rest" in */dev/shm/*|*/dev/fd/*) _dev_rest=$(printf '%s\n' "$_rest" | LC_ALL=C grep -vE "$_RX_DEV_NOT_DISK") || [ $? -eq 1 ] || _dev_rest="$_rest" ;; esac
     if [[ $_dev_rest =~ $_RX_DEV_LINE ]]; then _HI_REDIR=1; fi

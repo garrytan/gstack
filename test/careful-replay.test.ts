@@ -316,6 +316,10 @@ const NOTE_CASES: Array<[string, string, Decision, Tree]> = [
   ['/dev/shm and /dev/fd are not disks (neighbour: a dot folder)', "echo x >'/dev/./sda'", 'deny', 'clean'],
   ['/dev/shm and /dev/fd are not disks (neighbour: a doubled slash)', 'echo x > /dev//sda', 'deny', 'clean'],
   ['/dev/shm and /dev/fd are not disks (neighbour: another disk in the same command)', 'echo x > /dev/shm/sda; echo y > /dev/sdb', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a disk redirect right after it)', 'echo x >/dev/shm/sda>/dev/mmcblk0', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a disk redirect right after it)', 'echo x >/dev/fd/sda>|/dev/sdb', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a disk redirect right after it)', 'echo x >/dev/shm/nvme0>/dev/rdisk2', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a disk redirect after a space)', 'echo x >/dev/shm/sda >/dev/mmcblk0', 'deny', 'clean'],
 ];
 
 // GEVA-560 re-measure at ab6a38b7: two outside-the-folder delete shapes slipped through, a relative delete after a cd
