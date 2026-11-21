@@ -44,6 +44,8 @@ export type EntryStatus =
   | "unrecoverable"; // absent from the brain and its source file is gone
 
 export interface StateEntry {
+  /** Complete timeline renderer; absent entries must be replayed once. */
+  timeline_renderer_version?: number;
   mtime_ns: number;
   sha256: string;
   page_slug: string;
