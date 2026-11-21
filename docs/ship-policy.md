@@ -3080,6 +3080,9 @@ gstack-release-stamp open            # --dry-run prints the stamp and creates no
 
 It stamps a fresh worktree of `origin/main` with `gstack-restamp --release`,
 commits the result on `release/<version>`, pushes that branch and opens its PR.
+On Capy (`GSTACK_CAPY=1`) it pushes the branch but leaves the PR to the host's
+PR tool, printing a `HOST_PUBLISH: pr-create` line instead
+([host publish](troubleshooting.md#host-publish)).
 The release stamp folds every fragment in `changelog.d/` under one new CHANGELOG
 heading and deletes the files. The new version is the base's plus the highest
 bump any fragment declares (the policy `bump` when none does). It reruns the
