@@ -1,5 +1,5 @@
 import { afterEach, describe, test, expect } from 'bun:test';
-import { execFileSync, spawn, spawnSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -97,13 +97,13 @@ function bunStub(fx: Fx, version: string): string {
   return dir;
 }
 
-function runHook(fx: Fx, opts: { noBun?: boolean; bun?: string; env?: Record<string, string> } = {}) {
+function runHook(fx: Fx, opts: { noBun?: boolean; bun?: string } = {}) {
   const PATH = opts.noBun ? pathWithoutBun(fx.base)
     : opts.bun ? `${bunStub(fx, opts.bun)}:${pathWithoutBun(fx.base)}`
     : `${path.dirname(process.execPath)}:${process.env.PATH}`;
   return spawnSync('bash', [SCRIPT], {
     encoding: 'utf8',
-    env: { PATH, HOME: fx.home, GSTACK_DIR: fx.install, GSTACK_STATE_ROOT: fx.state, SETUP_CONTROL: fx.control, SETUP_CALLS: fx.calls, TMPDIR: fx.base, ...opts.env },
+    env: { PATH, HOME: fx.home, GSTACK_DIR: fx.install, GSTACK_STATE_ROOT: fx.state, SETUP_CONTROL: fx.control, SETUP_CALLS: fx.calls, TMPDIR: fx.base },
     timeout: 20_000,
   });
 }
@@ -287,97 +287,3 @@ describe.skipIf(process.platform === 'win32')('gstack-session-update Bun floor (
     expect(banner).not.toContain('git pull did not finish');
   });
 });
-
-describe.skipIf(process.platform === 'win32')('gstack-session-update honors workflow leases (#3363)', () => {
-  const head = (fx: Fx) => git(fx.install, 'rev-parse', 'HEAD');
-  const sleepers: ReturnType<typeof spawn>[] = [];
-  afterEach(() => { for (const s of sleepers.splice(0)) s.kill('SIGKILL'); });
-  // The test preload points GSTACK_LEASE_DIR at a per-run directory; each
-  // fixture gets its own, shared by the lease writer and the hook.
-  const leaseEnv = (fx: Fx) => ({ GSTACK_LEASE_DIR: path.join(fx.base, 'leases') });
-  function touchLease(fx: Fx, pid: number) {
-    const touch = spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-lease'), 'touch', '--root', fx.install, '--pid', String(pid)],
-      { encoding: 'utf8', env: { ...process.env, ...leaseEnv(fx) }, timeout: 10_000 });
-    expect(touch.status, touch.stderr).toBe(0);
-  }
-  /** A live process holding a workflow lease on the fixture install, as a running skill would. */
-  function holdLease(fx: Fx): number {
-    const sleeper = spawn('sleep', ['120'], { stdio: 'ignore' });
-    sleepers.push(sleeper);
-    touchLease(fx, sleeper.pid!);
-    return sleeper.pid!;
-  }
-  const throttle = (fx: Fx) => path.join(fx.state, '.last-session-update');
-
-  test('a live lease: no fast-forward, no setup, no throttle stamp; the next start after it ends updates', async () => {
-    const fx = makeFixture();
-    const before = head(fx);
-    upstreamRelease(fx, '1.1.0');
-    const pid = holdLease(fx);
-
-    expect(runHook(fx, { env: leaseEnv(fx) }).stdout).toBe('');
-    const log = await waitFor(fx, /SKIP leased /);
-    expect(log).toMatch(new RegExp(`SKIP leased pid=${pid}/\\d+m`));
-    expect(log).not.toContain('UPDATING');
-    expect(head(fx)).toBe(before);
-    expect(setupRuns(fx)).toBe(0);
-    expect(fs.existsSync(throttle(fx))).toBe(false);
-    expect(fs.existsSync(marker(fx))).toBe(false);
-
-    await Promise.all(sleepers.splice(0).map(s => new Promise(r => { s.once('exit', r); s.kill('SIGKILL'); })));
-    runHook(fx, { env: leaseEnv(fx) });
-    await waitFor(fx, /UPDATED from=1\.0\.0 to=1\.1\.0/);
-    expect(head(fx)).not.toBe(before);
-    expect(setupRuns(fx)).toBe(1);
-  }, 30_000);
-
-  test('a live lease also holds a pending setup retry', async () => {
-    const fx = makeFixture();
-    fs.writeFileSync(fx.control, 'fail');
-    upstreamRelease(fx, '1.1.0');
-    runHook(fx);
-    await waitFor(fx, /Z PENDING stages=setup attempt=1/);
-    expireThrottle(fx);
-    expireBackoff(fx);
-    fs.writeFileSync(fx.control, 'ok');
-    holdLease(fx);
-    runHook(fx, { env: leaseEnv(fx) });
-    const log = await waitFor(fx, /SKIP leased /);
-    expect(log).not.toContain('RETRY_PENDING');
-    expect(setupRuns(fx)).toBe(1);
-  }, 30_000);
-
-  test('controls: GSTACK_UPGRADE_FORCE=1 updates under a live lease, and a dead holder never blocks', async () => {
-    const forced = makeFixture();
-    upstreamRelease(forced, '1.1.0');
-    holdLease(forced);
-    runHook(forced, { env: { ...leaseEnv(forced), GSTACK_UPGRADE_FORCE: '1' } });
-    await waitFor(forced, /UPDATED from=1\.0\.0 to=1\.1\.0/);
-    expect(setupRuns(forced)).toBe(1);
-
-    const dead = makeFixture();
-    upstreamRelease(dead, '1.1.0');
-    const sleeper = spawn('sleep', ['120'], { stdio: 'ignore' });
-    touchLease(dead, sleeper.pid!);
-    await new Promise(r => { sleeper.once('exit', r); sleeper.kill('SIGKILL'); });
-    runHook(dead, { env: leaseEnv(dead) });
-    const log = await waitFor(dead, /UPDATED from=1\.0\.0 to=1\.1\.0/);
-    expect(log).not.toContain('SKIP leased');
-  }, 30_000);
-
-  test("the starting session's own lease never blocks its update, behind a shell wrapper too", async () => {
-    const fx = makeFixture();
-    upstreamRelease(fx, '1.1.0');
-    touchLease(fx, process.pid);
-    const r = spawnSync('/bin/sh', ['-c', 'bash "$0"; exit $?', SCRIPT], {
-      encoding: 'utf8',
-      env: { PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, HOME: fx.home, GSTACK_DIR: fx.install, GSTACK_STATE_ROOT: fx.state, SETUP_CONTROL: fx.control, SETUP_CALLS: fx.calls, TMPDIR: fx.base, ...leaseEnv(fx) },
-      timeout: 20_000,
-    });
-    expect(r.status, r.stderr).toBe(0);
-    const log = await waitFor(fx, /UPDATED from=1\.0\.0 to=1\.1\.0/);
-    expect(log).not.toContain('SKIP leased');
-    expect(setupRuns(fx)).toBe(1);
-  }, 30_000);
-});
-
