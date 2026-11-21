@@ -115,12 +115,20 @@ describe('a start that ran while the skill loaded (GST-3157)', () => {
     'a load before the command': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(undefined, { timestamp: '2026-10-04T10:27:00.000Z' })),
     'question tuning off': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad((m.result.content as string).replace('QUESTION_TUNING: true', 'QUESTION_TUNING: false'))),
     'a start that failed at load': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad('SKILL_START: failed at load (exit 1); run the start command below yourself with Bash, then continue.')),
+    'a start that timed out at load after printing its status': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(`${(m.result.content as string).split('GSTACK_INSTRUCTION_BEGIN:')[0]}SKILL_START: timed out after 15s at load; run the start command below yourself with Bash, then continue.`)),
     'shell execution disabled by policy': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad('[shell command execution disabled by policy]')),
     'an un-run injection line': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(START_LINE)),
   })) test(`a load-time start is refused with ${name}`, () => {
     const m = moved();
     mutate(m);
     expect(native(m.entry)).toBeNull();
+  });
+
+  test('a start that timed out at load and then ran through Bash is the one start', () => {
+    const m = moved();
+    m.loads(m.skillLoad(`${(m.result.content as string).split('GSTACK_INSTRUCTION_BEGIN:')[0]}SKILL_START: timed out after 15s at load; run the start command below yourself with Bash, then continue.`));
+    m.entry.input.native.tools.push(m.use, m.result);
+    expect(native(m.entry)).toMatchObject({ option: 'HOLD SCOPE', preambleToolUseId: m.use.toolUseId });
   });
 
   test('a start that failed at load and then ran through Bash is the one start', () => {

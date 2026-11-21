@@ -451,18 +451,24 @@ _careful_push_default() {
 }
 
 _careful_push() {
-  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0
+  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0 pov=0
   local refs=()
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
+    # git reads the word after -o as its push-option value, so it never undoes -n.
+    if [ "$pov" -eq 1 ]; then
+      pov=0
+      case "$t" in --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) continue ;; esac
+    fi
     case "$t" in
       --force-with-lease*|--force-if-includes) lease=1 ;;
       -f|--force) force=1 ;;
       --mirror) force=1; all=1 ;;
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
-      --no-dry-run) dry=0 ;;
+      --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0 ;;
+      --push-option) pov=1 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
       --repo) repo=1; val=1 ;;
@@ -473,6 +479,7 @@ _careful_push() {
         case "$c" in
           *[!a-zA-Z]*) ;;
           *)
+            [ "${c%%o*}o" != "$c" ] || pov=1
             c="${c%%o*}"
             case "$c" in *f*) force=1 ;; esac
             case "$c" in *n*) dry=1 ;; esac ;;
@@ -807,7 +814,12 @@ case "$CMD_MEDIUM" in
       _rest=$(printf '%s\n' "$CMD_MEDIUM" | tr -d "\"'" | LC_ALL=C grep -oE "$_RX_DISK_REDIR" | LC_ALL=C sort -u) || _rest=""
     fi
     _RX_DEV_LINE=$'(^|\n)>[|]?[[:space:]]*/dev/'
-    if [[ $_rest =~ $_RX_DEV_LINE ]]; then _HI_REDIR=1; fi
+    # /dev/shm and /dev/fd are never disks: a disk name straight inside one skips
+    # this pre-scan and is still looked up on disk below.
+    _RX_DEV_NOT_DISK='^>[|]?[[:space:]]*/dev/(shm|fd)/(sd|nvme|disk|rdisk|hd|vd|xvd|mmcblk)[a-z0-9]*([^[:alnum:]_./-]|$)'
+    _dev_rest="$_rest"
+    case "$_rest" in */dev/shm/*|*/dev/fd/*) _dev_rest=$(printf '%s\n' "$_rest" | LC_ALL=C grep -vE "$_RX_DEV_NOT_DISK") || [ $? -eq 1 ] || _dev_rest="$_rest" ;; esac
+    if [[ $_dev_rest =~ $_RX_DEV_LINE ]]; then _HI_REDIR=1; fi
     _probes=0
     while IFS= read -r _m; do
       [ "$_HI_REDIR" -eq 0 ] || break

@@ -279,6 +279,31 @@ const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
   ['unchanged from 17303862 (control: a backslashed cd stays unread)', '\\cd /srv/demo && git push -f', 'ask', 'clean'],
 ];
 
+// #4534 review notes: git reads an unambiguous prefix of --no-dry-run as the option itself, and the word after -o as
+// its push-option value; /dev/shm and /dev/fd are never disks. Each exemption keeps its dangerous neighbours denied.
+const NOTE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dry origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dr origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push --force -n --no-dry-ru origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: the last flag wins)', 'git push --no-dry -fn origin main', 'allow', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: git refuses the ambiguous --no-d)', 'git push -fn --no-d origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fn -o --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fno --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fn --push-option --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value (neighbour: no -n)', 'git push -f -o --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: -o took another value)', 'git push -fn -o ci.skip --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: value attached in the group)', 'git push -fnox --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: a second --no-dry-run)', 'git push -fn -o --no-dry-run --no-dry origin main', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks', 'echo x > /dev/shm/sda', 'allow', 'clean'],
+  ['/dev/shm and /dev/fd are not disks', 'echo x > /dev/fd/sdb', 'allow', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: the disk itself)', 'echo x > /dev/sda', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: climbing back out)', 'echo x > /dev/shm/../sda', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: deeper climb)', 'echo x > /dev/shm/sda/../../sdb', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a dot folder)', "echo x >'/dev/./sda'", 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: a doubled slash)', 'echo x > /dev//sda', 'deny', 'clean'],
+  ['/dev/shm and /dev/fd are not disks (neighbour: another disk in the same command)', 'echo x > /dev/shm/sda; echo y > /dev/sdb', 'deny', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -371,6 +396,16 @@ describe('each new rule, with negative controls', () => {
 
   test.each(STRICT_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(NOTE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test('a /dev/shm redirect behind many redirects still asks once the folder lookups run out', () => {
+    const decoys = Array.from({ length: 70 }, (_, i) => `echo > d${i}/sdb${i};`).join(' ');
+    expect(decide(`${decoys} echo hi > /dev/shm/sda`, 'clean').decision).toBe('ask');
+    expect(decide(`${decoys} echo hi > /dev/./sda`, 'clean').decision).toBe('deny');
   });
 
   test('a long command full of redirect-like words is still checked well inside the guard hook\'s 8 s timeout', () => {
