@@ -24,7 +24,7 @@
 # host:render-dir for every host whose render lives in its own checkout dir.
 # Claude renders into the tracked tree. test/host-renders.test.ts keeps this
 # equal to hostSubdir in hosts/*.ts.
-GSTACK_HOST_RENDER_DIRS="codex:.agents kiro:.kiro factory:.factory opencode:.opencode cursor:.cursor copilot:.copilot agy:.agy slate:.slate openclaw:.openclaw hermes:.hermes gbrain:.gbrain"
+GSTACK_HOST_RENDER_DIRS="codex:.agents kiro:.kiro factory:.factory opencode:.opencode cursor:.cursor copilot:.copilot agy:.agy gemini:.gemini-cli slate:.slate openclaw:.openclaw hermes:.hermes gbrain:.gbrain"
 
 gstack_render_hosts_file() { printf '%s/.gstack-installed-hosts\n' "$1"; }
 
