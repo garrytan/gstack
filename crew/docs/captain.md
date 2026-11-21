@@ -154,6 +154,14 @@ such decision with a plain-language explanation of every option: what it is, why
 matters, what each answer does, and what it costs. A gate code or a tool's result line
 alone is not an ask.
 
+A lane goes forward instead of stopping to fix. When one item goes bad (a page, a file,
+a test case, a line of a report), it sets that item aside, keeps the rest of the work
+moving, says in its next report what it set aside and why, and repairs the item
+afterwards. Two things still stop work: a red main gets the change that broke it
+reverted rather than the whole crew waiting on a root cause, and a finding at the
+blocking floor ([review-policy.md](../../docs/review-policy.md)) still stops the PR it is
+found in.
+
 ## Lane context
 
 Every step a lane takes re-reads its whole conversation. A step within about five minutes
@@ -191,15 +199,24 @@ cheap:
   is still worth it. Spend is the
   thread's credit meter, never a token count.
 - **Keep the PR to the end.** A lane keeps its PR until it merges or closes and hands
-  off only at that boundary, never mid-PR on a token count. When its own tokens pass 1
-  billion (about $330), it checks in with the controller once, then carries on unless
-  told otherwise. Standing threads that wake on every event (merge lanes, watchers, an
-  automation's standing thread) still rotate at 500M own tokens or 3 days, and subagent
-  limits stay as they are: look at any subagent past 100M, and never reuse one across PRs
-  ([/runaway-stopper](../../runaway-stopper/SKILL.md)). Why: every handoff wakes the
+  off only at that boundary, never mid-PR on a token count. When its own tokens pass
+  500M, it checks in with the controller once, then carries on unless told otherwise.
+  Standing threads that wake on every event (merge lanes, watchers, an automation's
+  standing thread) rotate at 250M own tokens or 3 days. Look at any subagent past 50M,
+  and never reuse one across PRs ([/runaway-stopper](../../runaway-stopper/SKILL.md)).
+  These lines are half their figures before 2026-11-15, because Capy's token counts have
+  read about half what they did since then for the same work. Why: every handoff wakes the
   controller, whose tokens cost about 1.7 times a lane's, and handoffs are where orphaned
   PRs came from. One PR went through four threads in eight hours (about 103k credits) on
   per-thread token stops and was still a draft.
+- **Subagents earn their context.** A lane starts a subagent only for parallel work whose
+  context can be thrown away, a fresh-eyes review, or a model from another family. It
+  never starts one to run a step of its own procedure (a test run, a rebase, a report),
+  because the subagent re-reads its own brief and context on every step and its tree's
+  spend adds to the lane's: subagent trees were about a quarter of one day's crew spend.
+  The brief names the compact result the subagent returns, such as a verdict line, a file
+  path or a short list, and nothing else comes back. /ship keeps its own subagent until
+  gstack's trial of /ship without one reports.
 
 ## New threads join the crew
 

@@ -39,14 +39,14 @@ describe('gstack-runaway scan', () => {
   test('FOUN-4: own tokens and age rotate, the reused /ship subagent is flagged, review rounds counted per PR', () => {
     const crew = run('scan', '--thread', write('foun4-crew.json', FOUN4), '--now', NOW).out;
     expect(crew).not.toContain('ROTATE');
-    expect(crew).toContain('FLAG: CHECK_IN own_tokens 6.06B > 1.00B (upper bound)');
+    expect(crew).toContain('FLAG: CHECK_IN own_tokens 6.06B > 500M (upper bound)');
     const r = run('scan', '--thread', write('foun4.json', FOUN4_STANDING), '--now', NOW);
     expect(r.code).toBe(0);
     expect(r.out).toContain('RUNAWAY: thread=FOUN-4 verdict=ROTATE');
     expect(r.out).toMatch(/own=6\.06B\(upper\)/);
-    expect(r.out).toContain('FLAG: ROTATE own_tokens 6.06B > 500M (upper bound)');
+    expect(r.out).toContain('FLAG: ROTATE own_tokens 6.06B > 250M (upper bound)');
     expect(r.out).toMatch(/FLAG: ROTATE age 13\.1d > 3d and active/);
-    expect(r.out).toContain('FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)');
+    expect(r.out).toContain('FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 50M (done)');
     expect(r.out).toContain('FLAG: WARN review_rounds 5 on #501 > 2');
     expect(r.out).toContain('review_subagents=5(unattributed 0)');
   });
@@ -65,7 +65,7 @@ describe('gstack-runaway scan', () => {
       tasks: [task(3, 'gate fix lane', 150e6, 'idle'), task(4, 'ship 1 outside-voice (#535)', 2e6, 'working')] };
     const other = run('scan', '--thread', write('defer.json', doc), '--now', NOW);
     expect(other.out).toContain('verdict=STOP');
-    expect(other.out).toContain('FLAG: STOP subagent 3 "gate fix lane" 150M > 100M (idle)');
+    expect(other.out).toContain('FLAG: STOP subagent 3 "gate fix lane" 150M > 50M (idle)');
     expect(other.out).not.toContain('DEFER:');
     const self = { ...doc, tasks: [task(5, 'ship #4001 at abc1234 q7x2', 140e6, 'working')] };
     const s = run('scan', '--thread', write('defer-self.json', self), '--now', NOW);
@@ -96,7 +96,7 @@ describe('gstack-runaway scan', () => {
     const r = run('scan', '--thread', write('captain.json', cap), '--now', NOW);
     expect(r.out).toContain('verdict=REPORT captain=yes');
     expect(r.out).not.toContain('FLAG: ROTATE');
-    expect(r.out).toContain('FLAG: REPORT own_tokens 3.90B > 500M');
+    expect(r.out).toContain('FLAG: REPORT own_tokens 3.90B > 250M');
   });
 
   test('empty-wake rate: turns whose only calls are status reads, waits and end_turn', () => {
@@ -205,18 +205,18 @@ describe('gstack-runaway scan', () => {
   });
 
   test('a subagent.list file replaces thread.get tasks: own sums top-level paths only, truncation makes it an upper bound', () => {
-    const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 700e6 }, tasks: [], standing: true, pull_requests: [] };
+    const doc = { code: 'GSTA-266', status: 'working', created_at: '2026-11-03T20:00:00Z', cost: { tokens: 350e6 }, tasks: [], standing: true, pull_requests: [] };
     const subs = { total: 3, tasks: [
-      { path: '1', title: 'build', status: 'done', cost: { tokens: 150e6, credits: 1 } },
-      { path: '1.1', title: 'reader', status: 'done', cost: { tokens: 50e6, credits: 1 } },
-      { path: '2', title: 'docs', status: 'done', cost: { tokens: 120e6, credits: 1 } },
+      { path: '1', title: 'build', status: 'done', cost: { tokens: 75e6, credits: 1 } },
+      { path: '1.1', title: 'reader', status: 'done', cost: { tokens: 25e6, credits: 1 } },
+      { path: '2', title: 'docs', status: 'done', cost: { tokens: 60e6, credits: 1 } },
     ] };
     const r = run('scan', '--thread', write('sl.json', doc), '--subagents', write('sl.subagents.json', subs), '--now', NOW);
-    expect(r.out).toContain('own=430M(exact)');
-    expect(r.out).toContain('FLAG: WARN own_tokens 430M > 400M warn line');
-    expect(r.out).toContain('FLAG: LOOK subagent 1 "build" 150M > 100M (done)');
+    expect(r.out).toContain('own=215M(exact)');
+    expect(r.out).toContain('FLAG: WARN own_tokens 215M > 200M warn line');
+    expect(r.out).toContain('FLAG: LOOK subagent 1 "build" 75M > 50M (done)');
     const t = run('scan', '--thread', write('sl2.json', doc), '--subagents', write('sl2.subagents.json', { ...subs, truncated: true }), '--now', NOW);
-    expect(t.out).toContain('own=430M(upper)');
+    expect(t.out).toContain('own=215M(upper)');
   });
 
   test('--dir sweeps every thread file, largest own tokens first, with a SWEEP total', () => {
@@ -285,7 +285,7 @@ describe('gstack-runaway scan', () => {
       expect(run('scan', '--thread', write('e.json', doc), '--events', write('e.events.json', shape), '--now', NOW).out).toContain('empty_wake=100%/20');
   });
 
-  test('a finished subagent past 100M makes the verdict LOOK, not OK', () => {
+  test('a finished subagent past 50M makes the verdict LOOK, not OK', () => {
     const doc = { code: 'GSTA-245', status: 'idle', created_at: '2026-11-03T10:00:00Z', cost: { tokens: 200e6 }, tasks: [task(1, '/ship #3749', 150e6)] };
     expect(run('scan', '--thread', write('look.json', doc), '--now', NOW).out).toContain('verdict=LOOK');
   });
@@ -314,29 +314,29 @@ describe('gstack-runaway scan', () => {
     expect(run('scan', '--dir', path.join(tmp, 'nope')).err).toContain('RUNAWAY_USAGE: no directory');
     expect(run('scan', '--thread', write('ok4.json', FOUN4), '--event', 'x.json').err).toContain('RUNAWAY_USAGE: unknown argument "--event"');
   });
-  // Value: protects=R70 as amended 2026-11-09 and R91: a crew thread keeps its PR to the end and checks in once at 1B own tokens; only a
+  // Value: protects=R70 as amended 2026-11-09 (token lines halved 2026-11-15) and R91: a crew thread keeps its PR to the end and checks in once at 500M own tokens; only a
   //   standing thread with no open PR rotates; unknown PR data counts as holding one; fails_when=scan tells a Captain to rotate a crew
   //   thread that holds an open PR (GST-2226); seam=assess via gstack-runaway scan; no_claim=whether a thread is standing (the Captain says so)
-  test('a crew thread holding a PR never rotates, checks in at 1B, and only a standing thread with no open PR rotates', () => {
+  test('a crew thread holding a PR never rotates, checks in at 500M, and only a standing thread with no open PR rotates', () => {
     const pr = (state: string) => ({ repo: 'garrytan/gstack', number: 4300, title: 'x', state, relation: 'owner' });
     const base = { code: 'GSTA-500', status: 'working', created_at: '2026-11-03T10:00:00Z', tasks: [] };
-    const crew = run('scan', '--thread', write('crew-pr.json', { ...base, cost: { tokens: 600e6 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
+    const crew = run('scan', '--thread', write('crew-pr.json', { ...base, cost: { tokens: 300e6 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
     expect(crew).not.toContain('ROTATE');
     expect(crew).not.toContain('FLAG: WARN');
     expect(crew).toContain('verdict=OK');
-    const big = run('scan', '--thread', write('crew-big.json', { ...base, cost: { tokens: 1.1e9 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
+    const big = run('scan', '--thread', write('crew-big.json', { ...base, cost: { tokens: 550e6 }, pull_requests: [pr('open')], pull_requests_total: 1 }), '--now', NOW).out;
     expect(big).toContain('verdict=CHECK_IN');
     expect(big.match(/^FLAG: /gm)).toEqual(['FLAG: ']);
-    expect(big).toContain('FLAG: CHECK_IN own_tokens 1.10B > 1.00B');
+    expect(big).toContain('FLAG: CHECK_IN own_tokens 550M > 500M');
     const old = run('scan', '--thread', write('crew-old.json', { ...base, created_at: '2026-10-25T00:00:00Z', cost: { tokens: 10e6 }, pull_requests: [] }), '--now', NOW).out;
     expect(old).toContain('verdict=OK');
-    const standing = { ...base, cost: { tokens: 600e6 }, standing: true, pull_requests: [pr('merged'), pr('closed')], pull_requests_total: 2 };
+    const standing = { ...base, cost: { tokens: 300e6 }, standing: true, pull_requests: [pr('merged'), pr('closed')], pull_requests_total: 2 };
     const s = run('scan', '--thread', write('standing.json', standing), '--now', NOW).out;
     expect(s).toContain('verdict=ROTATE');
-    expect(s).toContain('FLAG: ROTATE own_tokens 600M > 500M');
+    expect(s).toContain('FLAG: ROTATE own_tokens 300M > 250M');
     const aged = run('scan', '--thread', write('standing-aged.json', { ...standing, cost: { tokens: 10e6 }, created_at: '2026-10-25T00:00:00Z' }), '--now', NOW).out;
     expect(aged).toContain('FLAG: ROTATE age 9.9d > 3d and active');
-    expect(run('scan', '--thread', write('standing-warn.json', { ...standing, cost: { tokens: 450e6 } }), '--now', NOW).out).toContain('FLAG: WARN own_tokens 450M > 400M warn line');
+    expect(run('scan', '--thread', write('standing-warn.json', { ...standing, cost: { tokens: 225e6 } }), '--now', NOW).out).toContain('FLAG: WARN own_tokens 225M > 200M warn line');
     for (const [name, prs] of [['open', { pull_requests: [pr('open')], pull_requests_total: 1 }], ['draft', { pull_requests: [pr('draft')] }],
       ['unlisted', { pull_requests: [pr('merged')], pull_requests_total: 2 }], ['unknown', { pull_requests: undefined }]] as const) {
       const held = run('scan', '--thread', write('standing-' + name + '.json', { ...standing, ...prs }), '--now', NOW).out;
@@ -345,7 +345,7 @@ describe('gstack-runaway scan', () => {
       expect(held).toContain('verdict=DEFER');
       expect(held).toMatch(/DEFER: holds (an open PR|PRs it can't see); rotate after every PR merges or closes \(R91\)/);
     }
-    const unknownCrew = run('scan', '--thread', write('crew-unknown.json', { ...base, cost: { tokens: 600e6 } }), '--now', NOW).out;
+    const unknownCrew = run('scan', '--thread', write('crew-unknown.json', { ...base, cost: { tokens: 300e6 } }), '--now', NOW).out;
     expect(unknownCrew).not.toContain('ROTATE');
   });
 });

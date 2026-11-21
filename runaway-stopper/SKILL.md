@@ -203,11 +203,12 @@ return scan.output + (failed.length ? "\nFETCH_FAILED: " + failed.join(" ") : ""
 A lane with nested subagents can also write `tools.subagent.list()` to `<code>.subagents.json` in that directory:
 it lists the whole tree, where thread.get lists 200 rows at most (`own` is then an upper bound).
 
-Limits (org rule R70, amended 2026-11-09): a standing thread that wakes on every event (a merge lane, a watcher, an
-automation's standing thread) rotates past 500M own tokens (total minus subagents) or 3 days active (working,
-waiting, or a turn in the last 24 hours), warn at 400M. A crew thread keeps its PR until it merges or closes, never
-rotated mid-PR on a token count; past 1B own tokens it checks in with its Captain once. Open or unknown PRs block rotation
-(R91). A subagent past 100M: stop and look. Empty wakes past 25% of the
+Limits (org rule R70, amended 2026-11-09, token lines halved because Capy's token counts read about half from
+2026-11-15): a standing thread that wakes on every event (a merge lane, a watcher, an automation's standing thread)
+rotates past 250M own tokens (total minus subagents) or 3 days active (working, waiting, or a turn in the last 24
+hours), warn at 200M. A crew thread keeps its PR until it merges or closes, never rotated mid-PR on a token count;
+past 500M own tokens it checks in with its Captain once. Open or unknown PRs block rotation
+(R91). A subagent past 50M: stop and look. Empty wakes past 25% of the
 last 40 turns (warm-wait check-ins left out). Review rounds past 2 per PR. `cold_extra_spend` and `empty_spend` are the shares of spend that
 cold starts (after the 5-minute cache lapsed) and empty wakes cost; `scan --wakes` prices each wake. Act on each line:
 
@@ -217,7 +218,7 @@ cold starts (after the 5-minute cache lapsed) and empty wakes cost; `scan --wake
 | `FLAG: CHECK_IN` | Hear its one check-in; never rotate it. |
 | `FLAG: REPORT` | A Captain over a limit: report it, never rotate it (Garry decides Captain rotation). |
 | `FLAG: STOP` | Step 2. |
-| `FLAG: LOOK` | A finished subagent past 100M: find why (reused for several runs? full-depth review?) and fix that cause from Step 4. |
+| `FLAG: LOOK` | A finished subagent past 50M: find why (reused for several runs? full-depth review?) and fix that cause from Step 4. |
 | `FLAG: WARN` | Tell the thread the Step 4 rule it breaks, once. |
 | `DEFER:` | Mid-/ship, mid-merge or holding a PR: act on nothing; rescan once that ends. |
 | `RUNAWAY_INPUT:`, `FETCH_FAILED:` | That thread wasn't read: fetch it again and rerun; never count it as OK. |
@@ -228,8 +229,8 @@ goes ahead.
 
 ## 2. Stop a subagent
 
-Your own: `tools.subagent.stop({ paths: ["<path>"] })`, and record the reason: "<tokens> > 100M (R70), <what it was
-doing>". A crew thread's subagent: send that thread one message, "Stop Subagent <path>: <tokens> > 100M (R70)." Its
+Your own: `tools.subagent.stop({ paths: ["<path>"] })`, and record the reason: "<tokens> > 50M (R70), <what it was
+doing>". A crew thread's subagent: send that thread one message, "Stop Subagent <path>: <tokens> > 50M (R70)." Its
 PR stays open; a fresh subagent with the run directory picks the work up if it is still needed.
 
 ## 3. Rotate a thread
@@ -256,12 +257,12 @@ Put the lines that apply into every brief you write:
 - **One /ship subagent per PR head.** A rerun or another PR gets a fresh subagent with the run directory path; never
   message a finished /ship subagent to run another. Title it `ship #<n> at <head7> <4-char nonce>` and put
   `GSTACK_SHIP_TASK_TITLE=<title>` in its brief: /ship then takes every reading from that one row and caps at
-  100M by default (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
+  50M by default (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
 - **Two review rounds.** Reader and review rounds stop at 2 per PR (R51), and every reader's title names the PR
   (`#<n>`) so the scan can count them.
-- **Rotate standing roles** at 500M own tokens or 3 days. An automation gets a fresh thread per run that archives
+- **Rotate standing roles** at 250M own tokens or 3 days. An automation gets a fresh thread per run that archives
   itself, or a slower schedule, instead of waking a standing thread.
-- **Crew threads keep their PR to the end:** no token stop mid-PR; one Captain check-in past 1B own tokens.
+- **Crew threads keep their PR to the end:** no token stop mid-PR; one Captain check-in past 500M own tokens.
 
 ## Report
 

@@ -4,20 +4,20 @@
  * optionally tools.subagent.list (the whole tree) and transcript items (tools.thread.get transcript,
  * tools: true). Output is one RUNAWAY line per thread, FLAG lines, a DEFER line when the thread is
  * mid-/ship or mid-merge or a standing thread holds an open PR, and a SWEEP total for a directory. It never acts.
- * Only a thread the Captain marks `standing: true` rotates; a crew thread checks in once past 1B own tokens (R70 as
- * amended 2026-11-09), and a thread holding an open PR, or whose PRs the file doesn't list, is never rotated (R91).
+ * Only a thread the Captain marks `standing: true` rotates; a crew thread checks in once past 500M own tokens (R70 as
+ * amended 2026-11-09, its lines halved since: Capy's token counts read about half from 2026-11-15), and a thread holding an open PR, or whose PRs the file doesn't list, is never rotated (R91).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CACHE_TTL_S, isKeepalive, type TranscriptItem } from './ship-calls';
 
 export const LIMITS = {
-  ownRotate: 500e6,
-  ownWarn: 400e6,
-  ownCheckIn: 1e9,
+  ownRotate: 250e6,
+  ownWarn: 200e6,
+  ownCheckIn: 500e6,
   ageDays: 3,
   activeHours: 24,
-  subagentStop: 100e6,
+  subagentStop: 50e6,
   emptyRate: 0.25,
   emptyWindow: 40,
   emptyMinTurns: 20,
@@ -288,9 +288,9 @@ const USAGE = [
   'Lines: RUNAWAY (one per thread, largest own tokens first), FLAG ROTATE|STOP|LOOK|WARN|REPORT|CHECK_IN, DEFER, SWEEP (--dir).',
   'Review rounds count only subagent titles that name the PR (#N); the rest show as unattributed.',
   'Limits (R70 as amended 2026-11-09): only a thread file with "standing": true (a merge lane, a watcher, an automation\'s',
-  'standing thread) rotates, at own > 500M or active > 3d (warn 400M), and never while it holds an open PR or its',
+  'standing thread) rotates, at own > 250M or active > 3d (warn 200M), and never while it holds an open PR or its',
   'pull_requests are missing or partial (DEFER, R91); any other thread is a crew thread that keeps its PR and gets one',
-  'CHECK_IN past 1B own; subagent > 100M stop (LOOK when it already ended); empty wakes > 25% of the last 40 turns',
+  'CHECK_IN past 500M own; subagent > 50M stop (LOOK when it already ended); empty wakes > 25% of the last 40 turns',
   '(20+; warm-wait check-ins left out); review rounds > 2 per PR; Captains REPORT, never rotate.',
   'Each wake read is priced in warm model calls (one per tool call); it is cold when it starts more than ' + CACHE_TTL_S + ' s after the',
   '  thread\'s previous item (the prompt cache lapsed), and its first call then costs ' + COLD_CALL_PRICE + ', as does a call after a tool that ran',
