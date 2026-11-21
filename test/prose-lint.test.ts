@@ -130,6 +130,15 @@ describe('lintProse: each rule, positive and negative', () => {
     expect(lintProse(text, 'x.md').map(f => [f.rule, f.line])).toEqual([['dropped-article', 5], ['unclosed-block', 9]]);
   });
 
+  // Value: protects=a line that opens with an inline code span (````x````, as docs/troubleshooting.md:3098 does) is prose,
+  // so the lines after it are still read; fails_when=the span opens a fence, the prose after it is masked as code and the
+  // next bare fence reads as an unclosed block that stops the scan; why_new=every fence case above opens with a bare or
+  // info-string fence line; seam=none; no_claim=other inline-code spellings
+  test('a line opening with an inline code span is prose, and the lines after it are read', () => {
+    const text = ['````gstack-ship-receipt```` is a section of its own.', 'This vibrant line is read.', '````', '```json', '{"vibrant": true}', '```', '````'].join('\n');
+    expect(lintProse(text, 'x.md').map(f => [f.rule, f.line])).toEqual([['vocabulary', 2]]);
+  });
+
   test('findings are sorted by line and the render ends in the trailer', () => {
     const text = renderProseLint({ findings: lintProse('Showcasing a vibrant release.\n\nParser rejects it.', 'f.md'), scanned: ['f.md'], empty: [] });
     expect(text.split('\n').filter(Boolean)).toEqual([
