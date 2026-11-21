@@ -21,6 +21,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { repoRoot } from './autoplan-plan-text';
 import { checkpointRoot } from './autoplan-checkpoint';
+import { dropOwnerFields, ownerSpans, ownerWords, redactOwnerWords, type OwnerWords, type Span } from './autoplan-owner-words';
 import { FILES, RunError, type RunState } from './autoplan-state';
 import { sha256File, validateRun, type ValidationError } from './headless-artifacts';
 
@@ -68,6 +69,19 @@ function fencedLines(text: string): boolean[] {
   });
 }
 
+/** plan.md's code as [start, end) spans: fenced lines and inline code spans, which export never rewrites. */
+function codeSpans(text: string): Span[] {
+  const fenced = fencedLines(text);
+  const spans: Span[] = [];
+  let at = 0;
+  text.split('\n').forEach((line, i) => {
+    if (fenced[i]) spans.push([at, at + line.length]);
+    else for (const m of line.matchAll(/(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g)) spans.push([at + m.index!, at + m.index! + m[0].length]);
+    at += line.length + 1;
+  });
+  return spans;
+}
+
 /** plan.md: rewrite prose only; fenced blocks and inline code spans keep their bytes. */
 function rewriteProse(text: string, roots: RecordedRoot[]): string {
   const fenced = fencedLines(text);
@@ -82,8 +96,8 @@ function rewriteJson(value: unknown, roots: RecordedRoot[]): unknown {
   return value;
 }
 
-/** Every recorded-root hit (error) and generic home-path hit (warning) in the files under `dir`, with file:line. */
-function scan(dir: string, roots: RecordedRoot[]): { errors: ValidationError[]; warnings: string[] } {
+/** Every recorded-root and owner-words hit (errors) and generic home-path hit (warning) in the files under `dir`, with file:line. */
+function scan(dir: string, roots: RecordedRoot[], owner?: OwnerWords): { errors: ValidationError[]; warnings: string[] } {
   const errors: ValidationError[] = [], warnings: string[] = [];
   const walk = (rel: string): string[] => fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(path.join(rel, e.name)) : e.isFile() ? [path.join(rel, e.name)] : []));
   for (const rel of walk('')) {
@@ -95,6 +109,17 @@ function scan(dir: string, roots: RecordedRoot[]): { errors: ValidationError[]; 
       if (hit) errors.push({ code: 'ARTIFACT_MACHINE_PATH', path: `${rel}:${i + 1}`, message: `the recorded ${hit.label} root ${hit.root} appears in the public copy${code ? ' (inside code, which export never rewrites: edit the plan)' : ''}` });
       else if (GENERIC_HOME.test(line)) warnings.push(`WARN: ${rel}:${i + 1} has a home-directory path (${GENERIC_HOME.exec(line)![0]}); check it is not a machine path`);
     });
+    if (!owner) continue;
+    const words = (line: number, inCode = false) => errors.push({ code: 'ARTIFACT_OWNER_WORDS', path: `${rel}:${line}`, message: `owner words the private run recorded appear in the public copy${inCode ? ' (inside code, which export never rewrites: edit the plan)' : ''}` });
+    const lineAt = (at: number) => text.slice(0, Math.max(at, 0)).split('\n').length;
+    const values = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(values) : v && typeof v === 'object' ? Object.values(v).flatMap(values) : []);
+    const json = /\.jsonl?$/.test(rel) ? (() => { try { return rel.endsWith('.jsonl') ? text.split('\n').map(l => (l ? JSON.parse(l) : null)) : [JSON.parse(text)]; } catch { return undefined; } })() : undefined;
+    if (json) {
+      json.forEach((doc, i) => { for (const s of values(doc)) if (ownerSpans(s, owner).length) words(rel.endsWith('.jsonl') ? i + 1 : lineAt(text.indexOf(JSON.stringify(s)))); });
+      continue;
+    }
+    const code = rel === 'plan.md' ? codeSpans(text) : [];
+    for (const [s, e] of ownerSpans(text, owner)) words(lineAt(s), code.some(([cs, ce]) => s < ce && e > cs));
   }
   return { errors, warnings };
 }
@@ -115,23 +140,25 @@ export function validatePublic(dir: string, privateRunJson?: string, env: NodeJS
     else if (sha256File(file) !== d.public_sha256) errors.push({ code: 'ARTIFACT_STALE', path: name, message: `sha256 differs from provenance public_sha256 ${d.public_sha256.slice(0, 12)}` });
   }
   let roots: RecordedRoot[] = [];
+  let owner: OwnerWords | undefined;
   if (privateRunJson) {
     const priv = JSON.parse(fs.readFileSync(privateRunJson, 'utf8')) as RunState;
     priv.out = path.dirname(path.resolve(privateRunJson));
     roots = recordedRoots(priv, env);
+    owner = ownerWords(priv);
     if (prov && prov.private_run !== priv.run) errors.push({ code: 'ARTIFACT_UNBOUND_ID', path: 'run.json.provenance.private_run', message: `${prov.private_run} is not the private run ${priv.run}` });
     for (const [name, d] of Object.entries(prov?.files ?? {})) {
       const listed = name === FILES.run ? sha256File(privateRunJson) : priv.artifacts?.[name]?.sha256;
       if (listed !== d.private_sha256) errors.push({ code: 'ARTIFACT_STALE', path: name, message: `provenance private_sha256 ${d.private_sha256.slice(0, 12)} is not the private run's ${(listed ?? 'missing').slice(0, 12)}` });
     }
   }
-  const s = scan(dir, roots);
+  const s = scan(dir, roots, owner);
   errors.push(...s.errors);
   return { valid: errors.length === 0, errors, warnings: s.warnings, run: manifest?.run };
 }
 
-/** Write the public copy of `state` to `dir` without touching the private run; refuses on any recorded root left behind. */
-export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEnv = process.env): { files: string[]; warnings: string[] } {
+/** Write the public copy of `state` to `dir` without touching the private run; refuses on any recorded root or owner words left behind. */
+export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEnv = process.env): { files: string[]; warnings: string[]; owner: string[] } {
   const target = path.resolve(dir);
   const out = path.resolve(state.out);
   if (target === out || target.startsWith(out + path.sep) || out.startsWith(target + path.sep)) throw new RunError('ARTIFACT_PATH_ESCAPE', `--public ${target} overlaps the run directory ${out}`, 3);
@@ -141,6 +168,23 @@ export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEn
     if (previous !== state.run) throw new RunError('ARTIFACT_PUBLIC_TARGET_EXISTS', `${target} is not empty and holds no earlier public copy of ${state.run}`, 3);
   }
   const roots = recordedRoots(state, env);
+  const owner = ownerWords(state);
+  const report: string[] = [];
+  /** The public bytes of one file: owner-word fields dropped, quotes redacted on the original bytes, recorded roots rewritten, then quotes redacted again on the rewritten bytes the validator reads (plan.md code untouched). */
+  const publicText = (name: string, file: string, text: string): string => {
+    let dropped = 0, redacted = 0;
+    const redact = (t: string, keep?: Span[]) => { const r = redactOwnerWords(t, owner, keep); redacted += r.redacted; return r.text; };
+    const strings = (x: unknown): unknown => (typeof x === 'string' ? redact(x) : Array.isArray(x) ? x.map(strings)
+      : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, strings(y)])) : x);
+    const json = (v: unknown) => { const d = dropOwnerFields(v); dropped += d.dropped; return strings(rewriteJson(strings(d.value), roots)); };
+    let body: string;
+    if (file.endsWith('.json')) body = JSON.stringify(json(JSON.parse(text)), null, 2) + '\n';
+    else if (file.endsWith('.jsonl')) body = text.split('\n').map(line => (line ? JSON.stringify(json(JSON.parse(line))) : line)).join('\n');
+    else if (name === 'plan.md') { const prose = rewriteProse(redact(text, codeSpans(text)), roots); body = redact(prose, codeSpans(prose)); }
+    else body = redact(rewriteRoots(redact(text), roots));
+    if (dropped || redacted) report.push(`OWNER_WORDS: ${file} dropped=${dropped} redacted=${redacted}`);
+    return body;
+  };
   const privateRun = path.join(out, FILES.run);
   const staging = `${target}.public-${process.pid}`;
   fs.rmSync(staging, { recursive: true, force: true });
@@ -153,10 +197,10 @@ export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEn
       if (!fs.existsSync(src) || sha256File(src) !== entry.sha256) throw new RunError('ARTIFACT_STALE', `${entry.path} does not match run.json; run gstack-autoplan export --out ${out} first`, 3);
       const text = fs.readFileSync(src, 'utf8');
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, name === 'plan.md' ? rewriteProse(text, roots) : entry.path.endsWith('.json') ? JSON.stringify(rewriteJson(JSON.parse(text), roots), null, 2) + '\n' : rewriteRoots(text, roots));
+      fs.writeFileSync(dest, publicText(name, entry.path, text));
       files[name] = { private_sha256: entry.sha256, public_sha256: sha256File(dest) };
     }
-    const manifest = rewriteJson(JSON.parse(fs.readFileSync(privateRun, 'utf8')), roots) as RunState & { provenance?: Provenance };
+    const manifest = JSON.parse(publicText(FILES.run, FILES.run, fs.readFileSync(privateRun, 'utf8'))) as RunState & { provenance?: Provenance };
     for (const [name, d] of Object.entries(files)) manifest.artifacts[name] = { path: state.artifacts[name]!.path, sha256: d.public_sha256 };
     manifest.provenance = { private_run: state.run, private_manifest_sha256: sha256File(privateRun), exported_at: new Date().toISOString(), roots: roots.map(r => r.label), files };
     fs.writeFileSync(path.join(staging, FILES.run), JSON.stringify(manifest, null, 2) + '\n');
@@ -165,10 +209,12 @@ export function exportPublic(state: RunState, dir: string, env: NodeJS.ProcessEn
     if (escapes.length) throw new RunError('ARTIFACT_PATH_ESCAPE', escapes.map(e => `${e.path}: ${e.message}`).join('; '), 3);
     const leaks = check.errors.filter(e => e.code === 'ARTIFACT_MACHINE_PATH');
     if (leaks.length) throw new RunError('ARTIFACT_MACHINE_PATH', leaks.slice(0, 5).map(e => `${e.path}: ${e.message}`).join('; ') + (leaks.length > 5 ? ` (+${leaks.length - 5} more)` : ''), 3);
+    const words = check.errors.filter(e => e.code === 'ARTIFACT_OWNER_WORDS');
+    if (words.length) throw new RunError('ARTIFACT_OWNER_WORDS', words.slice(0, 5).map(e => `${e.path}: ${e.message}`).join('; ') + (words.length > 5 ? ` (+${words.length - 5} more)` : ''), 3);
     fs.rmSync(target, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.renameSync(staging, target);
-    return { files: [...Object.values(state.artifacts).map(e => path.join(target, e.path)), path.join(target, FILES.run)], warnings: check.warnings };
+    return { files: [...Object.values(state.artifacts).map(e => path.join(target, e.path)), path.join(target, FILES.run)], warnings: check.warnings, owner: report };
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
   }
