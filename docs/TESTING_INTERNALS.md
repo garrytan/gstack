@@ -2187,7 +2187,9 @@ price row. Readers and simulators go in an optional `## Models` section as
 The one exception: a competitor system tested as its vendor ships it keeps its
 built-in model. Name it on a `vendor-default: <model> <system>` line in `## Models`
 (for example `vendor-default: gpt-4o-mini Mem0 1.2 as shipped`). It covers that
-system's arm only, never a judge, reader or simulator. `prereg --check` prints
+system's arm only: the arm whose loadout names the system (`gpt-4o-mini#mem0`),
+never a plain or `#no-gstack` arm on the same model, a judge, a reader or a
+simulator. `prereg --check` prints
 it as `MODEL_EXCEPTION:`, and `results --check` refuses results that never name
 the model. Published rows measured on gpt-4o stay up, labelled with the model
 they ran; a plan with a `frozen:` date before 2026-11-21 keeps the models it

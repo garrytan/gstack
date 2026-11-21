@@ -127,12 +127,12 @@ export function checkLoop(s: LoopSections): LoopCheck {
  */
 export const MODEL_GENERATIONS_SINCE = '2026-11-21';
 export type ModelRole = 'arm' | 'judge' | 'reader' | 'simulator';
-export interface ModelUse { model: string; role: ModelRole }
-export interface ModelGenerationCheck { ok: boolean; exempt: boolean; refused: Array<ModelUse & { replacement: string }>; exceptions: Array<{ model: string; system: string; roles: ModelRole[] }>; errors: string[] }
+export interface ModelUse { model: string; role: ModelRole; loadout?: string }
+export interface ModelGenerationCheck { ok: boolean; exempt: boolean; refused: Array<{ model: string; role: ModelRole; replacement: string }>; exceptions: Array<{ model: string; system: string; roles: ModelRole[] }>; errors: string[] }
 export function checkModelGenerations(o: { arms: string[]; judge?: string | null; models?: string[] | null; frozen?: string | null }): ModelGenerationCheck {
   if (o.frozen && o.frozen < MODEL_GENERATIONS_SINCE) return { ok: true, exempt: true, refused: [], exceptions: [], errors: [] };
   const list = (v: string) => v.split(/[\s,]+/).map(m => m.replace(/^`|`$/g, '')).filter(m => m && !PLACEHOLDER.test(m));
-  const uses: ModelUse[] = [...o.arms.map(a => ({ model: a.split('#')[0]!, role: 'arm' as const })), ...list(o.judge ?? '').map(model => ({ model, role: 'judge' as const }))];
+  const uses: ModelUse[] = [...o.arms.map(a => ({ model: a.split('#')[0]!, loadout: a.split('#')[1], role: 'arm' as const })), ...list(o.judge ?? '').map(model => ({ model, role: 'judge' as const }))];
   const errors: string[] = [];
   const exceptions: ModelGenerationCheck['exceptions'] = [];
   for (const line of o.models ?? []) {
@@ -145,14 +145,15 @@ export function checkModelGenerations(o: { arms: string[]; judge?: string | null
     if (!model || !filled(system)) errors.push(`vendor-default: ${m[2]!.trim() || '(empty)'} needs the model and the competitor system that ships it as its default, such as "vendor-default: gpt-4o-mini Mem0 1.2 as shipped"`);
     else exceptions.push({ model: model.replace(/^`|`$/g, '').split('#')[0]!, system, roles: [] });
   }
-  const bare = (m: string) => m.toLowerCase().replace(/^[a-z-]+[/:]/, '');
+  const bare = (m: string) => m.toLowerCase().replace(/^(?:[a-z-]+[/:])+/, '');
+  const word = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const refused: ModelGenerationCheck['refused'] = [];
   for (const use of uses) {
     const replacement = currentReplacement(use.model);
     if (!replacement) continue;
-    const exception = use.role === 'arm' ? exceptions.find(e => bare(e.model) === bare(use.model)) : undefined;
+    const exception = use.role === 'arm' && use.loadout ? exceptions.find(e => bare(e.model) === bare(use.model) && word(e.system).startsWith(word(use.loadout!)) && word(use.loadout!) !== '') : undefined;
     if (exception) { if (!exception.roles.includes('arm')) exception.roles.push('arm'); continue; }
-    if (!refused.some(r => r.model === use.model && r.role === use.role)) refused.push({ ...use, replacement });
+    if (!refused.some(r => r.model === use.model && r.role === use.role)) refused.push({ model: use.model, role: use.role, replacement });
   }
   return { ok: !refused.length && !errors.length, exempt: false, refused, exceptions, errors };
 }

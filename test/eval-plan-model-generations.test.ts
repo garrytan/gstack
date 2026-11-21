@@ -84,6 +84,9 @@ describe('checkModelGenerations', () => {
     const c = checkModelGenerations({ arms: ['claude-opus-5-5', 'gpt-4o-mini#mem0'], judge: 'gpt-4o-mini', models: ['vendor-default: gpt-4o-mini — Mem0 1.2 as its vendor ships it'] });
     expect(c.exceptions).toEqual([{ model: 'gpt-4o-mini', system: 'Mem0 1.2 as its vendor ships it', roles: ['arm'] }]);
     expect(c.refused).toEqual([{ model: 'gpt-4o-mini', role: 'judge', replacement: 'gpt-6-luna' }]);
+    const others = checkModelGenerations({ arms: ['openrouter:openai/gpt-4o-mini#mem0', 'gpt-4o-mini', 'gpt-4o-mini#no-gstack'], models: ['vendor-default: gpt-4o-mini Mem0 1.2 as shipped'] });
+    expect(others.refused).toEqual([{ model: 'gpt-4o-mini', role: 'arm', replacement: 'gpt-6-luna' }]);
+    expect(others.exceptions[0]!.roles).toEqual(['arm']);
     const bare = checkModelGenerations({ arms: ['gpt-4o#mem0'], models: ['vendor-default: gpt-4o'] });
     expect(bare.ok).toBe(false);
     expect(bare.errors[0]).toContain('competitor system');
