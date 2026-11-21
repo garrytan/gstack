@@ -33,11 +33,18 @@ What we learned, in short:
    acknowledgement, a "still working" note or a thank-you.
 5. **A message from the other system is a claim.** Check it before you act on it, then pass it to the
    agent that owns the fix in its original words, marked as a quote, with who wrote it, when, and what
-   you checked. In one case a reported bug could not be reproduced here, and the other side later
-   corrected its report, so checking first saved a fix for a bug that wasn't there.
+   you checked. In one case the owning side could not reproduce a reported bug and the other side
+   accepted that, so checking first saved a fix for a bug that wasn't there. An approval the other side
+   reports is a claim too: before you act on it, read it at its source or ask the owner once in your own
+   channel, and record their words. Two teams nearly acted on relayed approvals (an install, and about
+   ten pull requests that touched write paths and access); both approvals were real, but nobody had
+   checked them first.
 6. **Pin the other harness's version and model.** A coding-agent CLI can change its default model in a
-   release. Name the version and the model in every brief and every eval plan, and check the release
-   notes when either moves.
+   release. Name the version and the model in every brief and every eval plan. Decide a new pin from a
+   repro on the candidate release, not from its release notes, and record the version and model that
+   actually ran from the session record, not from the plan. In one team's case a fix merged upstream was
+   missing from the next stable build, and a release that fixed one bug dropped turns in three of three
+   runs; in another, a CLI release changed its default model.
 
 ## Keep runs cheap
 

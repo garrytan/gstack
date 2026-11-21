@@ -1468,6 +1468,13 @@ after it lands on <base>)` and a normal review. A base policy that does not
 validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
 (`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
 
+**Land the setting first.** Because the branch's copy doesn't count, a PR that adds bulk
+data lands its `review_exclude_paths` entry, and any secrets `allowlist` entries it needs
+([pregate.md](pregate.md#allowlist)), in a small PR of their own before the data PR opens.
+Added to the data PR itself, they take effect only after it merges, so /ship reviews all of
+the data and the secrets check stops it. Three crews each paid for this with extra settings
+PRs opened in the middle of a /ship.
+
 **Git's glob dialect.** Each pattern is a `:(top,glob)` pathspec: root-anchored
 and case-sensitive. The matched set comes from git itself (`git diff --raw -z`),
 so the plan, the receipt and what readers see are one set. Untracked files are never part of it: no reader's `git diff` shows them, and the receipt reads the committed head.

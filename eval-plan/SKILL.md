@@ -148,7 +148,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Scoring | `judge: none` or the judge model with `labels:` and `agreement:`; with two or more arms, `paired: yes`, `interval: 95%`, `mdd:` |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
-| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
+| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it; and how each task machine was checked, before any session, for answers the agent could read there (other git refs such as `git log --all`, build and package caches, archives, anything `find /` reaches) |
 | No-gstack arm | required with `stack: loaded` (below) |
 
 ```bash
