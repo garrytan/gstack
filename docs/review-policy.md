@@ -800,9 +800,10 @@ runs `gstack-review-dispatch sweep --phase start`, an inventory of git
 repositories and files of 100 MB or more under the workspace, home and the temp
 dir (bounded at depth 6, 200,000 entries and 20 seconds; past a bound the sweep
 is `partial`, a note). On Capy it never walks `~/.capy/drive` (the mounted
-drives) or `~/.capy/drive-engine` (the drive sync engine's own database, which
-grows on its own and once crossed 100 MB mid-stage); `~/.capy/work` and every
-other path are walked. After the stage's last reader is collected,
+drives), and under `~/.capy/drive-engine` it ignores only the drive sync
+engine's own database files (`state.db` and its `-wal`, `-shm` and `-journal`
+files), which grow on their own and once crossed 100 MB mid-stage. Everything
+else there, `~/.capy/work` and every other path are walked. After the stage's last reader is collected,
 `--phase end` diffs against it. A new repository with a network remote, or a
 new big file, is a violation. Every reader of that stage is quarantined (reply
 under `<out>/quarantine/`, findings out of `merged.jsonl`, never shown to the

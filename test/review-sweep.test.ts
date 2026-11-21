@@ -258,7 +258,7 @@ describe('review-sweep and Capy platform state (GST-3359)', () => {
 
   // Value: protects=Capy's own drive sync database, present at the stage's start and grown past BIG_BYTES during it, is neither a fetch nor a FETCH_RERUN_BLOCKED path, through the registered sweep command with HOME as Capy sets it;
   //   fails_when=~/.capy/drive-engine/<location>/state.db crossing 100 MB quarantines the stage and blocks every later stage of the pass; why_new=GST-3359 (GEVA-558 on gstack-evals#393 at 1.102.1.0);
-  //   seam=gstack-review-dispatch sweep --phase start/end, defaultSkip; no_claim=that a reader cannot write a download into ~/.capy/drive-engine itself
+  //   seam=gstack-review-dispatch sweep --phase start/end, inventory's drive-engine database exemption; no_claim=that a download a reader names state.db under ~/.capy/drive-engine is seen
   test('Capy\'s drive sync database growing past the line during a stage is not a download', () => {
     const { dir, env } = repo();
     made.push(dir);
@@ -269,10 +269,10 @@ describe('review-sweep and Capy platform state (GST-3359)', () => {
     expect(out).not.toContain('FETCH_VIOLATION');
   });
 
-  // Value: protects=the exemption is by Capy's platform state path only: a stage that downloads a new big file under ~/.capy/work or home, or writes an existing small file past the line, is still a violation;
-  //   fails_when=the drive-engine exemption widens to ~/.capy/work, to ~/.capy, or to every file present at the start; why_new=GST-3359 deny control (the guard changes additively against main);
+  // Value: protects=the exemption is the drive sync engine's database files only: a stage that downloads a new big file under ~/.capy/drive-engine, ~/.capy/work or home, or writes an existing small file past the line, is still a violation;
+  //   fails_when=the drive-engine exemption widens to the whole folder, to ~/.capy/work, to ~/.capy, or to every file present at the start; why_new=GST-3359 deny control (the guard changes additively against main);
   //   seam=gstack-review-dispatch sweep --phase end; no_claim=that a download under 100 MB is seen
-  test('a real large download under ~/.capy/work, and a file the stage wrote past the line, are still violations', () => {
+  test('a real large download under ~/.capy/drive-engine or ~/.capy/work, and a file the stage wrote past the line, are still violations', () => {
     const { dir, env } = repo();
     made.push(dir);
     const real = fs.realpathSync(dir);
@@ -281,11 +281,13 @@ describe('review-sweep and Capy platform state (GST-3359)', () => {
       fs.writeFileSync(path.join(h, '.capy', 'work', 'chats.tar'), '');
       fs.truncateSync(path.join(h, '.capy', 'work', 'chats.tar'), BIG_BYTES);
       fs.truncateSync(path.join(h, 'dl', 'old.bin'), BIG_BYTES);
+      fs.writeFileSync(path.join(h, '.capy', 'drive-engine', 'loc', 'repo.tar'), '');
+      fs.truncateSync(path.join(h, '.capy', 'drive-engine', 'loc', 'repo.tar'), BIG_BYTES);
     });
     const found = out.split('\n').filter(l => l.startsWith('FETCH_VIOLATION:'));
     expect(found.map(l => /kind=(\w+) path='([^']*)'/.exec(l)!.slice(1).join(' ')).sort()).toEqual([
-      `download ${path.join(h, '.capy', 'work', 'chats.tar')}`, `download ${path.join(h, 'dl', 'old.bin')}`,
+      `download ${path.join(h, '.capy', 'drive-engine', 'loc', 'repo.tar')}`, `download ${path.join(h, '.capy', 'work', 'chats.tar')}`, `download ${path.join(h, 'dl', 'old.bin')}`,
     ]);
-    expect(out).toContain('FETCH_SWEEP: violation stage=specialists attempt=1 found=2');
+    expect(out).toContain('FETCH_SWEEP: violation stage=specialists attempt=1 found=3');
   });
 });
