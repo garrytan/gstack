@@ -95,7 +95,8 @@ function installSkills(tmpDir: string) {
 
   // The names-only catalog keeps new CLI built-ins from changing the candidate
   // set. Descriptions still choose the skill; no request-to-skill answer key.
-  // The routing instruction is the one gstack ships (bin/gstack-skill-start),
+  // The routing instruction is the one gstack offered for CLAUDE.md
+  // (test/fixtures/claude-md-skill-routing.md),
   // without its per-skill rule list. These journey tests exist to catch skill
   // DESCRIPTION regressions (their touchfiles key on */SKILL.md.tmpl): with a
   // lookup table in context, a badly regressed frontmatter description still

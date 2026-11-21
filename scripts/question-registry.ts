@@ -530,14 +530,6 @@ export const QUESTIONS = {
     options: ['core', 'all', 'off'],
     description: "Let gstack proactively suggest skills based on conversation context? core (the four core skills, default) / all / off",
   },
-  'preamble-routing-injection': {
-    id: 'preamble-routing-injection',
-    skill: 'preamble',
-    category: 'approval',
-    door_type: 'two-way',
-    options: ['accept', 'decline'],
-    description: "Add gstack skill routing rules to CLAUDE.md?",
-  },
   'preamble-vendored-migration': {
     id: 'preamble-vendored-migration',
     skill: 'preamble',

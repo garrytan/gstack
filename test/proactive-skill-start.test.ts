@@ -29,7 +29,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { runBin } from './helpers/run-bin';
-import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -98,53 +97,19 @@ describe('gstack-skill-start PROACTIVE status line', () => {
     }
   }, 60_000);
 
-  test('the CLAUDE.md routing offer fires under core and not under off (the routing rules are the auto-invocation off turns off)', () => {
-    const cases: Array<[string, boolean]> = [
-      ['update_check: false\n', true],
-      ['update_check: false\nproactive: off\n', false],
-      ['update_check: false\nproactive: false\n', false],
-    ];
-    for (const [config, offered] of cases) {
+  test('no proactive setting offers a CLAUDE.md routing section: the prompt-routing hook routes instead (B1e)', () => {
+    for (const config of ['update_check: false\n', 'update_check: false\nproactive: all\n', 'update_check: false\nproactive: off\n']) {
       const state = freshState(config);
       fs.writeFileSync(path.join(state, '.proactive-prompted'), '');
       try {
         const out = runStart(path.join(BIN, 'gstack-skill-start'), state);
         expect(out, config).toContain('HAS_ROUTING: no');
-        expect(out.includes('GSTACK_INSTRUCTION_BEGIN: routing-injection '), config).toBe(offered);
+        expect(out, config).not.toContain('routing-injection');
+        expect(out, config).not.toContain('## Skill routing');
       } finally {
         fs.rmSync(state, { recursive: true, force: true });
       }
     }
-  });
-
-  test('the offered section follows the setting: core offers the four core rules and the scoping line, all offers every rule (#3446)', () => {
-    const offered = (config: string): string => {
-      const state = freshState(config);
-      fs.writeFileSync(path.join(state, '.proactive-prompted'), '');
-      try {
-        const out = runStart(path.join(BIN, 'gstack-skill-start'), state);
-        const block = out.slice(out.indexOf('GSTACK_INSTRUCTION_BEGIN: routing-injection '));
-        return block.slice(block.indexOf('## Skill routing\n'), block.indexOf('\nIf B:')).trim();
-      } finally {
-        fs.rmSync(state, { recursive: true, force: true });
-      }
-    };
-    const rulesOf = (section: string) => section.split('\n').filter(line => /^- .+→ invoke \//.test(line));
-    const shipped = readShippedSkillRouting();
-    const core = offered('update_check: false\n');
-    expect(rulesOf(core)).toEqual([
-      '- Product ideas/brainstorming → invoke /office-hours',
-      '- QA/testing site behavior → invoke /qa',
-      '- Code review/diff check → invoke /review',
-      '- Ship/deploy/PR → invoke /ship',
-    ]);
-    expect(core).toContain('Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).');
-    expect(core.split('\n').filter(line => line.includes('→'))).toEqual(rulesOf(core));
-    expect(core.startsWith(shipped.instruction)).toBe(true);
-    for (const config of ['update_check: false\nproactive: all\n', 'update_check: false\nproactive: true\n']) {
-      expect(offered(config), config).toBe(shipped.section);
-    }
-    expect(rulesOf(shipped.section).length).toBeGreaterThan(4);
   }, 60_000);
 
   test('a stored off answers the one-time proactive prompt: no prompt block, marker written; core still asks once telemetry was answered', () => {

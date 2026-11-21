@@ -76,7 +76,7 @@ function setupWorkdir(suffix: string): { workDir: string; gstackHome: string; sl
   // from beside bin/. A copy, not a symlink: the agent runs inside workDir.
   fs.cpSync(path.join(ROOT, 'lib'), path.join(workDir, 'lib'), { recursive: true });
 
-  // Routing CLAUDE.md: the ## Skill routing section gstack ships.
+  // Routing CLAUDE.md: the ## Skill routing section gstack offered, which older projects still carry.
   fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), `# Project Instructions
 
 ${readShippedSkillRouting().section}

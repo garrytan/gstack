@@ -61,9 +61,6 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # off = only run skills you type explicitly.
 #                           # (true and false still work: true means all, false means off.)
 #
-# routing_declined: false   # Set to true to skip the CLAUDE.md routing injection
-#                           # prompt. Set back to false to be asked again.
-#
 # ─── Telemetry ───────────────────────────────────────────────────────
 # telemetry: off            # off | anonymous | community
 #                           #   off       — no data sent, no local analytics (default)
@@ -333,7 +330,6 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 lookup_default() {
   case "$1" in
     proactive) echo "core" ;; # core | all | off (true = all, false = off); core suggests only /office-hours, /review, /qa, /ship
-    routing_declined) echo "false" ;;
     telemetry) echo "off" ;;
     auto_upgrade) echo "false" ;;
     update_check) echo "true" ;;
@@ -1163,7 +1159,7 @@ $_gstack_legacy_root"
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     report_root_disagreement
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
+    for KEY in proactive telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
@@ -1189,7 +1185,7 @@ $_gstack_legacy_root"
     ;;
   defaults)
     echo "# gstack-config defaults"
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
+    for KEY in proactive telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \

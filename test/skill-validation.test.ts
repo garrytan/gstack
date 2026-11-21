@@ -2050,7 +2050,7 @@ describe('Bug reports: the router has no bug-fix route, other surfaces keep thei
     expect(router).not.toContain('/investigate');
   });
 
-  test('the routing gstack offers for CLAUDE.md, and this repo\'s own, fix bugs directly behind a cause check or a failing test', () => {
+  test('the routing section gstack offered for CLAUDE.md, and this repo\'s own, fix bugs directly behind a cause check or a failing test', () => {
     const bugRule = readShippedSkillRouting().section.split('\n').find(line => line.startsWith('- Bugs/errors'));
     expect(bugRule).toMatch(/→ fix them directly: one read-only check of the cause, or a focused failing test first when the cause is unclear/);
     expect(bugRule).not.toContain('/investigate');

@@ -75,7 +75,7 @@ describe('plan-count fixtures', () => {
       const env = { PATH: process.env.PATH!, HOME: home, ...configured.env };
       const config = (key: string) => spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), 'get', key],
         { cwd: configured.cwd, env, encoding: 'utf8', timeout: 10_000 });
-      for (const [key, value] of [['routing_declined', 'true'], ['cross_project_learnings', 'false'],
+      for (const [key, value] of [['cross_project_learnings', 'false'],
         ['codex_reviews', 'disabled'], ['question_tuning', 'false']]) {
         const result = config(key);
         expect(result.status, result.stderr).toBe(0);
@@ -86,8 +86,7 @@ describe('plan-count fixtures', () => {
       expect(start.status, start.stderr).toBe(0);
       expect(start.stdout).toContain('SESSION_KIND: interactive');
       expect(start.stdout).toContain('HAS_ROUTING: no');
-      expect(start.stdout).toContain('ROUTING_DECLINED: true');
-      expect(start.stdout).not.toContain('GSTACK_INSTRUCTION_BEGIN: routing-injection ');
+      expect(start.stdout).not.toContain('routing-injection');
       expect(start.stdout).toContain('QUESTION_TUNING: false');
       expect(fs.readFileSync(path.join(configured.cwd, 'PLAN.md'), 'utf8')).toBe(PROMPT);
       expect(fs.readFileSync(path.join(configured.cwd, 'CLAUDE.md'), 'utf8'))
@@ -278,7 +277,7 @@ record({
   type: 'startup', pid: process.pid, cwd: process.cwd(), argv: process.argv.slice(2),
   stateRoot: process.env.GSTACK_STATE_ROOT, gstackHome: process.env.GSTACK_HOME,
   codexReviews: config('codex_reviews'), explainLevel: config('explain_level'),
-  routingDeclined: config('routing_declined'), crossProjectLearnings: config('cross_project_learnings'),
+  crossProjectLearnings: config('cross_project_learnings'),
   onboarding: fs.readdirSync(process.env.GSTACK_HOME).filter(name => name.startsWith('.')),
   gitRoot: spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim(),
   plan: fs.existsSync(planPath) ? fs.readFileSync(planPath, 'utf8') : null,
@@ -629,7 +628,6 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.stateRoot).not.toBe(hostState);
           expect(startup.codexReviews).toBe('disabled');
           expect(startup.explainLevel).toBe('beginner');
-          expect(startup.routingDeclined).toBe(item.preconfiguredReviewActor ? 'true' : 'false');
           expect(startup.crossProjectLearnings).toBe(item.preconfiguredReviewActor ? 'false' : '');
           expect(startup.onboarding).toEqual(report.onboarding);
           expect(startup.plan).toBe(item.prompt);

@@ -128,7 +128,7 @@ describe('proactive core set: every surface names the same four skills and three
   const docsSkills = fs.readFileSync(path.join(ROOT, 'docs', 'skills.md'), 'utf-8');
   const docsSkillsAt = docsSkills.indexOf('## Proactive skill suggestions');
   const surfaces: Record<string, string> = {
-    'bin/gstack-config header': configSrc.slice(configSrc.indexOf('# proactive:'), configSrc.indexOf('# routing_declined:')),
+    'bin/gstack-config header': configSrc.slice(configSrc.indexOf('# proactive:'), configSrc.indexOf('# ─── Telemetry')),
     'bin/gstack-config lookup_default': configSrc.slice(configSrc.indexOf('lookup_default()')).match(/^\s*proactive\).*$/m)?.[0] ?? '',
     'SKILL.md.tmpl core block': routerTmpl.slice(routerTmpl.indexOf('If `PROACTIVE` is `core` (default)'), routerTmpl.indexOf('If `PROACTIVE` is `all`')).replace(TYPE_IT_RULE, ''),
     'preamble rule': generateUpgradeCheck({ paths: { skillRoot: '~/.claude/skills/gstack' } } as never),

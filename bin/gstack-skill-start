@@ -141,9 +141,9 @@ case "$_PROACTIVE" in
   core|all|off) ;;
   *) _PROACTIVE="core" ;;
 esac
-# off silences every unasked surface below: the tips, the one-time prompt and
-# the CLAUDE.md routing offer. A stored off also answers the one-time prompt,
-# so the marker is written here, before STATUS reports it.
+# off silences every unasked surface below: the tips and the one-time prompt.
+# A stored off also answers the one-time prompt, so the marker is written
+# here, before STATUS reports it.
 case "$_PROACTIVE" in off) _PROACTIVE_OFF="yes" ;; *) _PROACTIVE_OFF="no" ;; esac
 _PROACTIVE_PROMPTED=$([ -f "$_GH/.proactive-prompted" ] && echo "yes" || echo "no")
 if [ "$_PROACTIVE_PROMPTED" = "no" ] && [ "$_PROACTIVE_OFF" = "yes" ]; then
@@ -325,9 +325,7 @@ for _RF in CLAUDE.md AGENTS.md; do
     _HAS_ROUTING="yes"
   fi
 done
-_ROUTING_DECLINED=$("$_BIN/gstack-config" get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
-echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
 if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   if [ -f ".claude/skills/gstack/VERSION" ] || [ -d ".claude/skills/gstack/.git" ]; then
@@ -664,62 +662,6 @@ Say once as a heads-up (then continue): Tip: gstack pays off when you complete o
 EOI
     touch "$_GH/.first-loop-tip-shown" 2>/dev/null || true
   fi
-fi
-
-# Routing injection (interactive: AUQ + CLAUDE.md append + commit). The body
-# is a quoted heredoc (markdown backticks must stay literal), so the resolved
-# bin path is substituted via sed on the __BIN__ placeholder. Under off the
-# routing rules are the auto-invocation the user turned off, so no offer.
-# Under core the heredoc's rule lines are replaced by the core rules below, so
-# the offered section routes only the four core skills.
-_CORE_ROUTING_RULES=$(cat <<'EOR'
-- Product ideas/brainstorming → invoke /office-hours
-- QA/testing site behavior → invoke /qa
-- Code review/diff check → invoke /review
-- Ship/deploy/PR → invoke /ship
-
-Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).
-EOR
-)
-_routing_offer() {
-  if [ "$_PROACTIVE" = "core" ]; then
-    _GSTACK_CORE_RULES="$_CORE_ROUTING_RULES" awk '/^- .* → / { if (!done) { print ENVIRON["_GSTACK_CORE_RULES"]; done = 1 } next } { print }'
-  else
-    cat
-  fi | sed "s|__BIN__|$_BIN|g"
-}
-if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ] && [ "$_PROACTIVE_OFF" = "no" ]; then
-  _routing_offer <<'EOI' | _emit_block routing-injection
-gstack works best when the project CLAUDE.md includes skill routing rules. If no CLAUDE.md exists in the project root, create it. Use AskUserQuestion:
-
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
-
-Options: A) Add routing rules to CLAUDE.md (recommended)  B) No thanks, I'll invoke skills manually
-
-If A: append this section to the end of CLAUDE.md, then commit it (`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`):
-
-## Skill routing
-
-When the user's request matches an available skill, invoke it via the Skill tool. Route only to skills in the session's available-skills list; answer directly for quick questions or small scoped edits.
-
-Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → fix them directly: one read-only check of the cause, or a focused failing test first when the cause is unclear; then fix it and run that test
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Building UI → once it renders, invoke /design-review --build <preview url> (opt-in)
-- Ship/deploy/PR → invoke /ship (merge + deploy: the user types /land-and-deploy)
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
-- Author a backlog-ready spec/issue → invoke /spec
-
-If B: run `__BIN__/gstack-config set routing_declined true` and say they can re-enable with `__BIN__/gstack-config set routing_declined false`. This only happens once per project.
-EOI
 fi
 
 # Vendoring deprecation (interactive; slug-scoped marker).
