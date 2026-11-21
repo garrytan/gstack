@@ -6,7 +6,7 @@
 import { requireProvider, type ProviderKey } from "./auth";
 import { receiptedFetch } from "./receipted-fetch";
 import { modelRejectionHint } from "./models";
-import { geminiFailure, geminiSwitchFix, imageRequest, isOpenAiVerificationError, readImage } from "./provider";
+import { geminiFailure, geminiSwitchFix, imageRequest, isOpenAiVerificationError, readPngImage } from "./provider";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
@@ -71,7 +71,7 @@ async function callImageGeneration(
     }
 
     const data = await response.json() as any;
-    const image = readImage(provider, data);
+    const image = await readPngImage(provider, data);
 
     if (!image) {
       throw new Error(

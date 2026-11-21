@@ -15,7 +15,7 @@ import {
   geminiSwitchFix,
   imageRequest,
   isOpenAiVerificationError,
-  readImage,
+  readPngImage,
   visionErrorHint,
   visionRequest,
   type DesignAuth,
@@ -104,7 +104,7 @@ async function requestEvolvedImage(provider: ProviderKey, evolvedPrompt: string)
       throw new Error(`API error (${response.status}): ${error.slice(0, 300)}${modelRejectionHint(response.status, error, "image")}`);
     }
 
-    const image = readImage(provider, await response.json());
+    const image = await readPngImage(provider, await response.json());
     if (!image) {
       throw new Error("No image data in response");
     }

@@ -151,10 +151,13 @@ async function runSetup(flags: Record<string, string | boolean>): Promise<void> 
     quality: "low",
   });
   if (smoke.exitCode !== 0) {
-    console.error(`\nSmoke test FAILED: ${smoke.failures.map(f => f.reason).join("; ")}`);
-    console.error(provider === "gemini"
-      ? "Check your Gemini key and its quota in Google AI Studio."
-      : "Check your API key and organization verification status.");
+    const reasonSummary = smoke.failures.map(f => f.reason).join("; ");
+    console.error(`\nSmoke test FAILED: ${reasonSummary}`);
+    if (!reasonSummary || /key|auth|quota|billing|rate.?limit|verification|401|403|429/i.test(reasonSummary)) {
+      console.error(provider === "gemini"
+        ? "Check your Gemini key and its quota in Google AI Studio."
+        : "Check your API key and organization verification status.");
+    }
     process.exit(1);
   }
   console.log("\nSmoke test PASSED. Design generation is working.");

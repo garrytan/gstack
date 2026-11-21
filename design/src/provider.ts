@@ -17,6 +17,7 @@
 
 import { openaiUrl, resolveGeminiKeyInfo, describeKeySource, type ProviderKey, type ProviderName } from "./auth";
 import { DESIGN_RECEIPTS, type ReceiptSink } from "./receipted-fetch";
+import { convertImageToPngBase64, isSupportedImageMime, normalizeImageMime } from "./png-convert";
 import {
   geminiAspectRatio,
   geminiModel,
@@ -100,17 +101,23 @@ export class DesignImageError extends Error {
 
 const GEMINI_BLOCK_REASONS = new Set(["SAFETY", "IMAGE_SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION"]);
 
+export interface ReadImageResult {
+  responseId: string;
+  imageData: string;
+  mimeType?: string;
+}
+
 /**
  * The image in a successful response, or null when it held none (OpenAI: no
  * image_generation_call; Gemini: an empty answer with a normal finish). A
- * Gemini safety block or text-only answer throws a non-retryable
- * DesignImageError: asking again would buy the same refusal.
+ * Gemini safety block, text-only answer, or unsupported image format throws a
+ * non-retryable DesignImageError: asking again would buy the same refusal.
  */
-export function readImage(auth: DesignAuth, data: any): { responseId: string; imageData: string } | null {
+export function readImage(auth: DesignAuth, data: any): ReadImageResult | null {
   const p = asProvider(auth);
   if (p.provider === "openai") {
     const item = data?.output?.find((o: any) => o.type === "image_generation_call");
-    return item?.result ? { responseId: data.id, imageData: item.result } : null;
+    return item?.result ? { responseId: data.id, imageData: item.result, mimeType: "image/png" } : null;
   }
   const blocked = data?.promptFeedback?.blockReason;
   if (blocked) throw new DesignImageError(`Gemini blocked this brief (${blocked}). Fix: rephrase the brief.`, false);
@@ -123,15 +130,39 @@ export function readImage(auth: DesignAuth, data: any): { responseId: string; im
   const image = images.findLast(part => part?.thought !== true) ?? images.at(-1);
   if (image) {
     const inline = image.inlineData ?? image.inline_data;
-    const mime = inline.mimeType ?? inline.mime_type;
-    if (mime !== "image/png") throw new DesignImageError(`Gemini returned ${mime}, not a PNG; nothing was saved.`, false);
-    return { responseId: data.responseId || `gemini-${Date.now()}`, imageData: inline.data };
+    const rawMime = String(inline.mimeType ?? inline.mime_type ?? "");
+    if (!isSupportedImageMime(rawMime)) {
+      throw new DesignImageError(`Gemini returned unsupported image type ${rawMime || "unknown"}; nothing was saved.`, false);
+    }
+    return {
+      responseId: data.responseId || `gemini-${Date.now()}`,
+      imageData: inline.data,
+      mimeType: normalizeImageMime(rawMime),
+    };
   }
   const finish = candidate?.finishReason;
   if (finish && GEMINI_BLOCK_REASONS.has(finish)) throw new DesignImageError(`Gemini blocked this brief (${finish}). Fix: rephrase the brief.`, false);
   const text = parts.map(part => part?.text).filter(Boolean).join(" ").trim();
   if (text) throw new DesignImageError(`Gemini answered with text instead of an image: ${text.slice(0, 200)}`, false);
   return null;
+}
+
+/**
+ * Extract the generated image from a response and normalize non-PNG raster
+ * formats (such as `image/jpeg` or `image/webp` from Gemini models) into PNG base64.
+ */
+export async function readPngImage(auth: DesignAuth, data: any): Promise<{ responseId: string; imageData: string } | null> {
+  const image = readImage(auth, data);
+  if (!image) return null;
+  if (!image.mimeType || image.mimeType === "image/png") {
+    return { responseId: image.responseId, imageData: image.imageData };
+  }
+  try {
+    const pngData = await convertImageToPngBase64(image.imageData, image.mimeType);
+    return { responseId: image.responseId, imageData: pngData };
+  } catch (err: any) {
+    throw new DesignImageError(`Gemini returned ${image.mimeType} and converting it to PNG failed: ${err?.message ?? err}`, false);
+  }
 }
 
 /** OpenAI's org-verification refusal (every OpenAI image model needs a verified organization). */

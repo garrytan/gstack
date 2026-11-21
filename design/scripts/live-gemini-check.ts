@@ -14,7 +14,7 @@
  */
 
 import { DESIGN_IMAGE_MODEL_ENV, DESIGN_MODEL_ENV, GEMINI_DEFAULT_MODELS } from "../src/models";
-import { GEMINI_API_BASE, imageRequest, readImage, visionRequest, type DesignRequest } from "../src/provider";
+import { GEMINI_API_BASE, imageRequest, readPngImage, visionRequest, type DesignRequest } from "../src/provider";
 import { DESIGN_RECEIPTS, receiptedFetch } from "../src/receipted-fetch";
 
 for (const name of [DESIGN_MODEL_ENV, DESIGN_IMAGE_MODEL_ENV]) delete process.env[name];
@@ -55,7 +55,7 @@ for (const model of Object.values(GEMINI_DEFAULT_MODELS)) {
 const image = await send("live-check-image-request", imageRequest(gemini, { prompt: "Draw a plain blue square on a white background.", size: "1024x1024", quality: "low" }), 240_000);
 let png: string | null = null;
 try {
-  png = image.ok ? readImage(gemini, image.json)?.imageData ?? null : null;
+  png = image.ok ? (await readPngImage(gemini, image.json))?.imageData ?? null : null;
   report("image", png !== null, `status=${image.status} bytes=${png ? Buffer.from(png, "base64").length : 0}${image.ok ? "" : ` body=${image.text}`}`);
 } catch (err) {
   report("image", false, `status=${image.status} ${(err as Error).message}`);
