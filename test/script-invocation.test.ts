@@ -230,7 +230,8 @@ describe('wtreeFingerprint', () => {
 describe('runScriptSync and runBashSync with output past maxBuffer (GST-3104)', () => {
   // A child that ignores SIGTERM outlives Bun's overflow kill and exits 0, so raw spawnSync would
   // report status 0 with ENOBUFS and cut-off stdout (GST-3086); these runners must report status null.
-  const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(200000)); setTimeout(() => {}, 300);";
+  // The write fits the Unix socket send buffer, so the child really exits 0 (see test/spawn-sync.test.ts).
+  const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(32768)); setTimeout(() => {}, 300);";
   const expectIncomplete = (r: { status: number | null; error?: Error; stderr: string }) => {
     expect(r.status).toBeNull();
     expect((r.error as NodeJS.ErrnoException | undefined)?.code).toBe('ENOBUFS');
