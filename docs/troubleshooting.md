@@ -3842,6 +3842,14 @@ a typo never silently means "default".
 **Fix.** `gstack-ship-policy validate` lists every problem;
 `gstack-ship-policy init --explain` prints each key, its meaning and default.
 
+When the invalid file is the base branch's and its only errors are in
+`review_exclude_paths` or `review_content_patterns` (for example `more than 64
+patterns`), /ship does not stop: `gstack-review-plan` prints `REVIEW_EXCLUDE:
+fallback (WARNING: …)`, reviews every file and applies the base's other keys,
+so open a PR that corrects the list and ship it as usual
+([review_exclude_paths](ship-policy.md#review-exclude-paths)). Any other error
+on the base stops the plan and the merge step until a PR fixes it.
+
 <a id="policy-containment"></a>
 ### `POLICY_CONTAINMENT`
 

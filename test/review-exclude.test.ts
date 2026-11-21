@@ -215,6 +215,7 @@ describe('the base policy read', () => {
     expect(r.err).toContain('POLICY_SOURCE_UNAVAILABLE');
 
     const bad = census([':(icase)receipts/**']);
+    onBase(bad, { '.gstack/ship-policy.json': JSON.stringify({ review_exclude_paths: [':(icase)receipts/**'], review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n' });
     const b = plan(bad);
     expect(b.status).toBe(EXIT.refused);
     expect(b.err).toContain('review_exclude_paths[0]');
@@ -472,7 +473,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     test('an unreadable base policy still refuses a receipt with no digest or an older one', () => {
       for (const basePolicy of [null, ['receipts/**']]) {
         const { repo, body } = shipped(CODE, basePolicy);
-        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
         const b = bind(repo, body);
         expect({ basePolicy, ok: b.ok, code: b.ok ? '' : b.code }).toEqual({ basePolicy, ok: false, code: 'POLICY_INVALID' });
       }
@@ -541,7 +542,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     }, 240_000);
 
     test('an unreadable or malformed base policy still refuses carry', () => {
-      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
+      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
         const { repo, body } = shipped(CODE, null);
         onBase(repo, { '.gstack/ship-policy.json': text });
         const refused = carry(repo, body);
@@ -630,7 +631,7 @@ describe('the receipt binds the selection the reviewers read', () => {
         expect({ extra, status: w.status }).toEqual({ extra, status: EXIT.fail });
         expect(w.err).toContain('field=review_exclude expected=');
       }
-      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
       const unreadable = writeWith(repo, ['--review-exclude', digest]);
       expect(unreadable.status).toBe(EXIT.refused);
       expect(unreadable.err).toContain('so its review_exclude_paths cannot be read');

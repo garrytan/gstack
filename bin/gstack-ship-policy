@@ -61,7 +61,7 @@ function load(root: string, args: string[], defaultFrom: 'base' | 'head'): Loade
     process.stderr.write(policyUnavailableLine('gstack-ship-policy', base, loaded.detail) + '\n');
     return EXIT.refused;
   }
-  return loaded;
+  return loaded.setAside ? { ...loaded, errors: loaded.setAside } : loaded;
 }
 
 function printErrors(loaded: LoadedPolicy): void {

@@ -67,6 +67,11 @@ function scopeOfRange(root: string, binDir: string, base: string, head: string, 
 export type ReceiptExclude = NonNullable<ShipReceipt['review_exclude']>;
 
 /** The receipt's copy of an active exclusion: counts and hashes, plus the gate-tagged kept paths the queue cannot recompute. */
+/** The receipt's record of a base policy whose exclusion keys were set aside (GST-3399), or undefined when none were. */
+export function receiptExcludeFallback(x: Exclusion): ShipReceipt['review_exclude_fallback'] {
+  return x.state === 'fallback' ? { source: x.source, errors: x.errors } : undefined;
+}
+
 export function receiptExclude(x: Exclusion): ReceiptExclude | undefined {
   if (x.state !== 'active') return undefined;
   const { source, patterns, applied, excluded, excluded_bytes, kept, gate_tagged, patterns_sha256, list_sha256, digest } = x.record;

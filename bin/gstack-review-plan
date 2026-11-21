@@ -32,7 +32,7 @@ import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { runScriptSync } from '../lib/script-invocation';
 import { baseNote } from '../lib/gate-diff/git';
 import { collectCommit, collectLive, reviewPlanTimeoutMs } from '../lib/review-collect';
-import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
+import { excludeLines, fallbackLine, reviewExclude, type Exclusion } from '../lib/review-exclude';
 import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
 import { platformReviewAt } from '../lib/review-platform';
@@ -249,6 +249,7 @@ function main(): number {
   if (gateTagged !== null && !Number.isFinite(gateTagged)) gateTagged = null;
   const exclusion: Exclusion = !baseSha || !collected.mergeBase ? { state: 'none' } : reviewExclude({ root, baseSha, ref, mergeBase: collected.mergeBase, perPath: collected.perPath, added: collected.added, classRoot: root, gateTagged: tagged, context: 'gstack-review-plan' });
   if (exclusion.state === 'refused') { for (const l of exclusion.lines) process.stderr.write(l + '\n'); return exclusion.code === 'REVIEW_DIFF_UNREADABLE' ? EXIT.fail : EXIT.refused; }
+  if (exclusion.state === 'fallback') process.stderr.write(`gstack-review-plan: ${fallbackLine(exclusion, base)}\n`);
   const active = exclusion.state === 'active' ? exclusion : null;
   const kept = <T,>(rec: Record<string, T>) => (active ? Object.fromEntries(Object.entries(rec).filter(([p]) => !active.excluded.has(p))) : rec);
   const exclusionInput = active ? { excluded: active.excluded, exclusion: { specs: active.specs, keep: active.keep } } : {};
@@ -310,7 +311,7 @@ function main(): number {
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;
     process.stdout.write(JSON.stringify({ ...rest, review_policy: review, platform_review: platform ? (platform.ok ? platform.review : { none: platform.reason }) : null, readers, targeted: { ...targeted, brief, targeted_patch_id: patch }, step_depth: stepDepth, runtime_lines: runtimeLines, depth_reasons: depthReasons, depth_floor: floor ?? null, gate_scan: gateScan, fix_range: fixRange ?? null, targeted_delta: targetedDeltaOut, registry: { sha: registry.sha, outputs: registry.outputs }, per_path: perPath, diff_lines: diffLines, base: collected.base, pass, audit_effort: auditEffort, scope, gate_tagged: gateTagged, paths, deleted, stamp_only: stampOnly, consumed: collected.consumed, drawings: collected.drawings, executables: collected.executables,
-      ...(exclusion.state === 'head-only' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, excerpt: active.excerpt, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
+      ...(exclusion.state === 'head-only' || exclusion.state === 'fallback' ? { review_exclude: exclusion } : active ? { review_exclude: { state: 'active', ...active.record, specs: active.specs, keep: active.keep, excerpt: active.excerpt, kept_files: active.kept, content: active.content, references: active.references } } : {}) }) + '\n');
     return EXIT.ok;
   }
   const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`, `REVIEW_BASE: ${ref} ${baseSha.slice(0, 12)}`,

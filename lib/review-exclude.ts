@@ -71,6 +71,7 @@ export interface ActiveExclusion {
 export type Exclusion =
   | { state: 'none' }
   | { state: 'head-only'; patterns: string[]; source: string }
+  | { state: 'fallback'; source: string; errors: string[] }
   | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID' | 'REVIEW_DIFF_UNREADABLE' | 'REVIEW_EXCLUDE_KEEP_TOO_LARGE'; lines: string[] }
   | ActiveExclusion;
 
@@ -425,7 +426,8 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
 
 /**
  * The base policy's exclusion for one range. `none` when neither side declares a pattern (callers then print and change
- * nothing); `head-only` when only the head does (a notice, never applied); `refused` when the base policy cannot be read or
+ * nothing); `head-only` when only the head does (a notice, never applied); `fallback` when the base policy fails only on its
+ * exclusion keys, which finish (lib/ship-policy.ts) then sets aside so every file is reviewed; `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
  * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
  * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
@@ -439,6 +441,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   if (load.errors.length) {
     return { state: 'refused', code: 'POLICY_INVALID', lines: load.errors.map(e => `${i.context}: the base policy ${source}:${SHIP_POLICY_PATH} does not validate, so its review_exclude_paths cannot be read (${e.path || SHIP_POLICY_PATH}: ${e.message}); fix: run ` + '`' + `gstack-ship-policy validate --policy-from base --base ${base}` + '`' + ` and fix the file on ${base} with its own PR; nothing was planned (${e.code})`) };
   }
+  if (load.setAside) return { state: 'fallback', source, errors: load.setAside.map(e => `${e.path}: ${e.message}`) };
   const patterns = load.policy.review_exclude_paths;
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
@@ -519,10 +522,16 @@ function excludedBytes(i: ExcludeInput, excluded: readonly string[], files: Read
   return r.out.split('\n').reduce((n, l) => n + (Number(l) || 0), 0);
 }
 
+/** The loud line for a base policy whose exclusion keys were set aside: what failed, that every file is reviewed, and the fix. */
+export function fallbackLine(x: Extract<Exclusion, { state: 'fallback' }>, base: string): string {
+  return `REVIEW_EXCLUDE: fallback (WARNING: the base policy ${x.source} does not validate: ${x.errors.join('; ')}; its review_exclude_paths and review_content_patterns are set aside and every file is reviewed, as with no exclusion; every other key applies as committed; fix: correct the list on ${base} with its own PR, which this plan reviews in full; docs/ship-policy.md#review-exclude-paths)`;
+}
+
 /** The plan's lines for an exclusion: none prints nothing, so a repository without the key plans byte for byte as before. */
 export function excludeLines(x: Exclusion, base: string): string[] {
   if (x.state === 'none' || x.state === 'refused') return [];
   if (x.state === 'head-only') return [`REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies after it lands on ${base}) patterns=${x.patterns.length} source=${x.source}`];
+  if (x.state === 'fallback') return [fallbackLine(x, base)];
   const r = x.record;
   const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
@@ -672,5 +681,6 @@ export function ceilingContext(root: string, base: string, known?: PlanExclude):
   const floor = read?.policy.min_gstack_version ?? null;
   if (!x) return { state: 'none', base: b, source, floor };
   if (x.state === 'head-only') return { state: 'head-only', base: b, source, floor, headPatterns: x.patterns ?? [] };
+  if (x.state !== 'active') return { state: 'none', base: b, source, floor };
   return { state: 'active', base: b, source, floor, record: { patterns: x.patterns ?? [], excluded: x.excluded ?? 0 } };
 }
