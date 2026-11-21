@@ -1036,6 +1036,35 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctxFor(repo, { PATH: path.join(repo.root, 'empty-path') }), ['app/e2e/app.spec.ts'])).toEqual({ groups: [], unclaimed: ['app/e2e/app.spec.ts'], missing: ['pnpm'], noPubspec: [] });
   });
 
+  // Value: protects=a JS test that loads node:test runs through `node --test`, never the repo's vitest (which finds no suite in it and fails
+  //   the lane, stopping /ship's finish on every PR that selects one); fails_when=the repo-wide runner takes node:test files again (#4586);
+  //   why_new=no detection looked at node:test imports; seam=none; no_claim=a real node or vitest run (plan only)
+  test('a JS test importing node:test runs through node --test even when the repo declares vitest; vitest tests keep vitest', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    write(repo.work, 'package.json', JSON.stringify({ name: 'monorepo', private: true, devDependencies: { vitest: '^4.1.0' } }) + '\n');
+    write(repo.work, 'scripts/release-notes.test.mjs', "import { describe, it } from \"node:test\";\nimport assert from 'node:assert/strict';\nit('formats', () => assert.ok(true));\n");
+    write(repo.work, 'scripts/bare.test.js', "import 'node:test';\n");
+    write(repo.work, 'scripts/legacy.test.cjs', "const assert = require('node:assert');\nconst { test } = require( 'node:test' );\ntest('legacy', () => assert.ok(true));\n");
+    write(repo.work, 'app/scripts/check.test.mjs', "import test from 'node:test';\ntest('nested', () => {});\n");
+    write(repo.work, 'test/a.test.ts', "import { expect, test } from 'vitest';\nimport { test as nodeTest } from 'node:test';\ntest('ts stays', () => expect(1).toBe(1));\n");
+    write(repo.work, 'test/fixture-text.test.js', "import { test } from 'vitest';\n// import { test } from 'node:test';\nconst sample = \"const { test } = require('node:test');\";\ntest('mentions node:test only in text', () => {});\n");
+    const files = ['test/a.test.ts', 'scripts/release-notes.test.mjs', 'test/fixture-text.test.js', 'scripts/bare.test.js', 'scripts/legacy.test.cjs', 'app/src/sum.test.ts', 'app/scripts/check.test.mjs'];
+    expect(planRuns(ctx, files)).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/a.test.ts', 'test/fixture-text.test.js'] },
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/release-notes.test.mjs', 'scripts/bare.test.js', 'scripts/legacy.test.cjs', 'app/scripts/check.test.mjs'] },
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctx, ['test/fixture-text.test.js']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/fixture-text.test.js'] }]);
+    write(repo.work, 'test/mixed.test.js', "import { test } from 'vitest';\nimport { mock } from 'node:test';\ntest('vitest owns it', () => {});\n");
+    write(repo.work, 'test/jest-mixed.test.cjs', "const { test } = require('@jest/globals');\nconst { mock } = require('node:test');\ntest('jest owns it', () => {});\n");
+    expect(planRuns(ctx, ['test/mixed.test.js', 'test/jest-mixed.test.cjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/mixed.test.js', 'test/jest-mixed.test.cjs'] }]);
+    write(repo.work, 'scripts/gen.test.mjs', "import { test } from 'node:test';\nconst generated = `\nimport { test } from 'vitest';\ntest('generated', () => {});\n`;\ntest('writes a vitest file', () => generated.includes('vitest'));\n");
+    expect(planRuns(ctx, ['scripts/gen.test.mjs']).groups).toEqual([{ runner: 'node --test {files}', cwd: '', files: ['scripts/gen.test.mjs'] }]);
+    const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'npx vitest run {files}' } } as PregateContext;
+    expect(planRuns(declared, ['scripts/release-notes.test.mjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['scripts/release-notes.test.mjs'] }]);
+  });
+
   // Value: protects=repos where root detection works today are unchanged: a nested package that declares no test runner stays with the
   //   root runner from the root, a root vitest stays `npx vitest run` from the root, and a declared runner takes every file;
   //   fails_when=every nested package.json splits a group or the root command changes; why_new=negative controls for the new
@@ -1048,7 +1077,10 @@ describe('nested JS packages run their own runner from their own directory', () 
     fs.rmSync(path.join(repo.work, 'bun.lock'));
     write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0' } }) + '\n');
     write(repo.work, 'pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
-    expect(planRuns(ctx, ['app/src/sum.test.ts', 'test/util.test.js']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['app/src/sum.test.ts', 'test/util.test.js'] }]);
+    expect(planRuns(ctx, ['app/src/sum.test.ts', 'test/util.test.js']).groups).toEqual([
+      { runner: 'npx vitest run {files}', cwd: '', files: ['app/src/sum.test.ts'] },
+      { runner: 'node --test {files}', cwd: '', files: ['test/util.test.js'] },
+    ]);
     const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'bun test {files}' } } as PregateContext;
     write(repo.work, 'app/package.json', APP['app/package.json']);
     expect(planRuns(declared, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'bun test {files}', cwd: '', files: ['app/src/sum.test.ts'] }]);
