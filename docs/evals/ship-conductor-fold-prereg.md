@@ -32,6 +32,17 @@ symmetric and adds a per-arm count and a sensitivity analysis. The no-gstack arm
 SDK returns, because one run reported twice. The Budget adds the measured second pilot and a third pilot of C and F
 only. No bar, arm, decision or catch rule changed.
 
+Amended 2026-11-21 a fourth time, after the judge stage and before any counted trial, on the owner's grant (GSTA-36),
+because the judge failed its bar twice. Against all 207 frozen labels, GPT-6 Astra agreed at kappa 0.20. The labels
+were then split by a hash rule posted on GST-3003 before any disagreement was read, and a prompt revised on one half
+(103 items) agreed at 0.48 on the other half (104 items), and at only 0.43 on the half it was revised on. A second
+labeller, with no access to the first labels or any judge output, labelled all 207 again under the same brief and
+agreed with the first at kappa 0.84 (194 of 207). Both labellers were Opus 5.5 subagents given one brief, so 0.84
+shows that the brief gives the same labels twice, not that two people would agree; part of the judge's gap may be a
+different model family reading the floor differently. The judge gets one more attempt (Procedure, Second judge
+attempt): revised against the 207 existing labels, frozen, and checked once on fresh labels from new uncounted
+trials. Below the bar, the run stops incomplete with no further attempt. No bar, arm, decision or catch rule changed.
+
 Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); runner GSTA-589. Paid runs start only
 after this file merges and the owner approves the budget below.
 
@@ -157,6 +168,17 @@ Scoring). If they hold fewer than 48 findings, or fewer than 24 from C and F, C 
 case 4, then case 5, until both counts are met or this stage reaches $150. These trials never enter a counted
 comparison.
 
+**Second judge attempt (uncounted), added 2026-11-21.** The judge stage's 207 labels have now been used for two
+checks, so they become development data. The judge prompt is revised against them once more: it carries the
+labellers' rubric word for word, runs at reasoning high, and sees each changed file at the case head beside the diff,
+because the labellers read the code at the head. The judge model stays GPT-6 Astra. The script, prompt and input
+hashes are posted on GST-3003 before any new finding exists. Then C and F each run one uncounted trial on case 4 and
+one on case 5, and N one uncounted trial on each of cases 1 to 10, under the same briefs and end rule. If these hold
+fewer than 48 findings, or fewer than 24 from C and F, C and F each add one uncounted trial on case 6. Every finding
+these runs list is labelled by the same blind procedure (one labeller, the same brief, no access to the earlier labels
+or any judge output) and frozen with a SHA-256 before the judge sees any. `gstack-eval-plan judge --check` runs once
+on those labels, and that line is the judge check. These trials and labels never enter a counted comparison.
+
 **End of a trial.** A C or F trial ends at `SHIP_RECEIPT:`, at finish's Step 16 refusal of `pregate.json/remote_gate` with
 `base_mismatch` or `paid_only` (the case bases are not main, so that gate cannot clear; it is the same wall for both
 arms and is not a harness failure), or wherever else /ship stops. Cost, wall time and `calls=` are measured to that
@@ -185,7 +207,7 @@ the arm) passes at the run's final head, and one of the run's findings or commit
 rule is checked against the decoys below before any trial runs.
 
 **Real problems, by judge.** Every finding that is not the plant and that the run marked blocking, or that led to a
-fix, goes to GPT-6 Astra with the case diff. It answers two questions: does this meet the blocking floor (would fail
+fix, goes to GPT-6 Astra with the case diff and the changed files at the case head. It answers two questions: does this meet the blocking floor (would fail
 a test, break production, or lose data or secrets), and which other findings name the same problem. A case's real
 problems are the union of judged-real problems across all arms and trials; each arm's catch rate on them uses the
 rule above, with the judge's grouping in place of the planted label. The judge sees findings as A, B and C, never an
@@ -194,7 +216,8 @@ stage outputs (Procedure), at least 24 of them from C and F: every finding those
 labelled real or not real by the runner against the case diff and the sealed label, with both classes present, and
 frozen with a SHA-256 before the judge sees any. This is R111's judge check, run in a stage before any counted
 trial because a tenth of an arm's spend cannot buy 48 labels. `gstack-eval-plan judge --check` must print
-`JUDGE_AGREEMENT: ok` (Cohen's kappa at least 0.6) before its numbers count.
+`JUDGE_AGREEMENT: ok` (Cohen's kappa at least 0.6) before its numbers count. Since the fourth amendment, the check
+that counts is the one in Second judge attempt, on its fresh labels.
 
 **Comparisons.** Every comparison is paired by case: the per-case difference of means (cost, wall time, `calls=`)
 or of catch rates, with a 95% t interval over the 10 cases. Every trial is reported; nothing is averaged away.
@@ -249,6 +272,7 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 - Per trial: $150 or 4 hours. A trial stopped there is recorded as incomplete, with its cost at the stop counted (a lower bound, flagged), and scored on what it caught by then.
 - Pilot: if any pilot trial fails one of the Procedure's four checks, or a C or F pilot trial ends without a receipt for a harness reason (machine, install, CI wiring; the remote_gate refusal in End of a trial is not one), no counted trial starts; the fix is a dated change to this file and a new pilot, or the arm is left out and reported as left out; a change to a bar, arm or decision is a new preregistration.
 - Judge stage: the judge stage reaching $150 without 48 labels, 24 of them from C and F, stops the run before any counted trial.
+- Second judge attempt: the judge below kappa 0.6 on its fresh labels stops the run incomplete, with no further attempt; the judge stage and the second attempt together reaching $150 without those labels stops the run before any counted trial.
 - Halfway look: the stops in the Halfway look section.
 - The catch script below 50 of 50 on decoys (before any trial), or the judge below kappa 0.6 (after the judge stage, before any counted trial): stop; fix the script or the judge prompt and relabel; never lower a bar.
 - Projection: if the pilot's projection for all 90 trials plus the fixed costs exceeds the approved budget, stop and ask again with the new figure.
@@ -266,13 +290,15 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 | Third pilot, uncounted, C and F only, after the third 2026-11-21 amendment | 1 | $75 | $75 |
 | Judge stage, uncounted: N on cases 4 to 10 | 7 | $6 | $42 |
 | Judge: 48 labels plus about 300 findings on GPT-6 Astra | 1 | $80 | $80 |
+| Second judge attempt, uncounted: C and F on cases 4 and 5, N on cases 1 to 10, one labeller | 1 | $80 | $80 |
+| Second labeller (measured $3) and the fourth amendment's /ship | 1 | $35 | $35 |
 | Runner: waves, audits, scoring, results write-up | 1 | $150 | $150 |
 | /ship of the results pull request | 1 | $35 | $35 |
-| **Estimate** | | | **$3,058** |
+| **Estimate** | | | **$3,173** |
 | Cap (approved by GSTA-36) | | | $3,250 |
 
-If the judge stage needs its extra C and F trials, its $150 limit holds them to $108 (worst case $3,166), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
-(about $10 a run), the actual total is near $2,758. Machines, CI minutes and the runner VM are not in cost.dollars and
+The first judge stage did not need its extra C and F trials. If the second judge attempt needs case 6, its two trials add about $27 (worst case $3,200), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
+(about $10 a run), the actual total is near $2,873. Machines, CI minutes and the runner VM are not in cost.dollars and
 are reported separately. Each case gets 3 trials because AGENTS.md gives a `behavior` case a panel of 3, and because
 one trial each would let noise decide the "misses nothing" bar (see Bars).
 
@@ -280,7 +306,8 @@ one trial each would let noise decide the "misses nothing" bar (see Bars).
 | set | prior exposure (which runs, which models) | reservation (what this run may read) |
 |---|---|---|
 | the 10 sealed cases (hosts, plants, labels) | none: picked after this file merges; hosts and fixes are public on GitHub, all merged after Opus 5.5's June 2026 training cutoff | arms read only their case checkout; the runner reads labels to score; the judge reads findings and the case diff, never the labels |
-| the 48 judge labels | none: findings from this run's own uncounted pilot and judge-stage trials, labelled before the judge sees them | the judge reads them once for `judge --check`; they never enter a counted comparison |
+| the 48 judge labels | none: findings from this run's own uncounted pilot and judge-stage trials, labelled before the judge sees them | the judge reads them once for `judge --check`; they never enter a counted comparison; after two checks they are development data for the second judge attempt |
+| the second judge attempt's fresh labels | none: findings from that attempt's own uncounted trials, which start after the revised judge's hashes are posted | the judge reads them once for `judge --check`; they never enter a counted comparison |
 
 ## After the run
 Results go to `docs/evals/ship-conductor-fold-results.md`, opening with two or three plain takeaways, with one table
