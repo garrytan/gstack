@@ -111,4 +111,17 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
     expect(r.out).toContain('POLICY_INVALID: 1 error(s)');
     expect(r.err).toContain('more than 64 patterns at review_exclude_paths');
   }, 120_000);
+
+  // Value: protects=show-effective, which /ship's POLICY line and /land-and-deploy's stamp check read, reports such a base valid
+  //   with its other keys and the loud fallback line; fails_when=it exits 1 with valid:false (land-and-deploy then reads no
+  //   queue_mode) or drops the warning; seam=the show-effective CLI; no_claim=renderEffective's other lines
+  test('show-effective reads the base with its other keys and warns', () => {
+    const repo = repoWith({ review_exclude_paths: patterns(65), queue_mode: 'stamp-at-merge' });
+    const r = runBin(repo, 'gstack-ship-policy', ['show-effective', '--base', 'main', '--json']);
+    expect(r.status, r.err).toBe(EXIT.ok);
+    const j = JSON.parse(r.out);
+    expect({ valid: j.valid, queue_mode: j.policy.queue_mode, excluded: j.policy.review_exclude_paths }).toEqual({ valid: true, queue_mode: 'stamp-at-merge', excluded: [] });
+    expect(r.err).toContain('gstack-ship-policy: REVIEW_EXCLUDE: fallback (WARNING');
+    expect(r.err).not.toContain('POLICY_INVALID');
+  }, 120_000);
 });

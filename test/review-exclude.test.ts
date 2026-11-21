@@ -601,6 +601,23 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect(receiptIn(body).review_exclude!.digest).toBe(now);
     }, 240_000);
 
+    // Value: protects=a base whose list no longer validates writes the fallback record and never carries a receipt whose review
+    //   left a PR file out; fails_when=write drops review_exclude_fallback or carry accepts the narrower review (GST-3399);
+    //   seam=gstack-ship-receipt write and carry; no_claim=the queue's reading of the field
+    test('a base list that is set aside writes the fallback record and refuses carry of the narrower review', () => {
+      const { repo, body } = reviewed();
+      policyOnBaseOnly(repo, policyText(Array.from({ length: 65 }, (_, i) => `data/p${i}/**`)));
+      const w = writeWith(repo, []);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      const written = receiptIn(path.join(repo.root, 'body-w.md'));
+      expect(written.review_exclude).toBeUndefined();
+      expect(written.review_exclude_fallback!.errors).toEqual(['review_exclude_paths: more than 64 patterns']);
+      repo.git('merge', '-q', '--no-edit', 'origin/main');
+      const refused = carry(repo, body);
+      expect(refused.status).toBe(EXIT.refused);
+      expect(refused.err).toContain('review_exclude changed: recorded=');
+    }, 240_000);
+
     test('a policy edit that changes the selection over the PR files still refuses write, ready and carry', () => {
       const changes: Array<{ name: string; after: string[] }> = [
         { name: 'a new pattern keeps a PR file', after: ['receipts/**', 'lib/**'] },
