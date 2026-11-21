@@ -55,6 +55,8 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
 - Prompts that start with `/` (you already picked a skill) are never routed.
 - The injected line names its source and its off switch, and asks the model to tell you in one sentence that gstack routed the request.
 
+The hook replaces the `## Skill routing` section gstack used to offer for your project's CLAUDE.md. In a preregistered test on Claude Opus 5.5 (gstack-evals#415), the hook alone got the bug-fix skill loaded in 45 of 60 and 48 of 60 unattended sessions, past the 39 of 60 the CLAUDE.md section managed, so gstack stopped offering the section. A section an older gstack added keeps working; gstack never edits it, and you can delete it.
+
 ### Dry run
 
 `gstack-skill-route --explain` shows what the hook would do, with the switch on or off. It never injects anything.

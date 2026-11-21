@@ -45,10 +45,10 @@ export function createNativeReviewState(opts: { preconfiguredReviewActor?: boole
     let config = fs.readFileSync(path.join(sharedState, 'config.yaml'), 'utf8')
       .replace(/^codex_reviews:.*(?:\r?\n|$)/gm, '');
     if (opts.preconfiguredReviewActor) {
-      // This fixture has already declined setup changes and cross-project recall.
+      // This fixture has already declined cross-project recall.
       // Keep native review questions interactive; never alter shared/operator state.
-      config = config.replace(/^(?:routing_declined|cross_project_learnings):.*(?:\r?\n|$)/gm, '')
-        + '\nrouting_declined: true\ncross_project_learnings: false\n';
+      config = config.replace(/^cross_project_learnings:.*(?:\r?\n|$)/gm, '')
+        + '\ncross_project_learnings: false\n';
     }
     fs.writeFileSync(path.join(stateRoot, 'config.yaml'), config + '\ncodex_reviews: disabled\n');
     // Readers and onboarding writers must agree on the owned state.

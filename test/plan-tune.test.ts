@@ -209,10 +209,10 @@ describe('registry breadth', () => {
     }
   });
 
-  test('preamble one-time prompts are registered (telemetry, proactive, routing)', () => {
+  test('preamble one-time prompts are registered (telemetry, proactive)', () => {
     expect(getQuestion('preamble-telemetry-consent')).toBeDefined();
     expect(getQuestion('preamble-proactive-behavior')).toBeDefined();
-    expect(getQuestion('preamble-routing-injection')).toBeDefined();
+    expect(getQuestion('preamble-routing-injection')).toBeUndefined();
   });
 
   test('/plan-tune itself registers its enable + setup + mutation-confirm', () => {

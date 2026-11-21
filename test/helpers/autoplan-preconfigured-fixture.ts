@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Real project routing, matching the section offered by gstack-skill-start.
+// Real project routing: the section gstack-skill-start offered before the prompt-routing hook replaced it
+// (test/fixtures/claude-md-skill-routing.md).
 const ROUTING = `## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. Route only to skills in the session's available-skills list; answer directly for quick questions or small scoped edits.
