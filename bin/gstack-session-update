@@ -68,6 +68,7 @@ LOG_FILE="$STATE_DIR/analytics/session-update.log"
 PENDING_FILE="$STATE_DIR/session-update-pending"
 HOOK_CHECK="$(cd "$(dirname "$0")" && pwd)/gstack-hook-check"
 FF_UPDATE="$(cd "$(dirname "$0")" && pwd)/gstack-ff-update"
+LEASE="$(cd "$(dirname "$0")" && pwd)/gstack-lease"
 RESCUE_FILE="$STATE_DIR/session-update-rescues"
 # Path spelling (Git Bash /c/x vs native C:/x) for the held-reason prefix strip.
 . "$(cd "$(dirname "$0")" && pwd)/gstack-path-spelling.sh" 2>/dev/null || { gstack_path_shell() { printf '%s\n' "$1"; }; gstack_path_native() { printf '%s\n' "$1"; }; }
@@ -407,6 +408,16 @@ CALLER_PID=$(gstack_harness_pid "$PPID")
     done
   ) &
   HB_PID=$!
+
+  # ── Workflow leases (#3363): a live gstack session on this installation
+  # (bin/gstack-lease) means neither the fast-forward nor a pending setup
+  # retry runs under it, the rule bin/gstack-upgrade enforces as UPGRADE_BUSY.
+  # The throttle file is not written, so the next session start tries again.
+  if [ "${GSTACK_UPGRADE_FORCE:-}" != 1 ] && [ -x "$LEASE" ] \
+    && BUSY=$("$LEASE" live --root "$GSTACK_DIR" --exclude-ancestry-of $$ 2>/dev/null); then
+    log_entry "SKIP leased $(printf '%s\n' "$BUSY" | awk 'NF { printf "%spid=%s/%s", n++ ? " " : "", $1, $2 }')"
+    exit 0
+  fi
 
   # ── Fetch, check the incoming release's Bun floor, then fast-forward (E1) ──
   OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
