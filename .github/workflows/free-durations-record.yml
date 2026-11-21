@@ -137,6 +137,12 @@ jobs:
           fi
           cp "$RUNNER_TEMP/linux/free-test-durations.json" scripts/free-test-durations.json
           cp "$RUNNER_TEMP/windows/free-test-durations-windows.json" scripts/free-test-durations-windows.json
+          # New files over the 60 s ceiling become annotated exceptions naming
+          # this recording, and files back under it leave the allowlist, so the
+          # seed PR passes the ratchet without a maintainer edit (GST-3303).
+          allowlist=$(bun --no-env-file --config=/dev/null run scripts/free-seed-allowlist.ts --reconcile --recording "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          if [ -n "$allowlist" ]; then allowlist_line=$(printf '%s\n' "$allowlist" | paste -sd, - | sed 's/,/, /g'); else allowlist_line=unchanged; fi
+          echo "Seed allowlist: $allowlist_line" | tee -a "$GITHUB_STEP_SUMMARY"
           if ratchet=$(GSTACK_FREE_SEED_BASE="$(git rev-parse HEAD)" bun test test/free-seed-ratchet.test.ts 2>&1); then
             ratchet_line="passes"
           else
@@ -163,7 +169,7 @@ jobs:
           git switch -C "$branch"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/free-test-durations.json scripts/free-test-durations-windows.json
+          git add scripts/free-test-durations.json scripts/free-test-durations-windows.json scripts/free-test-seed-allowlist.json
           git commit -m "$subject"
           git push --force-with-lease="refs/heads/$branch:$remote_head" origin "HEAD:refs/heads/$branch"
           cat > pr-body.md <<EOF
@@ -172,6 +178,7 @@ jobs:
           - Linux seed (ubicloud-standard-8): +$linux_added / -$linux_removed files
           - Windows seed (windows-latest): +$windows_added / -$windows_removed files
           - Files that failed while recording (durations kept; this PR's own free checks decide): $failed_line
+          - Seed allowlist (each new file over 60 s is admitted with a todo to split it; files back under 60 s leave): $allowlist_line
           - Seed growth ratchet (60 s ceiling, shrink-only allowlist): $ratchet_line
 
           Data only. This run dispatched Free Tests (the required free-tests check), Windows Smoke and Quality gate on this branch; those are this PR's checks. The pull_request runs wait as "action required" because a token-opened PR never starts them without approval. Stamp and merge per docs/ship-policy.md; the stamp push runs the full PR checks.

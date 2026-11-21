@@ -1625,7 +1625,9 @@ refresh to a maintainer.
 - `free-durations-record.yml` (Mondays 04:00 UTC, before test-health, and on
   dispatch) records the Linux seed on `ubicloud-standard-8` with
   `scripts/ubicloud/setup-free-suite.sh` and the Windows seed through
-  `windows-free-tests.yml`'s `record_durations` path. The recorder stays on
+  `windows-free-tests.yml`'s `record_durations` path, at two workers
+  (`GSTACK_FREE_JOBS=2`, 60-minute job): at four, files that pass nightly failed
+  under the load and the recording outran its old 30-minute job. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
   (`ubicloud-standard-8`); both are Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
@@ -1637,9 +1639,15 @@ refresh to a maintainer.
   job red but keeps its duration, and the PR body names it; the seed PR's own
   free checks decide whether the tree is healthy. An interrupted recording
   uploads no seed, and more than 5 red files on either OS proposes nothing. The
-  bot never edits the allowlist: a ratchet failure is fixed on the branch by a
-  maintainer before the PR merges, and while the open seed PR holds any commit
-  besides the bot's one refresh commit, later runs leave it alone. Only runs on
+  bot reconciles the allowlist with the recording
+  (`scripts/free-seed-allowlist.ts --reconcile`): each new file over 60 seconds
+  is admitted as an annotated exception that names the recording run and carries
+  a todo to split it, and entries for files back under 60 seconds are dropped,
+  so the seed PR passes the ratchet without a maintainer edit and the PR body
+  lists every admission. Before GST-3303 the bot left a ratchet failure for a
+  maintainer to fix by hand, and the seed went stale from 11-09 to 11-20 while
+  its PR waited. While the open seed PR holds any commit besides the bot's one
+  refresh commit, later runs leave it alone. Only runs on
   `main` push the branch; a dispatch from another ref reports only.
 
 ### Sub-shards inside one CI job

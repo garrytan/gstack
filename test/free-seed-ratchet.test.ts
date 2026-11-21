@@ -14,7 +14,9 @@ import * as path from 'node:path';
 import {
   ciHealthSummary,
   overrunWarning,
+  formatSeedAllowlist,
   parseSeedAllowlist,
+  reconcileSeedAllowlist,
   readBaseSeedAllowlist,
   SEED_ALLOWLIST_FILE,
   SEED_DOCS_ANCHOR,
@@ -24,6 +26,7 @@ import {
   unseededWarning,
 } from '../scripts/lib/free-ci-health';
 import { FREE_TEST_DURATIONS_FILE, type FreeCiPlan, type FreeCiResult, type FreeShardOutcome } from '../scripts/test-free-shards';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const git = (cwd: string, ...args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
@@ -176,5 +179,53 @@ describe('free lane CI warnings', () => {
     expect(summary).toHaveLength(1);
     expect(summary[0]).toContain('shard 1 took 160s vs 100s predicted across 4 parallel jobs');
     expect(summary[0]).not.toContain('shard 2');
+  });
+});
+
+describe('the recorder reconciles the allowlist with a fresh recording (GST-3303)', () => {
+  const admit = (file: string, ms: number) => ({ file, reason: `${Math.round(ms / 1000)}s in run X`, todo: 'split it' });
+
+  test('admits each unlisted file over the ceiling, drops entries back under it or gone, and keeps the rest as written', () => {
+    const durations = { 'test/kept.test.ts': 90_000, 'test/new-slow.test.ts': 65_000, 'test/back-under.test.ts': 59_000, 'test/edge.test.ts': 60_000, 'test/fast.test.ts': 1_000 };
+    const allowlist = [
+      { file: 'test/kept.test.ts', reason: 'real setup per host' },
+      { file: 'test/back-under.test.ts', reason: 'was 70s', todo: 'split' },
+      { file: 'test/gone.test.ts', reason: 'deleted file' },
+    ];
+    const { entries, admitted, pruned } = reconcileSeedAllowlist(durations, allowlist, admit);
+    expect(admitted).toEqual(['test/new-slow.test.ts']);
+    expect(pruned).toEqual(['test/back-under.test.ts', 'test/gone.test.ts']);
+    expect(entries).toEqual([allowlist[0], { file: 'test/new-slow.test.ts', reason: '65s in run X', todo: 'split it' }]);
+    expect(seedRatchet({ durations, allowlist: entries, baseAllowlist: allowlist }).violations).toEqual([]);
+  });
+
+  test('a seed that already holds the ratchet changes nothing, and the file layout round-trips', () => {
+    const raw = fs.readFileSync(path.join(ROOT, SEED_ALLOWLIST_FILE), 'utf8');
+    const allowlist = parseSeedAllowlist(raw);
+    const seed = JSON.parse(fs.readFileSync(path.join(ROOT, FREE_TEST_DURATIONS_FILE), 'utf8')) as { durations: Record<string, number> };
+    expect(formatSeedAllowlist(allowlist)).toBe(raw);
+    const { entries, admitted, pruned } = reconcileSeedAllowlist(seed.durations, allowlist, admit);
+    expect([admitted, pruned]).toEqual([[], []]);
+    expect(formatSeedAllowlist(entries)).toBe(raw);
+  });
+
+  test('the recorder command rewrites the allowlist file and prints one line per change', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-allowlist-'));
+    try {
+      fs.mkdirSync(path.join(root, 'scripts/lib'), { recursive: true });
+      for (const file of ['scripts/free-seed-allowlist.ts', 'scripts/lib/free-ci-health.ts']) fs.copyFileSync(path.join(ROOT, file), path.join(root, file));
+      fs.writeFileSync(path.join(root, FREE_TEST_DURATIONS_FILE), JSON.stringify({ durations: { 'test/new-slow.test.ts': 65_000, 'test/back-under.test.ts': 59_000 } }));
+      fs.writeFileSync(path.join(root, SEED_ALLOWLIST_FILE), formatSeedAllowlist([{ file: 'test/back-under.test.ts', reason: 'was 70s', todo: 'split' }]));
+      const run = spawnSync(process.execPath, [...bunIsolationArgs(), path.join(root, 'scripts/free-seed-allowlist.ts'), '--reconcile', '--recording', 'https://example.test/runs/1'], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+      expect(run.status).toBe(0);
+      expect(run.stdout.trim().split('\n')).toEqual(['ADMITTED test/new-slow.test.ts 65s', 'PRUNED test/back-under.test.ts']);
+      expect(parseSeedAllowlist(fs.readFileSync(path.join(root, SEED_ALLOWLIST_FILE), 'utf8'))).toEqual([{
+        file: 'test/new-slow.test.ts',
+        reason: '65s in the weekly recording https://example.test/runs/1; admitted by the recorder so the refreshed seed can land',
+        todo: 'split or speed up until it runs under 60 s, then delete this entry',
+      }]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

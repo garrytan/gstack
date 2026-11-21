@@ -310,7 +310,7 @@ jobs:
   windows-record-durations:
     if: ${{ inputs.record_durations }}
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -334,12 +334,18 @@ jobs:
       # Records into this checkout's default seed path: GSTACK_FREE_TEST_DURATIONS
       # would leak into every timed test, and seed-reading tests would then read
       # the half-written recording instead of their fixtures.
+      # Two workers, not the four a windows-latest runner offers: at four, files
+      # that pass in the nightly run failed under the recording load (assertion and
+      # JSON-parse errors) and the whole recording outran its 30-minute job (runs
+      # 43802987074 and 44830554276); at two it timed all 921 files cleanly in 38
+      # minutes (44830546810).
       - name: Time every Windows-safe file alone
         id: record
         shell: bash
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
+          GSTACK_FREE_JOBS: '2'
         run: |
           set -o pipefail
           bun run test:windows --record-durations --wall-timeout 1200 2>&1 | tee "$RUNNER_TEMP/record.log"
