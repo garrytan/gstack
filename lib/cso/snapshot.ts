@@ -346,6 +346,24 @@ function directoryIdentities(root: string, path: string): DirectoryIdentity[] {
   }
   return identities;
 }
+/** Whether every directory above path exists as a real directory, checked from the root down so no later lstat resolves through a link; false when one is missing, UNSAFE_PATH when one is a symlink or a file. */
+function sourceAncestorsPresent(root: string, path: string): boolean {
+  const rel = relativePath(path);
+  let cursor = root;
+  for (const part of rel.split('/').slice(0, -1)) {
+    cursor = join(cursor, part);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(cursor);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new CsoError('UNSAFE_PATH', `Symlink or non-directory source ancestor: ${rel}`);
+  }
+  return true;
+}
 type LinkIdentity = { dev: number; ino: number; mode: number; target: Buffer };
 /** Read a source symlink's own target string under identity checks; the link itself is never followed. */
 function readLinkStable(root: string, path: string): LinkIdentity {
@@ -761,6 +779,7 @@ export async function capture(
       for (const candidate of list) {
         if (noReadPath(candidate) || outsideAudit(candidate)) continue;
         try {
+          if (!sourceAncestorsPresent(repo, candidate)) continue;
           measured += fs.lstatSync(join(repo, candidate)).size;
           files++;
         } catch {}
@@ -771,6 +790,10 @@ export async function capture(
       guard();
       let source: fs.Stats;
       try {
+        if (!sourceAncestorsPresent(repo, path)) {
+          absentPaths.add(path);
+          continue;
+        }
         source = fs.lstatSync(join(repo, path));
       } catch (error: any) {
         if (error?.code === 'ENOENT') {

@@ -3362,6 +3362,9 @@ would have; `gstack-post` on GitLab uses the origin remote), `host=` when it is 
 github.com, a reply's comment, and a new PR's base, head (the current branch when `--head` is not passed) and draft
 state. Nothing reached GitHub yet. When the repository cannot be resolved the command refuses and prints no line,
 because a hand-off without one would land on whatever repository the host tool defaults to.
+`gstack-release-stamp open` does the same for a new release PR (`pr-create`) after it pushes `release/<version>`.
+/ship's test-failure triage prints no `HOST_PUBLISH:` line: on Capy it keeps its issue title and body files,
+prints where they are and runs no `gh issue create`.
 
 **Fix.** Publish the named files with the host's PR tool before the next gstack step, always passing `repo=`
 (Capy's `repo` argument) so a multi-repo or fork thread edits the right pull request; a `host=` the host tool

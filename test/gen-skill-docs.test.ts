@@ -1226,6 +1226,26 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
     expect(shipSkill).toContain('gh issue create');
   });
 
+  // GSTA-643 list: on Capy gh signs in as the owner, so the triage issue block keeps its files and never calls gh.
+  test.skipIf(process.platform === 'win32')('on Capy the blame + assign block sends nothing through gh', () => {
+    const block = /```bash\n(TITLE_FILE=[^\n]*<title-file-name>[^`]*?case "<platform>"[\s\S]*?)```/.exec(shipSkill)![1]!
+      .replaceAll('<title-file-name>', 't.md').replaceAll('<body-file-name>', 'b.md').replaceAll('<platform>', 'github').replaceAll('<github-username>', 'someone');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triage-capy-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.gstack', 'tmp'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'bin'));
+      for (const name of ['t.md', 'b.md']) fs.writeFileSync(path.join(dir, '.gstack', 'tmp', name), 'text\n');
+      fs.writeFileSync(path.join(dir, 'bin', 'gh'), `#!/bin/sh\necho called > "${dir}/gh-called"\n`, { mode: 0o755 });
+      const r = spawnSync('bash', ['-c', block], { cwd: dir, encoding: 'utf-8', timeout: 15_000, env: { PATH: `${path.join(dir, 'bin')}:/usr/bin:/bin`, HOME: dir, GSTACK_CAPY: '1' } });
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain("Not sent: on Capy, gh signs in as the owner's own GitHub account");
+      expect(fs.existsSync(path.join(dir, 'gh-called'))).toBe(false);
+      expect(fs.existsSync(path.join(dir, '.gstack', 'tmp', 't.md'))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('defaults ambiguous failures to in-branch (safety)', () => {
     expect(shipSkill).toContain('When ambiguous, default to in-branch');
   });
