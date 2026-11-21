@@ -224,7 +224,7 @@ export function prepareCodexHostRuntime(env: NodeJS.ProcessEnv = process.env): s
   if (fs.existsSync(auth)) fs.copyFileSync(auth, path.join(codexHome, 'auth.json'));
   const setup = spawnSync(path.join(ROOT, 'setup'), ['--host', 'codex'], {
     cwd: ROOT, encoding: 'utf8', timeout: SETUP_TIMEOUT_MS,
-    env: hermeticChildEnv({ HOME: home, CODEX_HOME: codexHome, TMPDIR: tmp }, { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] }),
+    env: hermeticChildEnv({ HOME: home, CODEX_HOME: codexHome, TMPDIR: tmp, GSTACK_CONTRIBUTOR: '1' }, { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] }),
   });
   if (setup.status !== 0) {
     fs.rmSync(root, { recursive: true, force: true });
