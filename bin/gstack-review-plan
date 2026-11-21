@@ -31,7 +31,7 @@ import { resultLine } from '../lib/result-codes';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { runScriptSync } from '../lib/script-invocation';
 import { baseNote } from '../lib/gate-diff/git';
-import { collectCommit, collectLive, reviewPlanTimeoutMs } from '../lib/review-collect';
+import { collectCommit, collectLive, consumerScanCap, reviewPlanTimeoutMs } from '../lib/review-collect';
 import { excludeLines, reviewExclude, type Exclusion } from '../lib/review-exclude';
 import { isUnavailable } from '../lib/ship-policy';
 import { reviewPolicy } from '../lib/ship-policy-review';
@@ -316,6 +316,7 @@ function main(): number {
   const out = [`REVIEW_CLASS: ${plan.class} (${plan.reasons.slice(0, 3).join('; ') || 'no signals'})`, reviewDepthLine(plan), `GATE_SCAN: ${gateTagged === null ? 'unavailable' : `tagged=${gateTagged}`} head=${head}`, `REVIEW_BASE: ${ref} ${baseSha.slice(0, 12)}`,
     `TARGETED: classes=${classList(targeted.classes)} rules=${targeted.rules} brief=${brief} targeted_patch_id=${patch}${targeted.reasons.length ? ` reasons=${targeted.reasons.join('; ')}` : ''}`];
   out.push(...excludeLines(exclusion, base), readersLine(readers));
+  if (collected.consumed === 'all' && collected.mergeBase) out.push(`CONSUMER_SCAN: skipped: more than ${consumerScanCap()} data files changed, so each counts as code for review depth; fix: set GSTACK_REVIEW_CONSUMER_SCAN_CAP above that count, or move the data into its own PR (review_exclude_paths still leaves matched files out of the readers' diffs)`);
   out.push(`REVIEW_MODE: ${plan.mode} panel=${review.panel} reader_model=${review.reader_model} platform=${review.platform}`);
   if (declared.length) out.push(`RISK_DECLARED: classes=${plan.declared.join(',')} detected=${plan.detected.join(',') || 'none'}`);
   if (platform) out.push(platform.ok ? `PLATFORM_REVIEW: ${platform.review.id} reviewer=${platform.review.reviewer} head=${platform.review.head}` : `PLATFORM_REVIEW: none (${platform.reason})`);
