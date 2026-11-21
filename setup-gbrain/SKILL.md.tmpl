@@ -483,7 +483,7 @@ SLUG="setup-gbrain-smoke-test-$(date +%s)"
 SMOKE_PAGE=$(mktemp "${TMPDIR:-/tmp}/gstack-gbrain-smoke.XXXXXX")
 echo "Set up on $(date). Smoke test for /setup-gbrain." > "$SMOKE_PAGE"
 gbrain put "$SLUG" < "$SMOKE_PAGE"; PUT_RC=$?
-rm -f "$SMOKE_PAGE"
+rm "$SMOKE_PAGE"
 [ "$PUT_RC" -eq 0 ] && gbrain search "smoke test" | grep -i "$SLUG"
 ```
 
@@ -735,6 +735,6 @@ invocation.
   fi
   ```
 
-  Release it (`rm -rf`, not rmdir) on normal exit AND in the SIGINT trap.
+  Release it (`rm -r`, not rmdir) on normal exit AND in the SIGINT trap.
 - **CLAUDE.md is the audit trail.** Always update it in Step 8 after a
   successful setup.

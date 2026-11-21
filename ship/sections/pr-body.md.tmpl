@@ -223,7 +223,7 @@ BODY_REST_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/
 ~/.claude/skills/gstack/bin/gstack-prose-lint "$BODY_TOP_FILE" --sections 'Why,What changed,Blast radius' --gate >&2 || { echo "Not composed: fix what gstack-prose-lint printed above (a PROSE: line is a sentence to rewrite in the draft; a usage line means the draft lost a heading), then rerun." >&2; exit 1; }
 ~/.claude/skills/gstack/bin/gstack-plain-title check --body-file "$BODY_TOP_FILE" >&2 || { echo "Not composed: rewrite what the PLAIN_TITLE: and PLAIN_BODY: lines above name (at most three plain lines before the first ## heading, no listed word above the Agent notes section), then rerun." >&2; exit 1; }
 { awk 1 "$BODY_TOP_FILE" && cat -- "$DOCS_SECTION_FILE" && echo && awk 1 "$BODY_REST_FILE"; } > "$PR_BODY_FILE" || exit 1
-rm -f "$BODY_TOP_FILE" "$BODY_REST_FILE"
+rm "$BODY_TOP_FILE" "$BODY_REST_FILE"
 echo "PR_BODY_FILE: $PR_BODY_FILE"
 ```
 
@@ -232,7 +232,7 @@ per-lane counts (`{"<lane>":{"pass":N,"fail":N,"skip":N}}`) to
 `.gstack/tmp/ship-gate.json` with your file-write tool, then:
 
 ```bash
-rm -f .gstack/tmp/review-loop.json
+rm .gstack/tmp/review-loop.json 2>/dev/null || true
 NS=$(~/.claude/skills/gstack/bin/gstack-no-stop list | sed -n 's/^NO_STOP_FILE: //p'); [ -s "$NS" ] || NS=
 ~/.claude/skills/gstack/bin/gstack-review-scope summary --since "$REVIEW_SINCE" --no-ledger --out .gstack/tmp/review-loop.json &&
 ~/.claude/skills/gstack/bin/gstack-ship-receipt write --pr <pr-number> --run <SESSION_ID> --base <base> --gate @.gstack/tmp/ship-gate.json --pregate .gstack/tmp/pregate.json --issues @.gstack/tmp/issues.json --review-loop @.gstack/tmp/review-loop.json --docs @.gstack/tmp/docs-audit.json $([ -s .gstack/tmp/targeted.json ] && echo --review-targeted @.gstack/tmp/targeted.json) ${NS:+--no-stop "@$NS"} --body "$PR_BODY_FILE"

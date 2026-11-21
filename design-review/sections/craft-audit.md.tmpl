@@ -4,7 +4,7 @@ Run this in Phases 1-6, on every audited page, when a page is Persuade (the clas
 
 ### 1. Run the design lint on each page
 
-With a URL, save the page in the script that opens it. Aside: add `await fs.writeFile(path.join(pwd, ".{page}.html"), await pg.evaluate(() => document.documentElement.outerHTML));`. Fallback engine: `_CR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-craft.XXXXXX"); $B js 'document.documentElement.outerHTML' --out "$_CR/{page}.page.html" --raw`. A saved page holds session data: whatever the exit code, `rm -rf` it (or `${_CR:?}`) in the block that checks it, and never copy it to the report directory. With no running app, use the page's HTML file in the repo.
+With a URL, save the page in the script that opens it. Aside: add `await fs.writeFile(path.join(pwd, ".{page}.html"), await pg.evaluate(() => document.documentElement.outerHTML));`. Fallback engine: `_CR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-craft.XXXXXX"); $B js 'document.documentElement.outerHTML' --out "$_CR/{page}.page.html" --raw`. A saved page holds session data: whatever the exit code, `rm -r` it (or `${_CR:?}`) in the block that checks it, and never copy it to the report directory. With no running app, use the page's HTML file in the repo.
 
 ```bash
 {{BIN_DIR}}/gstack-design-lint <path-to-page.html>

@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+**Skills no longer stop on Codex when they clean up temp files.** Codex CLI refuses any shell command that runs `rm` with a force flag (`-f`, `-rf`, `--force`), including inside a `trap`, and with approvals off it rejects the whole command ("rm -f style commands are not permitted"). 67 of the 1,239 shell blocks in gstack's Codex skills did that, across 34 files, among them /office-hours, /review, /ship, the plan reviews, /spec and /gstack-upgrade. They now remove a file that is known to exist with plain `rm`, one that may already be gone with `rm <file> 2>/dev/null || true`, and folders with `rm -r`; /ship's leftover-worktree cleanup adds `</dev/null` so a terminal never stops to ask about a git checkout's read-only files. A new test renders the Codex skills and fails on any forced `rm` in a shell block or inline command (GST-3364).

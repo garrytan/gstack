@@ -586,9 +586,9 @@ Persist it into this run's directory, size-capped and redaction-checked: a HIGH 
 ```bash
 _D="<ASIDE_DIR or $_TMP>/{page}.dom.html"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"
 if [ ! -s "$_D" ]; then echo "DOM_DUMP_MISSING: {page} (the dump script wrote nothing)"
-elif [ "$(wc -c < "$_D")" -gt 10485760 ]; then echo "DOM_DUMP_TOO_LARGE: {page} $(wc -c < "$_D")"; rm -f "$_D"
-elif $HOME/.claude/skills/gstack/bin/gstack-redact --from-file "$_D" --max-bytes 10485760 >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "DOM_DUMP_REDACTION_BLOCKED: {page} redact-exit=$_RC"; rm -f "$_D"
-else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 600 "$_REPORT/dom/$_RUN/{page}.dom.html" && rm -f "$_D" && echo "DOM_DUMP_OK: {page}"; fi
+elif [ "$(wc -c < "$_D")" -gt 10485760 ]; then echo "DOM_DUMP_TOO_LARGE: {page} $(wc -c < "$_D")"; rm "$_D"
+elif $HOME/.claude/skills/gstack/bin/gstack-redact --from-file "$_D" --max-bytes 10485760 >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "DOM_DUMP_REDACTION_BLOCKED: {page} redact-exit=$_RC"; rm "$_D"
+else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 600 "$_REPORT/dom/$_RUN/{page}.dom.html" && rm "$_D" && echo "DOM_DUMP_OK: {page}"; fi
 ```
 
 After the LAST page's dump, scan the run directory once (source mode scanned in Setup instead):
@@ -1073,7 +1073,7 @@ Then substitute the printed name for `<brief-file-name>`:
 BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
 [ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
 _OUT=$($D generate --brief "$(cat "$BRIEF_FILE")" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm "$BRIEF_FILE"
 ```
 
 Record the printed `outputPath` for this finding (images are never overwritten, so it may be bumped); later steps use that path. Exit 2: no mockup was saved; skip it for this finding.

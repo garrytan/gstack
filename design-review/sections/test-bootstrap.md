@@ -86,7 +86,7 @@ Write the text into each printed file with your file-write tool (Claude Code's W
 _EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
 PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not sent: $PROMPT_FILE is missing or empty. Write the prompt, then rerun this block." >&2; exit 1; }
-_aside_exec "Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop." && rm -f "$PROMPT_FILE"
+_aside_exec "Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop." && rm "$PROMPT_FILE"
 ```
 
 If Aside is not installed or not running (`command -v aside` prints nothing, or the request fails), run the same lookup with the WebSearch tool when the host provides it: `"[runtime] best test framework {current year}"` and `"[framework A] vs [framework B] comparison"`. If neither is available, use this built-in knowledge table:
