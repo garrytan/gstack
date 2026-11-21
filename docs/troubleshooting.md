@@ -5189,7 +5189,8 @@ a `why:` line, and when a `## Diagnostics` declaration is malformed. The
 result checks add two more (`decisions:` and `scoring:` in the message):
 `## Decisions` needs two or more `if <result>: <action>` lines with different
 actions, and `## Scoring` needs a `judge:` line, a model judge from another
-model family than every arm with `labels:` of 40 or more and `agreement:` of
+model family than every arm with `labels:` of 100 or more (40 for a plan
+frozen before 2026-11-22) and `agreement:` of
 0.6 or more, and with two or more arms `paired: yes`, `interval: 95%` and
 `mdd:`. A `frozen:` date before 2026-11-15 exempts both
 ([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks)). The

@@ -175,8 +175,7 @@ test moves, because its calibration fixtures are keyed to it:
 - Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
 - Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.
 
-Warmup stays on `claude-haiku-4-5`; distill stays on
-`claude-haiku-4-5-20251001`. Explicit test and historical benchmark model
+Warmup and distill stay on `claude-haiku-5-5`. Explicit test and historical benchmark model
 selections still win. These eval defaults stay pinned independently from the
 [runtime model tiers](docs/model-policy.md); the tier freshness workflow does
 not discover or change evaluation models automatically. Paid-run costs shown below are
