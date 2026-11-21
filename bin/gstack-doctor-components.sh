@@ -443,6 +443,7 @@ gstack_result_anchor() {
     EVAL_JUDGE_UNCHECKED) printf '%s' 'eval-judge-unchecked' ;;
     EVAL_REPORT_UNPLANTED_ZERO) printf '%s' 'eval-report-unplanted-zero' ;;
     EVAL_REPORT_NO_ANSWER_ONLY) printf '%s' 'eval-report-no-answer-only' ;;
+    EVAL_QUICK_LOOK_NO_NUMBER) printf '%s' 'eval-quick-look-no-number' ;;
     EVAL_ARM_DUPLICATE) printf '%s' 'eval-arm-duplicate' ;;
     OFFICE_HOURS_PROBE_REFUSED) printf '%s' 'office-hours-probe-refused' ;;
     TASKS_SUPERSEDE_REFUSED) printf '%s' 'tasks-supersede-refused' ;;

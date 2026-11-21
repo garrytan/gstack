@@ -55,13 +55,17 @@ export function checkResults(preregText: string, resultsText: string, labelsText
     if (!tables.length) issues.push({ code: 'EVAL_REPORT_NO_GSTACK_ROW', message: 'no markdown table in the results file' });
     else for (const id of missing) issues.push({ code: 'EVAL_REPORT_NO_GSTACK_ROW', message: `no filled row for ${id} in the table that holds the other arms` });
   }
+  if (prereg.quick) issues.push({ code: 'EVAL_QUICK_LOOK_NO_NUMBER', message: 'the plan is a quick look (kind: quick look), which publishes no number; write a counted-run preregistration to publish one' });
+  for (const s of prereg.missing) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: missing` });
+  for (const s of prereg.empty) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: empty` });
+  for (const e of prereg.loop.errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${e.section}: ${e.message}` });
   let judge: JudgeLabelCheck | null = null;
   if (!prereg.grandfathered) {
     for (const [section, errors] of [['Decisions', prereg.decisions.errors], ['Scoring', prereg.scoring.errors]] as const) {
       for (const e of errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${section}: ${e}` });
     }
     if (prereg.scoring.judge && prereg.scoring.judge.toLowerCase() !== 'none') {
-      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText);
+      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText, arms);
       if (!judge) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: `the preregistration names judge ${prereg.scoring.judge}; pass --labels <hand labels.jsonl>` });
       else if (!judge.ok) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: judge.problems.join('; ') });
     }
