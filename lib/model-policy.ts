@@ -43,7 +43,7 @@ export const ANTHROPIC_MODEL_ID_PATTERN = /^[A-Za-z0-9._:/@+[\]-]{1,512}$/;
 
 const DOCS = 'https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md';
 const DOCS_CONFIG = `${DOCS}#model-policy-config`;
-const DOCS_PROVIDER = `${DOCS}#model-policy-provider`;
+export const DOCS_PROVIDER = `${DOCS}#model-policy-provider`;
 const DOCS_SELECTION = `${DOCS}#model-policy-selection`;
 
 const PROVIDER_LABEL: Record<ModelProvider, string> = { anthropic: 'Anthropic (Claude Code)', openai: 'OpenAI (Codex)' };

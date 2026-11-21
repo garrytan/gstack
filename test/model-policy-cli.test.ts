@@ -203,6 +203,15 @@ describe('gstack-models inspector', () => {
     expect(alias.doc.errors[0]).toMatchObject({ reason: 'custom_provider_model_not_tier', provider: 'openai' });
   });
 
+  test('a custom provider whose config.toml model is not a string reports a structured error', () => {
+    const { env, home } = fixture();
+    fs.mkdirSync(path.join(home, '.codex'));
+    fs.writeFileSync(path.join(home, '.codex', 'config.toml'), 'model = 5\nmodel_provider = "proxy"\n');
+    const r = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
+    expect(r.code).toBe(1);
+    expect(r.doc.errors[0]).toMatchObject({ reason: 'native_provider_unresolved', provider: 'openai', role: 'plan-review' });
+  });
+
   test('project settings in the working directory are custom routing; detection limits are published', () => {
     const { env, root } = fixture();
     const project = path.join(root, 'project');
