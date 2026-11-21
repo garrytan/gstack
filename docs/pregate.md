@@ -850,13 +850,20 @@ hit", so the run holds no `tree.json` and every carry refuses it as
 `artifact_missing`. A profile that sets `tree_log_step` to the name of one step
 in its job lets gstack read `tree.json` from that job's log instead, only when
 the run holds no unexpired artifact by the profile's name at all (an artifact
-always wins). The step prints one line, after the test step, a second after
-that step ends and a second before the next step starts:
+always wins). The step prints one line, after the test step, at least a
+second after that step ends, then sleeps 5 seconds before the next step starts:
 
 ```yaml
 - name: Print tree.json
-  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)" && sleep 2
+  run: sleep 1 && echo "GSTACK_TREE_JSON checks-tree $(base64 -w0 tree.json)" && sleep 5
 ```
+
+The long sleep after the line is what matters. The jobs API cuts each step's
+start and finish to the whole second, and the runner stamps a line when it
+reads the output, a fraction of a second to a second or more after the `echo`
+ran. With `sleep 2` the next step started 1.65 s after the line's stamp on a
+Ubicloud runner (run 44845717681), inside the second the check keeps clear, and
+the run was refused; `sleep 5` leaves room for about 3 s of stamping delay.
 
 gstack reads the log with `gh api --allow-escape-sequences
 repos/<repo>/actions/jobs/<job id>/logs` for every profile job at the attempt
