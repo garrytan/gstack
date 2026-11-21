@@ -1,0 +1,1 @@
+- **Captain setup guidance now says where shared rules belong.** On Capy, crew threads read `CREW.md` every turn; they do not automatically read the Captain's `AGENTS.md`. The guide and standing-rules template direct lane-facing rules and the owner words lanes need to cite to `CREW.md` and its existing standing-approvals table. Contributed by @szsunyuan.

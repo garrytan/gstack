@@ -1,8 +1,10 @@
 # <CREW_NAME> standing rules
 
-The controller's own file. Scope instructions: every thread in the crew reads it. Each
-rule that came from the owner keeps the date and the exact words, so lanes can cite it as
-a standing approval instead of asking again. Append; never rewrite an owner's words.
+The controller's own instructions file. On Capy, crew threads do not automatically
+read it; they read `CREW.md` on every turn. This is a shared-drive file, not an access
+boundary. Keep Captain-only instructions here. Record any owner words a lane must cite
+in `CREW.md`'s standing-approvals table, with the date, exact words and scope, so lanes
+can cite the approval instead of asking again. Append; never rewrite an owner's words.
 
 ## Mandate (<owner>, <date>)
 "<the owner's words for what this crew is for>"
