@@ -183,5 +183,31 @@ describe('a red-team finding the owner ruled not security class (gstack-evals #3
     expect(write.status, write.stderr).toBe(EXIT.ok);
     expect(fs.readFileSync(body, 'utf8')).toContain('"not_security": true');
   });
+
+  // Value: protects=a fix-check grant naming a red-team finding the owner ruled not security class, or another security finding, never
+  //   puts the raw fingerprint into the receipt, so gstack-post accepts the body; fails_when=the receipt's review_round_grants copies
+  //   README.md:515:red-team as gbrain-evals#567's did; why_new=GBEV-103 had to publish #567's body with another tool; seam=gstack-ship-receipt
+  //   write with the grant and ruling in the approval store, then gstack-post's own fingerprint check; no_claim=-
+  test.skipIf(process.platform === 'win32')('a round grant\'s finding list carries the ruled public form or an opaque id, never the fingerprint (gbrain-evals#567)', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    fs.writeFileSync(path.join(f.root, 'stub', 'gh'), '#!/bin/sh\ncase "$*" in *visibility*) echo PUBLIC ;; *) exit 1 ;; esac\n', { mode: 0o755 });
+    const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const ruled = run('gstack-approvals', ['rule', '--finding', 'README.md:515:red-team', '--head', head, '--reason', 'README wording about the power figure; not a security finding', '--words', 'not security', '--by', 'Fixture Owner', '--not-security']);
+    expect(ruled.status, ruled.stderr).toBe(0);
+    const grant = run('gstack-approvals', ['round-grant', '--pr', '7', '--head', head, '--kind', 'fix-check', '--stop-run', 'run1', '--findings', 'test/x.test.ts:70:functional-contract,README.md:515:red-team,src/net/retry.ts:42:security', '--reason', 'branch-caused failures', '--by', 'Fixture Captain']);
+    expect(grant.status, grant.stderr).toBe(0);
+    const body = path.join(f.root, 'body.md');
+    fs.writeFileSync(body, `## Pre-Landing Review\n\n${run('gstack-approvals', ['rulings']).stdout.trim()}\n`);
+    const write = run('gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]);
+    expect(write.status, write.stderr).toBe(EXIT.ok);
+    const text = fs.readFileSync(body, 'utf8');
+    expect(securityFingerprints(text)).toEqual([]);
+    expect(text).toContain('"README.md:515 (red-team, ruled not security class)"');
+    expect(text).toContain('"test/x.test.ts:70:functional-contract"');
+    expect(text).toMatch(/"sf-[0-9a-f]{12}"/);
+    expect(leaks(text, 'src/net/retry.ts:42', 'retry.ts')).toEqual([false, false]);
+  });
 });
 

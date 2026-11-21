@@ -67,7 +67,7 @@ import { appliedGateDispositions, gateDispositionText, publicGateDisposition } f
 import { securityFingerprints } from '../lib/security-findings';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
-import { grantFor, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
+import { grantFor, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { patchId, productPatchAgainstBase, productRules, productSpec, verifiedOutputs } from '../lib/ship-receipt-patch';
 import { runCalls } from '../lib/ship-clock';
@@ -386,7 +386,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
-      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_round_grants: roundGrantsFor(repoRoot, flag(rest, '--pr')), ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_round_grants: roundGrantsFor(repoRoot, flag(rest, '--pr'))?.map(g => publicRoundGrant(g, ruledNotes)), ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       design: review.frontend ? { mode: 'static', reason: 'no preview declared' } : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
