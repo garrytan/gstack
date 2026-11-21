@@ -130,7 +130,7 @@ if [ "$EVENT_TYPE" = "onboarding" ]; then
   OB_NAME="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
   OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$(date -u +%Y-%m-%d)"
   mkdir -p "$ANALYTICS_DIR" 2>/dev/null
-  ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0
+  ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0 # best-effort: another run already recorded this step today
   for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
 fi
 
