@@ -455,15 +455,18 @@ _careful_push_default() {
 }
 
 _careful_push() {
-  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0 pov=0
+  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0 pov=0 pw=0 d0=0
   local refs=()
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
     # git reads the word after -o as its push-option value, so it never undoes -n.
+    pw=0
     if [ "$pov" -eq 1 ]; then
       pov=0
       case "$t" in --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) continue ;; esac
+      # Nor does it start a dry run: the value keeps the dry-run state before it.
+      pw=1; d0=$dry
     fi
     case "$t" in
       --force-with-lease*|--force-if-includes) lease=1 ;;
@@ -472,7 +475,7 @@ _careful_push() {
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
       --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0 ;;
-      --push-option) pov=1 ;;
+      --pu|--pus|--push|--push-|--push-o|--push-op|--push-opt|--push-opti|--push-optio|--push-option) pov=1 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
       --repo) repo=1; val=1 ;;
@@ -481,7 +484,14 @@ _careful_push() {
         # In a short-option group, letters after o are its push-option value.
         c="${t#-}"
         case "$c" in
-          *[!a-zA-Z]*) ;;
+          *[!a-zA-Z]*)
+            # A group with a digit (-f4, -4f, -fo-n) still forces; it never starts a dry run here.
+            case "${c%%o*}" in
+              ''|*[!a-zA-Z0-9]*) ;;
+              *)
+                [ "${c%%o*}o" != "$c" ] || pov=1
+                case "${c%%o*}" in *f*) force=1 ;; esac ;;
+            esac ;;
           *)
             [ "${c%%o*}o" != "$c" ] || pov=1
             c="${c%%o*}"
@@ -498,6 +508,7 @@ _careful_push() {
           refs[$nr]="$r"; nr=$((nr + 1))
         fi ;;
     esac
+    if [ "$pw" -eq 1 ] && [ "$d0" -eq 0 ]; then dry=0; fi
   done
   [ "$dry" -eq 0 ] || return 0
   if [ "$force" -eq 1 ] && [ -z "$_PUSH_DENY" ]; then _careful_push_default; fi
