@@ -96,9 +96,9 @@ export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: 
     if (r.status === 1 || git('cat-file', '-e', `${head}^{commit}`).status !== 0) return false;
     throw new Error(`git merge-base --is-ancestor ${head.slice(0, 12)} ${o.pin.slice(0, 12)} failed (${(r.stderr ?? r.error?.message ?? '').trim().slice(0, 120) || `exit ${r.status}`})`);
   };
-  const rows = [...readRecord(loc).rows, ...(o.noted ?? [])];
+  const byId = new Map([...(o.noted ?? []), ...readRecord(loc).rows].map(r => [r.id, r]));
+  const rows = [...byId.values()].sort((a, b) => String(a.recorded_at).localeCompare(String(b.recorded_at)));
   const applied = gateDispositions(rows, loc.branch).filter(d => contains(d.head));
-  const byId = new Map(rows.map(r => [r.id, r]));
   return { applied, rows: applied.map(d => byId.get(d.approval)!), loc };
 }
 

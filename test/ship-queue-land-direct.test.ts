@@ -1375,6 +1375,19 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     expect(other).toEqual([]);
   }, 120_000);
 
+  test('#4581: a newer store row for the same finding wins over an older READY note row', () => {
+    const fx = prep();
+    const head = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', head).status).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-47' }) as StoreLocation;
+    const older = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const again = runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-47', '--finding', F, '--gate-id', G, '--head', head, '--reason', 'owner re-ruled after ready', '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+    expect(again.status, again.err).toBe(0);
+    const newer = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    expect(newer.id).not.toBe(older.id);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-47', pin: head, env: storeEnv(fx), noted: [older] }).applied.map(d => d.approval)).toEqual([newer.id]);
+  }, 120_000);
+
   test('a row the lane appends to the store by hand, digest and all, still needs the lander: land refuses and prints it, a wrong id refuses, and the accepted id lands', () => {
     const fx = prep();
     const head = openPr(fx, '42');
