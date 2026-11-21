@@ -1090,7 +1090,8 @@ refuses without the file, so every lane runs one definition. The file is
 repository content: its setup script and pull destinations must resolve inside
 `--src`, and a name it lists under `pass` is forwarded only when the command
 line grants it (`--pass NAME`, or all of them with `--trust-config`); `--pass`
-never forwards `UBICLOUD_*`. All of this is pinned offline in
+forwards only variables exported before the runner started, never `UBICLOUD_*`,
+`UBI_RECOVERY_KEY` or `UBI_SINK`. All of this is pinned offline in
 `test/ubicloud-runner*.test.ts` against a fake API and a fake `ssh`, including
 a fixture whose fake API creates, so `run` and `verify` execute end to end.
 
