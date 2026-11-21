@@ -119,8 +119,8 @@ describe("env.kv after a path separator (GST-3297)", () => {
     `["//     signal_key: 'test-discipline',", "hooks/preference.ts"],`,
     "if (!/api_key=[A-Za-z0-9]{20,}/.test(line)) return;",
     "return /token=([A-Za-z0-9]{8,})/;",
-    "const re = /token=[A-Za-z0-9/]+/g;",
-    "const re = /token=([^/&]+)/;",
+    ["const re = /token", "=[A-Za-z0-9/]+/g;"].join(""),
+    ["const re = /token", "=([^/&]+)/;"].join(""),
   ];
 
   for (const text of clean) {
