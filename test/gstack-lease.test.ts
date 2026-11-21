@@ -762,6 +762,26 @@ describe('gstack-lease', () => {
   });
 
   // GST-1204: gstack-ship-preflight asks whether one /ship run is still open; open answers with the same released, aged-out, dead and stale rules live uses.
+  test('open answers for one run: 0 while it is open on a live holder; 1 after release, once it ages out, for another id and for a dead holder', () => {
+    const { dir, leases } = checkout();
+    const open = (args: string[]) => run(['open', '--root', dir, ...args]).status;
+    const p = sleeper();
+    expect(run(['touch', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+    expect(open(['--run', `${p}-1-a`])).toBe(0);
+    expect(open(['--run', `${p}-1-a`, '--pid', String(p)])).toBe(0);
+    expect(open(['--run', `${p}-2-b`])).toBe(1);
+    expect(open([])).toBe(2);
+    expect(run(['release', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+    expect(open(['--run', `${p}-1-a`])).toBe(1);
+    const aged = sleeper();
+    expect(run(['touch', '--root', dir, '--pid', String(aged), '--run', `${aged}-1-old`]).status).toBe(0);
+    const file = path.join(leases, String(aged));
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^run (\S+) \d+$/m, `run $1 ${Math.floor(Date.now() / 1000) - 121 * 60}`));
+    expect(open(['--run', `${aged}-1-old`])).toBe(1);
+    const dead = deadPid();
+    expect(run(['touch', '--root', dir, '--pid', String(dead), '--run', `${dead}-1-a`]).status).toBe(0);
+    expect(open(['--run', `${dead}-1-a`])).toBe(1);
+  });
 
   test('gstack-skill-start reports a lease the held lock kept from being written, and still starts', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lease-home-'));

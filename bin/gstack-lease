@@ -73,8 +73,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$VERB" in
-  touch|live|list|release) ;;
-  -h|--help|'') sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  touch|live|list|release|open) ;;
+  -h|--help|'') sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-lease: unknown verb '$VERB'" >&2; exit 2 ;;
 esac
 [ -n "$ROOT" ] || ROOT=$(gstack_source_root "$BIN")
