@@ -55,7 +55,7 @@ function exercise(spec: Spec) {
         maxTurns: 12, timeoutMs: 240_000 });
     }
     for (const { request } of facts.judgeRequests) {
-      expect(request).toMatchObject({ model: 'claude-haiku-4-5-20251001', max_tokens: 8192 });
+      expect(request).toMatchObject({ model: 'claude-haiku-5-5', max_tokens: 8192 });
     }
     for (const input of facts.inputs) {
       expect(input).toMatchObject({ model: 'fixture-model', maxTurns: 12, tools: ['Read', 'Write', 'AskUserQuestion'],
