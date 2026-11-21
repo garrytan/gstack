@@ -83,6 +83,9 @@ describe('preflight Step 5: a worktree with no installed packages stops with the
     const f = shipFixture({ 'package.json': '{"name":"fx","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n', 'package-lock.json': '{}\n' });
     fixtures.push(f);
     expect(lineOf(testsOnly(f).stdout, 'STOP')).toContain(`&& npm ci, then rerun this command`);
+    const shrink = shipFixture({ 'package.json': '{"name":"fx","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n', 'npm-shrinkwrap.json': '{}\n' });
+    fixtures.push(shrink);
+    expect(lineOf(testsOnly(shrink).stdout, 'STOP')).toContain(`&& npm ci, then rerun this command`);
     const plain = shipFixture();
     fixtures.push(plain);
     expect(testsOnly(plain).stdout).not.toContain('DEPS_MISSING');
@@ -96,5 +99,8 @@ describe('preflight Step 5: a worktree with no installed packages stops with the
     const out = testsOnly(f);
     expect(out.stdout).not.toContain('DEPS_MISSING');
     expect(out.stdout).toMatch(/^PREGATE: /m);
+    const classic = shipFixture({ 'package.json': '{"name":"fx","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n', 'yarn.lock': '\n', '.pnp.js': '\n' });
+    fixtures.push(classic);
+    expect(testsOnly(classic).stdout).not.toContain('DEPS_MISSING');
   });
 });
