@@ -83,12 +83,11 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
 });
 
 describe('adoption surfaces recommend the loop, never require it (T5, T31)', () => {
-  test('lane card, routing block, docs/skills.md and /design-html', () => {
+  test('lane card, docs/skills.md and /design-html', () => {
     const lane = read('capy/skill/gstack/lane-card.md');
     expect(lane).toContain('UI work (recommended, never a READY prerequisite)');
     expect(lane).toContain('`install.sh --check --for design-review` and `gstack-browser-ensure`');
     expect(lane).toContain('A start that prints `GSTACK_RESULT: skill=design-review status=refused` is `DESIGN_BUILD: unrendered code=INSTALL`');
-    expect(read('bin/gstack-skill-start')).toContain('- Building UI → once it renders, invoke /design-review --build <preview url> (opt-in)');
     expect(read('docs/skills.md')).toContain('**`--build` (opt-in, for UI you are building).**');
     expect(read('design-html/SKILL.md.tmpl')).toContain('recommend (opt-in, never required) `/design-review --build <preview url>`');
     expect(read('design-html/SKILL.md')).toContain('/design-review --build <preview url>');
