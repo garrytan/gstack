@@ -14,7 +14,8 @@ import { gateDispositionText, type GateDisposition } from '../lib/gate-dispositi
 import { EXIT as POST_EXIT, runPost, type PostEnv } from '../lib/gstack-post';
 import { deferredRecord, renderDeferredSection } from '../lib/review-scope';
 import { ruledNoteRow, ruledNoteText, type RuledNote } from '../lib/ruled-notes';
-import { securityFingerprints } from '../lib/security-findings';
+import { publicRoundGrant, type ReviewRoundGrant } from '../lib/review-round-grant';
+import { REDACTED_REASON, securityFingerprints } from '../lib/security-findings';
 import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
@@ -211,3 +212,20 @@ describe('a red-team finding the owner ruled not security class (gstack-evals #3
   });
 });
 
+
+// Value: protects=a round grant whose finding list names an unruled security finding publishes neither the fingerprint nor the grant's
+//   free-text reason, which can describe the hole, while a grant whose only security finding the owner ruled not security class keeps
+//   its reason; fails_when=publicRoundGrant redacts the findings and passes the reason through; seam=publicRoundGrant, the one mapping
+//   gstack-ship-receipt write applies to review_round_grants; no_claim=the approval record's own private copy
+describe('round grants in the receipt', () => {
+  const grant = (findings: string[]): ReviewRoundGrant => ({ kind: 'fix-check', head: HEAD, pr: 7, by: 'Fixture Captain', reason: SECRET_REASON, at: '2026-11-18T00:00:00Z', approval: 'a-0123456789ab', stop_run: 'run1', findings });
+  test('an unruled security finding redacts the reason too; a ruled-not-security one and a plain grant keep it', () => {
+    const hidden = JSON.stringify(publicRoundGrant(grant([SEC, 'test/x.test.ts:70:functional-contract']), []));
+    expect(leaks(hidden, 'src/net/retry.ts', SECRET_REASON)).toEqual([false, false]);
+    expect(hidden).toContain(REDACTED_REASON);
+    expect(securityFingerprints(hidden)).toEqual([]);
+    const ruled = publicRoundGrant(grant(['README.md:515:red-team']), [{ ...note('README.md:515:red-team', 'README wording'), not_security: true }]);
+    expect(ruled).toMatchObject({ reason: SECRET_REASON, findings: ['README.md:515 (red-team, ruled not security class)'] });
+    expect(publicRoundGrant(grant(['test/x.test.ts:70:functional-contract']), [])).toEqual(grant(['test/x.test.ts:70:functional-contract']));
+  });
+});
