@@ -6,6 +6,12 @@ Amended 2026-11-17, before any paid call, on the owner's grant (GSTA-36): Cases 
 revert conflicts in docs, tests and the plant's own file, because only 5 of the 10 hosts needed (and no large one)
 reverted cleanly onto the frozen main commit. No bar, arm, decision, scoring rule or stop rule changed.
 
+Amended 2026-11-21, before any paid call, on the owner's grant (GSTA-36), to meet two rules adopted on 2026-11-19
+that cover plans whose counted runs have not started: R111 (an uncounted pilot per arm that shows the part under test
+ran and the judge works on that arm's outputs) and R113 (one planned look at half the cases, with fixed stop bounds).
+It changes the Procedure, the judge's labels, the Stop rules, the Budget and Held-out exposure, and adds the Halfway
+look. No bar, arm or decision line changed.
+
 Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); runner GSTA-589. Paid runs start only
 after this file merges and the owner approves the budget below.
 
@@ -107,8 +113,28 @@ sealing subagent picks them after this file merges, by these rules:
 ## Procedure
 Trials run in waves. Each wave starts C and F on the same case and trial at the same time, each in a new thread with
 no earlier context, so time of day and CI load hit both alike; N runs separately, since it shares nothing with them.
-Wave 1 is the pilot: trial 1 of the first 3 cases in all three arms. It counts toward the run unless a stop rule
-fires. The order of cases follows the sealed seed.
+The order of cases follows the sealed seed.
+
+**Pilot (uncounted).** Before any counted trial, every arm runs one uncounted trial on each of cases 1 to 3, under the
+same briefs, harness and waves as the counted trials. Its results never enter a counted comparison. It must show, on
+each arm's own outputs:
+1. C: the thread started one /ship subagent, and the /ship phases ran inside it, not in the thread.
+2. F: no subagent ran /ship (no `gstack-ship-phase` call outside the thread), and every reviewer the run's printed
+   review plan named was started by the thread and collected.
+3. N: the install check found no gstack, and the read audit found no read of a gstack skill file or a Capy drive.
+4. Every case can be supplied: its base and head branches check out, typecheck runs on both, and the runner can run
+   its sealed regression test at a head.
+An arm that fails a check is fixed by a dated change to this file and piloted again, or left out before its counted
+run and reported as left out. Each arm's pilot is at most a tenth of its counted spend (3 of 30 trials).
+
+**Judge stage (uncounted).** After the pilot and before any counted trial, N runs one more uncounted trial on each of
+cases 4 to 10. The judge's labels come from the pilot's outputs in all three arms plus these seven N trials (see
+Scoring). If they hold fewer than 48 findings, or fewer than 24 from C and F, C and F each run one uncounted trial on
+case 4, then case 5, until both counts are met or this stage reaches $150. These trials never enter a counted
+comparison.
+
+**Counted trials.** Then the 90 counted trials (3 per case per arm) run, cases in seed order, with the halfway look
+below.
 
 Measured per trial: cost.dollars of the arm's thread and all its subagents at its final report; wall time from the
 brief to the final report; `calls=` from `SHIP_RECEIPT:` and the `CALLS:` line; whether `STOP: past 100 minutes`
@@ -133,13 +159,29 @@ fix, goes to GPT-6 Astra with the case diff. It answers two questions: does this
 a test, break production, or lose data or secrets), and which other findings name the same problem. A case's real
 problems are the union of judged-real problems across all arms and trials; each arm's catch rate on them uses the
 rule above, with the judge's grouping in place of the planted label. The judge sees findings as A, B and C, never an
-arm name, model or cost. It is checked first against 48 hand-checked labels: findings from merged gstack pull
-requests outside the case set, 24 that led to a fix and 24 dismissed below the floor, each read against its diff by
-the runner and frozen with a SHA-256 before the judge sees any. `gstack-eval-plan judge --check` must print
+arm name, model or cost. It is checked first against 48 hand-checked labels taken from the uncounted pilot and judge
+stage outputs (Procedure), at least 24 of them from C and F: every finding those runs listed, of any severity, each
+labelled real or not real by the runner against the case diff and the sealed label, with both classes present, and
+frozen with a SHA-256 before the judge sees any. This is R111's judge check, run in a stage before any counted
+trial because a tenth of an arm's spend cannot buy 48 labels. `gstack-eval-plan judge --check` must print
 `JUDGE_AGREEMENT: ok` (Cohen's kappa at least 0.6) before its numbers count.
 
 **Comparisons.** Every comparison is paired by case: the per-case difference of means (cost, wall time, `calls=`)
 or of catch rates, with a 95% t interval over the 10 cases. Every trial is reported; nothing is averaged away.
+
+## Halfway look
+One look at the primary comparisons (cost and planted-bug catch rate, F minus C), taken once cases 1 to 5 in seed
+order have all 3 counted trials in C and F. No other look at a primary comparison counts. Bounds are R113's two-look
+O'Brien-Fleming bounds for a two-sided 0.05 test: z of 2.80 or more either way at the look, 1.98 at the end. With 5
+and then 10 paired cases, each bound is applied as its two-sided nominal p-value (0.0051 at the look, 0.0477 at the
+end) to the paired t statistic over the cases, so the small sample keeps the error rate this plan froze.
+- Stop for a difference: if either primary crosses the look's bound either way, the counted trials stop, and the
+  decision is taken by the Decisions lines on cases 1 to 5, with the structural-loss rule read over those cases.
+- Stop for futility: if the conditional power that the final cost interval lies wholly below $0, under the planned
+  saving of $10 a run and the spread measured so far, falls below 10%, the counted trials stop and the decision is
+  taken the same way, on cases 1 to 5.
+- Otherwise cases 6 to 10 run, and the final comparisons use the end bound.
+A run that stops early says so in its first line, and its estimates are reported as possibly overstated.
 
 ## Decoys
 Before any trial, the catch script scores 50 synthetic finding lists built from the sealed labels, 5 per case: the
@@ -161,8 +203,10 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 ## Stop rules
 - Spend cap: $3,250 cost.dollars for everything in the budget table (the approved figure replaces it if lower). `budget_exhausted` stops the run with every finished trial reported, and the run does not resume.
 - Per trial: $150 or 4 hours. A trial stopped there is recorded as incomplete, with its cost at the stop counted (a lower bound, flagged), and scored on what it caught by then.
-- Pilot: if any pilot C or F trial ends without a receipt for a harness reason (machine, install, CI wiring), the run stops; the fix is a dated change to this file before the first counted trial, or a new preregistration if a bar, arm or decision changes.
-- The catch script below 50 of 50 on decoys, or the judge below kappa 0.6: stop before any trial; fix the script or the judge prompt and relabel; never lower a bar.
+- Pilot: if any pilot trial fails one of the Procedure's four checks, or a C or F pilot trial ends without a receipt for a harness reason (machine, install, CI wiring), no counted trial starts; the fix is a dated change to this file and a new pilot, or the arm is left out and reported as left out; a change to a bar, arm or decision is a new preregistration.
+- Judge stage: the judge stage reaching $150 without 48 labels, 24 of them from C and F, stops the run before any counted trial.
+- Halfway look: the stops in the Halfway look section.
+- The catch script below 50 of 50 on decoys (before any trial), or the judge below kappa 0.6 (after the judge stage, before any counted trial): stop; fix the script or the judge prompt and relabel; never lower a bar.
 - Projection: if the pilot's projection for all 90 trials plus the fixed costs exceeds the approved budget, stop and ask again with the new figure.
 - No retries of a counted trial, with the one exception AGENTS.md allows: a red case may rerun once at the same head as a new panel, reported as flaky. Harness or infrastructure failures never rerun.
 
@@ -173,14 +217,16 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 | F trials | 30 | $38 | $1,140 |
 | N trials | 30 | $6 | $180 |
 | Sealing: picking hosts and plants, proving each plant | 1 | $60 | $60 |
+| Pilot, uncounted: one trial of cases 1 to 3 in each arm | 3 | $82 | $246 |
+| Judge stage, uncounted: N on cases 4 to 10 | 7 | $6 | $42 |
 | Judge: 48 labels plus about 300 findings on GPT-6 Astra | 1 | $80 | $80 |
 | Runner: waves, audits, scoring, results write-up | 1 | $150 | $150 |
 | /ship of the results pull request | 1 | $35 | $35 |
-| **Estimate** | | | **$2,785** |
-| Cap (estimate plus about 15%) | | | $3,250 |
+| **Estimate** | | | **$3,073** |
+| Cap (approved by GSTA-36) | | | $3,250 |
 
-That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
-(about $10 a run), the actual total is near $2,500. Machines, CI minutes and the runner VM are not in cost.dollars and
+If the judge stage needs its extra C and F trials, they add up to $76 (worst case $3,149), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
+(about $10 a run), the actual total is near $2,790. Machines, CI minutes and the runner VM are not in cost.dollars and
 are reported separately. Each case gets 3 trials because AGENTS.md gives a `behavior` case a panel of 3, and because
 one trial each would let noise decide the "misses nothing" bar (see Bars).
 
@@ -188,7 +234,7 @@ one trial each would let noise decide the "misses nothing" bar (see Bars).
 | set | prior exposure (which runs, which models) | reservation (what this run may read) |
 |---|---|---|
 | the 10 sealed cases (hosts, plants, labels) | none: picked after this file merges; hosts and fixes are public on GitHub, all merged after Opus 5.5's June 2026 training cutoff | arms read only their case checkout; the runner reads labels to score; the judge reads findings and the case diff, never the labels |
-| the 48 judge labels | findings already read by /ship reviewers on their own pull requests, none in the case set | the judge reads them once for `judge --check` |
+| the 48 judge labels | none: findings from this run's own uncounted pilot and judge-stage trials, labelled before the judge sees them | the judge reads them once for `judge --check`; they never enter a counted comparison |
 
 ## After the run
 Results go to `docs/evals/ship-conductor-fold-results.md`, opening with two or three plain takeaways, with one table
