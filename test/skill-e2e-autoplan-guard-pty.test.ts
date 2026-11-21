@@ -24,7 +24,7 @@ import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 import { launchClaudePty, selectPtyNumberedOption } from './helpers/claude-pty-runner';
 import { closePacketReadAfterNotice, guardRunNeedsJournal, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 
 describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty'], () => {
   testIfSelected('autoplan-guard-pty', async () => {

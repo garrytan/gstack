@@ -11,7 +11,7 @@ export const EVAL_RESULT_CODES = {
   PREREG_INCOMPLETE: {
     anchor: 'prereg-incomplete',
     summary: 'the preregistration file lacks a required section, a section is empty, or the Comparison, Decisions, Scoring or Diagnostics declaration is malformed',
-    fix: 'fill every section `gstack-eval-plan prereg --check` names (bars, decisions, arms, comparison, scoring, decoys, stop rules, held-out exposure) before any priced call: at least two decisions with different actions, and a judge from another model family checked against at least 40 labels at kappa 0.6 or better',
+    fix: 'fill every section `gstack-eval-plan prereg --check` names (bars, decisions, arms, comparison, scoring, decoys, stop rules, held-out exposure) before any priced call: at least two decisions with different actions, and a judge from another model family checked against at least 100 labels (40 for a plan frozen before 2026-11-22) at kappa 0.6 or better',
   },
   // Field list 2 (2026-10-16), W8: preregistered diagnostics run before the freeze commit.
   PREREG_DIAGNOSTIC_UNTESTED: {

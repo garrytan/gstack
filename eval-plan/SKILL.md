@@ -154,6 +154,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Decisions | one `if <result>: <what we do>` line per way the run can come out, at least two, with different actions |
 | Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
+| Models | optional: `reader:` and `simulator:` lines for every other model the run starts; `vendor-default: <model> <system>` for a competitor system's built-in model when that system is tested as its vendor ships it |
 | Scoring | `judge: none` or the judge model with `labels:`, `agreement:`, `per-arm: yes` and `effort:`; with two or more arms, `paired: yes`, `interval: 95%`, `mdd:` |
 | Pilot | per arm, uncounted: `share:` (at most 10% of the arm's budget), `counted: no`, `ran:`, `judge:`, `supply:`, `units:` (every unit type), `seed:` (a draw order that doesn't depend on the number of workers) |
 | Cost | `paid:` a plain dollar amount (no k, ranges or arithmetic), `meter:`, `ledger:` (the private file that gets the actual cost and the decision it settled) |
@@ -210,8 +211,8 @@ at least one, so `expected` is 1 or more and the summarizer is shown to find it.
 1. **Decisions before spend.** Each possible result names what we do differently. If
    every result leads to the same action, the eval changes nothing: do not run it.
 2. **A checked judge.** A model judge comes from another model family than every arm,
-   is checked against at least 40 hand-labelled outputs (never held-out rows) at a
-   kappa of 0.6 or better, and the comparison is paired with a 95% interval and its
+   is checked against at least 100 hand-labelled outputs (40 for a plan frozen before
+   2026-11-22; never held-out rows) at a kappa of 0.6 or better, and the comparison is paired with a 95% interval and its
    smallest detectable difference stated now.
 
 3. **The eval-loop checks** (docs/TESTING_INTERNALS.md#eval-loop-checks): the Pilot,
@@ -242,7 +243,12 @@ gets its own pilot attempts; naming one identity twice is `EVAL_ARM_DUPLICATE`.
 Models under test are frontier models (`claude-opus-5-5`, `gpt-6.2-sol`, at most one named
 low-cost primary); a Haiku or Sonnet arm only with a stated tier question
 (docs/TESTING_INTERNALS.md#frontier-models-under-test). Judges: `gpt-6-astra` or
-`gpt-6.2-astra` for Claude arms, `claude-opus-5-5` for GPT arms.
+`gpt-6.2-astra` for Claude arms, `claude-opus-5-5` for GPT arms. No arm, judge, reader or
+simulator may be gpt-4o or a model `lib/pricing.ts` marks `superseded_by` (R116): `prereg
+--check` prints `MODEL_GENERATION: refused <model> role=<role> replacement=<model>` and
+exits 1 (`EVAL_MODEL_OLD_GENERATION`); `dry-run` and `pilot start` refuse such an arm too.
+The one exception is a competitor system tested as its vendor ships it: its built-in model
+goes on a `vendor-default:` line, `MODEL_EXCEPTION:` records it, and the results name it.
 
 When the repo commits `.gstack/eval-models.json` (allow, deny, per-scope lists, families
 newest first; `docs/eval-models.md` in gstack), `arms`, `dry-run`, `pilot start` and
@@ -299,6 +305,7 @@ the budget the run will use. The checklist printed must be all `ok`:
 - `CHECK: reservation-fits-cap` (with `--cap <cap-usd>`) — one call, the largest row plus the
   output budget, priced, fits under the cap; a provider refuses a reservation the cap cannot hold.
 - `CHECK: frontier` — Haiku/Sonnet arms: `refused` if all (pass `--tier-question "<why>"`), `warn` if some; re-costs on frontier prices.
+- `CHECK: model-generation` — an arm is gpt-4o or superseded (R116): refused, with the replacement.
 - `DRY_RUN_ROW:` lines name rows missing a field; fix the rows, not the prompt.
 
 `DRY_RUN_RESULT: pass` writes `dry-run.json` to `--out`; the pilot refuses to start on

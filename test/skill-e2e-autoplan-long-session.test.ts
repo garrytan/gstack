@@ -17,7 +17,7 @@ import { launchClaudePty, resolveClaudeBinary, selectPtyNumberedOption } from '.
 import { prepareGuardSession } from './helpers/autoplan-guard-pty';
 import { padBeforeCompactBoundary } from './helpers/journal-padding';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 const PADDED_BYTES = 101 * 1024 * 1024;
 
 describeIfSelected('autoplan long-session guard', ['autoplan-long-session'], () => {

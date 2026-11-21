@@ -10,7 +10,7 @@
  * Reads text only; executes nothing.
  */
 import { armIdentities, checkPrereg } from './eval-plan';
-import { checkJudgeLabels, type JudgeLabelCheck } from './eval-plan-checks';
+import { checkJudgeLabels, modelGenerationProblems, type JudgeLabelCheck } from './eval-plan-checks';
 import type { ResultCodeName } from './result-codes';
 
 export interface ResultsIssue { code: ResultCodeName; message: string }
@@ -59,6 +59,8 @@ export function checkResults(preregText: string, resultsText: string, labelsText
   for (const s of prereg.missing) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: missing` });
   for (const s of prereg.empty) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: empty` });
   for (const e of prereg.loop.errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${e.section}: ${e.message}` });
+  for (const p of modelGenerationProblems(prereg.models)) issues.push({ code: 'EVAL_MODEL_OLD_GENERATION', message: p });
+  for (const e of prereg.models.exceptions) if (!resultsText.toLowerCase().includes(e.model.toLowerCase())) issues.push({ code: 'EVAL_MODEL_OLD_GENERATION', message: `the results never name ${e.model}, the vendor default kept for ${e.system}; the results row names it` });
   let judge: JudgeLabelCheck | null = null;
   if (!prereg.grandfathered) {
     for (const [section, errors] of [['Decisions', prereg.decisions.errors], ['Scoring', prereg.scoring.errors]] as const) {

@@ -15,8 +15,10 @@ const COST: Record<string, string> = { paid: '$200', meter: '$40', ledger: 'the 
 const INTERIM: Record<string, string> = { at: '50%', looks: '1', bounds: "O'Brien-Fleming, |z| >= 2.80 at the look, 1.98 at the end", futility: 'stop when the paired difference is below zero at the look' };
 const kv = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}: ${v}`).join('\n');
 const without = (o: Record<string, string>, k: string) => Object.fromEntries(Object.entries(o).filter(([key]) => key !== k));
+/** A freeze date before the R78 amendment's 100-label bar (2026-11-22), so these fixtures keep testing the 40-label rules they were written for. */
+const JUDGE_40_FROZEN = '2026-11-21';
 const plan = (o: { pilot?: Record<string, string>; cost?: Record<string, string>; interim?: Record<string, string> | null; scoring?: string; arms?: string; bars?: string; heldOut?: string; frozen?: string } = {}) => [
-  o.frozen ? `frozen: ${o.frozen}\n` : '',
+  `frozen: ${o.frozen ?? JUDGE_40_FROZEN}\n`,
   `## Bars\n${o.bars ?? '- pass rate, higher is better'}\n`,
   '## Decisions\nif the skill arm passes more items: keep the skill\nif there is no difference: cut the skill\n',
   `## Arms\n${o.arms ?? '- claude-opus-5-5 the skill installed\n- claude-opus-5-5#plain no skill'}\n`,
@@ -54,7 +56,7 @@ describe('## Scoring per arm and effort (R78, G14)', () => {
   });
 
   test('with per-arm: yes, every label row names its arm and each arm meets the bar', () => {
-    const scoring = { judge: 'gpt-6.2-astra', labels: 40, agreement: 0.6, errors: [], per_arm: true };
+    const scoring = { judge: 'gpt-6.2-astra', labels: 40, agreement: 0.6, errors: [], per_arm: true, min_labels: 40 };
     const row = (i: number, arm: string | null, flip: boolean) => JSON.stringify({ id: `i${i}`, ...(arm ? { arm } : {}), human: i % 2 ? 'pass' : 'fail', judge: (i % 2 ? 'pass' : 'fail') === 'pass' !== flip ? 'pass' : 'fail' });
     const rows = (arm: (i: number) => string | null, flip: (i: number) => boolean) => Array.from({ length: 40 }, (_, i) => row(i, arm(i), flip(i))).join('\n');
     const good = checkJudgeLabels(scoring, rows(i => (i < 20 ? 'a' : 'b'), i => i === 0));

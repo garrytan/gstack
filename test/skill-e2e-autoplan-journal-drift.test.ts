@@ -23,7 +23,7 @@ import { resolveClaudeCommand } from '../lib/claude-bin';
 import { readOwnedClaudePublicTranscript, readPlanCountTranscript } from '../lib/claude-public-transcript';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const CANARY_MODEL = 'claude-haiku-4-5-20251001';
+const CANARY_MODEL = 'claude-haiku-5-5';
 const PINNED = /@anthropic-ai\/claude-code@(\d+\.\d+\.\d+)/.exec(
   fs.readFileSync(path.join(ROOT, '.github/docker/Dockerfile.ci'), 'utf8'))?.[1];
 

@@ -684,8 +684,8 @@ export const RESULT_CODES = {
   },
   EVAL_MODEL_OLD_GENERATION: {
     anchor: 'eval-model-old-generation',
-    summary: 'an arm names an older generation of a model family the eval model rules order newest first',
-    fix: 'use the newest id of the family the EVAL_MODEL line names, or reorder families in .gstack/eval-models.json in a reviewed PR',
+    summary: 'an arm, judge, reader or simulator is gpt-4o or a model lib/pricing.ts marks superseded_by (R116), or an arm is not the newest id of a family the eval model rules order newest first',
+    fix: 'use the replacement the MODEL_GENERATION or EVAL_MODEL line names; a competitor system tested as its vendor ships it declares its built-in model with a vendor-default: line in ## Models; or reorder families in .gstack/eval-models.json in a reviewed PR',
   },
   EVAL_MODEL_GENERATION_UNRESOLVED: {
     anchor: 'eval-model-generation-unresolved',

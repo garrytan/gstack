@@ -36,8 +36,8 @@ const DEFAULTS = {
   // Tests needing a cheaper or historical model pass it explicitly or set
   // GSTACK_EVAL_MODEL_CAPTURE / GSTACK_EVAL_MODEL_JUDGE / GSTACK_EVAL_MODEL.
   capture: CLAUDE_CAPTURE_EVAL_MODEL,
-  warmup: "claude-haiku-4-5",
-  distill: "claude-haiku-4-5-20251001",
+  warmup: "claude-haiku-5-5",
+  distill: "claude-haiku-5-5",
   judge: CLAUDE_JUDGE_EVAL_MODEL,
 } as const satisfies Record<string, string>;
 
