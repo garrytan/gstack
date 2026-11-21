@@ -969,7 +969,12 @@ You: /eval-plan how much will the retrieval eval cost before I run it?
 `bin/gstack-eval-plan prereg --init` writes the preregistration (question, bars,
 arms, decoys, stop rules, cap) and `--check` refuses to continue while a field is
 blank (`PREREG_INCOMPLETE`), including the `## Decisions` and `## Scoring`
-sections the [result checks](TESTING_INTERNALS.md#result-checks) require.
+sections the [result checks](TESTING_INTERNALS.md#result-checks) require and,
+for plans frozen on or after 2026-11-21, the `## Pilot`, `## Cost` and (above
+$500 paid) `## Interim look` sections the
+[eval-loop checks](TESTING_INTERNALS.md#eval-loop-checks) require.
+`prereg --init --quick` writes a quick look instead: at most $100, three lines,
+and no published number (`EVAL_QUICK_LOOK_NO_NUMBER`).
 `judge --check <prereg> --labels <labels.jsonl>` scores a model judge against hand
 labels (`EVAL_JUDGE_UNCHECKED`). `arms` resolves the `eval-arms` model role against
 `lib/pricing.ts` and stops on an unpriced model (`EVAL_PRICE_MISSING`); `dry-run`

@@ -5239,11 +5239,15 @@ in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 file, fewer labelled outputs than the preregistered count (at least 40), labels
 that are all one class (agreement is undefined), a repeated id, or a Cohen's
 kappa between the hand labels and the judge below the preregistered bar (at
-least 0.6). Until it passes, the judge's numbers do not count.
+least 0.6). With `per-arm: yes` in `## Scoring`, it also refuses a label row
+with no `arm`, rows naming an arm not in `## Arms`, an arm with no rows, or
+any arm whose own kappa is below the bar (its `JUDGE_ARM:` line). Until it
+passes, the judge's numbers do not count.
 
 **Fix.** Label outputs by hand from development or calibration rows, never
-held-out ones, as JSONL rows `{"id", "human", "judge"}`, covering every kind
-of output the judge scores, and pass the file with `--labels`. A judge below
+held-out ones, as JSONL rows `{"id", "human", "judge"}` (plus `"arm"` with
+`per-arm: yes`), covering every kind of output the judge scores and every
+arm, and pass the file with `--labels`. A judge below
 its bar is replaced or its prompt fixed and relabelled; the bar is not
 lowered. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
