@@ -279,6 +279,69 @@ const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
   ['unchanged from 17303862 (control: a backslashed cd stays unread)', '\\cd /srv/demo && git push -f', 'ask', 'clean'],
 ];
 
+// #4534 review notes: git reads an unambiguous prefix of --no-dry-run as the option itself, and the word after -o as
+// its push-option value. Each exemption keeps its dangerous neighbours denied.
+const NOTE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dry origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dr origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push --force -n --no-dry-ru origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: the last flag wins)', 'git push --no-dry -fn origin main', 'allow', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: git refuses the ambiguous --no-d)', 'git push -fn --no-d origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fn -o --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fno --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value', 'git push -fn --push-option --no-dry-run origin main', 'allow', 'clean'],
+  ['the word after -o is its value (neighbour: no -n)', 'git push -f -o --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: -o took another value)', 'git push -fn -o ci.skip --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: value attached in the group)', 'git push -fnox --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: a second --no-dry-run)', 'git push -fn -o --no-dry-run --no-dry origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o -n origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o --dry-run origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -fo -n origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o -n4 origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run (neighbour: the value still forces)', 'git push -o -fn --no-dry origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run (control: -n before -o)', 'git push -fn -o ci.skip origin main', 'allow', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -o -o --no-dry-run -f origin main', 'deny', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -o --push --no-dry-run -f origin main', 'deny', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -fo -o --no-dry-run origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value', 'git push -f --push -n origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value', 'git push -f --push-opt --dry-run origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value (control: -n before it)', 'git push -fn --push ci.skip origin main', 'allow', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -f4 origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -4f origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -fo-n origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -f -4o -n origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f (control: -n before it)', 'git push -n -f4 origin main', 'allow', 'clean'],
+];
+
+// GEVA-560 re-measure at ab6a38b7: two outside-the-folder delete shapes slipped through, a relative delete after a cd
+// into a system folder and a device-node removal under /dev. Both now ask; their scratch and in-folder twins do not.
+const OUTSIDE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a relative delete after a cd into a system folder', 'cd /etc/nginx && rm -f sites-enabled/default', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /etc && rm -f hosts.bak', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /usr/local/lib && rm -f libdemo.so', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a scratch folder)', 'cd /tmp/work && rm -f sites-enabled/default', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a subfolder of this one)', 'cd src && rm -f old.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: no delete)', 'cd /etc/nginx && cat nginx.conf', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: an absolute scratch target)', 'cd /etc/nginx && rm -f /tmp/demo.txt', 'allow', 'clean'],
+  ['a device node removed under /dev', 'for i in 0 1 2 3; do rm -f /dev/loop$i; done', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm /dev/nvme0n1', 'ask', 'clean'],
+  ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/demo-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: output sent to /dev/null)', 'rm -f demo.txt > /dev/null', 'allow', 'clean'],
+  ['a device node removed under /dev, spelled with a doubled slash', 'rm -f /dev//sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev, spelled with a dot folder', 'rm -f /dev/./sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev', 'cd /dev && rm -f sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev (twin: shared memory)', 'cd /dev/shm && rm -f sdx-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: shared memory with a doubled slash)', 'rm -f /dev//shm/x', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: a project folder named dev)', 'rm -f dev/sdcard.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/lib && rm -f dpkg/status', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/log && rm -f syslog', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /opt/homebrew && rm -f bin/brew', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder, reached from /', 'cd / && rm -f etc/hosts', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/tmp is scratch)', 'cd /var/tmp/w && rm -f x', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/www is not a system folder)', 'cd /var/www && rm -f index.html', 'allow', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -370,6 +433,14 @@ describe('each new rule, with negative controls', () => {
   });
 
   test.each(STRICT_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(NOTE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(OUTSIDE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 

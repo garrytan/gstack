@@ -1,0 +1,4 @@
+---
+important: security
+---
+**The destructive-command check catches more force pushes and outside deletes, and stops one over-catch.** A force push to main is no longer read as a dry run when `--no-dry-run` is abbreviated (`git push -fn --no-dry origin main`), when the `-n` is really the value of `-o`/`--push-option` (`git push -f -o -n origin main`, also with `--push`), or when the flags sit in a group with a digit (`-f4`, `-4f`, `-fo-n`). A relative delete after `cd` into a system folder (`cd /etc/nginx && rm -f sites-enabled/default`) and removing a device node under `/dev` (`rm -f /dev/loop0`) now ask, like their absolute-path forms. A `--no-dry-run` that git reads as a push-option value (`git push -fn -o --no-dry-run origin main`) no longer counts as undoing `-n`. A skill load that timed out partway is no longer credited as the session's start.
