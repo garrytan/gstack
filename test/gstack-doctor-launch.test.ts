@@ -367,6 +367,31 @@ describe('gstack-doctor: rescue refs, CLAUDE.md skill lists, Windows bash', () =
     expect(replacement(r.out)).toEqual([]);
   });
 
+  test('CLAUDE.md: gstack\'s own guide at the root of a gstack checkout is skipped and named in the row; the same text in another project and a list in ~/.claude/CLAUDE.md still warn', () => {
+    const f = makeFixture();
+    // gstack's CLAUDE.md opens with this title, so the whole guide reads as one gstack section.
+    const guide = '# gstack development\n\n## Commands\nRun /review, /ship, /qa, /browse, /retro, /investigate, /office-hours, /autoplan and /canary here.\n';
+    write(path.join(f.work, 'CLAUDE.md'), guide);
+    const elsewhere = doctor(f).row('CLAUDE.md');
+    expect(elsewhere.state).toBe('warn');
+    expect(elsewhere.detail).toContain(`${bashPath(f.work)}/CLAUDE.md lists 9 skills`);
+    // The install root as a git checkout: the fixture has setup and VERSION, bin/gstack-relink completes the tree.
+    write(path.join(f.root, 'CLAUDE.md'), guide);
+    fs.copyFileSync(path.join(REPO, 'bin/gstack-relink'), path.join(f.root, 'bin/gstack-relink'));
+    git(f, ['init', '-q']);
+    const inRoot = { ...f, work: f.root };
+    write(path.join(f.home, '.claude/CLAUDE.md'), SHORT);
+    const r = doctor(inRoot);
+    expect(r.row('CLAUDE.md').state, r.out).toBe('ok');
+    expect(r.row('CLAUDE.md').detail).toMatch(/^no gstack section lists skills \(.*\/\.claude\/CLAUDE\.md, skipped gstack's own .*\/CLAUDE\.md\)$/);
+    expect(replacement(r.out)).toEqual([]);
+    write(path.join(f.home, '.claude/CLAUDE.md'), LISTING);
+    const listed = doctor(inRoot).row('CLAUDE.md');
+    expect(listed.state).toBe('warn');
+    expect(listed.detail).toContain(`${bashPath(f.home)}/.claude/CLAUDE.md lists 13 skills`);
+    expect(listed.detail.match(/ lists \d+ skills/g)).toHaveLength(1);
+  });
+
   /** A JSON probe file: the discovery inputs resolveWindowsBash takes, in test/fixtures/windows-bash-resolution.json's shape. */
   const probe = (f: Fixture, inputs: Record<string, unknown>) => { const file = path.join(f.base, 'bash-probe.json'); write(file, JSON.stringify(inputs)); return file; };
   const GIT_BASH = 'C:/Program Files/Git/bin/bash.exe';
