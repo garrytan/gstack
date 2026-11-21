@@ -692,7 +692,9 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     // 4,875 for the token lines halved (500M check-in, 250M standing rotation, 50M subagent look; Capy's token counts read about
     // half since 2026-11-15), point 4's go-forward rule, point 6's relay clause and point 15's subagent rule (crew rules R70, R104,
     // R105 and R109, each the owner's standing rule).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4875);
+    // 5,050 for point 7's two clauses that a green fake or dry run isn't done and that a check must see the change and count
+    // what its name says (the second batch of crew rules, G4 and G10, each reached by three crews on their own).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5050);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
