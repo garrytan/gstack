@@ -173,10 +173,14 @@ function files(dir: string): string[] {
 function taskIds(root: string, dirs: string[]): string[] {
   const hits: string[] = [];
   for (const file of dirs.flatMap((d) => files(path.join(root, d)))) {
-    if (fs.statSync(file).size > MAX_BYTES) continue;
+    const rel = path.relative(root, file).split(path.sep).join('/');
+    if (fs.statSync(file).size > MAX_BYTES) {
+      hits.push(rel + ': too large to scan');
+      continue;
+    }
     const text = fs.readFileSync(file, 'utf8');
     const m = text.match(TASK_ID);
-    if (m) hits.push(path.relative(root, file).split(path.sep).join('/') + ': ' + m[0]);
+    if (m) hits.push(rel + ': ' + m[0]);
   }
   return hits;
 }
@@ -189,8 +193,8 @@ describe('no benchmark task ids under test/', () => {
   test('negative control: a planted task id is caught, and dunder names, versions and plain ids are not', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-task-ids-'));
     try {
-      const planted = ['tox-dev', 'tox-3666'].join('__');
-      const suffixed = ['con', 'nwb2bids-347_interface'].join('__');
+      const planted = ['acme-widgets', 'gizmo-4242'].join('__');
+      const suffixed = ['zz', 'sprocket-77_interface'].join('__');
       fs.mkdirSync(path.join(dir, 'test', 'fixtures'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'tasks.json'), JSON.stringify([{ id: planted }]));
       fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'suffixed.txt'), 'run ' + suffixed + '\n');
