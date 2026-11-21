@@ -197,9 +197,9 @@ function importsPlaywright(text: string): boolean {
   }
   return false;
 }
-/** Whether a JS test is a node:test file: it loads `node:test` in a statement that starts a line (`import … from 'node:test'`, a bare import, or `require`) and loads neither vitest nor `@jest/globals`, whose runner owns it. Text that mentions a module mid-line or in a comment does not count. */
+/** Whether a JS test is a node:test file: it loads `node:test` in a statement that starts a line (`import … from 'node:test'`, a bare import, or `require`) and loads neither vitest nor `@jest/globals`, whose runner owns it. Text that mentions a module mid-line, in a comment or in a template literal does not count. */
 function importsNodeTest(text: string): boolean {
-  const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+  const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|`(?:\\[\s\S]|[^\\`])*`/g, '');
   const loads = (mod: string) => new RegExp(`^[\\t ]*(?:import(?=[\\s{*'"])[^'"\`;]*?|(?:const|let|var)\\b[^=\\n]*=[\\t ]*require\\([\\t ]*)['"](?:${mod})['"]`, 'm').test(code);
   return loads('node:test') && !loads('vitest|@jest/globals');
 }

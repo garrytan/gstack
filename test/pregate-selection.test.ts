@@ -1059,6 +1059,8 @@ describe('nested JS packages run their own runner from their own directory', () 
     write(repo.work, 'test/mixed.test.js', "import { test } from 'vitest';\nimport { mock } from 'node:test';\ntest('vitest owns it', () => {});\n");
     write(repo.work, 'test/jest-mixed.test.cjs', "const { test } = require('@jest/globals');\nconst { mock } = require('node:test');\ntest('jest owns it', () => {});\n");
     expect(planRuns(ctx, ['test/mixed.test.js', 'test/jest-mixed.test.cjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/mixed.test.js', 'test/jest-mixed.test.cjs'] }]);
+    write(repo.work, 'scripts/gen.test.mjs', "import { test } from 'node:test';\nconst generated = `\nimport { test } from 'vitest';\ntest('generated', () => {});\n`;\ntest('writes a vitest file', () => generated.includes('vitest'));\n");
+    expect(planRuns(ctx, ['scripts/gen.test.mjs']).groups).toEqual([{ runner: 'node --test {files}', cwd: '', files: ['scripts/gen.test.mjs'] }]);
     const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'npx vitest run {files}' } } as PregateContext;
     expect(planRuns(declared, ['scripts/release-notes.test.mjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['scripts/release-notes.test.mjs'] }]);
   });
