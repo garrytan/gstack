@@ -5,7 +5,7 @@
 
 import { test, expect, describe } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1375,6 +1375,109 @@ describe("concurrent VERSION fetches (W2-A3)", () => {
       expect(out.warnings).toContain("PR #82: VERSION fetch failed (gh: Server Error (HTTP 502)); claim unknown, the slot may collide; rerun, then ask the coordinator");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("sibling scan finds git worktrees wherever they live", () => {
+  const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-next-version");
+
+  function git(cwd: string, ...args: string[]): void {
+    const r = Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
+    if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${new TextDecoder().decode(r.stderr)}`);
+  }
+
+  // origin (main at 0.1.66.0), a clone of it, and helpers that add a branch at
+  // 0.1.67.0 checked out somewhere of the test's choosing.
+  function fixture(): { root: string; clone: string; addWorktree: (path: string, branch?: string) => string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "nextver-worktrees-")));
+    const origin = join(root, "origin");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "-b", "main");
+    writeFileSync(join(origin, "VERSION"), "0.1.66.0\n");
+    git(origin, "add", "-A");
+    git(origin, "commit", "-qm", "base");
+    const clone = join(root, "clone");
+    git(root, "clone", "-q", origin, clone);
+    const addWorktree = (path: string, branch = "feature") => {
+      mkdirSync(join(path, ".."), { recursive: true });
+      git(clone, "worktree", "add", "-q", "-b", branch, path);
+      writeFileSync(join(path, "VERSION"), "0.1.67.0\n");
+      git(path, "add", "-A");
+      git(path, "commit", "-qm", "claim 0.1.67.0");
+      return path;
+    };
+    return { root, clone, addWorktree };
+  }
+
+  function nextVersion(cwd: string, workspaceRoot: string) {
+    const proc = Bun.spawnSync(
+      ["bun", "run", SCRIPT, "--base", "main", "--bump", "micro", "--current-version", "0.1.66.0", "--workspace-root", workspaceRoot],
+      { cwd, timeout: 30_000 },
+    );
+    const stderr = new TextDecoder().decode(proc.stderr);
+    expect(proc.exitCode, stderr).toBe(0);
+    return JSON.parse(new TextDecoder().decode(proc.stdout));
+  }
+
+  const paths = (siblings: Array<{ path: string }>) => siblings.map((s) => s.path).sort();
+
+  test("a worktree outside any workspace root still holds its version", () => {
+    const { root, clone, addWorktree } = fixture();
+    try {
+      const worktree = addWorktree(join(root, "somewhere", "else", "feature"));
+      const out = nextVersion(clone, join(root, "no-such-workspace-root"));
+      expect(paths(out.active_siblings)).toEqual([worktree]);
+      expect(out.reason).toContain("active sibling 0.1.67.0");
+      expect(parseVersion(out.version)).toEqual([0, 1, 67, 1]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("run from a linked worktree, it lists the others and never itself", () => {
+    const { root, clone, addWorktree } = fixture();
+    try {
+      const first = addWorktree(join(root, "worktrees", "first"), "first");
+      const second = addWorktree(join(root, "worktrees", "second"), "second");
+      const out = nextVersion(first, join(root, "no-such-workspace-root"));
+      expect(paths(out.siblings)).toEqual([clone, second].sort());
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("workspace root null still turns the whole scan off", () => {
+    const { root, clone, addWorktree } = fixture();
+    try {
+      addWorktree(join(root, "worktrees", "feature"));
+      expect(nextVersion(clone, "null").siblings).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("a worktree inside the Conductor layout is counted once", () => {
+    const { root, clone, addWorktree } = fixture();
+    try {
+      const worktree = addWorktree(join(root, "conductor", "origin", "feature"));
+      const out = nextVersion(clone, join(root, "conductor"));
+      expect(paths(out.siblings)).toEqual([worktree]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("a separate clone in the Conductor layout is still found", () => {
+    const { root, clone } = fixture();
+    try {
+      const other = join(root, "conductor", "origin", "other-clone");
+      mkdirSync(join(other, ".."), { recursive: true });
+      git(root, "clone", "-q", join(root, "origin"), other);
+      const out = nextVersion(clone, join(root, "conductor"));
+      expect(paths(out.siblings)).toEqual([other]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }, 30_000);
 });

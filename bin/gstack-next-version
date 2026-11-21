@@ -2,7 +2,7 @@
 // gstack-next-version — host-aware VERSION allocator for /ship.
 //
 // Queries the PR queue (GitHub or GitLab), fetches each open PR's VERSION,
-// scans configurable Conductor sibling worktrees, picks the next free version
+// scans sibling git worktrees and Conductor workspaces, picks the next free version
 // slot at the requested bump level, and emits the whole picture as JSON.
 //
 // Contract: util NEVER writes files or mutates state. Pure reader + reporter.
@@ -38,7 +38,7 @@
 //   3 — util bug (unexpected exception)
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -385,22 +385,47 @@ function currentRepoSlug(): string {
   return m ? m[1] : "";
 }
 
-function scanSiblings(root: string | null, versionPath: string, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
-  if (!root || !existsSync(root)) return [];
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+// Every checkout git links to this repository, wherever it was created.
+function gitWorktreePaths(): string[] {
+  const r = runCommand("git", ["worktree", "list", "--porcelain"]);
+  if (!r.ok) return [];
+  const prefix = "worktree ";
+  return r.stdout
+    .split("\n")
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => line.slice(prefix.length));
+}
+
+// Conductor layout: <root>/<repo>/<workspace>/. Separate clones live here too,
+// and git does not list those as worktrees.
+function workspaceRootPaths(root: string, warnings: string[]): string[] {
+  if (!existsSync(root)) return [];
   const mySlug = currentRepoSlug();
   if (!mySlug) {
-    warnings.push("could not determine current repo slug; skipping sibling scan");
+    warnings.push("could not determine current repo slug; skipping the workspace_root scan");
     return [];
   }
-  const repoName = mySlug.split("/").pop() ?? "";
-  // Conductor layout: <root>/<repo>/<workspace>/
-  const repoDir = join(root, repoName);
+  const repoDir = join(root, mySlug.split("/").pop() ?? "");
   if (!existsSync(repoDir)) return [];
-  const myAbsPath = resolve(process.cwd());
+  return readdirSync(repoDir).map((name) => join(repoDir, name));
+}
+
+function scanSiblings(root: string | null, versionPath: string, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
+  if (!root) return [];
+  const topLevel = runCommand("git", ["rev-parse", "--show-toplevel"]);
+  const myAbsPath = canonicalPath(topLevel.ok ? topLevel.stdout.trim() : process.cwd());
+  const candidates = new Set([...gitWorktreePaths(), ...workspaceRootPaths(root, warnings)].map(canonicalPath));
   const results: Sibling[] = [];
-  for (const name of readdirSync(repoDir)) {
-    const p = join(repoDir, name);
-    if (resolve(p) === myAbsPath) continue;
+  for (const p of candidates) {
+    if (p === myAbsPath) continue;
     try {
       const s = statSync(p);
       if (!s.isDirectory()) continue;
