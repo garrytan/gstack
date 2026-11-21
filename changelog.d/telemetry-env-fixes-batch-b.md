@@ -1,0 +1,4 @@
+---
+important: security
+---
+**On a Capy install, only the owner's opt-in sends telemetry.** A shell that never sourced the launch file, such as a /ship reader subagent's or a Codex skill's that reaches gstack through a linked `bin/`, used to fall back to the machine's telemetry setting and send rows labelled `live`; it now sends nothing, as docs/privacy.md already says. Error runs now fill `error_class` from their exit reason (the same fixed list), and each onboarding step and outcome is sent at most once a day per install, so a loop that reruns `./setup` no longer floods the counts. Test runs strip the launch file's preferences-file and loadout variables and the Claude plugin state root, and the ship test fixture drops every launch marker even when `bun test` runs outside the checkout, so a fixture can no longer read the owner's real approvals or preferences.

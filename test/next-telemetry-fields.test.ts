@@ -122,6 +122,13 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-end next fields', ()
     expect(e.harness_session_id).not.toBe('aaaaaaaaaaaaaaaa');
   }, 30_000);
 
+  test('an error run sends its exit reason as error_class, from the same fixed list; other runs and reasons send none', async () => {
+    const end = (outcome: string, reason: string) => run('gstack-skill-end', ['--skill', 'qa', '--outcome', outcome, '--session-id', '99-1', '--exit-reason', reason]);
+    end('error', 'test_failed'); end('error', 'made_up'); end('error', 'completed'); end('success', 'tool_error');
+    const rows = await eventually(4);
+    expect(rows.map(e => e.error_class)).toEqual(['test_failed', null, null, null]);
+  });
+
   test('an unknown start time sends a null duration, not 0', async () => {
     const out = run('gstack-skill-end', ['--skill', 'qa', '--outcome', 'success', '--session-id', '99-1']);
     expect(out).toContain('duration_s=unknown');

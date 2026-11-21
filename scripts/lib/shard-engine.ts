@@ -597,7 +597,7 @@ export function createShardSandbox(
  * child a shard spawns, so fixtures would see an unattended Capy session they
  * never set up (GSTA-99); each fixture sets its own session kind.
  */
-export const CAPY_LAUNCH_MARKERS = ['GSTACK_SESSION_KIND', 'GSTACK_CAPY', 'GSTACK_EPHEMERAL', 'GSTACK_INSTALL_VERDICT'] as const;
+export const CAPY_LAUNCH_MARKERS = ['GSTACK_SESSION_KIND', 'GSTACK_CAPY', 'GSTACK_EPHEMERAL', 'GSTACK_INSTALL_VERDICT', 'GSTACK_PREFERENCES_FILE', 'GSTACK_LOADOUT_SKILL_ROOT'] as const;
 
 /**
  * Asynchronous best-effort backstop removal: a SIGKILLed shard can leave a

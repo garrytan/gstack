@@ -395,6 +395,29 @@ describe('.pending marker', () => {
     expect(events[0].outcome).toBe('chromium-install');
   });
 
+  test('each onboarding step is recorded at most once a day, however often setup reruns', () => {
+    setConfig('telemetry', 'community');
+    for (let i = 0; i < 3; i++) run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_welcome --outcome shown --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_welcome --outcome shown --no-sweep`);
+    expect(parseJsonl().map(e => e.skill)).toEqual(['_setup_playwright', '_setup_welcome']);
+  });
+
+  test('a different onboarding outcome for the same step on the same day is still recorded', () => {
+    setConfig('telemetry', 'community');
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome deps-missing --no-sweep`);
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome deps-missing --no-sweep`);
+    expect(parseJsonl().map(e => e.outcome)).toEqual(['chromium-install', 'deps-missing']);
+  });
+
+  test('concurrent setup runs record an onboarding step once', () => {
+    setConfig('telemetry', 'community');
+    const one = `${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`;
+    run(`for i in $(seq 1 24); do ${one} & done; wait`);
+    expect(parseJsonl().map(e => e.outcome)).toEqual(['chromium-install']);
+  });
+
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
 

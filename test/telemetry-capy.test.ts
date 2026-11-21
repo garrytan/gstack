@@ -129,6 +129,39 @@ describe.skipIf(process.platform === 'win32')('Capy telemetry opt-in', () => {
     expect(skillEnd({ GSTACK_CAPY: '' })).toContain('ARTIFACTS_SYNC: skipped (unattended session)');
   });
 
+  test('a shell on a Capy install that never sourced the launch file (a reader subagent) sends nothing, whatever the machine tier', () => {
+    const install = path.join(tmp, 'install');
+    fs.mkdirSync(install);
+    execSync('git init -q', { cwd: install, timeout: 20_000 });
+    fs.symlinkSync(BIN, path.join(install, 'bin'));
+    fs.copyFileSync(path.join(ROOT, 'VERSION'), path.join(install, 'VERSION'));
+    run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });
+    const reader = { GSTACK_DIR: install, GSTACK_SESSION_KIND: 'interactive', GSTACK_CAPY: '' };
+    const end = () => run(`${install}/bin/gstack-skill-end --skill plan-ceo-review --outcome success --session-id 123-reader --tel-start 1`, reader);
+    end();
+    expect(sent().filter(e => e.v === 1).map(e => e.source)).toEqual(['live']);
+    fs.rmSync(path.join(tmp, 'sent'));
+    fs.rmSync(path.join(tmp, 'analytics'), { recursive: true, force: true }); fs.mkdirSync(path.join(tmp, 'analytics'));
+    fs.writeFileSync(path.join(install, '.git', 'gstack-capy-install.state'), 'fixture\n');
+    end();
+    expect(sent()).toEqual([]);
+    expect(run(`${install}/bin/gstack-telemetry-tier`, reader)).toBe('off');
+    expect(run(`${install}/bin/gstack-telemetry-tier`, { GSTACK_DIR: install })).toBe('anonymous');
+  });
+
+  test('a host directory that links only bin/ to a Capy install (Codex) still sees the install and sends nothing', () => {
+    const install = path.join(tmp, 'install');
+    fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    execSync('git init -q', { cwd: install, timeout: 20_000 });
+    for (const f of fs.readdirSync(BIN)) fs.symlinkSync(path.join(BIN, f), path.join(install, 'bin', f));
+    fs.writeFileSync(path.join(install, '.git', 'gstack-capy-install.state'), 'fixture\n');
+    const host = path.join(tmp, 'codex-skill');
+    fs.mkdirSync(host);
+    fs.symlinkSync(path.join(install, 'bin'), path.join(host, 'bin'));
+    run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });
+    expect(run(`${host}/bin/gstack-telemetry-tier`, { GSTACK_SESSION_KIND: 'interactive', GSTACK_CAPY: '' })).toBe('off');
+  });
+
   test('gstack-telemetry-tier prints the Capy opt-in alone with --capy, else the machine setting', () => {
     const tier = (args = '', extra: Record<string, string> = {}) => run(`${path.join(BIN, 'gstack-telemetry-tier')} ${args}`, extra);
     run(`${BIN}/gstack-config set telemetry community`, { GSTACK_SESSION_KIND: 'interactive' });

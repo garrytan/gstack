@@ -123,6 +123,17 @@ if [ "$TIER" = "off" ]; then
   exit 0
 fi
 
+# One row per onboarding step and outcome per install a day: setup sends its step on
+# every run, so anything rerunning ./setup in a loop repeated it hundreds of times an hour.
+# The day's marker is claimed with noclobber (O_EXCL), so concurrent runs send it once.
+if [ "$EVENT_TYPE" = "onboarding" ]; then
+  OB_NAME="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
+  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$(date -u +%Y-%m-%d)"
+  mkdir -p "$ANALYTICS_DIR" 2>/dev/null
+  ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0 # best-effort: another run already recorded this step today
+  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
+fi
+
 # ─── Finalize stale .pending markers ────────────────────────
 # Each session gets its own .pending-$SESSION_ID file to avoid races
 # between concurrent sessions. Finalize any that don't match our session.
