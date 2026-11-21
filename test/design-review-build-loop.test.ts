@@ -75,7 +75,7 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
     for (const item of items) expect(SECTION).toContain(item);
     const others = fs.readdirSync(ROOT, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile() && /\.(md|tmpl)$/.test(d.name) && !d.parentPath.includes('node_modules') && !d.parentPath.includes('.git'))
-      .map((d) => path.relative(ROOT, path.join(d.parentPath, d.name)))
+      .map((d) => path.relative(ROOT, path.join(d.parentPath, d.name)).split(path.sep).join('/'))
       .filter((f) => !/^design-review\/sections\/build-loop\.md(\.tmpl)?$/.test(f) && !/^\.[\w-]+\/skills\//.test(f) && !f.startsWith('test/'));
     const carriers = others.filter((f) => items.some((i) => fs.readFileSync(path.join(ROOT, f), 'utf8').includes(i)));
     expect(carriers).toEqual([]);
