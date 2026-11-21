@@ -440,7 +440,9 @@ export const STACK_PARENT_WALK = 100;
  * change the current base already holds: merging it into currentBase, or into the base commit that landed it when the
  * base edited those lines since (heldBy, GST-1399), changes no product path. That is a stack parent
  * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
- * product change of its own (a test-first commit) is no parent, since any base trivially holds it. Null when no
+ * product change of its own (a test-first commit) is no parent, since any base trivially holds it, and neither is a commit
+ * rangeBase already held: a parent that landed before the review is part of the reviewed base, so measuring from it drops
+ * nothing and compares the wrong range (yc-software/qm#3457, GST-3315). Null when no
  * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
  */
 export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[]): string | null {
@@ -449,7 +451,7 @@ export function landedStackParent(repoRoot: string, s: { rangeBase: string; revi
   if (commits.status !== 0) return null;
   for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
     if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
-    if (heldBy(repoRoot, commit, s.currentBase, product)) return commit;
+    if (heldBy(repoRoot, commit, s.currentBase, product) && !heldBy(repoRoot, commit, s.rangeBase, product)) return commit;
   }
   return null;
 }
