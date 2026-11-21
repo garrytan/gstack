@@ -1264,7 +1264,10 @@ them would select the same cases.
 belongs to a paid touchfile or `FREE_FIXTURES`, and each workflow to the paid or
 free-only list. Editing a paid test file runs its own gate cases on the PR when
 their Bun test is named by the case id; the file's other cases stay deferred with
-a reason that says to name the test by its case id.
+a reason that says to name the test by its case id. The same file also fails when
+any file under `test/` or `browse/test/` names a SWE-bench-style task id
+(GST-3402): every install is a clone of this repository, so real benchmark tasks
+must stay out of it, and router and fixture tests use synthetic prompts instead.
 
 ### Exercised-path map
 
