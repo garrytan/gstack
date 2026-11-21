@@ -55,6 +55,8 @@ by a daily pass; nothing is retried into green.
   so CI pings wake the lane that can act on them, never the Captain.
 - **The controller never commits to a lane's branch**, and a lane never pushes to another
   lane's. One committer per shared tree.
+- **Work with another agent system** (a second coding agent, an agent on its own machine)
+  follows [working-across-agent-systems.md](../../docs/working-across-agent-systems.md).
 
 ## Drive layout
 
