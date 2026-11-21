@@ -411,6 +411,13 @@ describe('.pending marker', () => {
     expect(parseJsonl().map(e => e.outcome)).toEqual(['chromium-install', 'deps-missing']);
   });
 
+  test('concurrent setup runs record an onboarding step once', () => {
+    setConfig('telemetry', 'community');
+    const one = `${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`;
+    run(`for i in $(seq 1 24); do ${one} & done; wait`);
+    expect(parseJsonl().map(e => e.outcome)).toEqual(['chromium-install']);
+  });
+
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
 
