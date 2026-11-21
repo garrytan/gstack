@@ -98,6 +98,20 @@ describe('gstack-issue-links (bin)', () => {
     expect(JSON.parse(receipt.out).issues).toEqual({ fixes: [14, 16], refs: [12, 13, 15], flakes: [{ issue: 40, run: '123456' }] });
   });
 
+  // Value: protects=each reference line on stderr names the commit its mention came from; fails_when=entries after the first keep git log's
+  // leading newline, so the older commit's label reads `commit :` with an empty id; why_new=the CLI tests ran one commit, whose entry has no
+  // leading newline; seam=none; no_claim=none beyond protects
+  test('labels a mention in an older commit with that commit, not an empty id', () => {
+    const repo = fixture();
+    const older = commit(repo, { 'lib/util.js': "exports.add = (a, b) => a + b + 0;\n" }, 'tidy\n\nRefs #11\n').slice(0, 12);
+    const newer = commit(repo, { 'lib/util.js': "exports.add = (a, b) => a + b + 1;\n" }, 'tidy again\n\nRefs #12\n').slice(0, 12);
+    const env = ghShim(repo, { issues: { '11': { title: 't', body: 'b', comments: [] }, '12': { title: 'u', body: 'c', comments: [] } } });
+    const r = runBin(repo, 'gstack-issue-links', ['--base', 'main'], env);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.err).toContain(`reference #11 ← commit ${older}: Refs #11`);
+    expect(r.err).toContain(`reference #12 ← commit ${newer}: Refs #12`);
+    expect(r.err).not.toContain('commit :');
+  });
 
   test('a named-reference list in a commit is cross-repo, and Fixes owner/repo#N for this repository closes it (GST-2967)', () => {
     const repo = fixture();

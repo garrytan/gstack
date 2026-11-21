@@ -1,0 +1,1 @@
+`gstack-issue-links` names the commit each issue mention comes from, including mentions in older commits on the branch. Those lines read `commit :` with an empty id, both on stderr, where /ship's Issue links step asks about `(promote: fix #N)` references, and in `--json` sources. Contributed by @Davmunrey.
