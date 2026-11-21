@@ -416,6 +416,23 @@ describe('bug-fix exemption wording and the plan finish recorded (GSTA-649, GSTA
     for (const r of ['bug fix with failing-first tests', 'Bugfix', 'bug-fix: retry backoff', 'bug fixes (R65)']) expect(exemptReason(r)).toBe('bug fix');
     expect(exemptReason('bugfixing everything')).toBeNull();
   });
+  // Value: protects=the READY note, which rides a public notes ref, never carries finish's raw --plan text: an approved line keeps only
+  //   the opaque record id, an exempt line only its listed reason; fails_when=a local run path, a row id or a note in parentheses
+  //   reaches the note's plan record; why_new=#4529 final review (GST-1955 family); seam=readyPlan's finish fallback, landPlan
+  test('the plan record finish supplies is redacted before it reaches the READY note (#4529)', () => {
+    const f = fixture({ y: [{ ask: 'R41 A1: cut a skill' }] });
+    const env = { ...f.env, GSTACK_PLAN_RECORD: 'require' };
+    const rowId = f.ids['R41 A1: cut a skill']!;
+    const approved = readyPlan({ cwd: f.cwd, env, body: 'Fixes a thing.', changed: ['lib/x.ts'], finishLine: `Plan: approved: ${rowId}` });
+    expect(approved.record).toMatchObject({ line: `Plan: approved (record ${planRecordId(rowId)})`, ref: planRecordId(rowId), state: 'approved', from: 'finish' });
+    expect(JSON.stringify(approved.record)).not.toContain(rowId);
+    expect(landPlan({ env, record: approved.record, body: 'Fixes a thing.' }).failure).toBeUndefined();
+    const exempt = readyPlan({ cwd: f.cwd, env, body: 'Fixes a thing.', changed: ['lib/x.ts'], finishLine: 'Plan: exempt: bug fix (see /home/user/.capy/work/ship-4529/run)' });
+    expect(exempt.record).toMatchObject({ line: 'Plan: exempt: bug fix', reason: 'bug fix', from: 'finish' });
+    expect(JSON.stringify(exempt.record)).not.toContain('/home/user');
+    const own = readyPlan({ cwd: f.cwd, env, body: `Plan: approved: ${rowId}`, changed: ['lib/x.ts'] });
+    expect(own.record).toMatchObject({ line: `Plan: approved: ${rowId}`, row_id: rowId });
+  });
   test('ready reads the Plan line finish resolved when the body has none, and land accepts it', () => {
     const f = fixture();
     const env = { ...f.env, GSTACK_PLAN_RECORD: 'require' };

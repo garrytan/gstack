@@ -10,7 +10,9 @@
  * the writer's hash reproduces) and its `digest` over those fields, so a hand-typed or edited row is ignored. The digest catches
  * edits; it is not authentication: a same-user lane can compute it too. What authorizes a disposition is the lander's explicit
  * `--accept-gate-disposition <id>` (`gateAcceptance`, run by `gstack-ship-queue land --pin` and `verify --pin`), re-derived from
- * the store at the pin, never from the receipt or the PR body (docs/ship-policy.md#gate-dispositions).
+ * the store at the pin, never from the receipt or the PR body (docs/ship-policy.md#gate-dispositions). A store lives on the machine
+ * that recorded the row, so `ready` also copies each applied non-security row, signed and whole, into the READY note on the
+ * notes ref, and a lander on another machine reads those rows beside its own store under the same checks (#4581).
  */
 import { createHash } from 'node:crypto';
 import { spawnSync } from './spawn-sync';
@@ -80,7 +82,7 @@ export function readGateDispositions(cwd: string, env: Env = process.env): GateD
  * full clone a row whose head commit is gone (a rewritten and collected branch, a reused name) is not applied: the pin's history
  * is all present, so a missing commit cannot be in it.
  */
-export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: string; env?: Env }): { applied: GateDisposition[]; loc: StoreLocation } {
+export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: string; env?: Env; noted?: readonly ApprovalRow[] }): { applied: GateDisposition[]; rows: ApprovalRow[]; loc: StoreLocation } {
   const loc = locate({ cwd, env: o.env ?? process.env, branch: o.branch });
   if ('code' in loc) throw new Error(loc.message);
   const git = (...args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
@@ -94,7 +96,10 @@ export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: 
     if (r.status === 1 || git('cat-file', '-e', `${head}^{commit}`).status !== 0) return false;
     throw new Error(`git merge-base --is-ancestor ${head.slice(0, 12)} ${o.pin.slice(0, 12)} failed (${(r.stderr ?? r.error?.message ?? '').trim().slice(0, 120) || `exit ${r.status}`})`);
   };
-  return { applied: gateDispositions(readRecord(loc).rows, loc.branch).filter(d => contains(d.head)), loc };
+  const byId = new Map([...(o.noted ?? []), ...readRecord(loc).rows].map(r => [r.id, r]));
+  const rows = [...byId.values()].sort((a, b) => String(a.recorded_at).localeCompare(String(b.recorded_at)));
+  const applied = gateDispositions(rows, loc.branch).filter(d => contains(d.head));
+  return { applied, rows: applied.map(d => byId.get(d.approval)!), loc };
 }
 
 /**
@@ -158,18 +163,19 @@ export type GateAcceptanceCode = Extract<ResultCodeName, 'QUEUE_GATE_DISPOSITION
  * receipt's gate_dispositions or the PR body's `Gate disposition:` lines differ from them, and, with `accepted` (land and
  * verify; ready passes none), when an applied disposition is not accepted or an accepted id is not applied.
  */
-export function gateAcceptance(o: { cwd: string; branch: string; pin: string; body: string; receipt?: ShipReceipt; accepted?: readonly string[]; env?: Env }):
-  { lines: string[]; applied: GateDisposition[]; failure?: { code: GateAcceptanceCode; message: string; fix: string } } {
+export function gateAcceptance(o: { cwd: string; branch: string; pin: string; body: string; receipt?: ShipReceipt; accepted?: readonly string[]; env?: Env; noted?: readonly ApprovalRow[] }):
+  { lines: string[]; applied: GateDisposition[]; noteRows?: ApprovalRow[]; failure?: { code: GateAcceptanceCode; message: string; fix: string } } {
   const fix = 'the lander reads each GATE_DISPOSITION line and reruns with --accept-gate-disposition <approval id> for each one it accepts; a receipt or body that differs from the store is rewritten by /ship at the pin (docs/troubleshooting.md#queue-gate-disposition)';
   let got: ReturnType<typeof appliedGateDispositions>;
   try { got = appliedGateDispositions(o.cwd, o); }
   catch (e: any) { return { lines: [], applied: [], failure: { code: 'QUEUE_GATE_DISPOSITION', message: `the gate dispositions for ${o.branch} at the pin cannot be derived (${e.message}); an unreadable store or a git error refuses, never reads as none`, fix } }; }
   const { applied, loc } = got;
+  const noteRows = got.rows.filter(r => !isSecurityFinding(SCOPE.exec(r.scope)![1]!));
   const recorded = o.receipt?.gate_dispositions;
   const listed = recorded ?? [];
-  const where = `the store at ${loc.mirror ?? loc.file}`;
+  const where = `the store at ${loc.mirror ?? loc.file}${o.noted?.length ? ' with the READY note\'s rows' : ''}`;
   const lines = applied.map(d => `GATE_DISPOSITION: ${gateDispositionText(d)}`);
-  if (!applied.length && !listed.length && !o.accepted?.length) return { lines, applied };
+  if (!applied.length && !listed.length && !o.accepted?.length) return { lines, applied, noteRows };
   const problems: string[] = [];
   for (const d of applied) {
     const r = listed.find(l => l.approval === d.approval);
@@ -182,8 +188,8 @@ export function gateAcceptance(o: { cwd: string; branch: string; pin: string; bo
     for (const d of applied) if (!o.accepted.includes(d.approval)) problems.push(`disposition ${d.approval} is not accepted (--accept-gate-disposition ${d.approval})`);
     for (const id of o.accepted) if (!applied.some(d => d.approval === id)) problems.push(`--accept-gate-disposition ${id} names no disposition the store applies at ${o.pin.slice(0, 12)}`);
   }
-  lines.push(`GATE_DISPOSITIONS: applied=${applied.map(d => d.approval).join(',') || 'none'}${o.accepted ? ` accepted=${o.accepted.join(',') || 'none'}` : ''} store=${loc.mirror ?? loc.file}`);
-  return problems.length ? { lines, applied, failure: { code: 'QUEUE_GATE_DISPOSITION', message: problems.join('; '), fix } } : { lines, applied };
+  lines.push(`GATE_DISPOSITIONS: applied=${applied.map(d => d.approval).join(',') || 'none'}${o.accepted ? ` accepted=${o.accepted.join(',') || 'none'}` : ''} store=${loc.mirror ?? loc.file}${o.noted?.length ? ` ready_note_rows=${o.noted.length}` : ''}`);
+  return problems.length ? { lines, applied, noteRows, failure: { code: 'QUEUE_GATE_DISPOSITION', message: problems.join('; '), fix } } : { lines, applied, noteRows };
 }
 
 /** The disposition as public text may carry it: a security-class finding's fingerprint, reason and owner words stay in the approval record (GST-3076). */

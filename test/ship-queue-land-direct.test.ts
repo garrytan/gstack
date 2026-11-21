@@ -1329,6 +1329,65 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     expect(gateLines(landed.out)[1]).toContain(`accepted=${id}`);
   }, 180_000);
 
+  // Value: protects=a disposition recorded on the /ship machine reaches a lander on another machine through the READY note, still
+  //   only by the lander's explicit acceptance, and a note row edited after ready wrote it counts for nothing; fails_when=land on a
+  //   machine without the store refuses QUEUE_GATE_DISPOSITION (#4581 needed GSTACK_APPROVALS_DIR pointed at a hand copy), lands an
+  //   unaccepted disposition, or trusts an edited note row; seam=ready's note and pinAcceptance; no_claim=a security-class row, which
+  //   stays store-only so the public notes ref never carries its words
+  test('#4581: land on a machine without the store reads the signed row ready copied into the READY note', () => {
+    const fx = prep();
+    const head = openPr(fx, '44', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-44');
+    const rec = record(fx, '44', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '44', head);
+    setBody(fx, '44', bodyWith('44', head, ds));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '44', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const elsewhere = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    const landAt = (env: Record<string, string>, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', ...extra], env);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-44', pin: head, env: { ...storeEnv(fx), GSTACK_STATE_ROOT: elsewhere.GSTACK_STATE_ROOT } }).applied).toEqual([]);
+    const bare = landAt(elsewhere);
+    expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);
+    expect(gateLines(bare.out)[0]).toBe(`GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`);
+    expect(gateLines(bare.out)[1]).toContain('ready_note_rows=1');
+    const landed = landAt(elsewhere, ['--accept-gate-disposition', id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #44 as ');
+  }, 180_000);
+
+  test('#4581: an edited READY note row counts for nothing, so land elsewhere still refuses', () => {
+    const fx = prep();
+    const head = openPr(fx, '45', { ready: false });
+    const rec = record(fx, '45', head);
+    expect(rec.status, rec.err).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-45' }) as StoreLocation;
+    const row = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const edited = { ...row, ask: row.ask.replace(REASON, 'the gate is fine') };
+    const env = { ...storeEnv(fx), GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [edited] }).applied).toEqual([]);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [row] }).applied.map(d => d.approval)).toEqual([row.id]);
+    const other = appliedGateDispositions(fx.repo.work, { branch: 'pr-46', pin: head, env, noted: [row] }).applied;
+    expect(other).toEqual([]);
+  }, 120_000);
+
+  test('#4581: a newer store row for the same finding wins over an older READY note row', () => {
+    const fx = prep();
+    const head = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', head).status).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-47' }) as StoreLocation;
+    const older = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const again = runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-47', '--finding', F, '--gate-id', G, '--head', head, '--reason', 'owner re-ruled after ready', '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+    expect(again.status, again.err).toBe(0);
+    const newer = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    expect(newer.id).not.toBe(older.id);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-47', pin: head, env: storeEnv(fx), noted: [older] }).applied.map(d => d.approval)).toEqual([newer.id]);
+  }, 120_000);
+
   test('a row the lane appends to the store by hand, digest and all, still needs the lander: land refuses and prints it, a wrong id refuses, and the accepted id lands', () => {
     const fx = prep();
     const head = openPr(fx, '42');

@@ -309,6 +309,22 @@ change `resume --run <id>` restores both. A corrupt ledger
 ([BUDGET_LEDGER_INVALID](troubleshooting.md#budget-ledger-invalid)) is rebuilt from the
 record's block with `--rebuild-from-record`; open reservations are then charged as unknown.
 
+### A stopped run whose ledger is closed
+
+A /ship run that stopped after its ledger closed (the run's last step closes it) can't be resumed:
+`resume` refuses with `run <id> is closed`. To continue that run's remaining steps, open a new
+observe ledger on the same record:
+
+```bash
+gstack-ship-budget start --record <record> --mode observe --reading <cost.tokens>
+```
+
+`start` reuses a record's ledger only while it is open, so on a closed one it mints a new run id
+and ledger for the same record and prints its `BUDGET_RUN:` line. The new ledger meters from its own
+first reading: spend under the closed ledger stays in that ledger and is not carried into the new
+one, so add the two when you report what the run cost. On Capy, `--reading` is the thread's
+`cost.tokens`; without a reading the start is unmetered.
+
 ### Successor handoff
 
 When another thread takes over a /ship run (a successor handoff, routine under the 75%-of-hard-stop

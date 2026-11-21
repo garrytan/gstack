@@ -92,6 +92,27 @@ describe('the commit message', () => {
     expect(m).toMatchObject({ skippedParent: parent, body: 'Co-authored-by: Erin <erin@example.com>' });
     expect(branchTrailers(r.root, r.base, pin)).toEqual(['Co-authored-by: Dan <dan@example.com>', 'Co-authored-by: Erin <erin@example.com>']);
   });
+  // Value: protects=a stacked child that merged main after its parent squash-landed still leaves out the parent's credit lines, and
+  //   main's own; fails_when=land measures the parent with the reviewed-range rule (a parent the merge base already holds is no
+  //   parent, GST-3315) or reads the trailers from the parent alone; why_new=#4580 note: the child's squash body repeated the parent's
+  //   trailers; seam=landMessage as land calls it, with the merge base of the pin and main's tip
+  test('a stacked child that merged main after its parent landed leaves out the parent\'s and main\'s trailers', () => {
+    const r = repo();
+    r.git(['checkout', '-q', '-b', 'stack']);
+    const parent = r.commit('src/parent.ts', 'parent\n\nCo-authored-by: Dan <dan@example.com>');
+    r.commit('src/child.ts', 'child\n\nCo-authored-by: Erin <erin@example.com>');
+    r.git(['checkout', '-q', 'main']);
+    r.git(['checkout', '-q', parent, '--', 'src/parent.ts']);
+    r.git(['commit', '-q', '-m', 'Parent PR (#4)\n\nReview-Finding: p1/red-team#1 reader=red-team']);
+    r.commit('docs/other.md', 'Other PR (#5)\n\nCo-authored-by: Fay <fay@example.com>');
+    const tip = r.git(['rev-parse', 'HEAD']);
+    r.git(['checkout', '-q', 'stack']);
+    r.git(['merge', '-q', '--no-edit', 'main']);
+    const pin = r.git(['rev-parse', 'HEAD']);
+    const mergeBase = r.git(['merge-base', pin, tip]);
+    const m = landMessage(r.root, { pr: '6', title: 'Child', prBody: '', mergeBase, pin, tip, policy: SQUASH });
+    expect(m).toMatchObject({ skippedParent: parent, body: 'Co-authored-by: Erin <erin@example.com>' });
+  });
 });
 
 describe('the merge method', () => {

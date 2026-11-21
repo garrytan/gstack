@@ -15,6 +15,7 @@ import { redactFindingSpans } from '../../lib/redact-engine';
 import { git, sha256, writeJsonAtomic } from './ship-queue-gate';
 import { resolveStateRoot } from '../../lib/state-root';
 import type { PlanRecord } from '../../lib/plan-record';
+import type { ApprovalRow } from '../../lib/approval-record';
 
 export const TRAIN_SCHEMA = 1;
 export const NOTES_REF = 'refs/notes/gstack-trains';
@@ -120,6 +121,8 @@ export interface ReadyReceipt {
   base_red?: BaseRedCondition; fixes_base_red?: string[];
   /** The PR body's Plan line as ready resolved it (lib/plan-record.ts); absent before plan_record or when it did not resolve. */
   plan?: PlanRecord;
+  /** The signed non-security gate disposition rows ready's store applied at the head, for a lander on another machine (lib/gate-dispositions.ts). */
+  gate_dispositions?: ApprovalRow[];
 }
 /** One release-gate bisect round (crew/lib/release-gate.ts): the prefixes it dispatched on release-gate/<id> and what each case did there. */
 export interface ReleaseBisectRound { nonce: string; ref: string; run: { id: number; url: string } | null; prefixes: Array<{ sha: string; results: Record<string, PrefixResult> }> }
