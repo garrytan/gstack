@@ -56,6 +56,8 @@ export function checkResults(preregText: string, resultsText: string, labelsText
     else for (const id of missing) issues.push({ code: 'EVAL_REPORT_NO_GSTACK_ROW', message: `no filled row for ${id} in the table that holds the other arms` });
   }
   if (prereg.quick) issues.push({ code: 'EVAL_QUICK_LOOK_NO_NUMBER', message: 'the plan is a quick look (kind: quick look), which publishes no number; write a counted-run preregistration to publish one' });
+  for (const s of prereg.missing) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: missing` });
+  for (const s of prereg.empty) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${s}: empty` });
   for (const e of prereg.loop.errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${e.section}: ${e.message}` });
   let judge: JudgeLabelCheck | null = null;
   if (!prereg.grandfathered) {

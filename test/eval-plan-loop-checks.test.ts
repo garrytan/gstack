@@ -64,7 +64,9 @@ describe('## Scoring per arm and effort (R78, G14)', () => {
     const pooledOk = checkJudgeLabels(scoring, rows(i => (i < 10 ? 'a' : 'b'), i => i < 4));
     expect(pooledOk.kappa).toBeGreaterThanOrEqual(0.6);
     expect(pooledOk.problems.map(p => p.split(':')[0])).toEqual(['arm a']);
-    expect(checkJudgeLabels(scoring, rows(() => 'a', () => false), ['a', 'b']).problems).toEqual(['per-arm: yes needs labels from every arm; the rows name 1 of the 2 arms in ## Arms (no rows for b)']);
+    expect(checkJudgeLabels(scoring, rows(() => 'a', () => false), ['a', 'b']).problems).toEqual(['per-arm: yes needs labels from every arm in ## Arms; no rows for b']);
+    expect(checkJudgeLabels(scoring, rows(i => (i < 20 ? 'a' : 'typo'), () => false), ['a', 'b']).problems).toEqual(['per-arm: yes needs labels from every arm in ## Arms; no rows for b', 'label rows name arms that are not in ## Arms: typo']);
+    expect(checkJudgeLabels({ ...scoring, per_arm: false }, rows(i => (i < 10 ? 'a' : 'b'), i => i < 4), ['a', 'b'])).toMatchObject({ ok: true });
   });
 });
 
@@ -77,7 +79,8 @@ describe('## Cost and ## Interim look (R113)', () => {
     expect(checkPrereg(plan({ cost: { ...COST, paid: '$500' } })).ok).toBe(true);
     const big = { ...COST, paid: '$1,200' };
     expect(messages(plan({ cost: big }))).toEqual(['Interim look: missing:']);
-    expect(checkPrereg(plan({ cost: { ...COST, paid: '$2k' } })).loop).toMatchObject({ paid: 2000, interim_required: true });
+    for (const paid of ['$2k', '$1e3', '6 arms x $100', '$150USD', '$500-$900']) expect(messages(plan({ cost: { ...COST, paid } }))).toEqual(['Cost: paid:']);
+    expect(checkPrereg(plan({ cost: { ...COST, paid: '1200.50' } })).loop.paid).toBe(1200.5);
     expect(checkPrereg(plan({ cost: big, interim: INTERIM }))).toMatchObject({ ok: true, loop: { paid: 1200, interim_required: true } });
     expect(messages(plan({ cost: big, interim: { ...INTERIM, at: '30%' } }))).toEqual(['Interim look: at:']);
     expect(messages(plan({ cost: big, interim: { ...INTERIM, looks: '3' } }))).toEqual(['Interim look: looks:']);

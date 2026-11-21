@@ -53,7 +53,7 @@ export const QUICK_LOOK_MAX_USD = 100;
 export const loopGrandfathered = (text: string) => { const d = frozenDate(text); return d !== null && d < LOOP_CHECKS_SINCE; };
 export const isQuickLook = (text: string) => /^\s*kind:\s*quick[- ]look\s*$/im.test(text);
 const filled = (v: string | undefined) => v !== undefined && !PLACEHOLDER.test(v.trim()) && !/^<.*>$/.test(v.trim());
-const dollars = (v: string | undefined) => { const m = /\$?\s*(\d[\d,]*(?:\.\d+)?)\s*([km])?(?![a-z])/i.exec(v ?? ''); return m ? Number(m[1]!.replace(/,/g, '')) * ({ k: 1e3, m: 1e6 }[(m[2] ?? '').toLowerCase()] ?? 1) : null; };
+const dollars = (v: string | undefined) => { const m = /^\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?$/.exec((v ?? '').trim()); return m ? Number(m[1]!.replace(/,/g, '') + (m[2] ?? '')) : null; };
 const SMALLER = /\b(smaller (?:change|diff|patch)|less code|fewer lines|shorter diff|minimal diff|diff size)\b/i;
 
 export interface QuickLookCheck { cap: number | null; errors: string[] }
@@ -62,7 +62,7 @@ export function checkQuickLook(text: string): QuickLookCheck {
   const kv = keyValues(text.split('\n'));
   const errors = (['question', 'decision', 'stop'] as const).filter(k => !filled(kv[k])).map(k => `no ${k}: line (a quick look is three lines: question, decision, stop rule)`);
   const cap = dollars(kv.cap);
-  if (cap === null || cap > QUICK_LOOK_MAX_USD) errors.push(`cap: needs a paid cap of at most $${QUICK_LOOK_MAX_USD}; anything bigger is a counted run with a full preregistration`);
+  if (cap === null || cap > QUICK_LOOK_MAX_USD) errors.push(`cap: needs a plain dollar amount (such as $100) of at most $${QUICK_LOOK_MAX_USD}; anything bigger is a counted run with a full preregistration`);
   return { cap, errors };
 }
 
@@ -89,7 +89,7 @@ export function checkLoop(s: LoopSections): LoopCheck {
   const cost = keyValues(s.cost ?? []);
   const paid = dollars(cost.paid);
   if (s.cost?.length) {
-    if (paid === null) add('Cost', 'paid: the counted run\'s paid budget in dollars');
+    if (paid === null) add('Cost', 'paid: the counted run\'s paid budget as a plain dollar amount, such as $1,200 (no k, ranges, units or arithmetic)');
     if (!filled(cost.meter)) add('Cost', 'meter: the expected meter spend (agent and machine time), or $0');
     if (!filled(cost.ledger)) add('Cost', 'ledger: the private file where the actual cost and the decision it settled are written');
   }
@@ -196,8 +196,13 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, plan
   const arms = [...byArm].map(([arm, p]) => ({ arm, n: p.length, kappa: cohensKappa(p) }));
   if (scoring.per_arm && unarmed) problems.push(`per-arm: yes needs an "arm" on every label row; ${unarmed} have none`);
   const planned = [...new Set(planArms)];
-  if (scoring.per_arm && byArm.size < planned.length) problems.push(`per-arm: yes needs labels from every arm; the rows name ${byArm.size} of the ${planned.length} arms in ## Arms (no rows for ${planned.filter(a => !byArm.has(a)).join(', ')})`);
-  for (const a of arms) if (a.kappa === null || a.kappa < need_kappa) problems.push(`arm ${a.arm}: kappa ${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} on its ${a.n} labels is below the bar ${need_kappa}; the judge does not pass on this arm's outputs`);
+  if (scoring.per_arm) {
+    const unlabelled = planned.filter(a => !byArm.has(a));
+    const unknown = [...byArm.keys()].filter(a => planned.length && !planned.includes(a));
+    if (unlabelled.length) problems.push(`per-arm: yes needs labels from every arm in ## Arms; no rows for ${unlabelled.join(', ')}`);
+    if (unknown.length) problems.push(`label rows name arms that are not in ## Arms: ${unknown.join(', ')}`);
+  }
+  if (scoring.per_arm) for (const a of arms) if (a.kappa === null || a.kappa < need_kappa) problems.push(`arm ${a.arm}: kappa ${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} on its ${a.n} labels is below the bar ${need_kappa}; the judge does not pass on this arm's outputs`);
   return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms };
 }
 

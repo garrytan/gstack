@@ -71,7 +71,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
 | Scoring | `judge: none` or the judge model with `labels:`, `agreement:`, `per-arm: yes` and `effort:`; with two or more arms, `paired: yes`, `interval: 95%`, `mdd:` |
 | Pilot | per arm, uncounted: `share:` (at most 10% of the arm's budget), `counted: no`, `ran:`, `judge:`, `supply:`, `units:` (every unit type), `seed:` (a draw order that doesn't depend on the number of workers) |
-| Cost | `paid:` dollars, `meter:`, `ledger:` (the private file that gets the actual cost and the decision it settled) |
+| Cost | `paid:` a plain dollar amount (no k, ranges or arithmetic), `meter:`, `ledger:` (the private file that gets the actual cost and the decision it settled) |
 | Interim look | only when `paid:` is above 500 dollars: `at: 50%`, `looks: 1`, `bounds: O'Brien-Fleming`, `futility:` |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |

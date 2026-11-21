@@ -2121,11 +2121,11 @@ checks. Logic in `checkLoop` and `checkQuickLook` (`lib/eval-plan-checks.ts`):
 |---|---|
 | `## Pilot`, uncounted, per arm: `share:` at most 10% of that arm's budget, `counted: no`, `ran:` (the part under test ran, on that arm's own outputs), `judge:` (the judge passes its label check on that arm's pilot outputs, with a model judge), `supply:` (the units can be supplied at the planned rate), `units:` (every unit type, each drawn at least once) and `seed:` (a fixed draw order that doesn't depend on the number of workers) | `PREREG_INCOMPLETE` |
 | `## Scoring` with a model judge: `per-arm: yes` and `effort:`, the reasoning effort set in the judge's start | `PREREG_INCOMPLETE` |
-| `## Cost`: `paid:` (dollars), `meter:` and `ledger:`, the private file that gets the actual cost and the decision it settled | `PREREG_INCOMPLETE` |
+| `## Cost`: `paid:` (a plain dollar amount such as `$1,200`; `2k`, ranges, units and arithmetic are refused), `meter:` and `ledger:`, the private file that gets the actual cost and the decision it settled | `PREREG_INCOMPLETE` |
 | `## Interim look` when `paid:` is above $500: `at: 50%`, `looks: 1`, `bounds:` O'Brien-Fleming, `futility:` | `PREREG_INCOMPLETE` |
 | An arm or bar asking for a smaller change or less code has a `regression test` bar beside it | `PREREG_INCOMPLETE` |
 | `## Held-out exposure` has an `answers:` line: how each task machine was checked for answers the agent could read there | `PREREG_INCOMPLETE` |
-| With `per-arm: yes`, `judge --check` needs an `arm` on every label row, rows from every arm in `## Arms`, and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
+| With `per-arm: yes`, `judge --check` needs an `arm` on every label row, rows naming only arms in `## Arms` and covering every one, and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
 | A quick look (`kind: quick look`; `question:`, `decision:`, `stop:`, `cap:` of $100 or less) publishes no number | `results --check`: `EVAL_QUICK_LOOK_NO_NUMBER` |
 
 Why: of $28,836 spent on our last 30 evals, 23.7% settled nothing, and most of

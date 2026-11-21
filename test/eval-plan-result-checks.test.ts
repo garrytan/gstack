@@ -90,9 +90,8 @@ describe('judge labels', () => {
   test('40 labels at or above the bar pass; fewer labels, a low kappa, one class or a repeated id fail', () => {
     expect(checkJudgeLabels(scoring, labels(40, 4))).toMatchObject({ ok: true, n: 40, kappa: 0.8 });
     expect(checkJudgeLabels(scoring, labels(39)).problems).toEqual(['39 labelled outputs, needs 40']);
-    const low = checkJudgeLabels(scoring, labels(40, 10)).problems;
-    expect(low[0]).toBe('kappa 0.50 is below the bar 0.6');
-    expect(low.slice(1).map(p => p.split(':')[0])).toEqual(['arm claude-opus-5-5']);
+    expect(checkJudgeLabels(scoring, labels(40, 10)).problems).toEqual(['kappa 0.50 is below the bar 0.6']);
+    expect(checkJudgeLabels({ ...scoring, per_arm: true }, labels(40, 10)).problems.map(p => p.split(':')[0])).toEqual(['kappa 0.50 is below the bar 0.6', 'arm claude-opus-5-5']);
     expect(checkJudgeLabels(scoring, labels(40, 0, () => 'pass')).problems[0]).toContain('one class');
     expect(checkJudgeLabels(scoring, labels(40) + labels(1)).problems).toContain('id item-0 is labelled twice');
     expect(checkJudgeLabels({ ...scoring, labels: 60 }, labels(40)).problems).toEqual(['40 labelled outputs, needs 60']);
