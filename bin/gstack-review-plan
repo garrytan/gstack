@@ -100,7 +100,7 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             when a docs claim needs the targeted read on a targeted-class diff (GST-1702)
   --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR); with
                             --round-grant, the PR the grant must name
-  --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent, fix-checks included (printed as pr_rounds=)
+  --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent, fix-checks not included (printed as pr_rounds=)
   --prior-full <n>          the full rounds among them: with this run's full passes they count against the cap of 2, so pass 1
                             of a PR with 2 is one read-only full review (no fix round; a blocker is NEXT: stop (PR_ROUND_CAP)
                             for the lane's Captain to decide, never the owner).

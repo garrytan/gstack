@@ -91,7 +91,10 @@ incomplete coverage, which blocks until the reviewer is rerun.
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
 3. **Two rounds is the cap** (R51): a full pass, a scoped pass
-   ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
+   ([below](#scoped-pass)) or a fix-check is a round of this table. The counters
+   (`review_loop.rounds`, `PR_REVIEW_HISTORY: rounds=`) count passes only: a
+   fix-check reads only a round's fixes, and R51 counts a re-check of only what
+   changed as no round, so it shows as `fix_checks=`. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
@@ -148,8 +151,8 @@ caught 22 of 24 planted faults but none of 8 real faults that full rounds had
 caught on another crew's PRs.
 
 1. **Count.** `gstack-ship-receipt history --pr <n>` adds up the rounds the body
-   records (full passes, scoped passes and fix-checks; a run listed twice counts
-   once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
+   records (full and scoped passes; a fix-check is no round and shows as
+   `fix_checks=`; a run listed twice counts once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
    --prior-rounds <rounds> --prior-full <full rounds>` and `PR_REVIEW_ROUTE:`.
    `/ship` Step 1 prints all three. A re-check that carried a receipt before
    this rule adds no round. The count fails open when the history can't be
@@ -185,7 +188,8 @@ caught on another crew's PRs.
    full rounds to this run's full passes; fix-checks stay the in-run table's
    call, and `--prior-rounds` is printed as `pr_rounds=`. The per-PR cap counts
    full passes only, by design (`lib/review-depth.ts` `prCapped`): earlier runs'
-   fix-checks and scoped passes show in `pr_rounds=` but don't count against it,
+   scoped passes show in `pr_rounds=` but don't count against it, fix-checks
+   show in neither,
    because each run's own fix round is the in-run table's call. A full pass past two
    stops with `PR_ROUND_CAP` and says how to record the stop and its grant
    (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
@@ -232,7 +236,10 @@ caught on another crew's PRs.
    gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
    whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
    grant) and a grant from inside an open `/ship` run are refused, and `add`
-   refuses the scope. `--by` is otherwise the caller's own text, recorded and
+   refuses the scope. A stopped run's marker stays on its checkout, so the lane
+   records its Captain's grant there as a relay: `--owner-ref <thread
+   code>:<message id or timestamp> --words <their exact words>`, the same relay
+   `gstack-approvals rule` takes, which the row keeps as `relayed:<ref>` (#4531). `--by` is otherwise the caller's own text, recorded and
    not checked: a lane that records a grant (or a ruling) from another checkout
    under its Captain's name can't be told apart from the Captain doing it, so the
    Captain's check of the receipt's `review_round_grants` and the PR body's lines
@@ -849,7 +856,7 @@ Findings bind by id first (GST-1168). A row finding that came from a dispatched 
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes): the larger of the `review-fix-check` rows and the ledgers holding a fix-check reader's review. When fix-checks ran without their rows, a blocker no row disposes counts as fixed once a later fix-check ledger followed it (decision 3.5 runs one only after the fixes) |
-| `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
+| `review_loop.rounds` | full and scoped passes; a fix-check is no round under R51, so `fix_checks` counts it apart (the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 | `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than release stamps and plain docs (no binary file and no numeric, results, prereg, eval, money, security, secret or auth claim; GST-1195, GST-1689), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |

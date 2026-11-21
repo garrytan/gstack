@@ -262,8 +262,8 @@ describe('gstack-ship-preflight', () => {
     fs.writeFileSync(path.join(f.root, 'body.json'), JSON.stringify({ body }));
     f.gh(`case "$*" in *"pr view"*) cat '${path.join(f.root, 'body.json')}';; *) echo 7;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
-    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=4 cap=2 full=2 /);
-    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 4 --prior-full 2');
+    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=2 cap=2 full=2 /);
+    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2');
     expect(lineOf(r.stdout, 'PR_REVIEW_ROUTE')).toMatch(/^PR_REVIEW_ROUTE: read-only \(the PR had 2 full review rounds; this head gets one read-only full review/);
     expect(r.stdout).not.toMatch(/--recheck|drift_lines|recheck_blocked/);
   });

@@ -348,7 +348,7 @@ describe('factory-scorecard: pieces', () => {
 
   // Value: protects=a PR shipped three times at two rounds each reports 6 rounds, not the largest run's 2 (GST-2673); fails_when=the scorecard takes the max again; why_new=R51 counts per PR; seam=none; no_claim=bodies without a receipt, which keep the marker's max
   test('receiptRounds sums R51 rounds across the receipt and its runs', () => {
-    const run = (c: string, id: string) => JSON.stringify({ head: c.repeat(40), run: id, review_loop: { passes: 1, blocking_found: 0, deferred: 0, fix_checks: 1, rounds: 2 } });
+    const run = (c: string, id: string) => JSON.stringify({ head: c.repeat(40), run: id, review_loop: { passes: 2, blocking_found: 0, deferred: 0, fix_checks: 1, rounds: 2 } });
     const body = '```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, ...JSON.parse(run('c', 'r3')) }) + '\n```\n\n```gstack-receipt-runs\n' + run('a', 'r1') + '\n' + run('b', 'r2') + '\n```\n';
     expect(receiptRounds(body)).toBe(6);
     expect(receiptRounds('passes=2')).toBeNull();

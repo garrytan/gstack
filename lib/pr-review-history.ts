@@ -16,7 +16,7 @@ import type { ReviewRoundGrant } from './review-round-grant';
 export interface PrReviewHistory {
   /** /ship runs that reviewed (stubs and carries excluded). */
   runs: number;
-  /** R51 rounds: full and scoped passes plus fix-checks, every run and started stub. */
+  /** R51 rounds: full and scoped passes, every run and started stub; a fix-check is no round (fix_checks counts it). */
   rounds: number;
   full: number;
   scoped: number;
@@ -31,7 +31,7 @@ export interface PrReviewHistory {
   source: 'pr-body';
 }
 
-const roundsOf = (l: ReceiptRun['review_loop']) => (l ? (l.rounds ?? (l.passes ?? 0) + (l.fix_checks ?? 0)) : 0);
+const roundsOf = (l: ReceiptRun['review_loop']) => l?.passes ?? 0;
 
 /** Every entry the body records, oldest first: the runs block, then the current receipt. */
 function entries(body: string): ReceiptRun[] {

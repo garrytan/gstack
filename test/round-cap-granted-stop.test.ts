@@ -160,6 +160,24 @@ describe('the CLI seams', () => {
     expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'f#1', '--reason', 'x', '--by', 'gstack']).status).toBe(2);
   });
 
+  // Value: protects=a Captain's fix-check grant can be recorded on the /ship machine while the stopped run's marker is still there,
+  //   as a relay naming the Captain's message, and never as an unrelayed row inside the run; fails_when=round-grant refuses the relay
+  //   (APPROVAL_RECORD_INVALID, #4531) or accepts an unrelayed grant inside an open run; why_new=#4531's fix-check grant could not be
+  //   recorded; seam=gstack-approvals round-grant; no_claim=-
+  test('#4531: inside an open /ship run a grant records only as a relay with --owner-ref and --words', () => {
+    const r = stopRepo();
+    const s = r.head();
+    fs.writeFileSync(path.resolve(r.f.work, r.f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim()), 'ro\n');
+    const grant = (extra: string[]) => r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'p1/red-team#2', '--reason', 'fixable blocker', '--by', 'Captain GStack Minder (GSTA-36)', ...extra]);
+    const bare = grant([]);
+    expect([bare.status, bare.stderr]).toEqual([2, expect.stringContaining('/ship run ro is open on this checkout')]);
+    expect(grant(['--owner-ref', 'GSTA-36:2026-11-19T12:29:59Z']).status).toBe(2);
+    expect(grant(['--owner-ref', 'not a ref', '--words', 'one fix-check']).status).toBe(2);
+    const relayed = grant(['--owner-ref', 'GSTA-36:2026-11-19T12:29:59Z', '--words', 'one fix-check for red-team#2']);
+    expect(relayed.status, relayed.stderr).toBe(0);
+    expect(r.run('gstack-approvals', ['list', '--json']).stdout).toContain('relayed:GSTA-36:2026-11-19T12:29:59Z');
+  });
+
   // Value: protects=GST-2968's own shape end to end: the read-only run stops, the stop is recorded, a fix-check grant is recorded after
   //   it, history (as preflight runs it) routes the fix-check and the plan plans it; fails_when=history prints read-only and the plan
   //   prints next=full; seam=gstack-ship-receipt stop/history/claim, gstack-review-plan

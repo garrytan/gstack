@@ -482,7 +482,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), ...(x.state === 'active' ? { excluded: x.excluded } : {}) });
   const have = rd?.depth;
   const inputs = `base@${short(baseSha.ok ? baseSha.out : null)},registry@${short(c.registry.sha)},gate_scan@${scanBound ? short(rd!.gate_scan.head) : 'missing'}`;
-  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
+  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? r.review_loop?.passes ?? 'none'}`;
   if (have === 'platform') {
     const pr = rd!.platform_review;
     const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));

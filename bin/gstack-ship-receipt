@@ -1044,7 +1044,7 @@ function cmdStub(rest: string[]): number {
   const status = rest.includes('--void') ? 'voided' : 'started';
   const err = postBody(rest, read.pr, placeRunEntry(read.body, runStub({ head, run, status, loop })));
   if (err) { process.stderr.write(`gstack-ship-receipt stub: ${err}; the run is not recorded\n`); return EXIT.fail; }
-  process.stdout.write(`RUN_STUB: run=${run} status=${status} rounds=${loop.rounds ?? loop.passes + (loop.fix_checks ?? 0)} head=${head.slice(0, 12)}\n`);
+  process.stdout.write(`RUN_STUB: run=${run} status=${status} rounds=${loop.passes} head=${head.slice(0, 12)}\n`);
   return EXIT.ok;
 }
 
