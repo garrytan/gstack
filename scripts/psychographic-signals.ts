@@ -213,6 +213,7 @@ export const SIGNAL_MAP: Record<string, Record<string, DimensionDelta[]>> = {
       { dim: 'architecture_care', delta: +0.02 },
     ],
     intrapreneur: [{ dim: 'scope_appetite', delta: +0.02 }],
+    pivot: [{ dim: 'risk_tolerance', delta: +0.02 }],
     hackathon: [
       { dim: 'risk_tolerance', delta: +0.03 },
       { dim: 'architecture_care', delta: -0.02 },

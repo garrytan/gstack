@@ -21,6 +21,10 @@
 #   --log-session    append a session entry (from /office-hours) to
 #                       sessions[] and update aggregates. Required fields:
 #                       date, mode. Silent skip on invalid input.
+#   --kill-check <slug> print KILL_DATE, KILL_TEST and KILL_DUE (yes once the
+#                       date has passed) from the newest approved office-hours
+#                       kill or success commitment (mode "commitment") for
+#                       that project; empty values and KILL_DUE: no when none.
 #   --reconcile         backfill count-only sessions[] entries from office-hours
 #                       `completed` events in projects/*/timeline.jsonl.
 #                       Idempotent; backfilled rows count for tenure only.
@@ -381,7 +385,7 @@ do_reconcile() {
 
     const HOUR = 60 * 60 * 1000;
     const covered = profile.sessions
-      .filter(s => s && s.mode !== 'resources')
+      .filter(s => s && s.mode !== 'resources' && s.mode !== 'commitment')
       .map(s => ({ t: Date.parse(s.ts || s.date || ''), slug: s.project_slug || null }))
       .filter(c => !Number.isNaN(c.t));
 
@@ -434,7 +438,7 @@ do_read() {
     // session's resources entry written immediately after the real session inflates
     // the count (bumping TIER), clobbers LAST_PROJECT/LAST_ASSIGNMENT/LAST_DESIGN_TITLE,
     // and pushes NUDGE_ELIGIBLE over its threshold from bookkeeping alone.
-    const realSessions = sessions.filter(e => e.mode !== 'resources');
+    const realSessions = sessions.filter(e => e.mode !== 'resources' && e.mode !== 'commitment');
     // Backfilled rows (--reconcile) carry no content: they count for tenure only.
     const loggedSessions = realSessions.filter(e => !e.backfilled);
 
@@ -484,6 +488,25 @@ do_read() {
     console.log('RESOURCES_SHOWN_COUNT: ' + resources.length);
     console.log('TOPICS: ' + topics.join(','));
   "
+}
+
+# -----------------------------------------------------------------------
+# Kill check: the newest approved commitment for one project.
+# -----------------------------------------------------------------------
+do_kill_check() {
+  [ -n "${1:-}" ] || { echo "gstack-developer-profile: --kill-check needs a project slug (usage: --kill-check <slug>)" >&2; exit 2; }
+  ensure_profile
+  KILL_SLUG="${1:-}" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+    const p = JSON.parse(await Bun.stdin.text());
+    const rows = (p.sessions || []).filter(e => e && e.mode === 'commitment'
+      && e.project_slug === process.env.KILL_SLUG && e.kill_date && e.kill_test);
+    const last = rows[rows.length - 1];
+    const d = new Date();
+    const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    console.log('KILL_DATE: ' + (last ? last.kill_date : ''));
+    console.log('KILL_TEST: ' + (last ? last.kill_test : ''));
+    console.log('KILL_DUE: ' + (last && String(last.kill_date).slice(0, 10) <= today ? 'yes' : 'no'));
+  " < "$PROFILE_FILE"
 }
 
 # -----------------------------------------------------------------------
@@ -815,6 +838,7 @@ case "$CMD" in
   --migrate) do_migrate ;;
   --log-session) do_log_session "$@" ;;
   --reconcile) do_reconcile ;;
+  --kill-check) do_kill_check "$@" ;;
   --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
   *)
     echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2

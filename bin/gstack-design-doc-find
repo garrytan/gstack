@@ -36,9 +36,16 @@ newest() {
   ls -t "$@" 2>/dev/null | head -1
 }
 
+newest_design() {
+  ls -t "$@" 2>/dev/null | while IFS= read -r f; do
+    b=${f##*/}
+    case "${b##*-memo-}" in "$b"|*design-*) printf '%s\n' "$f"; break ;; esac
+  done
+}
+
 PROJECT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG"
-LOCALDOC=$(newest "$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
-[ -z "$LOCALDOC" ] && LOCALDOC=$(newest "$PROJECT_DIR"/*-design-*.md)
+LOCALDOC=$(newest_design "$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
+[ -z "$LOCALDOC" ] && LOCALDOC=$(newest_design "$PROJECT_DIR"/*-design-*.md)
 
 REPODOC=""
 TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)
