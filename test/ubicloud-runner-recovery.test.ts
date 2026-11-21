@@ -170,6 +170,21 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     for (const line of keyBody(key)) for (const text of [out(up), out(r), out(down), f.ssh()]) expect(text).not.toContain(line);
   }, 90_000);
 
+  // Value: protects=recover accepts every owner tag owner_id issues (up to 31 characters), so a controller with a long owner can recover its VMs; fails_when=recover's --owner check allows fewer characters than owner_id; why_new=every recover test used a 5-character owner; seam=none; no_claim=owner tags from older runner copies
+  test('recover takes a long owner tag, as owner_id issues it', () => {
+    const f = make();
+    const rec = join(f.root, 'recovery');
+    const owner = 'controller1234567890';
+    const up = run(f, ['up'], { UBI_RECOVERY_DIR: rec, UBI_REAP: '0', UBI_OWNER: owner });
+    expect(up.exitCode, out(up)).toBe(0);
+    const name = up.stdout.toString().trim();
+    const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: join(f.root, 'state2'), UBI_OWNER: 'thrd2', UBI_REAP: '0' };
+    const r = run(f, ['recover', '--owner', owner], env2);
+    expect(r.exitCode, out(r)).toBe(0);
+    expect(r.stdout.toString()).toContain(`RECOVERED: vm=${name} ip=192.0.2.1 owner=${owner}`);
+    expect(run(f, ['down', name], env2).exitCode).toBe(0);
+  }, 90_000);
+
   test('a wrong secret or a tampered bundle never decrypts, writes no state and keeps the bundle', () => {
     const { f, rec, name, bundle, state2 } = setup();
     const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_REAP: '0' };
@@ -238,6 +253,24 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(ok.exitCode).toBe(0);
     expect(existsSync(join(rec, 'thrd1', ok.stdout.toString().trim() + '.bundle'))).toBe(true);
   });
+
+  // Value: protects=a rerun with a bad sink spec refuses before teardown is armed, so the VM it would resume survives; fails_when=sink_check runs on the reattach path after the EXIT trap and its die tears the VM down; why_new=the sink spec test only covered a fresh up; seam=none; no_claim=the real API
+  test('a rerun with an invalid sink spec refuses without destroying the VM it would resume', async () => {
+    const f = make();
+    const repo = gitSrc(f);
+    writeFileSync(join(f.root, 'make-test.sh'), 'echo begin; sleep 4; echo end\n');
+    const a = f.spawn(['run', '--src', repo, '--', 'make test'], { UBI_REAP: '0' });
+    await until(() => vmDirs(f).some(d => existsSync(join(f.state, d, 'command.out')) && readFileSync(join(f.state, d, 'command.out'), 'utf8').includes('begin')), 30_000);
+    process.kill(a.pid, 'SIGKILL');
+    await a.exited;
+    const name = vmDirs(f)[0]!;
+    const r = run(f, ['run', '--src', repo, '--', 'make test'], { UBI_SINK: 'http://example.invalid/results', UBI_REAP: '0' });
+    expect(out(r)).toContain('UBI_SINK_INVALID');
+    expect(r.exitCode).not.toBe(0);
+    expect(f.calls()).not.toContain('"destroy"');
+    expect(existsSync(join(f.state, name, 'env'))).toBe(true);
+    expect(run(f, ['down', name]).exitCode).toBe(0);
+  }, 90_000);
 
   test('a counted rerun refuses to reattach to a VM that has no bundle', async () => {
     const f = make();
@@ -423,6 +456,26 @@ describe('ubi-runner money path: an API error is never read as success (GST-1441
       expect(existsSync(bundle(f, name))).toBe(true);
       if (args[0] === 'run') expect(out(r)).toContain('UBICLOUD: left=unknown owner=thrd1 vm=' + name);
     }
+  }, 60_000);
+
+  // Value: protects=recover adopts a VM only once the bundle's key opens it, so a bundle left by an ambiguous create never lets another controller take over and destroy the VM that won the name; fails_when=recover treats the name answering show as ownership and writes CREATED=yes; why_new=the ambiguous-create test stopped at up and never ran recover; seam=the holder key makes the fake ssh refuse the bundle's key; no_claim=a real sshd's refusal text
+  test('recover refuses a VM the bundle\'s key does not open: nothing is adopted and the bundle stays', () => {
+    const f = make();
+    writeFileSync(join(f.root, 'listed'), '');
+    flag(f, 'create-status', '000');
+    flag(f, 'create-lands', '0');
+    flag(f, 'holder-key', 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHolderKeyOfAnotherCaller0000000000000000 other-caller\n');
+    const up = run(f, ['up', '-n', NAME, '-l', 'eu-central-h1'], { UBI_RECOVERY_DIR: rd(f), UBI_REAP: '0', UBI_CREATE_GRACE: '5', UBI_SSH_WAIT: '3' });
+    expect(out(up)).toContain('UBI_CREATE_UNKNOWN');
+    expect(existsSync(bundle(f, NAME))).toBe(true);
+    const state2 = join(f.root, 'state2');
+    const r = run(f, ['recover', '--owner', 'thrd1'], { UBI_RECOVERY_DIR: rd(f), UBI_RUNNER_STATE: state2, UBI_OWNER: 'thrd2', UBI_REAP: '0' });
+    expect(r.exitCode, out(r)).not.toBe(0);
+    expect(r.stdout.toString()).toContain(`RECOVER_FAILED: vm=${NAME} code=RECOVER_UNPROVEN`);
+    expect(existsSync(join(state2, NAME))).toBe(false);
+    expect(existsSync(bundle(f, NAME))).toBe(true);
+    expect(f.calls()).not.toContain('"destroy"');
+    expect(f.listed()).toContain(NAME);
   }, 60_000);
 
   // Value: protects=the ownership proof counts only this call's generated key, so a holder VM that accepts a key from the controller's ssh agent, ~/.ssh or ssh config is never armed and destroyed; fails_when=ssh offers agent, default or config identities beside -i and the proof passes on the holder's key; why_new=the holder-key test's fake offered only the -i key; seam=the fake agent and ssh config hold the holder's key, offered unless IdentitiesOnly=yes and -F /dev/null; no_claim=which keys a real agent holds

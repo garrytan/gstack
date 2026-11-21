@@ -1073,7 +1073,7 @@ cmd_recover() {
       *) die "recover: unknown option $1" ;;
     esac
   done
-  [[ "$from" =~ ^[a-z][a-z0-9]{0,11}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
+  [[ "$from" =~ ^[a-z][a-z0-9]{0,30}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
   [ -n "$dir" ] || die "UBI_RECOVERY_REQUIRED: recover reads bundles from UBI_RECOVERY_DIR (or --dir DIR), and neither is set"
   command -v openssl >/dev/null || die "UBI_RECOVERY_UNAVAILABLE: openssl is required to open recovery bundles"
   mkdir -p "$STATE_ROOT"
@@ -1104,6 +1104,13 @@ cmd_recover() {
     case $code in
       200)
         ip=$(sed -n 's/^ip4: //p' "$out")
+        KEY="$tmp/key"
+        # shellcheck disable=SC2046
+        if ! ssh -F /dev/null $(ssh_opts) "ubi@${ip:-$IP}" true </dev/null >/dev/null 2>&1; then
+          rm -rf "$tmp"
+          recover_failed "$name" RECOVER_UNPROVEN "the bundle's key does not open $name, so it may be another caller's VM under that name; nothing was adopted and the bundle stays. Rerun recover once the VM answers ssh"
+          continue
+        fi
         printf 'NAME=%q\nLOCATION=%q\nSIZE=%q\nIP=%q\nCREATED=yes\nCREATE_AT=%q\nCREATE_PID=\nADOPTED_BY=%q\n' \
           "$name" "$LOCATION" "$SIZE" "${ip:-$IP}" "$CREATE_AT" "$OWNER" >"$tmp/env"
         if [ -e "$dest" ]; then
@@ -1172,6 +1179,7 @@ push() {
     [ "$rc" -le 1 ] || skipped=tar_failed
     [ -n "$skipped" ] || [ "$(wc -c < "$d/results.tgz")" -le $((SINK_MAX_MB * 1048576)) ] || skipped=size
   else
+    [ ! -e ~/.ubirun-sink.had ] || { rm -rf "$d"; return 0; }
     tar -czf "$d/results.tgz" -C "$d" heartbeat.json
   fi
   if [ -n "$skipped" ]; then rm -rf "$d"; return 2; fi
@@ -1183,7 +1191,7 @@ push() {
     *) rc=1 ;;
   esac
   rm -rf "$d"
-  [ "$rc" -ne 0 ] || { last=$(date +%s); echo "$last" > ~/.ubirun-sink.last; }
+  [ "$rc" -ne 0 ] || { last=$(date +%s); echo "$last" > ~/.ubirun-sink.last; [ ${#P[@]} -eq 0 ] || : > ~/.ubirun-sink.had; }
   return "$rc"
 }
 if [ "$once" = 1 ]; then push && exit 0; echo "seq=$seq last_push=$last${skipped:+ sink_skipped=$skipped}"; exit 1; fi
@@ -1433,7 +1441,7 @@ cmd_up() {
       -b|--image) image=$2; shift 2 ;;
       --tag) [[ "$2" =~ ^[A-Za-z0-9_.-]+=[A-Za-z0-9_.:/@+-]*$ ]] || die "up: --tag $2: expected key=value (letters, digits and _.:/@+- only)"; tags+=("$2"); shift 2 ;;
       --sink) sink=$2; shift 2 ;;
-      --sink-path) [[ "$2" != /* && "/$2/" != */../* && -n "$2" ]] || die "up: --sink-path $2: must be a path under ~ on the VM"; sink_paths+=("$2"); shift 2 ;;
+      --sink-path) [[ "$2" != /* && "$2" != -* && "/$2/" != */../* && -n "$2" ]] || die "up: --sink-path $2: must be a path under ~ on the VM"; sink_paths+=("$2"); shift 2 ;;
       --counted) COUNTED=1; shift ;;
       *) die "up: unknown option $1" ;;
     esac
@@ -1908,6 +1916,7 @@ cmd_run() {
       -S|--storage) storage=${up_args[i+1]} ;;
     esac
   done
+  [ -z "$sink" ] || sink_check "$sink"
   # The run key: everything that decides what the VM runs, computed before any
   # VM exists. Pass values enter only as their sha256.
   if [ -z "$FORCE_ATTACH" ]; then
@@ -1993,7 +2002,6 @@ cmd_run() {
     load "$name"
     log "reattached to $name created_at=$CREATE_AT key=${RUN_KEY:0:12}"
     if [ -n "$sink" ]; then
-      sink_check "$sink"
       sink_start "$name" "$sink" ${sink_paths[@]+"${sink_paths[@]}"}
       bundle_save "$name"
     fi
