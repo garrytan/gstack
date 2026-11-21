@@ -1472,7 +1472,8 @@ readers' `forbid_paths` included, applies as committed. The plan prints
 `REVIEW_EXCLUDE: fallback (WARNING: …)` naming each error and the fix, on
 stdout and stderr, `--json` carries `review_exclude.state: "fallback"`, the
 ship receipt records it as `review_exclude_fallback`, and every other step that
-reads the base policy (the pregate, the receipts, the merge step) reads it the
+reads the base policy (`gstack-ship-policy show-effective`, which prints the
+same warning on stderr, the pregate, the receipts, the merge step) reads it the
 same way, so the PR that corrects the list can be reviewed and land.
 `gstack-ship-policy validate` still reports the list as invalid. The PR's own
 list still doesn't count until it lands (GST-3399). Any other
