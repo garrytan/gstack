@@ -305,7 +305,7 @@ one trial each would let noise decide the "misses nothing" bar (see Bars).
 ## Held-out exposure
 | set | prior exposure (which runs, which models) | reservation (what this run may read) |
 |---|---|---|
-| the 10 sealed cases (hosts, plants, labels) | none: picked after this file merges; hosts and fixes are public on GitHub, all merged after Opus 5.5's June 2026 training cutoff | arms read only their case checkout; the runner reads labels to score; the judge reads findings and the case diff, never the labels |
+| the 10 sealed cases (hosts, plants, labels) | none: picked after this file merges; hosts and fixes are public on GitHub, all merged after Opus 5.5's June 2026 training cutoff | arms read only their case checkout; the runner reads labels to score; the judge reads findings, the case diff and the changed files at the case head, never the labels |
 | the 48 judge labels | none: findings from this run's own uncounted pilot and judge-stage trials, labelled before the judge sees them | the judge reads them once for `judge --check`; they never enter a counted comparison; after two checks they are development data for the second judge attempt |
 | the second judge attempt's fresh labels | none: findings from that attempt's own uncounted trials, which start after the revised judge's hashes are posted | the judge reads them once for `judge --check`; they never enter a counted comparison |
 
