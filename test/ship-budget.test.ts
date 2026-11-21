@@ -446,7 +446,7 @@ describe('meter epochs', () => {
   test('estimate spend survives a change of meter (estimate -> capy -> estimate)', () => {
     const l = { meter: { contract: METER_CONTRACTS.estimate, epoch: 0, baseline: 0, last: 0 }, epochs: [], carried_used: 0, estimate_used: 20_000_000, unknown: 0, reservations: [] } as unknown as Ledger;
     expect(tally(l).used).toBe(20_000_000);
-    newEpoch(l, METER_CONTRACTS.capy, 100_000_000);
+    newEpoch(l, METER_CONTRACTS.capy, 100_000_000); // pregate-literal: SUBAGENT_DEFAULT_CAP=100_000_000 a meter baseline reading, not the cap
     expect(tally(l).used).toBe(20_000_000);
     l.meter.last = 103_000_000;
     newEpoch(l, METER_CONTRACTS.estimate, 0);
