@@ -1,7 +1,5 @@
 .env
 node_modules/
-node_modules.gstack-migrate/
-node_modules.gstack-migrate.lock/
 dist/
 browse/dist/
 design/dist/
@@ -42,7 +40,6 @@ lib/cso/images/gstack-cso-preparation
 .cursor/
 .copilot/
 .agy/
-.gemini-cli/
 .openclaw/
 .hermes/
 .gbrain/

@@ -80,15 +80,14 @@ gstack_rm_checked ~/.claude/skills/gstack
 gstack_rm_checked ~/.gstack
 
 # 5. Remove integrations (skip any you never installed)
-gstack_rm_checked "${CODEX_HOME:-$HOME/.codex}/skills/gstack"*
-gstack_rm_checked ~/.factory/skills/gstack*
-gstack_rm_checked ~/.kiro/skills/gstack*
-gstack_rm_checked "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/gstack"* "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/.gstack-skills"
-gstack_rm_checked "${HERMES_HOME:-$HOME/.hermes}/skills/gstack"
-gstack_rm_checked ~/.cursor/skills/gstack*
-gstack_rm_checked ~/.config/opencode/skills/gstack*
-gstack_rm_checked ~/.gemini/antigravity-cli/skills/gstack*
-gstack_rm_checked ~/.gemini/skills/gstack*
+rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/gstack"* 2>/dev/null
+rm -rf ~/.factory/skills/gstack* 2>/dev/null
+rm -rf ~/.kiro/skills/gstack* 2>/dev/null
+rm -rf "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/gstack"* "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/skills/.gstack-skills" 2>/dev/null
+rm -rf "${HERMES_HOME:-$HOME/.hermes}/skills/gstack" 2>/dev/null
+rm -rf ~/.cursor/skills/gstack* 2>/dev/null
+rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
+rm -rf ~/.gemini/antigravity-cli/skills/gstack* 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

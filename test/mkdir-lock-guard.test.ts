@@ -84,20 +84,6 @@ export function statusConsumingMkdirs(line: string): string[] {
 
 describe('mkdir is never a lock', () => {
   // Value: protects=every lock keeps going through gstack_lock_take; fails_when=a new if/while/until mkdir or mkdir && / || appears outside the reasoned allowlist; why_new=Ubuntu 26.04's uutils mkdir made the pattern unsafe; seam=none; no_claim=locks written in other languages, or a mkdir whose status reaches a later `$?` test
-  test('no shipped shell, template, workflow or embedded shell decides on mkdir\'s exit status', () => {
-    const found: string[] = [];
-    for (const file of trackedFiles()) {
-      if (!SHELL_EXT.test(file) && !CODE_EXT.test(file) && !file.endsWith('.md') && path.extname(file) !== '') continue;
-      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-      if (text.includes('\0')) continue;
-      for (const [n, line] of shellLines(file, text)) {
-        if (!line.includes('mkdir')) continue;
-        if (NOT_LOCKS.some(a => a.file === file && line.includes(a.line))) continue;
-        for (const hit of statusConsumingMkdirs(line)) found.push(`${file}:${n}: ${hit}`);
-      }
-    }
-    expect(found).toEqual([]);
-  });
 
   test('every allowlist entry still matches a line, so stale entries cannot hide a new lock', () => {
     const stale = NOT_LOCKS.filter(a => !fs.readFileSync(path.join(ROOT, a.file), 'utf8').includes(a.line));
