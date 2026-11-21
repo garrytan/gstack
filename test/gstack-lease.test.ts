@@ -762,6 +762,28 @@ describe('gstack-lease', () => {
   });
 
   // GST-1204: gstack-ship-preflight asks whether one /ship run is still open; open answers with the same released, aged-out, dead and stale rules live uses.
+  test('open answers 0 for an open run on a live holder, and 1 once it is released, aged out, unknown or on a dead holder', () => {
+    const { dir, leases } = checkout();
+    const p = sleeper();
+    expect(run(['touch', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+    expect(run(['touch', '--root', dir, '--pid', String(p), '--run', `${p}-2-b`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', `${p}-1-a`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--pid', String(sleeper()), '--run', `${p}-1-a`]).status).toBe(1);
+    expect(run(['open', '--root', dir, '--run', `${p}-9-z`]).status).toBe(1);
+    expect(run(['release', '--root', dir, '--pid', String(p), '--run', `${p}-1-a`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', `${p}-1-a`]).status).toBe(1);
+    expect(run(['open', '--root', dir, '--run', `${p}-2-b`]).status).toBe(0);
+    const file = path.join(leases, String(p));
+    const old = Math.floor(Date.now() / 1000) - 121 * 60;
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^run (\S+-2-b) \d+$/m, `run $1 ${old}`));
+    expect(run(['open', '--root', dir, '--run', `${p}-2-b`]).status).toBe(1);
+    const dead = deadPid();
+    expect(run(['touch', '--root', dir, '--pid', String(dead), '--run', `${dead}-1-a`]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', `${dead}-1-a`]).status).toBe(1);
+    expect(run(['open', '--root', dir]).status).toBe(2);
+    expect(run(['--help']).stdout).toContain('alive|idle|dead|stale');
+  });
 
   test('gstack-skill-start reports a lease the held lock kept from being written, and still starts', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lease-home-'));
