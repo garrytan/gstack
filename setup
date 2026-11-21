@@ -1860,23 +1860,22 @@ _deps_lock() {
 
 _deps_unlock() { rm -rf node_modules.gstack-migrate.lock; }
 
-# A backup left by an interrupted migration: keep whichever copy is usable.
+# A backup left by an interrupted migration is the full install from before it
+# started, the one copy known to work: put it back, so the migration starts over
+# and keeps the backup until a production install succeeds.
 _deps_recover() {
   [ -d node_modules.gstack-migrate ] || return 0
-  if _deps_verified; then
-    rm -rf node_modules.gstack-migrate
-  else
-    rm -rf node_modules && mv node_modules.gstack-migrate node_modules
-  fi
+  rm -rf node_modules && mv node_modules.gstack-migrate node_modules
 }
 
 # An unmarked checkout with the dev toolchain (an install made before v1.91.231.0,
 # or a plain bun install) migrates. Locks, recovers, and
 # moves node_modules aside; succeeds only when it moved, so the caller installs
-# production-only and calls _deps_migration_finish.
+# production-only and calls _deps_migration_finish. Returns 2 when another
+# setup holds the lock.
 _deps_migration_start() {
   [ -d node_modules.gstack-migrate ] || _deps_has_dev || return 1
-  _deps_lock || return 1
+  _deps_lock || return 2
   _deps_recover
   if _deps_has_dev; then
     _DEPS_BEFORE_KB="$(du -sk node_modules 2>/dev/null | cut -f1)"
@@ -1912,11 +1911,18 @@ _deps_migration_finish() {
 # Bun's --production implies a frozen lockfile, so when bun.lock is out of date
 # (a fork or a local edit) refresh it first, then install production-only again.
 install_runtime_deps() {
-  local role out rc=0
+  local role out rc=0 mrc=0
   role="$(_deps_role)"
-  if [ "$role" = "user" ] && _deps_migration_start; then
-    out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
-    _deps_migration_finish "$rc" "$out" && return 0
+  if [ "$role" = "user" ]; then
+    _deps_migration_start || mrc=$?
+    if [ "$mrc" -eq 2 ]; then
+      echo "gstack: another ./setup is moving this checkout's dependencies (node_modules.gstack-migrate.lock), so nothing was installed. Wait for it to finish, then run ./setup again." >&2
+      return 1
+    fi
+    if [ "$mrc" -eq 0 ]; then
+      out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
+      _deps_migration_finish "$rc" "$out" && return 0
+    fi
   fi
   if [ "$role" = "contributor" ] || _deps_has_dev; then
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install

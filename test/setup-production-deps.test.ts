@@ -408,16 +408,38 @@ exit 0
     expect(run(finished, migrateBun(finished).bun).status).toBe(0);
     expect(has(finished, 'typescript')).toBe(false);
     expect(leftovers(finished)).toEqual([]);
+
+    const offline = oldInstall();
+    fs.renameSync(path.join(offline, 'node_modules'), path.join(offline, 'node_modules.gstack-migrate'));
+    fs.mkdirSync(path.join(offline, 'node_modules', 'runtime-pkg'), { recursive: true });
+    fs.writeFileSync(path.join(offline, 'node_modules', 'runtime-pkg', 'package.json'), '{}');
+    const r = run(offline, migrateBun(offline).bun, { PROD_RC: '7' });
+    expect(r.status, r.stderr).toBe(0);
+    expect([has(offline, 'typescript'), has(offline, SDK), has(offline, 'runtime-pkg')]).toEqual([true, true, true]);
+    expect(leftovers(offline)).toEqual([]);
+    expect(r.stderr).toContain('SETUP_DEPS_MIGRATE_FAILED');
   });
 
-  test('a live migration lock skips the migration; a dead holder is reclaimed', () => {
+  test('a live migration lock stops setup before any install; a dead holder is reclaimed', () => {
     const busy = oldInstall();
     fs.mkdirSync(path.join(busy, 'node_modules.gstack-migrate.lock'));
     fs.writeFileSync(path.join(busy, 'node_modules.gstack-migrate.lock', 'pid'), String(process.pid));
     const b = migrateBun(busy);
-    expect(run(busy, b.bun).status).toBe(0);
-    expect(b.calls()).toEqual(['install --frozen-lockfile']);
+    const held = run(busy, b.bun);
+    expect(held.status).not.toBe(0);
+    expect(held.stderr).toContain('another ./setup is moving this checkout');
+    expect(b.calls()).toEqual([]);
     expect(has(busy, 'typescript')).toBe(true);
+
+    const moving = oldInstall();
+    fs.renameSync(path.join(moving, 'node_modules'), path.join(moving, 'node_modules.gstack-migrate'));
+    fs.mkdirSync(path.join(moving, 'node_modules.gstack-migrate.lock'));
+    fs.writeFileSync(path.join(moving, 'node_modules.gstack-migrate.lock', 'pid'), String(process.pid));
+    const m = migrateBun(moving);
+    expect(run(moving, m.bun).status).not.toBe(0);
+    expect(m.calls()).toEqual([]);
+    expect(fs.existsSync(path.join(moving, 'node_modules.gstack-migrate', 'typescript'))).toBe(true);
+    expect(fs.existsSync(path.join(moving, 'node_modules'))).toBe(false);
 
     const stale = oldInstall();
     fs.mkdirSync(path.join(stale, 'node_modules.gstack-migrate.lock'));
