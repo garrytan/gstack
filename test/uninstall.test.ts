@@ -828,6 +828,14 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     expect(git(['cat-file', '-t', wip], sub).trim()).toBe('commit');
   });
 
+  test('a clean registered lane on a branch is removed by a plain --force', () => {
+    git(['worktree', 'add', '-q', '-b', 'lane1', worktree, 'HEAD']);
+    const r = uninstall(['--force']);
+    expect(r.stderr).not.toContain('refusing to delete');
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(repo, worktree))).toBe(false);
+  });
+
   for (const flags of [['--force'], ['--force', '--force-worktrees']]) {
     test(`a locked worktree stops ${flags.join(' ')} and is kept with its registration`, () => {
       addWorktree(false);
@@ -929,7 +937,7 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
 
   test('a failing git worktree list stops --force --force-worktrees and keeps the checkouts', () => {
     addWorktree(true);
-    const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
+    const realGit = spawnSync('bash', ['-c', 'g="$(git --exec-path)/git"; if [ -f "$g" ] && [ -x "$g" ]; then echo "$g"; else command -v git; fi'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
     const shim = path.join(tmp, 'shim');
     fs.mkdirSync(shim);
     fs.writeFileSync(path.join(shim, 'git'), `#!/bin/sh\ncase " $* " in *" worktree list "*) echo "fatal: broken" >&2; exit 128 ;; esac\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
@@ -1191,9 +1199,10 @@ describe('every deletion target is checked for unsaved git work before anything 
     const lane = path.join(tmp, 'lane');
     git(['worktree', 'add', '-q', '--detach', lane, 'HEAD'], install);
     git(['worktree', 'lock', lane], install);
+    const realGit = spawnSync('bash', ['-c', 'g="$(git --exec-path)/git"; if [ -f "$g" ] && [ -x "$g" ]; then echo "$g"; else command -v git; fi'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
     const shim = path.join(tmp, 'oldgit');
     fs.mkdirSync(shim);
-    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/bash\ncase " $* " in *" worktree list "*" -z "*) echo "error: unknown switch z" >&2; exit 129 ;; esac\nexec ${JSON.stringify(Bun.which('git'))} "$@"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/bash\ncase " $* " in *" worktree list "*" -z "*) echo "error: unknown switch z" >&2; exit 129 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
     const r = spawnSync('bash', [UNINSTALL, '--force'], {
       cwd: proj, encoding: 'utf-8', timeout: 30_000,
       env: { ...gitEnv, PATH: `${shim}:${gitEnv.PATH}`, HOME: home, GSTACK_DIR: install, GSTACK_SETTINGS_FILE: path.join(home, 'settings.json'),

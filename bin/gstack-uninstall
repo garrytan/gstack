@@ -205,7 +205,7 @@ _worktree_risk() {
     ""|*"
 "*) echo "it is not a registered worktree of this repository"; return 0 ;;
   esac
-  if ! printf '%s\n' "$_REGISTERED_WORKTREES" | grep -Fxq -- "$_dir"; then
+  if ! _in_list "$_dir" ${_REGISTERED_WORKTREES[@]+"${_REGISTERED_WORKTREES[@]}"}; then
     _is_registered_submodule "$_dir" || { echo "it is not a registered worktree of this repository"; return 0; }
     _local="$(_wt_git "$_dir" rev-list -n 1 --all --not --remotes 2>/dev/null)" || { echo "git cannot read its history"; return 0; }
     [ -z "$_local" ] || echo "it is a submodule with commits no remote-tracking branch contains"
