@@ -47,6 +47,8 @@ export interface StageSweep {
 /** The workspace (the checkout's parent), home and the temp dir, or GSTACK_SWEEP_ROOTS (path-delimited; tests); drives are never walked. */
 export const defaultRoots = (checkout: string) => process.env.GSTACK_SWEEP_ROOTS?.split(path.delimiter).filter(Boolean) ?? [path.dirname(checkout), os.homedir(), os.tmpdir()];
 export const defaultSkip = () => [path.join(os.homedir(), '.capy', 'drive')];
+/** Capy's drive sync engine database under ~/.capy/drive-engine grows on its own (GST-3359); the folder is still walked and nothing else in it is exempt. */
+const ENGINE_DB = /^state\.db(?:-wal|-shm|-journal)?$/;
 
 /**
  * A remote URL with nothing that can carry a credential: userinfo removed and a query read as `?<redacted>`
@@ -116,6 +118,7 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
   const inv: Inventory = { at: now, roots: roots.map(r => realOr(r)), repos: {}, big: {}, ignored: {} };
   const deadline = Date.now() + SWEEP_BUDGET_MS;
   const home = realOr(checkout);
+  const engine = realOr(path.join(os.homedir(), '.capy', 'drive-engine')) + path.sep;
   const seen = new Set<string>();
   let entries = 0;
   const walk = (dir: string, depth: number) => {
@@ -136,7 +139,7 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
     }
     for (const d of list) {
       const p = path.join(dir, d.name);
-      if (d.isFile()) { try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) inv.big[p] = s.size; } catch { /* gone */ } continue; }
+      if (d.isFile()) { if (ENGINE_DB.test(d.name) && dir.startsWith(engine)) continue; try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) inv.big[p] = s.size; } catch { /* gone */ } continue; }
       if (d.isDirectory() && !SKIP.has(d.name) && depth < SWEEP_DEPTH) walk(p, depth + 1);
     }
   };
