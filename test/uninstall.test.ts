@@ -920,6 +920,17 @@ describe('per-project state: tracked files and dirty worktrees survive (GSTA-461
     });
   }
 
+  test('a .gstack that is its own git repo is kept, with the reason, when the project tracks nothing there', () => {
+    git(['init', '-q', '-b', 'main'], path.join(repo, '.gstack'));
+    fs.writeFileSync(path.join(repo, '.gstack', 'notes.md'), 'mine\n');
+    git(['add', 'notes.md'], path.join(repo, '.gstack'));
+    git(['commit', '-q', '-m', 'unpushed notes'], path.join(repo, '.gstack'));
+    const r = uninstall(['--force']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain(`kept ${repo}/.gstack/: it holds its own git repository`);
+    expect(git(['log', '--format=%s'], path.join(repo, '.gstack'))).toBe('unpushed notes\n');
+    expect(fs.existsSync(path.join(home, '.gstack'))).toBe(false);
+  });
 
   test('a worktree edited while the prompt waits is kept: the check runs again before deleting', async () => {
     addWorktree(false);
