@@ -127,11 +127,11 @@ fi
 # every run, so anything rerunning ./setup in a loop repeated it hundreds of times an hour.
 # The day's marker is claimed with noclobber (O_EXCL), so concurrent runs send it once.
 if [ "$EVENT_TYPE" = "onboarding" ]; then
-  OB_KEY="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
-  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_KEY-$(date -u +%Y-%m-%d)"
+  OB_NAME="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
+  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$(date -u +%Y-%m-%d)"
   mkdir -p "$ANALYTICS_DIR" 2>/dev/null
   ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0
-  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_KEY"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
+  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
 fi
 
 # ─── Finalize stale .pending markers ────────────────────────
