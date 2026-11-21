@@ -136,4 +136,21 @@ describe('rendered Design Doc Check block', () => {
     const repo = f.write(path.join(f.repo, 'docs/designs/add-memo-export.md'), 5);
     expect(f.find({}, ['proj', 'feat-memo'])).toBe(repo);
   });
+  test('a /design-review audit summary is never returned as the design doc (#4615)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-audit-20261121-100000.md'), 10);
+    expect(f.find()).toBe('');
+    expect(f.find({}, ['proj', 'other'])).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-20261101-100000.md'), 1000);
+    expect(f.find()).toBe(doc);
+    expect(f.find({}, ['proj', 'other'])).toBe(doc);
+  });
+  test('a branch named after a design audit still finds its design doc, not its audit summary (#4615)', () => {
+    const f = fixture();
+    const args = ['proj', 'fix-design-audit'];
+    f.write(path.join(f.home, '.gstack/projects/proj/user-fix-design-audit-design-audit-20261121-100000.md'), 10);
+    expect(f.find({}, args)).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-fix-design-audit-design-20261101-100000.md'), 1000);
+    expect(f.find({}, args)).toBe(doc);
+  });
 });
