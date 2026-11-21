@@ -185,6 +185,8 @@ describe('contract-done-means renderer', () => {
     ['marker missing', one({ id: 'a', kind: 'selected_specialists_dispatched' }), /marker must be a non-empty string/],
     ['match missing', one({ id: 'a', kind: 'agent_dispatch' }), /match must be a non-empty string/],
     ['field from another kind', one({ id: 'a', kind: 'agent_dispatch', match: 'x', heading: 'R' }), /unknown key "heading"/],
+    ['task_name on another kind', one({ id: 'a', kind: 'report_labels', heading: 'R', labels: ['S'], task_name: 'x' }), /unknown key "task_name"/],
+    ['task_name not a plain name', one({ id: 'a', kind: 'agent_dispatch', match: 'x', task_name: 'Two Words' }), /task_name must be lowercase/],
   ];
   for (const [name, value, want] of MALFORMED) {
     test('a malformed block fails loudly: ' + name, () => {
@@ -226,6 +228,8 @@ describe('contract-done-means renderer', () => {
     expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);
+    expect(render('codex')).toContain('- ' + BT + 'adversarial-pass' + BT + ': a ' + BT + 'spawn_agent' + BT + ' (' + BT + 'task_name: adversarial' + BT + '), its prompt including "Think like an attacker and a chaos engineer".');
+    expect(render('claude')).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".');
     expect(renderDoneMeans({ version: 1, items: [] }, HOST_PATHS.claude.binDir)).toBe('');
   });
 

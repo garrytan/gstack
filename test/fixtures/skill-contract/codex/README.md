@@ -20,5 +20,16 @@ Nothing else was edited.
 | `exec-subagent.jsonl` | the subagent rollout from the failed-spawn run | `session_meta.source` names the parent thread |
 | `exec-sol-spawn-met.jsonl` | `codex exec -m gpt-6.1-sol` against a local stub Responses endpoint (no key, GEVA-562), skill injected, gstack's contract Stop hook on | Codex serves `spawn_agent` in its `collaboration` namespace with a required `task_name`, and the started agent's result is `{"task_name":"/root/adversarial"}` with no `agent_id`; before this reader knew that shape the hook blocked a met review once |
 
+Two files are synthetic, not captured (GST-3375). Codex encrypts the `message`
+of a `collaboration` `spawn_agent` call for OpenAI models (openai/codex#26210),
+and a stub endpoint can't produce that, so they were built by hand from
+`exec-sol-spawn-met.jsonl` in the shapes that pull request documents. The
+ciphertext is made-up bytes in the `gAAAAAB` token format.
+
+| File | Built from | What it shows |
+|---|---|---|
+| `exec-sol-encrypted-spawn.jsonl` | `exec-sol-spawn-met.jsonl` up to the first Stop, with the spawn message replaced by ciphertext, the encrypted `agent_message` task record added, and the adversarial agent's plaintext final answer before the report | the adversarial pass ran, named `adversarial`, but the brief's text is nowhere in the rollout |
+| `exec-sol-encrypted-subagent.jsonl` | hand-written | the adversarial agent's own rollout: its task arrives as `encrypted_content`, and `session_meta.source` names it `/root/adversarial` |
+
 `stop-payloads.json` holds the three Stop payloads Codex sent gstack's hook in
 the first two runs, and what the hook printed.
