@@ -201,6 +201,21 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(adopted.stdout.toString()).toContain(`RECOVER_FAILED: vm=${name} code=RECOVER_DECRYPT_FAILED`);
   }, 60_000);
 
+  // Value: protects=recover never adopts a VM its bundle's key cannot open, so it never tells the new controller that down is safe for another caller's VM that took the name; fails_when=recover trusts the by-name lookup alone and writes CREATED=yes state for a holder VM, which a later down then destroys; why_new=every recover test had the named VM accept the bundle's key; seam=the fake VM at the name accepts only the holder's key; no_claim=how often names are reused
+  test('recover refuses a VM the bundle\'s key does not open: RECOVER_UNPROVEN, no state, bundle kept, nothing destroyed', () => {
+    const { f, rec, name, bundle, state2 } = setup();
+    writeFileSync(join(f.root, 'listed.holder-key'), 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHolderKeyOfAnotherCaller0000000000000000 other-caller\n');
+    const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_OWNER: 'thrd2', UBI_REAP: '0' };
+    const r = run(f, ['recover', '--owner', 'thrd1'], env2);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stdout.toString()).toContain(`RECOVER_FAILED: vm=${name} code=RECOVER_UNPROVEN`);
+    expect(r.stdout.toString()).not.toContain('RECOVERED:');
+    expect(existsSync(join(state2, name))).toBe(false);
+    expect(existsSync(bundle)).toBe(true);
+    expect(f.calls()).not.toContain('"destroy"');
+    expect(f.listed()).toContain(name);
+  }, 60_000);
+
   test('an API outage keeps the bundle; a VM that is gone drops it', () => {
     const { f, rec, name, bundle, state2 } = setup();
     const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_REAP: '0' };

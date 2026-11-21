@@ -7816,6 +7816,11 @@ These codes come from `scripts/ubicloud/ubi-runner.sh` (GST-1220). `RECOVERED`, 
 
 **Meaning.** This machine already has state for the VM, and `recover` never overwrites it. **Fix.** Use that state (`pull`, `ssh`, `down <name>`). Remove the state directory only if you know it's stale.
 
+<a id="recover-unproven"></a>
+### `RECOVER_FAILED: vm=<name> code=RECOVER_UNPROVEN`
+
+**Meaning.** A VM answers to the bundle's name, but the bundle's ssh key doesn't open it, so `recover` can't prove it's the VM this bundle was written for. It may be another caller's VM that took the same explicit `-n` name, after an unconfirmed create (`UBI_CREATE_UNKNOWN`) or after the bundle's own VM was deleted somewhere that left the bundle behind. It may also be this bundle's VM before it is running. No state was written, so `down` can't destroy it from here. **Fix.** Rerun `recover` once the VM is running. If it still fails, check `list`: a VM under another owner isn't yours, so delete the stale bundle file instead.
+
 <a id="recover-gone"></a>
 ### `RECOVER_GONE: vm=<name>`
 

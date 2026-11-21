@@ -1060,7 +1060,8 @@ recover_failed() { echo "RECOVER_FAILED: vm=$1 code=$2 fix=$3"; RECOVER_FAILS=$(
 
 # recover [--owner OLD] [--dir DIR]: rebuild local state for every VM with a
 # bundle under DIR/OLD (default UBI_RECOVERY_DIR and this owner). A live VM
-# prints RECOVERED, a VM confirmed gone drops its bundle (RECOVER_GONE), and
+# that the bundle's key opens (the ownership proof up uses) prints RECOVERED;
+# one it does not open may be another caller's (RECOVER_UNPROVEN). A VM confirmed gone drops its bundle (RECOVER_GONE), and
 # anything else prints RECOVER_FAILED and keeps the bundle. State already on
 # this machine is never overwritten.
 RECOVER_FAILS=0
@@ -1104,6 +1105,12 @@ cmd_recover() {
     case $code in
       200)
         ip=$(sed -n 's/^ip4: //p' "$out")
+        if ! ssh -F /dev/null -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "ubi@${ip:-$IP}" true 2>/dev/null; then
+          rm -rf "$tmp"
+          recover_failed "$name" RECOVER_UNPROVEN "$LOCATION/$name answers its name, but the bundle's key does not open it, so it may be another caller's VM; nothing changed, rerun recover once it is running, or check with: $0 list"
+          continue
+        fi
         printf 'NAME=%q\nLOCATION=%q\nSIZE=%q\nIP=%q\nCREATED=yes\nCREATE_AT=%q\nCREATE_PID=\nADOPTED_BY=%q\n' \
           "$name" "$LOCATION" "$SIZE" "${ip:-$IP}" "$CREATE_AT" "$OWNER" >"$tmp/env"
         if [ -e "$dest" ]; then
