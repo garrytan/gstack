@@ -398,7 +398,7 @@ export interface History {
   postReview?: boolean;
   /** In the loop, the CLI bound `granted` to the last fix-check's own stop head, its commit (--range-base): a new grant, never the previous link's. */
   chained?: boolean;
-  /** R51 rounds earlier /ship runs on this PR already spent, scoped passes included and fix-checks not (--prior-rounds; GST-2673): printed as pr_rounds=. */
+  /** R51 rounds earlier /ship runs on this PR already spent, fix-checks and scoped passes included (--prior-rounds; GST-2673): printed as pr_rounds=. */
   priorRounds?: number;
   /** The full review rounds among them (--prior-full): the PR cap compares these plus this run's full passes with FULL_PASS_CAP, so a run's own fix rounds stay as the in-run table plans them. */
   priorFull?: number;
