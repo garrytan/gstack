@@ -6360,9 +6360,11 @@ receipt's `gate_dispositions`, or the PR body's `Gate disposition:` lines, diffe
 from the store (`ready` refuses those too). Nothing was merged. The
 `GATE_DISPOSITION:` lines above the refusal are what the store holds at the pin;
 the receipt and the body aren't trusted for this, because the lane writes them.
-A receipt id the store lacks usually means this lander reads another
-`GSTACK_STATE_ROOT` or approvals mirror than the owner recorded into, or that the row
-was removed after the receipt was written. A pin missing from the clone, a shallow
+Land also reads the signed non-security rows `ready` copied into the READY note at
+the pin, under the same checks. A receipt id the store lacks usually means this
+lander reads another `GSTACK_STATE_ROOT` or approvals mirror than the owner recorded
+into (security-class rows never go in the note), or that the row was removed after
+the receipt was written. A pin missing from the clone, a shallow
 clone that can't prove whether a row's head is in the pin's history, and any other
 git error while checking a head also refuse here. In a full clone, a row whose head
 commit is gone after a rewrite and gc just doesn't apply.
