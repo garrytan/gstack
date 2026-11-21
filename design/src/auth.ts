@@ -2,7 +2,7 @@
  * Auth resolution for the design binary's image providers.
  *
  * OpenAI key: ~/.gstack/openai.json → { "api_key": "sk-..." }, then OPENAI_API_KEY.
- * Gemini key: ~/.gstack/gemini.json → { "api_key": "AIza..." }, then GEMINI_API_KEY.
+ * Gemini key: ~/.gstack/gemini.json → { "api_key": "AIza..." or "AQ..." }, then GEMINI_API_KEY.
  *
  * Provider (resolveProvider), one fixed order: GSTACK_DESIGN_PROVIDER=openai|gemini
  * when set; else OpenAI when an OpenAI key resolves; else Gemini when a Gemini

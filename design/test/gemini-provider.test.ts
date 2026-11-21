@@ -24,6 +24,8 @@ import { listReceipts } from "../../lib/egress-receipt";
 
 const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
 const GEMINI_KEY = "AIzaFixtureNotARealKey0000000000000000";
+const GEMINI_AQ_KEY = "AQFixtureNotARealKey000000000000000000";
+const GEMINI_AQ_DOT_KEY = "AQ.AbFixtureNotARealKey000000000000";
 const ENV_KEYS = ["HOME", "GSTACK_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL", "GEMINI_API_KEY", "GSTACK_DESIGN_PROVIDER", DESIGN_MODEL_ENV, DESIGN_IMAGE_MODEL_ENV];
 
 /** Google's documented generateContent answer: candidates[0].content.parts with an inlineData image. */
@@ -154,6 +156,41 @@ describe("$D setup reaches Gemini without a terminal", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_KEY });
     expect(r.stdout).toContain("Fix: export GSTACK_DESIGN_PROVIDER=gemini");
+  });
+
+  // Value: protects=a current Google AI Studio key (AQ…) is stored and smoke-tested as Gemini;
+  //   fails_when=setup rejects it for not starting with AIza, or saves it as OpenAI; why_new=#4239; seam=fetch preload stub
+  test("an AQ Gemini key is saved and smoke-tested, including when no --provider is given", () => {
+    const explicit = cli(["--provider", "gemini", "--key-stdin"], {}, GEMINI_AQ_KEY);
+    expect(explicit.status, explicit.stderr).toBe(0);
+    expect(explicit.stdout).toContain("Key saved to ~/.gstack/gemini.json (0600 permissions).");
+    expect(explicit.stdout).toContain("Smoke test PASSED.");
+    expect(explicit.stdout + explicit.stderr).not.toContain(GEMINI_AQ_KEY);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_AQ_KEY });
+    fs.rmSync(path.join(dir, ".gstack"), { recursive: true, force: true });
+
+    const inferred = cli(["--key-stdin"], { OPENAI_API_KEY: "sk-unverified" }, GEMINI_AQ_KEY);
+    expect(inferred.status, inferred.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_AQ_KEY });
+    expect(fs.existsSync(path.join(dir, ".gstack", "openai.json"))).toBe(false);
+    fs.rmSync(path.join(dir, ".gstack"), { recursive: true, force: true });
+
+    const dotted = cli(["--provider", "gemini", "--key-stdin"], {}, GEMINI_AQ_DOT_KEY);
+    expect(dotted.status, dotted.stderr).toBe(0);
+    expect(dotted.stdout + dotted.stderr).not.toContain(GEMINI_AQ_DOT_KEY);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_AQ_DOT_KEY });
+  });
+
+  test("a Gemini setup still rejects a key that starts with neither AIza nor AQ", () => {
+    const lower = cli(["--provider", "gemini", "--key-stdin"], {}, "aqFixtureNotARealKey000000000000000000");
+    expect(lower.status).toBe(1);
+    expect(lower.stderr).toContain("Invalid key. A Gemini key starts with 'AIza' or 'AQ'.");
+    expect(fs.existsSync(path.join(dir, ".gstack", "gemini.json"))).toBe(false);
+
+    const openai = cli(["--provider", "gemini", "--key-stdin"], {}, "sk-fixture-not-a-real-key");
+    expect(openai.status).toBe(1);
+    expect(openai.stderr).toContain("Invalid key. A Gemini key starts with 'AIza' or 'AQ'.");
+    expect(fs.existsSync(path.join(dir, ".gstack", "gemini.json"))).toBe(false);
   });
 
   test("no switch line when the saved key is the one later runs pick", () => {
@@ -334,6 +371,28 @@ describe("live-gemini-check always tests the defaults", () => {
     expect(lines.slice(1).every(l => l.includes("result=FAIL"))).toBe(true);
     expect(r.stdout + r.stderr).not.toContain(GEMINI_KEY);
     expect(r.stdout).not.toContain("gemini-override");
+  });
+
+  test("an AQ. key echoed in the middle of an error body is redacted, and so is AIza", () => {
+    const preload = path.join(dir, "live-aq-stub.ts");
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "design-live-gemini-"));
+    const body = `Google error before ${GEMINI_AQ_DOT_KEY} and ${GEMINI_KEY} after`;
+    fs.writeFileSync(preload, `globalThis.fetch = (async () => new Response(${JSON.stringify(body)}, { status: 400 })) as typeof fetch;\n`);
+    try {
+      const r = spawnSync(process.execPath, ["--no-env-file", "--preload", preload, script], {
+        encoding: "utf8", timeout: 60_000,
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, GSTACK_HOME: home,
+          GEMINI_API_KEY: GEMINI_AQ_DOT_KEY, ...overrides,
+        },
+      });
+      expect(r.status, r.stderr).toBe(1);
+      expect(r.stdout + r.stderr).not.toContain(GEMINI_AQ_DOT_KEY);
+      expect(r.stdout + r.stderr).not.toContain(GEMINI_KEY);
+      expect(r.stdout).toContain("[redacted]");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 
