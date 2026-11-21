@@ -1974,9 +1974,10 @@ _trim_install_fixtures() {
     return 0
   fi
   [ "$role" = "user" ] && [ -z "$patterns" ] && ! _deps_has_dev && git cat-file -e HEAD:test/fixtures 2>/dev/null || return 0
-  if git sparse-checkout set --no-cone '/*' '!/test/fixtures/' >/dev/null 2>&1; then
+  if printf '%s\n' "$want" | git sparse-checkout set --no-cone --stdin >/dev/null 2>&1 && [ "$(git sparse-checkout list 2>/dev/null)" = "$want" ]; then
     log "gstack: left test/fixtures/ (test and eval data) out of this install. Developing gstack in this checkout? Run: git config gstack.contributor true, then ./setup again."
   else
+    git sparse-checkout disable >/dev/null 2>&1
     echo "gstack: WARN could not leave test/fixtures/ out of this install ($(git --version 2>/dev/null)); gstack works the same, and the next ./setup tries again." >&2
   fi
   return 0

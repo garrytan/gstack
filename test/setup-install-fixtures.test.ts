@@ -173,6 +173,22 @@ describe.skipIf(process.platform === 'win32')('a user install leaves test/fixtur
     expect(clean(dir)).toBe(true);
   });
 
+  test('a sparse checkout that stores other patterns than asked is undone with a warning, never reported as done', () => {
+    const o = origin();
+    const dir = install(o);
+    const shim = path.join(o.base, 'shim');
+    write(shim, 'git', '#!/usr/bin/env bash\nreal="$(PATH="${PATH#*:}" command -v git)"\nif [ "$1 $2" = "sparse-checkout set" ]; then cat >/dev/null; exec "$real" sparse-checkout set --no-cone \'/*\' \'!C:/Program Files/Git/test/fixtures/\'; fi\nexec "$real" "$@"\n');
+    fs.chmodSync(path.join(shim, 'git'), 0o755);
+    const r = trim(dir, { PATH: shim + path.delimiter + (GIT_ENV.PATH ?? '') });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).not.toContain('left test/fixtures/');
+    expect(r.stderr).toContain('WARN could not leave test/fixtures/ out of this install');
+    expect(has(dir, 'test/fixtures/skill-route-b1-in-sample.json')).toBe(true);
+    expect(git(dir, 'config', '--bool', '--get', '--default', 'false', 'core.sparseCheckout').trim()).toBe('false');
+    expect(clean(dir)).toBe(true);
+    expect(trim(dir).stdout).toContain('left test/fixtures/ (test and eval data) out of this install');
+  });
+
   test('a vendored copy inside a project never touches the project repository, and sparse patterns someone else set stay', () => {
     const o = origin();
     const project = path.join(o.base, 'project');
