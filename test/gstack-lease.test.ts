@@ -762,6 +762,19 @@ describe('gstack-lease', () => {
   });
 
   // GST-1204: gstack-ship-preflight asks whether one /ship run is still open; open answers with the same released, aged-out, dead and stale rules live uses.
+  test('open exits 0 while a run is open on a live holder and 1 once it is released', () => {
+    const { dir } = checkout();
+    const p = sleeper();
+    const id = `${p}-1-a`;
+    expect(run(['touch', '--root', dir, '--pid', String(p), '--run', id]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', id]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--pid', String(p), '--run', id]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', `${p}-2-b`]).status).toBe(1);
+    expect(run(['release', '--root', dir, '--pid', String(p), '--run', id]).status).toBe(0);
+    expect(run(['open', '--root', dir, '--run', id]).status).toBe(1);
+    expect(run(['open', '--root', dir]).status).toBe(2);
+    expect(run(['--help']).stdout).toContain('gstack-lease list [--root <checkout>]');
+  });
 
   test('gstack-skill-start reports a lease the held lock kept from being written, and still starts', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lease-home-'));
