@@ -36,7 +36,7 @@ describe('pass names the plan step and its limit when the plan does not finish (
     const out = path.join(root, 'run');
     const r = spawnSync(DISPATCH, ['pass', '--base', 'main', '--out', out, '--pass', 'timeout-p1'], { cwd: work, env: { ...env, GSTACK_REVIEW_PLAN_TIMEOUT_MS: '1' }, encoding: 'utf8', timeout: 120_000 });
     expect(r.status, r.stdout + r.stderr).toBe(1);
-    expect(r.stderr).toContain('gstack-review-dispatch pass: gstack-review-plan did not finish inside the pass');
+    expect(r.stderr).toContain('gstack-review-dispatch pass: gstack-review-plan did not finish inside its limit');
     expect(r.stderr).toContain('step="gstack-review-plan --base main" reason=timeout timeout_ms=1 signal=SIGTERM');
     expect(r.stderr.trimEnd().endsWith('(REVIEW_PLAN_STOPPED)')).toBe(true);
     expect(r.stdout).not.toContain('MANIFEST:');
@@ -89,7 +89,7 @@ describe('render reads the plan limit from GSTACK_REVIEW_PLAN_TIMEOUT_MS too (GS
     };
     const stopped = render('o-stopped', '1');
     expect(stopped.status, stopped.err).toBe(EXIT.fail);
-    expect(stopped.err).toContain('gstack-review-dispatch render: gstack-review-plan did not finish inside the pass');
+    expect(stopped.err).toContain('gstack-review-dispatch render: gstack-review-plan did not finish inside its limit');
     expect(stopped.err).toContain('step="gstack-review-plan --base main --json" reason=timeout timeout_ms=1 signal=SIGTERM');
     expect(stopped.err).toContain('(REVIEW_PLAN_STOPPED)');
     expect(fs.existsSync(stopped.diff)).toBe(false);

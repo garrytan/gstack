@@ -613,8 +613,8 @@ export const RELEASE_RESULT_CODES = {
   },
   REVIEW_PLAN_STOPPED: {
     anchor: 'review-plan-stopped',
-    summary: 'gstack-review-plan did not finish inside the pass (reason=timeout after timeout_ms, reason=signal when something killed it, reason=spawn when it could not start), so the review stopped before any reader ran: gstack-review-dispatch pass writes no manifest, and a plan run by itself prints no plan',
-    fix: 'rerun once unchanged; if it stops again, report this line and the repository\'s file count (git ls-files | wc -l) to your Captain; reason=signal: check the machine\'s free memory first',
+    summary: 'gstack-review-plan did not finish inside its limit (reason=timeout after timeout_ms, reason=signal when something killed it, reason=spawn when it could not start), so the review stopped before any reader ran: gstack-review-dispatch pass writes no manifest, render writes no brief, and a plan run by itself prints no plan',
+    fix: 'rerun once unchanged; if reason=timeout again on a large repository (git ls-files | wc -l in the hundreds of thousands), set GSTACK_REVIEW_PLAN_TIMEOUT_MS (milliseconds, default 180000) to about twice the plan\'s time and rerun; otherwise report this line and the file count to your Captain; reason=signal: check the machine\'s free memory first',
   },
   REVIEW_EXCLUDE_REFERENCE: {
     anchor: 'review-exclude-reference',

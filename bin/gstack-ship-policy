@@ -17,6 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
+import { fallbackLine } from '../lib/review-exclude';
 import {
   BUMP_NEVER_KEY_VERSION, POLICY_KEYS, POLICY_KEY_INTRODUCED, SHIP_POLICY_PATH, examplePolicyJson, explainPolicy, isUnavailable, loadPolicyFromBase, loadPolicyFromHead,
   minimumReader, policyUnavailableLine, renderEffective, resolveBaseBranch, type LoadedPolicy,
@@ -91,6 +92,8 @@ function main(argv: string[]): number {
   if (cmd === 'validate' || cmd === 'show-effective') {
     const loaded = load(root, rest, cmd === 'validate' ? 'head' : 'base');
     if (typeof loaded === 'number') return loaded;
+    if (loaded.setAside && cmd === 'validate') loaded.errors = loaded.setAside;
+    else if (loaded.setAside) process.stderr.write(`gstack-ship-policy: ${fallbackLine({ state: 'fallback', source: loaded.source.label, errors: loaded.setAside.map(e => `${e.path}: ${e.message}`) }, flag(rest, '--base') ?? resolveBaseBranch(root))}\n`);
     const floor: ReturnType<typeof floorAgainstStable> = cmd === 'validate' && loaded.present ? floorAgainstStable(loaded.policy.min_gstack_version, newestStableRelease()) : {};
     if (floor.error) loaded.errors.push(floor.error);
     const set = POLICY_KEYS.filter(k => loaded.values[k] && loaded.values[k] !== 'default');
