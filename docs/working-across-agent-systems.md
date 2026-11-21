@@ -42,9 +42,11 @@ What we learned, in short:
 6. **Pin the other harness's version and model.** A coding-agent CLI can change its default model in a
    release. Name the version and the model in every brief and every eval plan. Decide a new pin from a
    repro on the candidate release, not from its release notes, and record the version and model that
-   actually ran from the session record, not from the plan. In one team's case a fix merged upstream was
-   missing from the next stable build, and a release that fixed one bug dropped turns in three of three
-   runs; in another, a CLI release changed its default model.
+   actually ran from the session record, not from the plan. Take each result row's model from the
+   requests the run captured, on every scored row, timeouts included. In one team's case a fix merged
+   upstream was missing from the next stable build, and a release that fixed one bug dropped turns in
+   three of three runs; in another, a CLI release changed its default model, and a model check that
+   skipped timed-out rows would have let a timeout on the wrong model into a paired comparison.
 
 ## Keep runs cheap
 

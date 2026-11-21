@@ -144,7 +144,9 @@ describe('/captain skill', () => {
     expect(cited).toContain('Plan, approve, ship');
     expect(cited.filter(h => !headings.has(h!))).toEqual([]);
     expect(capySkill).toMatch(/## Session start[^#]*?read \[lane-card\.md\]\(lane-card\.md\), not the rest of this file/);
-    expect(Buffer.byteLength(card)).toBeLessThanOrEqual(6800);
+    // 7,000 for the drive-write line (confirm a copy in the drive's version history before deleting its source), reached by two
+    // crews on their own (crew habit H5).
+    expect(Buffer.byteLength(card)).toBeLessThanOrEqual(7000);
     const doc = read('crew/docs/captain.md').replace(/\s+/g, ' ');
     for (const s of ['`duration_seconds: 240`', 'stops re-issuing the timer', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
     expect(read('captain/templates/brief.md')).toMatch(/^Read: <[^>]+>$/m);

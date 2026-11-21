@@ -75,7 +75,7 @@ Write (or open) the preregistration file. Each section is required and must be f
 | Interim look | only when `paid:` is above 500 dollars: `at: 50%`, `looks: 1`, `bounds: O'Brien-Fleming`, `futility:` |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
-| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it; and how each task machine was checked, before any session, for answers the agent could read there (other git refs such as `git log --all`, build and package caches, archives and the task's own work tree; never a sweep of `/`, runner state or `~/.ssh`) |
+| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it; and how each task machine was checked, before any session, for answers the agent could read there (other git refs such as `git log --all`, build and package caches, archives and the task's own work tree; never a sweep of `/`, runner state or `~/.ssh`); and, when a grader runs git in the agent's repo, how it treats that repo as hostile (below) |
 | No-gstack arm | required with `stack: loaded` (below) |
 
 ```bash
@@ -97,6 +97,16 @@ run agent; `install:` no gstack installed; `audit:` drive reads per arm. An arm 
 gstack skill file is contaminated and gets zero credit.
 `PREREG_NO_GSTACK_ARM` (exit 1) names what is missing. The PREREG line shows
 `stack=loaded no_gstack_arm=ok` when it is complete, or `stack=none` for an opt-out.
+
+**A grader treats the agent's repo as hostile.** A grader that runs git inside a repo the
+agent worked in runs it against a sanitized copy of `.git`: no repo, system or global
+config, no hooks, no attributes (`.gitattributes` or `info/attributes`), no textconv or
+external diff, and no signature display. The copied index files keep their original
+timestamps, because a fresh mtime turns off git's same-second check and a same-second,
+same-size edit then reads as committed. The grader's environment holds no API keys, and a
+test plants each of these settings and asserts that nothing runs. On one eval, a planted
+`core.fsmonitor`, a clean filter, or `gpg.program` with `log.showSignature` each ran code
+on the grading machine next to the proxy that held the keys.
 
 When the summarizer counts diagnostics, declare them before the freeze commit in a
 `## Diagnostics` section: `summarizer: <command naming {fixture}>`, `fixture: <synthetic
