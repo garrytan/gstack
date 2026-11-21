@@ -10,7 +10,7 @@
  * inlines every file on any other throw.
  *
  * An allowlisted data file kept only for single-line gate tags (lib/review-exclude.ts gateData, GST-3273:
- * captured agent sessions quoting lint pragmas or env checks, harness-evals#494: 25 files, 12.3 MB) gets the same excerpt,
+ * captured agent sessions quoting lint pragmas or env checks; on harness-evals#494, main's whole reader diff was 12.26 MB) gets the same excerpt,
  * plus every changed line lineTags tags, under its own heading that names the tags. Such a file with no tagged line here
  * goes whole, and so does one whose tagged line runs past EXCERPT_LINE_MAX with no idiom span to show. Every changed line
  * holding a credential value by the caller's secretLine rule (lib/review-exclude.ts secretValueSpans, the secret-line keep

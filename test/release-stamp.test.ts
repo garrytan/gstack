@@ -146,6 +146,28 @@ describe('gstack-release-stamp open', () => {
     expect(repo.git('worktree', 'list').split('\n')).toHaveLength(1);
   });
 
+  // GSTA-643 list: on Capy gh signs in as the owner, so open hands the release PR to the host's PR tool instead of gh pr create.
+  test('on Capy, open pushes the release branch and hands the PR to the host tool without gh pr create', () => {
+    const repo = landed();
+    const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', env: { GSTACK_CAPY: '1', GSTACK_STATE_ROOT: state }, gh: (args) => {
+      calls.push(args);
+      if (args[0] === 'repo') return { ok: true, out: JSON.stringify({ nameWithOwner: 'o/r', url: 'https://github.com/o/r' }), err: '' };
+      return { ok: true, out: '', err: '' };
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 2).join(' '))).toEqual(['pr list', 'repo view']);
+    expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/release/1.3.0.0')).toBe(r.head!);
+    const handed = r.lines.find(l => l.startsWith('HOST_PUBLISH: '))!;
+    expect(handed).toStartWith('HOST_PUBLISH: pr-create new repo=o/r base=main head=release/1.3.0.0 title-file=');
+    const file = (part: string) => fs.readFileSync(new RegExp(` ${part}-file=(\\S+)`).exec(handed)![1]!, 'utf8');
+    expect(file('title')).toBe('v1.3.0.0 release');
+    expect(sectionText(file('body'), 'Release notes')).toBe('- a change\n- b feature');
+    expect(r.lines.at(-1)).toBe('NEXT: gstack-ship-queue land --pr <n> --pin ' + r.head + ' once the PR the host opens has green checks');
+  });
+
   test('a fork PR on release/<version> is never reused: open lists same-repo heads only and opens its own PR', () => {
     const repo = landed();
     const calls: string[][] = [];
@@ -196,6 +218,25 @@ describe('gstack-release-stamp open', () => {
     expect(sectionText(body, 'Release notes')).toBe('- a change\n- b feature');
     const refused = openRelease({ repoRoot: repo.work, base: 'main', now: new Date('2030-01-02T00:00:00Z'), gh: (args) => (args[1] === 'edit' ? { ok: false, out: '', err: 'HTTP 502' } : { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' }) });
     expect(refused).toMatchObject({ ok: false, code: 'RELEASE_STAMP_INVALID' });
+  });
+
+  test('on Capy, a reopen hands the new body to the host tool without gh pr edit', () => {
+    const repo = landed();
+    const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', env: { GSTACK_CAPY: '1', GSTACK_STATE_ROOT: state }, gh: (args) => {
+      calls.push(args);
+      if (args[0] === 'repo') return { ok: true, out: JSON.stringify({ nameWithOwner: 'o/r', url: 'https://github.com/o/r' }), err: '' };
+      return { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' };
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 2).join(' '))).toEqual(['pr list', 'repo view']);
+    const handed = r.lines.find(l => l.startsWith('HOST_PUBLISH: '))!;
+    expect(handed).toStartWith('HOST_PUBLISH: pr-body 44 repo=o/r');
+    const body = fs.readFileSync(/ body-file=(\S+)/.exec(handed)![1]!, 'utf8');
+    expect(body).toContain(`--pin ${r.head}`);
+    expect(r.lines).toContain('RELEASE_PR: #44 https://github.com/o/r/pull/44');
   });
 
   test('--dry-run creates nothing; an empty base is refused', () => {

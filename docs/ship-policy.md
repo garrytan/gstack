@@ -1638,7 +1638,8 @@ apply the same rule to the same input, so they build the same selection. The
 gate class and the record's `gate_tagged` list are unchanged: only how much of
 the data file a reader sees changes. Results PRs that commit captured agent
 sessions need this: the sessions quote lint pragmas, env checks and
-`--no-verify` pushes (harness-evals #494: 25 transcripts, 11.4 MB whole).
+`--no-verify` pushes (harness-evals #494: 25 transcripts, 11.3 MB (11,320,357
+bytes) whole).
 
 <a id="one-selection-every-reader"></a>
 **One selection for every reader (GST-1476).** Every path that renders a
@@ -3087,6 +3088,9 @@ gstack-release-stamp open            # --dry-run prints the stamp and creates no
 
 It stamps a fresh worktree of `origin/main` with `gstack-restamp --release`,
 commits the result on `release/<version>`, pushes that branch and opens its PR.
+On Capy (`GSTACK_CAPY=1`) it pushes the branch but leaves the PR to the host's
+PR tool, printing a `HOST_PUBLISH: pr-create` line instead
+([host publish](troubleshooting.md#host-publish)).
 The release stamp folds every fragment in `changelog.d/` under one new CHANGELOG
 heading and deletes the files. The new version is the base's plus the highest
 bump any fragment declares (the policy `bump` when none does). It reruns the

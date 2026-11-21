@@ -43,7 +43,7 @@ export const ANTHROPIC_MODEL_ID_PATTERN = /^[A-Za-z0-9._:/@+[\]-]{1,512}$/;
 
 const DOCS = 'https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md';
 const DOCS_CONFIG = `${DOCS}#model-policy-config`;
-const DOCS_PROVIDER = `${DOCS}#model-policy-provider`;
+export const DOCS_PROVIDER = `${DOCS}#model-policy-provider`;
 const DOCS_SELECTION = `${DOCS}#model-policy-selection`;
 
 const PROVIDER_LABEL: Record<ModelProvider, string> = { anthropic: 'Anthropic (Claude Code)', openai: 'OpenAI (Codex)' };
@@ -693,5 +693,69 @@ export function modelPolicyCommands() {
     useSmart: 'gstack-config set plan_review_tier smart',
     useHost: 'gstack-config set plan_review_tier host',
     restoreDefault: 'gstack-config unset plan_review_tier',
+  };
+}
+
+export const CODEX_MODEL_REPAIR = 'Choose a model your Codex account can use: name it for this request, set GSTACK_CODEX_MODEL=<model>, or set model in the Codex config.toml.';
+
+const stripControlChars = (value: string): string => value.replace(/[\x00-\x1f\x7f]/g, ' ');
+
+/**
+ * The model Codex's own config.toml names for this invocation kind
+ * (`review_model` first for native review, then the legacy active profile's
+ * model, then `model`). `value` is null when it names none, and `source`
+ * then says what was missing. Shared by the runtime and plan-review records.
+ */
+export function codexConfigModel(opts: {
+  kind: 'exec' | 'review';
+  env: Record<string, string | undefined>;
+  codexHome?: string;
+  home?: string;
+}): { value: string | null; source: string } {
+  const home = opts.home ?? opts.env.HOME ?? os.homedir();
+  const codexHome = opts.codexHome ?? opts.env.CODEX_HOME ?? path.join(home, '.codex');
+  if (!path.isAbsolute(codexHome)) {
+    throw new Error(`CODEX_HOME '${sanitize(codexHome)}' is not an absolute path, so its config.toml model cannot be read. ${CODEX_MODEL_REPAIR}`);
+  }
+  const configPath = path.join(codexHome, 'config.toml');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { value: null, source: `no ${stripControlChars(configPath)}` };
+    throw new Error(`Could not read ${sanitize(configPath)}. ${CODEX_MODEL_REPAIR}`);
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = Bun.TOML.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Could not parse ${sanitize(configPath)}. ${CODEX_MODEL_REPAIR}`);
+  }
+  const profileName = typeof parsed.profile === 'string' ? parsed.profile : undefined;
+  const profiles = parsed.profiles as Record<string, Record<string, unknown> | undefined> | undefined;
+  const profile = profileName && typeof profiles === 'object' ? profiles?.[profileName] : undefined;
+  const candidates: Array<[string, unknown]> = [
+    ...(opts.kind === 'review' ? [[`${configPath} review_model`, parsed.review_model] as [string, unknown]] : []),
+    [`${configPath} [profiles.${profileName}].model`, profile?.model],
+    [`${configPath} model`, parsed.model],
+  ];
+  for (const [source, value] of candidates) {
+    if (value === undefined) continue;
+    if (typeof value !== 'string') throw new Error(`${sanitize(source)} is not a string. ${CODEX_MODEL_REPAIR}`);
+    return { value, source };
+  }
+  return { value: null, source: `no model in ${stripControlChars(configPath)}` };
+}
+
+/** The model Codex's config.toml names, in the shape resolvePlanReviewModel's nativeModel reads, so every plan-review caller sees the same custom-provider model. */
+export function codexNativeModel(opts: {
+  kind: 'exec' | 'review';
+  env: Record<string, string | undefined>;
+  codexHome?: string;
+  home?: string;
+}): () => { model: string; label: string } | null {
+  return () => {
+    const named = codexConfigModel(opts);
+    return named.value === null ? null : { model: named.value.trim(), label: stripControlChars(named.source) };
   };
 }

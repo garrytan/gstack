@@ -624,9 +624,10 @@ function suggest(byDir: ReadonlyArray<[string, number]>, bytes: number): string[
 
 /** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and files, and a fix chosen by where the policy stands. */
 export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
-  const top = d.byDir.slice(0, 5).map(([dir, n]) => `${dir}:${n}`).join(',') || 'none';
+  const named = (name: string) => (/[\x00-\x1f\x7f]/.test(name) ? JSON.stringify(name) : name);
+  const top = d.byDir.slice(0, 5).map(([dir, n]) => `${named(dir)}:${n}`).join(',') || 'none';
   const largest = (d.byFile ?? []).slice(0, 5);
-  const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${f} (${n} bytes)`).join(', ')})` : 'split the PR';
+  const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${named(f)} (${n} bytes)`).join(', ')})` : 'split the PR';
   const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
   const dirs = suggest(d.byDir, d.bytes);
   const fix = c.state === 'head-only' ? `this branch declares review_exclude_paths, but only the copy on ${c.base} applies: ${land(c.headPatterns ?? [])}`

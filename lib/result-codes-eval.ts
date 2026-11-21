@@ -46,6 +46,12 @@ export const EVAL_RESULT_CODES = {
     summary: 'a results table counts failures without an answer-only column beside it, so a rise in failures cannot be compared with the grader\'s own reading',
     fix: 'add a column headed answer-only to the same table, counting failures by the grader\'s rule on the final answer alone, and report both readings',
   },
+  // Eval-loop practice R112 (docs/TESTING_INTERNALS.md#eval-loop-checks): a quick look publishes no number.
+  EVAL_QUICK_LOOK_NO_NUMBER: {
+    anchor: 'eval-quick-look-no-number',
+    summary: 'results --check was given a quick look (kind: quick look), which only opens or closes a question and publishes no number',
+    fix: 'keep the quick look\'s answer as an opened or closed question; to publish a number, write a counted-run preregistration (prereg --init) and run it through the pilot',
+  },
   EVAL_ARM_DUPLICATE: {
     anchor: 'eval-arm-duplicate',
     summary: 'the pilot was given the same arm identity twice, so two arms would share one set of attempts',

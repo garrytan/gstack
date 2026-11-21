@@ -15,7 +15,8 @@ const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
 const RESULT_SECTIONS = '## Decisions\nif the variant passes more items: adopt it\nif there is no difference: keep the default\n\n## Scoring\njudge: none\npaired: yes\ninterval: 95%\nmdd: 2 of 9 items\n';
-const BASE = ['Bars', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n') + '\n' + RESULT_SECTIONS;
+const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
+const BASE = ['Bars', 'Decoys', 'Stop rules'].map(s => `## ${s}\n- filled in\n`).join('\n') + '\n' + RESULT_SECTIONS + LOOP;
 const PREREG = BASE + `
 ## Arms
 - claude-opus-5-5#review-g default settings

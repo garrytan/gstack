@@ -14,6 +14,7 @@ import { parseChangelog } from './changelog-check';
 import { effectiveBump, readFragments } from './changelog-fragments';
 import { restamp, versionAtRef, type RestampResult } from './restamp';
 import { withAgentNotes } from './agent-notes';
+import { handOff, hostPublishes } from './host-publish';
 import { foldSections } from './pr-body-shape';
 import { matchesAny, type ShipPolicy } from './ship-policy';
 import { buildReceipt } from './tree-receipt';
@@ -108,6 +109,7 @@ export function classifyRelease(o: { repoRoot: string; policy: ShipPolicy; merge
 export interface OpenOptions {
   repoRoot: string; base: string; dryRun?: boolean; now?: Date;
   gh?: (args: string[], cwd: string) => { ok: boolean; out: string; err: string };
+  env?: Record<string, string | undefined>;
 }
 export type OpenResult =
   | { ok: true; version: string; branch: string; head?: string; pr?: string; url?: string; lines: string[] }
@@ -167,9 +169,24 @@ export function openRelease(o: OpenOptions): OpenResult {
     const posted = foldSections(body);
     const open = gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'url,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository | not)][0].url // ""'], dir);
     const reopened = open.ok && !!open.out.trim();
+    if (!reopened && hostPublishes(o.env)) {
+      const view = gh(['repo', 'view', '--json', 'nameWithOwner,url'], dir);
+      let dest: { repo: string; host: string } | undefined;
+      try { const v = JSON.parse(view.out); dest = { repo: String(v.nameWithOwner ?? ''), host: new URL(String(v.url)).host }; } catch { dest = undefined; }
+      if (!view.ok || !dest?.repo) return fail('RELEASE_STAMP_INVALID', `cannot resolve the repository the release PR belongs to (gh repo view --json nameWithOwner,url: ${view.err.trim().split('\n')[0] || 'no repository'}); ${branch} is pushed, so open its PR with the host's PR tool`);
+      lines.push(handOff({ op: 'pr-create', ...dest, base: o.base, head: branch, parts: [['title', `v${version} release`], ['body', posted]], env: o.env }).trimEnd(), `NEXT: gstack-ship-queue land --pr <n> --pin ${head} once the PR the host opens has green checks`);
+      return { ok: true, version, branch, head, lines };
+    }
     const pr = reopened ? open : gh(['pr', 'create', '--base', o.base, '--head', branch, '--title', `v${version} release`, '--body', posted], dir);
     if (!pr.ok) return fail('RELEASE_STAMP_INVALID', `gh pr create failed (${pr.err.trim().split('\n')[0]}); ${branch} is pushed, so open its PR by hand`);
-    if (reopened) {
+    if (reopened && hostPublishes(o.env)) {
+      const view = gh(['repo', 'view', '--json', 'nameWithOwner,url'], dir);
+      let dest: { repo: string; host: string } | undefined;
+      try { const v = JSON.parse(view.out); dest = { repo: String(v.nameWithOwner ?? ''), host: new URL(String(v.url)).host }; } catch { dest = undefined; }
+      if (!view.ok || !dest?.repo) return fail('RELEASE_STAMP_INVALID', `cannot resolve the repository the release PR belongs to (gh repo view --json nameWithOwner,url: ${view.err.trim().split('\n')[0] || 'no repository'}); ${branch} is pushed with the new stamp, but its PR still has the old body, so replace the body with the host's PR tool`);
+      const target = /\/pull\/(\d+)/.exec(pr.out.trim().split('\n').pop() ?? '')?.[1];
+      lines.push(handOff({ op: 'pr-body', target, ...dest, parts: [['body', posted]], env: o.env }).trimEnd());
+    } else if (reopened) {
       const edit = gh(['pr', 'edit', pr.out.trim().split('\n').pop() ?? '', '--body', posted], dir);
       if (!edit.ok) return fail('RELEASE_STAMP_INVALID', `gh pr edit failed (${edit.err.trim().split('\n')[0]}); ${branch} is pushed with the new stamp, but its PR still has the old body, so replace the body by hand`);
     }

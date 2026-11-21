@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
-import { ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
+import { CODEX_MODEL_REPAIR, codexConfigModel, codexNativeModel, ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
 import { emitModelPolicyNotice } from '../lib/model-policy-notice';
 
 export interface CodexGenerationModelResolution {
@@ -117,7 +117,7 @@ export interface CodexRuntimeModelSelection {
 /** Characters a model id may carry before it is interpolated into `-c "model=\"…\""`. */
 export const CODEX_RUNTIME_MODEL_PATTERN = /^[A-Za-z0-9._:/-]{1,100}$/;
 
-const REPAIR = 'Choose a model your Codex account can use: name it for this request, set GSTACK_CODEX_MODEL=<model>, or set model in the Codex config.toml.';
+const REPAIR = CODEX_MODEL_REPAIR;
 
 /**
  * Runtime model for gstack-owned Codex calls (#2914). Unlike the generation
@@ -150,53 +150,6 @@ export function resolveCodexRuntimeModel(opts: {
   return chosen(named.source, named.value);
 }
 
-/**
- * The model Codex's own config.toml names for this invocation kind
- * (`review_model` first for native review, then the legacy active profile's
- * model, then `model`). `value` is null when it names none, and `source`
- * then says what was missing. Shared by the runtime and plan-review records.
- */
-function codexConfigModel(opts: {
-  kind: CodexInvocationKind;
-  env: Record<string, string | undefined>;
-  codexHome?: string;
-  home?: string;
-}): { value: string | null; source: string } {
-  const home = opts.home ?? opts.env.HOME ?? os.homedir();
-  const codexHome = opts.codexHome ?? opts.env.CODEX_HOME ?? path.join(home, '.codex');
-  if (!path.isAbsolute(codexHome)) {
-    throw new Error(`CODEX_HOME '${sanitize(codexHome)}' is not an absolute path, so its config.toml model cannot be read. ${REPAIR}`);
-  }
-  const configPath = path.join(codexHome, 'config.toml');
-  let raw: string;
-  try {
-    raw = fs.readFileSync(configPath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { value: null, source: `no ${stripControl(configPath)}` };
-    throw new Error(`Could not read ${sanitize(configPath)}. ${REPAIR}`);
-  }
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = Bun.TOML.parse(raw) as Record<string, unknown>;
-  } catch {
-    throw new Error(`Could not parse ${sanitize(configPath)}. ${REPAIR}`);
-  }
-  const profileName = typeof parsed.profile === 'string' ? parsed.profile : undefined;
-  const profiles = parsed.profiles as Record<string, Record<string, unknown> | undefined> | undefined;
-  const profile = profileName && typeof profiles === 'object' ? profiles?.[profileName] : undefined;
-  const candidates: Array<[string, unknown]> = [
-    ...(opts.kind === 'review' ? [[`${configPath} review_model`, parsed.review_model] as [string, unknown]] : []),
-    [`${configPath} [profiles.${profileName}].model`, profile?.model],
-    [`${configPath} model`, parsed.model],
-  ];
-  for (const [source, value] of candidates) {
-    if (value === undefined) continue;
-    if (typeof value !== 'string') throw new Error(`${sanitize(source)} is not a string. ${REPAIR}`);
-    return { value, source };
-  }
-  return { value: null, source: `no model in ${stripControl(configPath)}` };
-}
-
 export interface CodexPlanReviewSelection extends CodexRuntimeModelSelection {
   selection: ModelSelection;
   /** Source-aware repair for this record, never a lower-priority setting. */
@@ -218,11 +171,7 @@ export function resolveCodexPlanReviewModel(opts: {
   cwd?: string;
 }): CodexPlanReviewSelection {
   const env = opts.env ?? process.env;
-  const nativeModel = () => {
-    const named = codexConfigModel({ ...opts, env });
-    return named.value === null ? null : { model: named.value.trim(), label: stripControl(named.source) };
-  };
-  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd, nativeModel });
+  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd, nativeModel: codexNativeModel({ ...opts, env }) });
   const repair = stripControl(selectionRepair(selection).join('; '));
   if (selection.status === 'selected') {
     const model = selection.requestedModel;

@@ -187,6 +187,31 @@ describe('gstack-models inspector', () => {
     expect(doc.errors.map((e: { reason: string; role: string }) => `${e.reason}/${e.role}`)).toEqual(['custom_provider_requires_model/plan-review', 'custom_provider_requires_model/implementation']);
   });
 
+  // #4491 follow-up: resolve and list read the custom provider's config.toml model the way gstack-codex-probe role-ready does.
+  test('a custom Codex provider naming the frontier catalog ID in config.toml resolves; any other name is not the tier', () => {
+    const { env, home } = fixture();
+    fs.mkdirSync(path.join(home, '.codex'));
+    const toml = (model: string) => fs.writeFileSync(path.join(home, '.codex', 'config.toml'), `model = "${model}"\nmodel_provider = "proxy"\n`);
+    toml('gpt-6-astra');
+    const ok = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
+    expect(ok.code).toBe(0);
+    expect(ok.doc.selections[0]).toMatchObject({ role: 'plan-review', provider: 'openai', requestedModel: 'gpt-6-astra' });
+    expect(json([], env).doc.errors.filter((e: { role: string }) => e.role === 'plan-review')).toEqual([]);
+    toml('my-alias');
+    const alias = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
+    expect(alias.code).toBe(1);
+    expect(alias.doc.errors[0]).toMatchObject({ reason: 'custom_provider_model_not_tier', provider: 'openai' });
+  });
+
+  test('a custom provider whose config.toml model is not a string reports a structured error', () => {
+    const { env, home } = fixture();
+    fs.mkdirSync(path.join(home, '.codex'));
+    fs.writeFileSync(path.join(home, '.codex', 'config.toml'), 'model = 5\nmodel_provider = "proxy"\n');
+    const r = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
+    expect(r.code).toBe(1);
+    expect(r.doc.errors[0]).toMatchObject({ reason: 'native_provider_unresolved', provider: 'openai', role: 'plan-review' });
+  });
+
   test('project settings in the working directory are custom routing; detection limits are published', () => {
     const { env, root } = fixture();
     const project = path.join(root, 'project');
