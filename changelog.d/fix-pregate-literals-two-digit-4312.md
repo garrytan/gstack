@@ -1,0 +1,1 @@
+- `gstack-pregate`: require the constant's identifier when scanning test files for changed two-digit integer constants so unrelated occurrences of short numbers like `10` are not flagged.

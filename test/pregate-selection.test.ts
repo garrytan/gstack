@@ -223,28 +223,42 @@ describe('literals (pure)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-stem-'));
     const nl = String.fromCharCode(10);
     const files: Record<string, string> = {
-      'test/a.test.ts': ['// listed in test/postgres-unit-arms.txt', 'expect(n).toBe(12);', ''].join(nl),
-      'test/json.test.ts': ["const arms = read('fixtures/postgres-unit-arms.json');", 'expect(arms.length).toBe(12);', ''].join(nl),
-      'test/longer.test.ts': ["run('scripts/postgres-unit-arms-v2.ts');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/import.test.ts': ["import { shards } from '../scripts/postgres-unit-arms';", 'expect(shards()).toBe(12);', ''].join(nl),
-      'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", 'expect(shards()).toBe(12);', ''].join(nl),
-      'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", 'expect(out).toBe(12);', ''].join(nl),
-      'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', 'expect(n).toBe(12);', ''].join(nl),
-      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', 'expect(n).toBe(12);', ''].join(nl),
-      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', 'expect(n).toBe(12);', ''].join(nl),
-      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', 'expect(n).toBe(12);', ''].join(nl),
-      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/snap.test.ts': ["read('scripts/__snapshots__/postgres-unit-arms.ts.snap');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sh-twin.test.ts': ["import { arms } from '../lib/arms-tool.ts';", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sh-own.test.ts': ["run('scripts/arms-tool.sh');", 'expect(n).toBe(12);', ''].join(nl),
+      'test/a.test.ts': ['// listed in test/postgres-unit-arms.txt', 'expect(n).toBe(120);', ''].join(nl),
+      'test/json.test.ts': ["const arms = read('fixtures/postgres-unit-arms.json');", 'expect(arms.length).toBe(120);', ''].join(nl),
+      'test/longer.test.ts': ["run('scripts/postgres-unit-arms-v2.ts');", 'expect(n).toBe(120);', ''].join(nl),
+      'test/import.test.ts': ["import { shards } from '../scripts/postgres-unit-arms';", 'expect(shards()).toBe(120);', ''].join(nl),
+      'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", 'expect(shards()).toBe(120);', ''].join(nl),
+      'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", 'expect(out).toBe(120);', ''].join(nl),
+      'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', 'expect(n).toBe(120);', ''].join(nl),
+      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', 'expect(n).toBe(120);', ''].join(nl),
+      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', 'expect(n).toBe(120);', ''].join(nl),
+      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', 'expect(n).toBe(120);', ''].join(nl),
+      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", 'expect(n).toBe(120);', ''].join(nl),
+      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", 'expect(n).toBe(120);', ''].join(nl),
+      'test/snap.test.ts': ["read('scripts/__snapshots__/postgres-unit-arms.ts.snap');", 'expect(n).toBe(120);', ''].join(nl),
+      'test/sh-twin.test.ts': ["import { arms } from '../lib/arms-tool.ts';", 'expect(n).toBe(120);', ''].join(nl),
+      'test/sh-own.test.ts': ["run('scripts/arms-tool.sh');", 'expect(n).toBe(120);', ''].join(nl),
     };
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
-    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '12', new: '18', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
+    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '120', new: '180', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
       'test/import.test.ts:2', 'test/import-js.test.ts:2', 'test/own.test.ts:2', 'test/line-end.test.ts:2',
       'test/prose.test.ts:2', 'test/paren.test.ts:2', 'test/sentence.test.ts:2', 'test/dts.test.ts:2',
     ]);
-    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '12', new: '18', file: 'scripts/arms-tool.sh' })).toEqual(['test/sh-own.test.ts:2']);
+    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '120', new: '180', file: 'scripts/arms-tool.sh' })).toEqual(['test/sh-own.test.ts:2']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  test('consumersOf: a two-digit integer old value needs the constant name (#4312)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-2digit-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'test/unrelated.test.ts': ["import { other } from '../lib/retry';", 'expect(items.length).toBe(10);', ''].join(nl),
+      'test/named-file-unrelated-line.test.ts': ["import { MAX_ITEMS } from '../lib/retry';", 'expect(otherCount).toBe(10);', 'expect(MAX_ITEMS).toBe(11);', ''].join(nl),
+      'test/named-line.test.ts': ["import { MAX_ITEMS } from '../lib/retry';", 'expect(MAX_ITEMS).toBe(10);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'MAX_ITEMS', old: '10', new: '11', file: 'lib/retry.ts' })).toEqual([
+      'test/named-line.test.ts:2',
+    ]);
     fs.rmSync(root, { recursive: true, force: true });
   });
   test('consumersOf: a module stem is a path fragment, never a bare word, and a one-character old value needs the constant name (GSTA-114 flood: install.sh 2 -> 3 flagged 575 consumers)', () => {
