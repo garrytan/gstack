@@ -176,7 +176,8 @@ O'Brien-Fleming bounds for a two-sided 0.05 test: z of 2.80 or more either way a
 and then 10 paired cases, each bound is applied as its two-sided nominal p-value (0.0051 at the look, 0.0477 at the
 end) to the paired t statistic over the cases, so the small sample keeps the error rate this plan froze.
 - Stop for a difference: if either primary crosses the look's bound either way, the counted trials stop, and the
-  decision is taken by the Decisions lines on cases 1 to 5, with the structural-loss rule read over those cases.
+  decision is taken by the Decisions lines on cases 1 to 5, with the structural-loss rule read over those cases and
+  reader fidelity read as every reviewer started and collected in all 15 F trials so far.
 - Stop for futility: if the conditional power that the final cost interval lies wholly below $0, under the planned
   saving of $10 a run and the spread measured so far, falls below 10%, the counted trials stop and the decision is
   taken the same way, on cases 1 to 5.
@@ -225,8 +226,8 @@ matches 1. A decoy pass proves the rule rejects near misses and does not credit 
 | **Estimate** | | | **$3,073** |
 | Cap (approved by GSTA-36) | | | $3,250 |
 
-If the judge stage needs its extra C and F trials, they add up to $76 (worst case $3,149), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
-(about $10 a run), the actual total is near $2,790. Machines, CI minutes and the runner VM are not in cost.dollars and
+If the judge stage needs its extra C and F trials, its $150 limit holds them to $108 (worst case $3,181), still inside the cap. That sits under R71's $4,000 guideline for an eval with a GPT-6 Astra judge. If F saves what the profile predicts
+(about $10 a run), the actual total is near $2,773. Machines, CI minutes and the runner VM are not in cost.dollars and
 are reported separately. Each case gets 3 trials because AGENTS.md gives a `behavior` case a panel of 3, and because
 one trial each would let noise decide the "misses nothing" bar (see Bars).
 
