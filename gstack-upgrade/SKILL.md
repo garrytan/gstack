@@ -271,7 +271,7 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 (cd -- "${LOCAL_GSTACK:?LOCAL_GSTACK is not set: re-run the detection block above and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: LOCAL_GSTACK=${LOCAL_GSTACK:-} is not a gstack copy; nothing was changed." >&2; exit 1; }
 [ -e "$LOCAL_GSTACK.bak" ] && { echo "ERROR: stale vendored backup; inspect it before retrying." >&2; exit 1; }
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak" || exit 1
-if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && { rm -r "$LOCAL_GSTACK/.git" </dev/null 2>/dev/null || :; } && (cd "$LOCAL_GSTACK" && ./setup --refresh-registered); then
+if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && { [ ! -e "$LOCAL_GSTACK/.git" ] || rm -r "$LOCAL_GSTACK/.git" </dev/null; } && (cd "$LOCAL_GSTACK" && ./setup --refresh-registered); then
   rm -r "$LOCAL_GSTACK.bak" </dev/null
   echo "LOCAL_SYNC_OK"
 else
