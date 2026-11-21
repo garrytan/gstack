@@ -17,7 +17,7 @@ import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
 import { withGateLock } from './gate-dispositions';
-import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, recordCiTimeout, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
@@ -45,7 +45,7 @@ export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Ste
       (CONTEXT, TODOS, COVERAGE_MAP, Coverage, PLAN_*, READER: coverage=needed|none plan=needed|none)
 
 Prints at most 30 lines: BRANCH, STATUS, DIFF, PR/CARRY, APPLE, SCOPE, MERGE, DISTRIBUTION, POLICY,
-RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, one LANE line per lane
+RUNTIME_LINES, PREGATE (with up to three PREGATE_DETAIL lines when it does not pass), LANES, CI_RECORD_TIMEOUT (when a lane is mapped), one LANE line per lane
 (a lane the base maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact clean tree:
 LANE: <label> carried run=<id>/<attempt> tests_ran=<n>, else CI_CARRY: none (<reason>) and STOP: SHIP_LANE_NOT_CARRIED, or with
 --run-uncarried-here it runs here; any other lane that
@@ -202,7 +202,26 @@ function merge(cwd: string, base: string, r: Report): boolean {
   return true;
 }
 
+/**
+ * GST-3360: Step 5's pregate and lanes run the repository's own tools, which a fresh worktree lacks until its packages are
+ * installed (tsc exits 127, bun test cannot resolve imports). The install command for the checkout's lockfile, or null when
+ * package.json declares no packages or node_modules exists. Preflight names the command and never runs it.
+ */
+function depsInstall(root: string): string | null {
+  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; }
+  if (!Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).length || fs.existsSync(path.join(root, 'node_modules'))) return null;
+  const has = (f: string) => fs.existsSync(path.join(root, f));
+  return has('bun.lock') || has('bun.lockb') ? 'bun install --frozen-lockfile' : has('pnpm-lock.yaml') ? 'pnpm install --frozen-lockfile' : has('yarn.lock') ? 'yarn install --frozen-lockfile' : has('package-lock.json') ? 'npm ci' : 'bun install';
+}
+
 async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string; hold: boolean; testsOnly: boolean }, r: Report): Promise<void> {
+  const root = git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() || cwd;
+  const install = depsInstall(root);
+  if (install) {
+    r.stop(`DEPS_MISSING: ${root}/package.json declares packages but there is no node_modules (a fresh worktree), so Step 5's pregate and lanes cannot run: cd '${root.replace(/'/g, `'\\''`)}' && ${install}, then ${run.testsOnly ? 'rerun this command' : `rerun with --tests-only --base ${base} and the same --lane flags`}`);
+    return;
+  }
   const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--policy-from', policyFrom, ...(timeout ? ['--timeout', timeout] : [])], step.seconds * 1000);
   if (pg.timedOut) {
     r.add(`PREGATE: time limit hit (Step 5's whole pregate ran past its ${step.seconds} s budget, ${step.source}, and was stopped with exit ${pg.status ?? 'none'}; no verdict)`);
@@ -219,7 +238,9 @@ async function tests(cwd: string, base: string, list: { label: string; command: 
   }
   if (/uncleared/.test(verdict)) r.next('pregate requires-remote: gstack-pregate clear, or --remote --spend-cap <usd> under a user cap, before Step 18');
   r.add(run.line);
-  const ran = await runLanes(cwd, list, run.concurrency, { base, hold: run.hold });
+  const recordCi = mappedLanes(cwd, base, list).size ? recordCiTimeout(shipPolicy(cwd, base), base) : undefined;
+  if (recordCi) r.add(recordCi.line);
+  const ran = await runLanes(cwd, list, run.concurrency, { base, hold: run.hold, recordCiTimeoutS: recordCi?.seconds });
   const results = ran.map(laneLine);
   for (const [i, l] of results.entries()) { for (const none of carryNoneLines(ran[i]!)) r.add(none); r.add(l.line); }
   const refused = ran.filter(l => l.held && l.carryNone);
