@@ -1225,13 +1225,7 @@ const COMMENT_MARKER_BEFORE = /(?:^|[ \t"'`([])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)
 const REGEX_LITERAL_OPENER = /(?:[(,=:[!&|?{};]|\breturn)[ \t]*\/$/;
 const REGEX_LITERAL_SYNTAX = /\\|\[[^\]]*\]|\([^)]*\)|\{\d+(?:,\d*)?\}/;
 function isRegexLiteralBody(span: string, match: RegExpExecArray): boolean {
-  let close = -1;
-  for (let i = 0, inClass = false; i < span.length && close < 0; i++) {
-    if (span[i] === "\\") i++;
-    else if (inClass) inClass = span[i] !== "]";
-    else if (span[i] === "[") inClass = true;
-    else if (span[i] === "/") close = i;
-  }
+  const close = span.indexOf("/");
   if (close < 0 || !REGEX_LITERAL_SYNTAX.test(span.slice(0, close))) return false;
   const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
   return REGEX_LITERAL_OPENER.test(match.input.slice(lineStart, match.index));

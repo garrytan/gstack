@@ -236,7 +236,7 @@ _careful_rm_safe() {
 # _SQ is $1 with doubled slashes and /./ folded, the way the kernel reads it.
 _careful_squash() {
   _SQ="$1"
-  while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ="${_SQ//\/\//\/}"; _SQ="${_SQ//\/.\//\/}"; done
+  while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ=${_SQ//\/\//\/}; _SQ=${_SQ//\/.\//\/}; done
 }
 
 # A delete target outside the session's folder: an absolute or ~ path that is
@@ -521,7 +521,7 @@ _careful_push() {
           refs[$nr]="$r"; nr=$((nr + 1))
         fi ;;
     esac
-    if [ "$pw" -eq 1 ] && [ "$d0" -eq 0 ]; then dry=0; fi
+    if [ "$pw" -eq 1 ]; then pov=0; [ "$d0" -eq 1 ] || dry=0; fi
   done
   [ "$dry" -eq 0 ] || return 0
   if [ "$force" -eq 1 ] && [ -z "$_PUSH_DENY" ]; then _careful_push_default; fi
