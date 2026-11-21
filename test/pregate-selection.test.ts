@@ -1056,6 +1056,9 @@ describe('nested JS packages run their own runner from their own directory', () 
       { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
     ], unclaimed: [], missing: [], noPubspec: [] });
     expect(planRuns(ctx, ['test/fixture-text.test.js']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/fixture-text.test.js'] }]);
+    write(repo.work, 'test/mixed.test.js', "import { test } from 'vitest';\nimport { mock } from 'node:test';\ntest('vitest owns it', () => {});\n");
+    write(repo.work, 'test/jest-mixed.test.cjs', "const { test } = require('@jest/globals');\nconst { mock } = require('node:test');\ntest('jest owns it', () => {});\n");
+    expect(planRuns(ctx, ['test/mixed.test.js', 'test/jest-mixed.test.cjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/mixed.test.js', 'test/jest-mixed.test.cjs'] }]);
     const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'npx vitest run {files}' } } as PregateContext;
     expect(planRuns(declared, ['scripts/release-notes.test.mjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['scripts/release-notes.test.mjs'] }]);
   });

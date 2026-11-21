@@ -197,10 +197,11 @@ function importsPlaywright(text: string): boolean {
   }
   return false;
 }
-/** Whether a JS test loads `node:test` in a statement that starts a line: `import … from 'node:test'`, a bare import, or `require`. Text that mentions it mid-line or in a comment does not count. */
+/** Whether a JS test is a node:test file: it loads `node:test` in a statement that starts a line (`import … from 'node:test'`, a bare import, or `require`) and loads neither vitest nor `@jest/globals`, whose runner owns it. Text that mentions a module mid-line or in a comment does not count. */
 function importsNodeTest(text: string): boolean {
   const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
-  return /^[\t ]*(?:import(?=[\s{*'"])[^'"`;]*?|(?:const|let|var)\b[^=\n]*=[\t ]*require\([\t ]*)['"]node:test['"]/m.test(code);
+  const loads = (mod: string) => new RegExp(`^[\\t ]*(?:import(?=[\\s{*'"])[^'"\`;]*?|(?:const|let|var)\\b[^=\\n]*=[\\t ]*require\\([\\t ]*)['"](?:${mod})['"]`, 'm').test(code);
+  return loads('node:test') && !loads('vitest|@jest/globals');
 }
 /** Playwright's own text when its browsers are not installed on this machine. */
 const PLAYWRIGHT_NO_BROWSERS = /^.*(?:Executable doesn't exist at|download new browsers).*$/m;
