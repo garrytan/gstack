@@ -484,6 +484,26 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/ship-finish-fixed-links.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-review-log, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts; windows-latest fails every case at the first bin spawn (windows-free-shard 3, run 42593329215)',
   },
+  {
+    file: 'test/review-pass-program.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-program-steps.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-shared-machine.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-step11.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-voice-failures.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for
