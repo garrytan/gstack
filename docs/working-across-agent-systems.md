@@ -50,8 +50,11 @@ either side is paid for:
 - No acknowledgement messages, no polling loops, and never print the whole environment (it puts every
   key in the transcript).
 
-**Evals.** The checklist for a paid eval is moving into [/eval-plan](../eval-plan/SKILL.md). Until it
-lands there, use /eval-plan's current checks before any paid run.
+**Evals.** Plan every paid eval with [/eval-plan](../eval-plan/SKILL.md), whichever system runs it. Its
+preregistration check refuses a plan that doesn't name the decision each result changes, pilot every
+arm on a tenth of its budget, check its judge on each arm's outputs, carry a cost line, or (above $500
+paid) preregister one look at half the units. For a small question it offers a $100 quick look that
+publishes no number.
 
 ## Worth trying (one team's practice, not yet measured by us)
 

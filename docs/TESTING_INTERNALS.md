@@ -2111,6 +2111,45 @@ rules it was frozen under: the PREREG line shows `result_checks=exempt` and
 none of the four checks apply. Text frozen before a priced call is not edited
 to meet a newer rule.
 
+## Eval-loop checks
+
+The owner's eval-loop rules (2026-11-19) are refusals in `prereg --check` for
+every preregistration frozen on or after 2026-11-21, on top of the result
+checks. Logic in `checkLoop` and `checkQuickLook` (`lib/eval-plan-checks.ts`):
+
+| Check | Refusal |
+|---|---|
+| `## Pilot`, uncounted, per arm: `share:` at most 10% of that arm's budget, `counted: no`, `ran:` (the part under test ran, on that arm's own outputs), `judge:` (the judge passes its label check on that arm's pilot outputs, with a model judge), `supply:` (the units can be supplied at the planned rate), `units:` (every unit type, each drawn at least once) and `seed:` (a fixed draw order that doesn't depend on the number of workers) | `PREREG_INCOMPLETE` |
+| `## Scoring` with a model judge: `per-arm: yes` and `effort:`, the reasoning effort set in the judge's start | `PREREG_INCOMPLETE` |
+| `## Cost`: `paid:` (dollars), `meter:` and `ledger:`, the private file that gets the actual cost and the decision it settled | `PREREG_INCOMPLETE` |
+| `## Interim look` when `paid:` is above $500: `at: 50%`, `looks: 1`, `bounds:` O'Brien-Fleming, `futility:` | `PREREG_INCOMPLETE` |
+| An arm or bar asking for a smaller change or less code has a `regression test` bar beside it | `PREREG_INCOMPLETE` |
+| `## Held-out exposure` has an `answers:` line: how each task machine was checked for answers the agent could read there | `PREREG_INCOMPLETE` |
+| With `per-arm: yes`, `judge --check` needs an `arm` on every label row and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
+| A quick look (`kind: quick look`; `question:`, `decision:`, `stop:`, `cap:` of $100 or less) publishes no number | `results --check`: `EVAL_QUICK_LOOK_NO_NUMBER` |
+
+Why: of $28,836 spent on our last 30 evals, 23.7% settled nothing, and most of
+that leaked through arms and judges that broke rather than through too many
+samples. The biggest single loss ($2,033) was a judge that failed its check after
+the whole grid had run, which a per-arm pilot catches for a tenth of the price.
+A pilot that drew one unit type planned a 77% yield and got 9%, and a restart at a
+new concurrency redrew its items. A "smaller change" instruction cut code to 0.44x
+and wrote fewer tests (28 of 100 sessions against 79). A reader subagent that
+inherited its parent's highest effort cost about four times the default. Three
+unplanned looks raise a 5% false-positive rate to about 11%, so a counted run big
+enough to matter takes one planned look. One look at half the units under
+O'Brien-Fleming bounds stops for effect at |z| 2.80 or more and passes at the end
+at |z| 1.98 or more.
+
+How we'll know it worked: cost per decision (paid plus meter spend divided by the
+ship-or-kill calls settled) is recounted over evals preregistered under these
+checks on Monday 2026-12-07, against $1,922 per decision and 23.7% settling
+nothing. That count reads each plan's `ledger:` file.
+
+A `frozen: YYYY-MM-DD` line before 2026-11-21 keeps the rules it was frozen
+under: the PREREG line shows `loop_checks=exempt`. Frozen plans also keep the
+models they named; new plans name `gpt-6.2-sol`.
+
 ## Frontier models under test
 
 Garry, 2026-11-01 (R54): "I think you are spending too much time with Haiku and
@@ -2119,7 +2158,7 @@ models like Opus and 6.1 Sol... just transfer from Haiku to Sonnet, who gives a
 shit about that, man?"
 
 **Models under test are frontier models.** Today that's `claude-opus-5-5` and
-`gpt-6.1-sol`, plus at most one low-cost primary the preregistration names. Haiku
+`gpt-6.2-sol` (a plan frozen on `gpt-6.1-sol` keeps it), plus at most one low-cost primary the preregistration names. Haiku
 and Sonnet are not models under test. They aren't stand-ins for a frontier model,
 and an eval has no tier-transfer arms (Haiku against Sonnet, say) unless its
 preregistration says it is asking about that tier.
@@ -2136,7 +2175,7 @@ model they already use.
 is Haiku or Sonnet. When every arm is one, the dry run fails unless
 `--tier-question "<what the preregistration asks about that tier>"` is passed.
 When only some arms are, it warns. Either way it prints the whole plan's price
-on `claude-opus-5-5` and `gpt-6.1-sol`. The dry run doesn't enforce that number:
+on `claude-opus-5-5` and `gpt-6.2-sol`. The dry run doesn't enforce that number:
 compare it with the brief cap before any arm is swapped. `pilot start` refuses a
 pilot whose every arm is Haiku or Sonnet unless its dry run recorded a tier
 question.

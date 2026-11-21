@@ -5185,7 +5185,13 @@ actions, and `## Scoring` needs a `judge:` line, a model judge from another
 model family than every arm with `labels:` of 40 or more and `agreement:` of
 0.6 or more, and with two or more arms `paired: yes`, `interval: 95%` and
 `mdd:`. A `frozen:` date before 2026-11-15 exempts both
-([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks)).
+([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks)). The
+eval-loop checks add `## Pilot`, `## Cost`, `## Interim look` (a counted run
+above $500), the judge's `per-arm:` and `effort:` lines, a regression-test bar
+for a "smaller change" arm and an `answers:` line under held-out exposure; a
+`frozen:` date before 2026-11-21 exempts them, and a `kind: quick look` plan
+is checked for its three lines and a cap of $100 or less instead
+([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#eval-loop-checks)).
 
 **Fix.** Fill the named sections before any priced call. A plan that cannot
 name its stop rule or its held-out exposure is not preregistered; the pilot
@@ -5269,6 +5275,18 @@ must be read side by side.
 **Fix.** Add an `answer-only` column to the same table, counting failures by
 the grader's rule on the final answer alone, and report both readings. The
 rule is in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
+
+<a id="eval-quick-look-no-number"></a>
+### `EVAL_QUICK_LOOK_NO_NUMBER`
+
+**Meaning.** `gstack-eval-plan results --check` was given a quick look (a plan
+with `kind: quick look`). A quick look costs at most $100, takes a day and only
+opens or closes a question, so it publishes no number.
+
+**Fix.** Record the quick look's answer as an opened or closed question. To
+publish a number, write a counted-run preregistration (`prereg --init`), pilot
+each arm and run it. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#eval-loop-checks).
 
 <a id="eval-arm-duplicate"></a>
 ### `EVAL_ARM_DUPLICATE`

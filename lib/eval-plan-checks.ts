@@ -15,7 +15,7 @@ const PLACEHOLDER = /^(?:|-+|—|n\/a|none|tbd|todo|\?)\.?$/i;
 const keyValues = (body: string[]) => {
   const kv: Record<string, string> = {};
   for (const line of body) {
-    const m = /^\s*(?:[-*]\s+)?([a-z]+):(.*)$/i.exec(line);
+    const m = /^\s*(?:[-*]\s+)?([a-z][a-z-]*):(.*)$/i.exec(line);
     if (m) kv[m[1]!.toLowerCase()] = m[2]!.trim().replace(/^`(.*)`$/, '$1');
   }
   return kv;
@@ -36,6 +36,80 @@ export function modelFamily(model: string): string {
   return labs[head] ?? head;
 }
 
+/**
+ * The eval-loop checks (docs/TESTING_INTERNALS.md#eval-loop-checks), dated
+ * LOOP_CHECKS_SINCE: an uncounted pilot per arm of at most a tenth of its
+ * budget that draws every unit type in a seeded order, a judge read per arm at
+ * a stated effort, a cost line, one preregistered look at half the units for a
+ * counted run above INTERIM_LOOK_ABOVE_USD, "smaller" scored with tests, and a
+ * check that the task machine holds no answers. A quick look (`kind: quick
+ * look`) is a three-line plan capped at QUICK_LOOK_MAX_USD that publishes no
+ * number. A preregistration frozen before LOOP_CHECKS_SINCE keeps its rules.
+ */
+export const LOOP_CHECKS_SINCE = '2026-11-21';
+export const PILOT_MAX_SHARE_PCT = 10;
+export const INTERIM_LOOK_ABOVE_USD = 500;
+export const QUICK_LOOK_MAX_USD = 100;
+export const loopGrandfathered = (text: string) => { const d = frozenDate(text); return d !== null && d < LOOP_CHECKS_SINCE; };
+export const isQuickLook = (text: string) => /^\s*kind:\s*quick[- ]look\s*$/im.test(text);
+const filled = (v: string | undefined) => v !== undefined && !PLACEHOLDER.test(v.trim());
+const dollars = (v: string | undefined) => { const m = /\$?\s*(\d[\d,]*(?:\.\d+)?)/.exec(v ?? ''); return m ? Number(m[1]!.replace(/,/g, '')) : null; };
+const SMALLER = /\b(smaller (?:change|diff|patch)|less code|fewer lines|shorter diff|minimal diff|diff size)\b/i;
+
+export interface QuickLookCheck { cap: number | null; errors: string[] }
+/** `kind: quick look`: `question:`, `decision:`, `stop:` and `cap:` at most QUICK_LOOK_MAX_USD paid. It publishes no number. */
+export function checkQuickLook(text: string): QuickLookCheck {
+  const kv = keyValues(text.split('\n'));
+  const errors = (['question', 'decision', 'stop'] as const).filter(k => !filled(kv[k])).map(k => `no ${k}: line (a quick look is three lines: question, decision, stop rule)`);
+  const cap = dollars(kv.cap);
+  if (cap === null || cap > QUICK_LOOK_MAX_USD) errors.push(`cap: needs a paid cap of at most $${QUICK_LOOK_MAX_USD}; anything bigger is a counted run with a full preregistration`);
+  return { cap, errors };
+}
+
+export interface LoopCheck { paid: number | null; interim_required: boolean; errors: Array<{ section: string; message: string }> }
+export interface LoopSections { pilot: string[] | null; cost: string[] | null; interim: string[] | null; scoring: string[] | null; bars: string[] | null; arms: string[] | null; heldOut: string[] | null }
+/** The dated eval-loop checks over a counted run's preregistration sections. */
+export function checkLoop(s: LoopSections): LoopCheck {
+  const errors: LoopCheck['errors'] = [];
+  const add = (section: string, message: string) => errors.push({ section, message });
+  const scoring = keyValues(s.scoring ?? []);
+  const modelJudge = filled(scoring.judge);
+  if (s.pilot?.length) {
+    const kv = keyValues(s.pilot);
+    const share = firstNumber(kv.share);
+    if (share === null || share <= 0 || share > PILOT_MAX_SHARE_PCT) add('Pilot', `share: each arm's pilot spends at most ${PILOT_MAX_SHARE_PCT}% of that arm's budget`);
+    if (!/^no\b/i.test(kv.counted ?? '')) add('Pilot', 'counted: no (pilot items never count toward the result)');
+    for (const [k, what] of [['ran', 'how the pilot shows, on each arm\'s own outputs, that the part under test ran'], ['supply', 'how the pilot shows the units can be supplied at the planned rate'], ['units', 'every unit type the counted run uses, each drawn at least once in the pilot'], ['seed', 'the fixed seed for the draw order, which does not depend on the number of workers']] as const) if (!filled(kv[k])) add('Pilot', `${k}: ${what}`);
+    if (modelJudge && !filled(kv.judge)) add('Pilot', 'judge: how the judge is checked against labels on each arm\'s pilot outputs');
+  }
+  if (modelJudge) {
+    if (!/^yes\b/i.test(scoring['per-arm'] ?? '')) add('Scoring', 'per-arm: yes (the judge\'s agreement is read on each arm\'s outputs, not pooled)');
+    if (!filled(scoring.effort)) add('Scoring', 'effort: the reasoning effort set in the judge\'s start (left unset, it inherits its parent\'s)');
+  }
+  const cost = keyValues(s.cost ?? []);
+  const paid = dollars(cost.paid);
+  if (s.cost?.length) {
+    if (paid === null) add('Cost', 'paid: the counted run\'s paid budget in dollars');
+    if (!filled(cost.meter)) add('Cost', 'meter: the expected meter spend (agent and machine time), or $0');
+    if (!filled(cost.ledger)) add('Cost', 'ledger: the private file where the actual cost and the decision it settled are written');
+  }
+  const interim_required = paid !== null && paid > INTERIM_LOOK_ABOVE_USD;
+  if (interim_required) {
+    const kv = keyValues(s.interim ?? []);
+    if (!s.interim?.length) add('Interim look', `missing: a counted run above $${INTERIM_LOOK_ABOVE_USD} preregisters one look at half its units`);
+    else {
+      if (firstNumber(kv.at) !== 50) add('Interim look', 'at: 50% (the one look comes at half the units)');
+      if (firstNumber(kv.looks) !== 1) add('Interim look', 'looks: 1 (no other look is taken)');
+      if (!/o['’]?brien[- ]fleming/i.test(kv.bounds ?? '')) add('Interim look', 'bounds: O\'Brien-Fleming stop bounds, with their values');
+      if (!filled(kv.futility)) add('Interim look', 'futility: the result at the look that stops the run as unable to reach its bar');
+    }
+  }
+  if (SMALLER.test([...(s.arms ?? []), ...(s.bars ?? [])].join('\n')) && !(s.bars ?? []).some(l => /regression test/i.test(l))) add('Bars', 'an arm asks for a smaller change or less code, so "regression test added" is a co-primary bar (a shorter diff can come from skipping the test)');
+  const answers = (s.heldOut ?? []).map(l => /^\s*(?:[-*]\s+)?answers(?: on the task machine)?:(.*)$/i.exec(l)?.[1]).find(v => v !== undefined);
+  if (s.heldOut?.length && !filled(answers?.trim().replace(/^`(.*)`$/, '$1'))) add('Held-out exposure', 'answers: how each task machine was checked, before any session, for answers the agent could read there');
+  return { paid, interim_required, errors };
+}
+
 export interface DecisionsCheck { outcomes: Array<{ result: string; action: string }>; errors: string[] }
 /** `## Decisions`: one `if <result>: <what we do>` line per possible result, at least two, and not all the same action. */
 export function checkDecisions(body: string[] | null): DecisionsCheck {
@@ -53,7 +127,7 @@ export function checkDecisions(body: string[] | null): DecisionsCheck {
   return { outcomes, errors };
 }
 
-export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[] }
+export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean }
 /**
  * `## Scoring`: `judge: none` or the judge model; a model judge needs `labels:`
  * (at least 40) and `agreement:` (a kappa bar of at least 0.6) and a family no
@@ -79,10 +153,10 @@ export function checkScoring(body: string[] | null, arms: string[]): ScoringChec
     if (firstNumber(kv.interval) !== 95) errors.push('interval: 95% (the interval every comparison is reported with)');
     if (PLACEHOLDER.test(kv.mdd ?? '')) errors.push('mdd: the smallest difference this run can detect, stated before the run');
   }
-  return { judge, labels, agreement, errors };
+  return { judge, labels, agreement, errors, per_arm: /^yes\b/i.test(kv['per-arm'] ?? '') };
 }
 
-export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[] }
+export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[]; arms: Array<{ arm: string; n: number; kappa: number | null }> }
 
 /** Cohen's kappa over paired categorical labels; null when chance agreement is total (every label one class). */
 export function cohensKappa(pairs: Array<[string, string]>): number | null {
@@ -102,20 +176,27 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string): Jud
   const problems: string[] = [];
   const pairs: Array<[string, string]> = [];
   const ids = new Set<string>();
+  const byArm = new Map<string, Array<[string, string]>>();
+  let unarmed = 0;
   labelsText.split('\n').forEach((line, i) => {
     if (!line.trim()) return;
-    let row: { id?: unknown; human?: unknown; judge?: unknown } | null = null;
+    let row: { id?: unknown; human?: unknown; judge?: unknown; arm?: unknown } | null = null;
     try { row = JSON.parse(line); } catch { row = null; }
     if (!row || typeof row !== 'object' || ![row.id, row.human, row.judge].every(v => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number' || typeof v === 'boolean')) { problems.push(`line ${i + 1}: needs {"id", "human", "judge"}, each a string, number or boolean`); return; }
     if (ids.has(String(row.id))) { problems.push(`id ${String(row.id)} is labelled twice`); return; }
     ids.add(String(row.id));
     pairs.push([String(row.human), String(row.judge)]);
+    const arm = typeof row.arm === 'string' && row.arm.trim() ? row.arm.trim() : null;
+    if (arm) byArm.set(arm, [...(byArm.get(arm) ?? []), [String(row.human), String(row.judge)]]); else unarmed++;
   });
   const kappa = cohensKappa(pairs);
   if (pairs.length < need_n) problems.push(`${pairs.length} labelled outputs, needs ${need_n}`);
   if (pairs.length && kappa === null) problems.push('every label is one class, so agreement is undefined; label outputs of every kind the judge scores');
   else if (kappa !== null && kappa < need_kappa) problems.push(`kappa ${kappa.toFixed(2)} is below the bar ${need_kappa}`);
-  return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems };
+  const arms = [...byArm].map(([arm, p]) => ({ arm, n: p.length, kappa: cohensKappa(p) }));
+  if (scoring.per_arm && unarmed) problems.push(`per-arm: yes needs an "arm" on every label row; ${unarmed} have none`);
+  for (const a of arms) if (a.kappa === null || a.kappa < need_kappa) problems.push(`arm ${a.arm}: kappa ${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} on its ${a.n} labels is below the bar ${need_kappa}; the judge does not pass on this arm's outputs`);
+  return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms };
 }
 
-export const renderJudgeLabels = (c: JudgeLabelCheck) => `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}\n`;
+export const renderJudgeLabels = (c: JudgeLabelCheck) => c.arms.map(a => `JUDGE_ARM: ${a.arm} n=${a.n} kappa=${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} bar=${c.need_kappa}\n`).join('') + `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}\n`;
