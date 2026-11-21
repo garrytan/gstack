@@ -228,7 +228,7 @@ describe('contract-done-means renderer', () => {
     expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);
-    expect(render('codex')).toContain('- ' + BT + 'adversarial-pass' + BT + ': a ' + BT + 'spawn_agent' + BT + ' for the adversarial pass with ' + BT + 'task_name: "adversarial"' + BT + ' where the tool takes one, its message including "Think like an attacker and a chaos engineer".');
+    expect(render('codex')).toContain('- ' + BT + 'adversarial-pass' + BT + ': a ' + BT + 'spawn_agent' + BT + ' (' + BT + 'task_name: adversarial' + BT + '), its prompt including "Think like an attacker and a chaos engineer".');
     expect(render('claude')).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".');
     expect(renderDoneMeans({ version: 1, items: [] }, HOST_PATHS.claude.binDir)).toBe('');
   });

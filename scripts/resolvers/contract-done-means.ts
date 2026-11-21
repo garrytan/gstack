@@ -111,7 +111,7 @@ function plainWords(item: ContractItem, host: string): string {
     case 'report_labels': return 'a ' + code(item.heading) + ' with ' + list(item.labels) + ' filled in (' + code('none: <why>') + ' where the skill\'s own stop rule leaves one empty)';
     case 'selected_specialists_dispatched': return 'the specialist selection printed (' + code(item.marker) + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them)';
     case 'agent_dispatch': return host === 'codex' && item.task_name
-      ? 'a ' + code('spawn_agent') + ' for the ' + item.id.replace(/-/g, ' ') + ' with ' + code('task_name: "' + item.task_name + '"') + ' where the tool takes one, its message including "' + item.match + '"'
+      ? 'a ' + code('spawn_agent') + ' (' + code('task_name: ' + item.task_name) + '), its prompt including "' + item.match + '"'
       : 'an Agent dispatch for the ' + item.id.replace(/-/g, ' ') + ', its prompt including "' + item.match + '"';
   }
 }
