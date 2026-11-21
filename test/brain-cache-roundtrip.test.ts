@@ -276,3 +276,98 @@ describe('brain-cache state machine', () => {
     expect(result.state).toBe('stale-fallback');
   });
 });
+
+describe('brain-cache single-page lookup (#4265)', () => {
+  function installGbrainResponder(jsBody: string): void {
+    const scriptPath = join(GBRAIN_STUB, 'gbrain-responder.js');
+    writeFileSync(scriptPath, jsBody);
+    writeFileSync(
+      join(GBRAIN_STUB, 'gbrain'),
+      `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      join(GBRAIN_STUB, 'gbrain.cmd'),
+      `@"${process.execPath}" "${scriptPath}" %*\r\n`,
+    );
+  }
+
+  test('lowercases slug and reads compiled_truth when body is a read-mode name', async () => {
+    installGbrainResponder(`
+      const slug = process.argv[3];
+      if (slug !== 'gstack/product/some-org-some-repo') {
+        console.log(JSON.stringify({ error: 'page_not_found', slug }));
+        process.exit(1);
+      }
+      console.log(JSON.stringify({
+        slug,
+        title: 'Acme App',
+        body: 'auto',
+        compiled_truth: '## Overview\\nBuilt for teams.',
+      }));
+    `);
+    const mod = await importCache();
+    const result = mod.cmdGet('product', 'Some-Org-some-repo');
+    expect(result.state).toBe('cold-refreshed');
+    const saved = readFileSync(result.path, 'utf-8');
+    expect(saved).toBe('# Acme App\nslug: gstack/product/some-org-some-repo\n\n## Overview\nBuilt for teams.\n');
+    expect(saved).not.toContain('\nauto\n');
+  });
+
+  test('falls back to content then timeline when compiled_truth is absent', async () => {
+    installGbrainResponder(`
+      const slug = process.argv[3];
+      if (slug === 'gstack/brand/acme') {
+        console.log(JSON.stringify({ slug, title: 'Brand', body: 'full', content: 'Clean and bold.' }));
+      } else if (slug === 'gstack/competitive-intel/acme') {
+        console.log(JSON.stringify({ slug, title: 'Intel', body: 'outline', timeline: '- Rival launched v2' }));
+      } else {
+        console.log(JSON.stringify({ slug, title: 'Empty', body: 'auto' }));
+      }
+    `);
+    const mod = await importCache();
+
+    const brand = mod.cmdGet('brand', 'Acme');
+    expect(brand.state).toBe('cold-refreshed');
+    expect(readFileSync(brand.path, 'utf-8')).toContain('Clean and bold.');
+
+    const intel = mod.cmdGet('competitive-intel', 'Acme');
+    expect(intel.state).toBe('cold-refreshed');
+    expect(readFileSync(intel.path, 'utf-8')).toContain('- Rival launched v2');
+
+    // body="auto" without actual text must not be written as digest content
+    const empty = mod.cmdGet('developer-persona', 'Acme');
+    expect(empty.state).toBe('missing');
+  });
+
+  test('tolerates non-JSON markdown output from older gbrain releases', async () => {
+    installGbrainResponder(`
+      process.stdout.write([
+        '---',
+        'title: Solo Builder',
+        'tags: [persona]',
+        '---',
+        '',
+        'Builds CLI tools.',
+      ].join('\\n'));
+    `);
+    const mod = await importCache();
+    const result = mod.cmdGet('developer-persona', 'Acme');
+    expect(result.state).toBe('cold-refreshed');
+    expect(readFileSync(result.path, 'utf-8')).toBe(
+      '# Solo Builder\nslug: gstack/developer-persona/acme\n\nBuilds CLI tools.\n',
+    );
+  });
+
+  test('reports page not found separately from brain unreachable', async () => {
+    installGbrainResponder(`
+      const slug = process.argv[3];
+      console.log(JSON.stringify({ error: 'page_not_found', slug }));
+      process.exit(1);
+    `);
+    const mod = await importCache();
+    const result = mod.cmdGet('brand', 'Some-Org-some-repo');
+    expect(result.state).toBe('missing');
+    expect(result.message).toBe('page not found; no cache available');
+  });
+});
