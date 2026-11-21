@@ -321,7 +321,7 @@ describe('free-tests workflow wiring', () => {
     const workflow = Bun.YAML.parse(source) as any;
     const planner = workflow.jobs['free-plan'];
     const plan = planner.steps.find((step: any) => step.id === 'plan');
-    expect(workflow.env.FREE_SUITE_RUNNER).toMatch(/^ubicloud-standard-(2|4|8)$/);
+    expect(workflow.env.FREE_SUITE_RUNNER).toMatch(/^ubicloud-standard-(2|4|8|16)$/);
     expect(workflow.env.FREE_SUITE_SHARDS).toMatch(/^[1-9][0-9]?$/);
     expect(planner.outputs.runner).toBe('${{ steps.plan.outputs.runner }}');
     expect(workflow.jobs['free-suite']['runs-on']).toBe('${{ needs.free-plan.outputs.runner }}');
