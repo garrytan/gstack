@@ -201,6 +201,21 @@ describe('ubi-runner recovery bundle (GST-1220 b)', () => {
     expect(adopted.stdout.toString()).toContain(`RECOVER_FAILED: vm=${name} code=RECOVER_DECRYPT_FAILED`);
   }, 60_000);
 
+  test('recover accepts every owner up accepts, up to 31 characters', () => {
+    const f = make();
+    const rec = join(f.root, 'recovery');
+    const owner = 'gsta' + 'x'.repeat(27);
+    const up = run(f, ['up'], { UBI_RECOVERY_DIR: rec, UBI_OWNER: owner, UBI_REAP: '0' });
+    expect(up.exitCode).toBe(0);
+    const name = up.stdout.toString().trim();
+    const adopted = run(f, ['recover', '--owner', owner], { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: join(f.root, 'state2'), UBI_OWNER: 'thrd2', UBI_REAP: '0' });
+    expect(adopted.exitCode).toBe(0);
+    expect(adopted.stdout.toString()).toContain(`RECOVERED: vm=${name} ip=192.0.2.1 owner=${owner}`);
+    const own = run(f, ['recover'], { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: join(f.root, 'state3'), UBI_OWNER: owner, UBI_REAP: '0' });
+    expect(own.exitCode).toBe(0);
+    expect(own.stdout.toString()).toContain(`RECOVERED: vm=${name}`);
+  }, 60_000);
+
   test('an API outage keeps the bundle; a VM that is gone drops it', () => {
     const { f, rec, name, bundle, state2 } = setup();
     const env2 = { UBI_RECOVERY_DIR: rec, UBI_RUNNER_STATE: state2, UBI_REAP: '0' };

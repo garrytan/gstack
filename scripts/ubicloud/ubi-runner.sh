@@ -137,8 +137,9 @@
 # rebuilds that state so pull, ssh and down work there. The bundle is AES-256
 # (openssl enc, pbkdf2) under a key derived from UBI_RECOVERY_KEY or else
 # UBICLOUD_API_KEY, with an HMAC-SHA256 checked before anything is decrypted;
-# the secret travels only on a pipe, never in argv, a child's environment or a
-# file. A counted run (--counted or UBI_COUNTED=1) refuses before any create
+# the secret reaches the bundle helpers only on a pipe, never in argv or a file,
+# and UBI_RECOVERY_KEY is unset once read (UBICLOUD_API_KEY stays exported to
+# local children, as it always was). A counted run (--counted or UBI_COUNTED=1) refuses before any create
 # without a bundle (UBI_RECOVERY_REQUIRED, UBI_RECOVERY_UNAVAILABLE). Run
 # recover only once the creating machine is dead: a paused one is not detected.
 # `up --sink https-put:<presigned URL> --sink-path PATH` starts a pusher on the
@@ -1073,7 +1074,7 @@ cmd_recover() {
       *) die "recover: unknown option $1" ;;
     esac
   done
-  [[ "$from" =~ ^[a-z][a-z0-9]{0,11}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
+  [[ "$from" =~ ^[a-z][a-z0-9]{0,30}$ ]] || die "recover: --owner must be an owner tag as the owner command prints it"
   [ -n "$dir" ] || die "UBI_RECOVERY_REQUIRED: recover reads bundles from UBI_RECOVERY_DIR (or --dir DIR), and neither is set"
   command -v openssl >/dev/null || die "UBI_RECOVERY_UNAVAILABLE: openssl is required to open recovery bundles"
   mkdir -p "$STATE_ROOT"
