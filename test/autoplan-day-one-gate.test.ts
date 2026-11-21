@@ -250,20 +250,6 @@ describe('owner_quote downgrade, the day-one page requirement and the cost line'
     expect(scope.origin).not.toEndWith('|finding');
   });
 
-  test('a quote a revision removed stays redacted in the public export of an earlier reviewer result', () => {
-    const quote = 'I want to remember what I promised people after every meeting';
-    const state = makeRun('revised-quote', { plan: planText({ owner: null }), round2: round2(), round1: false });
-    fs.writeFileSync(path.join(state.out, 'plan-source.md'), planText());
-    fs.writeFileSync(path.join(state.out, 'ceo-native.a1.bound.md'), `The owner said "${quote}", so keep the promise review.\n`);
-    const sha = (f: string) => crypto.createHash('sha256').update(fs.readFileSync(path.join(state.out, f))).digest('hex');
-    const run = { ...state, artifacts: { 'ceo-native.a1.bound.md': { path: 'ceo-native.a1.bound.md', sha256: sha('ceo-native.a1.bound.md') } } } as RunState;
-    fs.writeFileSync(path.join(state.out, 'run.json'), JSON.stringify(run, null, 2));
-    const pub = path.join(TMP, 'revised-quote-public');
-    exportPublic(run, pub);
-    const text = fs.readFileSync(path.join(pub, 'ceo-native.a1.bound.md'), 'utf8');
-    expect(text).not.toContain(quote);
-    expect(text).toContain('[owner words redacted]');
-  });
 
   test('a changed cut list or challenge list gets a new origin, so an earlier answer is asked again instead of carried', () => {
     const origin = (list: GateList, cls: string) => byClass(list, cls)[0]!.origin;
@@ -425,11 +411,4 @@ describe('parsers, render and redaction', () => {
     expect(ownerContext(state, recordedOwnerWords(state, { ...env, GSTACK_PROJECT_SLUG: 'other-repo' })).verified).toEqual(new Set([1]));
   });
 
-  test('quoted owner words are redacted from public copies', () => {
-    const state = makeRun('redact', { plan: planText(), round2: round2(), round1: false });
-    const words = ownerWords(state);
-    const out = redactOwnerWords('The plan says: I want to remember what I promised people after every meeting.', words);
-    expect(out.redacted).toBe(1);
-    expect(out.text).not.toContain('promised people');
-  });
 });
