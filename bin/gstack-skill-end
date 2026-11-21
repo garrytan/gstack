@@ -57,6 +57,9 @@ _TEL_END=$(date +%s)
 case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
 _TEL_DUR=$(( _TEL_END - TEL_START ))
 [ -n "$SESSION_ID" ] && rm -f "$_GH/analytics/.pending-$SESSION_ID" 2>/dev/null || true
+# Release the workflow lease run gstack-skill-start opened (SESSION_ID starts
+# with its harness pid), so a finished run stops blocking gstack-upgrade (GST-1205).
+[ -n "$SESSION_ID" ] && "$_BIN/gstack-lease" release --pid "${SESSION_ID%%-*}" --run "$SESSION_ID" >/dev/null 2>&1 || true
 
 # Record completion before the final drain, including its durable enqueue.
 # The normal sync gates still decide publication: full may sync timelines,

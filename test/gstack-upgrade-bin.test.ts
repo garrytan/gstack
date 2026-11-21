@@ -216,14 +216,14 @@ describe('gstack-upgrade', () => {
   // every session's lease names capy-server and the caller's own-ancestry
   // exclusion used to drop a sibling's fresh lease: a hand-run upgrade moved the checkout.
   describe('a lease held by a shared harness (capy-server) ancestor', () => {
-    const underHarness = (f: ReturnType<typeof fixture>, harness: string, ageMinutes: number, extra: Record<string, string> = {}) => {
+    const underHarness = (f: ReturnType<typeof fixture>, harness: string, ageMinutes: number, extra: Record<string, string> = {}, lease = 'bash "$1" touch --root "$2" --pid $$ || exit 9') => {
       const bin = path.join(f.host.base, 'harness');
       fs.mkdirSync(bin, { recursive: true });
       const exe = path.join(bin, harness);
       if (!fs.existsSync(exe)) fs.copyFileSync(fs.realpathSync(spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8', timeout: 30_000 }).stdout.trim()), exe);
       fs.chmodSync(exe, 0o755);
       const script = [
-        'bash "$1" touch --root "$2" --pid $$ || exit 9',
+        lease,
         '[ "$4" -gt 0 ] && "$5" -e "const t = Date.now() / 1000 - Number(process.argv[2]) * 60; require(\'fs\').utimesSync(process.argv[1], t, t)" "${GSTACK_LEASE_DIR:-$(git -C "$2" rev-parse --absolute-git-dir)/gstack-leases}/$$" "$4"',
         'bash "$3"',
         'echo "exit=$?"',
@@ -239,6 +239,21 @@ describe('gstack-upgrade', () => {
       expect(f.git(['rev-parse', 'HEAD'])).toBe(f.a);
       const forced = underHarness(f, 'capy-server', 0, { GSTACK_UPGRADE_FORCE: '1' });
       expect(forced.stdout, forced.stdout + forced.stderr).toContain('exit=0');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    });
+
+    // GST-1205: a finished /ship run's lease used to block the upgrade for 120 minutes.
+    test('a lease whose runs all finished (gstack-lease release) no longer blocks; a sibling run still open on the same harness does', () => {
+      const touch = (id: string) => `bash "$1" touch --root "$2" --pid $$ --run "$$-${id}"`;
+      const release = (id: string) => `bash "$1" release --root "$2" --pid $$ --run "$$-${id}"`;
+      const f = fixture();
+      const open = underHarness(f, 'capy-server', 0, {}, `${touch('1-a')} && ${touch('2-b')} && ${release('1-a')} || exit 9`);
+      expect(open.stdout, open.stdout + open.stderr).toContain('exit=3');
+      expect(open.stderr).toContain('(UPGRADE_BUSY)');
+      expect(f.git(['rev-parse', 'HEAD'])).toBe(f.a);
+      const finished = underHarness(f, 'capy-server', 0, {}, `${touch('1-a')} && ${release('1-a')} || exit 9`);
+      expect(finished.stdout, finished.stdout + finished.stderr).toContain('exit=0');
+      expect(finished.stderr).not.toContain('UPGRADE_BUSY');
       expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     });
 

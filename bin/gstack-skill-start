@@ -127,13 +127,6 @@ fi
 mkdir -p "$_GH/sessions" 2>/dev/null || true
 touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 find "$_GH/sessions" -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-# The install-scoped twin (bin/gstack-lease): what bin/gstack-upgrade reads
-# before moving a checkout other sessions share. Fail-open, but a lease the
-# held lock kept from being written is reported.
-"$_BIN/gstack-lease" touch --pid "$PARENT_PID" >/dev/null 2>&1 || {
-  [ $? -eq 3 ] && echo "gstack-lease: the lease directory stayed locked by a live process; this session holds no workflow lease, so bin/gstack-upgrade cannot see it" >&2
-  true
-}
 _SESSIONS=$(find "$_GH/sessions" -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 
 _PROACTIVE=$("$_BIN/gstack-config" get proactive 2>/dev/null || echo "core")
@@ -241,9 +234,18 @@ _TEL_PROMPTED=$([ -f "$_GH/.telemetry-prompted" ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 # PID+epoch alone is guessable; a random suffix makes the block-binding token
 # unforgeable by content reflected into the same tool result. Falls back to
-# the plain form when urandom is unavailable.
+# this process's pid when urandom is unavailable, so two same-second starts
+# never share a SESSION_ID (it also keys their lease runs, GST-1205).
 _SID_RAND=$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
-_SESSION_ID="$PARENT_PID-$_TEL_START${_SID_RAND:+-$_SID_RAND}"
+_SESSION_ID="$PARENT_PID-$_TEL_START-${_SID_RAND:-$$}"
+# The install-scoped twin (bin/gstack-lease): what bin/gstack-upgrade reads
+# before moving a checkout other sessions share. This run holds it until
+# gstack-skill-end releases its SESSION_ID (GST-1205). Fail-open, but a lease
+# the held lock kept from being written is reported.
+"$_BIN/gstack-lease" touch --pid "$PARENT_PID" --run "$_SESSION_ID" >/dev/null 2>&1 || {
+  [ $? -eq 3 ] && echo "gstack-lease: the lease directory stayed locked by a live process; this session holds no workflow lease, so bin/gstack-upgrade cannot see it" >&2
+  true
+}
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 echo "SESSION_ID: $_SESSION_ID"
