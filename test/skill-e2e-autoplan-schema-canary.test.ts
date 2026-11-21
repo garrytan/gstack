@@ -24,7 +24,7 @@ import { resolveClaudeCommand } from '../lib/claude-bin';
 import { readOwnedClaudePublicTranscript } from '../lib/claude-public-transcript';
 import { schemaDrift, type HookPayload } from './helpers/schema-canary';
 
-const CANARY_MODEL = 'claude-haiku-4-5-20251001';
+const CANARY_MODEL = 'claude-haiku-5-5';
 const PACKAGE = '@anthropic-ai/claude-code';
 
 describeIfSelected('autoplan schema canary (latest Claude Code)', ['autoplan-schema-canary'], () => {

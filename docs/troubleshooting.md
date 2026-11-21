@@ -5243,7 +5243,8 @@ in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
 **Meaning.** The preregistration's `## Scoring` names a model judge, and
 `gstack-eval-plan judge --check` or `results --check` found no `--labels`
-file, fewer labelled outputs than the preregistered count (at least 40), labels
+file, fewer labelled outputs than the preregistered count (at least 100, or 40 for a
+plan frozen before 2026-11-22), labels
 that are all one class (agreement is undefined), a repeated id, or a Cohen's
 kappa between the hand labels and the judge below the preregistered bar (at
 least 0.6). With `per-arm: yes` in `## Scoring`, it also refuses a label row
@@ -5925,11 +5926,17 @@ edit `.gstack/eval-models.json` in a reviewed PR.
 <a id="eval-model-old-generation"></a>
 ### `EVAL_MODEL_OLD_GENERATION`
 
-**Meaning.** The rules declare `families` (newest first), and an arm uses an id
-that is not the first one in its family.
+**Meaning.** One of two rules refused a model. R116: a preregistration's arm,
+judge, reader or simulator, or a dry-run or pilot arm, is gpt-4o (any variant or
+snapshot) or a model `lib/pricing.ts` marks `superseded_by`; the
+`MODEL_GENERATION:` line names the model, its role and the replacement. Or the
+eval model rules declare `families` (newest first), and an arm uses an id that
+is not the first one in its family.
 
-**Fix.** Use the family's newest id, which the `EVAL_MODEL:` line names. If the
-order is wrong, fix `families` in a reviewed PR.
+**Fix.** Use the replacement the `MODEL_GENERATION:` or `EVAL_MODEL:` line names.
+A competitor system tested as its vendor ships it keeps its built-in model with a
+`vendor-default: <model> <system>` line in `## Models`; the results must name it.
+If the `families` order is wrong, fix it in a reviewed PR.
 
 <a id="eval-model-generation-unresolved"></a>
 ### `EVAL_MODEL_GENERATION_UNRESOLVED`

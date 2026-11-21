@@ -7,8 +7,14 @@
  * `frozen:` date is before RESULT_CHECKS_SINCE keeps the rules it was frozen
  * under. Reads text only; executes nothing.
  */
+import { currentReplacement } from './pricing';
+
 export const RESULT_CHECKS_SINCE = '2026-11-15';
 export const JUDGE_MIN_LABELS = 40;
+/** R78 amendment (Garry, 2026-11-21): a plan frozen on or after this date (or with no frozen: line) checks its judge on at least JUDGE_RAISED_MIN_LABELS labels; earlier plans keep JUDGE_MIN_LABELS. */
+export const JUDGE_LABELS_RAISED_SINCE = '2026-11-22';
+export const JUDGE_RAISED_MIN_LABELS = 100;
+export const judgeMinLabels = (frozen: string | null) => (frozen !== null && frozen < JUDGE_LABELS_RAISED_SINCE ? JUDGE_MIN_LABELS : JUDGE_RAISED_MIN_LABELS);
 export const JUDGE_MIN_KAPPA = 0.6;
 
 const PLACEHOLDER = /^(?:|-+|—|n\/a|none|tbd|todo|\?)\.?$/i;
@@ -110,6 +116,52 @@ export function checkLoop(s: LoopSections): LoopCheck {
   return { paid, interim_required, errors };
 }
 
+/**
+ * R116 (Garry, 2026-11-21): no gpt-4o, and no model lib/pricing.ts marks
+ * `superseded_by`, in any role a plan chooses: an arm, the judge, a reader or
+ * a simulator (docs/TESTING_INTERNALS.md#frontier-models-under-test). A
+ * competitor system tested as its vendor ships it keeps its built-in model
+ * through a `vendor-default: <model> <system>` line in `## Models`; the
+ * check records it and results --check wants the results to name it. A
+ * preregistration frozen before MODEL_GENERATIONS_SINCE keeps its models.
+ */
+export const MODEL_GENERATIONS_SINCE = '2026-11-21';
+export type ModelRole = 'arm' | 'judge' | 'reader' | 'simulator';
+export interface ModelUse { model: string; role: ModelRole }
+export interface ModelGenerationCheck { ok: boolean; exempt: boolean; refused: Array<ModelUse & { replacement: string }>; exceptions: Array<{ model: string; system: string; roles: ModelRole[] }>; errors: string[] }
+export function checkModelGenerations(o: { arms: string[]; judge?: string | null; models?: string[] | null; frozen?: string | null }): ModelGenerationCheck {
+  if (o.frozen && o.frozen < MODEL_GENERATIONS_SINCE) return { ok: true, exempt: true, refused: [], exceptions: [], errors: [] };
+  const list = (v: string) => v.split(/[\s,]+/).map(m => m.replace(/^`|`$/g, '')).filter(m => m && !PLACEHOLDER.test(m));
+  const uses: ModelUse[] = [...o.arms.map(a => ({ model: a.split('#')[0]!, role: 'arm' as const })), ...list(o.judge ?? '').map(model => ({ model, role: 'judge' as const }))];
+  const errors: string[] = [];
+  const exceptions: ModelGenerationCheck['exceptions'] = [];
+  for (const line of o.models ?? []) {
+    const m = /^\s*(?:[-*]\s+)?(readers?|simulators?|vendor-default):(.*)$/i.exec(line);
+    if (!m) continue;
+    const key = m[1]!.toLowerCase().replace(/s$/, '');
+    if (key !== 'vendor-default') { uses.push(...list(m[2]!).map(model => ({ model, role: key as ModelRole }))); continue; }
+    const [model = '', ...rest] = m[2]!.trim().split(/\s+/);
+    const system = rest.join(' ').replace(/^(?:[—–:|-]+|in|for)\s+/i, '').trim();
+    if (!model || !filled(system)) errors.push(`vendor-default: ${m[2]!.trim() || '(empty)'} needs the model and the competitor system that ships it as its default, such as "vendor-default: gpt-4o-mini Mem0 1.2 as shipped"`);
+    else exceptions.push({ model: model.replace(/^`|`$/g, '').split('#')[0]!, system, roles: [] });
+  }
+  const bare = (m: string) => m.toLowerCase().replace(/^[a-z-]+[/:]/, '');
+  const refused: ModelGenerationCheck['refused'] = [];
+  for (const use of uses) {
+    const replacement = currentReplacement(use.model);
+    if (!replacement) continue;
+    const exception = use.role === 'arm' ? exceptions.find(e => bare(e.model) === bare(use.model)) : undefined;
+    if (exception) { if (!exception.roles.includes('arm')) exception.roles.push('arm'); continue; }
+    if (!refused.some(r => r.model === use.model && r.role === use.role)) refused.push({ ...use, replacement });
+  }
+  return { ok: !refused.length && !errors.length, exempt: false, refused, exceptions, errors };
+}
+export const modelGenerationProblems = (c: ModelGenerationCheck) => [...c.refused.map(r => `${r.model} as ${r.role} is an older generation; use ${r.replacement} (R116)`), ...c.errors];
+export const renderModelGenerations = (c: ModelGenerationCheck) => [
+  ...c.refused.map(r => `MODEL_GENERATION: refused ${r.model} role=${r.role} replacement=${r.replacement} (R116, docs/TESTING_INTERNALS.md#frontier-models-under-test)`),
+  ...c.exceptions.map(e => `MODEL_EXCEPTION: ${e.model} vendor-default system=${JSON.stringify(e.system)} roles=${e.roles.join(',') || 'declared'} (the results must name it)`),
+].map(l => `${l}\n`).join('');
+
 export interface DecisionsCheck { outcomes: Array<{ result: string; action: string }>; errors: string[] }
 /** `## Decisions`: one `if <result>: <what we do>` line per possible result, at least two, and not all the same action. */
 export function checkDecisions(body: string[] | null): DecisionsCheck {
@@ -127,15 +179,16 @@ export function checkDecisions(body: string[] | null): DecisionsCheck {
   return { outcomes, errors };
 }
 
-export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean }
+export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean; min_labels?: number }
 /**
  * `## Scoring`: `judge: none` or the judge model; a model judge needs `labels:`
- * (at least 40) and `agreement:` (a kappa bar of at least 0.6) and a family no
+ * (at least judgeMinLabels(frozen): 100, or 40 for a plan frozen before 2026-11-22) and `agreement:` (a kappa bar of at least 0.6) and a family no
  * arm shares. Two or more arms need `paired: yes`, `interval: 95%` and `mdd:`,
  * the smallest difference the run can detect.
  */
-export function checkScoring(body: string[] | null, arms: string[]): ScoringCheck {
-  if (!body?.length) return { judge: null, labels: null, agreement: null, errors: [] };
+export function checkScoring(body: string[] | null, arms: string[], frozen: string | null = null): ScoringCheck {
+  const min_labels = judgeMinLabels(frozen);
+  if (!body?.length) return { judge: null, labels: null, agreement: null, errors: [], min_labels };
   const kv = keyValues(body);
   const judge = kv.judge || null;
   const labels = firstNumber(kv.labels);
@@ -143,7 +196,7 @@ export function checkScoring(body: string[] | null, arms: string[]): ScoringChec
   const errors: string[] = [];
   if (!judge) errors.push('no judge: line (judge: none, or the judge model)');
   else if (judge.toLowerCase() !== 'none') {
-    if (labels === null || labels < JUDGE_MIN_LABELS) errors.push(`labels: needs at least ${JUDGE_MIN_LABELS} hand-labelled outputs the judge is checked against`);
+    if (labels === null || labels < min_labels) errors.push(`labels: needs at least ${min_labels} hand-labelled outputs the judge is checked against${min_labels > JUDGE_MIN_LABELS ? ` (${JUDGE_MIN_LABELS} only for a plan frozen before ${JUDGE_LABELS_RAISED_SINCE})` : ''}`);
     if (agreement === null || agreement < JUDGE_MIN_KAPPA || agreement > 1) errors.push(`agreement: needs a kappa bar from ${JUDGE_MIN_KAPPA} to 1`);
     const family = modelFamily(judge);
     for (const arm of [...new Set(arms)]) if (modelFamily(arm) === family) errors.push(`judge ${judge} is the same model family (${family}) as arm ${arm}; use a judge from another family`);
@@ -153,7 +206,7 @@ export function checkScoring(body: string[] | null, arms: string[]): ScoringChec
     if (firstNumber(kv.interval) !== 95) errors.push('interval: 95% (the interval every comparison is reported with)');
     if (PLACEHOLDER.test(kv.mdd ?? '')) errors.push('mdd: the smallest difference this run can detect, stated before the run');
   }
-  return { judge, labels, agreement, errors, per_arm: /^yes\b/i.test(kv['per-arm'] ?? '') };
+  return { judge, labels, agreement, errors, per_arm: /^yes\b/i.test(kv['per-arm'] ?? ''), min_labels };
 }
 
 export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[]; arms: Array<{ arm: string; n: number; kappa: number | null }> }
@@ -171,7 +224,7 @@ export function cohensKappa(pairs: Array<[string, string]>): number | null {
 
 /** Score the preregistered judge against a JSONL file of `{"id", "human", "judge"}` rows. */
 export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, planArms: string[] = []): JudgeLabelCheck {
-  const need_n = Math.max(JUDGE_MIN_LABELS, scoring.labels ?? 0);
+  const need_n = Math.max(scoring.min_labels ?? JUDGE_RAISED_MIN_LABELS, scoring.labels ?? 0);
   const need_kappa = Math.max(JUDGE_MIN_KAPPA, scoring.agreement ?? 0);
   const problems: string[] = [];
   const pairs: Array<[string, string]> = [];

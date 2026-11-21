@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { checkPrereg } from '../lib/eval-plan';
-import { checkDecisions, checkJudgeLabels, checkScoring, cohensKappa, modelFamily } from '../lib/eval-plan-checks';
+import { checkDecisions, checkJudgeLabels, checkScoring, cohensKappa, JUDGE_LABELS_RAISED_SINCE, modelFamily } from '../lib/eval-plan-checks';
 import { checkResults } from '../lib/eval-plan-report';
 
 const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-eval-plan');
@@ -21,8 +21,10 @@ afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, 
 const DECISIONS = '## Decisions\nif the skill arm passes more items: keep the skill\nif there is no difference: cut the skill\n';
 const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
 const SCORING = (judge = 'gpt-6-astra', extra = 'labels: 40\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n') => `## Scoring\njudge: ${judge}\n${extra}`;
+/** A freeze date before the R78 amendment's 100-label bar (2026-11-22), so these fixtures keep testing the 40-label rules they were written for. */
+const JUDGE_40_FROZEN = '2026-11-21';
 const prereg = (o: { decisions?: string; scoring?: string; frozen?: string; diagnostics?: string } = {}) => [
-  o.frozen ? `frozen: ${o.frozen}\n` : '',
+  `frozen: ${o.frozen ?? JUDGE_40_FROZEN}\n`,
   '## Bars\n- pass rate, higher is better\n',
   o.decisions ?? DECISIONS,
   '## Arms\n- claude-opus-5-5 the skill installed\n- claude-opus-5-5#plain no skill\n',
@@ -54,13 +56,13 @@ describe('## Decisions', () => {
 describe('## Scoring', () => {
   const arms = ['claude-opus-5-5', 'claude-opus-5-5#plain'];
   test('a judge from another family with 40 labels, kappa 0.6 and the paired statistics passes', () => {
-    expect(checkScoring(SCORING().split('\n').slice(1), arms).errors).toEqual([]);
+    expect(checkScoring(SCORING().split('\n').slice(1), arms, JUDGE_40_FROZEN).errors).toEqual([]);
   });
 
   test('a same-family judge, too few labels, a low kappa bar or missing statistics fail', () => {
-    expect(checkScoring(SCORING('claude-fable-5-2').split('\n').slice(1), arms).errors.join()).toContain('same model family (anthropic)');
-    expect(checkScoring(SCORING('gpt-6-astra', 'labels: 39\nagreement: 0.6\npaired: yes\ninterval: 95%\nmdd: 3\n').split('\n').slice(1), arms).errors[0]).toContain('at least 40');
-    expect(checkScoring(SCORING('gpt-6-astra', 'labels: 40\nagreement: 0.5\npaired: yes\ninterval: 95%\nmdd: 3\n').split('\n').slice(1), arms).errors[0]).toContain('kappa bar');
+    expect(checkScoring(SCORING('claude-fable-5-2').split('\n').slice(1), arms, JUDGE_40_FROZEN).errors.join()).toContain('same model family (anthropic)');
+    expect(checkScoring(SCORING('gpt-6-astra', 'labels: 39\nagreement: 0.6\npaired: yes\ninterval: 95%\nmdd: 3\n').split('\n').slice(1), arms, JUDGE_40_FROZEN).errors[0]).toContain('at least 40');
+    expect(checkScoring(SCORING('gpt-6-astra', 'labels: 40\nagreement: 0.5\npaired: yes\ninterval: 95%\nmdd: 3\n').split('\n').slice(1), arms, JUDGE_40_FROZEN).errors[0]).toContain('kappa bar');
     expect(checkScoring(['judge: none'], arms).errors).toEqual(['paired: yes (every comparison is reported on paired items)', 'interval: 95% (the interval every comparison is reported with)', 'mdd: the smallest difference this run can detect, stated before the run']);
     expect(checkScoring(['judge: none'], ['claude-opus-5-5']).errors).toEqual([]);
     expect(checkScoring(['labels: 40'], arms).errors[0]).toContain('no judge: line');
@@ -79,8 +81,32 @@ describe('## Scoring', () => {
   });
 });
 
+describe(`R78 amendment: a plan frozen on or after ${JUDGE_LABELS_RAISED_SINCE} checks its judge on 100 labels`, () => {
+  const scoring100 = 'labels: 100\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n';
+  test('the day before keeps 40; the day itself and a plan with no frozen: line need 100', () => {
+    expect(checkPrereg(prereg({ frozen: '2026-11-21' })).scoring).toMatchObject({ errors: [], min_labels: 40 });
+    for (const frozen of [JUDGE_LABELS_RAISED_SINCE, '2026-12-01']) {
+      const s = checkPrereg(prereg({ frozen })).scoring;
+      expect(s.min_labels).toBe(100);
+      expect(s.errors).toEqual(['labels: needs at least 100 hand-labelled outputs the judge is checked against (40 only for a plan frozen before 2026-11-22)']);
+      expect(checkPrereg(prereg({ frozen, scoring: SCORING('gpt-6-astra', scoring100) })).ok).toBe(true);
+    }
+    expect(checkScoring(SCORING().split('\n').slice(1), ['claude-opus-5-5'], null).min_labels).toBe(100);
+  });
+
+  test('judge --check counts against the bar of the freeze date; kappa stays 0.6', () => {
+    const labels100 = labels(100, 10);
+    const late = checkPrereg(prereg({ frozen: JUDGE_LABELS_RAISED_SINCE, scoring: SCORING('gpt-6-astra', scoring100) })).scoring;
+    expect(checkJudgeLabels(late, labels(40, 4)).problems).toEqual(['40 labelled outputs, needs 100']);
+    expect(checkJudgeLabels(late, labels100)).toMatchObject({ ok: true, n: 100, need_n: 100, need_kappa: 0.6 });
+    const early = checkPrereg(prereg({ frozen: '2026-11-21' })).scoring;
+    expect(checkJudgeLabels(early, labels(40, 4))).toMatchObject({ ok: true, need_n: 40 });
+    expect(checkJudgeLabels({ judge: 'gpt-6-astra', labels: 40, agreement: 0.6, errors: [] }, labels(40, 4)).need_n).toBe(100);
+  });
+});
+
 describe('judge labels', () => {
-  const scoring = { judge: 'gpt-6-astra', labels: 40, agreement: 0.6, errors: [] };
+  const scoring = { judge: 'gpt-6-astra', labels: 40, agreement: 0.6, errors: [], min_labels: 40 };
   test("Cohen's kappa: perfect, chance and undefined agreement", () => {
     expect(cohensKappa([['a', 'a'], ['b', 'b']])).toBe(1);
     expect(cohensKappa([['a', 'a'], ['a', 'b'], ['b', 'a'], ['b', 'b']])).toBe(0);
