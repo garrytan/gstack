@@ -60,6 +60,10 @@ const POLARITY: Record<string, 'fail-closed' | 'fail-open'> = {
   // an unrecorded hand-off of user content is the thing the ledger exists to
   // prevent, so it fails closed ("no receipt, no send").
   'memorable-recall': 'fail-closed',
+  // distill-free-text (#4617): /plan-tune's dream cycle sends the answers the
+  // user typed to Anthropic. Skipping one distill costs nothing (the events
+  // stay undistilled for the next run), so no receipt, no send.
+  'distill-free-text': 'fail-closed',
   // fail-open: user-facing operations that must not die over an audit-log
   // hiccup; they warn on stderr and proceed.
   'design-openai': 'fail-open',
@@ -111,6 +115,9 @@ const MODULE_SINKS = [
   // refs/pull/<n>/head for squashes on its base, to skip commits it already
   // holds; PR numbers leave the machine, sink 'sealed-guard' (fail-open).
   'lib/sealed-guard.ts',
+  // #4617: a bash entry whose inline bun script sends the user's typed
+  // /plan-tune answers to Anthropic through the SDK; sink 'distill-free-text'.
+  'bin/gstack-distill-free-text',
 ];
 
 /** Shell sinks: must source the shared lib; every network op receipted. */
@@ -181,6 +188,10 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'developer-invoked read-only measurement (GSTA-49 T0): git fetch of gstack\'s own origin by SHA (old PR heads and tested merge commits) so past PR gates can be replayed; a download only, no gstack or user state leaves the machine',
   'scripts/windows-held-install-fixture.sh':
     'CI-only fixture for the Windows Setup E2E held-install jobs: fetches one pinned release commit of gstack\'s own public repo from the workflow checkout\'s origin (a download only) and pushes to a bare repo under $RUNNER_TEMP; never runs on a user machine, and no gstack or user state leaves the runner',
+  'scripts/judge-calibration.ts':
+    'developer-invoked eval tooling: calibrates the eval suite\'s model judges by sending committed test fixtures (test/fixtures/judge-calibration) to Anthropic with the developer\'s own key; it imports test helpers and never runs from an installed skill, and no user state is sent',
+  'scripts/preflight-agent-sdk.ts':
+    'developer-invoked eval preflight: with --live it sends one fixed ~15-token prompt to Anthropic through the Agent SDK with the developer\'s own key to check the SDK event shape before paid evals; it imports test helpers and never runs from an installed skill, and no user state is sent',
   'scripts/ubicloud':
     'developer-invoked test infrastructure: Ubicloud API calls (VM create/show/destroy) with the developer\'s own token, the checkout streamed over SSH to that developer\'s own ephemeral VM, and toolchain downloads run on the VM; no installed-gstack user state is sent',
   // Skill prose templates: these render agent-executed instructions (the
@@ -231,6 +242,20 @@ const CURL_OP = /(^|[|&;(`]|\s|\$\()curl\s/;
 // fetch() with an absolute http(s) URL (loopback filtered separately).
 const FETCH_ABS = /(^|[^A-Za-z])fetch(Fn|Impl)?\(\s*[`'"]https?:\/\//;
 
+// Model-provider calls (#4617). An SDK request method is a send whatever
+// the URL, and it can hide inside a shell script's inline `bun -e` string,
+// so it counts in shell files too and needs a receipt in the 30 lines above.
+const PROVIDER_SDK_CALL =
+  /\.(?:beta\.)?messages\.(?:create|stream|countTokens)\(|\.chat\.completions\.(?:create|stream)\(|\.responses\.(?:create|stream)\(|\.generateContent(?:Stream)?\(/;
+// A file that loads a provider SDK, or names a provider API host and makes
+// an HTTP call (the URL is usually built from a base constant, out of the
+// per-line scanner's sight), must write a receipt somewhere in the file.
+const PROVIDER_SDK_IMPORT =
+  /(?:from\s+|require\(\s*|import\(\s*)['"](?:@anthropic-ai\/sdk|@anthropic-ai\/claude-agent-sdk|openai|@google\/genai|@google\/generative-ai|@mistralai\/mistralai|groq-sdk)['"]/;
+const PROVIDER_HOST =
+  /\b(?:api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com|openrouter\.ai|api\.x\.ai|api\.mistral\.ai|api\.groq\.com|api\.deepseek\.com)\b/;
+const HTTP_CALL = /(^|[^A-Za-z.])fetch(Fn|Impl)?\(|(^|[|&;(`]|\s|\$\()curl\s/;
+
 function isTextFile(full: string): boolean {
   try {
     const buf = fs.readFileSync(full);
@@ -254,8 +279,7 @@ function* walk(dir: string): Generator<string> {
  * loopback lines, `command -v` probes, message-emitting lines, and shell
  * heredoc bodies (echoed instructions are not executed ops).
  */
-function scanFile(rel: string): string[] {
-  const src = read(rel);
+function scanFile(rel: string, src: string = read(rel)): string[] {
   const isTs = /\.(ts|js|mjs|tsx)$/.test(rel);
   const lines = src.split('\n');
   const offenders: string[] = [];
@@ -281,14 +305,36 @@ function scanFile(rel: string): string[] {
     const tsExecGit =
       GIT_SPAWN_OP.test(line) ||
       (GIT_REMOTE_OP.test(line) && /\b(spawn|spawnSync|exec|execSync|execFileSync|runCommand)\b/.test(line));
-    const isNetOp = isTs
-      ? FETCH_ABS.test(line) || tsExecGit
-      : CURL_OP.test(line) || GIT_REMOTE_OP.test(line);
+    const isNetOp =
+      PROVIDER_SDK_CALL.test(line) ||
+      (isTs ? FETCH_ABS.test(line) || tsExecGit : CURL_OP.test(line) || GIT_REMOTE_OP.test(line));
     if (!isNetOp) continue;
     if (guarded(lines, i)) continue;
     offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 100)}`);
   }
   return offenders;
+}
+
+/**
+ * File-level model-provider check (#4617): a file that loads a provider SDK,
+ * or names a provider API host and makes an HTTP call, must contain a receipt
+ * marker. Comment and message lines do not count as either.
+ */
+function scanProviderFile(rel: string, src: string = read(rel)): string[] {
+  let provider: string | null = null;
+  let http = false;
+  let receipt = false;
+  for (const line of src.split('\n')) {
+    if (RECEIPT_MARKER.test(line)) receipt = true;
+    const trimmed = line.trimStart();
+    if (/^(#|\/\/|\*|\/\*)/.test(trimmed) || /^(echo|printf|emit|die|fail|log)\b/.test(trimmed)) continue;
+    if (HTTP_CALL.test(line)) http = true;
+    if (provider === null && PROVIDER_SDK_IMPORT.test(line)) provider = `loads a provider SDK: ${line.trim().slice(0, 80)}`;
+    if (provider === null && PROVIDER_HOST.test(line)) provider = `names a provider API host: ${line.trim().slice(0, 80)}`;
+  }
+  const sdk = provider?.startsWith('loads') ?? false;
+  if (provider === null || receipt || (!sdk && !http)) return [];
+  return [`${rel}: ${provider} (no egress receipt in the file)`];
 }
 
 describe('egress receipt wiring tripwire', () => {
@@ -374,6 +420,7 @@ describe('egress receipt wiring tripwire', () => {
       'brain-sync',
       'browse-tunnel (ngrok)',
       'design-detect-engine-download',
+      'distill-free-text',
       'gbrain-mcp-verify',
       'gbrain-sync',
       'memorable-recall',
@@ -424,6 +471,45 @@ describe('egress receipt wiring tripwire', () => {
     const rf = read('design/src/receipted-fetch.ts');
     expect(rf).toContain('fail-open');
     expect(rf.indexOf('writeReceipt(')).toBeLessThan(rf.indexOf('fetchImpl(url, init)'));
+    // distill-free-text (closed): receipt before the SDK call, refusal exits.
+    const distill = read('bin/gstack-distill-free-text');
+    expect(distill).toMatch(/sink:\s*"distill-free-text"/);
+    expect(distill).toContain('fail-closed');
+    expect(distill.indexOf('writeReceipt(')).toBeGreaterThan(0);
+    expect(distill.indexOf('writeReceipt(')).toBeLessThan(distill.indexOf('client.messages.create('));
+  });
+
+  test('model-provider scanner: an unreceipted SDK or HTTP call fails, a receipted one passes', () => {
+    const tsSdk = [
+      "import Anthropic from '@anthropic-ai/sdk';",
+      'const client = new Anthropic();',
+      "const resp = await client.messages.create({ model: 'm', max_tokens: 1, messages: [] });",
+    ].join('\n');
+    const bashSdk = [
+      '#!/usr/bin/env bash',
+      "RESULT=$(bun -e '",
+      '  const OpenAI = require("openai").default;',
+      '  const resp = await new OpenAI().chat.completions.create({ model: "m", messages: [] });',
+      "')",
+    ].join('\n');
+    const tsHttp = [
+      "const BASE = 'https://generativelanguage.googleapis.com/v1beta';",
+      'export async function call(body: string) {',
+      '  return fetch(`${BASE}/models/x:generateContent`, { method: "POST", body });',
+      '}',
+    ].join('\n');
+    for (const [rel, src] of [['lib/fake-sdk.ts', tsSdk], ['bin/gstack-fake-sdk', bashSdk], ['lib/fake-http.ts', tsHttp]]) {
+      expect([...scanFile(rel, src), ...scanProviderFile(rel, src)].length, `${rel} must be flagged`).toBeGreaterThan(0);
+    }
+    const wired = tsSdk.replace(
+      'const resp',
+      "writeReceipt({ sink: 's', host: 'api.anthropic.com', payloadClass: 'c', consent: 'k' });\nconst resp",
+    );
+    expect([...scanFile('lib/fake-sdk.ts', wired), ...scanProviderFile('lib/fake-sdk.ts', wired)]).toEqual([]);
+    // Negative control: the known-wired model senders in the tree still pass.
+    for (const rel of ['lib/outside-voice-api.ts', 'lib/context-bill.ts', 'design/src/provider.ts', 'bin/gstack-distill-free-text']) {
+      expect([...scanFile(rel), ...scanProviderFile(rel)], rel).toEqual([]);
+    }
   });
 
   test('NEW-SINK SCANNER: every outbound network op in the tree is wired or reasoned-exempt', () => {
@@ -436,7 +522,7 @@ describe('egress receipt wiring tripwire', () => {
         const rel = path.relative(ROOT, full).split(path.sep).join('/');
         if (!/\.(ts|js|mjs|sh|tsx)$/.test(rel) && !isTextFile(full)) continue;
         if (isExempt(rel)) continue;
-        offenders.push(...scanFile(rel));
+        offenders.push(...scanFile(rel), ...scanProviderFile(rel));
       }
     }
     expect(
