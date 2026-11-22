@@ -40,7 +40,7 @@ function uploadPack(dir: string, slowFrom = Infinity): { wrapper: string; count:
 }
 
 /** A bare origin holding `n` sibling PR heads under refs/pull/<k>/head (k = 2..n+1), and a clone that has none of them. */
-function queueOf(n: number, slowFrom?: number) {
+function queueOf(n: number, slowFrom?: number, gone?: number) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-trial-fetch-'));
   dirs.push(root);
   const origin = path.join(root, 'origin.git');
@@ -67,7 +67,7 @@ function queueOf(n: number, slowFrom?: number) {
   const head = sh(work, 'rev-parse', 'HEAD');
   const mine = { number: 1, headRefOid: head, files: [{ path: 'a.txt' }] };
   const progress: string[] = [];
-  const run = () => trialMergeLines({ repoRoot: work, base: 'main', gh: () => ({ ok: true, out: JSON.stringify([mine, ...list]) }) }, '1', head, ['a.txt', 'b.txt'], l => progress.push(l));
+  const run = () => trialMergeLines({ repoRoot: work, base: 'main', gh: () => ({ ok: true, out: JSON.stringify([mine, ...list, ...(gone ? [{ number: gone, headRefOid: '1234567890abcdef1234567890abcdef12345678', files: [{ path: 'a.txt' }] }] : [])]) }) }, '1', head, ['a.txt', 'b.txt'], l => progress.push(l));
   return { run, list, progress, fetches: pack.count };
 }
 
@@ -83,6 +83,18 @@ describe('trial merges fetch the missing PR heads once, under a time limit (GST-
     expect(q.progress[0]).toMatch(/^TRIAL_MERGES: fetching 12 PR head\(s\) from origin \(time limit 60 s\): refs\/pull\/2\/head .* \(\+7 more\)$/);
     expect(lines).toHaveLength(12);
     for (const p of q.list) expect(lines).toContainEqual(expect.stringMatching(new RegExp(`^TRIAL_MERGES: #${p.number} ${p.headRefOid.slice(0, 12)} shares a.txt: CONFLICT in a.txt;`)));
+  }, 120_000);
+
+  // Value: protects=a combined fetch that fails fast (one sibling's ref is gone from origin) falls back to one fetch per ref
+  //   and still trial-merges the rest; fails_when=the fallback loop is dropped or a failed fetch reads as a stall; why_new=no
+  //   case had a ref missing from origin; seam=trialMergeLines' fallback; no_claim=the fallback's own time limit
+  test('a combined fetch that fails without stalling falls back to one fetch per ref and still trial-merges the rest', () => {
+    const q = queueOf(3, undefined, 9);
+    const lines = q.run();
+    expect(q.fetches()).toBe(5);
+    expect(lines.filter(l => l.includes('CONFLICT in a.txt'))).toHaveLength(3);
+    expect(lines).toContainEqual('TRIAL_MERGES: #9 1234567890ab shares a.txt: MISSING: its head is not in this clone after git fetch origin refs/pull/9/head, so no trial merge ran');
+    expect(lines.join('\n')).not.toContain(STALLED);
   }, 120_000);
 
   // Value: protects=a fetch that stalls ends at the time limit with a line naming each ref it waited on, instead of a silent
