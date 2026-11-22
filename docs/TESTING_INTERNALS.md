@@ -1873,7 +1873,10 @@ The full curated suite below runs nightly on main and on dispatch, never on a PR
 `windows-latest` job
 (`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
 (`--windows-only --ci-verify`). Packing uses Windows-measured durations from
-`scripts/free-test-durations-windows.json`; the weekly
+`scripts/free-test-durations-windows.json`, and a file's Linux time when that
+seed lacks it. With `--shard-budget-seconds 720`, `--shards 8` is a floor: the
+planner adds shards until no shard plans more than 12 minutes, 80% of the
+15-minute job. The weekly
 `free-durations-record.yml` run refreshes them, or by hand run
 `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`,
 then download the `free-test-durations-windows` artifact and commit it.

@@ -21,7 +21,7 @@ import { LAND_EXPLANATION, LAND_KEYS, landPolicyErrors, type LandPolicy } from '
 import { DOCS_ONLY_KEYS, docsOnlyPolicyErrors, unknownKeyWarnings, type DocsOnlyPolicy, type PolicyWarning } from './ship-policy-docs-only';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
-import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers';
+import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers'; import { VENDORED_EXPLANATION, vendoredErrors, type VendoredPolicyRaw } from './review-vendored';
 import { cmpVersion, parseVersion } from './version-source';
 import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED, LAND_DOCS_ONLY_SKIP_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION } from './ship-policy-keys';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
@@ -70,6 +70,7 @@ export interface ShipPolicy {
   review_content_patterns: string[];
   /** How much review /ship runs (docs/review-policy.md#review-depth): the panel fallback, the risk reader's model, platform review and extra risk paths; read from the base only. */ review: ReviewPolicy;
   /** What /ship's readers may not fetch or open beyond the default fetch rule, and the one-line note every brief carries; the base governs, the head may only add (docs/ship-policy.md#readers). */ readers: ReadersPolicy;
+  /** The upstreams a repo vendors unchanged files from and the manifests that pin them; read from the base only (docs/vendored-code.md). */ review_vendored: VendoredPolicyRaw | null;
   /** Consumed by the plan reviews (D1). */
   pr_count: { default_pr_count: number; split_requires_owner: boolean };
   /** Maintainer logins for contributor-PR mode (E3); empty means "use push permission". */
@@ -198,7 +199,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   train: null,
   docs: null,
   base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
-  release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
+  release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, review_vendored: null, ci_record_timeout_s: 600,
   plan_record: 'off', docs_only: null,
 };
 
@@ -222,7 +223,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   review_exclude_paths: 'Git glob pathspecs, root-anchored and case-sensitive (`receipts/**`, `**/*.jsonl`; at most 64, 256 characters each, no leading `:` or `!`): /ship\'s reviewers leave out the data, docs, binary and .log files they match. Read from the base branch only, so a branch cannot exclude its own files. Code, gate paths, agent prose, config, executables, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-exclude-paths).',
   review_content_patterns: 'Git glob pathspecs in the same dialect as review_exclude_paths (`results/*/raw/**`): a file both keys match is content, so the exclusion leaves it out whatever its extension (.patch files, MANIFEST.sha256, extension-less licence texts). Explicit policy only: nothing is inferred, and a pattern here with no review_exclude_paths pattern over the same files excludes nothing. Read from the base branch only. Gate paths, agent prose, config, source files (.ts, .py, .sh and the like), executables, links, native binaries, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-content-patterns).',
   review: '{ panel?, reader_model?, platform?, risk_paths? }, read from the base branch only. panel: all (default: today\'s panel and loop everywhere) | risk (opt-in: today\'s panel at full depth on risk class, one reader on the rest) | off (one merged reader on risk class too); risk and off run one fix round. Their one-reader shape has not passed a no-loss replay yet (GSTA-258 C: FIX-METHOD). reader_model: the model of the one reader a lean depth runs, `lane` (default: the lane\'s own model, the native adversarial reader), `cross-family` or a model id. platform: off (default) | on: a docs or tests diff with no numeric, results or prereg claims whose PR carries the platform review (capy-ai[bot]) at the exact head skips /ship\'s readers (review_depth platform); never runtime code. risk_paths: globs of code paths that are risk class on top of R51\'s; data, docs and binary files under them stay out (docs/review-policy.md#review-depth).',
-  readers: READERS_EXPLANATION,
+  readers: READERS_EXPLANATION, review_vendored: VENDORED_EXPLANATION,
   pr_count: '{ default_pr_count, split_requires_owner }: the PR-count row in plan reviews.',
   maintainers: 'GitHub logins treated as maintainers by /review contributor mode; empty uses repository push permission.',
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
@@ -481,6 +482,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('review_content_patterns' in obj) excludeErrors('review_content_patterns', obj.review_content_patterns, errors);
   if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
   if ('readers' in obj) readersErrors(obj.readers, errors, containedRelative);
+  if ('review_vendored' in obj) vendoredErrors(obj.review_vendored, errors, containedRelative);
   if ('release_tool' in obj && obj.release_tool !== null) {
     const t = obj.release_tool;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'release_tool', message: 'must be a non-empty string or null' });

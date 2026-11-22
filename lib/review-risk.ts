@@ -171,6 +171,16 @@ export const DOC_SECRET_LINE = [
   /\b(?:mcp|auth|config|credentials?|tokens?|secrets?|keys?|login)\s+(?:get|show|print|view|cat|token)\b/i, /\b(?:get|show|print|cat)\s+(?:\S+[ ./-])?(?:tokens?|auth|credentials?|secrets?|api[_-]?keys?|bearer)\b/i,
 ];
 
+/**
+ * One line of a hash or pin manifest as sha256sum writes it (HARN-64: a preregistration's pins.sha256): an md5 to sha512 hex
+ * digest, one or two spaces, an optional binary-mode star and a path made only of letters, digits and . / _ - + @ ~ (no
+ * quote, =, $, bracket or semicolon, so no call or assignment fits). A file whose changed lines are all this names files and
+ * nothing else, so its lines carry no money, security, data or eval class (the secret line check still reads them); any other
+ * line keeps the whole file read as before.
+ */
+export const HASH_MANIFEST_LINE = /^[0-9a-f]{32,128} {1,2}\*?[\w./+@~-]+$/i;
+export const hashManifest = (lines: readonly string[]) => lines.some(l => l.trim()) && lines.every(l => !l.trim() || HASH_MANIFEST_LINE.test(l.trim()));
+
 /** Whether a path or line's tokens name money: a metering or charge word (a cost word too, for a path), or a pair. */
 const pairs = (t: readonly string[], list: typeof MONEY_PAIRS) => list.some(([w, beside]) => t.includes(w) && t.some(x => beside.includes(x)));
 const namesMoney = (t: readonly string[], words: readonly string[]) => t.some(x => words.includes(x)) || pairs(t, MONEY_PAIRS);
@@ -180,7 +190,7 @@ export const RISK_RULES = createHash('sha256').update(JSON.stringify({
   RISK_CLASSES, MONEY_PATH_TOKENS, AUTH_PATH_TOKENS, AUTH_PATH_PREFIXES, KEY_NAME, SECURITY_PATH_TOKENS, DATA_PATH_TOKENS, EVAL_PATH_TOKENS,
   MONEY_LINE_TOKENS, MONEY_PAIRS, SPEND_PAIRS, REPORTED_COST_WORDS, MONEY_USD_WORDS,
   SECRET_SCAN,
-  patterns: Object.entries({ PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE, SWIFT_PATH: [SWIFT_PATH], SWIFT_TEST_PATH: [SWIFT_TEST_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
+  patterns: Object.entries({ HASH_MANIFEST_LINE: [HASH_MANIFEST_LINE], PROSE_PATH: [PROSE_PATH], DOC_SECRET_LINE, CONFIG_DATA_PATH: [CONFIG_DATA_PATH], STATS_SCRIPT: [STATS_SCRIPT], MONEY_LINE, PAID_MONEY_LINE, USD_COMPARE, RESULTS_TREE: [RESULTS_TREE], PRICE_USD_KEY: [PRICE_USD_KEY], PRICE_KEY_EXEMPT: [PRICE_KEY_EXEMPT], SECRET_LINE, SECRET_PATH: [SECRET_PATH], TOKEN_PATH: [TOKEN_PATH], TOKEN_SOURCE: [TOKEN_SOURCE], SECURITY_LINE, SECURITY_JOINED, DATA_LINE, SVG_PATH: [SVG_PATH], SVG_ACTIVE, SWIFT_PATH: [SWIFT_PATH], SWIFT_TEST_PATH: [SWIFT_TEST_PATH], SWIFT_SECURITY_LINE, SWIFT_DATA_LINE }).map(([k, v]) => [k, v.map(r => '/' + r.source + '/' + r.flags)]),
 })).digest('hex').slice(0, 16);
 
 export const tokens = (p: string) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -221,8 +231,10 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
     if (t.some(x => DATA_PATH_TOKENS.includes(x))) hit('data', 'data path: ' + p);
     if (!config && t.some(x => EVAL_PATH_TOKENS.includes(x))) hit('eval', 'eval scorer path: ' + p);
     if (SVG_PATH.test(p) && [i.added?.[p], i.removed?.[p]].some(l => l && svgActive(l.join('\n')))) hit('security', 'active SVG lines: ' + p);
+    const manifest = hashManifest([...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]);
     for (const line of [...(i.added?.[p] ?? []), ...(i.removed?.[p] ?? [])]) {
       if (!why.has('secret') && SECRET_LINE.some(r => r.test(line))) hit('secret', 'secret line: ' + p);
+      if (manifest) continue;
       if (!why.has('money') && pathOnly && (PAID_MONEY_LINE.some(r => r.test(line)) || (!PRICE_KEY_EXEMPT.test(p) && MONEY_USD.some(r => r.test(line)) && PRICE_USD_KEY.test(line)))) hit('money', 'spend cap, paid call or price key: ' + p);
       if (pathOnly) continue;
       if (!why.has('money') && (PAID_MONEY_LINE.some(r => r.test(line)) || (money && (usdMoney(line) || namesMoney(tokens(line), MONEY_LINE_TOKENS) || (!prose && pairs(tokens(line), SPEND_PAIRS)))))) hit('money', 'money line: ' + p);
@@ -231,6 +243,7 @@ export function matchRisk(i: RiskInput): Map<RiskClass, string> {
       if (swift && !why.has('security') && SWIFT_SECURITY_LINE.some(r => r.test(line))) hit('security', 'Swift permission request: ' + p);
       if (swift && !why.has('data') && SWIFT_DATA_LINE.some(r => r.test(line))) hit('data', 'Swift user-data line: ' + p);
     }
+    if (manifest) continue;
     if (!why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SECURITY_JOINED.some(r => r.test(l.join('\n'))))) hit('security', 'security lines: ' + p);
     if (swift && !why.has('security') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_SECURITY_LINE.some(r => r.test(l.join('\n'))))) hit('security', 'Swift permission request lines: ' + p);
     if (swift && !why.has('data') && [i.added?.[p], i.removed?.[p]].some(l => l && SWIFT_DATA_LINE.some(r => r.test(l.join('\n'))))) hit('data', 'Swift user-data lines: ' + p);

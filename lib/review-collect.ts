@@ -149,15 +149,16 @@ export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 /** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
 export const CONSUMER_SCAN_OUTPUT_BYTES = 256 * 1024 * 1024;
 
-export function reviewPlanTimeoutMs(): number {
-  const v = Number(process.env.GSTACK_REVIEW_PLAN_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : REVIEW_PLAN_TIMEOUT_MS;
+/** A whole number of at least 1 from the environment variable `name`, rounded down; anything else (unset, empty, zero, negative, not a number) is `fallback`. */
+function positiveEnv(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
 }
 
-export function consumerScanTimeoutMs(): number {
-  const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : CONSUMER_SCAN_TIMEOUT_MS;
-}
+export const reviewPlanTimeoutMs = (): number => positiveEnv('GSTACK_REVIEW_PLAN_TIMEOUT_MS', REVIEW_PLAN_TIMEOUT_MS);
+export const consumerScanTimeoutMs = (): number => positiveEnv('GSTACK_CONSUMER_SCAN_TIMEOUT_MS', CONSUMER_SCAN_TIMEOUT_MS);
+/** CONSUMER_SCAN_CAP, or GSTACK_REVIEW_CONSUMER_SCAN_CAP: more data candidates than this skip the scan and count every one as consumed (code). */
+export const consumerScanCap = (): number => positiveEnv('GSTACK_REVIEW_CONSUMER_SCAN_CAP', CONSUMER_SCAN_CAP);
 
 export type GrepFailure = { timedOut: boolean; status: number | null; err: string };
 
@@ -208,7 +209,7 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
  */
 export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[], timeoutMs = consumerScanTimeoutMs()): string[] | 'all' {
   const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot) || svgCandidate(p, classRoot)).sort();
-  if (candidates.length > CONSUMER_SCAN_CAP) return 'all';
+  if (candidates.length > consumerScanCap()) return 'all';
   const deadline = Date.now() + timeoutMs;
   const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
   const read = (file: string) => !scratch(file) && classifyPath(file, classRoot) !== 'docs';

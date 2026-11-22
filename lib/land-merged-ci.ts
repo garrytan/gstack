@@ -10,7 +10,7 @@
 import { git, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { repoSlug } from '../crew/lib/ship-queue-train-github';
 import { MIN_POLL_MS, pollDelayMs, syncLimitEnv } from './gh-poll';
-import { ghRunDeps, runProfileErrors, verifyRun, type ApiRun, type RunProfile } from './run-evidence';
+import { ghRunDeps, landBranch, runProfileErrors, verifyRun, type ApiRun, type RunProfile } from './run-evidence';
 import type { QueueContext } from './ship-queue';
 
 export const CI_TIMEOUT_MS = 45 * 60_000;
@@ -33,7 +33,7 @@ export type CiResult = { ok: true; line: string } | { ok: false; red: boolean; d
 
 /** One dispatch of `ci.workflow` on the merged commit and its verdict; red when the run itself failed, else land could not run or prove it. */
 export function runMergedCi(deps: CiDeps, o: { pr: string; commit: string; tree: string; ci: MergedCi; timeoutMs?: number }): CiResult {
-  const branch = `gstack-land/${o.pr}`;
+  const branch = landBranch(o.pr);
   const pushed = deps.push(o.commit, branch);
   if (pushed) return { ok: false, red: false, detail: `cannot push the merged commit ${o.commit.slice(0, 12)} to ${branch}: ${pushed}` };
   try {
