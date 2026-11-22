@@ -386,6 +386,24 @@ const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: s
   return !candidates.has(f) && (kind === null || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
 };
 
+/** A test file by name: `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py` or `test_*.py`. */
+const TEST_FILE = /\.(test|spec)\.[^/]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/;
+
+/**
+ * Whether a hit is the repo's own contract test for the exclusion naming a path as an example and nothing more: a test
+ * file that names review_exclude_paths and holds the path only as whole quoted strings ('p', "p" or `p`). Such a test
+ * pins the pattern list or checks which paths match; it does not read the file, so it keeps nothing (GST-3512). Any
+ * other form, such as a joined or prefixed path, still counts, and so does every non-test file.
+ */
+function contractExample(s: string, file: string, body: string): boolean {
+  if (!TEST_FILE.test(file) || !body.includes('review_exclude_paths')) return false;
+  for (let at = body.indexOf(s); at >= 0; at = body.indexOf(s, at + 1)) {
+    const q = body[at - 1];
+    if (!q || !'\'"`'.includes(q) || body[at + s.length] !== q) return false;
+  }
+  return true;
+}
+
 /**
  * An uncapped search for fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
  * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding, or git could not build
@@ -398,7 +416,7 @@ const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: s
  * manifest (every line a digest and a path, lib/review-risk.ts) names files without reading them, so it keeps none. On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
-function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
+function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[], skip?: typeof contractExample): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
   if (!strings.length) return found;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-exclude-'));
@@ -446,7 +464,7 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         } else for (const f of files) try { bodies.set(f, fs.readFileSync(path.join(i.root, f), 'utf8')); } catch { return null; }
         for (const [file, body] of bodies) {
           if (hashManifest(body.split('\n'))) continue;
-          for (const s of strings) if (body.includes(s)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
+          for (const s of strings) if (body.includes(s) && !skip?.(s, file, body)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
         }
       }
     }
@@ -459,7 +477,7 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
  * nothing); `head-only` when only the head does (a notice, never applied); `fallback` when the base policy fails only on its
  * exclusion keys, which finish (lib/ship-policy.ts) then sets aside so every file is reviewed; `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
- * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
+ * file names its full repository path (not the exclusion's own contract test quoting it as an example, contractExample) (never its basename: receipt trees reuse result.json thousands of times); a git grep
  * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
  * matched text file with changed lines the collector holds no added lines for (GST-1451: it is unread, so it fails closed).
  */
@@ -501,8 +519,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const floorCtx = { project: parseGateIntegrityBlock(readClaudeMd(i.root)), specIsTestPath: true };
   const gateData = renamed ? tagOnly.filter(p => !renamed.has(p) && gateFloor(p, floorCtx) === null && singleLineTags(p, text.added[p] ?? [])) : [];
   const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
-  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
-  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase]) : new Map<string, Set<string>>();
+  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase], contractExample);
+  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase], contractExample) : new Map<string, Set<string>>();
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
