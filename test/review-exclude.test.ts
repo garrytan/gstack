@@ -267,6 +267,26 @@ describe('the review ceiling lines', () => {
     expect(over).toEndWith('nothing was written (REVIEW_DIFF_TOO_LARGE)');
   });
 
+  // Value: protects=the printed policy names only folders whose files the policy can exclude (content, never code or
+  //   tests), says split the PR when excludable bytes cannot reach the ceiling, and never asks again for a policy that is
+  //   already landed; fails_when=a code-only folder is suggested, or the active line repeats the landed patterns (#4369);
+  //   why_new=every ceiling case had a content-only top folder; seam=tooLargeLine; no_claim=the policy's consumer checks
+  test('the fix suggests only excludable folders, and says split when the policy cannot get under the ceiling', () => {
+    const json = (line: string) => JSON.parse(line.match(/land (\{.*?\}) in /)![1]!);
+    const codeHeavy = { bytes: 2_378_104, byDir: [['src', 2_029_068], ['docs', 349_036]] as Array<[string, number]>,
+      byFile: [['src/mod0.ts', 676_380], ['src/mod1.ts', 676_357], ['src/mod2.ts', 676_331], ['docs/guide.md', 349_036]] as Array<[string, number]> };
+    const none = tooLargeLine('ctx', 'batched', codeHeavy, { state: 'none', base: 'main', source: 'origin/main@abc' }).line;
+    expect(none).not.toContain('review_exclude_paths');
+    expect(none).toContain('fix: split the PR (largest files: src/mod0.ts');
+    const landed = tooLargeLine('ctx', 'batched', codeHeavy, { state: 'active', base: 'main', source: 'origin/main@abc', record: { patterns: ['src/**'], excluded: 0 } }).line;
+    expect(landed).toContain('still over after excluding 0 files; split the PR');
+    const mixed = { bytes: 3_000_000, byDir: [['src', 1_600_000], ['results', 1_400_000]] as Array<[string, number]>,
+      byFile: [['src/a.ts', 1_600_000], ['results/run.jsonl', 1_400_000]] as Array<[string, number]> };
+    expect(json(tooLargeLine('ctx', 'batched', mixed, { state: 'none', base: 'main', source: 'origin/main@abc' }).line).review_exclude_paths).toEqual(['results/**']);
+    const again = tooLargeLine('ctx', 'batched', mixed, { state: 'active', base: 'main', source: 'origin/main@abc', record: { patterns: ['results/**'], excluded: 0 } }).line;
+    expect(again).toContain('still over after excluding 0 files; split the PR');
+  });
+
   // Value: protects=a REVIEW_DIFF_UNREADABLE stop says timeout or git exit, the timeout, and keeps full stderr in a file with
   //   remote URLs redacted; fails_when=a credential-bearing remote URL reaches the line or the log, or the fix ignores the
   //   reason; why_new=task 5; seam=readSelection and unreadableLine; no_claim=a real 120-second timeout

@@ -663,17 +663,33 @@ function policyJson(patterns: readonly string[], floor?: string | null): string 
   return JSON.stringify({ review_exclude_paths: patterns, min_gstack_version: min });
 }
 
-/** Folders to suggest: the largest top directories, until what is left would fit. */
-function suggest(byDir: ReadonlyArray<[string, number]>, bytes: number): string[] {
+/** By path alone, whether review_exclude_paths could exclude a file: content (data, logs, docs, binary assets), never code or tests. */
+const excludableByPath = (p: string) => !SOURCE.test(p) && (DATA_PATH.test(p) || /\.log$/i.test(p) || BINARY_CONTENT_EXT.test(p) || classifyPath(p) === 'docs');
+
+/**
+ * Folders to suggest: the top directories holding the most bytes the policy could exclude (whole folders when only folder
+ * sizes are known), until what is left would fit; none when they cannot get the reader under the ceiling (#4369).
+ */
+function suggest(d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }): string[] {
+  let byDir = d.byDir;
+  if (d.byFile?.length) {
+    const excludable = new Map<string, number>();
+    for (const [file, n] of d.byFile) {
+      if (!excludableByPath(file)) continue;
+      const dir = file.includes('/') ? file.split('/')[0]! : '(root)';
+      excludable.set(dir, (excludable.get(dir) ?? 0) + n);
+    }
+    byDir = [...excludable].sort((a, b) => b[1] - a[1]);
+  }
   const out: string[] = [];
-  let left = bytes;
+  let left = d.bytes;
   for (const [dir, n] of byDir) {
     if (left <= REVIEW_DIFF_MAX_BYTES || out.length >= 3) break;
     if (dir === '(root)') continue;
     out.push(`${dir}/**`);
     left -= n;
   }
-  return out;
+  return left <= REVIEW_DIFF_MAX_BYTES ? out : [];
 }
 
 /** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and files, and a fix chosen by where the policy stands. */
@@ -683,9 +699,10 @@ export function tooLargeLine(context: string, reader: string, d: { bytes: number
   const largest = (d.byFile ?? []).slice(0, 5);
   const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${named(f)} (${n} bytes)`).join(', ')})` : 'split the PR';
   const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
-  const dirs = suggest(d.byDir, d.bytes);
+  const dirs = suggest(d);
+  const fresh = dirs.filter(p => !c.record?.patterns.includes(p));
   const fix = c.state === 'head-only' ? `this branch declares review_exclude_paths, but only the copy on ${c.base} applies: ${land(c.headPatterns ?? [])}`
-    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${dirs.length ? land([...(c.record?.patterns ?? []), ...dirs.filter(p => !c.record?.patterns.includes(p))]) : split}`
+    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${fresh.length ? land([...(c.record?.patterns ?? []), ...fresh]) : split}`
     : dirs.length ? land(dirs) : split;
   const files = largest.length ? ` files=${largest.map(([f, n]) => `${/[\s,:"]/.test(f) ? JSON.stringify(f) : f}:${n}`).join(',')}` : '';
   const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top}${files} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
