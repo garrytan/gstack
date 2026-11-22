@@ -97,6 +97,8 @@ describe('findReuse: candidate discovery for a main push', () => {
       expect(v).toMatchObject({ reused: false, reason: 'no_verified_run' });
       expect(!v.reused && v.detail).toContain('land run 301 on gstack-land/42 reason=run_not_success');
       expect(why(stale([landRun({ status: 'in_progress', conclusion: null })]))).toBe('no_verified_run');
+      const rerunOlder = find(stale([landRun({ started: '2026-10-30T11:00:00Z' }), landRun({ id: 301, head: LAND2, conclusion: 'failure', started: '2026-10-30T10:40:00Z' })], { [LAND2]: TREE }));
+      expect(rerunOlder).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('land run 301 on gstack-land/42 reason=run_not_success') });
     });
 
     test('a land run that tested another tree (main moved before the merge) is refused, and the suite runs', () => {

@@ -20,7 +20,8 @@
  *       .gstack/pregate.json. A pull_request run counts only when its merge commit's tree is its head's tree
  *       (verifyRun). When the head's tree differs (land merged a stale-base pin), the only candidate is the newest
  *       workflow_dispatch run on landBranch(<pr>), the run land.merged_ci gated the merge on, and it counts only when
- *       verifyRun accepts it with the pushed tree as its tested tree: that run executed this same tree's workflow, so
+ *       verifyRun accepts it with the pushed tree as its tested tree (newest by run id, so a re-run of an older land run
+ *       never outranks a later red one): that run executed this same tree's workflow, so
  *       the rules it ran under are the ones now on main. It writes reused=true, run_id, run_url and tree to GITHUB_OUTPUT, or reused=false and a
  *       reason, with one REUSE: line in the step summary. Every lookup failure is a refusal, never a pass: the
  *       workflow then runs every job as before. Dispatch runs never consume.
@@ -78,7 +79,7 @@ export function findReuse(deps: ReuseDeps, o: { repo: string; base: string; push
       const mismatch = `#${pr.number}'s head ${pr.head.sha.slice(0, 12)} has tree ${headTree.slice(0, 12)}, the push has ${pushTree.slice(0, 12)}`;
       const branch = landBranch(pr.number);
       const land = events.includes('workflow_dispatch')
-        ? deps.runsForBranch(o.workflow, branch).filter(r => r.event === 'workflow_dispatch' && r.head_branch === branch).sort((a, b) => startedAt(b).localeCompare(startedAt(a)) || b.id - a.id)[0]
+        ? deps.runsForBranch(o.workflow, branch).filter(r => r.event === 'workflow_dispatch' && r.head_branch === branch).sort((a, b) => b.id - a.id)[0]
         : undefined;
       if (!land) return refuse('tree_mismatch', `${mismatch}, and ${branch} has no workflow_dispatch run of ${o.workflow}`);
       const v = verifyRun(deps, { repo: o.repo, runRef: String(land.id), profileName: o.profileName, profile: o.profile, now: o.now });

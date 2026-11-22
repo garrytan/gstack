@@ -1523,8 +1523,9 @@ same tree unless main moved again before the merge. So when the head's tree
 differs, `find` takes the newest `workflow_dispatch` run on `gstack-land/<n>`
 and reuses it only when `verifyRun` accepts it and its `tested-tree` record
 names the pushed tree (`no_verified_run` or `tree_mismatch` otherwise; a branch
-with no such run keeps `tree_mismatch`). Only the newest run counts, so a red
-retry on the same tree is never hidden behind an older green one. Unlike a pull
+with no such run keeps `tree_mismatch`). Only the newest run counts, newest by run id
+rather than start time, so a red retry on the same tree is never hidden
+behind an older green one, even when that older run is re-run later. Unlike a pull
 request consumer, this one needs no byte-identical check on the reuse files:
 the run executed the workflow in its own commit, whose tree is the pushed tree,
 so the rules it ran under are the ones now on main, whoever dispatched it.
