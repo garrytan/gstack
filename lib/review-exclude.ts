@@ -389,28 +389,41 @@ const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: s
 /** A test file by name: `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py` or `test_*.py`. */
 const TEST_FILE = /\.(test|spec)\.[^/]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/;
 
-/**
- * Whether a hit is the repo's own contract test for the exclusion naming a path as an example and nothing more: a test
- * file that names review_exclude_paths and holds the path only as whole quoted strings ('p', "p" or `p`) that are
- * array elements (the innermost open bracket before the quote is [). Such a test pins the pattern list or lists the
- * paths it expects to match, so it keeps nothing (GST-3512). A quoted path passed to a call (readFileSync('p'),
- * path.join(ROOT, 'p')), held in an object or a plain constant, joined or prefixed, still counts, and so does every
- * non-test file.
- */
-function contractExample(s: string, file: string, body: string): boolean {
-  if (!TEST_FILE.test(file) || !body.includes('review_exclude_paths')) return false;
-  for (let at = body.indexOf(s); at >= 0; at = body.indexOf(s, at + 1)) {
-    const q = body[at - 1];
-    if (!q || !'\'"`'.includes(q) || body[at + s.length] !== q) return false;
-    let depth = 0;
-    let k = at - 2;
-    for (; k >= 0; k--) {
-      const c = body[k]!;
-      if (c === ')' || c === ']' || c === '}') depth++;
-      else if (c === '(' || c === '[' || c === '{') { if (depth === 0) break; depth--; }
+/** The quoted strings that are array entries (innermost open bracket [), by opening-quote offset; a forward scan that skips strings and comments. */
+function arrayEntries(body: string, hashComments: boolean): Map<number, string> {
+  const out = new Map<number, string>();
+  const open: string[] = [];
+  for (let k = 0; k < body.length; k++) {
+    const c = body[k]!;
+    if ((c === '/' && body[k + 1] === '/') || (hashComments && c === '#')) { const e = body.indexOf('\n', k); if (e < 0) break; k = e; continue; }
+    if (c === '/' && body[k + 1] === '*') { const e = body.indexOf('*/', k + 2); if (e < 0) break; k = e + 1; continue; }
+    if (c === "'" || c === '"' || c === '`') {
+      let e = k + 1;
+      for (; e < body.length && body[e] !== c; e++) { if (body[e] === '\\') e++; else if (body[e] === '\n' && c !== '`') break; }
+      if (open[open.length - 1] === '[') out.set(k, body.slice(k + 1, e));
+      k = e;
+      continue;
     }
-    if (body[k] !== '[') return false;
+    if (c === '(' || c === '[' || c === '{') open.push(c);
+    else if (c === ')' || c === ']' || c === '}') open.pop();
   }
+  return out;
+}
+let lastEntries: { body: string; py: boolean; entries: Map<number, string> } | null = null;
+
+/**
+ * Whether a hit is the repo's own contract test for the exclusion pinning its pattern list and nothing more (GST-3512):
+ * the path is itself one of the base policy's review_exclude_paths patterns, and the test file names
+ * review_exclude_paths and holds the path only as whole quoted array entries ('p', "p" or `p`; the scan skips other
+ * strings and comments). Such a test pins the list, so it keeps nothing. A path that is not a literal pattern (a hit or
+ * near-miss example), a quoted call argument (readFileSync('p')), an object value, a plain constant, a joined or prefixed
+ * path, or a mention in a comment still counts, and so does every non-test file.
+ */
+function contractExample(patterns: ReadonlySet<string>, s: string, file: string, body: string): boolean {
+  if (!patterns.has(s) || !TEST_FILE.test(file) || !body.includes('review_exclude_paths')) return false;
+  const py = file.endsWith('.py');
+  if (lastEntries?.body !== body || lastEntries.py !== py) lastEntries = { body, py, entries: arrayEntries(body, py) };
+  for (let at = body.indexOf(s); at >= 0; at = body.indexOf(s, at + 1)) if (lastEntries.entries.get(at - 1) !== s) return false;
   return true;
 }
 
@@ -426,7 +439,7 @@ function contractExample(s: string, file: string, body: string): boolean {
  * manifest (every line a digest and a path, lib/review-risk.ts) names files without reading them, so it keeps none. On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
-function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[], skip?: typeof contractExample): Map<string, Set<string>> | null {
+function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[], skip?: (s: string, file: string, body: string) => boolean): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
   if (!strings.length) return found;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-exclude-'));
@@ -487,7 +500,7 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
  * nothing); `head-only` when only the head does (a notice, never applied); `fallback` when the base policy fails only on its
  * exclusion keys, which finish (lib/ship-policy.ts) then sets aside so every file is reviewed; `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
- * file names its full repository path (not the exclusion's own contract test quoting it as an example, contractExample) (never its basename: receipt trees reuse result.json thousands of times); a git grep
+ * file names its full repository path (not the exclusion's own contract test pinning it as a pattern, contractExample) (never its basename: receipt trees reuse result.json thousands of times); a git grep
  * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
  * matched text file with changed lines the collector holds no added lines for (GST-1451: it is unread, so it fails closed).
  */
@@ -501,6 +514,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   }
   if (load.setAside) return { state: 'fallback', source, errors: load.setAside.map(e => `${e.path}: ${e.message}`) };
   const patterns = load.policy.review_exclude_paths;
+  const patternSet = new Set(patterns);
+  const example = (s: string, f: string, body: string) => contractExample(patternSet, s, f, body);
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
   if ('error' in sel) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_exclude_paths matches (${sel.error}); fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
@@ -529,8 +544,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const floorCtx = { project: parseGateIntegrityBlock(readClaudeMd(i.root)), specIsTestPath: true };
   const gateData = renamed ? tagOnly.filter(p => !renamed.has(p) && gateFloor(p, floorCtx) === null && singleLineTags(p, text.added[p] ?? [])) : [];
   const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
-  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase], contractExample);
-  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase], contractExample) : new Map<string, Set<string>>();
+  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase], example);
+  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase], example) : new Map<string, Set<string>>();
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');

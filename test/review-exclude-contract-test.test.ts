@@ -31,8 +31,8 @@ describe('review_exclude_paths and its contract test', () => {
   // Value: protects=a test that pins review_exclude_paths and quotes the paths it expects to match leaves those files
   //   excluded; fails_when=the contract test's quoted examples keep them as named-by-code, undoing the exclusion;
   //   why_new=GST-3512 (GEVA-569: a B2 results PR stayed at about 4.8 MB because its contract test named sessions.jsonl)
-  test('the exclusion\'s own contract test quoting a path keeps nothing', () => {
-    expect(repo({ [CONTRACT]: contract() })).toEqual({ kept: [], excluded: 4 });
+  test('the exclusion\'s own contract test pinning a pattern keeps nothing, and its hit examples still keep theirs', () => {
+    expect(repo({ [CONTRACT]: contract() })).toEqual({ kept: [{ path: 'results/b2/run.json', reason: 'named-by-code' }], excluded: 3 });
   }, 120_000);
 
   // Value: protects=named-by-code still keeps a file that code reads, that a test outside the exclusion's contract names,
@@ -59,5 +59,41 @@ describe('review_exclude_paths and its contract test', () => {
       { path: 'results/b2/third.json', reason: 'named-by-code' },
       { path: 'wiki/b2/sessions.jsonl', reason: 'named-by-code' },
     ]);
+  }, 120_000);
+
+  // Value: protects=an array the contract test iterates (for-of, test.each) is examples, not the pinned list, and a bracket
+  //   inside a comment does not make a call argument look like an array entry; fails_when=those paths are exempted and
+  //   drop out of review; why_new=GST-3512 /ship second-model review of #4699 (lib/review-exclude.ts:412 and :409)
+  test('iterated example arrays and brackets in comments still keep the files they name', () => {
+    const r = repo({
+      [CONTRACT]: [
+        "import policy from '../../.gstack/ship-policy.json';",
+        "test('pins the list', () => expect(policy.review_exclude_paths).toEqual(['results/**', 'wiki/b2/sessions.jsonl']));",
+        "for (const p of ['results/b2/third.json']) test(p, () => {});",
+        "test.each([['results/b2/other.json']])('%s', () => {});",
+        "const raw = require('fs').readFileSync(/* [ */ 'wiki/b2/sessions.jsonl', 'utf8');",
+      ].join('\n') + '\n',
+    });
+    expect(r).toEqual({ kept: [
+      { path: 'results/b2/other.json', reason: 'named-by-code' },
+      { path: 'results/b2/third.json', reason: 'named-by-code' },
+      { path: 'wiki/b2/sessions.jsonl', reason: 'named-by-code' },
+    ], excluded: 1 });
+  }, 120_000);
+
+  // Value: protects=a comment holding an unpaired '(' inside the pinned list does not hide that the entries are array
+  //   entries; fails_when=the pin keeps its own excluded file; why_new=GST-3512 /ship second-model review of #4699
+  //   (lib/review-exclude.ts:409)
+  test('a comment inside the pinned list does not keep the pinned path', () => {
+    const r = repo({
+      [CONTRACT]: [
+        "import policy from '../../.gstack/ship-policy.json';",
+        "const PATTERNS = [ // pinned (see GST-3512",
+        "  'results/**', 'wiki/b2/sessions.jsonl',",
+        "];",
+        "test('pins the list', () => expect(policy.review_exclude_paths).toEqual(PATTERNS));",
+      ].join('\n') + '\n',
+    });
+    expect(r).toEqual({ kept: [], excluded: 4 });
   }, 120_000);
 });
