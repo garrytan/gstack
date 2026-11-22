@@ -344,6 +344,8 @@ gstack_result_anchor() {
     RECEIPT_CARRY_PRODUCT_CHANGED) printf '%s' 'receipt-carry-product-changed' ;;
     STOP_UNBOUND) printf '%s' 'stop-unbound' ;;
     GRANT_SPENT) printf '%s' 'grant-spent' ;;
+    SHIP_RUN_ABANDON_REFUSED) printf '%s' 'ship-run-abandon-refused' ;;
+    SHIP_RUN_RECORD_UNREADABLE) printf '%s' 'ship-run-record-unreadable' ;;
     GRANT_UNKNOWN) printf '%s' 'grant-unknown' ;;
     RECEIPT_CARRY_SCOPED_REVIEW) printf '%s' 'receipt-carry-scoped-review' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;

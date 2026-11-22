@@ -42,10 +42,12 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(body)).toMatchObject({ rounds: 1, full: 1, rechecks: 1, runs: 1, heads: 3 });
   });
 
-  test('the same run written twice counts once', () => {
+  test('the same run written twice at one head counts once; a run id reused at another head counts again (gstack-evals#406)', () => {
     let body = placeReceipt('', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
-    body = placeReceipt(body, receipt(sha('b'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    body = placeReceipt(body, receipt(sha('a'), { passes: 1, rounds: 1, deferred: 1 }, { run: 'r1' }));
     expect(prReviewHistory(body)).toMatchObject({ rounds: 1, runs: 1 });
+    body = placeReceipt(body, receipt(sha('b'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    expect(prReviewHistory(body)).toMatchObject({ rounds: 2, runs: 2 });
   });
 
   test('a started stub counts its rounds so far until its run writes a receipt, which replaces it', () => {
