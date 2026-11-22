@@ -160,8 +160,8 @@ describe('gstack-vendored-verify', () => {
   });
   test('executables, symlinks and a file renamed under its prefix are not vendored', () => {
     const c = consumer();
-    fs.chmodSync(path.join(c.repo.work, 'vendor/lib/tests/a.py'), 0o755);
-    c.repo.git('add', '-A'); c.repo.git('commit', '-q', '-m', 'exec');
+    c.repo.git('update-index', '--chmod=+x', 'vendor/lib/tests/a.py');
+    c.repo.git('commit', '-q', '-m', 'exec');
     expect(outOf(c.verify())).toContain('(VENDORED_MODE)');
     const d = consumer();
     commit(d.repo, { 'vendor/lib/tests/conftest.py': A, 'vendor/MANIFEST.json': manifest([{ commit: d.up.c1, files: ['tests/a.py', 'tests/b.py', 'tests/conftest.py'] }]) }, 'rename');
