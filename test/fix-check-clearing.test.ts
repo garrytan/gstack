@@ -182,7 +182,7 @@ describe('harness-evals#504: a fix-check grant answering a stop after a gate-cla
     const g = grantedRun({ sameRun: true });
     const s2 = g.F;
     expect(ok(g.run('gstack-ship-receipt', ['stop', '--body', g.body, '--pr', '7', '--run', 'ro', '--since', g.since]))).toContain('STOP_RECORD: run=ro head=' + s2);
-    const g2 = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(ok(g.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s2, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'p2/fix-check#1', '--reason', 'gate edit', '--by', 'Captain GStack Minder (GSTA-36)'])))![1]!;
+    const g2 = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(ok(g.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s2, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'p2/fix-check#1', '--reason', 'gate edit', '--by', 'Captain GStack Minder (GSTA-36)', '--owner-ref', 'GSTA-36:2026-11-21T02:00:00Z', '--words', 'grant one fix-check'])))![1]!;
     g.f.write({ 'src/x.ts': 'export const x = 4;\n' }); g.f.commit('fix the fix-check finding');
     const plan = g.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '2', '--pr', '7', '--round-grant', g2, '--stop', s2, '--range-base', s2, '--last', 'fix-check', '--fix-checks', '1', '--touched-gate']);
     expect(plan.status, plan.stderr).toBe(0);
