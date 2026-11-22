@@ -8,6 +8,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { delimiter, join } from 'path';
 import { tmpdir } from 'os';
 
+const CACHE = '../bin/gstack-brain-cache';
 let TMP_HOME: string;
 let STUB: string;
 const saved = { home: process.env.GSTACK_HOME, path: process.env.PATH };
@@ -34,7 +35,7 @@ beforeEach(() => {
   chmodSync(join(STUB, 'gbrain'), 0o755);
   process.env.PATH = `${STUB}${delimiter}${saved.path ?? ''}`;
   process.env.GSTACK_HOME = TMP_HOME;
-  delete require.cache[require.resolve('../bin/gstack-brain-cache')];
+  delete require.cache[require.resolve(CACHE)];
 });
 
 afterEach(() => {
@@ -46,7 +47,7 @@ afterEach(() => {
 
 describe.skipIf(process.platform === 'win32')('brain-cache single-page read (#4265)', () => {
   test('a product page under a mixed-case project slug comes back as a digest', async () => {
-    const mod = (await import('../bin/gstack-brain-cache')) as typeof import('../bin/gstack-brain-cache');
+    const mod = await import(CACHE);
     const result = mod.cmdGet('product', 'Some-Org-some-repo');
     expect(result.state).toBe('cold-refreshed');
     const digest = readFileSync(result.path, 'utf-8');
