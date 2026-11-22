@@ -118,7 +118,8 @@ VENDORED_VERIFY: checked=1056 verified=1054 failed=2 pins=71 manifests=1 scope=a
 
 Exit 0 means every checked entry verified (or the base declares no
 `review_vendored`), 1 means a manifest claims something untrue, 2 is a usage
-error and 3 means the base policy could not be read.
+error and 3 means the base branch, its policy or the checkout could not be read
+(or the base policy does not validate).
 
 Fetches go straight to each upstream over https, anonymously: no credential
 helper, extra header or URL rewrite from your git configuration, no prompt, no
