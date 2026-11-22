@@ -139,6 +139,16 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/index.rs, added line 7)'), expect.stringContaining('(src/index.rs, added line 9)')] });
   });
 
+  // Value: protects=pregate's secrets check fails a key bound by a TS const or class field and passes declarations that hold no literal; fails_when=a JS/TS
+  //   declaration of a key passes the push check, or destructuring, imports and typed declarations block it; why_new=GST-3500; seam=fixture repo; no_claim=other languages
+  test('a key bound by a TS const or class field fails; typed, destructured and imported names pass (GST-3500)', () => {
+    const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const ts = 'import { API_KEY } from "./config";\nconst { token } = await auth();\nlet apiKey: string;\nconst authToken: string = readToken();\n';
+    expect(repo({ 'src/client.ts': ts }).secrets()).toMatchObject({ status: 'pass', lines: [] });
+    const r = repo({ 'src/client.ts': ts + 'export const API_TOKEN = "' + secret + '";\nclass Client {\n  private apiKey = "' + secret + '";\n}\n' }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/client.ts, added line 5)'), expect.stringContaining('(src/client.ts, added line 7)')] });
+  });
+
   test('parseAddedLineNumbers numbers each added line from its hunk header', () => {
     const diff = ['diff --git a/a.py b/a.py', '--- a/a.py', '+++ b/a.py', '@@ -3,0 +4,2 @@', '+one', '+two', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     expect([...parseAddedLineNumbers(diff)]).toEqual([['a.py', [4, 5, 11]]]);
