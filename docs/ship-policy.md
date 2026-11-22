@@ -1795,6 +1795,21 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
+<a id="what-ends-a-run"></a>
+**What ends a /ship run (GST-3260).** Preflight opens the run in the checkout's
+run record (`git rev-parse --git-path gstack-ship-run`), and while it is open a
+full preflight, round grants, gate dispositions, lane exceptions and rulings
+without `--owner-ref` stop. Only gstack's commands end it: `finish` removes the
+record (only when the open PR's body names that run), `gstack-ship-receipt stop`
+marks it stopped (it may then record the fix-check grant for its own stop, and a
+new run's preflight replaces it), `gstack-skill-end` marks it finished on any
+outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
+within 60 minutes of its last beat. No timer ends a run. A bare marker from an
+older gstack reads as `legacy` and an unreadable record as `unreadable`; both
+block until abandoned. The record guards against mistakes, such as a base merge
+under a run's readers or a run granting itself a round; it is not proof of who
+the owner is.
+
 <a id="ruled-notes"></a>
 **Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
 ruling that it ships as a disclosed note, with the note listed. The owner records

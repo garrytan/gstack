@@ -17,13 +17,12 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 import { isGstackActor, type RuledNote } from './ruled-notes';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
-import { BIN_DIR, runScriptSync } from './script-invocation';
+import { openRun, readRunRecord, withGateLock } from './ship-run-record';
 
 export interface GateDisposition { finding: string; gate_id: string; head: string; by: string; reason: string; words: string; at: string; approval: string }
 
@@ -104,44 +103,24 @@ export function appliedGateDispositions(cwd: string, o: { branch?: string; pin: 
 
 /**
  * The /ship runs open on `branch` in any worktree of this repository (found through the git common dir); a detached worktree's run
- * counts too. A marker counts while its run's lease is open (`gstack-lease open`, the test preflight uses), so a run parked before
- * finish stops counting once its 120-minute lease ends; a lease check that cannot run counts the marker as open.
+ * counts too. Each worktree's run record decides (lib/ship-run-record.ts): an open, stopped, legacy or unreadable record counts,
+ * a finished or abandoned one does not, and no timer ends a run. `detail` is the record's state, beat_age and abandon command.
  */
-export function openShipRunsOn(cwd: string, branch: string): string[] {
+export function openShipRunsOn(cwd: string, branch: string): Array<{ text: string; detail: string }> {
   const list = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd, encoding: 'utf8', timeout: 10_000 });
-  if (list.status !== 0) return [`unknown (git worktree list failed: ${(list.stderr ?? '').trim().slice(0, 120)})`];
+  if (list.status !== 0) return [{ text: `unknown (git worktree list failed: ${(list.stderr ?? '').trim().slice(0, 120)})`, detail: '' }];
   const here = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', timeout: 10_000 }).stdout?.trim() ?? '';
   const real = (p: string) => { try { return fs.realpathSync(p); } catch { return p; } };
-  const open: string[] = [];
+  const open: Array<{ text: string; detail: string }> = [];
   for (const block of list.stdout.split(/\n\n+/).filter(b => b.trim())) {
     const dir = /^worktree (.+)$/m.exec(block)?.[1];
     const on = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1];
     if (!dir || /^bare$/m.test(block) || (on !== undefined && on !== branch)) continue;
-    const marker = spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd: dir, encoding: 'utf8', timeout: 10_000 });
-    if (marker.status !== 0 || !marker.stdout.trim()) continue;
-    let run = '';
-    try { run = fs.readFileSync(path.resolve(dir, marker.stdout.trim()), 'utf8').trim(); } catch { continue; }
-    if (!run || runScriptSync(path.join(BIN_DIR, 'gstack-lease'), ['open', '--root', dir, '--run', run], { cwd: dir, encoding: 'utf8', timeout: 60_000 }).status === 1) continue;
-    open.push(real(dir) === real(here) ? `${run} is open on this checkout` : `${run} is open in the worktree ${dir}`);
+    const run = openRun(readRunRecord(dir));
+    if (!run) continue;
+    open.push({ text: real(dir) === real(here) ? `${run.run} is open on this checkout` : `${run.run} is open in the worktree ${dir}`, detail: `${run.run}: ${run.detail}` });
   }
   return open;
-}
-
-/** Run `fn` holding the repository's gate-disposition lock (a directory in the git common dir; one older than a minute is stale). */
-export function withGateLock<T>(cwd: string, fn: () => T, waitMs = 15_000): T | RecordError {
-  const common = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8', timeout: 10_000 });
-  if (common.status !== 0 || !common.stdout.trim()) return { code: 'APPROVAL_RECORD_WRITE_FAILED', message: `no git common dir at ${cwd}, so the gate-disposition lock cannot be taken` };
-  const lock = path.join(path.resolve(cwd, common.stdout.trim()), 'gstack-gate-disposition.lock');
-  const until = Date.now() + waitMs;
-  for (;;) {
-    try { fs.mkdirSync(lock); break; } catch (e: any) {
-      if (e.code !== 'EEXIST') return { code: 'APPROVAL_RECORD_WRITE_FAILED', message: `${lock}: ${e.code ?? e.message}` };
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 60_000) { fs.rmSync(lock, { recursive: true, force: true }); continue; } } catch { continue; }
-      if (Date.now() > until) return { code: 'APPROVAL_RECORD_WRITE_FAILED', message: `${lock} is held; another gate disposition or /ship preflight is writing (rerun in a moment)` };
-      Bun.sleepSync(100);
-    }
-  }
-  try { return fn(); } finally { fs.rmSync(lock, { recursive: true, force: true }); }
 }
 
 /** Append one disposition row under the lock, refused while any /ship run is open on its branch in any worktree (the check and the append are one step). */
@@ -150,7 +129,7 @@ export function recordGateDisposition(cwd: string, loc: StoreLocation, row: Appr
   if (!gateDispositions([signed], loc.branch).length) return { code: 'APPROVAL_RECORD_INVALID', message: 'the row would not count as a gate disposition (gstack-approvals dispositions would not list it: a 40-hex --head and one-line fields are required), so it would close nothing; nothing was written' };
   const held = withGateLock(cwd, () => {
     const open = openShipRunsOn(cwd, loc.branch);
-    if (open.length) return { code: 'APPROVAL_RECORD_INVALID' as const, message: `/ship run ${open.join('; /ship run ')} (branch ${loc.branch}): a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session once no /ship run is open on the branch` };
+    if (open.length) return { code: 'APPROVAL_RECORD_INVALID' as const, message: `/ship run ${open.map(o => o.text).join('; /ship run ')} (branch ${loc.branch}): a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session once no /ship run is open on the branch (${open.map(o => o.detail).filter(Boolean).join('; ')})` };
     return appendRows(loc, [signed]);
   });
   return held;

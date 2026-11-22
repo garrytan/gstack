@@ -18,6 +18,7 @@
  *   gstack-ship-receipt history (--pr <n> [--repo <owner/repo>] | --body <file>) [--head <sha>] [--base <branch>] [--run <id>] [--json]
  *   gstack-ship-receipt stub (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> [--head <sha>] [--review-loop <json|@file>] [--void]
  *   gstack-ship-receipt stop (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --since <REVIEW_SINCE>
+ *   gstack-ship-receipt abandoned (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --by <who> --reason <one line>
  *   gstack-ship-receipt claim (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --grant <approval id>
  *
  * `write` validates against `gstack-artifact schema ship-receipt`, prints the
@@ -66,7 +67,8 @@ import { publicRuledNote, readRuledNotes, ruledNoteText } from '../lib/ruled-not
 import { appliedGateDispositions, gateDispositionText, publicGateDisposition } from '../lib/gate-dispositions';
 import { securityFingerprints } from '../lib/security-findings';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
-import { grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
+import { abandonMarker, grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, receiptedRun, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
+import { changeRunRecord } from '../lib/ship-run-record';
 import { grantFor, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { patchId, productPatchAgainstBase, productRules, productSpec, verifiedOutputs } from '../lib/ship-receipt-patch';
@@ -115,11 +117,16 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
   stop --pr <n> | --body <file> --run <id> --since <REVIEW_SINCE>
                                       Step 9, on NEXT: stop: record the review this run stopped on (its commit and tree, from the newest
                                       via:ship review row bound to one committed tree) as a stop record in the runs block, and print the
-                                      round-grant command that buys its fix round (STOP_RECORD:, NEXT:); an unbound read prints
-                                      STOP_UNBOUND (exit 3) and records nothing (docs/troubleshooting.md#stop-unbound)
+                                      round-grant command that buys its fix round (STOP_RECORD:, NEXT:); the stopping row is the newest
+                                      full pass, fix-check or Step 11 voice, so the stop is the head it read (#4591); it also marks this
+                                      checkout's run record stopped at that head and tree; an unbound read prints STOP_UNBOUND (exit 3)
+                                      and records nothing (docs/troubleshooting.md#stop-unbound)
   claim --pr <n> | --body <file> --run <id> --grant <approval id>
                                       before the first dispatch of a run whose PR_REVIEW_FLAGS: name --round-grant: record that this run
-                                      spends the grant (GRANT_CLAIMED:); a grant another run claimed is refused (GRANT_SPENT, exit 3)
+                                      spends the grant (GRANT_CLAIMED:), in the PR body and in this checkout's run record; a grant
+                                      another run claimed is refused (GRANT_SPENT, exit 3)
+  abandoned --pr <n> | --body <file> --run <id> --by <who> --reason <one line>
+                                      gstack-ship-run abandon's PR-body half: a mark:abandoned entry in the runs block (RUN_ABANDON_MARK:)
   docs-caps [--base <ref>]            /ship Step 14.5: one DOCS_CAP: <path> <bytes>/<max> ok|over line per docs.caps entry of the
                                       reviewed policy (origin/<base>'s .gstack/ship-policy.json; --policy <file> reads that file
                                       instead); any over (or absent) file exits 1 (DOCS_AUDIT_BLOCKED)
@@ -980,8 +987,9 @@ function cmdHistory(rest: string[], json: boolean): number {
   const grant = claimed ? undefined : found;
   const route = answer?.ok ? { route: 'fix-check' as const, reason: `fix-check grant ${answer.grant.approval} answers the stop at ${answer.stop.head.slice(0, 12)} (run ${answer.stop.run}): one scoped fix-check of the PR's own change since it, for ${answer.grant.findings!.join(', ')}, with no new full review` } : reviewRoute(h, { grant: grant?.approval });
   const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}${answer?.ok ? ` --stop ${answer.stop.head}` : ''}`;
-  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route }) + '\n'); return EXIT.ok; }
-  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}`);
+  const used = flag(rest, '--run') ? receiptedRun(read.body, flag(rest, '--run')!) : undefined;
+  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route, run_used: used?.head ?? null }) + '\n'); return EXIT.ok; }
+  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}${used ? `PR_REVIEW_RUN_USED: run=${used.run} receipted at ${used.head.slice(0, 12)}\n` : ''}`);
   return EXIT.ok;
 }
 
@@ -1004,7 +1012,8 @@ function cmdStop(rest: string[]): number {
   const err = postBody(rest, read.pr, placeRunEntry(read.body, stopMarker({ head: found.head, tree: found.tree, run })));
   if (err) { process.stderr.write(`gstack-ship-receipt stop: ${err}; nothing recorded\n`); return EXIT.fail; }
   const pr = read.pr ?? flag(rest, '--pr') ?? '<n>';
-  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\nNEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then take --round-grant and --stop from the PR_REVIEW_FLAGS: line of gstack-ship-receipt history --pr ${pr} --base <base> --run ${run} in this run, or from a new run's preflight (docs/troubleshooting.md#pr-round-cap)\n`);
+  const marked = changeRunRecord(repoRoot, 'stop', run, { stop: { head: found.head, tree: found.tree } });
+  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\n${marked.ok ? '' : `RUN_RECORD: not marked stopped (${marked.why})\n`}NEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then take --round-grant and --stop from the PR_REVIEW_FLAGS: line of gstack-ship-receipt history --pr ${pr} --base <base> --run ${run} in this run, or from a new run's preflight (docs/troubleshooting.md#pr-round-cap)\n`);
   return EXIT.ok;
 }
 
@@ -1027,7 +1036,8 @@ function cmdClaim(rest: string[]): number {
   if (!again.ok) { process.stderr.write(`gstack-ship-receipt claim: ${again.why}; the claim is unconfirmed, so do not dispatch\n`); return EXIT.fail; }
   const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
   if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
-  process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n`);
+  const recorded = changeRunRecord(repoRoot, 'claim', run, { claim: { grant: id, ...(g.stop_run ? { stop_run: g.stop_run } : {}), stop_head: g.head, findings: g.findings ?? [] } });
+  process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n${recorded.ok ? '' : `RUN_RECORD: claim not recorded (${recorded.why})\n`}`);
   return EXIT.ok;
 }
 
@@ -1045,7 +1055,23 @@ function cmdStub(rest: string[]): number {
   const status = rest.includes('--void') ? 'voided' : 'started';
   const err = postBody(rest, read.pr, placeRunEntry(read.body, runStub({ head, run, status, loop })));
   if (err) { process.stderr.write(`gstack-ship-receipt stub: ${err}; the run is not recorded\n`); return EXIT.fail; }
+  const repoRoot = git(['rev-parse', '--show-toplevel']);
+  if (repoRoot) changeRunRecord(repoRoot, 'beat', run);
   process.stdout.write(`RUN_STUB: run=${run} status=${status} rounds=${loop.passes} head=${head.slice(0, 12)}\n`);
+  return EXIT.ok;
+}
+
+/** gstack-ship-run abandon's PR-body half (GST-3260): a mark:abandoned entry in the runs block naming the run, who ended it and why. */
+function cmdAbandoned(rest: string[]): number {
+  const run = flag(rest, '--run'), by = flag(rest, '--by')?.trim(), reason = flag(rest, '--reason')?.trim();
+  if (!run || !/^[\w.:-]{1,128}$/.test(run) || !by || !reason || /[\x00-\x1f\x7f]/.test(by + reason)) { process.stderr.write('gstack-ship-receipt abandoned: --run <id>, --by <who> and --reason <one line> are required\n'); return EXIT.usage; }
+  const read = readBody(rest);
+  if (!read.ok) { process.stderr.write(`gstack-ship-receipt abandoned: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
+  const head = git(['rev-parse', 'HEAD'])?.toLowerCase();
+  if (!head) { process.stderr.write('gstack-ship-receipt abandoned: cannot resolve HEAD\n'); return EXIT.usage; }
+  const err = postBody(rest, read.pr, placeRunEntry(read.body, abandonMarker({ head, run, by, reason })));
+  if (err) { process.stderr.write(`gstack-ship-receipt abandoned: ${err}; not marked\n`); return EXIT.fail; }
+  process.stdout.write(`RUN_ABANDON_MARK: run=${run} head=${head.slice(0, 12)}\n`);
   return EXIT.ok;
 }
 
@@ -1063,6 +1089,7 @@ function main(argv: string[]): number {
   if (cmd === 'stub') return cmdStub(rest);
   if (cmd === 'stop') return cmdStop(rest);
   if (cmd === 'claim') return cmdClaim(rest);
+  if (cmd === 'abandoned') return cmdAbandoned(rest);
   process.stderr.write(`gstack-ship-receipt: unknown command ${cmd}\n${HELP}\n`);
   return EXIT.usage;
 }

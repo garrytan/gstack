@@ -5,11 +5,9 @@
  * full sha of the stop head the owner ruled at; the row's `by` is the ruler and its `recorded_at` the time. A review-log field
  * never makes one, so the lane that logged a finding cannot close it.
  */
-import { spawnSync } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
+import { openRun, readRunRecord } from './ship-run-record';
 
 export interface RuledNote { finding: string; head: string; by: string; reason: string; at: string; approval: string; relayed?: string; not_security?: true }
 
@@ -70,9 +68,8 @@ export const publicRuledNote = (n: RuledNote): RuledNote => !isSecurityFinding(n
 /** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `, from publicRuledNote. */
 export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(note); return `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by}${n.relayed ? ` (relayed from ${n.relayed})` : ''} at ${n.at}: ${n.reason} (approval ${n.approval})`; };
 
-/** The /ship run open on this checkout (its marker in the git dir, which finish removes), if any. */
-export function openShipRun(cwd: string): string | undefined {
-  const p = spawnSync('git', ['rev-parse', '--git-path', 'gstack-ship-run'], { cwd, encoding: 'utf8', timeout: 10_000 });
-  if (p.status !== 0 || !p.stdout.trim()) return undefined;
-  try { return fs.readFileSync(path.resolve(cwd, p.stdout.trim()), 'utf8').trim() || undefined; } catch { return undefined; }
-}
+/**
+ * The /ship run this checkout's run record holds open (open, stopped, legacy or unreadable), with the line a refusal prints: its state,
+ * beat_age and abandon command; none once the run finished or was abandoned (lib/ship-run-record.ts).
+ */
+export const openShipRun = (cwd: string) => openRun(readRunRecord(cwd));

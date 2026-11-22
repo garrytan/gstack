@@ -129,9 +129,10 @@ describe('the stop record binds only a review gstack can tie to one commit (stop
     expect(from([{ ...bound, completed: false }]).ok).toBe(false);
     expect(from([{ ...bound, commit_full: H }]).ok).toBe(false);
   });
-  test('S5: a non-ship row or a fix-check row is not the stopping review; an earlier run\'s row is out of range', () => {
+  test('S5: a non-ship row is not the stopping review; a later fix-check row is, and must bind (#4591); an earlier run\'s row is out of range', () => {
     expect(from([bound, { ...bound, via: 'manual', commit_full: H }])).toMatchObject({ ok: true, head: S });
-    expect(from([bound, { ...bound, skill: 'review-fix-check', commit_full: H }])).toMatchObject({ ok: true, head: S });
+    expect(from([bound, { ...bound, skill: 'review-fix-check', commit_full: H }]).ok).toBe(false);
+    expect(from([{ ...bound, commit_full: H }, { ...bound, skill: 'review-fix-check' }])).toMatchObject({ ok: true, head: S });
     expect(from([{ ...bound, timestamp: '2026-11-17T00:00:00Z' }]).ok).toBe(false);
   });
 });
