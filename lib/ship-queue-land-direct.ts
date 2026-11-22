@@ -25,7 +25,7 @@ import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
-import { git, type QueueFailure } from '../crew/lib/ship-queue-gate';
+import { git, queueHooksOff, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { acquireLandLock, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from '../crew/lib/ship-queue-land-lock';
 import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from '../crew/lib/ship-queue-train-record';
@@ -160,6 +160,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const run = 'none';
   const now = o.now ?? (() => new Date());
   const fail = (lines: string[], failure: QueueFailure): StepOutput => ({ ok: false, lines, failure, run });
+  queueHooksOff();
   if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail([], { code: 'QUEUE_NOT_READY', message: `cannot fetch origin/${ctx.base}; land reads the policy and the required checks from the current base`, fix: 'fix the fetch, then rerun land' });
   const loaded = loadBasePolicy(ctx);
   if ('message' in loaded) return fail([], loaded);

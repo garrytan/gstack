@@ -4,8 +4,10 @@
  * checked without a network.
  */
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { runMergedCi, type CiDeps } from '../lib/land-merged-ci';
 import { landPolicyErrors } from '../lib/land-merged-checks';
 import type { ApiRun } from '../lib/run-evidence';
@@ -86,5 +88,27 @@ describe('land.merged_ci', () => {
     const ci = JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'ship-policy.json'), 'utf8')).land?.merged_ci;
     expect(ci).toEqual(CI);
     expect(JSON.parse(fs.readFileSync(path.join(root, '.gstack', 'pregate.json'), 'utf8')).run_profiles?.[ci.profile]?.workflow).toBe(ci.workflow);
+  });
+});
+
+describe('queue git hooks', () => {
+  test.skipIf(process.platform === 'win32')('a queue git call runs the checkout\'s hooks until land turns them off, so wave and train pushes keep the managed pre-push guard', () => {
+    const gate = JSON.stringify(path.join(import.meta.dir, '..', 'crew', 'lib', 'ship-queue-gate.ts'));
+    const script = `const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+      const { git, queueHooksOff } = await import(${gate});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-hooks-'));
+      const marker = path.join(dir, 'ran');
+      const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+      git(dir, ['init', '-q'], env);
+      fs.writeFileSync(path.join(dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\\necho x >> "' + marker + '"\\n', { mode: 0o755 });
+      const runs = () => fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').split('\\n').filter(Boolean).length : 0;
+      const before = git(dir, ['commit', '-q', '--allow-empty', '-m', 'a'], env).ok && runs();
+      queueHooksOff();
+      const after = git(dir, ['commit', '-q', '--allow-empty', '-m', 'b'], env).ok && runs();
+      fs.rmSync(dir, { recursive: true, force: true });
+      console.log(JSON.stringify({ before, after }));`;
+    const r = spawnSync(process.execPath, [...bunIsolationArgs(), '-e', script], { encoding: 'utf8', timeout: 60_000 });
+    expect(r.stderr).toBe('');
+    expect(JSON.parse(r.stdout)).toEqual({ before: 1, after: 1 });
   });
 });

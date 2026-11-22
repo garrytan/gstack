@@ -3013,8 +3013,8 @@ named path and restore it from a trusted copy (delete a hook the checks
 added), then release the lock without running the checks with
 `gstack-ship-queue land --pr <n> --pin <sha>` (no `--allow-repo-commands`: it
 refuses with `REPO_COMMANDS_NOT_ALLOWED` and releases the lock). Land's own git
-calls in the clone run with the checks' environment, and no
-`gstack-ship-queue` git call runs a hook or fsmonitor. That includes the managed
+calls in the clone run with the checks' environment, and no git call
+`gstack-ship-queue land` makes runs a hook or fsmonitor. That includes the managed
 pre-push guard: land pushes only the lock and notes it writes and, under
 `land.merged_ci`, the merged commit of commits that were already pushed, and a
 hook run after the checks is the opening this closes. It doesn't otherwise

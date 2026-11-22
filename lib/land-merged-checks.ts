@@ -24,7 +24,7 @@
  * where git finds them, every config file git loads in the checkout (includes and the global file among them), gh's
  * config and hosts files, the git and gh binaries lib/tool-path.ts pinned before the first repo command, and every hop
  * of a symlink among them. When any changed it refuses, makes no further git or gh call and leaves the land lock held
- * for a person to inspect. No queue git call runs a hook (crew/lib/ship-queue-gate's git()), which also skips the
+ * for a person to inspect. No git call land makes runs a hook (crew/lib/ship-queue-gate's queueHooksOff), which also skips the
  * managed pre-push guard: land pushes only the lock and notes it writes and the merged commit of already-pushed commits,
  * and a hook run after the checks is the opening this closes. Land's own git calls in the clone run with the checks'
  * environment.
