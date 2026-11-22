@@ -231,7 +231,10 @@ caught on another crew's PRs.
    A run whose flags name a grant runs `gstack-ship-receipt claim` before its
    first dispatch, which writes a grant record into the runs block; a grant
    another run claimed is refused (`GRANT_SPENT`), a voided run's claim still
-   spends it, and stop and grant records are never trimmed from the block.
+   spends it, and stop and grant records are never trimmed from the block. When
+   the run record cannot save the claim, claim fails and the run starts no
+   reviewers; rerun claim with the same `--run` once the record is writable, since
+   a new run id reads `GRANT_SPENT`.
    gstack never grants itself a round: `--by` naming gstack (one of the names
    gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
    whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
