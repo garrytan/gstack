@@ -10,16 +10,18 @@
  *      import) and literal directories (`test/fixtures/x` → `x/**`), and in
  *      Python, dotted `mock.patch` targets (`'pkg.mod.Class.method'`);
  *   3. the `bin/<name>` → `test/<name>*.test.*` convention (with and without
- *      the `gstack-` prefix), and RSpec's `spec/<path>_spec.rb` → `app/<path>.rb`
- *      or `<path>.rb` (Rails autoloads constants, so no require names the file);
+ *      the `gstack-` prefix), and RSpec's `[<root>/]spec/<path>_spec.rb` →
+ *      `[<root>/]app/<path>.rb` or `[<root>/]<path>.rb` (Rails autoloads constants,
+ *      so no require names the file);
  *   4. explicit `.gstack/pregate.json` `dependencies` declarations;
  *   5. in a Django project, the files Django loads by name (lib/pregate/django.ts);
  *   6. in a Cargo crate, every `.rs` file and the Cargo.toml select the crate's
  *      tests and its dependents' (lib/pregate/rust.ts); in-source
  *      `#[cfg(test)]` files and `<crate>/tests/` files are the tests.
- * A TypeScript specifier written with the emitted extension (NodeNext:
- * `./x.js` for `x.ts`, `.jsx`→`.tsx`, `.mjs`→`.mts`, `.cjs`→`.cts`) resolves to
- * its source when no file matches it as written.
+ * A module specifier written with the emitted extension (NodeNext: `./x.js`
+ * for `x.ts` or `x.tsx`, `.jsx`→`.tsx`, `.mjs`→`.mts`, `.cjs`→`.cts`) resolves to
+ * its TypeScript source first, as tsc does, then as written; a filesystem
+ * literal always names the path as written.
  * Dart directives (`import`/`export`/`part`, conditional URIs included) resolve
  * `package:<name>/x` through every tracked pubspec.yaml to `<root>/lib/x`.
  * Uncertainty selects more tests, never fewer: a dependency on a directory
@@ -320,9 +322,9 @@ function matchAliases(aliases: readonly PathAlias[], ref: string): { chosen: str
 /** One candidate repo path → the file it names (trying extensions), `dir/**`, a bare bin, or null. */
 function resolveCandidate(files: Set<string>, dirs: Set<string>, c: string, literal: boolean): string | null {
   if (c.startsWith('../') || c === '..' || c === '.' || c === '') return null;
+  const ts = literal ? null : /\.([mc]?)js(x?)$/.exec(c);
+  if (ts) for (const t of ts[1] || ts[2] ? [`.${ts[1]}ts${ts[2]}`] : ['.ts', '.tsx']) { const f = c.slice(0, -ts[0].length) + t; if (files.has(f)) return f; }
   for (const ext of RESOLVE_EXT) if (files.has(c + ext)) return c + ext;
-  const ts = /\.([mc]?)js(x?)$/.exec(c);
-  if (ts) { const t = `${c.slice(0, -ts[0].length)}.${ts[1]}ts${ts[2]}`; if (files.has(t)) return t; }
   // A directory literal needs two segments (`test/fixtures/x`): a bare word is a name, not a path.
   if (dirs.has(c) && (!literal || c.includes('/'))) return `${c}/**`;
   // A bare bin name in a test (spawned through PATH or a helper's bin dir) names bin/<name>.
@@ -513,10 +515,10 @@ function conventionBins(test: string, files: Set<string>): string[] {
   return out;
 }
 
-/** The Ruby sources an RSpec spec names by convention: spec/models/user_spec.rb names app/models/user.rb, spec/lib/parser_spec.rb names lib/parser.rb. */
+/** The Ruby sources an RSpec spec names by convention: spec/models/user_spec.rb names app/models/user.rb, spec/lib/parser_spec.rb names lib/parser.rb, and an engine's engines/x/spec/... names engines/x/app/... the same way. */
 function conventionRubySubjects(test: string, files: Set<string>): string[] {
-  const m = /^spec\/(.+)_spec\.rb$/.exec(test);
-  return m ? [`app/${m[1]}.rb`, `${m[1]}.rb`].filter(f => files.has(f)) : [];
+  const m = /^((?:.+\/)?)spec\/(.+)_spec\.rb$/.exec(test);
+  return m ? [`${m[1]}app/${m[2]}.rb`, `${m[1]}${m[2]}.rb`].filter(f => files.has(f)) : [];
 }
 
 export interface BuildOptions {
