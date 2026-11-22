@@ -79,7 +79,8 @@ async function stackedPregate(repo: FixtureRepo, fromRun?: RunCheck, stage: 'tes
 describe.skipIf(process.platform === 'win32')('a pregate.json answers only for its own base (GST-3493)', () => {
   // Value: protects=a record cleared under a stacked base stops verifying once the PR ships against main at the same head;
   //   fails_when=verify ignores the record's base, so a stacked clear (its policy and run profiles) passes for main;
-  //   why_new=GST-3493, the base half of GST-3381's stacked clear; seam=the gstack-pregate bin's verify verb
+  //   why_new=GST-3493, the base half of GST-3381's stacked clear; seam=the gstack-pregate bin's verify verb;
+  //   no_claim=a record with no base field (older pregate runs) has nothing to compare, so --base keeps today's pass
   test('verify --base refuses a record taken against another base and passes when the bases match', async () => {
     const repo = stackedFixture();
     repo.git('remote', 'set-url', 'origin', 'https://github.com/fx/fx.git');
@@ -99,6 +100,9 @@ describe.skipIf(process.platform === 'win32')('a pregate.json answers only for i
     expect([retargeted.status, retargeted.out]).toEqual([EXIT.fail, expect.stringContaining('PREGATE_VERIFY: refused PREGATE_STALE')]);
     expect(retargeted.err).toContain('pregate.json was recorded against origin/stack, but this ships against origin/main');
     expect(runBin(repo, 'gstack-pregate', ['verify']).status).toBe(EXIT.ok);
+    const { base: _taken, ...older } = file;
+    fs.writeFileSync(out, JSON.stringify(older));
+    expect(runBin(repo, 'gstack-pregate', ['verify', '--base', 'main']).status).toBe(EXIT.ok);
   }, 120_000);
 
   // Value: protects=clear never reads a base's policy (and its repo commands) when that base already contains the head;
