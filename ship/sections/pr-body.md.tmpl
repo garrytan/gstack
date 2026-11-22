@@ -314,9 +314,9 @@ With open gate findings the same command carries `--draft` before `--title-file`
 
 Branch on the exit code of either block:
 - **0** posted. If `pr-body` printed `kept` sections, open each in the PR: keep one a person
-  wrote. One an earlier /ship run wrote describes an older head: copy every section to keep
-  into `$PR_BODY_FILE` verbatim and rerun the body command with `--replace`. When unsure who
-  wrote it, keep it and name it in Step 22's report. Then remove `$PR_BODY_FILE` and the title file.
+  wrote. One an earlier /ship run wrote is stale: put the live body (it keeps the run history)
+  minus those sections in `$PR_BODY_FILE` and rerun the body command with `--replace`. When
+  unsure, keep it and name it in Step 22's report. Then remove `$PR_BODY_FILE` and the title file.
 - **4** nothing was posted, title and body checked in one pass. For each `PLAIN_TITLE:` line, rewrite the
   title file's front the way it says (Step 18 item 5); for each `PLAIN_BODY:` line, rewrite `$PR_BODY_FILE`
   the way it says (docs/troubleshooting.md#plain-body-refused). Then rerun the same block.
