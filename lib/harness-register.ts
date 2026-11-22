@@ -731,17 +731,19 @@ export function refresh(base: Omit<RegisterOptions, 'target'>, skip: Set<string>
     }));
 }
 
-export interface StatusRow { id: string; target: string; dest: string; mode: string; files: number; version: string; stale: boolean; visible: 'yes' | 'no' | 'unknown'; checked?: string; missing?: string[]; hook?: HookResult }
+export interface StatusRow { id: string; target: string; dest: string; mode: string; files: number; version: string; stale: boolean; visible: 'yes' | 'no' | 'unknown'; checked?: string; error?: string; missing?: string[]; hook?: HookResult }
 
-/** Runs the harness's own skill list: 'yes' when every name shows (or, with any, at least one). */
-export function harnessSees(t: Target, dest: string, env: Env, names: string[], any = false): { visible: 'yes' | 'no' | 'unknown'; checked?: string; missing?: string[] } {
+/** Runs the harness's own skill list: 'yes' when every name shows (or, with any, at least one); 'unknown' with its first error line when the list command fails (#4412). */
+export function harnessSees(t: Target, dest: string, env: Env, names: string[], any = false): { visible: 'yes' | 'no' | 'unknown'; checked?: string; error?: string; missing?: string[] } {
   const lc = t.listCommand?.(dest);
   if (!lc || !names.length || !onPath(lc.argv[0], env)) return { visible: 'unknown' };
   const r = spawnSync(lc.argv[0], lc.argv.slice(1), { env: { ...process.env, ...env, ...lc.env }, encoding: 'utf8', timeout: 120_000 });
+  const checked = lc.argv.join(' ');
+  if (r.error || r.status !== 0) return { visible: 'unknown', checked, error: (r.stderr ?? '').split('\n').map(l => l.trim()).find(Boolean) || r.error?.message || 'exit ' + (r.status ?? r.signal) };
   const text = (r.stdout ?? '') + (r.stderr ?? '');
   const missing = names.filter(n => !lc.listed(n).test(text));
   const ok = any ? missing.length < names.length : missing.length === 0;
-  return { visible: ok ? 'yes' : 'no', checked: lc.argv.join(' '), ...(ok || any ? {} : { missing }) };
+  return { visible: ok ? 'yes' : 'no', checked, ...(ok || any ? {} : { missing }) };
 }
 
 export function status(stateRoot: string, version: string, env: Env, check = true): StatusRow[] {
