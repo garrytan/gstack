@@ -101,9 +101,10 @@ describe('review_exclude_paths with review_vendored', () => {
   });
 
   // Value: protects=verifying a file never lifts agent prose, a credential value or a gate tag out of review: AGENTS.md stays
-  //   whole, the key line and the skip line are kept (excerpted, not whole); fails_when=the vendored kind skips a keep rule;
+  //   whole, the key line is excerpted, and a gate-tagged test file stays whole because test paths are gate floor paths
+  //   (#4574 excerpts only off the floor); fails_when=the vendored kind skips a keep rule or cuts a floor file;
   //   why_new=GST-3298 plan F5; no_claim=the excerpt text itself (test/review-exclude.test.ts owns it)
-  test('agent prose, a credential value and a gate-tagged line stay in review even when verified', () => {
+  test('agent prose, a credential value and a gate-tagged test file stay in review even when verified', () => {
     const f = fixture();
     const files = ['AGENTS.md', 'tests/a.py', 'tests/keys.env', 'tests/test_skip.py'];
     commit(f.repo, { ...local({ 'AGENTS.md': '# agents\n', 'tests/a.py': A, 'tests/keys.env': KEY + '\n', 'tests/test_skip.py': SKIP }), 'VENDORED.json': manifest(f.up.c1, files) }, 'vendor lib');
@@ -112,7 +113,7 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(x.kept_files).toEqual([
       { path: 'up/lib/AGENTS.md', reason: 'agent-prose' }, { path: 'up/lib/tests/keys.env', reason: 'secret-line' }, { path: 'up/lib/tests/test_skip.py', reason: 'gate-tagged' },
     ]);
-    expect(x.excerpt).toEqual([':(top,literal)up/lib/tests/keys.env', ':(top,literal)up/lib/tests/test_skip.py']);
+    expect(x.excerpt).toEqual([':(top,literal)up/lib/tests/keys.env']);
     expect(x.excluded).toBe(1);
   });
 

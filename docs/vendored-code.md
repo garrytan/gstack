@@ -146,9 +146,40 @@ The check
 runs from the head's workflow file, so it is a backstop for honest mistakes; a
 workflow edit is itself reviewed like any other `.github/` change.
 
-## What comes next
+## What review leaves out
 
-Today the check proves the claim. A later release lets `/ship`'s review skip
-verified files under a `review_exclude_paths` pattern while still showing
-reviewers the manifest, every pin and the lines in those files that skip or
-silence tests.
+When the base policy also lists `review_exclude_paths`, a file one of those
+patterns matches that verifies byte for byte counts as vendored content, so
+`/ship`'s reviewers can leave it out. Nothing else about the keep rules
+changes: a vendored file stays in review when it is agent prose (`AGENTS.md`,
+`CLAUDE.md`), config, executable, a link, under `.github/` or `.gstack/`, on a
+gate path, holds a credential value, or carries a gate tag. A file kept only
+for a credential line is shown as an excerpt, as any data file would be. A
+gate-tagged file is excerpted only off the gate floor, so a gate-tagged
+upstream test file (anything under `tests/`, `test/` or `spec/`) stays in
+review whole. When a re-pin deletes files, a deleted file that verifies at the
+base's pin can be left out too. A file that does not verify keeps the reason it
+had before.
+
+`gstack-review-plan` fetches the upstreams into the cache first and prints one
+summary line, one line per pin and up to 20 files that did not verify:
+
+```text
+REVIEW_VENDORED: verified=1054 unverified=2 pins=71 digest=<sha256>
+REVIEW_VENDORED_PIN: https://github.com/pallets/click@<commit> reachable_from=tags/8.1.7 files=40 verified=40
+REVIEW_VENDORED_KEPT: mode tasks/.../tests/test_rr.py (head 100755, upstream 100755)
+```
+
+Every later step (the review dispatch, the receipt write and carry) reads the
+same cache without the network, and the verified list is part of the
+selection digest the receipt binds. A machine with an empty cache verifies
+nothing, so its selection differs and the receipt says so; run
+`gstack-vendored-verify --base <base>` there first. Reviewers still read the
+manifest, every pin change and all of the repo's own code. When unverified
+vendored files make a pattern keep too many files, the refusal names them as
+`REVIEW_VENDORED_KEPT` and points at `gstack-vendored-verify`.
+
+How much this saves depends on the gate tags. On harness-evals#504 (1,056
+upstream test files), 877 files and 4.47 MB leave review, but 166 gate-tagged
+upstream test files (5.85 MB, mostly skip markers) stay whole, so that PR
+stays over the 2 MB reader limit.
