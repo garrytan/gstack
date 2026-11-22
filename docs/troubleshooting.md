@@ -6209,7 +6209,10 @@ HEAD is not the PR's pushed head (read through `gh pr view`), CI at that
 exact head is not green (failed, pending or unreadable), or the pregate result
 is missing, failed or recorded on another tree (`PREGATE_STALE`). Under
 `--dispatch-ci` it is also a dispatched workflow run that concluded red (a red
-run clears no pregate lane) or a `gh workflow run` that failed. `train land`
+run clears no pregate lane) or a `gh workflow run` that failed. It is also the trial-merge fetch (rule 14)
+running out of time (`GSTACK_TRIAL_FETCH_TIMEOUT_MS`, default 60 s) before
+every sibling PR head arrived; the message names each `refs/pull/<n>/head` it
+was waiting on. `train land`
 uses it while a slot cannot merge yet: checks on the stamp commit are not
 green, a name in `changelog_fragments.required_checks` is missing or not green
 there, the PR's base is no longer the train's base, the stamp push failed while
@@ -6221,7 +6224,10 @@ origin's lock ref could not be read to tell whether the push landed.
 `gstack-pregate run --allow-repo-commands` when the tree changed, then rerun
 `gstack-ship-queue ready --pr <n>`. The block it prints before refusing shows
 which line is not yet true. For `train land`, do what `NEXT:` says, then rerun
-the same `train land` command; it adopts its own journaled stamp commit. For an
+the same `train land` command; it adopts its own journaled stamp commit. For a
+trial-merge fetch timeout, fetch the named refs by hand
+(`git fetch origin <ref>`) or raise `GSTACK_TRIAL_FETCH_TIMEOUT_MS`, then
+rerun ready. For an
 unreadable land lock, rerun the same `land` command once origin answers; it
 resumes its own lock.
 
