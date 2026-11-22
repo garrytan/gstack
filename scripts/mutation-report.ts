@@ -2,7 +2,7 @@
 /**
  * mutation-report — the weekly, report-only mutation trial (docs/TESTING_INTERNALS.md#mutation-report).
  * StrykerJS plants small wrong edits (mutants) in the lib files with the most landings on main in the last
- * 30 days (a file no test imports is listed and skipped for the next one) and runs the tests
+ * 30 days (a file no test imports, or with nothing to mutate, is listed and the next one takes its place) and runs the tests
  * that import each file; a mutant no test fails on "survived" and is listed in the report. Nothing here
  * gates a merge: the script exits 0 whatever it finds, and 1 only when it cannot run.
  *
@@ -37,7 +37,7 @@ export interface Churn { file: string; commits: number }
 export interface Mutant { id?: string; mutatorName: string; replacement?: string; status: string; location: { start: { line: number; column: number } } }
 export interface FileResult {
   file: string; commits: number; tests: string[]; testsFound: number; testSource: 'direct' | 'transitive' | 'none';
-  outcome: 'scored' | 'no tests' | 'control survived' | 'unfinished' | 'failed';
+  outcome: 'scored' | 'no tests' | 'no mutants' | 'control survived' | 'unfinished' | 'failed';
   detail?: string; counts?: Record<string, number>; score?: number; survivors?: Mutant[]; minutes?: number;
 }
 
@@ -71,7 +71,7 @@ const cell = (s: string) => '`' + s.replace(/\s+/g, ' ').slice(0, 80).replace(/[
 export function renderMarkdown(results: FileResult[], meta: { sinceDays: number; head: string; packages: string[] }): string {
   const lines = [
     '## Mutation report (report-only)', '',
-    `The lib files with the most landings in the last ${meta.sinceDays} days at ${meta.head.slice(0, 12)}; ${meta.packages.join(', ')}. A file no test imports is listed as "no tests" and the next file takes its place; at most ${MAX_TESTS} test files run per file.`,
+    `The lib files with the most landings in the last ${meta.sinceDays} days at ${meta.head.slice(0, 12)}; ${meta.packages.join(', ')}. A file no test imports ("no tests") or with nothing to mutate ("no mutants") is listed and the next file takes its place; at most ${MAX_TESTS} test files run per file.`,
     'A survivor is a small wrong edit that every selected test still passed. Nothing here blocks a merge.', '',
     '| file | landings | tests | outcome | killed | survived | no coverage | timeout | score | minutes |',
     '|---|---|---|---|---|---|---|---|---|---|',
@@ -155,6 +155,7 @@ function mutateFile(c: Churn, sel: Pick<FileResult, 'tests' | 'testsFound' | 'te
   } catch (error) {
     return { ...base, detail: `unreadable Stryker report: ${String(error).slice(0, 120)}`, minutes };
   }
+  if (!mutants.length) return { ...base, outcome: 'no mutants', detail: 'Stryker found nothing to mutate (a data-only file)', minutes };
   return { ...base, outcome: 'scored', ...summarize(mutants), minutes };
 }
 
@@ -200,7 +201,7 @@ if (import.meta.main) {
     return md;
   };
   for (const c of churn) {
-    if (results.filter(r => r.outcome !== 'no tests').length >= files) break;
+    if (results.filter(r => r.outcome !== 'no tests' && r.outcome !== 'no mutants').length >= files) break;
     const sel = selectTests(graph, c.file);
     const r = sel.tests.length ? mutateFile(c, sel, { strykerDir: path.resolve(strykerDir), outDir: resolvedOut, budgetMs, concurrency }) : { ...c, ...sel, outcome: 'no tests' as const };
     results.push(r);
