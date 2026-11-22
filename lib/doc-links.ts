@@ -14,12 +14,22 @@ export function githubSlug(heading: string): string {
   return heading.trim().toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
 }
 
+/**
+ * Lines outside fenced code blocks, as CommonMark reads fences: a backtick fence's info string has no backtick (so a
+ * line opening with an inline code span such as ````x```` is text), and only a bare run of the same character, at
+ * least as long as the opening one, closes the block.
+ */
 function unfenced(text: string): string[] {
   let fence: string | null = null;
   return text.split('\n').map(line => {
-    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-    if (m) { if (!fence) { fence = m[1]![0]!; return ''; } if (m[1]![0] === fence) { fence = null; return ''; } }
-    return fence ? '' : line;
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!fence) {
+      if (!m || (m[1]![0] === '`' && m[2]!.includes('`'))) return line;
+      fence = m[1]!;
+      return '';
+    }
+    if (m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && !m[2]!.trim()) fence = null;
+    return '';
   });
 }
 

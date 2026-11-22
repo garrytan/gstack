@@ -175,6 +175,33 @@ describe('link check', () => {
     } finally { fs.rmSync(path.join(repo, 'docs/a.md')); }
   });
 
+  // Value: protects=fence detection follows CommonMark, so a line that opens with an inline code span (as
+  //   docs/troubleshooting.md does) is text and only a bare run at least as long as the opening one closes a fence;
+  //   fails_when=the span opens a fence, every later heading and <a id> vanishes and valid links to them are refused, or
+  //   a shorter inner fence ends an example block early; why_new=no link test had a fence other than a plain pair; seam=none
+  test('a line opening with an inline code span is text, and only a bare fence as long as the opening one closes a block', () => {
+    put('docs/f.md', [
+      '````gstack-ship-receipt```` is a section of its own.',
+      '',
+      '## After the span',
+      '',
+      '````markdown',
+      '```mermaid',
+      '# Inside the example',
+      '``` ',
+      '```` trailing text',
+      '````',
+      '',
+      '[span](#after-the-span) [example](#inside-the-example) [after](#after-the-example)',
+      '',
+      '## After the example',
+      '',
+    ].join('\n'));
+    try {
+      expect(brokenLinks(repo, ['docs/f.md']).map(b => b.target)).toEqual(['#inside-the-example']);
+    } finally { fs.rmSync(path.join(repo, 'docs/f.md')); }
+  });
+
   test('added lines cover quoted and spaced names and untracked files, an undecodable anchor is broken, and an unknown base throws', () => {
     const names = ['docs/café.md', 'docs/with space.md'];
     try {
