@@ -1273,6 +1273,7 @@ const EPILOGUE_WORD: Record<FreeShardStatus, string> = {
 function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
   class BrowserCleanupError extends Error {}
   class CaptureStopped extends Error {}
+  class ProcessExited extends Error {}
   type Identity = { pid: number; parent: number; start: string; daemon: number; root: boolean };
   type Capture = { abort: AbortController; deadline: number; probes: Set<Promise<unknown>>; records?: [string, string] };
   const identities = new Map<number, Identity>();
@@ -1341,7 +1342,7 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
   };
 
   const failure = (error: unknown) => {
-    if (error instanceof CaptureStopped) return;
+    if (error instanceof CaptureStopped || error instanceof ProcessExited) return;
     const code = (error as NodeJS.ErrnoException)?.code;
     const file = (error as NodeJS.ErrnoException & { path?: string })?.path;
     const pid = typeof file === 'string' ? /^\/proc\/(\d+)\//.exec(file)?.[1] : undefined;
@@ -1415,10 +1416,11 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
     const key = `${identity.pid}:${identity.start}`;
     const recorded = nativeStarts.get(key);
     if (recorded) return recorded;
-    if (!await live(capture, identity)) throw new BrowserCleanupError('process exited before its native identity was captured');
+    if (!await live(capture, identity)) throw new ProcessExited('process exited before its native identity was captured');
     const result = await probe(capture, 'ps', ['-p', String(identity.pid), '-o', 'lstart='], 2000);
     const value = result.status === 0 ? result.stdout.trim().replace(/\s+/g, ' ') : '';
-    if (!value || !await live(capture, identity)) throw new BrowserCleanupError('native process identity unavailable');
+    if (!await live(capture, identity)) throw new ProcessExited('process exited during its native identity probe');
+    if (!value) throw new BrowserCleanupError('native process identity unavailable');
     check(capture);
     nativeStarts.set(key, value);
     return value;
@@ -1503,7 +1505,8 @@ function trackShardBrowser(stateDir: string, env: NodeJS.ProcessEnv) {
       if (state?.chromiumPid !== undefined) validations.push(validateChild(state.chromiumPid, state.chromiumStartTime, state.pid));
       const results = await Promise.allSettled(validations);
       check(operation);
-      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      const rejected = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+      if (rejected.length) throw rejected.find(reason => !(reason instanceof ProcessExited)) ?? rejected[0];
       operation.records = [JSON.stringify(state), JSON.stringify(agent)];
     } catch (error) {
       check(operation);

@@ -15,7 +15,8 @@ import type { eligibleFreeRetryFiles as EligibleFreeRetryFiles } from '../../scr
 const ROOT = path.resolve(import.meta.dir, '../..');
 
 export const SETTLEMENT_MODE_GROUPS = {
-  lifecycle: ['success', 'failure', 'timeout', 'cancel', 'cancel-force', 'cancel-cold-probes', 'settle-cold-probes', 'settle-slow-exit', 'cancel-vanishing-record'],
+  lifecycle: ['success', 'failure', 'timeout', 'cancel', 'cancel-force', 'cancel-cold-probes', 'settle-cold-probes', 'settle-slow-exit', 'cancel-vanishing-record',
+    'identity-probe-exit'],
   ownership: ['endpoint-mix', 'full-state-mix', 'terminal-mix', 'chromium-mix', 'replaced-pid', 'stale-child-start', 'replaced-start',
     'exit-environment-race', 'unavailable-environment', 'directory-remove-failure'],
 } as const;
@@ -163,7 +164,7 @@ if (role === 'leaf') {
     const {runFreeShard} = await import(${JSON.stringify(path.join(ROOT, 'scripts/test-free-shards.ts'))});
     const result = await runFreeShard(['ownership-fixture'], 1, 1, {
       rootDir:${JSON.stringify(ROOT)}, quiet:true, log:() => {}, wallTimeoutMs:mode === 'timeout' ? 1200 : 15000,
-      env:mode.endsWith('cold-probes') ? {...process.env, PATH:process.env.GSTACK_FIXTURE_PATH} : process.env,
+      env:process.env.GSTACK_FIXTURE_PATH ? {...process.env, PATH:process.env.GSTACK_FIXTURE_PATH} : process.env,
       commandFor:() => ({command:process.execPath, args:[import.meta.filename, 'shard', directory, mode]}),
     });
     write(file('.result'), result);
@@ -185,7 +186,8 @@ function ownershipProcessAlive(identity: { pid: number; start: string; ticks: st
 /** The caller passes the runner's retry-eligibility rule: an unattributed settlement failure must never be retried. */
 export function registerOwnedBrowserSettlementCases(modes: readonly string[], { eligibleFreeRetryFiles }: { eligibleFreeRetryFiles: typeof EligibleFreeRetryFiles }): void {
   for (const mode of modes) {
-    test.skipIf(process.platform === 'win32' || ((['replaced-start', 'exit-environment-race', 'unavailable-environment', 'settle-slow-exit', 'cancel-vanishing-record'].includes(mode) || mode.endsWith('cold-probes')) && process.platform !== 'linux'))(mode, async () => {
+    const probeShim = mode.endsWith('cold-probes') || mode === 'identity-probe-exit';
+    test.skipIf(process.platform === 'win32' || ((['replaced-start', 'exit-environment-race', 'unavailable-environment', 'settle-slow-exit', 'cancel-vanishing-record'].includes(mode) || probeShim) && process.platform !== 'linux'))(mode, async () => {
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'free-owned-browser-'));
       const actor = path.join(directory, 'actor.ts');
       fs.writeFileSync(actor, OWNERSHIP_ACTOR);
@@ -206,6 +208,26 @@ export function registerOwnedBrowserSettlementCases(modes: readonly string[], { 
   process.exit(code);
   `, { mode: 0o755 });
         }
+      } else if (mode === 'identity-probe-exit') {
+        // Run 44850005025 (quick-bun-default, 41729a02): an owned browser child exited while the runner's
+        // `ps -o lstart=` identity probe ran, and the shard failed with 'native process identity unavailable'.
+        // This ps kills the recorded Chromium child during its first identity probe, then answers as the real ps.
+        fs.mkdirSync(bin);
+        fs.writeFileSync(path.join(bin, 'ps'), `#!/usr/bin/env bun
+  import * as fs from 'node:fs';
+  const args = process.argv.slice(2);
+  const ready = ${JSON.stringify(path.join(directory, 'owned.ready'))};
+  const marker = ${JSON.stringify(path.join(directory, 'owned.probe-exit'))};
+  const pid = Number(args[args.indexOf('-p') + 1]);
+  if (args.includes('lstart=') && !fs.existsSync(marker) && fs.existsSync(ready) && JSON.parse(fs.readFileSync(ready, 'utf8')).state.chromiumPid === pid) {
+    process.kill(pid, 'SIGKILL');
+    for (const until = Date.now() + 1000; Date.now() < until; await Bun.sleep(5)) {
+      try { if (/\\) [ZX] /.test(fs.readFileSync('/proc/' + pid + '/stat', 'utf8'))) break; } catch { break; }
+    }
+    fs.writeFileSync(marker, String(pid));
+  }
+  process.exit(await Bun.spawn([${JSON.stringify(Bun.which('ps'))}, ...args], {stdout:'inherit', stderr:'inherit', timeout:1000}).exited);
+  `, { mode: 0o755 });
       }
       const waitFor = async (filename: string) => {
         const deadline = Date.now() + 8000;
@@ -223,7 +245,7 @@ export function registerOwnedBrowserSettlementCases(modes: readonly string[], { 
         processes.push(sibling);
         await waitFor(path.join(directory, 'sibling.ready'));
         const harness = Bun.spawn([process.execPath, actor, 'harness', directory, mode], {
-          env: mode.endsWith('cold-probes') ? { ...process.env, PATH: bin + path.delimiter + process.env.PATH, GSTACK_FIXTURE_PATH: process.env.PATH } : process.env,
+          env: probeShim ? { ...process.env, PATH: bin + path.delimiter + process.env.PATH, GSTACK_FIXTURE_PATH: process.env.PATH } : process.env,
           stdout: 'ignore', stderr: 'pipe',
         });
         processes.push(harness);
@@ -252,6 +274,7 @@ export function registerOwnedBrowserSettlementCases(modes: readonly string[], { 
         // Run 13 (feaa28d) and a 16-vCPU stress run: the cancelled daemon's state file
         // vanished between the existence check and the read ('browser ownership unavailable').
         if (mode === 'cancel-vanishing-record') expect(fs.existsSync(path.join(directory, 'owned.vanished'))).toBe(true);
+        if (mode === 'identity-probe-exit') expect(fs.existsSync(path.join(directory, 'owned.probe-exit'))).toBe(true);
         if (invalid) {
           expect(fs.existsSync(path.dirname(own.stateFile))).toBe(true);
           expect(fs.existsSync(path.join(directory, 'owned.interrupted'))).toBe(mode === 'directory-remove-failure');
