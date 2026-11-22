@@ -668,7 +668,9 @@ guard_unpublished_range() {
   if [ "$rc" -eq 2 ]; then
     echo "BRAIN_SYNC: push blocked: unpushed commits hold transcript pages and bun is not on PATH to check them against your transcript consent" >&2
   fi
-  [ "$rc" -eq 0 ]
+  [ "$rc" -eq 0 ] && return 0
+  BRAIN_ADVANCE_ARMED=0
+  return 1
 }
 
 # Finalize the drain: delete exactly the spool record files this drain
@@ -877,6 +879,7 @@ validate_outgoing_paths() {
   if ! out=$(python3 "$SCRIPT_DIR/gstack-brain-sync-index.py" --outgoing "$GSTACK_HOME"); then
     ST_CASE_NAMES=${out%$'\r'}
     write_status "error" "outgoing artifact path validation refused: a local commit adds a path that differs only by letter case from a path on the remote; local commits and queue preserved. Repair: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#artifact-case-collision"
+    BRAIN_ADVANCE_ARMED=0
     return 1
   fi
   out=${out%$'\r'}
@@ -1228,6 +1231,40 @@ subcmd_publish_removals() {
   esac
 }
 
+# #2516: advance the brain worktree gbrain indexes to the artifacts repo's
+# HEAD. It runs from the drain's EXIT trap, after this drain's own commit and
+# any merge from origin, while the drain lock is still held, so gbrain sees
+# what the drain just published instead of the HEAD from before it. An
+# up-to-date worktree costs two rev-parses. An advance that leaves the worktree
+# behind (a failure, or a refused dirty or unmanaged worktree) stamps the time,
+# which holds the next attempt and its warning for 24h; a later success clears
+# the stamp. INT/TERM disarm it, so a cancelled drain never checks anything out,
+# and so does a transcript-consent or letter-case refusal (guard_unpublished_range,
+# validate_outgoing_paths), so a commit kept local by one never reaches gbrain.
+# The advance itself never force-removes (see gstack-gbrain-source-wireup).
+BRAIN_ADVANCE_ARMED=0
+advance_brain_worktree() {
+  [ "$BRAIN_ADVANCE_ARMED" = 1 ] || return 0
+  BRAIN_ADVANCE_ARMED=0
+  local wt="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}" stamp="$GSTACK_HOME/.brain-worktree-last-advance"
+  [ -e "$wt" ] || return 0
+  local head now last rc=0
+  head=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 0
+  [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" != "$head" ] || return 0
+  now=$(date +%s)
+  last=$(cat "$stamp" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $(( now - last )) -ge 86400 ] || return 0
+  "$SCRIPT_DIR/gstack-gbrain-source-wireup" --advance-only 1>&2 || rc=$?
+  if [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
+    rm -f "$stamp" 2>/dev/null || true
+    return 0
+  fi
+  echo "$now" > "$stamp" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || echo "BRAIN_SYNC: warning: brain worktree advance failed — gbrain may be indexing stale code (run gstack-gbrain-source-wireup to repair)" >&2
+  return 0
+}
+
 subcmd_once() {
   if ! sync_active; then
     # Silent no-op when feature not initialized / disabled.
@@ -1239,8 +1276,11 @@ subcmd_once() {
   # the next skill boundary catches up. Released on EVERY exit from here on,
   # including the empty-queue fast path and an INT during the detector's
   # network push; the mktemp block below re-traps with tempfile cleanup added.
+  # The EXIT trap also advances the brain worktree (advance_brain_worktree).
   gstack_brain_lock_acquire "$GSTACK_HOME" try || exit 0
-  trap 'gstack_brain_lock_release' EXIT INT TERM
+  BRAIN_ADVANCE_ARMED=1
+  trap 'advance_brain_worktree; gstack_brain_lock_release' EXIT
+  trap 'BRAIN_ADVANCE_ARMED=0; gstack_brain_lock_release' INT TERM
 
   validate_outgoing_paths || exit 0
 
@@ -1257,29 +1297,6 @@ subcmd_once() {
 
   local mode
   mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-  # #2516: advance the brain worktree gbrain indexes to the artifacts repo's
-  # HEAD once a day — previously it only moved when setup-gbrain / sync-gbrain
-  # / brain-restore ran, so brains silently served stale code forever. Runs
-  # inside THIS run lock (never concurrent with the ingest steps below) and
-  # before they touch the worktree. Attempt-throttled: the stamp is written on
-  # ATTEMPT, so a persistently-failing advance warns once per 24h, not at
-  # every skill boundary. The advance itself refuses dirty or unmanaged
-  # worktrees and never force-removes (see gstack-gbrain-source-wireup).
-  if [ -e "${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}" ]; then
-    local adv_stamp adv_now adv_last adv_age
-    adv_stamp="$GSTACK_HOME/.brain-worktree-last-advance"
-    adv_now=$(date +%s)
-    adv_last=$(cat "$adv_stamp" 2>/dev/null || echo 0)
-    case "$adv_last" in ''|*[!0-9]*) adv_last=0 ;; esac
-    adv_age=$(( adv_now - adv_last ))
-    if [ "$adv_age" -ge 86400 ]; then
-      echo "$adv_now" > "$adv_stamp" 2>/dev/null || true
-      if ! "$SCRIPT_DIR/gstack-gbrain-source-wireup" --advance-only 1>&2; then
-        echo "BRAIN_SYNC: warning: brain worktree advance failed — gbrain may be indexing stale code (run gstack-gbrain-source-wireup to repair)" >&2
-      fi
-    fi
-  fi
 
   # Removals go first, so a removal commit whose push fails is one more
   # unpushed commit for the detector below.
@@ -1360,7 +1377,8 @@ subcmd_once() {
   groups_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-groups.XXXXXX") || { rm -f "$paths_file" "$class_file" "$snapshot_file"; write_status "error" "mktemp failed"; exit 1; }
   # Single trap covers all: lock release AND tempfile cleanup (the siblings
   # are the staging and hold steps' scratch files).
-  trap 'rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; gstack_brain_lock_release' EXIT INT TERM
+  trap 'rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; advance_brain_worktree; gstack_brain_lock_release' EXIT
+  trap 'BRAIN_ADVANCE_ARMED=0; rm -f "$paths_file" "$paths_file".* "$class_file" "$snapshot_file" "$groups_file" "$groups_file".* 2>/dev/null; gstack_brain_lock_release' INT TERM
 
   # Fail-safe (G1): a classifier that dies mid-run (ENOSPC/OOM/SIGKILL, or a
   # shape the defensive filters don't cover) may have already written the

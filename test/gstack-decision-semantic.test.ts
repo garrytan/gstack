@@ -126,6 +126,35 @@ exit 1
     expect(semanticRecall("anything", env())).toBeNull();
   });
 
+  test("GSTACK_BRAIN_SOURCE_ID names a source outside the worktree and scopes search to it (#4327)", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"},{"id":"acme-gstack-artifacts","local_path":"/srv/brain/acme-gstack-artifacts","federated":true}]}'; exit 0; fi
+if [ "$1" = "search" ] && [ "$4" = "acme-gstack-artifacts" ]; then echo "[0.52] projects/acme/checkpoints/x -- Working on: example"; exit 0; fi
+if [ "$1" = "search" ]; then echo "[0.91] WRONG-SOURCE -- not the named source"; exit 0; fi
+exit 1
+`,
+    );
+    const named = { ...env(), GSTACK_BRAIN_SOURCE_ID: "acme-gstack-artifacts" };
+    expect(resolveMemorySourceId(named)).toBe("acme-gstack-artifacts");
+    expect(semanticRecall("example", named)).toEqual([
+      { score: 0.52, slug: "projects/acme/checkpoints/x", snippet: "Working on: example" },
+    ]);
+  });
+
+  test("an unregistered GSTACK_BRAIN_SOURCE_ID degrades to null, never the worktree or an unscoped search (#4327)", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "search" ]; then echo "[0.91] WRONG-SOURCE -- should not search"; exit 0; fi
+exit 1
+`,
+    );
+    const named = { ...env(), GSTACK_BRAIN_SOURCE_ID: "missing-source" };
+    expect(resolveMemorySourceId(named)).toBeNull();
+    expect(semanticRecall("example", named)).toBeNull();
+  });
+
   test("degrades to null when gbrain search exits non-zero", () => {
     writeShim(
       `#!/usr/bin/env bash

@@ -12,9 +12,9 @@
  * Surface reality (verified against gbrain 0.42.x, not guessed):
  *  - `gbrain search "<q>"` prints TEXT lines `[score] slug -- snippet`, NOT JSON
  *    (so we parse the text surface; execGbrainJson would always null here).
- *  - The curated-memory source is the one whose local_path is the gstack brain
- *    worktree (`~/.gstack-brain-worktree`), id `default` by convention — NOT a
- *    `gstack-brain-<user>` id. Scoping search to it keeps code/doc corpora out.
+ *  - The curated-memory source is the one GSTACK_BRAIN_SOURCE_ID names, else the
+ *    one whose local_path is the gstack brain worktree (`~/.gstack-brain-worktree`),
+ *    id `default` by convention. Scoping search to it keeps code/doc corpora out.
  */
 
 import { spawnGbrain } from "./gbrain-exec";
@@ -30,9 +30,11 @@ export interface SemanticHit {
 }
 
 /**
- * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered — the
- * caller then searches unscoped (best-effort) rather than failing.
+ * Resolve the curated-memory source id: the registered source GSTACK_BRAIN_SOURCE_ID
+ * names (as gstack-gbrain-sync and the source wireup read it), else the gstack brain
+ * worktree's source. Returns null when gbrain is down/unparseable, the named source is
+ * not registered, or no worktree-backed source is registered; the caller then shows
+ * the file results only, never an unscoped search.
  */
 export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
   const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: TIMEOUT_MS });
@@ -43,6 +45,8 @@ export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
   } catch {
     return null;
   }
+  const explicit = (env ?? process.env).GSTACK_BRAIN_SOURCE_ID;
+  if (explicit) return rows.some((s) => s.id === explicit) ? explicit : null;
   const atWorktree = rows.filter(
     (s) => typeof s.local_path === "string" && s.local_path.endsWith(BRAIN_WORKTREE_SUFFIX),
   );

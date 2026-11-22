@@ -516,14 +516,20 @@ function fetchAndCompressEntity(entityName: string, projectSlug: string | null):
   }
 }
 
-/** Generic single-page fetch via `gbrain get`. Returns null on miss/unreachable. */
-function fetchSimplePage(slug: string): string | null {
+/**
+ * Generic single-page fetch via `gbrain get`. Returns null on miss/unreachable.
+ * gbrain stores slugs lowercased, and `get --json` carries the page text in
+ * `compiled_truth` (`content` for a streamed page); its `body` is a read-mode name.
+ */
+function fetchSimplePage(requested: string): string | null {
+  const slug = requested.toLowerCase();
   const result = spawnGbrain(['get', slug, '--json'], { timeout: 10_000 });
   if (result.status !== 0) return null;
   try {
-    const page = JSON.parse(result.stdout) as { body?: string; title?: string };
-    if (!page?.body) return null;
-    return compressPage(slug, page.title || slug, page.body);
+    const page = JSON.parse(result.stdout) as { compiled_truth?: string; content?: string; title?: string };
+    const text = page?.compiled_truth || page?.content;
+    if (!text) return null;
+    return compressPage(slug, page.title || slug, text);
   } catch {
     return null;
   }
