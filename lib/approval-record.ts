@@ -395,13 +395,13 @@ interface DecisionLike { id?: string; run?: string; title?: string; status?: str
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 
 /**
- * The run id an autoplan run directory answers to: run.json's, else the one run its gate rows carry (an interactive
- * /autoplan writes no run.json, and every such run shares the directory name, #4402), else the directory name.
+ * The run id an autoplan run directory answers to: run.json's, else the newest run its gate rows carry (an interactive
+ * /autoplan writes no run.json and appends every run to the same directory, #4402), else the directory name.
  */
 export function autoplanRunId(runDir: string, run: Record<string, any>, rows: readonly { run?: unknown }[]): string {
   if (run.run ?? run.id) return String(run.run ?? run.id);
-  const carried = [...new Set(rows.map(r => r.run).filter((v): v is string => typeof v === 'string' && v.length > 0))];
-  return carried.length === 1 ? carried[0]! : path.basename(runDir);
+  const newest = [...rows].reverse().find(r => typeof r.run === 'string' && r.run.length > 0)?.run;
+  return typeof newest === 'string' ? newest : path.basename(runDir);
 }
 
 /**
@@ -428,7 +428,8 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
   const planTitle = firstTitle(plan.text) ?? 'the plan';
   const planSha = plan.sha;
   const runId = autoplanRunId(runDir, run, rows);
-  const answered = rows.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
+  const own = (run.run ?? run.id) || !rows.some(r => r.run === runId) ? rows : rows.filter(r => r.run === runId);
+  const answered = own.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
   if (!answered.length) return { code: 'APPROVAL_IMPORT_UNANSWERED', message: `no answered gate in ${runDir}` };
   const groups = new Map<string, DecisionLike[]>();
   for (const r of answered) {

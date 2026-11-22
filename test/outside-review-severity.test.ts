@@ -137,4 +137,12 @@ describe('a numbered heading carries its severity word', () => {
     const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '' } as never);
     expect(result.findings?.highest ?? null).toBeNull();
   });
+  // Value: protects=a clean second-model review laid out under numbered section headings stays clean; fails_when=numbered
+  //   headings count as unlabeled findings and a VERDICT: CLEAN reply reads as untagged_review; why_new=only FINDINGS replies
+  //   with numbered headings were tested; seam=none
+  test('a CLEAN review with numbered section headings stays clean', () => {
+    const text = '## 1. Scope\nI read the diff.\n## 2. Result\nNothing found.\nRecommendation: ship because no issue was found.\n\nVERDICT: CLEAN\n';
+    const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '', gate: 'review' } as never);
+    expect(result.verdict).toBe('clean');
+  });
 });

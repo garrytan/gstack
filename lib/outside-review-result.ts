@@ -274,7 +274,7 @@ const READY_VERDICT = /^(?:ready|lgtm|approved?|ship(?:[\t ]+it)?|pass(?:ed)?|cl
 /** A verdict that says the reviewer could not check, run or see something is never a ready one (#3925). */
 const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|could not|unable to|not able to|did not|didn['\u2019]t)\s+(?:be\s+)?(?:verif|run|test|check|open|read|review|execut)|\bunverifi|\bnot (?:yet|until)\b|\bnot (?:been )?(?:verified|run|tested|checked|reviewed|executed)\b|\b(?:excluded|blocked|skipped)\b/i;
 /** A numbered item at the start of a line; in a reply with a `Verdict:` line it is a finding (#3925). */
-const NUMBERED_ITEM = /^(?:#{1,6}[\t ]+)?(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
+const NUMBERED_ITEM = /^(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
 
 export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewClassification {
   const { token, body } = verdictLine(input.text);
