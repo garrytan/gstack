@@ -1137,6 +1137,7 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
  * Another file, a scan without a path, a comment and a `/` start are unchanged.
  */
 const RUST_SOURCE = /\.rs$/i;
+const JS_SOURCE = /\.[cm]?[jt]sx?$/i;
 const RUST_TYPE_TOKEN = /[ \t]+|::|->|=>|'[A-Za-z_]\w*|[A-Za-z_]\w*|\d+|[&*<>()[\]{},;:+?!|]/y;
 const RUST_LOWERCASE_TYPE = /^(?:[iu](?:8|16|32|64|128|size)|f32|f64|bool|char|str|dyn|impl|fn|mut|const|unsafe|extern|for|self|crate|super)$/;
 function readsAsRustName(name: string): boolean {
@@ -1224,6 +1225,25 @@ function isSecretRun(run: string): boolean {
 }
 function holdsSecretText(text: string): boolean {
   return isSecretRun(text.replace(/\s+/g, ""));
+}
+
+/**
+ * GST-3500: a JS/TS declaration's literal that names a key rather than holding
+ * one: key-naming text (KEY_TEXT: `'agent_model'`, `'sealed.visibility'`,
+ * `'terminalFontSize'`), a lowercase path or id of two or more segments with
+ * at most one digit each (`'test/skill-e2e-bws.test.ts'`,
+ * `'e6-multiblock-sentinel'`), or a template literal that closes on its line
+ * with a `${…}` slot (built at run time). A UUID, hex, a segment of digits,
+ * mixed case with digits, or an unclosed template still reports.
+ */
+const JS_KEY_PATH = /^[a-z]+(?:\d[a-z]*)?(?:[/._\-#~:]+[a-z]+(?:\d[a-z]*)?)+$/;
+function isJsKeyName(span: string, match: RegExpExecArray): boolean {
+  if (KEY_TEXT.test(span) || JS_KEY_PATH.test(span)) return true;
+  const { start } = spanBounds(match);
+  if (match.input[start - 1] !== "\x60") return false;
+  const line = match.input.slice(start).split("\n", 1)[0]!;
+  const close = line.indexOf("\x60");
+  return close >= 0 && line.slice(0, close).includes("${");
 }
 
 /** The text of the `"…"` or `'…'` literal whose quote is at `i` and the index after it, or null when it does not close on the line. */
@@ -1846,6 +1866,32 @@ export const PATTERNS: RedactPattern[] = [
       if (opts?.sourcePath && !RUST_SOURCE.test(opts.sourcePath)) return false;
       const name = /\b(?:let|const|static)[ \t]+(?:mut[ \t]+)?(\w+)/i.exec(match[0])?.[1];
       return !!name && isCredentialShapedEnvName(`${name}=`) && !isPlaceholderSpan(span) && !/^\$\{?[A-Za-z_]/.test(span) && shannonEntropy(span) >= 3.0;
+    },
+  },
+  {
+    id: "env.kv.js",
+    tier: "MEDIUM",
+    category: "secret",
+    description: "Secret-named JS/TS const, let, var or class field with a high-entropy string literal",
+    // GST-3500: env.kv needs the name to start its line, so a key bound by a
+    // JavaScript or TypeScript declaration (`const token = "<key>";`,
+    // `export let API_KEY = '<key>'`) or a class field (`private apiKey =
+    // "<key>";`, `#secret = "<key>"`) gave no finding. This rule reads one to
+    // four of `declare`, `public`, `private`, `protected`, `static`,
+    // `readonly`, `override`, `accessor`, `const`, `let` and `var` (after an
+    // optional `export`), or a `#` private name, then a secret-named name with
+    // an optional `?`/`!` and type, then `=` and a quoted or template literal,
+    // at a line start (diff markers as env.kv) or after `//` or `/*`. A name
+    // with no keyword is left to env.kv, so no line reports twice. It is its own
+    // pattern so env.kv's matches are unchanged, and validate keeps it to .js,
+    // .jsx, .ts, .tsx, .mjs, .cjs, .mts and .cts files; a scan without a path
+    // is env.kv.rust's. The name and value get env.kv's checks plus no `${`
+    // slot, the test-file fixture-label exemption and isJsKeyName.
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?|#)[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,})/i,
+    validate: (span, match, opts) => {
+      if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
+      const name = /([$\w]+)[?!]?[ \t]*(?::[^=\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
+      return !!name && isCredentialShapedEnvName(`${name}=`) && !span.includes("${") && !isPlaceholderSpan(span) && !/^\$\{?[A-Za-z_]/.test(span) && !isTestFixtureLabel(span, opts.sourcePath) && !isJsKeyName(span, match) && shannonEntropy(span) >= 3.0;
     },
   },
   {

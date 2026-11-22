@@ -37,6 +37,10 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
       ['  #password = "' + S + '";', "src/client.js"],
       ['const API_KEY = "' + S + '" as const;', "src/config.cts"],
       ['// const token = "' + S + '";', "src/client.ts"],
+      ["const token = 'ef41947a-643b-4494-aaee-149f288a9b29';", "src/client.ts"],
+      ["const key = 'sekrit-ubi-key-4711';", "src/client.ts"],
+      ["const token = 'tunnel-start-token-0123456789';", "src/client.ts"],
+      ["const secret = " + BT + "prefix-" + S, "src/client.ts"],
       ['diff --git a/src/a.ts b/src/a.ts\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const token = "' + S + '";\n', "src/a.ts"],
     ], true);
   });
@@ -58,6 +62,13 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
       ['const monkey = "' + S + '";', "src/client.ts"],
       ['const tokenCount = "' + S + '";', "src/client.ts"],
       ["private apiKey: string;", "src/client.ts"],
+      ["export const MODE_KEY = 'transcript_ingest_mode';", "lib/consent.ts"],
+      ["export const VISIBILITY_OVERRIDE_KEY = 'sealed.visibility';", "lib/guard.ts"],
+      ["const FONT_SIZE_KEY = 'terminalFontSize';", "extension/panel.js"],
+      ["const key = 'test/skill-e2e-plan.test.ts#plan-ceo-review';", "test/shards.test.ts"],
+      ["export const MULTIBLOCK_SENTINEL_KEY = 'e6-multiblock-sentinel';", "test/helpers/multiblock.ts"],
+      ["const authToken = 'route-table-' + suffix;", "test/routes.test.ts"],
+      ["const secret = " + BT + 'LINKEDIN_CLIENT_SECRET="${value}"' + BT + ";", "test/ingest.test.ts"],
     ], false);
   });
 

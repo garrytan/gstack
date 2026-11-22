@@ -1975,6 +1975,15 @@ those, each with its scope and its reason:
   without a path reports it too, and the pre-push hook scans Dart and Python
   files without one, so a Dart `const token = "<key>";` gets an `env.kv.rust`
   warning there.
+- JavaScript and TypeScript (GST-3500): a key bound by `const`, `let` or `var`
+  (with or without `export` or a type), or by a class field
+  (`private apiKey = "<key>";`, `#secret = "<key>"`), reports as `env.kv.js`
+  in a `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file.
+  Declarations without a literal (types, destructuring, imports, calls,
+  `process.env` reads) give nothing, and neither does a literal that names a
+  key (`'agent_model'`, `'test/skill-e2e-bws.test.ts'`) or a template with a
+  `${…}` slot. Known limit: a fallback after an environment read
+  (`process.env.TOKEN ?? "<key>"`) is not read by this rule.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with
