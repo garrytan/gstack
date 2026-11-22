@@ -114,3 +114,35 @@ describe('design proposals use the proposal gate', () => {
     expect(outsideVoiceCommand({ ...ctx, skillName: 'plan-ceo-review' }, { timeoutMs: 300000 })).toMatch(/ review "\$_OUTSIDE_TMP\/text"/);
   });
 });
+
+// Value: protects=a numbered heading (`### 1. High — title`, as Codex writes findings) carries its severity word;
+//   fails_when=the label start allows only one prefix, so no severity is read and a completed review comes back
+//   untagged_review; why_new=every label case had a heading or a number, never both; seam=none
+describe('a numbered heading carries its severity word', () => {
+  for (const [heading, highest] of [
+    ['### 1. High — Make it look good silently removes editing', 'P1'],
+    ['## 2. Critical — The security model protects the session, not the document', 'P0'],
+    ['### 3. Medium — Batch import is a toast, not a workflow', 'P2'],
+    ['### 4. [P1] Tagged numbered heading', 'P1'],
+  ] as const) {
+    test(heading, () => {
+      const text = `${heading}\nBody text.\nRecommendation: fix it because the change loses data.\n\nVERDICT: FINDINGS\n`;
+      const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '' } as never);
+      expect(result.findings?.highest).toBe(highest);
+      expect(result.reason).not.toBe('untagged_review');
+    });
+  }
+  test('prose "high-level" under a numbered heading is still not a label', () => {
+    const text = `### 1. A high-level concern about naming\nBody.\nRecommendation: rename it because readers guess wrong.\n\nVERDICT: FINDINGS\n`;
+    const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '' } as never);
+    expect(result.findings?.highest ?? null).toBeNull();
+  });
+  // Value: protects=a clean second-model review laid out under numbered section headings stays clean; fails_when=numbered
+  //   headings count as unlabeled findings and a VERDICT: CLEAN reply reads as untagged_review; why_new=only FINDINGS replies
+  //   with numbered headings were tested; seam=none
+  test('a CLEAN review with numbered section headings stays clean', () => {
+    const text = '## 1. Scope\nI read the diff.\n## 2. Result\nNothing found.\nRecommendation: ship because no issue was found.\n\nVERDICT: CLEAN\n';
+    const result = classifyOutsideReview({ text, exitCode: 0, stderr: '', events: '', gate: 'review' } as never);
+    expect(result.verdict).toBe('clean');
+  });
+});

@@ -17,7 +17,8 @@
 import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveBase } from './gate-diff/git';
+import { defaultBase as defaultBaseRef, mergeBase, resolveBase } from './gate-diff/git';
+import { noDefaultBaseLine } from './default-base';
 import { findSection } from './markdown-sections';
 import { scan } from './redact-engine';
 import type { ResultCodeName } from './result-codes';
@@ -65,13 +66,19 @@ export function resolveCommit(cwd: string, ref: string): string | ShotError {
   return r.status === 0 ? r.stdout.trim() : { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: `base ref ${ref}` };
 }
 
-/** The default base: where this branch left origin's default branch. */
+/**
+ * The default base: where this branch left its base branch, chosen by the shared default-base rules (a remote HEAD naming
+ * this branch is skipped, #3733). A stale remote HEAD falls back to main, then master.
+ */
 export function defaultBase(cwd: string): string | ShotError {
-  for (const ref of ['origin/HEAD', 'origin/main', 'main']) {
-    const r = git(cwd, ['merge-base', 'HEAD', ref]);
-    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+  const found = defaultBaseRef(cwd);
+  if ('skipped' in found) return { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: noDefaultBaseLine(found.skipped) };
+  for (const ref of [found.ref, 'main', 'master']) {
+    const base = resolveBase(ref, cwd, 'HEAD');
+    const fork = base && mergeBase('HEAD', base.sha, cwd);
+    if (fork) return fork;
   }
-  return { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: 'no merge base with origin/HEAD, origin/main or main; pass --base <ref>' };
+  return { code: 'PR_SHOTS_INPUT_NOT_FOUND', message: `no merge base with ${found.ref}, main or master; pass --base <ref>` };
 }
 
 /** Both sides of a tracked file (or one heading's section of it) at `base` and in the working tree. */

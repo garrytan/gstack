@@ -230,6 +230,8 @@ export interface RecordMeta {
   message: boolean;
   role?: string;
   sessionStart: boolean;
+  /** Remote Control's status record, written as the conversation root when it is active before the first prompt. */
+  bridgeRoot: boolean;
   timestampValid: boolean;
   cwd?: string;
   type?: string;
@@ -285,7 +287,9 @@ export function recordMeta(r: Record<string, any>, index: number): RecordMeta {
     agent: r.agentId != null, sidechain: r.isSidechain !== false,
     conversation: r.agentId == null && message && (r.message.role === 'user' || r.message.role === 'assistant'),
     message, role: message && typeof r.message.role === 'string' ? r.message.role : undefined,
-    sessionStart: sessionStartRecord(r), timestampValid, cwd,
+    sessionStart: sessionStartRecord(r),
+    bridgeRoot: r.type === 'system' && r.subtype === 'bridge_status' && r.parentUuid === null && r.message == null,
+    timestampValid, cwd,
     type: typeof r.type === 'string' ? r.type : undefined, subtype: typeof r.subtype === 'string' ? r.subtype : undefined,
     attachmentType: object(r.attachment) && typeof r.attachment.type === 'string' ? r.attachment.type : undefined,
     version: indexedVersion(r),
@@ -384,7 +388,7 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
   for (const node of genesis ? [root] : top.slice(0, turn + 1)) if (!sameNativePath(node.cwd, cwd))
     return { reason: sameRealPath(node.cwd, cwd) ? 'unrecognized_shape:cwd_spelling' : 'foreign_cwd', shape: shape() };
   if (!genesis) {
-    const preamble = top.slice(0, turn).find(n => !n.sessionStart);
+    const preamble = top.slice(0, turn).find(n => !n.sessionStart && !n.bridgeRoot);
     const odd = !root.parentNull ? `root_parent:${shapeOf(root)}`
       : preamble ? `preamble:${shapeOf(preamble)}`
       : top[turn]!.role !== 'user' ? `first_turn:${shapeOf(top[turn]!)}` : undefined;

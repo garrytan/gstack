@@ -166,7 +166,7 @@ const AUTOPLAN_LEVEL: Record<string, Severity | undefined> = { Critical: 'P0', H
 const WORD = '(critical|high|medium|low)';
 const SEVERITY_LABELS = [
   new RegExp(`\\b(?:severity|priority)\\b[\\t ]*[:=][\\t ]*(?:\\*\\*|__|\\[|\`)*${WORD}\\b`, 'gim'),
-  new RegExp(`^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+|[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?\\[?${WORD}\\]?(?:\\*\\*|__)?[\\t ]*(?::|\u2014|\u2013|-[\\t ]|\\]|\\(|\\*\\*[\\t ]*(?:\u2014|\u2013|-[\\t ]))`, 'gim'),
+  new RegExp(`^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+)?(?:[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?\\[?${WORD}\\]?(?:\\*\\*|__)?[\\t ]*(?::|\u2014|\u2013|-[\\t ]|\\]|\\(|\\*\\*[\\t ]*(?:\u2014|\u2013|-[\\t ]))`, 'gim'),
   new RegExp(`(?:\\*\\*|__)\\[?${WORD}\\]?:?(?:\\*\\*|__)`, 'gi'),
   new RegExp(`\\|[\\t ]*(?:\\*\\*)?${WORD}(?:\\*\\*)?[\\t ]*(?=\\|)`, 'gi'),
   new RegExp(`[\\t ](?:\u2014|\u2013|-)[\\t ]+(?:\\*\\*|__)?${WORD}(?:\\*\\*|__)?[\\t ]*[.;]?[\\t ]*$`, 'gim'),
@@ -216,7 +216,7 @@ function recommendationHeading(text: string): string {
  * or `Verdict: not ready`, while the evidence for clean keeps it blanked. One pass:
  * an opener closes only when a later marker of its kind is at least as long.
  */
-const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+|[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
+const CODE_LABEL_BEFORE = /^[\t ]*(?:>[\t ]*)?(?:#{1,6}[\t ]+)?(?:[-+*][\t ]+|\(?\d{1,3}[.)][\t ]+)?(?:\*\*|__)?$|\b(?:severity|priority)[\t ]*[:=][\t ]*(?:\*\*|__)?$|\|[\t ]*(?:\*\*)?$/i;
 function withoutCode(text: string, readUnclosed = false): string {
   const lines = text.split(/\r?\n/);
   const markers = lines.map(line => /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1]);
@@ -248,7 +248,7 @@ function withoutCode(text: string, readUnclosed = false): string {
  * bullet, number or bold, as `[P1]`, `P1:`, `P1 —`, `**P1 — x**`, `**P1** — x`,
  * `P1 (x)` or a bare `P1` ending the line; or a table cell `| P1 |`.
  */
-const LABEL_START = '^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+|[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?';
+const LABEL_START = '^[\\t ]*(?:>[\\t ]*)?(?:#{1,6}[\\t ]+)?(?:[-+*][\\t ]+|\\(?\\d{1,3}[.)][\\t ]+)?(?:\\*\\*|__)?';
 const LABELED_P = new RegExp(`${LABEL_START}(?:\\[(P[0-3])\\]|(P[0-3])(?:\\*\\*|__)?[\\t ]*(?::|\u2014|\u2013|-[\\t ]|\\(|$|(?:\\*\\*|__)[\\t ]*(?::|\u2014|\u2013|-[\\t ]|$)))`, 'gm');
 const TABLE_P = /\|[\t ]*(?:\*\*)?\[?(P[0-3])\]?(?:\*\*)?[\t ]*(?=\|)/g;
 const LABEL_P = new RegExp(`${LABEL_START}\\[?P[0-3]\\b`);
