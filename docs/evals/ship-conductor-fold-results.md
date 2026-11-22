@@ -86,6 +86,107 @@ found, averaged over the three runs. Every arm missed case 8's planted bug in ev
 misses. N's case 4 runs hit a full disk on the runner during `bun install` and were not rerun, as the stop rules
 require; their reviews ran and are counted.
 
+<details><summary>Every trial</summary>
+
+Trial names are arm, case and run (C4t2 is the conductor arm's second run on case 4). Cost is cost.dollars for C and
+F and the SDK's reported total for N. "Exposure flag" marks the runs in the sensitivity row above; N4's are the
+harness failure.
+
+| Trial | Planted bug caught | Cost | Where the run ended | Exposure flag |
+|---|---|---|---|---|
+| C1t1 | no | $12.00 | stopped at Step 11 | no |
+| C1t2 | no | $17.90 | receipt | no |
+| C1t3 | yes | $13.45 | stopped at Step 17 | no |
+| F1t1 | no | $10.46 | stopped at Step 11 | no |
+| F1t2 | yes | $14.06 | stopped at Step 16 | no |
+| F1t3 | yes | $20.53 | stopped at Step 17 | no |
+| N1t1 | no | $1.17 | one SDK review run | no |
+| N1t2 | yes | $2.15 | one SDK review run | no |
+| N1t3 | no | $2.04 | one SDK review run | no |
+| C2t1 | yes | $12.81 | stopped at Step 11 | no |
+| C2t2 | no | $10.97 | stopped at Step 11 | no |
+| C2t3 | no | $22.33 | stopped at Step 16 | no |
+| F2t1 | yes | $11.43 | stopped at Step 11 | yes |
+| F2t2 | yes | $13.52 | stopped at Step 11 | no |
+| F2t3 | yes | $12.67 | stopped at Step 16 | no |
+| N2t1 | yes | $2.17 | one SDK review run | no |
+| N2t2 | no | $0.85 | one SDK review run | no |
+| N2t3 | no | $2.23 | one SDK review run | no |
+| C3t1 | yes | $15.83 | stopped at Step 16 | no |
+| C3t2 | yes | $11.40 | stopped at Step 11 | no |
+| C3t3 | yes | $12.22 | stopped at Step 9 | no |
+| F3t1 | yes | $12.50 | stopped at Step 9 | no |
+| F3t2 | yes | $13.12 | stopped at Step 9 | no |
+| F3t3 | yes | $11.22 | stopped at Step 16 | no |
+| N3t1 | yes | $1.09 | one SDK review run | no |
+| N3t2 | yes | $0.56 | one SDK review run | no |
+| N3t3 | yes | $0.58 | one SDK review run | no |
+| C4t1 | no | $10.49 | stopped at Step 11 | no |
+| C4t2 | yes | $10.90 | stopped at Step 11 | no |
+| C4t3 | no | $3.72 | stopped at Step 9.1 | no |
+| F4t1 | no | $11.80 | stopped at Step 11 | no |
+| F4t2 | no | $10.28 | stopped at Step 11 | no |
+| F4t3 | no | $11.04 | stopped at Step 9 | no |
+| N4t1 | no | $0.97 | one SDK review run (runner disk full during bun install) | harness |
+| N4t2 | no | $0.74 | one SDK review run (runner disk full during bun install) | harness |
+| N4t3 | no | $0.96 | one SDK review run (runner disk full during bun install) | harness |
+| C5t1 | yes | $10.94 | stopped at Step 11 | no |
+| C5t2 | yes | $12.07 | stopped at Step 17 | no |
+| C5t3 | yes | $12.46 | stopped at Step 16 | no |
+| F5t1 | yes | $13.97 | stopped at Step 19 | yes |
+| F5t2 | yes | $11.67 | stopped at Step 16 | no |
+| F5t3 | yes | $13.06 | stopped at Step 16 | no |
+| N5t1 | yes | $0.52 | one SDK review run | no |
+| N5t2 | yes | $0.47 | one SDK review run | no |
+| N5t3 | yes | $0.65 | one SDK review run | no |
+| C6t1 | yes | $8.62 | stopped at Step 11 | no |
+| C6t2 | yes | $9.45 | stopped at Step 11 | no |
+| C6t3 | yes | $9.85 | stopped at Step 9 | no |
+| F6t1 | yes | $13.06 | receipt | no |
+| F6t2 | yes | $10.03 | stopped at Step 11 | no |
+| F6t3 | yes | $10.06 | stopped at Step 11 | no |
+| N6t1 | yes | $0.83 | one SDK review run | no |
+| N6t2 | yes | $0.57 | one SDK review run | no |
+| N6t3 | no | $0.74 | one SDK review run | no |
+| C7t1 | yes | $13.16 | receipt | no |
+| C7t2 | yes | $14.10 | receipt | no |
+| C7t3 | yes | $11.45 | stopped at Step 16 | no |
+| F7t1 | yes | $13.97 | receipt | yes |
+| F7t2 | yes | $15.12 | receipt | yes |
+| F7t3 | yes | $8.63 | stopped at Step 9.4 | yes |
+| N7t1 | no | $0.64 | one SDK review run | no |
+| N7t2 | yes | $0.55 | one SDK review run | no |
+| N7t3 | no | $0.81 | one SDK review run | no |
+| C8t1 | no | $8.69 | stopped (step not recorded) | no |
+| C8t2 | no | $13.38 | stopped at Step 16 | no |
+| C8t3 | no | $11.99 | stopped at Step 16 | no |
+| F8t1 | no | $11.76 | stopped at Step 17 | no |
+| F8t2 | no | $9.12 | stopped at Step 11 | no |
+| F8t3 | no | $1.96 | stopped at Step 16 | no |
+| N8t1 | no | $0.41 | one SDK review run | no |
+| N8t2 | no | $0.47 | one SDK review run | no |
+| N8t3 | no | $0.41 | one SDK review run | no |
+| C9t1 | yes | $10.81 | receipt | no |
+| C9t2 | yes | $6.76 | stopped (step not recorded) | no |
+| C9t3 | yes | $8.83 | stopped at Step 16 | no |
+| F9t1 | yes | $8.50 | stopped at Step 11 | yes |
+| F9t2 | no | $10.81 | receipt | no |
+| F9t3 | yes | $12.75 | receipt | yes |
+| N9t1 | no | $0.54 | one SDK review run | no |
+| N9t2 | yes | $0.41 | one SDK review run | no |
+| N9t3 | yes | $0.43 | one SDK review run | no |
+| C10t1 | yes | $11.29 | stopped at Step 16 | no |
+| C10t2 | yes | $8.91 | stopped at Step 9 | no |
+| C10t3 | yes | $7.30 | stopped at Step 9.4 | no |
+| F10t1 | yes | $10.68 | stopped at Step 9 | yes |
+| F10t2 | yes | $9.88 | stopped at Step 9.4 | yes |
+| F10t3 | yes | $8.58 | stopped at Step 11 | no |
+| N10t1 | yes | $0.36 | one SDK review run | no |
+| N10t2 | yes | $0.29 | one SDK review run | no |
+| N10t3 | yes | $0.34 | one SDK review run | no |
+
+</details>
+
 ## Why null?
 
 The fold's result is a tie inside the run's resolution, which the plan treats as "the conductor goes" because it
