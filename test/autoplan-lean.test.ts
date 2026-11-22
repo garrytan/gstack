@@ -453,6 +453,62 @@ describe('draft capture edges', () => {
     expect(diff).toContain('rename from lib/worker.ts\nrename to lib/retry.ts');
   });
 
+  test('a secret file copied on the branch stays out under both names', () => {
+    const cwd = repo('copy-envrc', false);
+    git(cwd, 'checkout', '-q', 'main');
+    fs.writeFileSync(path.join(cwd, '.envrc'), 'dotenv_if_exists marker-cp7-old\n');
+    git(cwd, 'add', '.envrc');
+    git(cwd, 'commit', '-q', '-m', 'direnv');
+    git(cwd, 'checkout', '-q', 'feature');
+    git(cwd, 'merge', '-q', 'main');
+    fs.copyFileSync(path.join(cwd, '.envrc'), path.join(cwd, 'run.sh'));
+    fs.appendFileSync(path.join(cwd, '.envrc'), 'dotenv_if_exists marker-cp7-new\n');
+    git(cwd, 'add', '.envrc', 'run.sh');
+    const { ps, prompt } = lean('copy-envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain('marker-cp7');
+      expect(text).toContain('# draft: .envrc -> run.sh left out (a rename or copy of a file whose name looks like a secret)');
+    }
+  });
+
+  test('a secret file inside a changed submodule stays out when git config inlines submodule diffs', () => {
+    const sub = path.join(TMP, 'submodule-envrc', 'sub');
+    fs.mkdirSync(sub, { recursive: true });
+    git(sub, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(sub, 'a.txt'), 'x\n');
+    git(sub, 'add', '.');
+    git(sub, 'commit', '-q', '-m', 'sub');
+    const cwd = repo('submodule-envrc', false);
+    git(cwd, 'checkout', '-q', 'main');
+    git(cwd, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'sub');
+    git(cwd, 'commit', '-q', '-m', 'add sub');
+    git(cwd, 'checkout', '-q', 'feature');
+    git(cwd, 'merge', '-q', 'main');
+    fs.writeFileSync(path.join(cwd, 'sub', '.envrc'), 'export MARK=marker-sm4\n');
+    git(path.join(cwd, 'sub'), 'add', '.envrc');
+    git(path.join(cwd, 'sub'), 'commit', '-q', '-m', 'secret');
+    git(cwd, 'add', 'sub');
+    git(cwd, 'config', 'diff.submodule', 'diff');
+    const { ps, prompt } = lean('submodule-envrc', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    for (const text of [diff, prompt]) {
+      expect(text).not.toContain('marker-sm4');
+      expect(text).toContain('Subproject commit');
+    }
+  });
+
+  test('a patch the redact engine cannot handle safely is left out and said so', () => {
+    const cwd = repo('unredactable', false);
+    fs.writeFileSync(path.join(cwd, 'lib', 'huge.ts'), Array.from({ length: 30_000 }, (_, i) => `export const huge${i} = '${'y'.repeat(30)}';`).join('\n') + '\n');
+    git(cwd, 'add', 'lib/huge.ts');
+    git(cwd, 'commit', '-q', '-m', 'huge');
+    const { ps } = lean('unredactable', cwd);
+    const diff = fs.readFileSync(path.join(ps.snapshot_dir, 'draft.diff'), 'utf8');
+    expect(diff).toContain('# draft: diff --git a/lib/huge.ts b/lib/huge.ts left out (it could not be redacted safely)');
+    expect(diff).not.toContain('+export const huge0 =');
+  }, 60_000);
+
   test('a key inside an ordinary file is redacted, untracked or edited in the working tree', () => {
     const cwd = repo('redact', true);
     fs.writeFileSync(path.join(cwd, 'lib', 'client.ts'), `export const KEY = '${FAKE_KEY}';\n`);
