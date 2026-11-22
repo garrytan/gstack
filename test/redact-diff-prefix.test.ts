@@ -51,6 +51,7 @@ const SAMPLES: Record<string, string> = {
   "google.api_key": j("AIza", "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"),
   "jwt": ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join("."),
   "env.kv": j("API_TOKEN=", "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ"),
+  "env.kv.rust": j('let api_token = "', "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", '";'),
   "auth.bearer": j("Authorization: Bearer ", "a1B2c3D4e5F6g7H8i9J0k1L2"),
   "pii.email": j("dana.whitfield@", "acmecorp.io"),
   "pii.phone.e164": j("+1415", "5552671"),

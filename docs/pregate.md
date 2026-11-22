@@ -1958,6 +1958,23 @@ those, each with its scope and its reason:
   read from the value, never from the key's name or the file's path, and a
   secret in the same position, a literal after it on the line, or the same text
   in a config file still reports.
+- Rust (GST-3474): in a `.rs` file, a type annotation at the start of a line
+  (`token: Option<&str>,`, `key: &RelationshipKey,`,
+  `by_key: Mutex<HashMap<String, u32>>,`) and a match arm's path
+  (`Token::Char(c) => {`) are code, not credentials. A literal, an `=`, a
+  second field on the line, or a name that reads as random still reports.
+  So does a value with no closing comma or one that is not type-shaped (a
+  lowercase name that is not a primitive like `u32` or `str`, or an all-caps
+  word), because pregate reads a `.rs` file's added lines alone and cannot see
+  a string or block comment around them. Known limit: a line inside a Rust
+  string or block comment that reads exactly like a field annotation
+  (`token: Option<String>,`) passes.
+  A key bound with `let`, `let mut`, `const` or `static`
+  (`let token = "<key>";`, `const API_KEY: &str = "<key>";`) reports as
+  `env.kv.rust`; with a file path it reports only in a `.rs` file. A scan
+  without a path reports it too, and the pre-push hook scans Dart and Python
+  files without one, so a Dart `const token = "<key>";` gets an `env.kv.rust`
+  warning there.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with
