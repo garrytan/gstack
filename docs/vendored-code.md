@@ -19,7 +19,10 @@ A file passes when all of these hold:
 2. The pinned commit is on the upstream's default branch, one of its tags, or a
    branch the base policy names for that upstream. A commit that only a fork, a
    pull request (`refs/pull/*`) or a merge-queue branch holds fails, even
-   though GitHub serves those through the original repository's URL.
+   though GitHub serves those through the original repository's URL. A branch
+   glob never admits a merge-queue branch (`gh-readonly-queue/*`), not even
+   `*`, and a named branch the upstream doesn't have is skipped instead of
+   failing the other pins.
 3. The file's git blob id and the upstream file's blob id are equal, and both
    are plain files (mode `100644`). A blob id is git's hash of the exact bytes,
    so equal ids mean byte-identical files.

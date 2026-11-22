@@ -165,11 +165,12 @@ function withLock<T>(dir: string, fn: () => T): T {
 
 interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
 
-/** Whether a cached ref the commit sits on is one the current policy trusts: a tag, the default branch, or a branch the base names. */
+/** Whether a cached ref the commit sits on is one the current policy trusts: a tag, the default branch, or a branch the base names, never a merge-queue branch. */
 function trustedHolder(ref: string, def: string | undefined, up: VendoredUpstream): boolean {
   if (ref.startsWith('tags/')) return true;
   if (!ref.startsWith('heads/')) return false;
   const branch = ref.slice('heads/'.length);
+  if (branch.startsWith('gh-readonly-queue/')) return false;
   return branch === def || up.branches.some(g => new RegExp(`^${g.split('*').map(s => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(branch));
 }
 const key = (url: string) => createHash('sha256').update(url).digest('hex').slice(0, 24);
@@ -198,10 +199,12 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
     const refs = path.join(dir, 'refs.git');
     const trees = path.join(dir, 'trees.git');
     const fail = (error: string) => { for (const c of pins.keys()) writePin(dir, c, { reachable_from: null, checked_at: Date.now(), tree: {}, error }); };
-    const head = git(refs, [...flags, 'ls-remote', '--symref', url, 'HEAD'], genv, t);
+    const head = git(refs, [...flags, 'ls-remote', '--symref', url, 'HEAD', 'refs/heads/*'], genv, t);
     const def = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(head.out)?.[1];
     if (!head.ok || !def) { fail(`could not read the default branch (${head.err.split('\n').pop() || 'no HEAD'})`); return; }
-    const specs = [`+refs/heads/${def}:refs/vendored/heads/${def}`, '+refs/tags/*:refs/vendored/tags/*', ...up.branches.map(b => `+refs/heads/${b}:refs/vendored/heads/${b}`)];
+    const heads = new Set(head.out.split('\n').map(l => l.split('\t')[1]).filter(Boolean));
+    const named = up.branches.filter(b => b.includes('*') || heads.has(`refs/heads/${b}`));
+    const specs = [`+refs/heads/${def}:refs/vendored/heads/${def}`, '+refs/tags/*:refs/vendored/tags/*', ...named.map(b => `+refs/heads/${b}:refs/vendored/heads/${b}`)];
     const f = git(refs, [...flags, 'fetch', '--quiet', '--no-tags', '--prune', '--filter=tree:0', url, ...specs], genv, t);
     if (!f.ok) { fail(`could not fetch its branches and tags (${f.err.split('\n').pop()})`); return; }
     for (const [commit, paths] of pins) {
@@ -214,7 +217,7 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
       const ls = git(trees, ['ls-tree', '-r', '-z', '--full-tree', commit], genv);
       if (!ls.ok) { writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {}, error: 'could not list the commit\'s tree' }); continue; }
       const all = new Map<string, [string, string]>();
-      for (const rec of ls.out.split('\0')) { const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) all.set(m[3]!, [m[1]!, m[2]!]); }
+      for (const rec of ls.out.split('\0')) { const m = /^(\d{6}) (?:blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) all.set(m[3]!, [m[1]!, m[2]!]); }
       const prev = readPin(dir, commit);
       const tree: Record<string, [string, string] | null> = { ...(prev?.reachable_from ? prev.tree : {}) };
       for (const p of paths) tree[p] = all.get(p) ?? null;

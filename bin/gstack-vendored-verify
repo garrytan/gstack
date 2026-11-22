@@ -87,7 +87,7 @@ if (!problems.length && !res) { process.stderr.write(`${CTX}: git could not list
 const failed = res?.entries.filter(e => e.verdict !== 'verified') ?? [];
 const summary = { scope: argv.includes('--all') ? 'all' : 'changed', manifests: policy.manifests.length, entries: entries.length, checked: res?.entries.length ?? 0, verified: (res?.entries.length ?? 0) - failed.length, failed: failed.length, pins: res?.pins.length ?? 0, digest: res?.digest ?? null };
 if (json) {
-  process.stdout.write(JSON.stringify({ state: problems.length || failed.length ? 'failed' : 'verified', ...summary, manifest_errors: problems, pins: res?.pins ?? [], failures: failed }) + '\n');
+  process.stdout.write(JSON.stringify({ state: problems.length || failed.length ? 'failed' : 'verified', ...summary, manifest_errors: problems, pin_results: res?.pins ?? [], failures: failed }) + '\n');
 } else {
   for (const p of problems) process.stdout.write(resultLine(CTX, 'VENDORED_MANIFEST_INVALID', p) + '\n');
   for (const p of res?.pins ?? []) process.stdout.write(`VENDORED_PIN: ${p.upstream}@${p.commit.slice(0, 12)} reachable_from=${p.reachable_from ?? 'none'} files=${p.files} verified=${p.verified}\n`);

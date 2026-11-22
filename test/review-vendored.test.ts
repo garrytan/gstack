@@ -254,3 +254,31 @@ describe.skipIf(process.platform === 'win32')('gstack-vendored-verify against a 
     }, 60_000);
   }
 });
+
+describe('branch globs, missing branches, gitlinks and --json', () => {
+  test('a * glob still refuses a commit only a merge-queue branch holds, and a named branch the upstream lacks fails nothing else', () => {
+    const star = consumer({ policy: policy([{ url: UP, branches: ['*'] }]) });
+    commit(star.repo, { 'vendor/lib/tests/a.py': A + '# queue\n', 'vendor/MANIFEST.json': manifest([{ commit: star.up.queue, files: ['tests/a.py'] }]) }, 'pin');
+    const r = star.verify();
+    expect(outOf(r)).toContain('(VENDORED_UNREACHABLE)');
+    expect(r.status).toBe(1);
+    const missing = consumer({ policy: policy([{ url: UP, branches: ['release/2', 'gone'] }]) });
+    commit(missing.repo, { 'vendor/lib/tests/a.py': A + '# rel\n', 'vendor/MANIFEST.json': manifest([{ commit: missing.up.release, files: ['tests/a.py'] }]) }, 'pin');
+    const m = missing.verify();
+    expect(outOf(m)).toContain('reachable_from=heads/release/2');
+    expect(m.status).toBe(0);
+  });
+  test('an upstream gitlink is VENDORED_MODE, and --json keeps the pin count beside the pin rows', () => {
+    const c = consumer();
+    run(c.up.work, ['update-index', '--add', '--cacheinfo', `160000,${c.up.c1},tests/sub`], c.upEnv);
+    run(c.up.work, ['commit', '-q', '-m', 'gitlink'], c.upEnv);
+    const g = run(c.up.work, ['rev-parse', 'HEAD'], c.upEnv);
+    run(c.up.work, ['push', '-q', c.up.bare, 'main'], c.upEnv);
+    commit(c.repo, { 'vendor/lib/tests/sub': A, 'vendor/MANIFEST.json': manifest([{ commit: g, files: ['tests/sub'] }]) }, 'gitlink');
+    expect(outOf(c.verify())).toContain('(VENDORED_MODE)');
+    const j = c.verify(['--base', 'main', '--json']);
+    const out = JSON.parse(j.out) as { pins: number; pin_results: unknown[] };
+    expect(out.pins).toBe(1);
+    expect(out.pin_results).toHaveLength(1);
+  });
+});
