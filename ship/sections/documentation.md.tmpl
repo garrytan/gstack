@@ -104,7 +104,7 @@ branch's copy (a PR cannot raise its own cap), prints one `DOCS_CAP: <path> <byt
 blocked audit, repaired by trimming that file, never by raising the cap. Then save for Step 16 only post-child hashes (rerun the Prepare `snapshot`
 with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added,
 plus `--carry <this run's earlier audit's -post.json>` on a re-audit so receipt write
-resets both audits' files; Step 16 `compare`s it; never type hashes), status, and keep the `<audit-id>-result.json` and private `<audit-id>-documentation.md`
+resets both audits' files, or `--carry-stopped <its Prepare snapshot>` instead when that audit stopped before its post snapshot; Step 16 `compare`s it; never type hashes), status, and keep the `<audit-id>-result.json` and private `<audit-id>-documentation.md`
 that `result` wrote. That section file is the section's single source;
 reports and Step 19 insert it by command (`cat`) where they can, never retyped or edited.
 Save records once; cite files by path, never copying their content.
@@ -134,8 +134,8 @@ auto-commit or push unexpected child commits.
    `RETRY_NOTE:` text verbatim.
    Repeat Prepare using current inputs and a fresh id/snapshot, run the remaining
    attempt, then validate it through Parent processing. When the stopped audit saved no post
-   snapshot, the re-audit's post snapshot adds `--carry-stopped <the stopped audit's Prepare snapshot>`
-   so receipt write resets the stopped audit's edits too.
+   snapshot, the re-audit's post snapshot takes `--carry-stopped <the stopped audit's Prepare snapshot>` instead of
+   `--carry`, so receipt write resets the stopped audit's edits too.
 3. Otherwise STOP before commit/publication and do not launch another child.
    AskUserQuestion: stop for repair (recommended), or ship with the specific named
    documentation risk. Only an actual user exception counts, never a default,
