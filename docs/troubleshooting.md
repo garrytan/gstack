@@ -7118,7 +7118,10 @@ the parent's commits the PR carries were never reviewed under it. `ready`,
 landing the parent's commits past the parent's own receipt and READY.
 A receipt whose `base` is the queue's base (`main` or `origin/main`),
 including a stacked child reviewed against the base (GST-1199), is
-unaffected.
+unaffected. For `ready` without `--base`, the queue's base is the branch the
+pull request targets, so a pull request into a non-default branch whose
+receipt names that branch passes; `land` still uses the default branch unless
+`--base` names another (GST-3445).
 
 **Fix.** Land the parent first, merge the base into this branch and push.
 Then run `gstack-ship-receipt carry --pr <n> --base <base>`: it moves the receipt to the base when the parent fully landed
