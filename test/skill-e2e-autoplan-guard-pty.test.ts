@@ -25,6 +25,12 @@
  * 5.5 read the close packet and dispatched Phase 2 before the notice, so the
  * notice-turn path never ran: 8 of 8 attempts failed in release gate runs
  * 44952328945, 44955253712 and 44956497475 (#4639 pinned Haiku 4.5 meanwhile).
+ *
+ * The relay is a gateway to Claude Code, so auto mode's server-side checks cannot reach the session and the first
+ * reviewer action the local classifier checks waits on the "auto mode classifier billing" notice for Enter. The
+ * reviewer then never finishes and its notice never comes (run gsta796-guard-1). CLAUDE_CODE_AUTO_MODE_SERVER=0 is
+ * the documented setting for a gateway that cannot carry those checks: the same local classifier, with no notice.
+ * https://code.claude.com/docs/en/auto-mode-classifier-billing
  */
 import { expect } from 'bun:test';
 import * as path from 'node:path';
@@ -39,7 +45,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('autoplan-guard-pty requires ANTHROPIC_API_KEY; refusing to skip');
     const s = prepareGuardSession(process.env.ANTHROPIC_API_KEY);
     const relay = startDispatchRelay(path.join(s.project, '.gstack', 'tmp', 'autoplan'));
-    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url },
+    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url, CLAUDE_CODE_AUTO_MODE_SERVER: '0' },
       timeoutMs: 540_000, observeScreen: true }).catch(error => { relay.stop(); throw error; });
     const started = performance.now();
     const prompts: string[] = [];
