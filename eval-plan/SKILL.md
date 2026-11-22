@@ -293,7 +293,7 @@ same as a changed bar.
 Run the pipeline over the real development rows with a stub model that costs nothing:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-eval-plan dry-run --input <path> --arms <picked-models> --prereg <prereg-file> --retry-prompt <path> --out <outdir>
+~/.claude/skills/gstack/bin/gstack-eval-plan dry-run --input <path> --arms <picked-models> --prereg <prereg-path> --retry-prompt <path> --out <outdir>
 ```
 
 Add `--fields <id>` when the rows' prompt field is not `prompt`, and `--output-budget` with
