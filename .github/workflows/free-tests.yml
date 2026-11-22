@@ -218,7 +218,7 @@ jobs:
   # whose only artifact is free-plan as one that ran no shard.
   free-plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       runner: ${{ steps.plan.outputs.runner }}
