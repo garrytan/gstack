@@ -296,6 +296,44 @@ describe('branch globs, missing branches, gitlinks and --json', () => {
     expect(outOf(offline)).toMatch(/checked=2 verified=2 failed=0/);
     expect(offline.status).toBe(0);
   });
+  // Value: protects=after a failed fetch the review plan and every later offline step select the same files, so the
+  //   receipt's offline recompute matches the plan's digest, while gstack-vendored-verify --offline still answers from the
+  //   good pins; fails_when=the offline selection counts a file the plan kept; why_new=/ship review of #4690
+  //   (lib/review-vendored.ts:278)
+  test('after a failed fetch the online and offline selections agree until a fetch succeeds', () => {
+    const c = consumer();
+    expect(c.verify().status).toBe(0);
+    const both = ['vendor/lib/tests/a.py', 'vendor/lib/tests/b.py'];
+    const select = (fetch: boolean) => {
+      const sel = vendoredSelection({ root: c.repo.work, policy: vendoredPolicy(JSON.parse(policy()))!, head: c.repo.git('rev-parse', 'HEAD').trim(), mergeBase: c.repo.git('merge-base', 'origin/main', 'HEAD').trim(), changed: new Set(both), fetch, cacheRoot: vendoredCacheRoot(c.repo.env.GSTACK_STATE_ROOT), env: { ...process.env, ...c.repo.env, GSTACK_VENDORED_FETCH_ROOT: c.fetchRoot } });
+      return 'error' in sel ? sel.error : sel.verified;
+    };
+    fs.renameSync(c.up.bare, `${c.up.bare}.away`);
+    expect(select(true)).toEqual([]);
+    expect(select(false)).toEqual([]);
+    expect(c.verify(['--base', 'main', '--offline']).status).toBe(0);
+    fs.renameSync(`${c.up.bare}.away`, c.up.bare);
+    expect(select(true)).toEqual(both);
+    expect(select(false)).toEqual(both);
+  });
+  // Value: protects=the merge-base pin check never fails verify, even when it throws: a deletion-only re-pin whose old pin
+  //   cannot be cached still passes on its head result; fails_when=the base check's error exits nonzero; why_new=/ship review
+  //   of #4690 (bin/gstack-vendored-verify:88)
+  test('a merge-base check that cannot run reports itself and leaves the head verdict alone', () => {
+    const c = consumer();
+    c.repo.git('checkout', '-q', 'main');
+    c.repo.git('merge', '-q', '--ff-only', 'feat');
+    c.repo.git('push', '-q', 'origin', 'main');
+    c.repo.git('checkout', '-q', 'feat');
+    commit(c.repo, { 'vendor/lib/tests/b.py': null, 'vendor/MANIFEST.json': manifest([{ commit: c.up.c1, files: ['tests/a.py'] }]) }, 'drop b');
+    const blocked = path.join(c.repo.root, 'blocked');
+    fs.mkdirSync(blocked);
+    fs.writeFileSync(path.join(blocked, 'vendored-cache'), 'not a directory\n');
+    const r = c.verify(['--base', 'main'], { GSTACK_STATE_ROOT: blocked, GSTACK_HOME: blocked, GSTACK_STATE_DIR: blocked });
+    expect(outOf(r)).toContain('VENDORED_BASE: unavailable (');
+    expect(outOf(r)).toContain('VENDORED_VERIFY: checked=0 verified=0 failed=0');
+    expect(r.status).toBe(0);
+  });
   // Value: protects=verify also caches the merge base's pin for a re-pinned file, so the review plan answers offline on a
   //   clean machine and keeps treating the file as vendored; fails_when=the old pin stays cold and the offline selection
   //   keeps the file; why_new=GST-3298 PR 3 (a modified file counts only when its base copy verified)

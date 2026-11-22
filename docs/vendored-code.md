@@ -187,7 +187,9 @@ nothing, so its selection differs and the receipt says so; run
 base's pins for the files the branch changes or deletes (its `VENDORED_BASE:`
 line, which never fails the run), since a modified or re-pinned file needs
 them. A fetch that fails fails its own run but leaves the cache's earlier good
-answers in place, so a later offline step still answers. Reviewers still read
+answers in place, so a later `gstack-vendored-verify --offline` still answers.
+Review keeps those files until a fetch succeeds, so the plan and the receipt's
+offline check select the same files. Reviewers still read
 the manifest, every pin change and all of the repo's own code. When manifest
 entries that don't count as vendored make a pattern keep too many files, the
 refusal counts them and points at `gstack-vendored-verify`.

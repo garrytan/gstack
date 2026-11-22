@@ -82,11 +82,16 @@ const diff = git(['diff', '--name-only', '-z', '--no-renames', '--diff-filter=AD
 if (diff === null) { process.stderr.write(`${CTX}: git could not list the files this branch changes; fix: rerun once, then check the checkout (git status)\n`); process.exit(EXIT.refused); }
 const changed = new Set(diff.split('\0').filter(Boolean));
 const selected = argv.includes('--all') ? entries : entries.filter(e => changed.has(e.path) || before.get(e.path) !== `${e.upstream}@${e.commit}:${e.upstream_path}`);
-const resolve = (rev: string, list: VendoredEntry[]) => resolveVendored({ root, rev, policy, entries: list, fetch: !argv.includes('--offline'), cacheRoot: vendoredCacheRoot(resolveStateRoot()) });
+const resolve = (rev: string, list: VendoredEntry[]) => resolveVendored({ root, rev, policy, entries: list, fetch: !argv.includes('--offline'), cacheRoot: vendoredCacheRoot(resolveStateRoot()), keepGood: true });
 const res = problems.length ? null : resolve(head, selected);
 const baseList = prior.filter(e => changed.has(e.path));
-const baseRes = res && baseList.length ? resolve(mergeBase, baseList) : null;
-const baseSummary = baseRes ? { checked: baseRes.entries.length, verified: baseRes.entries.filter(e => e.verdict === 'verified').length } : null;
+const baseSummary = ((): { checked: number; verified: number } | { error: string } | null => {
+  if (!res || !baseList.length) return null;
+  try {
+    const b = resolve(mergeBase, baseList);
+    return b ? { checked: b.entries.length, verified: b.entries.filter(e => e.verdict === 'verified').length } : null;
+  } catch (err) { return { error: (err instanceof Error ? err.message : String(err)).split('\n')[0]! }; }
+})();
 if (!problems.length && !res) { process.stderr.write(`${CTX}: git could not list HEAD's files; fix: rerun once, then check the checkout (git status)\n`); process.exit(EXIT.refused); }
 const failed = res?.entries.filter(e => e.verdict !== 'verified') ?? [];
 const summary = { scope: argv.includes('--all') ? 'all' : 'changed', manifests: policy.manifests.length, entries: entries.length, checked: res?.entries.length ?? 0, verified: (res?.entries.length ?? 0) - failed.length, failed: failed.length, pins: res?.pins.length ?? 0, digest: res?.digest ?? null };
@@ -97,7 +102,8 @@ if (json) {
   for (const p of res?.pins ?? []) process.stdout.write(`VENDORED_PIN: ${p.upstream}@${p.commit.slice(0, 12)} reachable_from=${p.reachable_from ?? 'none'} files=${p.files} verified=${p.verified}\n`);
   for (const f of failed.slice(0, 50)) process.stdout.write(resultLine(CTX, CODES[f.verdict as Exclude<VendoredVerdict, 'verified'>], `${f.path} <- ${f.upstream}@${f.commit.slice(0, 12)}:${f.upstream_path}${f.detail ? `; ${f.detail}` : ''}`) + '\n');
   if (failed.length > 50) process.stdout.write(`VENDORED_VERIFY_FAILED: +${failed.length - 50} more (--json lists every one)\n`);
-  if (baseSummary) process.stdout.write(`VENDORED_BASE: checked=${baseSummary.checked} verified=${baseSummary.verified} (the merge base's copies of the vendored files this branch changes or deletes; the review plan treats a modified file as vendored only when its base copy verified; this line never fails the run)\n`);
+  if (baseSummary && 'error' in baseSummary) process.stdout.write(`VENDORED_BASE: unavailable (${baseSummary.error}; this line never fails the run)\n`);
+  else if (baseSummary) process.stdout.write(`VENDORED_BASE: checked=${baseSummary.checked} verified=${baseSummary.verified} (the merge base's copies of the vendored files this branch changes or deletes; the review plan treats a modified file as vendored only when its base copy verified; this line never fails the run)\n`);
   process.stdout.write(problems.length ? `VENDORED_VERIFY: failed manifests=${policy.manifests.length} manifest_errors=${problems.length}\n`
     : `VENDORED_VERIFY: checked=${summary.checked} verified=${summary.verified} failed=${summary.failed} pins=${summary.pins} manifests=${summary.manifests} scope=${summary.scope} digest=${summary.digest}\n`);
 }

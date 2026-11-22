@@ -163,7 +163,7 @@ function withLock<T>(dir: string, fn: () => T): T {
   try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
 }
 
-interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
+interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string; failed?: string }
 
 /** Whether a cached ref the commit sits on is one the current policy trusts: a tag, the default branch, or a branch the base names, never a merge-queue branch. */
 function trustedHolder(ref: string, def: string | undefined, up: VendoredUpstream): boolean {
@@ -186,8 +186,9 @@ function writePin(dir: string, commit: string, p: PinCache): void {
 /**
  * Fetch one upstream's reachability refs and each pin's trees into its cache and record, per pin, the ref that holds
  * the commit and the mode and blob id of every upstream path asked for. A failed fetch is this run's error for each pin it
- * covers, and is recorded as the pin's error only when the cache holds no good record for it: a good record came from
- * a fetch that succeeded, and a pin's trees never change, so a later offline run keeps answering from it.
+ * covers. It is recorded as the pin's error when the cache holds no good record for it; a good record stays, marked with
+ * the failure (`failed`) until a later fetch succeeds, so gstack-vendored-verify --offline keeps answering from it while
+ * review selection keeps the pin's files, as the run that failed did.
  */
 function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string, Set<string>>, env: NodeJS.ProcessEnv): Map<string, string> {
   const dir = path.join(cacheRoot, key(up.url));
@@ -196,7 +197,7 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
   const failPin = (commit: string, error: string, rec: PinCache) => {
     errors.set(commit, error);
     const prev = readPin(dir, commit);
-    if (!prev?.reachable_from || prev.error) writePin(dir, commit, { ...rec, error });
+    writePin(dir, commit, prev?.reachable_from && !prev.error ? { ...prev, failed: error } : { ...rec, error });
   };
   withLock(dir, () => {
     const genv = gitEnv(dir);
@@ -253,6 +254,8 @@ export interface ResolveInput {
   root: string; rev: string; policy: VendoredPolicy; entries: readonly VendoredEntry[];
   /** Fetch upstreams and refresh the cache (gstack-vendored-verify); false answers from the cache alone. */
   fetch: boolean; cacheRoot: string; env?: NodeJS.ProcessEnv;
+  /** Answer from a good cached record whose latest fetch failed (gstack-vendored-verify); unset, such a pin is fetch-failed. */
+  keepGood?: boolean;
 }
 
 /** One verdict per entry, one summary per pin, and a digest over both; null when git could not read the head. */
@@ -277,6 +280,7 @@ export function resolveVendored(i: ResolveInput): { entries: EntryResult[]; pins
     const fetchError = fetchErrors.get(`${e.upstream}@${e.commit}`);
     if (fetchError) return { ...e, verdict: 'fetch-failed', detail: fetchError };
     const pin = readPin(path.join(i.cacheRoot, key(e.upstream)), e.commit);
+    if (pin?.failed && !i.keepGood) return { ...e, verdict: 'fetch-failed', detail: `the latest fetch failed (${pin.failed}); review keeps the file until a fetch succeeds` };
     if (!pin || !(e.upstream_path in pin.tree) && !pin.error && pin.reachable_from) return { ...e, verdict: 'fetch-failed', detail: 'not in the cache; run gstack-vendored-verify' };
     if (pin.error) return { ...e, verdict: 'fetch-failed', detail: pin.error };
     if (!pin.reachable_from) return { ...e, verdict: 'unreachable' };
