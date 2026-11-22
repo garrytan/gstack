@@ -275,7 +275,7 @@ describe('literals (pure)', () => {
       'test/require.test.ts': ["const { maxItems } = require('../lib/retry');", 'expect(maxItems()).toBe(10);', ''].join(nl),
       'test/derived.test.ts': ["import { listItems } from '../lib/retry';", 'const items = listItems();', 'expect(items).toHaveLength(10);', ''].join(nl),
       'test/hook.test.ts': ['let out;', "beforeAll(() => { out = run('lib/retry.ts'); });", 'expect(out.count).toBe(10);', ''].join(nl),
-      'test/multiline.test.ts': ["const r = spawnSync('bun', [", "  path.join(ROOT, 'lib/retry.ts'),", ']);', 'expect(r.status).toBe(10);', ''].join(nl),
+      'test/multiline.test.ts': ["const r = spawnSync('bun', [", "  path.join(ROOT, 'lib/retry.ts'),", '], { timeout: 1000 });', 'expect(r.status).toBe(10);', ''].join(nl),
     };
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
     expect(consumersOf(root, Object.keys(files), { name: 'MAX_ITEMS', old: '10', new: '11', file: 'lib/retry.ts' })).toEqual([
