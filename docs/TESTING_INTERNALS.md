@@ -1139,6 +1139,29 @@ machine swap, in this order:
    plus ten minutes has passed, so set `UBI_TTL_HOURS` above the expected
    duration and name that duration in the thread before launching.
 
+## Mutation report
+
+A weekly, report-only trial of mutation testing. It checks whether gstack's tests reject plausible wrong code in the files agents change most. `.github/workflows/mutation-report.yml` runs every Saturday at 06:00 UTC, or on demand through workflow_dispatch, on `ubicloud-standard-16`. It is not a required check, never runs on pull requests, and never blocks a merge.
+
+`scripts/mutation-report.ts` does the work:
+
+1. It picks the five `lib/**/*.ts` files (not tests) with the most commits in the last 90 days, from the job's full-history checkout.
+2. For each file it selects the test files that import it directly. If none do, it falls back to the transitive importers from `lib/pregate/import-graph.ts`, capped at 20.
+3. **Positive control.** It prepends `throw new Error('mutation-report positive control')` to the file and runs the selected tests, which must fail. If they still pass, the tests reach the file only through a spawned process, and every mutant would be a false survivor. The file is then reported as `control survived` and not mutated.
+4. It runs StrykerJS with the community Bun runner, using per-test coverage and `ignoreStatic`, within a 45-minute budget per file. It then restores the tree with `git checkout -- .`. A file that runs out of budget is reported as `unfinished`.
+5. It writes a table (killed, survived, no coverage, timeout, mutation score) and up to 15 survivors per file, each with its line, mutator and replacement. The table goes to the step summary, and the Markdown, JSON and per-file Stryker reports go to the `mutation-report` artifact.
+
+Stryker (`@stryker-mutator/core`) and `@hughescr/stryker-bun-runner` are both Apache-2.0. They are installed at the exact versions in `STRYKER_PACKAGES` into the runner's temp directory with `--ignore-scripts`, so `package.json` and `bun.lock` don't change. Their own dependencies aren't locked.
+
+Stryker has to edit files in place, because its sandbox copy fails on this repo's symlinked directories (`EISDIR` on `connect-chrome`). The script therefore refuses a dirty tree, requires `--throwaway-checkout`, and must never run in a checkout you work in. If a run is killed, it can leave a mutated file behind: run `git checkout -- .` and remove `.stryker-tmp`. To run it locally, use a scratch worktree:
+
+```bash
+git worktree add /tmp/mut origin/main && cd /tmp/mut && bun install
+npm install --prefix /tmp/stryker --no-save --ignore-scripts @stryker-mutator/core@10.1.1 @hughescr/stryker-bun-runner@1.6.0
+bun --no-env-file --config=/dev/null scripts/mutation-report.ts --throwaway-checkout --files 1 \
+  --stryker-dir /tmp/stryker --out-dir /tmp/mutation-out
+```
+
 ## Cloud sandboxes (Vercel / Conductor cloud workspaces)
 
 Syscall-supervised sandboxes need environment setup before `bun run test` can
