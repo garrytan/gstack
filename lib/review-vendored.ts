@@ -1,0 +1,279 @@
+/**
+ * review-vendored — the review_vendored key of .gstack/ship-policy.json and the check that a vendored file is
+ * byte-for-byte an allowlisted upstream's file at a pinned commit (docs/vendored-code.md, GST-3298).
+ *
+ * The base branch's policy names the upstream repositories a repo trusts and the manifests that pin files to them. A
+ * manifest (gstack-vendored/v1, written by the repo's own build) maps each local path, by prefix, to a path at one
+ * commit of one upstream. A file is verified only when: its upstream is on the base allowlist; the commit is reachable
+ * from that upstream's default branch, one of its tags, or a branch matching a glob the base names for it (never
+ * refs/pull/* or another repository in its fork network); and the blob at the upstream path has the same git blob id
+ * and mode (100644 on both sides) as the head's file. A blob id is git's hash of the exact bytes, so equal ids mean
+ * equal bytes. Anything else is a verdict with a reason code, and a caller treats it as not vendored.
+ *
+ * Fetches go straight to the upstream over https with no ambient git configuration (no credential helper, extra
+ * header or URL rewrite), no prompt, no redirect and a timeout, so a check that passes on one machine passes in CI.
+ * Each upstream has two bare caches under the state root: refs.git (commit history only, for reachability) and
+ * trees.git (each pin's trees at depth 1, no file contents). Verdicts are cached per pin, so resolveVendored with
+ * fetch: false answers offline from what a fetching run recorded.
+ */
+import { spawnSync } from './spawn-sync';
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+export const MANIFEST_SCHEMA = 'gstack-vendored/v1';
+export interface VendoredUpstream { url: string; branches: string[] }
+/** The key as a policy file writes it. */
+export interface VendoredPolicyRaw { upstreams: Array<string | { url: string; branches?: string[] }>; manifests: string[] }
+export interface VendoredPolicy { upstreams: VendoredUpstream[]; manifests: string[] }
+export interface VendoredPin { upstream: string; commit: string; local_prefix: string; upstream_prefix: string; files: string[] }
+export interface VendoredEntry { path: string; upstream: string; commit: string; upstream_path: string }
+export type VendoredVerdict = 'verified' | 'mismatched' | 'absent-upstream' | 'absent-local' | 'mode' | 'unreachable' | 'not-allowlisted' | 'fetch-failed';
+export interface EntryResult extends VendoredEntry { verdict: VendoredVerdict; detail?: string }
+export interface PinResult { upstream: string; commit: string; reachable_from: string | null; files: number; verified: number }
+
+/** What \`gstack-ship-policy init --explain\` prints for the key. */
+export const VENDORED_EXPLANATION = '{ upstreams, manifests } or null (default), read from the base branch only: upstreams lists the https URLs of the repositories a repo vendors unchanged files from (a string, or { url, branches } to also accept commits on branches matching those globs); manifests lists the repo paths of gstack-vendored/v1 manifests that pin each vendored file to an upstream path at a commit. gstack-vendored-verify checks every pinned file is byte-for-byte that upstream file at a commit reachable from the upstream\'s default branch or a tag; a head cannot add an upstream or a manifest (docs/vendored-code.md).';
+
+const UPSTREAM = /^https:\/\/[a-z0-9]([a-z0-9.-]{0,252}[a-z0-9])?(:[0-9]{1,5})?(\/[A-Za-z0-9_.-]{1,100}){2,4}$/;
+const BRANCH_GLOB = /^(?!refs\/)(?!pull\/)(?!gh-readonly-queue\/)[A-Za-z0-9._\/-]*\*?[A-Za-z0-9._\/-]*$/;
+type PolicyError = { code: 'POLICY_INVALID'; path: string; message: string };
+
+/** The key normalized: every upstream as { url, branches }; null when the policy does not declare it. */
+export function vendoredPolicy(p: { review_vendored?: unknown } | null | undefined): VendoredPolicy | null {
+  const v = p?.review_vendored as { upstreams?: Array<string | { url: string; branches?: string[] }>; manifests?: string[] } | null | undefined;
+  if (!v) return null;
+  return { upstreams: (v.upstreams ?? []).map(u => (typeof u === 'string' ? { url: u, branches: [] } : { url: u.url, branches: u.branches ?? [] })), manifests: [...(v.manifests ?? [])] };
+}
+
+/** \`review_vendored\`: each field's error at its path (\`contained\` is lib/ship-policy.ts's containedRelative). */
+export function vendoredErrors(value: unknown, out: PolicyError[] | any[], contained: (p: string) => string | null): void {
+  if (value === null) return;
+  const err = (p: string, message: string) => out.push({ code: 'POLICY_INVALID', path: p, message });
+  if (!value || typeof value !== 'object' || Array.isArray(value)) { err('review_vendored', 'must be { upstreams, manifests } or null'); return; }
+  const v = value as Record<string, unknown>;
+  for (const k of Object.keys(v)) if (k !== 'upstreams' && k !== 'manifests') err(`review_vendored.${k}`, 'unknown key');
+  if (!Array.isArray(v.upstreams) || !v.upstreams.length || v.upstreams.length > 64) err('review_vendored.upstreams', 'must be an array of 1 to 64 upstreams');
+  else v.upstreams.forEach((u, i) => {
+    const at = `review_vendored.upstreams[${i}]`;
+    const o = typeof u === 'string' ? { url: u } : u && typeof u === 'object' && !Array.isArray(u) ? (u as Record<string, unknown>) : null;
+    if (!o) { err(at, 'must be an https URL or { url, branches? }'); return; }
+    for (const k of Object.keys(o)) if (k !== 'url' && k !== 'branches') err(`${at}.${k}`, 'unknown key');
+    if (typeof o.url !== 'string' || !UPSTREAM.test(o.url) || /\.\.|\/\.$|\.git\//.test(o.url)) err(at, `${JSON.stringify(o.url)} must be an https URL of a repository (https://github.com/owner/repo), with no credentials, query or fragment`);
+    if ('branches' in o && (!Array.isArray(o.branches) || o.branches.length > 16 || o.branches.some(b => typeof b !== 'string' || !b || b.length > 100 || !BRANCH_GLOB.test(b)))) {
+      err(`${at}.branches`, 'must be at most 16 branch names or globs with one *, never under refs/, pull/ or gh-readonly-queue/');
+    }
+  });
+  if (Array.isArray(v.upstreams)) {
+    const urls = v.upstreams.map(u => (typeof u === 'string' ? u : (u as { url?: unknown })?.url));
+    urls.forEach((u, i) => { if (urls.indexOf(u) !== i) err(`review_vendored.upstreams[${i}]`, 'is listed twice'); });
+  }
+  if (!Array.isArray(v.manifests) || !v.manifests.length || v.manifests.length > 16) err('review_vendored.manifests', 'must be an array of 1 to 16 manifest paths');
+  else v.manifests.forEach((m, i) => {
+    const why = typeof m !== 'string' ? 'must be a string' : contained(m) ?? (pathProblem(m) ?? (/[*?[\]]/.test(m) ? 'must be a path, not a glob' : null));
+    if (why) err(`review_vendored.manifests[${i}]`, `${JSON.stringify(m)} ${why}`);
+  });
+}
+
+/** Why a repo-relative path is refused, or null: no empty, . or .. segment, leading /, backslash or control character. */
+export function pathProblem(p: string): string | null {
+  if (!p) return 'is empty';
+  if (p.startsWith('/')) return 'must be relative';
+  if (/[\\\x00-\x1f\x7f]/.test(p)) return 'contains a backslash or control character';
+  if (p.split('/').some(s => s === '' || s === '.' || s === '..')) return 'has an empty, . or .. segment';
+  return null;
+}
+
+/** A manifest's pins and every problem with it; entries are the pins flattened to one row per file. */
+export function parseManifest(text: string, where: string): { pins: VendoredPin[]; entries: VendoredEntry[]; errors: string[] } {
+  const errors: string[] = [];
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch (e) { return { pins: [], entries: [], errors: [`${where}: not JSON (${(e as Error).message})`] }; }
+  const m = raw as { schema?: unknown; pins?: unknown };
+  if (!m || typeof m !== 'object' || m.schema !== MANIFEST_SCHEMA) errors.push(`${where}: schema must be "${MANIFEST_SCHEMA}"`);
+  if (!Array.isArray(m?.pins) || !m.pins.length) return { pins: [], entries: [], errors: [...errors, `${where}: pins must be a non-empty array`] };
+  const pins: VendoredPin[] = [];
+  const entries: VendoredEntry[] = [];
+  const seen = new Map<string, string>();
+  m.pins.forEach((p: any, i: number) => {
+    const at = `${where}: pins[${i}]`;
+    const bad = (s: string) => errors.push(`${at}${s}`);
+    if (!p || typeof p !== 'object') { bad(' must be an object'); return; }
+    for (const k of Object.keys(p)) if (!['upstream', 'commit', 'local_prefix', 'upstream_prefix', 'files'].includes(k)) bad(`.${k}: unknown key`);
+    if (typeof p.upstream !== 'string' || !UPSTREAM.test(p.upstream)) bad('.upstream must be an https repository URL');
+    if (typeof p.commit !== 'string' || !/^[0-9a-f]{40}$/.test(p.commit)) bad('.commit must be a full 40-character lowercase commit id');
+    for (const k of ['local_prefix', 'upstream_prefix'] as const) {
+      const v = p[k];
+      if (typeof v !== 'string' || (v !== '' && (!v.endsWith('/') || pathProblem(v.slice(0, -1)))) || (k === 'local_prefix' && v === '')) bad(`.${k} must be ${k === 'local_prefix' ? 'a' : '"" or a'} repo-relative directory ending in /`);
+    }
+    if (!Array.isArray(p.files) || !p.files.length) { bad('.files must be a non-empty array'); return; }
+    const ok = errors.length;
+    p.files.forEach((f: unknown, j: number) => { const why = typeof f !== 'string' ? 'must be a string' : pathProblem(f); if (why) bad(`.files[${j}] ${JSON.stringify(f)} ${why}`); });
+    if (errors.length !== ok || typeof p.local_prefix !== 'string' || typeof p.upstream_prefix !== 'string') return;
+    pins.push({ upstream: p.upstream, commit: p.commit, local_prefix: p.local_prefix, upstream_prefix: p.upstream_prefix, files: [...p.files] });
+    for (const f of p.files as string[]) {
+      const local = p.local_prefix + f;
+      const folded = local.toLowerCase();
+      if (seen.has(folded)) { bad(`: ${local} collides with ${seen.get(folded)} (listed twice, or the same path in another letter case)`); continue; }
+      seen.set(folded, local);
+      entries.push({ path: local, upstream: p.upstream, commit: p.commit, upstream_path: p.upstream_prefix + f });
+    }
+  });
+  return { pins, entries, errors };
+}
+
+/** The fetch environment: no global or system git config, no prompt, nothing that lets ambient credentials or rewrites in. */
+function gitEnv(cache: string): NodeJS.ProcessEnv {
+  const empty = path.join(cache, 'empty.gitconfig');
+  if (!fs.existsSync(empty)) fs.writeFileSync(empty, '');
+  const keep = Object.fromEntries(['SYSTEMROOT', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR'].flatMap(k => (process.env[k] ? [[k, process.env[k]!]] : [])));
+  return { ...keep, PATH: process.env.PATH ?? '', HOME: cache, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', GCM_INTERACTIVE: 'never', LANG: 'C', LC_ALL: 'C' };
+}
+
+const TEST_ROOT = 'GSTACK_VENDORED_FETCH_ROOT';
+/** Where a fetch goes: the upstream itself, or (tests only) the same host/path under GSTACK_VENDORED_FETCH_ROOT. */
+export function fetchUrl(url: string, env: NodeJS.ProcessEnv = process.env): string {
+  const root = env[TEST_ROOT];
+  return root ? `${root.replace(/\/+$/, '')}/${url.replace(/^https:\/\//, '')}` : url;
+}
+
+function remoteFlags(env: NodeJS.ProcessEnv): string[] {
+  const test = !!env[TEST_ROOT];
+  return ['-c', 'credential.helper=', '-c', 'http.extraHeader=', '-c', 'http.followRedirects=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always',
+    ...(test ? ['-c', 'protocol.file.allow=always', '-c', 'protocol.http.allow=always'] : []), '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=30'];
+}
+
+const timeoutMs = (env: NodeJS.ProcessEnv) => { const n = Number(env.GSTACK_VENDORED_FETCH_TIMEOUT_MS); return Number.isFinite(n) && n > 0 ? n : 180_000; };
+
+function git(cwd: string, args: string[], env: NodeJS.ProcessEnv, timeout = 60_000): { ok: boolean; out: string; err: string } {
+  const r = spawnSync('git', args, { cwd, env, encoding: 'utf8', timeout, maxBuffer: 256 * 1024 * 1024 });
+  return { ok: r.status === 0, out: r.stdout ?? '', err: `${r.stderr ?? ''}${r.error ? ` ${r.error.message}` : ''}`.trim() };
+}
+
+/** One lock file per upstream cache; a lock older than ten minutes belonged to a dead process. */
+function withLock<T>(dir: string, fn: () => T): T {
+  const lock = path.join(dir, 'lock');
+  for (let i = 0; ; i++) {
+    try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; } catch {
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 600_000) { fs.rmSync(lock, { force: true }); continue; } } catch { continue; }
+      if (i > 600) throw new Error(`vendored cache ${dir} stayed locked`);
+      Bun.sleepSync(100);
+    }
+  }
+  try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
+}
+
+interface PinCache { reachable_from: string | null; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
+const key = (url: string) => createHash('sha256').update(url).digest('hex').slice(0, 24);
+const pinFile = (dir: string, commit: string) => path.join(dir, 'pins', `${commit}.json`);
+function readPin(dir: string, commit: string): PinCache | null { try { return JSON.parse(fs.readFileSync(pinFile(dir, commit), 'utf8')) as PinCache; } catch { return null; } }
+function writePin(dir: string, commit: string, p: PinCache): void {
+  fs.mkdirSync(path.join(dir, 'pins'), { recursive: true });
+  const f = pinFile(dir, commit);
+  fs.writeFileSync(`${f}.tmp`, JSON.stringify(p));
+  fs.renameSync(`${f}.tmp`, f);
+}
+
+/**
+ * Fetch one upstream's reachability refs and each pin's trees into its cache and record, per pin, the ref that holds
+ * the commit and the mode and blob id of every upstream path asked for. A failed fetch is recorded as the pin's error.
+ */
+function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string, Set<string>>, env: NodeJS.ProcessEnv): void {
+  const dir = path.join(cacheRoot, key(up.url));
+  fs.mkdirSync(dir, { recursive: true });
+  withLock(dir, () => {
+    const genv = gitEnv(dir);
+    const flags = remoteFlags(env);
+    const url = fetchUrl(up.url, env);
+    const t = timeoutMs(env);
+    for (const repo of ['refs.git', 'trees.git']) if (!fs.existsSync(path.join(dir, repo, 'HEAD'))) git(dir, ['init', '--quiet', '--bare', repo], genv);
+    const refs = path.join(dir, 'refs.git');
+    const trees = path.join(dir, 'trees.git');
+    const fail = (error: string) => { for (const c of pins.keys()) writePin(dir, c, { reachable_from: null, checked_at: Date.now(), tree: {}, error }); };
+    const head = git(refs, [...flags, 'ls-remote', '--symref', url, 'HEAD'], genv, t);
+    const def = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(head.out)?.[1];
+    if (!head.ok || !def) { fail(`could not read the default branch (${head.err.split('\n').pop() || 'no HEAD'})`); return; }
+    const specs = [`+refs/heads/${def}:refs/vendored/heads/${def}`, '+refs/tags/*:refs/vendored/tags/*', ...up.branches.map(b => `+refs/heads/${b}:refs/vendored/heads/${b}`)];
+    const f = git(refs, [...flags, 'fetch', '--quiet', '--no-tags', '--prune', '--filter=tree:0', url, ...specs], genv, t);
+    if (!f.ok) { fail(`could not fetch its branches and tags (${f.err.split('\n').pop()})`); return; }
+    for (const [commit, paths] of pins) {
+      const has = git(refs, ['cat-file', '-e', `${commit}^{commit}`], genv).ok;
+      const holder = has ? git(refs, ['for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit, 'refs/vendored/'], genv).out.trim() : '';
+      const reachable_from = holder ? holder.replace(/^refs\/vendored\//, '') : null;
+      if (!reachable_from) { writePin(dir, commit, { reachable_from: null, checked_at: Date.now(), tree: {} }); continue; }
+      const tf = git(trees, [...flags, 'fetch', '--quiet', '--no-tags', '--depth=1', '--filter=blob:none', url, commit], genv, t);
+      if (!tf.ok) { writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree: {}, error: `could not fetch the commit's trees (${tf.err.split('\n').pop()})` }); continue; }
+      const ls = git(trees, ['ls-tree', '-r', '-z', '--full-tree', commit], genv);
+      if (!ls.ok) { writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree: {}, error: 'could not list the commit\'s tree' }); continue; }
+      const all = new Map<string, [string, string]>();
+      for (const rec of ls.out.split('\0')) { const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) all.set(m[3]!, [m[1]!, m[2]!]); }
+      const prev = readPin(dir, commit);
+      const tree: Record<string, [string, string] | null> = { ...(prev?.reachable_from ? prev.tree : {}) };
+      for (const p of paths) tree[p] = all.get(p) ?? null;
+      writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree });
+    }
+  });
+}
+
+/** The head's mode and blob id for each path (git ls-tree under each pin's prefix); missing paths are absent. */
+function headBlobs(root: string, rev: string, entries: readonly VendoredEntry[]): Map<string, [string, string]> | null {
+  const out = new Map<string, [string, string]>();
+  const prefixes = [...new Set(entries.map(e => e.path.slice(0, e.path.lastIndexOf('/') + 1)))].sort();
+  const roots = prefixes.filter((p, i) => !prefixes.slice(0, i).some(q => p.startsWith(q)));
+  for (let i = 0; i < roots.length; i += 200) {
+    const r = spawnSync('git', ['ls-tree', '-r', '-z', '--full-tree', rev, '--', ...roots.slice(i, i + 200).map(p => `:(top,literal)${p || '.'}`)], { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    if (r.status !== 0) return null;
+    for (const rec of (r.stdout ?? '').split('\0')) { const m = /^(\d{6}) (\w+) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) out.set(m[4]!, [m[1]!, m[3]!]); }
+  }
+  return out;
+}
+
+export interface ResolveInput {
+  root: string; rev: string; policy: VendoredPolicy; entries: readonly VendoredEntry[];
+  /** Fetch upstreams and refresh the cache (gstack-vendored-verify); false answers from the cache alone. */
+  fetch: boolean; cacheRoot: string; env?: NodeJS.ProcessEnv;
+}
+
+/** One verdict per entry, one summary per pin, and a digest over both; null when git could not read the head. */
+export function resolveVendored(i: ResolveInput): { entries: EntryResult[]; pins: PinResult[]; digest: string } | null {
+  const env = i.env ?? process.env;
+  const allowed = new Map(i.policy.upstreams.map(u => [u.url, u]));
+  const byUpstream = new Map<string, Map<string, Set<string>>>();
+  for (const e of i.entries) {
+    if (!allowed.has(e.upstream)) continue;
+    const pins = byUpstream.get(e.upstream) ?? new Map<string, Set<string>>();
+    pins.set(e.commit, (pins.get(e.commit) ?? new Set()).add(e.upstream_path));
+    byUpstream.set(e.upstream, pins);
+  }
+  if (i.fetch) for (const [url, pins] of byUpstream) fetchUpstream(i.cacheRoot, allowed.get(url)!, pins, env);
+  const head = headBlobs(i.root, i.rev, i.entries);
+  if (!head) return null;
+  const results: EntryResult[] = i.entries.map(e => {
+    const local = head.get(e.path);
+    if (!allowed.has(e.upstream)) return { ...e, verdict: 'not-allowlisted' };
+    if (!local) return { ...e, verdict: 'absent-local' };
+    const pin = readPin(path.join(i.cacheRoot, key(e.upstream)), e.commit);
+    if (!pin || !(e.upstream_path in pin.tree) && !pin.error && pin.reachable_from) return { ...e, verdict: 'fetch-failed', detail: 'not in the cache; run gstack-vendored-verify' };
+    if (pin.error) return { ...e, verdict: 'fetch-failed', detail: pin.error };
+    if (!pin.reachable_from) return { ...e, verdict: 'unreachable' };
+    const up = pin.tree[e.upstream_path];
+    if (!up) return { ...e, verdict: 'absent-upstream' };
+    if (local[0] !== '100644' || up[0] !== '100644') return { ...e, verdict: 'mode', detail: `head ${local[0]}, upstream ${up[0]}` };
+    return local[1] === up[1] ? { ...e, verdict: 'verified' } : { ...e, verdict: 'mismatched', detail: `head blob ${local[1].slice(0, 12)}, upstream blob ${up[1].slice(0, 12)}` };
+  });
+  const pinRows = new Map<string, PinResult>();
+  for (const r of results) {
+    const k = `${r.upstream}@${r.commit}`;
+    const row = pinRows.get(k) ?? { upstream: r.upstream, commit: r.commit, reachable_from: allowed.has(r.upstream) ? readPin(path.join(i.cacheRoot, key(r.upstream)), r.commit)?.reachable_from ?? null : null, files: 0, verified: 0 };
+    row.files++;
+    if (r.verdict === 'verified') row.verified++;
+    pinRows.set(k, row);
+  }
+  const pins = [...pinRows.values()].sort((a, b) => (a.upstream + a.commit < b.upstream + b.commit ? -1 : 1));
+  const sorted = [...results].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const digest = createHash('sha256').update(JSON.stringify({ policy: i.policy, entries: sorted.map(r => [r.path, r.upstream, r.commit, r.upstream_path, r.verdict]) })).digest('hex');
+  return { entries: sorted, pins, digest };
+}
+
+/** The cache directory under a state root. */
+export const vendoredCacheRoot = (stateRoot: string) => path.join(stateRoot, 'vendored-cache');

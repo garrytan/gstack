@@ -1,0 +1,97 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-vendored-verify — check that every file a vendored manifest pins is byte-for-byte its upstream's file at a
+ * commit the upstream really holds (docs/vendored-code.md, GST-3298).
+ *
+ *   gstack-vendored-verify --base <branch> [--all] [--offline] [--json]
+ *
+ * The allowlist and the manifest list come from the base branch's .gstack/ship-policy.json (review_vendored), never
+ * from the head; the manifests themselves are read at HEAD. By default it checks the entries this branch changes
+ * (files added or modified since the merge base, and entries whose pin the manifest diff changes); --all checks every
+ * entry. --offline answers from the cache an earlier run filled, without the network. A repo makes it a required CI
+ * check: exit 1 means a manifest says something that is not true. Logic: lib/review-vendored.ts.
+ */
+import { spawnSync } from '../lib/spawn-sync';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { resultLine, type ResultCodeName } from '../lib/result-codes';
+import { isUnavailable, policyUnavailableLine } from '../lib/ship-policy';
+import { loadPolicyAt } from '../lib/ship-policy-at';
+import { resolveStateRoot } from '../lib/state-root';
+import { parseManifest, resolveVendored, vendoredCacheRoot, vendoredPolicy, type VendoredEntry, type VendoredVerdict } from '../lib/review-vendored';
+
+const HELP = `gstack-vendored-verify — check vendored files against their upstream pins (docs/vendored-code.md)
+
+  --base <branch>   the base branch whose policy names the upstreams and manifests (required)
+  --all             check every manifest entry, not only the ones this branch changes
+  --offline         answer from the cache an earlier run filled; no network
+  --json            print one JSON object instead of lines
+
+${exitTableHelp()}`;
+
+const CODES: Record<Exclude<VendoredVerdict, 'verified'>, ResultCodeName> = {
+  mismatched: 'VENDORED_MISMATCH', 'absent-upstream': 'VENDORED_ABSENT_UPSTREAM', 'absent-local': 'VENDORED_ABSENT_LOCAL', mode: 'VENDORED_MODE',
+  unreachable: 'VENDORED_UNREACHABLE', 'not-allowlisted': 'VENDORED_NOT_ALLOWLISTED', 'fetch-failed': 'VENDORED_FETCH_FAILED',
+};
+const CTX = 'gstack-vendored-verify';
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP); process.exit(EXIT.ok); }
+const known = new Set(['--base', '--all', '--offline', '--json']);
+const baseAt = argv.indexOf('--base');
+const base = baseAt >= 0 ? argv[baseAt + 1] : undefined;
+const stray = argv.filter((a, i) => !known.has(a) && i !== baseAt + 1);
+if (!base || base.startsWith('-') || stray.length) { process.stderr.write(`${CTX}: ${stray.length ? `unknown argument ${stray[0]}` : '--base <branch> is required'}\n${HELP}`); process.exit(EXIT.usage); }
+const json = argv.includes('--json');
+
+function git(args: string[]): string | null {
+  const r = spawnSync('git', args, { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : null;
+}
+const root = git(['rev-parse', '--show-toplevel'])?.trim();
+const ref = base.startsWith('origin/') ? base : `origin/${base}`;
+const baseSha = root ? (git(['rev-parse', '--verify', '-q', `${ref}^{commit}`]) ?? git(['rev-parse', '--verify', '-q', `${base}^{commit}`]))?.trim() : undefined;
+const head = root ? git(['rev-parse', '--verify', 'HEAD^{commit}'])?.trim() : undefined;
+const mergeBase = baseSha && head ? git(['merge-base', baseSha, head])?.trim() : undefined;
+if (!root || !baseSha || !head || !mergeBase) { process.stderr.write(`${CTX}: could not resolve ${!root ? 'the repository' : !baseSha ? ref : !head ? 'HEAD' : 'the merge base'}; fix: git fetch origin ${base.replace(/^origin\//, '')}, then rerun\n`); process.exit(EXIT.refused); }
+
+const load = loadPolicyAt(root, baseSha, ref);
+if (isUnavailable(load)) { process.stderr.write(policyUnavailableLine(CTX, load.base, load.detail) + '\n'); process.exit(EXIT.refused); }
+if (load.errors.length) { for (const e of load.errors) process.stderr.write(`${CTX}: the base policy does not validate (${e.path}: ${e.message}); fix: gstack-ship-policy validate --policy-from base --base ${base} (${e.code})\n`); process.exit(EXIT.refused); }
+const policy = vendoredPolicy(load.policy);
+if (!policy) { process.stdout.write(json ? JSON.stringify({ state: 'none' }) + '\n' : `VENDORED_VERIFY: none (the base policy ${ref}@${baseSha.slice(0, 12)} declares no review_vendored)\n`); process.exit(EXIT.ok); }
+
+const problems: string[] = [];
+const entries: VendoredEntry[] = [];
+const before = new Map<string, string>();
+for (const m of policy.manifests) {
+  const text = git(['show', `${head}:${m}`]);
+  if (text === null) { problems.push(`${m} is not in HEAD`); continue; }
+  const parsed = parseManifest(text, m);
+  problems.push(...parsed.errors);
+  entries.push(...parsed.entries);
+  const old = git(['show', `${mergeBase}:${m}`]);
+  if (old !== null) for (const e of parseManifest(old, m).entries) before.set(e.path, `${e.upstream}@${e.commit}:${e.upstream_path}`);
+}
+const seen = new Map<string, number>();
+entries.forEach(e => seen.set(e.path.toLowerCase(), (seen.get(e.path.toLowerCase()) ?? 0) + 1));
+for (const [p, n] of seen) if (n > 1) problems.push(`${p} is pinned by more than one manifest`);
+
+let selected = entries;
+if (!argv.includes('--all')) {
+  const changed = new Set((git(['diff', '--name-only', '-z', '--no-renames', '--diff-filter=AMT', mergeBase, head]) ?? '').split('\0').filter(Boolean));
+  selected = entries.filter(e => changed.has(e.path) || before.get(e.path) !== `${e.upstream}@${e.commit}:${e.upstream_path}`);
+}
+const res = problems.length ? null : resolveVendored({ root, rev: head, policy, entries: selected, fetch: !argv.includes('--offline'), cacheRoot: vendoredCacheRoot(resolveStateRoot()) });
+if (!problems.length && !res) { process.stderr.write(`${CTX}: git could not list HEAD's files; fix: rerun once, then check the checkout (git status)\n`); process.exit(EXIT.refused); }
+const failed = res?.entries.filter(e => e.verdict !== 'verified') ?? [];
+const summary = { scope: argv.includes('--all') ? 'all' : 'changed', manifests: policy.manifests.length, entries: entries.length, checked: res?.entries.length ?? 0, verified: (res?.entries.length ?? 0) - failed.length, failed: failed.length, pins: res?.pins.length ?? 0, digest: res?.digest ?? null };
+if (json) {
+  process.stdout.write(JSON.stringify({ state: problems.length || failed.length ? 'failed' : 'verified', ...summary, manifest_errors: problems, pins: res?.pins ?? [], failures: failed }) + '\n');
+} else {
+  for (const p of problems) process.stdout.write(resultLine(CTX, 'VENDORED_MANIFEST_INVALID', p) + '\n');
+  for (const p of res?.pins ?? []) process.stdout.write(`VENDORED_PIN: ${p.upstream}@${p.commit.slice(0, 12)} reachable_from=${p.reachable_from ?? 'none'} files=${p.files} verified=${p.verified}\n`);
+  for (const f of failed.slice(0, 50)) process.stdout.write(resultLine(CTX, CODES[f.verdict as Exclude<VendoredVerdict, 'verified'>], `${f.path} <- ${f.upstream}@${f.commit.slice(0, 12)}:${f.upstream_path}${f.detail ? `; ${f.detail}` : ''}`) + '\n');
+  if (failed.length > 50) process.stdout.write(`VENDORED_VERIFY_FAILED: +${failed.length - 50} more (--json lists every one)\n`);
+  process.stdout.write(problems.length ? `VENDORED_VERIFY: failed manifests=${policy.manifests.length} manifest_errors=${problems.length}\n`
+    : `VENDORED_VERIFY: checked=${summary.checked} verified=${summary.verified} failed=${summary.failed} pins=${summary.pins} manifests=${summary.manifests} scope=${summary.scope} digest=${summary.digest}\n`);
+}
+process.exit(problems.length || failed.length ? EXIT.fail : EXIT.ok);
