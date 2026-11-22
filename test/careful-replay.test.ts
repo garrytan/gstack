@@ -279,6 +279,137 @@ const STRICT_CASES: Array<[string, string, Decision, Tree]> = [
   ['unchanged from 17303862 (control: a backslashed cd stays unread)', '\\cd /srv/demo && git push -f', 'ask', 'clean'],
 ];
 
+// #4534 review notes: git reads an unambiguous prefix of --no-dry-run as the option itself, and the word after -o as
+// its push-option value. Each exemption keeps its dangerous neighbours denied.
+const NOTE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dry origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push -fn --no-dr origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n', 'git push --force -n --no-dry-ru origin main', 'deny', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: the last flag wins)', 'git push --no-dry -fn origin main', 'allow', 'clean'],
+  ['an abbreviated --no-dry-run undoes -n (control: git refuses the ambiguous --no-d)', 'git push -fn --no-d origin main', 'allow', 'clean'],
+  ['a push-option value never makes a push safer, as main reads it', 'git push -fn -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer, as main reads it', 'git push -fno --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer, as main reads it', 'git push -fn --push-option --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (an option that takes a value)', 'git push -n -f --receive-pack -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (an option that takes a value)', 'git push -n -f --exec -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (an option that takes a value)', 'git push -n -f --recurse-submodules -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (a redirect target)', 'git push -fn > -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (a redirect target)', 'git push -fn 2> -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a push-option value never makes a push safer (a redirect target)', 'git push -fn < --push-option --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: no -n)', 'git push -f -o --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: -o took another value)', 'git push -fn -o ci.skip --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: value attached in the group)', 'git push -fnox --no-dry-run origin main', 'deny', 'clean'],
+  ['the word after -o is its value (neighbour: a second --no-dry-run)', 'git push -fn -o --no-dry-run --no-dry origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o -n origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o --dry-run origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -fo -n origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run', 'git push -f -o -n4 origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run (neighbour: the value still forces)', 'git push -o -fn --no-dry origin main', 'deny', 'clean'],
+  ['a -n read as the -o value is not a dry run (control: -n before -o)', 'git push -fn -o ci.skip origin main', 'allow', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -o -o --no-dry-run -f origin main', 'deny', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -o --push --no-dry-run -f origin main', 'deny', 'clean'],
+  ['a push-option value never takes a value itself', 'git push -n -fo -o --no-dry-run origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value', 'git push -f --push -n origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value', 'git push -f --push-opt --dry-run origin main', 'deny', 'clean'],
+  ['an abbreviated --push-option takes its value (control: -n before it)', 'git push -fn --push ci.skip origin main', 'allow', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -f4 origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -4f origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -fo-n origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f', 'git push -f -4o -n origin main', 'deny', 'clean'],
+  ['a short group with a digit still reads -f (control: -n before it)', 'git push -n -f4 origin main', 'allow', 'clean'],
+];
+
+// GEVA-560 re-measure at ab6a38b7: two outside-the-folder delete shapes slipped through, a relative delete after a cd
+// into a system folder and a device-node removal under /dev. Both now ask; their scratch and in-folder twins do not.
+const OUTSIDE_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a relative delete after a cd into a system folder', 'cd /etc/nginx && rm -f sites-enabled/default', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /etc && rm -f hosts.bak', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /usr/local/lib && rm -f libdemo.so', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a scratch folder)', 'cd /tmp/work && rm -f sites-enabled/default', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: a subfolder of this one)', 'cd src && rm -f old.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: no delete)', 'cd /etc/nginx && cat nginx.conf', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: an absolute scratch target)', 'cd /etc/nginx && rm -f /tmp/demo.txt', 'allow', 'clean'],
+  ['a device node removed under /dev', 'for i in 0 1 2 3; do rm -f /dev/loop$i; done', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm /dev/nvme0n1', 'ask', 'clean'],
+  ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/demo-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: output sent to /dev/null)', 'rm -f demo.txt > /dev/null', 'allow', 'clean'],
+  ['a device node removed under /dev, spelled with a doubled slash', 'rm -f /dev//sdb1', 'ask', 'clean'],
+  ['a device node removed under /dev, spelled with a dot folder', 'rm -f /dev/./sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev', 'cd /dev && rm -f sda', 'ask', 'clean'],
+  ['a device node removed after a cd into /dev (twin: shared memory)', 'cd /dev/shm && rm -f sdx-lock', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: shared memory with a doubled slash)', 'rm -f /dev//shm/x', 'allow', 'clean'],
+  ['a device node removed under /dev (twin: a project folder named dev)', 'rm -f dev/sdcard.txt', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/lib && rm -f dpkg/status', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder under /var', 'cd /var/log && rm -f syslog', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder', 'cd /opt/homebrew && rm -f bin/brew', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder, reached from /', 'cd / && rm -f etc/hosts', 'ask', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/tmp is scratch)', 'cd /var/tmp/w && rm -f x', 'allow', 'clean'],
+  ['a relative delete after a cd into a system folder (twin: /var/www is not a system folder)', 'cd /var/www && rm -f index.html', 'allow', 'clean'],
+];
+
+// #4604 review: four gaps a reader reached, each closed without allowing anything main asks about or denies.
+const REVIEW_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a short group with its own -n is a dry run, as main reads it', 'git push -fn4 origin main', 'allow', 'clean'],
+  ['a short group with its own -n is a dry run, as main reads it', 'git push -4fn origin main', 'allow', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: -n in another group, as main reads it)', 'git push -n4 -f origin main', 'deny', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: a separate -f)', 'git push -fn4 -f origin main', 'deny', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: the group is a push-option value)', 'git push -o -fn4 origin main', 'deny', 'clean'],
+  ['a later --no-dry-run undoes the -n in a short group with a digit', 'git push -fn4 --no-dry-run origin main', 'deny', 'clean'],
+  ['a later --no-dry-run undoes the -n in a short group with a digit', 'git push -4fn --no-dry origin main', 'deny', 'clean'],
+  ['a later --no-dry-run undoes the -n in a short group with a digit (neighbour: it is a push-option value)', 'git push -fn4 -o --no-dry-run origin main', 'deny', 'clean'],
+  ['a cd that climbs with .. into a system folder', 'cd ../../../../../../../../etc && rm -f hosts', 'ask', 'clean'],
+  ['a cd that climbs with .. into /dev', 'cd ../../../../../../../../dev && rm -f sda', 'ask', 'clean'],
+  ['a cd that climbs with .. into a system folder (twin: the parent folder)', 'cd .. && rm -f stale.txt', 'allow', 'clean'],
+  ['a cd that climbs with .. into a system folder (twin: scratch)', 'cd ../../../../../../../../tmp/w && rm -f x', 'allow', 'clean'],
+  ['a push-option value is not the remote', 'git push -f -o ci.skip origin', 'deny', 'main'],
+  ['a push-option value is not the remote (neighbour: as main reads it, the value may be the remote)', 'git push -f -o x main', 'deny', 'clean'],
+  ['a push-option value is not the remote (control: another branch checked out)', 'git push -f -o ci.skip origin', 'ask', 'clean'],
+  ['a push-option value is not the remote (control: a dry run)', 'git push -fn -o ci.skip origin', 'allow', 'main'],
+  ['a device node removed under /dev', 'rm -f /dev/sg0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/zram0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/ram0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/mtd0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/ubi0', 'ask', 'clean'],
+  ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/sg0', 'allow', 'clean'],
+];
+
+// #4628 and #4601: a quoted spelling gets the decision main gives its unquoted or backslashed twin, which main
+// allows. Negative controls: nothing else becomes allowed, and text that runs (`$( )`, bash -c, a later statement)
+// is still read.
+const SPELLING_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a quoted build folder is the same delete as unquoted', 'rm -rf "/home/me/app/dist"', 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted', "rm -rf '/home/me/app/dist'", 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted', 'rm -rf "/home/me/app/node_modules" "build"', 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted (control: unquoted)', 'rm -rf /home/me/app/dist', 'allow', 'clean'],
+  ['a quoted build folder (negative: not a build folder)', 'rm -rf "/home/me/app/src"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a variable)', 'rm -rf "$HOME/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a quoted ~ is not home)', 'rm -rf "~/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a quoted glob)', 'rm -rf "/home/me/d*st"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a space main never allows)', 'rm -rf "/home/me/Github Projects/app/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a trailing slash main never allows)', 'rm -rf "/home/me/app/dist/"', 'ask', 'clean'],
+  ['a quoted build folder (negative: ..)', 'rm -rf "/home/me/../me/app/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a command substitution)', 'rm -rf "`pwd`/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: text after the quote)', 'rm -rf "/home/me/app/dist"x', 'ask', 'clean'],
+  ['a quoted build folder (negative: a second target)', 'rm -rf "/home/me/app/dist" "/home/me/app/src"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a system folder beside it)', 'rm -rf "/home/me/app/dist" /etc', 'deny', 'clean'],
+  ['a quoted build folder (negative: a statement inside the quotes)', 'rm -rf "dist;rm -rf ~"', 'deny', 'clean'],
+  ['a quoted build folder (negative: two quoted names joined into one word)', 'rm -rf "dist""build"', 'ask', 'clean'],
+  ['a quoted gh title is text', 'gh issue create -R garrytan/gstack --title "careful: force-push check fires on a plain git push when a later command in the same line has a +token or -f (e.g. date +%F)" --body-file report.md', 'allow', 'clean'],
+  ['a quoted gh title is text', "gh issue create --title 'git push -f origin main' --body x", 'allow', 'clean'],
+  ['a quoted gh body is text', 'gh pr create --title "x" --body "rm -rf /"', 'allow', 'clean'],
+  ['a quoted gh body is text', 'gh pr comment 12 --body "git push -f origin main"', 'allow', 'clean'],
+  ['a quoted gh title (negative: a command substitution runs)', 'gh issue create --title "$(git push -f origin main)"', 'deny', 'clean'],
+  ['a quoted gh title (negative: a later statement)', 'gh issue create --title "x" && git push -f origin main', 'deny', 'clean'],
+  ['a quoted gh title (negative: a later statement)', 'gh issue create --title "rm -rf ~/" --body x; rm -rf ~/', 'deny', 'clean'],
+  ['a quoted gh title (negative: another gh subcommand)', 'gh issue list --search "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: a word that is not the title)', "gh issue create --title x 'git push -f origin main'", 'deny', 'clean'],
+  ['a quoted gh title (negative: piped on)', 'gh issue create --title "git push -f origin main" | cat', 'deny', 'clean'],
+  ['a quoted gh title (negative: gh is not the command)', 'sudo gh issue create --title "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: echo)', 'echo "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: bash -c runs it)', 'bash -c "git push -f origin main"', 'deny', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -370,6 +501,22 @@ describe('each new rule, with negative controls', () => {
   });
 
   test.each(STRICT_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(NOTE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(OUTSIDE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(REVIEW_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(SPELLING_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
