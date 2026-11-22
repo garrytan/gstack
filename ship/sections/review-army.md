@@ -854,7 +854,7 @@ Other scopes apply decisions 2–4 in order.
    growth before anything else; the repeat reviews the cut as part of the range. Tests must pass or retain approval for the same verified pre-existing
    failures and scope. Keep CYCLES and scoped approvals across this repeat; PASS increments on entry.
 3.5. **One fix-check.** Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
-   fix list, touched hunks (`git diff $PASS_HEAD`), callers of changed symbols and
+   fix list, touched hunks (`git add -N` each file the fix created, then `git diff $PASS_HEAD`), callers of changed symbols and
    test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
    --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's

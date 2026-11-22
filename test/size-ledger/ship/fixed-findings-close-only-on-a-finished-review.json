@@ -1,0 +1,4 @@
+{
+  "bytes": 45,
+  "why": "Decision 3.5's touched hunks include files the fix created (git add -N), GST-3260 PR 3 Part B"
+}
