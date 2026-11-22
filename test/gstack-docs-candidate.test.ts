@@ -234,7 +234,7 @@ describe('gstack-docs-candidate', () => {
     // ci-37198445662 gate-census-2: ship-docsync-completion/-store parents spent 45-78 s of model time
     // retyping hash maps, child output and records into several artifacts after the child returned.
     const gate = fs.readFileSync(path.resolve(import.meta.dir, '..', 'ship/sections/documentation.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
-    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added, plus, on a re-audit, `--carry <its -post.json>` for each earlier audit of this run that saved one and `--carry-stopped <its Prepare snapshot>` for each that stopped before its post snapshot, so receipt write resets every audit\'s files; Step 16 `compare`s it; never type hashes)');
+    expect(gate).toContain('post-child hashes (rerun the Prepare `snapshot` with only `--out <audit-id>-post.json` changed and `--pre <its Prepare snapshot>` added, plus, on a re-audit, `--carry <the earlier audit\'s -post.json>`, or `--carry-stopped <its Prepare snapshot>` when it stopped before its post snapshot (each flag once), so receipt write resets both audits\' files; Step 16 `compare`s it; never type hashes)');
     expect(gate).toContain('Save records once; cite files by path, never copying their content.');
     const { dir, root, record } = repo();
     const args = ['--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'handbook'];

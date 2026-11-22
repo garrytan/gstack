@@ -1,4 +1,4 @@
 {
-  "bytes": 365,
-  "why": "Step 19 runs the one scoped reader RECEIPT_DOCS_AUDIT_READ asks for (GST-3532)"
+  "bytes": 308,
+  "why": "Step 19 names the one docs-audit reader after the round cap; the docs audit steps say each carry flag is taken once"
 }
