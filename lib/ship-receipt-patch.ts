@@ -79,6 +79,28 @@ export function verifiedOutputs(repoRoot: string, base: string, pregateFile: str
   return regen.proven.filter(p => !/[*?[\]\\]/.test(p) && matchesAny(owned, p));
 }
 
+const HARNESS_MANIFEST = 'scripts/harness-version.json';
+const HARNESS_PIN = /^scripts\/harness-pins\/(.+)\.json$/;
+
+/**
+ * A harness pin a base merge only re-recorded (GSTA-749, #4652): at both heads the pin's `blob` is its pinned file's blob,
+ * its other fields are the reviewed ones, and the harness manifest's version and patterns did not move. The pin is then a
+ * function of the pinned file's bytes, which stay product, so it is a regenerated output. Anything else is product.
+ */
+function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: string): boolean {
+  const pinned = HARNESS_PIN.exec(p)?.[1];
+  if (!pinned) return false;
+  const json = (ref: string, rel: string): any => { const r = spawnSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
+  const [ma, mb] = [json(from, HARNESS_MANIFEST), json(to, HARNESS_MANIFEST)];
+  if (!ma || !mb || ma.version !== mb.version || JSON.stringify(ma.patterns) !== JSON.stringify(mb.patterns)) return false;
+  const [a, b] = [json(from, p), json(to, p)];
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) || Array.isArray(b)) return false;
+  const { blob: blobA, ...restA } = a;
+  const { blob: blobB, ...restB } = b;
+  return blobA === git(['rev-parse', '--verify', '--quiet', `${from}:${pinned}`], repoRoot) && blobB === git(['rev-parse', '--verify', '--quiet', `${to}:${pinned}`], repoRoot)
+    && JSON.stringify(restA) === JSON.stringify(restB);
+}
+
 export interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[]; placeholders: readonly string[] }
 export function productRules(repoRoot: string, base: string, outputs: readonly string[]): ProductRules {
   const load = loadPolicyFromBase(repoRoot, base);
@@ -120,7 +142,8 @@ export function productSpec(repoRoot: string, rules: ProductRules, from: string,
   const entryAt = (ref: string, p: string) => git(['ls-tree', ref, '--', p], repoRoot);
   const sameEntry = (a: string, b: string, p: string) => { const x = entryAt(a, p); return x !== undefined && x === entryAt(b, p); };
   const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => sameEntry(a, b, p) || classify(p, a, b) === 'metadata');
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : classify(p, from, to) }));
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : branch && rederivedHarnessPin(repoRoot, from, to, p) ? 'generated' as const : classify(p, from, to) }));
+  const repinned = changed.filter(c => c.class === 'generated' && HARNESS_PIN.test(c.path)).map(c => `:(exclude,literal)${c.path}`);
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)
     : [...branch.touched].filter(p => stamped(p) && (changed.some(c => c.path === p && c.class === 'product') || branch.sides.some(([a, b]) => blobAt(a, p) !== blobAt(b, p) && classify(p, a, b) === 'product')));
@@ -137,7 +160,7 @@ export function productSpec(repoRoot: string, rules: ProductRules, from: string,
     const lines = was.map((_, i) => i).filter(i => was[i] !== now[i]);
     return was.length === now.length && lines.length > 0 && lines.every(i => side.at.has(i + 1) && stampOnlyLine(was[i]!, now[i]!, oldVersion, newVersion, rules.templates, side, i + 1, rules.placeholders));
   });
-  return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs)], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs)], demoted, ownRows };
+  return { changed, product: ['.', ...excludeGlobs(CARRY_TEST_GLOBS), ...excludeGlobs(metadataGlobs), ...repinned], tests: [...CARRY_TEST_GLOBS.map(g => `:(glob)${g}`), ...excludeGlobs(metadataGlobs), ...repinned], demoted, ownRows };
 }
 
 /** A commit's product patch-id against its merge base with the base ('' for no product diff), as write records it and a rewritten-history carry recomputes it. */

@@ -2339,6 +2339,7 @@ receipt when the base moves:
 |---|---|
 | a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
 | a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines identical and in the same places) | carries after one fix-check reviewer reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
+| a merge of the base that only re-records a harness pin (`scripts/harness-pins/<file>.json`): at both heads the pin's `blob` is its file's blob, its other fields are the reviewed ones, and `scripts/harness-version.json`'s version and patterns did not move; the pinned file itself still counts as product | carries (reason `regenerated outputs`, GSTA-749) |
 | a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |
