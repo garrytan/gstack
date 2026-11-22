@@ -64,7 +64,7 @@ function consumer(opts: { policy?: string; files?: Record<string, string | null>
   const up = upstream(fetchRoot, repo.env);
   const upEnv = { ...repo.env, GIT_CONFIG_GLOBAL: path.join(repo.root, 'upstream.gitconfig') };
   fs.copyFileSync(repo.env.GIT_CONFIG_GLOBAL, upEnv.GIT_CONFIG_GLOBAL);
-  fs.appendFileSync(repo.env.GIT_CONFIG_GLOBAL, `[url "/nonexistent/"]\n\tinsteadOf = ${fetchRoot}/\n`);
+  fs.appendFileSync(repo.env.GIT_CONFIG_GLOBAL, `[url "/nonexistent/"]\n\tinsteadOf = "${fetchRoot.replace(/\\/g, '\\\\')}/"\n`);
   repo.git('checkout', '-q', '-b', 'feat');
   commit(repo, { 'vendor/lib/tests/a.py': A, 'vendor/lib/tests/b.py': B1, 'vendor/MANIFEST.json': manifest(opts.pins ?? [{ commit: up.c1, files: ['tests/a.py', 'tests/b.py'] }]), ...(opts.files ?? {}) }, 'vendor lib');
   const verify = (args: string[] = ['--base', 'main'], env: Record<string, string> = {}) => runBin(repo, 'gstack-vendored-verify', args, { GSTACK_VENDORED_FETCH_ROOT: fetchRoot, ...env });
