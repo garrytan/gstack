@@ -1359,7 +1359,7 @@ function hasFlag(args: string[], flag: string): boolean {
 }
 
 export interface GlobalFlags {
-  /** Cleaned argv with --proxy/--headed stripped out. */
+  /** Cleaned argv with --proxy/--headed stripped out and a leading --session moved after the command. */
   args: string[];
   /** Resolved proxy URL (with creds embedded) or null for direct. */
   proxyUrl: string | null;
@@ -1394,10 +1394,15 @@ export function extractGlobalFlags(rawArgs: string[], env: NodeJS.ProcessEnv, pl
   let proxyUrl: string | null = null;
   let headed = false;
   let forceRestart = false;
+  const leadingSession: string[] = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
     if (arg === '--force-restart') { forceRestart = true; continue; }
+    if (arg === '--session' && out.length === 0 && rawArgs[i + 1] !== undefined) {
+      leadingSession.push(arg, rawArgs[++i]);
+      continue;
+    }
     if (arg === '--proxy') {
       const value = rawArgs[i + 1];
       if (!value) {
@@ -1417,6 +1422,7 @@ export function extractGlobalFlags(rawArgs: string[], env: NodeJS.ProcessEnv, pl
     if (arg === '--headed') { headed = true; continue; }
     out.push(arg);
   }
+  out.push(...leadingSession);
 
   // Resolve --proxy, BROWSE_PROXY_URL or the standard proxy variables, with
   // creds embedded (server reads BROWSE_PROXY_URL from env, which passes to
@@ -1875,7 +1881,8 @@ Compare:        diff <url1> <url2>
 Multi-step:     chain (reads JSON from stdin)
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
                 --session <name> | BROWSE_SESSION=<name>: this caller's own tab
-                (agents get one per agent process; BROWSE_SESSION= turns it off)
+                (agents get one per agent process, not on Windows;
+                BROWSE_SESSION= turns it off)
 Server:         status | cookie <n>=<v> | header <n>:<v>
                 useragent <str> | stop | restart
                 profiles [list] | profiles prune [--days N]  (per-project headed profiles)

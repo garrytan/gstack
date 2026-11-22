@@ -122,6 +122,19 @@ describe('gstack-checks on a fixture repo', () => {
   // Value: protects=nothing runs before consent, including pregate's selection manifest command, and any change to a check or a
   //   selection command needs consent again; fails_when=an untrusted or edited command executes; why_new=the boundary is new;
   //   seam=the fixture's selection command writes a marker when it runs; no_claim=the trust grant log's contents
+  // #4407: an agent app that starts every session in a fresh git worktree asked for trust every time.
+  test('trust covers every worktree of the repository while the command set matches', () => {
+    const s = setup();
+    expect(s.checks(['trust']).status).toBe(0);
+    const wt = path.join(s.repo.root, 'wt-two');
+    s.repo.git('worktree', 'add', '-q', wt, '-b', 'scratch');
+    const inWorktree = (args: string[]) => runBin(s.repo, 'gstack-checks', [...args, '--base', 'main'], { SELECTION_MARK: s.mark }, wt);
+    expect(inWorktree(['detect']).out).toContain('TRUST trusted');
+    write(wt, 'package.json', JSON.stringify({ name: 'fixture', version: '1.0.0', scripts: { test: 'node --test test/*.test.js', typecheck: 'node scripts/other.js' } }, null, 2) + '\n');
+    expect(inWorktree(['detect']).out).toContain('TRUST untrusted');
+    expect(s.checks(['detect']).out).toContain('TRUST trusted');
+  });
+
   test('consent covers the checks and the selection manifest commands', () => {
     const s = setup();
     commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });

@@ -114,6 +114,14 @@ describe('extractGlobalFlags', () => {
     expect(result.headed).toBe(true);
   });
 
+  // #4662: `browse --session inventory goto …` read --session as the command.
+  test('a --session before the command moves after it, where the session is read', () => {
+    expect(extractGlobalFlags(['--session', 'inventory', 'goto', 'https://x'], ENV_EMPTY).args).toEqual(['goto', 'https://x', '--session', 'inventory']);
+    expect(extractGlobalFlags(['--headed', '--session', 'a', 'tabs'], ENV_EMPTY).args).toEqual(['tabs', '--session', 'a']);
+    expect(extractGlobalFlags(['goto', 'https://x', '--session', 'b'], ENV_EMPTY).args).toEqual(['goto', 'https://x', '--session', 'b']);
+    expect(extractGlobalFlags(['fill', '@e1', '--session'], ENV_EMPTY).args).toEqual(['fill', '@e1', '--session']);
+  });
+
   test('supports --proxy=value form', () => {
     const result = extractGlobalFlags(
       ['goto', 'https://x', '--proxy=socks5://h:1080'],

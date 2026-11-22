@@ -72,7 +72,8 @@ describe('context-restore carve: the transcript fallback', () => {
       const sources = generateTranscriptSources(ctx);
       if (host.transcripts) {
         expect(sources, host.name).toContain(host.transcripts.root);
-        expect(discovery, host.name).toContain('TRANSCRIPT_DIR="' + host.transcripts.root.replace(/^~/, '$HOME').split(/\/(?=<|\*)/)[0]);
+        const dir = host.transcripts.root.replace(/^~\/\.claude/, '${CLAUDE_CONFIG_DIR:-$HOME/.claude}').replace(/^~\/\.codex/, '${CODEX_HOME:-$HOME/.codex}').replace(/^~/, '$HOME');
+        expect(discovery, host.name).toContain('TRANSCRIPT_DIR="' + dir.split(/\/(?=<|\*)/)[0]);
         expect(discovery, host.name).not.toContain('declares no transcript store');
       } else {
         expect(sources, host.name).toContain('| ' + host.displayName + ' | none |');
@@ -98,8 +99,8 @@ describe('context-restore carve: the transcript fallback', () => {
   test('hosts with no declared store render a one-line none; Claude and Codex render their own discovery', () => {
     const ctx = (host: string) => ({ host, skillName: 'context-restore', paths: { binDir: '$GSTACK_BIN' } }) as never;
     expect(generateTranscriptDiscovery(ctx('cursor'))).toContain('TRANSCRIPTS: none (Cursor declares no transcript store');
-    expect(generateTranscriptDiscovery(ctx('claude'))).toContain('$HOME/.claude/projects/');
-    expect(generateTranscriptDiscovery(ctx('codex'))).toContain('$HOME/.codex/sessions');
+    expect(generateTranscriptDiscovery(ctx('claude'))).toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/');
+    expect(generateTranscriptDiscovery(ctx('codex'))).toContain('${CODEX_HOME:-$HOME/.codex}/sessions');
     for (const host of ['claude', 'codex', 'cursor']) expect(generateTranscriptDiscovery(ctx(host))).toContain('if [ -n "${GSTACK_CAPY:-}" ]');
   });
 });
@@ -113,7 +114,7 @@ describe('the discovery block against fixture transcripts', () => {
 
   function sh(script: string, extra: Record<string, string> = {}, cwd = project) {
     const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('GSTACK_') && k !== 'CLAUDE_PROJECT_DIR') env[k] = v;
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('GSTACK_') && !['CLAUDE_PROJECT_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'].includes(k)) env[k] = v;
     const r = spawnSync('bash', ['-c', script], { cwd, env: { ...env, HOME: home, ...extra }, encoding: 'utf8', timeout: 30_000 });
     return { out: (r.stdout ?? '') + (r.stderr ?? ''), status: r.status ?? -1 };
   }
@@ -154,6 +155,18 @@ describe('the discovery block against fixture transcripts', () => {
     expect(r.out).toContain('/7c2f.jsonl');
     expect(r.out).not.toContain('/old.jsonl');
     expect(r.out).not.toContain('shop-admin');
+    expect(r.out).toMatch(/TRANSCRIPTS: .*\(1 files in the last 7 days\)/);
+  });
+
+  // #4559: a second Claude Code profile (CLAUDE_CONFIG_DIR) keeps its transcripts under its own folder.
+  test('Claude Code: reads the CLAUDE_CONFIG_DIR profile when one is set', () => {
+    const profile = path.join(tmp, 'claude-work');
+    fs.mkdirSync(path.join(profile, 'projects', slug(project)), { recursive: true });
+    fs.copyFileSync(FIXTURE, path.join(profile, 'projects', slug(project), 'w0rk.jsonl'));
+    const r = sh(block, { CLAUDE_CONFIG_DIR: profile });
+    expect(r.status, r.out).toBe(0);
+    expect(r.out).toContain('/w0rk.jsonl');
+    expect(r.out).not.toContain('/7c2f.jsonl');
     expect(r.out).toMatch(/TRANSCRIPTS: .*\(1 files in the last 7 days\)/);
   });
 
