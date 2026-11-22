@@ -3,7 +3,7 @@
  * gstack-gate-diff — list the gate edits in a candidate so a human can
  * disposition each one (W1 of docs/designs/HONEST_WORK_GATE_INTEGRITY.md).
  *
- *   gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha>] [--help]
+ *   gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha> | --head <sha>] [--help]
  *
  * The tool produces the inventory and the tags; it never judges and never
  * suppresses. stdout, first line always:
@@ -32,7 +32,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { scanCandidate, parseGateIntegrityBlock, specDirectoryHoldsSpecs, type FileDiff, type CommitInfo } from '../lib/gate-diff/index';
 import {
-  baseNote, commitInfo, commitsInRange, defaultBase, diffCommit, diffWorkingTree, firstParent, headSha, mergeBase, noBaseFix, readClaudeMd, repoRoot,
+  baseNote, commitInfo, commitsInRange, defaultBase, diffCommit, diffRange, diffWorkingTree, firstParent, headSha, mergeBase, noBaseFix, readClaudeMd, repoRoot,
   resolveBase, resolvesToCommit, treePaths, untrackedAsAdded,
 } from '../lib/gate-diff/git';
 import { baseContainsHead, noDefaultBaseLine } from '../lib/default-base';
@@ -42,14 +42,17 @@ import { resolveStateRoot } from '../lib/state-root';
 import { runScriptSync, wtreeFingerprint } from '../lib/script-invocation';
 
 const BIN_DIR = path.dirname(Bun.fileURLToPath(import.meta.url));
-const USAGE = `usage: gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha>] [--help]
+const USAGE = `usage: gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha> | --head <sha>] [--help]
 
 Lists every hunk in a test, CI, runner/lint-config, snapshot or golden path of the
 candidate (merge-base of <base-ref> and HEAD -> working tree + untracked files;
 a branch name resolves to origin/<base-ref>, the local ref only when no remote has it),
 tags the gate edits it recognises (RH-1 RH-3 RH-4 RH-12 RH-13 RH-14 RH-15 RH-16),
 and prints the read-level listing after one GATE_SUMMARY: line. --commit <sha>
-scans that commit's first-parent delta instead of the working tree.
+scans that commit's first-parent delta instead of the working tree. --head <sha>
+scans merge-base(<base-ref>, <sha>) -> <sha> from commit objects alone, never the
+working tree, so a fetched pull request is read as data; CLAUDE.md still comes from
+the checkout.
 Exit 0 with or without hunks; 2 only for an unresolvable base (GATE_ERROR=no_base)
 or a tool failure (GATE_ERROR=internal). Full jsonl artifact path is in the summary.`;
 
@@ -57,6 +60,7 @@ interface Args {
   base?: string;
   format: 'table' | 'jsonl';
   commit?: string;
+  head?: string;
   help: boolean;
 }
 
@@ -77,10 +81,15 @@ function parseArgs(argv: string[]): Args | string {
       const v = argv[++i];
       if (!v || v.startsWith('-')) return '--commit requires a <sha>';
       args.commit = v;
+    } else if (a === '--head') {
+      const v = argv[++i];
+      if (!v || v.startsWith('-')) return '--head requires a <sha>';
+      args.head = v;
     } else if (a.startsWith('-')) return `unknown option ${a}`;
     else if (args.base !== undefined) return `unexpected extra argument ${a}`;
     else args.base = a;
   }
+  if (args.commit && args.head) return '--commit and --head cannot be combined';
   return args;
 }
 
@@ -156,7 +165,11 @@ function main(argv: string[]): number {
       return 2;
     }
     const baseRef = found.ref;
-    const head = headSha(root);
+    const head = parsed.head ? resolvesToCommit(parsed.head, root) : headSha(root);
+    if (parsed.head && !head) {
+      process.stdout.write(`GATE_ERROR=internal reason=head_unresolvable ref=${JSON.stringify(parsed.head)}\n`);
+      return 2;
+    }
     const base = resolveBase(baseRef, root, head ?? undefined);
     if (!base || !head) {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
@@ -169,18 +182,25 @@ function main(argv: string[]): number {
       process.stdout.write(`GATE_ERROR=no_base ref=${baseRef} fix=${noBaseFix(baseRef, root)}\n`);
       return 2;
     }
-    const self = mb === head ? baseContainsHead(root, base.ref) : null;
+    const self = mb === head && !parsed.head ? baseContainsHead(root, base.ref) : null;
     if (self) {
       console.error(resultLine('gstack-gate-diff', 'BASE_CONTAINS_HEAD', self));
       process.stdout.write(`GATE_ERROR=base_contains_head ref=${baseRef}\n`);
       return 2;
     }
-    files = [...diffWorkingTree(mb, root), ...untrackedAsAdded(root, root)];
-    commits = commitsInRange(mb, head, root);
-    const fp = wtreeFingerprint({ cwd: root });
-    if ('error' in fp) console.error(`gstack-gate-diff: working-tree fingerprint unavailable (${fp.error}); candidate recorded without it`);
-    candidate = `${mb.slice(0, 12)}+${'tree' in fp ? fp.tree.slice(0, 12) : 'nowtree'}`;
-    specIsTestPath = specDirectoryHoldsSpecs(treePaths(root));
+    if (parsed.head) {
+      files = diffRange(mb, head, root);
+      commits = commitsInRange(mb, head, root, true);
+      candidate = `${mb.slice(0, 12)}..${head.slice(0, 12)}`;
+      specIsTestPath = specDirectoryHoldsSpecs(treePaths(root, head));
+    } else {
+      files = [...diffWorkingTree(mb, root), ...untrackedAsAdded(root, root)];
+      commits = commitsInRange(mb, head, root);
+      const fp = wtreeFingerprint({ cwd: root });
+      if ('error' in fp) console.error(`gstack-gate-diff: working-tree fingerprint unavailable (${fp.error}); candidate recorded without it`);
+      candidate = `${mb.slice(0, 12)}+${'tree' in fp ? fp.tree.slice(0, 12) : 'nowtree'}`;
+      specIsTestPath = specDirectoryHoldsSpecs(treePaths(root));
+    }
   }
 
   const artifact = path.join(artifactDir(root), `${candidate}.jsonl`);
