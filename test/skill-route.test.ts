@@ -385,7 +385,8 @@ describe('installed skills beside gstack (GST-3123)', () => {
       expect([task.split('\n')[0], bugReport(wrap(task)), routePrompt(wrap(task), [...routed, proveIt]).route?.skill ?? null]).toEqual([task.split('\n')[0], false, null]);
     }
     for (const task of ['Support for TOML configs is broken since 2.0\n\nLoading any .toml file raises KeyError.', 'Add a check for empty input; parse() crashes on it\n\nSee the traceback.', 'sandglass: adding a day across a DST change gives 23:00\n\nThe result is incorrect for every zone with daylight saving time.']) {
-      expect([task, routePrompt(wrap(task), [...routed, proveIt]).routes]).toMatchObject([task, [{ skill: 'prove-it' }]]);
+      const d = routePrompt(wrap(task), [...routed, proveIt]);
+      expect([task, d.route ? d.routes : []]).toMatchObject([task, [{ skill: 'prove-it' }]]);
     }
   });
 
