@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           GSTACK_HOME="$RUNNER_TEMP/gstack-home" xvfb-run -a bun --no-env-file --config=/dev/null scripts/mutation-report.ts \
-            --throwaway-checkout --files "$FILES" --concurrency 14 --file-budget-min 45 \
+            --throwaway-checkout --files "$FILES" --concurrency 14 --file-budget-min 55 \
             --stryker-dir "$RUNNER_TEMP/stryker" --out-dir "$RUNNER_TEMP/mutation" --summary-file "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()

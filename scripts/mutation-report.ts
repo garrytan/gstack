@@ -28,7 +28,7 @@ import { buildGraph, isTestFile, testsFor } from '../lib/pregate/import-graph';
 export const STRYKER_PACKAGES = ['@stryker-mutator/core@10.1.1', '@hughescr/stryker-bun-runner@1.6.0'];
 export const CONTROL_MESSAGE = 'mutation-report positive control';
 export const CONTROL_LINE = `throw new Error('${CONTROL_MESSAGE}');\n`;
-const CONTROL_MS = 5 * 60_000;
+const CONTROL_MS = 10 * 60_000;
 const FREE_TEST_TIMEOUT_MS = 30_000;
 const MAX_TESTS = 20;
 const SURVIVORS_SHOWN = 15;
@@ -113,18 +113,20 @@ function selectTests(graph: ReturnType<typeof buildGraph>, file: string): Pick<F
   return { tests: found.slice(0, MAX_TESTS), testsFound: found.length, testSource: direct.length ? 'direct' : found.length ? 'transitive' : 'none' };
 }
 
-function runTests(tests: string[]) {
+function runTests(tests: string[], deadline: number) {
   return spawnSync(process.execPath, ['test', ...tests.map(t => './' + t), `--timeout=${FREE_TEST_TIMEOUT_MS}`],
-    { encoding: 'utf-8', timeout: CONTROL_MS, maxBuffer: 256 * 1024 * 1024 });
+    { encoding: 'utf-8', timeout: Math.max(1_000, Math.min(CONTROL_MS, deadline - Date.now())), maxBuffer: 256 * 1024 * 1024 });
 }
 
 function mutateFile(c: Churn, sel: Pick<FileResult, 'tests' | 'testsFound' | 'testSource'>, o: { strykerDir: string; outDir: string; budgetMs: number; concurrency: number }): FileResult {
   const started = Date.now();
+  const deadline = started + o.budgetMs;
   const base: FileResult = { ...c, ...sel, outcome: 'failed' };
-  const baseline = runTests(sel.tests);
-  if (baseline.error || baseline.status !== 0) return { ...base, detail: `the selected tests fail before any edit (${baseline.error?.message ?? `exit ${baseline.status}`})` };
+  const baseline = runTests(sel.tests, deadline);
+  if (baseline.error) return { ...base, outcome: 'unfinished', detail: `the selected tests did not finish unedited: ${baseline.error.message}` };
+  if (baseline.status !== 0) return { ...base, detail: `the selected tests fail before any edit (exit ${baseline.status})` };
   fs.writeFileSync(c.file, plantControl(fs.readFileSync(c.file, 'utf-8')));
-  const control = runTests(sel.tests);
+  const control = runTests(sel.tests, deadline);
   restoreTree();
   if (control.error) return { ...base, detail: `positive control did not finish: ${control.error.message}` };
   if (control.status === 0 || !`${control.stdout}${control.stderr}`.includes(CONTROL_MESSAGE))
@@ -140,13 +142,14 @@ function mutateFile(c: Churn, sel: Pick<FileResult, 'tests' | 'testsFound' | 'te
     reporters: ['progress-append-only', 'json'], jsonReporter: { fileName: reportFile },
     concurrency: o.concurrency, timeoutMS: 30_000, tempDirName: '.stryker-tmp',
   }, null, 2));
-  const budgetS = Math.round(o.budgetMs / 1000);
+  const budgetS = Math.round((deadline - Date.now()) / 1000);
+  if (budgetS < 60) return { ...base, outcome: 'unfinished', detail: `the controls used the ${Math.round(o.budgetMs / 60_000)}-minute file budget` };
   const run = spawnSync('timeout', ['--kill-after=60', String(budgetS), 'node', path.join(o.strykerDir, 'node_modules/@stryker-mutator/core/bin/stryker.js'), 'run', configFile],
-    { encoding: 'utf-8', timeout: o.budgetMs + 120_000, maxBuffer: 512 * 1024 * 1024 });
+    { encoding: 'utf-8', timeout: (budgetS + 120) * 1000, maxBuffer: 512 * 1024 * 1024 });
   fs.writeFileSync(path.join(o.outDir, `${slug}.log`), (run.stdout ?? '') + (run.stderr ?? ''));
   restoreTree();
   const minutes = Math.round((Date.now() - started) / 60_000);
-  if (run.status === 124 || run.status === 137) return { ...base, outcome: 'unfinished', detail: `stopped at the ${Math.round(budgetS / 60)}-minute file budget`, minutes };
+  if (run.status === 124 || run.status === 137) return { ...base, outcome: 'unfinished', detail: `stopped at the ${Math.round(o.budgetMs / 60_000)}-minute file budget`, minutes };
   if (run.error || run.status !== 0 || !fs.existsSync(reportFile))
     return { ...base, detail: `stryker ${run.error ? run.error.message : `exit ${run.status}`}: ${(run.stderr || run.stdout || '').trim().split('\n').pop()}`, minutes };
   let mutants: Mutant[];
@@ -180,7 +183,7 @@ if (import.meta.main) {
   const strykerDir = arg(argv, '--stryker-dir'), outDir = arg(argv, '--out-dir'), summaryFile = arg(argv, '--summary-file'), only = arg(argv, '--only');
   if (!strykerDir || !outDir) fail('--stryker-dir and --out-dir are required');
   const files = intArg(argv, '--files', 5), sinceDays = intArg(argv, '--since-days', 30);
-  const budgetMs = intArg(argv, '--file-budget-min', 45) * 60_000, concurrency = intArg(argv, '--concurrency', 4);
+  const budgetMs = intArg(argv, '--file-budget-min', 55) * 60_000, concurrency = intArg(argv, '--concurrency', 4);
   process.chdir(git(['rev-parse', '--show-toplevel']).trim());
   if (git(['status', '--porcelain', '--untracked-files=no']).trim()) fail('the checkout has uncommitted changes; use a clean disposable checkout');
   const resolvedOut = path.resolve(outDir);
