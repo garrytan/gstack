@@ -74,4 +74,38 @@ describe('cso snapshot with an unreadable secret-like file (#4395)', () => {
     expect(error).toBeInstanceOf(CsoError);
     expect((error as CsoError).code).toBe('UNSAFE_PATH');
   });
+
+  // Value: protects=an ordinary source file whose lstat is denied still stops the capture; fails_when=the lstat catch
+  //   drops its exclusion check and silently withholds app.ts; why_new=the lstat exemption is new; seam=fs.lstatSync on that one path
+  test('an ordinary source file whose lstat is denied still refuses', async () => {
+    const p = repo(), denied = path.join(p, 'app.ts'), real = fs.lstatSync;
+    const spy = spyOn(fs, 'lstatSync').mockImplementation(((file: any, ...args: any[]) => {
+      if (String(file) === denied) throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+      return (real as any)(file, ...args);
+    }) as any);
+    try {
+      const error = await capture(p, newRun(p).dir).then(() => null, e => e);
+      expect((error as NodeJS.ErrnoException | null)?.code).toBe('EPERM');
+    } finally { spy.mockRestore(); }
+  });
+
+  // Value: protects=a withheld lstat-denied path that becomes readable before the end of capture is a race, not a pass;
+  //   fails_when=the end-of-capture re-check accepts a path it can now stat; why_new=the re-check is new;
+  //   seam=fs.lstatSync on that one path, denied on every call but the last (counted from a fully denied capture)
+  test('an lstat-denied secret that becomes readable before the end of capture is a SNAPSHOT_RACE', async () => {
+    const p = repo(), denied = path.join(p, '.env.example'), real = fs.lstatSync;
+    let calls = 0, allow = Infinity;
+    const spy = spyOn(fs, 'lstatSync').mockImplementation(((file: any, ...args: any[]) => {
+      if (String(file) === denied && ++calls < allow) throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+      return (real as any)(file, ...args);
+    }) as any);
+    try {
+      await capture(p, newRun(p).dir);
+      allow = calls;
+      calls = 0;
+      const error = await capture(p, newRun(p).dir).then(() => null, e => e);
+      expect(error).toBeInstanceOf(CsoError);
+      expect((error as CsoError).code).toBe('SNAPSHOT_RACE');
+    } finally { spy.mockRestore(); }
+  });
 });
