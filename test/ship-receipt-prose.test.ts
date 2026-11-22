@@ -87,6 +87,14 @@ describe('the opening above the first fold is not prose', () => {
     expect(checkReceiptProse(receipt, opening).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
     expect(checkReceiptProse(receipt, '```\n<details>\n```\n' + opening + '<details><summary>x</summary>\n</details>\n').checked).toBe(0);
   });
+
+  // Value: protects=only an opening R76 allows (3 lines, 600 characters) is skipped; fails_when=a body that leaves its review section
+  //   unfolded above a late fold hides every receipt counter claim from the check; why_new=ship-4672 p1/specialist-batched#1; seam=checkReceiptProse
+  test('an opening longer than R76 allows is still checked', () => {
+    const long = 'What changed.\n\n## Pre-Landing Review\nReview: 2 passes, 9 fixed.\nmore\n<details><summary>Agent notes</summary>\n</details>\n';
+    expect(checkReceiptProse(receipt, long).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, 'x'.repeat(601) + '\n9 fixed.\n<details><summary>n</summary>\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
+  });
 });
 
 describe('the rendered Approvals block is not prose', () => {

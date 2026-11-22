@@ -140,6 +140,16 @@ describe('review-sweep inventory diff', () => {
     expect(later.ignored ?? []).toEqual([]);
   });
 
+  // Value: protects=a build output already on disk when a stage starts is never counted, as on main where it sat in start.big;
+  //   fails_when=an uncommitted .gitignore edit or a git timeout at the end walk moves it from ignored to big and the stage is voided as FETCH_VIOLATION;
+  //   why_new=ship-4672 p1/red-team#1; seam=sweepDiff; no_claim=files the stage itself wrote
+  test('a build output ignored at the start of a stage and big at its end is not a download', () => {
+    const core = '/r/checkout/bin/gstack-cso-core';
+    const start = { at: 1, roots: ['/r'], repos: {}, big: {}, ignored: { [core]: { reason: 'build-output' as const } } };
+    const r = sweepResult(start, { at: 2, roots: ['/r'], repos: {}, big: { [core]: BIG_BYTES }, ignored: {} });
+    expect([r.verdict, r.found]).toEqual(['clean', []]);
+  });
+
   test('a partial start inventory makes what the end walk finds a partial note, not a violation', () => {
     const root = tmp();
     const checkout = path.join(root, 'checkout');
