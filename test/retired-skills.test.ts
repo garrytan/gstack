@@ -31,12 +31,12 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
   let tmp: string;
   let install: string;
   let skills: string;
-  const relink = () => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
+  const relink = (extra: NodeJS.ProcessEnv = {}) => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
     encoding: 'utf8',
     timeout: 60_000,
     env: {
       ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
-      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '', ...extra,
     },
   });
 
@@ -56,37 +56,74 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
   afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   test('the dangling investigate and gstack-investigate entries are removed', () => {
-    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
-    fs.symlinkSync(path.join(install, 'investigate', 'SKILL.md'), path.join(skills, 'investigate', 'SKILL.md')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
-    fs.symlinkSync(path.join(install, 'investigate'), path.join(skills, 'gstack-investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.mkdirSync(path.join(skills, 'investigate'));
+    fs.symlinkSync(path.join(install, 'investigate', 'SKILL.md'), path.join(skills, 'investigate', 'SKILL.md'));
+    fs.symlinkSync(path.join(install, 'investigate'), path.join(skills, 'gstack-investigate'));
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined(); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.lstatSync(path.join(skills, 'gstack-investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
   });
 
   test("a user's own investigate skill is left alone", () => {
-    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.mkdirSync(path.join(skills, 'investigate'));
     const own = '---\nname: investigate\ndescription: mine\n---\nmy own debugger\n';
-    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), own); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), own);
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.readFileSync(path.join(skills, 'investigate', 'SKILL.md'), 'utf8')).toBe(own); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    expect(fs.readFileSync(path.join(skills, 'investigate', 'SKILL.md'), 'utf8')).toBe(own);
   });
 
   test('an edited gstack-generated investigate copy moves to the backup root instead of being deleted', () => {
-    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.mkdirSync(path.join(skills, 'investigate'));
     const edited = '---\nname: investigate\ndescription: test\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\nMY LOCAL EDITS\n';
-    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
-    fs.writeFileSync(path.join(skills, 'investigate', 'notes.md'), 'mine\n'); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited);
+    fs.writeFileSync(path.join(skills, 'investigate', 'notes.md'), 'mine\n');
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.existsSync(path.join(skills, 'investigate', 'SKILL.md'))).toBe(false); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
-    expect(fs.readFileSync(path.join(skills, 'investigate', 'notes.md'), 'utf8')).toBe('mine\n'); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    expect(fs.existsSync(path.join(skills, 'investigate', 'SKILL.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(skills, 'investigate', 'notes.md'), 'utf8')).toBe('mine\n');
     const root = path.join(tmp, 'state', 'backups', 'skills');
-    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f)); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
     expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual([edited]);
+  });
+
+  test('two relinks in the same second keep both backups (#4593)', () => {
+    const shim = path.join(tmp, 'shim');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'date'), '#!/bin/sh\necho 20261122T120000\n');
+    fs.chmodSync(path.join(shim, 'date'), 0o755);
+    const sameSecond = { PATH: `${shim}${path.delimiter}${process.env.PATH}` };
+    const edits = ['FIRST EDIT', 'SECOND EDIT'].map(e => `---\nname: investigate\ndescription: test\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n${e}\n`);
+    for (const edited of edits) {
+      fs.mkdirSync(path.join(skills, 'investigate'), { recursive: true });
+      fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited);
+      const r = relink(sameSecond);
+      expect(r.status, r.stderr).toBe(0);
+    }
+    const root = path.join(tmp, 'state', 'backups', 'skills');
+    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
+    expect(backups.map(f => fs.readFileSync(f, 'utf8')).sort()).toEqual([...edits].sort());
+  });
+
+  test('a disabled_skills entry of verify still turns off build-check (#4593)', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'state', 'config.yaml'), 'disabled_skills: verify\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+  });
+
+  test('the retired verify name is not mapped: build-check stays on when nothing disables it', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(true);
   });
 
   test("a marked gstack-investigate directory keeps the user's files and backs up its real SKILL.md", () => {

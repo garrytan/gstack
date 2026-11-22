@@ -70,7 +70,7 @@ PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 DISABLED=" "
 if [ -f "$SCRIPT_DIR/gstack-install-registry.sh" ]; then
   . "$SCRIPT_DIR/gstack-install-registry.sh"
-  DISABLED="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+  DISABLED="$(gstack_disabled_config "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
 fi
 # Retired skills, and the crew skills off a Capy machine
 # (GSTACK_UNREGISTERED_SKILLS), lose their entry the same way; only the user's
@@ -107,7 +107,7 @@ RENDER_DIR="${RENDER_DIR:-$GSTACK_STATE_ROOT/render/claude}"
 # refreshed in place. WEAK (byte-identity with our source, or gen-skill-docs'
 # two-line banner on a real file) proves only that the SKILL.md came from us:
 # it authorizes touching that one file, never deleting the directory, and a
-# differing file is moved to $GSTACK_STATE_ROOT/backups/skills/<ts>/
+# differing file is moved to $GSTACK_STATE_ROOT/backups/skills/<ts>.<random>/
 # before we link over it (a user who started their own skill from a gstack
 # SKILL.md looks exactly like a pre-marker legacy copy).
 #
@@ -231,12 +231,18 @@ _report_foreign() {
 }
 
 # Weakly-proven real files we would otherwise overwrite go here, one summary
-# line at the end. mv, not cp: the link that follows needs the path free.
-BACKUP_ROOT="$GSTACK_STATE_ROOT/backups/skills/$(date +%Y%m%dT%H%M%S)"
+# line at the end. mv, not cp: the link that follows needs the path free. The
+# folder is made on first use with mktemp, so two runs in the same second never
+# share it and one run's backup can't overwrite another's.
+BACKUP_ROOT=""
 BACKED_UP=()
 _backup_skill_md() {
   # Non-zero when the file could NOT be moved: the caller leaves the entry alone.
   local file="$1" name="$2"
+  if [ -z "$BACKUP_ROOT" ]; then
+    mkdir -p "$GSTACK_STATE_ROOT/backups/skills" 2>/dev/null || return 1
+    BACKUP_ROOT="$(mktemp -d "$GSTACK_STATE_ROOT/backups/skills/$(date +%Y%m%dT%H%M%S).XXXXXX" 2>/dev/null)" || return 1
+  fi
   mkdir -p "$BACKUP_ROOT/$name" 2>/dev/null || return 1
   mv -f "$file" "$BACKUP_ROOT/$name/SKILL.md" 2>/dev/null || return 1
   BACKED_UP+=("$name")

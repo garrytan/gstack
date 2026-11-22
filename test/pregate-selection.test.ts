@@ -212,6 +212,13 @@ describe('literals (pure)', () => {
       { name: 'limit', old: '10', new: '30', file: 'f.ts' }, { name: 'limit', old: '20', new: '30', file: 'f.ts' },
     ]);
   });
+  test('#4593: a quoted list that only gained items is not a changed literal; a dropped or replaced item still is', () => {
+    expect(changedLiterals('r.sh', 'GSTACK_RETIRED_SKILLS="investigate"\n', 'GSTACK_RETIRED_SKILLS="investigate verify"\n')).toEqual([]);
+    expect(changedLiterals('r.sh', 'RETIRED="a b"\n', 'RETIRED="b"\n')).toEqual([{ name: 'RETIRED', old: '"a b"', new: '"b"', file: 'r.sh' }]);
+    expect(changedLiterals('r.sh', 'RETIRED="a b"\n', 'RETIRED="a c d"\n')).toEqual([{ name: 'RETIRED', old: '"a b"', new: '"a c d"', file: 'r.sh' }]);
+    expect(changedLiterals('f.ts', "export const MODE = 'fast';\n", "export const MODE = 'slow';\n")).toEqual([{ name: 'MODE', old: "'fast'", new: "'slow'", file: 'f.ts' }]);
+  });
+
   // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
   //   module, so a test that only names it is not a consumer, while an extensionless import, a JS/TS import extension, the module's own
   //   file name and a path ending at the stem (then a quote, space, bracket, sentence end or `.d.ts`) still are, and neither `<file>.snap` nor a JS twin of a

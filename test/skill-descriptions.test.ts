@@ -86,7 +86,7 @@ describe('discovery-target descriptions (GST-1088)', () => {
     ['test the site and fix what you find', 'qa'],
     ['can you qa test this page', 'qa'],
     ['run the checks and make it green', 'build-check'],
-    ['verify my change', 'build-check'],
+    ['check my change', 'build-check'],
   ];
   for (const [prompt, want] of PROMPTS) {
     test('untold prompt "' + prompt + '" carries ' + (want ? 'a ' + want + ' trigger and no other' : 'no') + ' target trigger', () => {

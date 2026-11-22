@@ -27,6 +27,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { readConfigKey } from '../lib/state-root';
+import { RENAMED_SKILLS } from './discover-skills';
 import { loadGbrainOverride, runGeneration } from './gen-skill-docs';
 import { resolveModel } from './models';
 import { ModuleError, type ModuleSelection } from './modules';
@@ -152,7 +153,7 @@ export async function installLoadout(request: InstallRequest): Promise<InstallRe
   const gbrainDetected = loadGbrainOverride(true);
   const disabledSkills = [...new Set((readConfigKey('disabled_skills') ?? '').replace(/["']/g, '').split(/[\s,]+/)
     .map(n => n.replace(/^\//, '')).filter(n => n !== 'gstack' && n !== 'gstack-upgrade')
-    .map(n => n.replace(/^gstack-/, '')).filter(n => /^[a-z0-9-]+$/.test(n)))].sort();
+    .map(n => n.replace(/^gstack-/, '')).map(n => RENAMED_SKILLS[n] ?? n).filter(n => /^[a-z0-9-]+$/.test(n)))].sort();
   const identity = {
     loadout: selection.name,
     excluded: [...selection.excluded].sort(),

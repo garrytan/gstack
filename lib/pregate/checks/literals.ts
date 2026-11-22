@@ -64,10 +64,17 @@ export function callLiteralsIn(text: string): Map<string, string[]> {
   return out;
 }
 
+/** A quoted space-separated list that only gained items (`"investigate"` → `"investigate verify"`): every old item is still a member, so a test that uses one is not stale. */
+function onlyGainedItems(old: string, now: string): boolean {
+  if (!/^['"`]/.test(old) || !/^['"`]/.test(now)) return false;
+  const was = unquote(old).split(/\s+/).filter(Boolean); const is = unquote(now).split(/\s+/).filter(Boolean);
+  return was.length > 0 && is.length > was.length && was.every(w => is.includes(w));
+}
+
 export function changedLiterals(file: string, oldText: string, newText: string): ChangedLiteral[] {
   const out: ChangedLiteral[] = [];
   const oldC = constantsIn(oldText); const newC = constantsIn(newText);
-  for (const [name, old] of oldC) { const now = newC.get(name); if (now !== undefined && now !== old) out.push({ name, old, new: now, file }); }
+  for (const [name, old] of oldC) { const now = newC.get(name); if (now !== undefined && now !== old && !onlyGainedItems(old, now)) out.push({ name, old, new: now, file }); }
   const oldCall = callLiteralsIn(oldText); const newCall = callLiteralsIn(newText);
   for (const [name, olds] of oldCall) {
     if (oldC.has(name)) continue;

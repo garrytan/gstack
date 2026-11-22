@@ -299,7 +299,7 @@ describe('installed skills beside gstack (GST-3123)', () => {
       expect([text, names(text, 'codex')]).toEqual([text, []]);
     }
     for (const [text, skill] of [
-      ['run the checks', 'build-check'], ['verify my change in `src/app.ts`', 'build-check'], ['run the checks, then `git push`', 'build-check'],
+      ['run the checks', 'build-check'], ['check my change in `src/app.ts`', 'build-check'], ['run the checks, then `git push`', 'build-check'],
       ['an unclosed ` backtick: run the checks', 'build-check'], ['```\nmake check\n```\nrun the checks on that', 'build-check'],
       ['review this pr before I merge `feature/login`', 'review'], ['please review my changes to `lib/auth.ts`', 'review'],
     ]) {
