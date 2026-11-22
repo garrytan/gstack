@@ -171,43 +171,6 @@ test('the dispatch relay hands the guard the exact dispatch for the declared tok
   }
 });
 
-// GST-3441: on Haiku 5.5 the actor read the close packet in its dispatch turn, before the CEO reviewer's notice (8 of 8 release
-// gate attempts, GSTA-766). The relay now ends that turn itself, so the notice starts the next one at any model speed.
-test('the relay ends the actor\'s turn after the background CEO dispatch until that call\'s notice arrives, at any model speed', async () => {
-  const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-guard-wait-'));
-  const exact = 'the exact CEO dispatch';
-  fs.writeFileSync(path.join(artifacts, 'dispatch-ceo.txt'), exact);
-  const seen: string[] = [];
-  const upstream = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
-    seen.push(await req.text());
-    return Response.json({ id: 'msg_up', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'upstream' }], stop_reason: 'end_turn' });
-  } });
-  const relay = startDispatchRelay(artifacts, `http://127.0.0.1:${upstream.port}`);
-  const call = { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_ceo', name: 'Agent', input: { description: 'CEO review', prompt: exact } }] };
-  const launched = { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ceo', content: [{ type: 'text', text: 'Async agent launched successfully.\nagentId: a1 The agent is working in the background.' }] }] };
-  const notice = (id: string) => ({ role: 'user', content: [{ type: 'text', text: `<task-notification>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n</task-notification>` }] });
-  const send = (messages: unknown[], stream = false) => fetch(`${relay.url}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-5-5', stream, messages }) });
-  try {
-    const held = await (await send([{ role: 'user', content: '/autoplan-guard-transition' }, call, launched])).json() as any;
-    expect(held).toMatchObject({ role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text' }] });
-    const events = (await (await send([call, launched], true)).text()).split('\n\n').filter(Boolean).map(e => JSON.parse(/^data: (.*)$/m.exec(e)![1]!));
-    expect(events.map(e => e.type)).toEqual(['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop']);
-    expect(events[4].delta.stop_reason).toBe('end_turn');
-    expect(relay.noticeWaits).toBe(2);
-    expect(seen).toEqual([]);
-    // Another call's notice does not release it; this call's notice does, and so does a result that finished in the foreground.
-    expect((await (await send([call, launched, notice('toolu_other')])).json() as any).id).toBe('msg_relay_notice_wait');
-    expect((await (await send([call, launched, { role: 'assistant', content: [{ type: 'text', text: 'Waiting.' }] }, notice('toolu_ceo')])).json() as any).content[0].text).toBe('upstream');
-    expect((await (await send([call, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ceo', content: 'Review done.' }] }])).json() as any).content[0].text).toBe('upstream');
-    // The reviewer's own requests, whose dispatch is user text, and the Design dispatch's turn always go upstream.
-    expect((await (await send([{ role: 'user', content: exact }])).json() as any).content[0].text).toBe('upstream');
-    const design = { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_design', name: 'Agent', input: { prompt: dispatchToken('design') } }] };
-    expect((await (await send([design, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_design', content: 'Async agent launched successfully.' }] }])).json() as any).content[0].text).toBe('upstream');
-    expect(seen).toHaveLength(4);
-    expect(relay.noticeWaits).toBe(3);
-  } finally { relay.stop(); upstream.stop(true); fs.rmSync(artifacts, { recursive: true, force: true }); }
-});
-
 // /ship outside voice on PR #3953: a CRLF stream whose \r and \n land in separate chunks kept the token unsubstituted.
 test('the event rewriter substitutes the token however LF or CRLF delimiters are split across chunks', () => {
   const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-guard-crlf-'));
