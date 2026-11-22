@@ -61,6 +61,17 @@ function withoutFences(body: string): string {
 }
 
 /**
+ * The body without its opening, the lines above its first `<details>` fold (after closed fences are gone): R76 keeps that
+ * part to what changed for a user, why and what to do, so a number there is the subject of the PR (`58 fixed with gstack`,
+ * a published result), never one of its receipt counters. A body with no fold is checked whole.
+ */
+function withoutOpening(body: string): string {
+  const lines = body.split(/(?<=\n)/);
+  const fold = lines.findIndex(l => /^ {0,3}<details\b/i.test(l));
+  return fold <= 0 ? body : '(opening)\n' + lines.slice(fold).join('');
+}
+
+/**
  * The body without the `## Approvals` blocks gstack-approvals renders (lib/approval-record.ts renderRecord): the
  * heading, the Date | Asked | Exact words table and its `Source: gstack-approvals record for …` footer. Those rows
  * quote the owner's words (`one Step 11 pass`), not this PR's counters (GST-412). A heading inside a code fence is
@@ -120,7 +131,7 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
 
 /**
  * Every `<name>=<n>`, `<name>: <n>` and `<n> <name>` in the prose (the body
- * without its receipt block, its code fences, its rendered Approvals block and its exception lines), where `<name>` is a counter's leaf key with `_`
+ * without its receipt block, its opening above the first fold, its code fences, its rendered Approvals block and its exception lines), where `<name>` is a counter's leaf key with `_`
  * matched as `_`, space or `-` and not part of a longer word (`3 pass-through`
  * is not a `pass` claim), compared with the receipt. A leaf key shared by
  * several counters (`pass` under every gate lane, `passed` under gate and ci)
@@ -130,7 +141,7 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
  * `<n> <name>` claim about the next key (#3513).
  */
 export function checkReceiptProse(receipt: Record<string, unknown>, body: string): ProseCheck {
-  const prose = withoutExceptionLines(withoutApprovalsBlocks(withoutFences(body.replace(BLOCK_RE, ''))), receipt);
+  const prose = withoutExceptionLines(withoutApprovalsBlocks(withoutOpening(withoutFences(body.replace(BLOCK_RE, '')))), receipt);
   const byLeaf = new Map<string, Array<{ field: string; value: number }>>();
   for (const [field, value] of receiptCounters(receipt)) {
     const leaf = field.split('.').at(-1)!;

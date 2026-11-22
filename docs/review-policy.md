@@ -845,6 +845,12 @@ repository whose every network-looking remote resolves to a local path through
 marker on a sweep root itself is not honored, insteadOf that sends a local path
 to the network still counts, and a clone made inside a live fixture root goes
 unseen, as does one whose reader writes the marker or an insteadOf line itself.
+The checkout's own build output is not a fetch either: a new big native executable
+(ELF, Mach-O or PE) inside the checkout, at a path its committed, unmodified root
+`.gitignore` names exactly with no glob (`bin/gstack-cso-core`), prints
+`FETCH_IGNORED: … reason=build-output`. A big file under an ignored directory or a
+glob, a non-executable at that path, or a path only an uncommitted `.gitignore`
+edit names still counts as a download.
 A `Bun.spawn` child given no `env` keeps the temp dir its test process started
 with, so its fixtures land outside the marked root and still count.
 

@@ -48,6 +48,8 @@ export interface ClosingPr { number: number; state?: string; headRefName?: strin
 const CLOSURE = /^\s*(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s*:?\s+(?:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#|#|GH-)(\d+)\s*$/i;
 const PARTIAL = /\b(?:partial(?:ly)?|part of|defer(?:red)?|follow-?up|related|refs?|see|context)\b/i;
 const CROSS = /\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)\b/g;
+/** /ship's `Review-Finding: <ledger id or fingerprint> reader=<reader>` trailer names a review ledger entry (`p1/red-team#3`), never an issue (#4371). */
+const REVIEW_FINDING = /^\s*review-finding:\s/i;
 const BARE = /(?<![A-Za-z0-9_./-])#(\d+)\b/g;
 /** One `name #N[, #M]…`, `name PR #N` or `name issue #N`: the name, then every number. */
 const NAMED_PART = /([A-Za-z][\w.-]*(?:\/[\w.-]+)?)\s+(?:(?:PR|issue)\s+)?(#\d+(?:,\s*#\d+)*)/gi;
@@ -63,6 +65,7 @@ export function mentionsIn(message: string, source = 'commit'): IssueMention[] {
   const add = (m: IssueMention) => { const k = `${m.repo ?? ''}#${m.issue}:${m.intent}`; if (!seen.has(k)) { seen.add(k); out.push(m); } };
   for (const raw of message.split('\n')) {
     const line = raw.replace(/\s+$/, '');
+    if (REVIEW_FINDING.test(line)) continue;
     const trailer = CLOSURE.exec(line);
     if (trailer && !PARTIAL.test(line)) { add({ issue: Number(trailer[2]), intent: 'fixes', ...(trailer[1] ? { repo: trailer[1] } : {}), source: `${source}: ${line.trim()}` }); continue; }
     const rest = line.replace(NAMED, whole => whole.replace(NAMED_PART, (part, name: string, numbers: string) => {

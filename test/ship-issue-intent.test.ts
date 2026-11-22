@@ -32,6 +32,15 @@ describe('issue intent (pure)', () => {
   // meaning; fails_when=the bare-#N rule reads the numbers as this repository's issues (Refs lines and fix-#N prompts for issues that do not exist here), or
   // a closure, reference, filler or version word in the parentheses is taken for a repository name (the issue then vanishes from Refs and from the fix-#N
   // offer as a phantom cross-repo reference); why_new=the intent tests cover owner/repo#N as the only cross form; seam=none; no_claim=none beyond protects
+  // Value: protects=/ship's Review-Finding trailer names a review ledger entry (p1/red-team#3) or a fingerprint, never an issue, so it adds no
+  //   Refs line to the PR body (#4371); fails_when=the cross-repo owner/repo#N rule reads the ledger id as an issue in repository p1/red-team;
+  //   seam=mentionsIn; no_claim=none beyond protects
+  test('a Review-Finding trailer is not an issue reference; the rest of the message still is (#4371)', () => {
+    const m = mentionsIn('fix: pre-landing review fixes (owner/other#9)\n\nReview-Finding: p1/red-team#3 reader=red-team\nreview-finding: p2/adversarial-native#3 reader=codex\nReview-Finding: lib/x.ts:10:correctness reader=core\n\nFixes #14\n');
+    expect(m.map(x => [x.repo ? `${x.repo}#${x.issue}` : `#${x.issue}`, x.intent])).toEqual([['owner/other#9', 'refs'], ['#14', 'fixes']]);
+    expect(renderIssueLines(resolveLinks(mentionsIn('fix\n\nReview-Finding: p1/red-team#3 reader=red-team\n'), [], () => true))).toEqual([]);
+  });
+
   test('a parenthesised named reference is a cross-repo reference, never a same-repo Refs or promotion candidate', () => {
     const named = mentionsIn('ship-queue: screen verdict from the run (gbrain #7625, #7606)\n\nPorts the fix from (gbrain PR #7630) and (acme/tools issue #4).\n');
     expect(named.map(x => [x.repo ?? '', x.issue, x.intent])).toEqual([['gbrain', 7625, 'refs'], ['gbrain', 7606, 'refs'], ['gbrain', 7630, 'refs'], ['acme/tools', 4, 'refs']]);

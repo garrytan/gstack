@@ -75,6 +75,20 @@ describe('checkReceiptProse', () => {
 
 // GST-412: the `## Approvals` block gstack-approvals renders quotes the owner's words, which can hold
 // numbers (`one Step 11 pass` read as a gate `pass` claim of 11). Only that rendered block is skipped.
+describe('the opening above the first fold is not prose', () => {
+  // Value: protects=a result the PR is about, quoted in its plain opening (58 fixed with gstack), is not read as review_loop.fixed;
+  //   fails_when=check-prose reports RECEIPT_PROSE_MISMATCH review_loop.fixed body=58 on a correct receipt (GSTA-687, #4598);
+  //   seam=checkReceiptProse; no_claim=numbers inside a fold, which stay claims
+  test('numbers above the first fold are skipped; claims inside the folds and in a body with no fold are still checked', () => {
+    const opening = 'gstack shows no gain in bug fixes: 58 fixed with gstack, 61 of 99 without.\nWhy: the old page claimed a gain.\n\n';
+    const folded = opening + '<details><summary>Pre-Landing Review</summary>\n\nReview: 2 passes, 1 fixed.\n</details>\n';
+    expect(checkReceiptProse(receipt, folded)).toEqual({ checked: 2, mismatches: [] });
+    expect(checkReceiptProse(receipt, opening + '<details><summary>Notes</summary>\n\n58 fixed with gstack.\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, opening).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, '```\n<details>\n```\n' + opening + '<details><summary>x</summary>\n</details>\n').checked).toBe(0);
+  });
+});
+
 describe('the rendered Approvals block is not prose', () => {
   const lanes = { ...receipt, gate: { unit: { pass: 1181, fail: 0, skip: 3 } } };
   const row = (words: string): ApprovalRow => ({
