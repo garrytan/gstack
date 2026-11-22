@@ -191,6 +191,19 @@ describe('gstack-hook-check: what fails', () => {
     }
   }, 90_000);
 
+  test('a root named like a glob pattern is read literally, not as the sibling it matches', () => {
+    const base = fs.realpathSync(tmpBase());
+    const root = path.join(base, 'hooks[1]');
+    fixtureTree(root);
+    fixtureTree(path.join(base, 'hooks1'));
+    const envs = process.platform === 'win32' ? [{}] : [{}, simulatedWindowsBash(root)];
+    for (const env of envs) {
+      const r = check(root, env);
+      expect(r.out).not.toContain('fail ');
+      expect(r.code).toBe(0);
+    }
+  }, 90_000);
+
   test('healthy fixture passes', () => {
     const root = tmpBase();
     fixtureTree(root);

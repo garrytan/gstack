@@ -1325,4 +1325,20 @@ describe('gstack-relink: a disabled skill takes its alias with it (#4308)', () =
     expect(fs.readFileSync(path.join(skillsDir, 'connect-chrome', 'notes.md'), 'utf-8')).toBe('mine\n');
     expect(out).toContain('skipped connect-chrome');
   });
+
+  // Value: protects=a setup-made alias dir loses only its generated SKILL.md; fails_when=the alias cleanup takes the marker's whole-directory removal; why_new=the marked alias dir held only generated files in the tests above; seam=none
+  test("a setup-made alias keeps the user's files and backs up an edited SKILL.md", () => {
+    aliasCopy('connect-chrome', true);
+    fs.writeFileSync(path.join(skillsDir, 'connect-chrome', 'notes.md'), 'mine\n');
+    aliasCopy('gstack-connect-chrome', true);
+    fs.appendFileSync(path.join(skillsDir, 'gstack-connect-chrome', 'SKILL.md'), 'my edit\n');
+
+    disable('open-gstack-browser');
+    expect(fs.existsSync(path.join(skillsDir, 'connect-chrome', 'SKILL.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(skillsDir, 'connect-chrome', 'notes.md'), 'utf-8')).toBe('mine\n');
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-connect-chrome'))).toBe(false);
+    const root = path.join(tmpDir, 'home', 'backups', 'skills');
+    const saved = fs.readdirSync(root).map((ts) => path.join(root, ts, 'gstack-connect-chrome', 'SKILL.md')).filter((f) => fs.existsSync(f));
+    expect(saved.map((f) => fs.readFileSync(f, 'utf-8'))).toEqual([expect.stringContaining('my edit')]);
+  });
 });

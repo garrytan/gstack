@@ -189,9 +189,9 @@ if [ -n "$ENTRIES" ]; then
   # test/path-spelling.test.ts keeps the two equal).
   BUN_ENTRIES=$ENTRIES
   # shellcheck disable=SC2086 # newline-split list (IFS is a newline)
-  case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then BUN_ENTRIES=$(cygpath -m $ENTRIES); fi ;; esac
+  case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then BUN_ENTRIES=$(set -f; cygpath -m $ENTRIES); fi ;; esac
   # shellcheck disable=SC2086 # newline-split list (IFS is set to a newline below)
-  (cd "$ROOT" && IFS=$NL && "$BUN" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  (cd "$ROOT" && IFS=$NL && set -f && "$BUN" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const shellPath = (value) => process.platform === "win32"
       ? String(value).replace(/\\/g, "/").replace(/^([A-Za-z]):(?=\/|$)/, (_, drive) => `/${drive.toLowerCase()}`)
       : String(value);
